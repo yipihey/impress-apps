@@ -687,7 +687,9 @@ struct LayoutInfoPaneView: View {
                 // An unfilled parameter renders the empty state, NEVER an
                 // error (ADR-0031 D3) — this is what a detail pane looks like
                 // before the first selection.
-                ChassisEmptyState.noRowSelection(isArtifact: false).view
+                ChassisEmptyState.noRowSelection(
+                    kind: RecordKindID(context.primaryKind ?? "")
+                ).view
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

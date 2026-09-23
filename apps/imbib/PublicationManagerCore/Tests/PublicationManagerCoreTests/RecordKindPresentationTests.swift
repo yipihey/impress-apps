@@ -221,6 +221,25 @@ final class RecordKindPresentationTests: XCTestCase {
         XCTAssertEqual(artifact.systemImage, "archivebox")
         XCTAssertEqual(artifact.message, "Select an artifact to view details")
 
+        // A layout `info` pane's empty state names the kind its query shows;
+        // a publication pane keeps the state above unchanged.
+        XCTAssertEqual(ChassisEmptyState.noRowSelection(kind: .publication), publication)
+        XCTAssertEqual(
+            ChassisEmptyState.noRowSelection(kind: .figure).message,
+            "Select a figure to view details")
+        XCTAssertEqual(
+            ChassisEmptyState.noRowSelection(kind: .message).message,
+            "Select a message to view details")
+        XCTAssertEqual(
+            ChassisEmptyState.noRowSelection(kind: .task).message,
+            "Select a task to view details")
+        XCTAssertEqual(
+            ChassisEmptyState.noRowSelection(kind: .agentRun).message,
+            "Select a run to view details")
+        XCTAssertEqual(
+            ChassisEmptyState.noRowSelection(kind: RecordKindID("")).message,
+            "Select an item to view details")
+
         XCTAssertEqual(
             ChassisEmptyState.viewerUnavailable(kind: .figure).message,
             "No registered viewer for \u{201C}figure\u{201D}.")
@@ -237,6 +256,9 @@ final class RecordKindPresentationTests: XCTestCase {
         states.append(.surfaceUnavailable(id: "x"))
         states.append(.noRowSelection(isArtifact: false))
         states.append(.noRowSelection(isArtifact: true))
+        for kind in [RecordKindID.figure, .message, .task, .agentRun, RecordKindID("")] {
+            states.append(.noRowSelection(kind: kind))
+        }
 
         for state in states {
             XCTAssertFalse(state.id.isEmpty)
