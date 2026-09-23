@@ -168,10 +168,14 @@ jobs:
           # -b -B tolerate pure reformatting (see the swiftformat note above);
           # an export present in the Rust and absent from the committed file is
           # not whitespace, so the check that matters still fires.
+          # ONE committed binding: ImprintCore re-exports ImprintRustCore rather
+          # than carrying a second copy (see BINDINGS in
+          # scripts/check-uniffi-bindings.sh, the authoritative list). The
+          # second path this loop used to name no longer exists, and `diff`
+          # against a missing file reads as "stale".
           status=0
           for committed in \
-            ../../apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift \
-            ../../apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift; do
+            ../../apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift; do
             if ! diff -u -b -B "$committed" generated/imprint_core.swift; then
               echo "::error::Committed $committed is stale."
               status=1
