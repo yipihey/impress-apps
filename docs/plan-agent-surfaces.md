@@ -368,3 +368,23 @@ for the workspace). `impress-cli` starts again: `impress surface-examples` print
 signal explorer, and the sixteen `surface-*` verbs are listed. The colliding pairs on
 `full` today: `add-tag`, `remove-tag`, `set-flag`, `set-starred` (imbib-tags-service vs
 triage-service).
+
+### 2026-09-23 — step 5 done: 5.1 (`open` and `publish` act), 5.2, 5.3, 5.4
+
+* **5.1, two more fixes.** (i) An effect on a FRESH handle — the HTTP bridge opens one
+  per request — found no pane: `Executor::pane_showing` recovers it from the layout.
+  (ii) `open` then reported ok and drew nothing: `SharedLayout` and the surface executor
+  each had a PRIVATE session registry, and the same SQLite connection makes
+  `data_version` silent, so neither liveness path fired. `SharedStore` now owns one
+  `SessionRegistry` for everything opened on it, sessions bump a write generation, and
+  the layout feed watches it. Live: `POST …/dispatch {"kind":"click"}` on an `open`
+  button grew the window 8 → 9 tiles at once; a table row's `publish` bound the detail
+  pane's `item` to the paper.
+* **5.2.** `list` rows go through `RecordViewerRegistry` (`SurfaceRecordListRows`): a
+  `query` source's rows carry `schema`, `LayoutPaneRowMapper` maps them, the plain line
+  stays for anything else; a list never mixes. Two Mac findings on the way: a `List`
+  inside the column's ScrollView had no height (now a 240 pt floor, like the table's
+  120), and it scrolls internally rather than growing — acceptable first pass, noted.
+* **5.3.** Golden re-blessed with the real `series`/`plot-spec` shapes; the Swift golden
+  test now decodes the real plot. **5.4.** Matrix row flipped.
+* The CLI rule (a) landed first; `impress surface-*` runs from the shell again.

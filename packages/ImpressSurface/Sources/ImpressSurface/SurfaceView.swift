@@ -292,12 +292,17 @@ private struct SurfaceNodeView: View {
                 onEvent: onEvent)
 
         case .list(let rows):
+            // Inside the column's ScrollView a `List` has no intrinsic height
+            // and collapses to nothing — the heading drew and six rows did
+            // not (Mac, 2026-09-23). Same floor the table below gets, taller
+            // because the host's rows are mail-style rows, not one line.
             hooks.renderListRows((try? rows.jsonString()) ?? "[]") { ids in
                 onEvent(
                     SurfaceEvent(
                         widget: node.id, kind: .select,
                         value: .array(ids.map(SurfaceJSONValue.string))))
             }
+            .frame(minHeight: 240)
 
         case .plot(let spec):
             hooks.renderPlot((try? spec.jsonString()) ?? "{}")

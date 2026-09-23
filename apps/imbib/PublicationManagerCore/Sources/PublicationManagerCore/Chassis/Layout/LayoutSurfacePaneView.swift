@@ -170,19 +170,16 @@ struct LayoutSurfacePaneView: View {
     // MARK: Hooks
 
     /// The suite-aware hooks — MarkdownUI for `text`, `renderPlotSvg` for
-    /// `plot`. `list` reuses the kit-grade `.plain` row rendering rather
-    /// than `RecordViewerRegistry`: that registry's row factories all take a
-    /// `KindTaggedRow` built from a PUBLICATION-shaped payload
-    /// (`LayoutPaneRowMapper`), and a surface's `list` rows are arbitrary
-    /// agent JSON with no such mapping — wiring the registry through needs a
-    /// row-shape adapter this work package does not build. Noted as
-    /// follow-up in `docs/plan-agent-surfaces.md`.
+    /// `plot`, and for `list` the row-style registry through
+    /// `SurfaceRecordListRows`: a row that carries a schema the kind manifest
+    /// claims (every row a `query` source returns does) is the chassis' own
+    /// row, and a list of anything else keeps the kit-grade plain line.
     private var hooks: SurfaceHooks {
         SurfaceHooks(
             renderMarkdown: { text in AnyView(Markdown(text)) },
             renderPlot: { specJSON in AnyView(SurfacePlotView(specJSON: specJSON)) },
             renderListRows: { rowsJSON, onSelect in
-                SurfaceHooks.plain.renderListRows(rowsJSON, onSelect)
+                AnyView(SurfaceRecordListRows(rowsJSON: rowsJSON, onSelect: onSelect))
             },
             log: { message in logInfo(message, category: "surface") }
         )
