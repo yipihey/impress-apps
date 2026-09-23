@@ -106,6 +106,11 @@ struct ImpressApp: App {
 
             Divider()
 
+            // ⌃⌘1–9 — presets first, then saved layouts (ADR-0031 D10 / L7).
+            ImpressLayoutOrdinalButtons()
+
+            Divider()
+
             Button("Show Console") { openWindow(id: "console") }
                 .keyboardShortcut("c", modifiers: [.control, .command])
         }

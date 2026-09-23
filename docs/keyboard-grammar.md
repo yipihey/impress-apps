@@ -17,7 +17,7 @@ them.
 | ⌘\ | Split editor | — | Two views of the same document |
 | ⌃⌘P | Open on second display | Detached PDF window (also Shift+P, guarded) | Detached PDF window |
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
-| ⌃⌘1…9 | Apply saved layout N | Layouts menu | Layouts menu |
+| ⌃⌘1…9 | Apply layout N — with the layout tree on, N spans the app's presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number); tree off, the N-th saved `PaneLayoutState` | View ▸ Apply Layout N (`ImpressLayoutOrdinalButtons`, chassis) | Layouts menu |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
 | ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): a session-bearing pane (`source` / `editor`) keeps the chord for its own undo manager via the responder chain; any other focused pane undoes on its **exploration** ring (parameter bindings + view state) | layout tree only (ADR-0031 L6; off by default) | — |
 | ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | layout tree only | — |
