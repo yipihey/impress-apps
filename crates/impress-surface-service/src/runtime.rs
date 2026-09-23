@@ -33,8 +33,8 @@ use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
 use impress_service_core::McpToolDescriptor;
 use impress_surface::{
-    plan, reduce, resolve, CachedSource, Effect, Event, PaneQuery, ParamDecl, RenderTree,
-    SourceCache, SourceRequestKind, SurfaceSpec,
+    plan, reduce, resolve_with_source_errors, CachedSource, Effect, Event, PaneQuery, ParamDecl,
+    RenderTree, SourceCache, SourceRequestKind, SurfaceSpec,
 };
 use serde_json::Value;
 
@@ -579,6 +579,11 @@ pub struct SurfaceRuntime {
     /// (see this crate's report).
     pub params: Value,
     pub cache: SourceCache,
+    /// Why a source's last fetch failed, by name — cleared when it succeeds.
+    /// `render` hands it to `resolve_with_source_errors` so the pane says
+    /// "source 'libs' failed: imbib is not running" rather than the generic
+    /// "did not resolve". Before this the error was dropped on the floor.
+    pub source_errors: std::collections::BTreeMap<String, String>,
     pub pane: Option<PaneHandle>,
 }
 
@@ -591,6 +596,7 @@ impl SurfaceRuntime {
             state,
             params: Value::Object(serde_json::Map::new()),
             cache: SourceCache::new(),
+            source_errors: std::collections::BTreeMap::new(),
             pane: None,
         }
     }
@@ -617,15 +623,21 @@ impl SurfaceRuntime {
                         executor.run_query(query, &bindings).await
                     }
                 };
-                if let Ok(value) = fetched {
-                    self.cache.insert(
-                        request.name.clone(),
-                        CachedSource {
-                            args_hash: request.args_hash,
-                            value,
-                        },
-                    );
-                    progressed = true;
+                match fetched {
+                    Ok(value) => {
+                        self.source_errors.remove(&request.name);
+                        self.cache.insert(
+                            request.name.clone(),
+                            CachedSource {
+                                args_hash: request.args_hash,
+                                value,
+                            },
+                        );
+                        progressed = true;
+                    }
+                    Err(why) => {
+                        self.source_errors.insert(request.name.clone(), why);
+                    }
                 }
                 // A failed fetch leaves the previous cache entry (if any) in
                 // place — the last known value is still the best available
@@ -650,11 +662,12 @@ impl SurfaceRuntime {
         for (name, cached) in self.cache.iter() {
             source_values.insert(name.clone(), cached.value.clone());
         }
-        resolve(
+        resolve_with_source_errors(
             &self.spec,
             &self.state,
             &self.params,
             &Value::Object(source_values),
+            Some(&self.source_errors),
         )
     }
 

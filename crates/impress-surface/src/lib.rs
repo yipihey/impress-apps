@@ -61,7 +61,7 @@ mod example;
 pub use example::{example_paper_triage, example_signal_explorer};
 pub use plan::{plan, CachedSource, SourceCache, SourceRequest, SourceRequestKind};
 pub use reduce::{reduce, Effect, ReduceError};
-pub use resolve::{resolve, RenderNode, RenderTree};
+pub use resolve::{resolve, resolve_with_source_errors, RenderNode, RenderTree};
 pub use spec::{
     Action, Button, Event, EventKind, FieldKind, Grid, Image, ListWidget, Node, NodeKind,
     PaneQuery, ParamDecl, Plot, Section, Source, Status, SurfaceSpec, Tab, Table, When,

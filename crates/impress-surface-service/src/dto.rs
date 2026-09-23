@@ -204,6 +204,14 @@ pub struct SurfaceRenderResult {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<impress_surface::RenderTree>,
+    /// Every source whose fetch failed on this render, with the reason. The
+    /// tree is still returned — a failed source only empties the paths it
+    /// fed, and the placeholders drawn for those paths carry the same
+    /// message as their `reason`. This field is the machine-readable copy,
+    /// for an agent calling `surface_render` directly rather than reading
+    /// the rendered pane. Empty on a render where every source answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_errors: Vec<SourceError>,
 }
 
 impl SurfaceRenderResult {
@@ -212,8 +220,20 @@ impl SurfaceRenderResult {
             ok: false,
             message: message.into(),
             tree: None,
+            source_errors: Vec::new(),
         }
     }
+}
+
+/// One source that did not answer, and why — the wire form of
+/// [`crate::runtime::SurfaceRuntime`]'s `source_errors` map.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SourceError {
+    /// The source's name as the spec declares it.
+    pub name: String,
+    /// What the failed fetch said — a refusal from the verb, a transport
+    /// error, or "imprint is not running".
+    pub message: String,
 }
 
 /// `surface_state_get`'s answer.

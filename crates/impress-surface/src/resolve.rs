@@ -160,11 +160,45 @@ pub struct RenderTab {
 
 /// See the module docs.
 pub fn resolve(spec: &SurfaceSpec, state: &Value, params: &Value, source: &Value) -> RenderTree {
+    resolve_with_source_errors(spec, state, params, source, None)
+}
+
+/// [`resolve`], with the reasons the runtime knows for sources that are
+/// missing from `source`. A node whose template names such a source becomes
+/// a placeholder that says WHY — "source 'libs' failed: imbib is not
+/// running" — instead of the bare "did not resolve to a value", which read
+/// identically for a typo, a closed app and a refused verb (Mac,
+/// 2026-09-23). The tree's shape does not change; only the reason string.
+pub fn resolve_with_source_errors(
+    spec: &SurfaceSpec,
+    state: &Value,
+    params: &Value,
+    source: &Value,
+    source_errors: Option<&std::collections::BTreeMap<String, String>>,
+) -> RenderTree {
     let null = Value::Null;
-    let ctx = Context::new(state, params, source, &null);
+    let mut ctx = Context::new(state, params, source, &null);
+    ctx.source_errors = source_errors;
     let mut focus_order = Vec::new();
     let root = resolve_node(&spec.root, vec![0], &ctx, state, &mut focus_order);
     RenderTree { root, focus_order }
+}
+
+/// The placeholder's reason: the template error, prefixed with the source's
+/// own failure when the unresolved path points at a source the runtime
+/// reported on.
+fn placeholder_reason(error: &TemplateError, ctx: &Context) -> String {
+    if let (TemplateError::MissingPath { path }, Some(errors)) = (error, ctx.source_errors) {
+        let mut segments = path.split('.');
+        if segments.next() == Some("source") {
+            if let Some(name) = segments.next() {
+                if let Some(why) = errors.get(name) {
+                    return format!("source '{name}' failed: {why} — {error}");
+                }
+            }
+        }
+    }
+    error.to_string()
 }
 
 fn resolve_node(
@@ -182,7 +216,7 @@ fn resolve_node(
         Ok(k) => k,
         Err(reason) => RenderKind::Placeholder {
             unknown_kind: None,
-            reason: Some(reason.to_string()),
+            reason: Some(placeholder_reason(&reason, ctx)),
         },
     };
 

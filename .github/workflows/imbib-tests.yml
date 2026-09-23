@@ -338,6 +338,7 @@ jobs:
             | grep "platform:iOS Simulator" | grep -v placeholder \
             | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
           echo "sim: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -derivedDataPath "$PWD/.ci-derived" -scheme imbib-iOS -configuration Debug \
@@ -362,6 +363,21 @@ jobs:
             done
             exit 1
           fi
+
+      # The app this lane launched is a HOST process that outlives the job:
+      # the simulator shares the Mac's network namespace, so the launched
+      # app's automation server (enabled by default) sat on 23120 for hours
+      # after the run and shadowed the DESKTOP app on the same port —
+      # `/api/status` answered from the simulator, and host-side verification
+      # was reading the wrong app (2026-09-23, a sim imbib up 4½ h on 23120).
+      # This runs on failure too: the branch that dumps crash reports used to
+      # `exit 1` with the app still installed and the simulator still booted,
+      # which is exactly the run that leaves a stray listener behind.
+      - name: Terminate and shut down the simulator
+        if: always()
+        run: |
+          xcrun simctl terminate "$UDID" com.impress.imbib || true
+          xcrun simctl shutdown "$UDID" || true
 
       - name: Upload iOS build results
         if: always()

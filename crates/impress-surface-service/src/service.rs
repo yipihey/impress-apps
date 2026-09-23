@@ -27,7 +27,7 @@ use impress_surface::{
 use serde_json::Value;
 
 use crate::dto::{
-    ShowTargetDto, SurfaceDeleteResult, SurfaceDispatchResult, SurfaceEventDto,
+    ShowTargetDto, SourceError, SurfaceDeleteResult, SurfaceDispatchResult, SurfaceEventDto,
     SurfaceEventsResult, SurfaceExamplesResult, SurfaceListResult, SurfaceRenderResult,
     SurfaceResult, SurfaceSchemaResult, SurfaceShowResult, SurfaceStateResult, SurfaceSummaryDto,
     SurfaceValidateResult, SurfaceWaitResult,
@@ -517,15 +517,25 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                 let me = me.clone();
                 Box::pin(async move {
                     let executor = me.executor();
-                    Ok(runtime.render(&executor).await)
+                    let tree = runtime.render(&executor).await;
+                    let errors: Vec<SourceError> = runtime
+                        .source_errors
+                        .iter()
+                        .map(|(name, message)| SourceError {
+                            name: name.clone(),
+                            message: message.clone(),
+                        })
+                        .collect();
+                    Ok((tree, errors))
                 })
             })
             .await;
         match outcome {
-            Ok(tree) => SurfaceRenderResult {
+            Ok((tree, source_errors)) => SurfaceRenderResult {
                 ok: true,
                 message: "rendered".to_string(),
                 tree: Some(tree),
+                source_errors,
             },
             Err(e) => SurfaceRenderResult::failed(e),
         }
