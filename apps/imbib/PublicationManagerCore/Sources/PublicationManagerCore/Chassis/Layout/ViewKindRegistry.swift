@@ -667,6 +667,13 @@ struct LayoutInfoPaneView: View {
         Group {
             if let itemID {
                 detail(for: itemID)
+                    // The leaf's conversion is otherwise invisible: a figure
+                    // detail and a "no publication detail" empty state occupy
+                    // the same pixels. Naming the branch makes
+                    // `?category=layout` the place the proof is read, rather
+                    // than a screenshot.
+                    .onAppear { logDispatch(itemID) }
+                    .onChange(of: itemID) { _, id in logDispatch(id) }
             } else if let raw = rawItem {
                 // A bound parameter whose value is not an id at all.
                 unavailable(raw)
@@ -678,6 +685,12 @@ struct LayoutInfoPaneView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func logDispatch(_ id: UUID) {
+        logInfo(
+            "pane \(context.tile) info: \(detailKind) detail for \(id.uuidString)",
+            category: "layout")
     }
 
     @ViewBuilder
