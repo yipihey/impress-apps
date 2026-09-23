@@ -294,8 +294,9 @@ private struct SurfaceNodeView: View {
         case .list(let rows):
             // Inside the column's ScrollView a `List` has no intrinsic height
             // and collapses to nothing — the heading drew and six rows did
-            // not (Mac, 2026-09-23). Same floor the table below gets, taller
-            // because the host's rows are mail-style rows, not one line.
+            // not (Mac, 2026-09-23). The floor is for a host whose hook
+            // returns a List (`.plain` does); a host that returns a stack
+            // simply exceeds it.
             hooks.renderListRows((try? rows.jsonString()) ?? "[]") { ids in
                 onEvent(
                     SurfaceEvent(
