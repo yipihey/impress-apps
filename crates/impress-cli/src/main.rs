@@ -125,7 +125,10 @@ fn main() {
         )
         .after_help(
             "Global: --store-path <PATH> (or IMPRESS_STORE_PATH) selects the store; the \
-             default is the app-group container.",
+             default is the app-group container.\n\nNaming: a subcommand is the method \
+             name (`get-layout`) unless two linked services declare the same method, in \
+             which case every party is spelled `<service>_<method>` — the MCP tool name \
+             (`imbib-tags-service_remove-tag`, `triage-service_remove-tag`).",
         );
     let matches = app.get_matches_from(args);
 

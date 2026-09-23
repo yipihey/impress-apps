@@ -355,3 +355,16 @@ payload to the top of its row, which is the shape the S1 golden already document
 Not yet done from step 5: 5.1 (dispatch effects owed to the host) is partly proven —
 `publish` runs and reaches the channel — but `open` is untested; 5.2 (list rows through
 the row registry), 5.3 (golden alignment) and 5.4 (capability-matrix cell) remain.
+
+### 2026-09-23 — the CLI collision rule, decided: prefix on collision
+
+Tom chose (a). `CliSubcommand` now also carries `qualified_name` (the MCP spelling), and
+`impress_service_core::cli::effective_names` exposes a subcommand under its flat method
+name unless another linked service declares the same method — then EVERY party to the
+collision is spelled `<service>_<method>`, and the bare name is exposed by nobody, so no
+verb can be shadowed. Nothing that was unique changes spelling; the choice is per binary.
+Pinned by `cli::collision_tests` (run with `--features cli`, which `impress-cli` turns on
+for the workspace). `impress-cli` starts again: `impress surface-examples` prints the
+signal explorer, and the sixteen `surface-*` verbs are listed. The colliding pairs on
+`full` today: `add-tag`, `remove-tag`, `set-flag`, `set-starred` (imbib-tags-service vs
+triage-service).
