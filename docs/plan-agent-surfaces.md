@@ -419,3 +419,42 @@ triage-service).
   not a `List`: it takes the height its rows need and the surface scrolls as one
   document; single-row selection publishes the id. Still main's, not this branch's: the
   `grouped_surface_via_stdio` drift (82 tools on main against `< 60`).
+
+### 2026-09-23 — wave 5 (V1–V3) implemented, Linux-verified; Mac round 2 handed off
+
+PR #42 merged at 13:12 UTC with every S-package and the Mac's fixes; the branch was
+restarted from `main` and wave 5 built on it by three Sonnet agents in one checkout on
+disjoint files, reviewed and committed by path here.
+
+* **V1 host verb bridge.** `impress-surface-service` gained `VerbHost`: the executor and
+  `surface_validate` consult it after the linked inventory (the inventory wins on a shared
+  name; a host call runs under `spawn_blocking`; a host failure draws the same placeholder a
+  failing linked verb does). `impress-store-ffi` exposes it as the `SharedVerbHost`
+  callback interface plus `SharedStore::set_verb_host`, read through one shared slot on
+  every call, so a host installed after a pane opened still serves it (tests: late install,
+  and `/api/surface/validate` going 400 → 200 across the install). impress implements the
+  host over `impel-tools` — `ImpelToolsFFI` is now a product of CounselEngine, the shell
+  links that target alone, and `ImpelToolsVerbHost.install(on:)` runs beside the HTTP
+  server start. Known limit: `configure` probes each sibling once per process.
+* **V2 `delete-layout`.** Service verb, Tier-A capability (37 → 38), typed FFI method,
+  sixth `/api/layout/op` operation; refuses the live row and presets by name.
+* **V3 paper triage.** Second example over the `publication` kind with star / flag / tag
+  buttons on `triage-service_*`; golden; a loop test that seeds two bibliography entries,
+  selects one, clicks Star and sees `is_starred` on that row alone. **Vocabulary gap,
+  recorded not patched:** the Swift table's `select` carries an array of ids and every
+  triage verb takes one `id`; the template language walks object keys only, so there is no
+  `{{state.selected.0}}`. The example is honest about being single-select and its buttons
+  will not work in the app until Tom decides (index paths, single-select tables, or
+  list-taking verbs).
+* **Binding regenerated once** for both FFI changes: gained the `SharedVerbHost` protocol,
+  `setVerbHost`, `deleteLayout`; nothing lost; every new block-comment opener is a doc line.
+* Verified here: fmt, clippy (`-D warnings`) and tests for impress-surface (65),
+  impress-surface-service (15), impress-layout-service (27), impress-store-ffi (66);
+  `check-kit-deps.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`. One
+  load-sensitive test noted: store-ffi's in-process liveness test (from 498453d8) waits
+  two seconds and missed it only while a release build ran beside it; passes every time on
+  a quiet machine, in parallel and single-threaded.
+* Mac round 2 is `docs/next-steps-agent-surfaces-mac.md` (rewritten): the two framework
+  rebuilds, the compile, the live checks (host installed, an imbib verb in a pane, the
+  refusal with imbib closed, `delete-layout` over HTTP, paper triage rendering with the gap
+  recorded), and L7's Swift half.
