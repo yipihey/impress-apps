@@ -1,22 +1,21 @@
 //! The pane query algebra (ADR-0031 D2).
 //!
-//! A pane shows the result of a [`PaneQuery`]: a small, closed algebra over the
-//! shared store. It is deliberately not a language. Kinds, a scope, filters, a
-//! text term, one relation walk and a sort — and any position that names an
-//! item may instead name a **parameter** (`$name`) that is filled at
-//! resolution time from a channel, a fixed item, or the view kind's default
-//! (ADR-0031 D3).
+//! The algebra's *types* — [`PaneQuery`] and everything it is built from —
+//! now live in [`impress_pane_query`], free of impress-core's domain modules
+//! (ADR-0033 D7), and are re-exported below so every existing
+//! `impress_core::pane_query::X` path keeps resolving. What stays here is
+//! everything that is NOT pure algebra:
 //!
-//! The algebra compiles to [`crate::query::ItemQuery`] in exactly one place,
-//! [`compile`], from the [`KindManifest`] — so every schema ref the store is
-//! asked for is spelled once, here, and a misspelled ref is a compile-time
-//! error of the algebra rather than a silently empty pane (the ADR-0022
-//! schema-ref invariant, `schema-refs.json`).
-//!
-//! What the algebra cannot express is **materialized first**: explorations,
-//! online search results, smart searches, joins and aggregations become items
-//! or collections in the store, and a pane queries those. Growing the algebra
-//! is an ADR amendment.
+//! - [`compile`] / [`compile_with`], the one place the algebra becomes a
+//!   [`crate::query::ItemQuery`] — so every schema ref the store is asked
+//!   for is spelled once, here, and a misspelled ref is a compile-time error
+//!   of the algebra rather than a silently empty pane (the ADR-0022
+//!   schema-ref invariant, `schema-refs.json`);
+//! - [`builtin_manifest`], the chassis's built-in [`KindManifest`] — domain
+//!   data, because it names impress's own schema refs, not a property of the
+//!   algebra a standalone host would share;
+//! - [`invalidation`], which reads a compiled query's dependencies against a
+//!   live [`crate::event::StoreMutation`].
 //!
 //! # Entry points
 //!
@@ -36,289 +35,96 @@
 //! predicate", because a dropped predicate shows the user every row in the
 //! store and calls it a result.
 //!
-//! This module holds the types. The compiler, the manifest builder and the
-//! tests are in the same module (work package L0 of `docs/plan-layout-tree.md`).
+//! This module holds the compiler. The types, the manifest's shape and their
+//! pure tests are in `impress-pane-query` (work package S0 of
+//! `docs/plan-agent-surfaces.md`, moved out of the original single module
+//! from work package L0 of `docs/plan-layout-tree.md`).
 
 use std::collections::BTreeMap;
-
-use serde::{Deserialize, Serialize};
 
 use crate::item::ItemId;
 use crate::query::ItemQuery;
 use crate::reference::EdgeType;
 
-/// A record-kind identifier as the chassis spells it: `publication`,
-/// `manuscript`, `figure`, `message`, `task`, `agent-run`, `artifact`,
-/// `collection`. The manifest maps each to its canonical schema refs.
-pub type RecordKindId = String;
+// Every algebra type, re-exported so `impress_core::pane_query::X` keeps
+// resolving for existing callers (ADR-0033 D7's compatibility rule). `ItemId`
+// is deliberately NOT re-exported: it would collide with `crate::item::ItemId`
+// above, and there is nothing to gain — the two are the same `Uuid` alias
+// (see `impress_pane_query`'s module docs). `EdgeType` is deliberately NOT
+// re-exported either: it is a distinct type from `crate::reference::EdgeType`
+// and this module converts between them at the compiler boundary, so no path
+// in this crate should resolve `pane_query::EdgeType` ambiguously.
+pub use impress_pane_query::{
+    params_in, Bindings, Direction, Filter, ItemRef, KindManifest, PaneQuery, PaneQueryError,
+    ParamDecl, ParamName, RecordKindId, RelationWalk, Scope, SortKey,
+};
 
-/// A parameter name inside a query (`item`, `manuscript`, `colormap`, …).
-pub type ParamName = String;
-
-/// A position that names an item: either a literal id or a parameter to be
-/// filled at resolution time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(tag = "ref", rename_all = "kebab-case")]
-pub enum ItemRef {
-    /// A literal item id.
-    Id {
-        #[cfg_attr(feature = "schema", schemars(with = "String"))]
-        id: ItemId,
-    },
-    /// A parameter, filled from [`Bindings`] when the query is compiled.
-    Param { name: ParamName },
-}
-
-/// What population the query draws from.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(tag = "scope", rename_all = "kebab-case")]
-pub enum Scope {
-    /// Every item of the requested kinds.
-    #[default]
-    All,
-    /// Members of one collection (a `Contains` edge from the collection).
-    Collection { id: ItemRef },
-    /// Members of a collection and of every collection beneath it.
-    CollectionSubtree { id: ItemRef },
-    /// Items whose envelope parent is this library / account / folder.
-    Parent { id: ItemRef },
-    /// Exactly one item. The detail pane's scope.
-    Item { id: ItemRef },
-}
-
-/// A filter over the envelope fields every kind carries.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(tag = "filter", rename_all = "kebab-case")]
-pub enum Filter {
-    /// Carries a flag; `color` narrows to one colour.
-    Flag {
-        color: Option<String>,
-    },
-    Starred {
-        starred: bool,
-    },
-    Read {
-        read: bool,
-    },
-    /// Payload `status` equals this value (`dismissed`, `archived`, `draft`, …).
-    Status {
-        status: String,
-    },
-    /// Carries this tag path (or a descendant of it).
-    Tag {
-        path: String,
-    },
-    /// A payload or envelope field within a date range (ISO-8601 strings).
-    DateRange {
-        field: String,
-        from: Option<String>,
-        to: Option<String>,
-    },
-}
-
-/// One relation walk: the items reachable from `from` over `edge`, in the
-/// stated direction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct RelationWalk {
-    pub edge: EdgeType,
-    pub from: ItemRef,
-    /// `Outgoing`: items `from` points at (papers a manuscript cites).
-    /// `Incoming`: items pointing at `from` (manuscripts citing a paper).
-    pub direction: Direction,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "kebab-case")]
-pub enum Direction {
-    Outgoing,
-    Incoming,
-}
-
-/// Sort key. `field` is an envelope or `payload.` path, as in
-/// [`crate::query::SortDescriptor`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct SortKey {
-    pub field: String,
-    #[serde(default)]
-    pub descending: bool,
-}
-
-/// The query a pane shows. See the module docs.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct PaneQuery {
-    /// Record kinds to include. Empty means every kind the manifest knows.
-    #[serde(default)]
-    pub kinds: Vec<RecordKindId>,
-    #[serde(default)]
-    pub scope: Scope,
-    #[serde(default)]
-    pub filters: Vec<Filter>,
-    /// Full-text term over `items_fts`.
-    #[serde(default)]
-    pub text: Option<String>,
-    #[serde(default)]
-    pub relation: Option<RelationWalk>,
-    #[serde(default)]
-    pub sort: Vec<SortKey>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-/// A parameter declaration on a pane: what kind of item fills it and whether
-/// the view kind can render without it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct ParamDecl {
-    pub name: ParamName,
-    pub kind: RecordKindId,
-    #[serde(default)]
-    pub required: bool,
-}
-
-/// Resolved parameter values at compile time: name → item id. A parameter the
-/// query names but the bindings lack is unbound; whether that is an error
-/// depends on its [`ParamDecl::required`].
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct Bindings {
-    #[cfg_attr(feature = "schema", schemars(with = "BTreeMap<String, String>"))]
-    pub values: BTreeMap<ParamName, ItemId>,
-}
-
-impl Bindings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with(mut self, name: impl Into<ParamName>, id: ItemId) -> Self {
-        self.values.insert(name.into(), id);
-        self
-    }
-
-    pub fn get(&self, name: &str) -> Option<ItemId> {
-        self.values.get(name).copied()
-    }
-}
-
-/// The one place record kinds are mapped to the schema refs the store matches
-/// by exact equality. Built from the same canonical spellings as
-/// `schema-refs.json` and the Swift `RecordKindDescriptor`s; the test suite
-/// pins it to both.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct KindManifest {
-    /// kind id → canonical schema refs (a kind may span several, e.g.
-    /// `message` = `email-message` + `chat-message`).
-    pub kinds: BTreeMap<RecordKindId, Vec<String>>,
-}
-
-impl KindManifest {
-    /// The chassis's built-in record kinds.
-    ///
-    /// Every string below is copied from the `canonical` table of
-    /// `schema-refs.json` — which is also where the seven Swift
-    /// `RecordKindDescriptor`s get theirs (`BuiltinRecordKinds.swift`). The
-    /// store matches `items.schema_ref` by EXACT EQUALITY, so a ref spelled
-    /// differently here than by its writer returns zero rows forever, silently,
-    /// looking exactly like "the user has no data yet". There is no naming
-    /// convention to infer: bare (`manuscript`), namespaced
-    /// (`imbib/bibliography-entry`) and versioned (`task@1.0.0`) refs all
-    /// appear below and are all correct for their kind.
-    ///
-    /// `manifest_refs_are_canonical` pins every entry to `schema-refs.json`.
-    pub fn builtin() -> Self {
-        let kinds: BTreeMap<RecordKindId, Vec<String>> = [
-            // The seven chassis descriptors (BuiltinRecordKinds.swift).
-            ("publication", vec!["imbib/bibliography-entry"]),
-            ("manuscript", vec!["manuscript"]),
-            ("figure", vec!["figure"]),
-            ("message", vec!["email-message", "chat-message"]),
-            ("task", vec!["task@1.0.0"]),
-            ("agent-run", vec!["agent-run@1.0.0"]),
-            (
-                "artifact",
-                vec![
-                    "impress/artifact/code",
-                    "impress/artifact/dataset",
-                    "impress/artifact/general",
-                    "impress/artifact/media",
-                    "impress/artifact/note",
-                    "impress/artifact/poster",
-                    "impress/artifact/presentation",
-                    "impress/artifact/webpage",
-                ],
-            ),
-            // Navigable kinds the sidebar itself is made of. `collection`
-            // spans the generic kernel schema and the three legacy bindings
-            // (ADR-0022 D2 dual mode): a collection pane must find both
-            // sides of the `collections.unified` flip.
-            (
+/// The chassis's built-in record kinds.
+///
+/// Every string below is copied from the `canonical` table of
+/// `schema-refs.json` — which is also where the seven Swift
+/// `RecordKindDescriptor`s get theirs (`BuiltinRecordKinds.swift`). The
+/// store matches `items.schema_ref` by EXACT EQUALITY, so a ref spelled
+/// differently here than by its writer returns zero rows forever, silently,
+/// looking exactly like "the user has no data yet". There is no naming
+/// convention to infer: bare (`manuscript`), namespaced
+/// (`imbib/bibliography-entry`) and versioned (`task@1.0.0`) refs all
+/// appear below and are all correct for their kind.
+///
+/// This is domain data, not algebra — a standalone host builds its own
+/// [`KindManifest`] from its own schema refs the same way (ADR-0033 D7).
+///
+/// `manifest_refs_are_canonical` pins every entry to `schema-refs.json`.
+pub fn builtin_manifest() -> KindManifest {
+    let kinds: BTreeMap<RecordKindId, Vec<String>> = [
+        // The seven chassis descriptors (BuiltinRecordKinds.swift).
+        ("publication", vec!["imbib/bibliography-entry"]),
+        ("manuscript", vec!["manuscript"]),
+        ("figure", vec!["figure"]),
+        ("message", vec!["email-message", "chat-message"]),
+        ("task", vec!["task@1.0.0"]),
+        ("agent-run", vec!["agent-run@1.0.0"]),
+        (
+            "artifact",
+            vec![
+                "impress/artifact/code",
+                "impress/artifact/dataset",
+                "impress/artifact/general",
+                "impress/artifact/media",
+                "impress/artifact/note",
+                "impress/artifact/poster",
+                "impress/artifact/presentation",
+                "impress/artifact/webpage",
+            ],
+        ),
+        // Navigable kinds the sidebar itself is made of. `collection`
+        // spans the generic kernel schema and the three legacy bindings
+        // (ADR-0022 D2 dual mode): a collection pane must find both
+        // sides of the `collections.unified` flip.
+        (
+            "collection",
+            vec![
                 "collection",
-                vec![
-                    "collection",
-                    "imbib/collection",
-                    "manuscript-collection",
-                    "figure-collection",
-                ],
-            ),
-            ("library", vec!["imbib/library"]),
-        ]
-        .into_iter()
-        .map(|(kind, refs)| {
-            (
-                kind.to_string(),
-                refs.into_iter().map(str::to_string).collect(),
-            )
-        })
-        .collect();
-        Self { kinds }
-    }
-
-    pub fn schema_refs(&self, kind: &str) -> Option<&[String]> {
-        self.kinds.get(kind).map(Vec::as_slice)
-    }
-
-    pub fn kind_for_schema_ref(&self, schema_ref: &str) -> Option<&str> {
-        self.kinds
-            .iter()
-            .find(|(_, refs)| refs.iter().any(|r| r == schema_ref))
-            .map(|(k, _)| k.as_str())
-    }
-}
-
-/// Why a query did not compile. Every variant is a *typed* failure: the pane
-/// renders its empty state with the reason, never an empty list that looks
-/// like "no data yet".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(tag = "error", rename_all = "kebab-case")]
-pub enum PaneQueryError {
-    #[error("unknown record kind '{kind}'")]
-    UnknownKind { kind: RecordKindId },
-    #[error("parameter '{name}' is required but unbound")]
-    UnboundParam { name: ParamName },
-    #[error("parameter '{name}' is bound to a {actual} but the query needs a {expected}")]
-    ParamKindMismatch {
-        name: ParamName,
-        expected: RecordKindId,
-        actual: RecordKindId,
-    },
-    #[error("query has no kinds and the manifest is empty")]
-    NoKinds,
-    /// A [`Filter::DateRange`] bound on an envelope timestamp column
-    /// (`created` / `modified`, stored as epoch milliseconds) that is not
-    /// ISO-8601. Typed rather than passed through, because SQLite compares a
-    /// text bound against an integer column by TYPE ORDER — text always sorts
-    /// above integers — so a malformed bound would silently match every row
-    /// on `Gte` and no row on `Lte`.
-    #[error("date range bound '{value}' on field '{field}' is not ISO-8601")]
-    InvalidDate { field: String, value: String },
+                "imbib/collection",
+                "manuscript-collection",
+                "figure-collection",
+            ],
+        ),
+        ("library", vec!["imbib/library"]),
+        // ADR-0033 D1: a surface pane's query is `item(id)` of this kind, so
+        // `surface_show` (impress-surface-service, S4) can compile a query
+        // naming it the same way every other detail pane names its kind.
+        ("surface", vec!["impress/ui/surface@1.0.0"]),
+    ]
+    .into_iter()
+    .map(|(kind, refs)| {
+        (
+            kind.to_string(),
+            refs.into_iter().map(str::to_string).collect(),
+        )
+    })
+    .collect();
+    KindManifest { kinds }
 }
 
 /// Compiled form: the store query plus, when the query is a single-kind
@@ -406,29 +212,6 @@ pub fn compile_with(
     resolver: &dyn SubtreeResolver,
 ) -> Result<CompiledQuery, PaneQueryError> {
     compiler::compile(query, decls, bindings, manifest, resolver)
-}
-
-/// The names of every parameter the query mentions, in first-use order.
-pub fn params_in(query: &PaneQuery) -> Vec<ParamName> {
-    let mut out: Vec<ParamName> = Vec::new();
-    let mut push = |r: &ItemRef| {
-        if let ItemRef::Param { name } = r {
-            if !out.contains(name) {
-                out.push(name.clone());
-            }
-        }
-    };
-    match &query.scope {
-        Scope::All => {}
-        Scope::Collection { id }
-        | Scope::CollectionSubtree { id }
-        | Scope::Parent { id }
-        | Scope::Item { id } => push(id),
-    }
-    if let Some(walk) = &query.relation {
-        push(&walk.from);
-    }
-    out
 }
 
 mod compiler {
@@ -746,15 +529,20 @@ mod compiler {
         if let Some(walk) = &query.relation {
             match resolve(&walk.from, decls, bindings)? {
                 Resolved::Id(from) => {
-                    inv.depend_on_edge(walk.edge.clone(), from);
+                    // `walk.edge` is the algebra's `impress_pane_query::EdgeType`
+                    // (ADR-0033 D7); everything downstream — the predicate and
+                    // the invalidation dependency — wants this crate's native
+                    // `EdgeType`, so the boundary conversion happens once, here.
+                    let edge: EdgeType = walk.edge.clone().into();
+                    inv.depend_on_edge(edge.clone(), from);
                     inv.depend_on_item(from);
                     predicates.push(match walk.direction {
                         // `ReferencedBy(e, s)` = `id IN (SELECT target_id … source_id = s)`
                         // — the items `from` points at (papers a manuscript cites).
-                        Direction::Outgoing => Predicate::ReferencedBy(walk.edge.clone(), from),
+                        Direction::Outgoing => Predicate::ReferencedBy(edge, from),
                         // `HasReference(e, t)` = `id IN (SELECT source_id … target_id = t)`
                         // — the items pointing at `from` (manuscripts citing a paper).
-                        Direction::Incoming => Predicate::HasReference(walk.edge.clone(), from),
+                        Direction::Incoming => Predicate::HasReference(edge, from),
                     });
                 }
                 Resolved::Unbound => matches_no_rows = true,
@@ -811,56 +599,6 @@ mod compiler {
     }
 }
 
-#[cfg(test)]
-mod contract_tests {
-    use super::*;
-    use uuid::Uuid;
-
-    #[test]
-    fn params_are_listed_in_first_use_order_without_duplicates() {
-        let q = PaneQuery {
-            scope: Scope::Collection {
-                id: ItemRef::Param {
-                    name: "collection".into(),
-                },
-            },
-            relation: Some(RelationWalk {
-                edge: EdgeType::Cites,
-                from: ItemRef::Param {
-                    name: "manuscript".into(),
-                },
-                direction: Direction::Outgoing,
-            }),
-            ..Default::default()
-        };
-        assert_eq!(params_in(&q), vec!["collection", "manuscript"]);
-    }
-
-    #[test]
-    fn query_serde_round_trip() {
-        let q = PaneQuery {
-            kinds: vec!["publication".into()],
-            scope: Scope::Item {
-                id: ItemRef::Id { id: Uuid::nil() },
-            },
-            filters: vec![
-                Filter::Flag { color: None },
-                Filter::Starred { starred: true },
-            ],
-            text: Some("dark matter".into()),
-            relation: None,
-            sort: vec![SortKey {
-                field: "modified".into(),
-                descending: true,
-            }],
-            limit: Some(50),
-        };
-        let json = serde_json::to_string(&q).unwrap();
-        let back: PaneQuery = serde_json::from_str(&json).unwrap();
-        assert_eq!(q, back);
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Manifest ↔ schema-refs.json
 // ─────────────────────────────────────────────────────────────────────────────
@@ -902,7 +640,7 @@ mod manifest_tests {
     #[test]
     fn manifest_refs_are_canonical() {
         let canonical = canonical_refs();
-        for (kind, refs) in &KindManifest::builtin().kinds {
+        for (kind, refs) in &builtin_manifest().kinds {
             assert!(!refs.is_empty(), "kind {kind:?} declares no schema refs");
             for r in refs {
                 assert!(
@@ -918,7 +656,7 @@ mod manifest_tests {
 
     #[test]
     fn builtin_carries_the_chassis_kinds_and_the_navigable_ones() {
-        let m = KindManifest::builtin();
+        let m = builtin_manifest();
         let kinds: Vec<&str> = m.kinds.keys().map(String::as_str).collect();
         assert_eq!(
             kinds,
@@ -931,6 +669,7 @@ mod manifest_tests {
                 "manuscript",
                 "message",
                 "publication",
+                "surface",
                 "task",
             ]
         );
@@ -946,11 +685,15 @@ mod manifest_tests {
             ["email-message", "chat-message"]
         );
         assert_eq!(m.schema_refs("artifact").unwrap().len(), 8);
+        assert_eq!(
+            m.schema_refs("surface").unwrap(),
+            ["impress/ui/surface@1.0.0"]
+        );
     }
 
     #[test]
     fn every_ref_maps_back_to_exactly_one_kind() {
-        let m = KindManifest::builtin();
+        let m = builtin_manifest();
         let mut seen: BTreeSet<&str> = BTreeSet::new();
         for (kind, refs) in &m.kinds {
             for r in refs {
@@ -974,7 +717,7 @@ mod compiler_tests {
     use uuid::Uuid;
 
     fn manifest() -> KindManifest {
-        KindManifest::builtin()
+        builtin_manifest()
     }
 
     fn ok(query: &PaneQuery) -> CompiledQuery {
@@ -1129,6 +872,7 @@ mod compiler_tests {
                     "email-message",
                     "chat-message",
                     "imbib/bibliography-entry",
+                    "impress/ui/surface@1.0.0",
                     "task@1.0.0",
                 ],
             },
@@ -1167,7 +911,7 @@ mod compiler_tests {
                 query: PaneQuery {
                     kinds: kinds(&["publication"]),
                     relation: Some(RelationWalk {
-                        edge: EdgeType::Cites,
+                        edge: EdgeType::Cites.into(),
                         from: ItemRef::Param {
                             name: "manuscript".into(),
                         },
@@ -1184,7 +928,7 @@ mod compiler_tests {
                 query: PaneQuery {
                     kinds: kinds(&["manuscript"]),
                     relation: Some(RelationWalk {
-                        edge: EdgeType::Cites,
+                        edge: EdgeType::Cites.into(),
                         from: ItemRef::Param {
                             name: "paper".into(),
                         },
@@ -1654,7 +1398,7 @@ mod compiler_tests {
         let outgoing = ok(&PaneQuery {
             kinds: kinds(&["publication"]),
             relation: Some(RelationWalk {
-                edge: EdgeType::Cites,
+                edge: EdgeType::Cites.into(),
                 from: ItemRef::Id { id: from },
                 direction: Direction::Outgoing,
             }),
@@ -1668,7 +1412,7 @@ mod compiler_tests {
         let incoming = ok(&PaneQuery {
             kinds: kinds(&["manuscript"]),
             relation: Some(RelationWalk {
-                edge: EdgeType::Cites,
+                edge: EdgeType::Cites.into(),
                 from: ItemRef::Id { id: from },
                 direction: Direction::Incoming,
             }),
@@ -2117,7 +1861,7 @@ mod store_tests {
     }
 
     fn compiled(query: &PaneQuery) -> CompiledQuery {
-        compile(query, &[], &Bindings::new(), &KindManifest::builtin()).expect("compiles")
+        compile(query, &[], &Bindings::new(), &builtin_manifest()).expect("compiles")
     }
 
     /// The direction claim, proved against the collection kernel rather than
@@ -2232,7 +1976,7 @@ mod store_tests {
             &query,
             &[],
             &Bindings::new(),
-            &KindManifest::builtin(),
+            &builtin_manifest(),
             &resolver,
         )
         .expect("compiles");
@@ -2261,7 +2005,7 @@ mod store_tests {
         let outgoing = compiled(&PaneQuery {
             kinds: vec!["publication".into()],
             relation: Some(RelationWalk {
-                edge: EdgeType::Cites,
+                edge: EdgeType::Cites.into(),
                 from: ItemRef::Id { id: manuscript },
                 direction: Direction::Outgoing,
             }),
@@ -2273,7 +2017,7 @@ mod store_tests {
         let incoming = compiled(&PaneQuery {
             kinds: vec!["manuscript".into()],
             relation: Some(RelationWalk {
-                edge: EdgeType::Cites,
+                edge: EdgeType::Cites.into(),
                 from: ItemRef::Id { id: paper },
                 direction: Direction::Incoming,
             }),
@@ -2406,7 +2150,7 @@ mod store_tests {
                 required: false,
             }],
             &Bindings::new(),
-            &KindManifest::builtin(),
+            &builtin_manifest(),
         )
         .expect("compiles");
         assert!(run(&store, &c).is_empty());
@@ -2787,7 +2531,7 @@ mod invalidation_tests {
     const COLLECTION: &str = "imbib/collection";
 
     fn compiled(query: &PaneQuery) -> CompiledQuery {
-        compile(query, &[], &Bindings::new(), &KindManifest::builtin()).expect("compiles")
+        compile(query, &[], &Bindings::new(), &builtin_manifest()).expect("compiles")
     }
 
     fn inv(query: &PaneQuery) -> Invalidation {
@@ -2885,7 +2629,7 @@ mod invalidation_tests {
             },
             &[],
             &Bindings::new(),
-            &KindManifest::builtin(),
+            &builtin_manifest(),
             &resolver,
         )
         .expect("compiles");
@@ -2920,7 +2664,7 @@ mod invalidation_tests {
             let i = inv(&PaneQuery {
                 kinds: kinds(&["publication"]),
                 relation: Some(RelationWalk {
-                    edge: EdgeType::Cites,
+                    edge: EdgeType::Cites.into(),
                     from: ItemRef::Id { id: manuscript },
                     direction,
                 }),
@@ -2992,7 +2736,7 @@ mod invalidation_tests {
                 required: false,
             }],
             &Bindings::new().with("collection", c),
-            &KindManifest::builtin(),
+            &builtin_manifest(),
         )
         .expect("compiles");
         assert_eq!(compiled.invalidation.edges, vec![(EdgeType::Contains, c)]);
@@ -3046,7 +2790,7 @@ mod invalidation_tests {
         let cited_by = || PaneQuery {
             kinds: kinds(&["publication"]),
             relation: Some(RelationWalk {
-                edge: EdgeType::Cites,
+                edge: EdgeType::Cites.into(),
                 from: ItemRef::Id { id: manuscript },
                 direction: Direction::Outgoing,
             }),

@@ -29,7 +29,7 @@ use impress_core::collection_ops::{
 };
 use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{
-    compile_with, Bindings, KindManifest, PaneQuery, ParamDecl, SubtreeResolver,
+    builtin_manifest, compile_with, Bindings, PaneQuery, ParamDecl, SubtreeResolver,
 };
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout::{ChannelId, Geometry, PaneSpec, ParamSource, Role, TileId, Verb, WindowId};
@@ -542,10 +542,42 @@ impl DefaultLayoutService {
 
     /// An instance over an explicit store, with a private session registry.
     pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
+        Self::with_store_and_sessions(store, Arc::new(SessionRegistry::new()))
+    }
+
+    /// An instance over an explicit store AND an explicit registry — for the
+    /// several objects one process opens on one store (the FFI's
+    /// `SharedLayout` and the surface executor) to share their sessions, so
+    /// a verb one of them applies is the tree the other one reads.
+    pub fn with_store_and_sessions(
+        store: Arc<SqliteItemStore>,
+        sessions: Arc<SessionRegistry>,
+    ) -> Self {
         Self {
             store: Some(store),
-            sessions: Some(Arc::new(SessionRegistry::new())),
+            sessions: Some(sessions),
         }
+    }
+
+    /// The registry this instance's sessions live in.
+    pub fn sessions(&self) -> Arc<SessionRegistry> {
+        self.registry()
+    }
+
+    /// Drop the cached session for one scope, so the next read re-reads the
+    /// stored row.
+    ///
+    /// The registry keeps a `LayoutSession` per (app, device) and only loads
+    /// from the store when there is none — which is right for this process's
+    /// own verbs and wrong the moment ANOTHER process writes the same row
+    /// (ADR-0033 D6). The FFI's invalidation feed calls this when its external
+    /// `data_version` poll sees a layout write it did not make; without it the
+    /// host reloads, the service answers from the stale session, and the
+    /// window redraws exactly what it already had — verified live on
+    /// 2026-09-22, where `surface_show` from `impress-mcp` reached the store
+    /// and the window kept rendering four leaves.
+    pub fn forget_session(&self, app_id: &str, device: Option<&str>) {
+        self.registry().forget(app_id, &resolve_device(device));
     }
 
     fn layout_store(&self) -> LayoutStore {
@@ -1344,7 +1376,7 @@ impl LayoutService for DefaultLayoutService {
                 &spec.query,
                 &decls,
                 &bindings,
-                &KindManifest::builtin(),
+                &builtin_manifest(),
                 &resolver,
             ) {
                 Ok(compiled) => CompiledQueryDto::compiled(&compiled),

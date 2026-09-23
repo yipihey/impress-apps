@@ -1,0 +1,30 @@
+[package]
+name = "surface-demo-service"
+description = "ADR-0033 D8 demo capability: the scaffold's output and the worked example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# Proves the example surface is a real SurfaceSpec (ADR-0033 S1) and that
+# `impress_surface::validate` finds nothing wrong with it. Pure/no I/O crate
+# — see its own module docs — so this stays a light dev-dependency.
+impress-surface = { workspace = true }
+# Proves `histogram`'s `plot` value really is a `plot-spec@1.0.0` payload by
+# deserializing it into the type the suite renders through
+# (`imprint_core::plot_ffi::FfiPlotSpec`, ADR-0033 "Defaults": "the widget
+# renders through imprint-core's existing render_plot_svg"). Dev-only: this
+# crate's own `plot` module builds the JSON by hand (a local mirror struct,
+# `serde_json::to_value`'d) precisely so the *library* never needs this
+# dependency at all — see that module's docs.
+imprint-core = { workspace = true, features = ["typst-render"] }

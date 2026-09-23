@@ -1,11 +1,12 @@
-//! Workspace UI records: the layout tree and the presets it comes from
-//! (ADR-0019 D1, ADR-0031 D4/D10).
+//! Workspace UI records: the layout tree, the presets it comes from, and the
+//! agent-authored surfaces rendered inside a pane (ADR-0019 D1, ADR-0031
+//! D4/D10, ADR-0033 D1/D5).
 //!
-//! Two schemas, registered from [`crate::schemas::register_core_schemas`]
+//! Five schemas, registered from [`crate::schemas::register_core_schemas`]
 //! exactly as the eight artifact kinds are (ADR-0019 D1 names that pattern
 //! explicitly). No core type changes are needed: `schema` is a string and
-//! `payload` is open JSON, so the whole layout tree rides in one `Object`
-//! field.
+//! `payload` is open JSON, so the whole layout tree — and, for surfaces, the
+//! whole `SurfaceSpec` — rides in one `Object`-or-`String` field.
 //!
 //! * [`LAYOUT_SCHEMA_REF`] — a named or live workspace arrangement. Its
 //!   `layout` field is the serde JSON of `impress_layout::Layout` (ADR-0031
@@ -18,6 +19,17 @@
 //!   presets (Reading, Triage, Writing, Reviewing, plus each app's default)
 //!   are store records the user can edit, which is why they are records at
 //!   all rather than Rust constants.
+//! * [`SURFACE_SCHEMA_REF`] — a stored, declarative UI document (ADR-0033
+//!   D1): the `spec` field is the JSON of a `SurfaceSpec`, produced by
+//!   `impress-surface` and written by `surface_create`/`surface_update`
+//!   (S4, `impress-surface-service`). Private + Durable; syncs, like a named
+//!   layout.
+//! * [`SURFACE_STATE_SCHEMA_REF`] / [`SURFACE_EVENT_SCHEMA_REF`] — the
+//!   working state of one surface instance and the events it has emitted
+//!   (ADR-0033 D5). Both are Ephemeral and device-scoped: they exist so an
+//!   agent driving the suite from a chat can read back what the human did
+//!   (`surface_wait`), not so anyone can analyse them later. Events are
+//!   pruned to the last 200 per surface.
 //!
 //! # Scope (ADR-0019 D2) — the load-bearing decision
 //!
@@ -73,6 +85,24 @@ pub const LAYOUT_SCHEMA_REF: &str = "impress/ui/layout@1.0.0";
 /// reader depends on, and a v2 must be able to coexist with v1 rows in a
 /// live store rather than requiring a migration of the user's saved work.
 pub const PRESET_SCHEMA_REF: &str = "impress/ui/preset@1.0.0";
+
+/// The canonical surface ref (ADR-0033 D1). **VERSIONED**, for the same
+/// reason as [`LAYOUT_SCHEMA_REF`]: `spec` is a `SurfaceSpec`, a versioned
+/// document (`"surface": "1.0"` inside the payload itself), and a v2 spec
+/// shape must be able to coexist with v1 rows in a live store.
+pub const SURFACE_SCHEMA_REF: &str = "impress/ui/surface@1.0.0";
+
+/// The canonical surface-state ref (ADR-0033 D5). **VERSIONED**. One row per
+/// `(surface, host)` pair — the working state a running instance of a surface
+/// has accumulated (`state.freq`, `state.bins`, …) — read by `surface_render`
+/// and written by `surface_dispatch`.
+pub const SURFACE_STATE_SCHEMA_REF: &str = "impress/ui/surface-state@1.0.0";
+
+/// The canonical surface-event ref (ADR-0033 D5). **VERSIONED**. One row per
+/// event a surface has emitted (`{ "emit": { name, payload } }` actions),
+/// pruned to the last 200 per `(surface, host)` pair. `surface_wait` long-polls
+/// this ref for rows with `seq` past the caller's cursor.
+pub const SURFACE_EVENT_SCHEMA_REF: &str = "impress/ui/surface-event@1.0.0";
 
 /// Schema for [`LAYOUT_SCHEMA_REF`] — a named or live workspace arrangement.
 ///
@@ -312,18 +342,275 @@ pub fn preset_schema() -> Schema {
     }
 }
 
+/// Schema for [`SURFACE_SCHEMA_REF`] — a stored, declarative UI document
+/// (ADR-0033 D1).
+///
+/// `spec` is the whole `SurfaceSpec`, stored verbatim as its JSON *string*
+/// (not an `Object` field, unlike `layout`): a spec is authored and read as
+/// text by an agent (`surface_schema`, `surface_validate`, a chat transcript)
+/// as often as it is machine-parsed, and the vocabulary's own `"surface":
+/// "1.0"` tag inside the document is its version — a second, structural
+/// version column here would be a second definition of the same fact. The
+/// shape itself has exactly one definition, in `crates/impress-surface`
+/// (ADR-0033 D3), and this row does not duplicate it — the same discipline
+/// `layout` applies to `impress_layout::Layout`.
+///
+/// Written by `surface_create` / `surface_update` (S4,
+/// `impress-surface-service`); read by `surface_get`, `surface_render` and
+/// the `surface` view kind (S7). Private + Durable; syncs, like a named
+/// layout — a surface an agent built is a durable artifact of the
+/// conversation, not scratch state.
+pub fn surface_schema() -> Schema {
+    Schema {
+        id: SURFACE_SCHEMA_REF.into(),
+        name: "Agent Surface".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            FieldDef {
+                name: "name".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "Display name of the surface (\"Signal explorer\"). Required — \
+                     unlike a layout's optional `name`, every surface is a \
+                     named, addressable document from the moment `surface_create` \
+                     writes it."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "version".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "The author's own revision tag for this surface (free text, \
+                     not the schema's own `1.0.0`). Optional — most surfaces are \
+                     authored once and never versioned by their creator."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "spec".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "The `SurfaceSpec`, as its own JSON text, stored verbatim so \
+                     the shape has ONE definition — in crates/impress-surface — \
+                     and not a flattened second copy here (the same reasoning \
+                     the `layout` field's doc comment gives for the layout tree). \
+                     Produced and validated only by `impress-surface`'s pure \
+                     `validate`/`plan`/`resolve`/`reduce` functions; this is where \
+                     it comes to rest."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "tags".into(),
+                field_type: FieldType::StringArray,
+                required: false,
+                description: Some(
+                    "Free-text labels the author or an agent attaches \
+                     (\"demo\", \"scratch\", \"signal-processing\"), so \
+                     `surface_list` can be filtered without a closed taxonomy — \
+                     the same convention as `purpose` on layout and preset rows, \
+                     but multi-valued because a surface may serve more than one \
+                     label at once."
+                        .into(),
+                ),
+            },
+        ],
+        expected_edges: vec![EdgeType::DerivedFrom, EdgeType::RelatesTo],
+        inherits: None,
+    }
+}
+
+/// Schema for [`SURFACE_STATE_SCHEMA_REF`] — the working state of one running
+/// surface instance (ADR-0033 D5).
+///
+/// Ephemeral (ADR-0019 terms) and device-scoped by construction: `host`
+/// identifies the process/window instance holding the pane, so the same
+/// surface open in two panes (or two hosts) keeps two independent state rows,
+/// exactly as ADR-0033 D1 says an agent "can put the same surface in three
+/// panes with three different parameter bindings." Never synced — this row
+/// exists so an agent driving the suite from a separate process (a chat) can
+/// read back what the human changed, not so anyone analyses it later.
+///
+/// Written by `surface_dispatch` (a `field` change sets its `bind` path);
+/// read by `surface_render`, `surface_state_get` and the cross-process
+/// liveness poll (S5, ADR-0033 D6).
+pub fn surface_state_schema() -> Schema {
+    Schema {
+        id: SURFACE_STATE_SCHEMA_REF.into(),
+        name: "Surface State".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            FieldDef {
+                name: "surface".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "The `ItemId` of the [`SURFACE_SCHEMA_REF`] row this state \
+                     belongs to, as a string. Required — a state row with no \
+                     surface is orphaned by definition."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "host".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "Which running instance holds this state: a pane id, window \
+                     id or standalone-host tag. Required, and the second half of \
+                     the `(surface, host)` key that makes state per-instance \
+                     rather than per-document — the same reason a layout's live \
+                     row carries `device`."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "state".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "The state object at `state.*` paths, as JSON text — stored \
+                     the same way `spec` is on the surface row, and for the same \
+                     reason: `impress-surface::reduce` is the one function that \
+                     writes it, so a second structural definition here would \
+                     drift from it. Absent means the surface has not been \
+                     dispatched to yet and runs with its spec's own initial \
+                     `state` block."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "cursor".into(),
+                field_type: FieldType::Int,
+                required: false,
+                description: Some(
+                    "The highest surface-event `seq` this instance has already \
+                     been shown. Lets a host resume `surface_wait` after a \
+                     restart without replaying events it already handled."
+                        .into(),
+                ),
+            },
+        ],
+        expected_edges: vec![],
+        inherits: None,
+    }
+}
+
+/// Schema for [`SURFACE_EVENT_SCHEMA_REF`] — one event a surface has emitted
+/// (ADR-0033 D5).
+///
+/// Ephemeral and device-scoped like [`SURFACE_STATE_SCHEMA_REF`], and pruned
+/// to the last 200 rows per `(surface, host)` — ADR-0031's privacy decision
+/// stands: the standard build records nothing that exists only to be
+/// analysed later, and this ring is pruned for that reason, not for storage
+/// cost. Written by the `{ "emit": { name, payload } }` action inside
+/// `impress-surface::reduce`'s effect list; read by `surface_events` and
+/// long-polled by `surface_wait(id, after, timeout)` — "create → show → wait
+/// → update or act → wait" is the agent loop ADR-0033 D5 describes, and this
+/// row is what `wait` waits on.
+pub fn surface_event_schema() -> Schema {
+    Schema {
+        id: SURFACE_EVENT_SCHEMA_REF.into(),
+        name: "Surface Event".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            FieldDef {
+                name: "surface".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "The `ItemId` of the [`SURFACE_SCHEMA_REF`] row that emitted \
+                     this event, as a string."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "host".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "Which running instance emitted the event — same meaning as \
+                     `host` on [`SURFACE_STATE_SCHEMA_REF`], so an agent \
+                     watching one pane's events is not shown another pane's."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "seq".into(),
+                field_type: FieldType::Int,
+                required: false,
+                description: Some(
+                    "Monotonically increasing per `(surface, host)`, assigned by \
+                     the writer at insert time. `surface_wait(after)` and a \
+                     `cursor` on the state row both name a position in this \
+                     sequence; absent only on a hand-edited row."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "name".into(),
+                field_type: FieldType::String,
+                required: true,
+                description: Some(
+                    "The event's name, exactly as the spec's `on_click`/`emit` \
+                     action named it (\"bins-chosen\"). Required — an unnamed \
+                     event is not addressable by `surface_wait` or by a human \
+                     reading the log."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "payload".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "The event's payload, as JSON text — the resolved value of \
+                     the `emit` action's `payload` object at the moment it \
+                     fired. Stored as text for the same reason `state` and \
+                     `spec` are: the shape is whatever the spec's author chose, \
+                     not a structure this schema owns."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "at".into(),
+                field_type: FieldType::DateTime,
+                required: false,
+                description: Some(
+                    "When the event fired. Absent only on a hand-edited row — \
+                     every real writer sets it."
+                        .into(),
+                ),
+            },
+        ],
+        expected_edges: vec![],
+        inherits: None,
+    }
+}
+
 /// Every UI schema ref, in registration order — the ONE list a caller
 /// enumerates workspace record kinds from. Hardcoding these spellings
 /// anywhere else is the schema-refs drift class; the parity test below pins
 /// this array to what [`register_ui_schemas`] actually registers.
-pub const UI_SCHEMA_REFS: [&str; 2] = [LAYOUT_SCHEMA_REF, PRESET_SCHEMA_REF];
+pub const UI_SCHEMA_REFS: [&str; 5] = [
+    LAYOUT_SCHEMA_REF,
+    PRESET_SCHEMA_REF,
+    SURFACE_SCHEMA_REF,
+    SURFACE_STATE_SCHEMA_REF,
+    SURFACE_EVENT_SCHEMA_REF,
+];
 
-/// Register the workspace UI schemas (ADR-0019 D1).
+/// Register the workspace UI schemas (ADR-0019 D1, ADR-0033 D1/D5).
 ///
-/// Order is presentation only: neither inherits from the other, and neither
-/// depends on any other core schema. A layout's relation to its preset is a
-/// `DerivedFrom` edge, not an inherits edge — the payloads are different
-/// shapes, and a preset is not a layout with extra fields.
+/// Order is presentation only: none inherits from another, and none depends
+/// on any other core schema. A layout's relation to its preset — and a
+/// surface's relation to whatever it is `RelatesTo` or `DerivedFrom` — is an
+/// edge, not an inherits edge: the payloads are different shapes in each
+/// case, never one kind with extra fields.
 pub fn register_ui_schemas(registry: &mut SchemaRegistry) {
     registry
         .register(layout_schema())
@@ -331,6 +618,15 @@ pub fn register_ui_schemas(registry: &mut SchemaRegistry) {
     registry
         .register(preset_schema())
         .expect("ui/preset schema registration");
+    registry
+        .register(surface_schema())
+        .expect("ui/surface schema registration");
+    registry
+        .register(surface_state_schema())
+        .expect("ui/surface-state schema registration");
+    registry
+        .register(surface_event_schema())
+        .expect("ui/surface-event schema registration");
 }
 
 #[cfg(test)]
@@ -349,6 +645,18 @@ mod tests {
             reg.get(PRESET_SCHEMA_REF).is_some(),
             "preset not registered under {PRESET_SCHEMA_REF}"
         );
+        assert!(
+            reg.get(SURFACE_SCHEMA_REF).is_some(),
+            "surface not registered under {SURFACE_SCHEMA_REF}"
+        );
+        assert!(
+            reg.get(SURFACE_STATE_SCHEMA_REF).is_some(),
+            "surface-state not registered under {SURFACE_STATE_SCHEMA_REF}"
+        );
+        assert!(
+            reg.get(SURFACE_EVENT_SCHEMA_REF).is_some(),
+            "surface-event not registered under {SURFACE_EVENT_SCHEMA_REF}"
+        );
     }
 
     /// The versioned spelling is the ONLY one. A bare `impress/ui/layout`
@@ -360,7 +668,13 @@ mod tests {
         register_ui_schemas(&mut reg);
         // schema-ref-lint:allow — negative assertion: these are the WRONG
         // spellings, named here so the test can prove nothing answers to them.
-        for bare in ["impress/ui/layout", "impress/ui/preset"] {
+        for bare in [
+            "impress/ui/layout",
+            "impress/ui/preset",
+            "impress/ui/surface",
+            "impress/ui/surface-state",
+            "impress/ui/surface-event",
+        ] {
             assert!(
                 reg.get(bare).is_none(),
                 "{bare:?} must not be registered: one canonical spelling per kind"
@@ -477,17 +791,126 @@ mod tests {
     }
 
     #[test]
+    fn surface_required_fields() {
+        let s = surface_schema();
+        let required: Vec<&str> = s
+            .fields
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(required, vec!["name", "spec"]);
+    }
+
+    /// The spec is stored verbatim as JSON TEXT, not a flattened `Object` —
+    /// unlike `layout`, which stores its tree as an `Object` field, because a
+    /// surface spec is read and authored as text as often as it is parsed
+    /// (ADR-0033 D1/D3).
+    #[test]
+    fn surface_spec_is_one_string_field() {
+        let s = surface_schema();
+        let spec = s
+            .fields
+            .iter()
+            .find(|f| f.name == "spec")
+            .expect("spec field");
+        assert_eq!(spec.field_type, FieldType::String);
+        for flattened in ["root", "sources", "params", "state"] {
+            assert!(
+                !s.fields.iter().any(|f| f.name == flattened),
+                "{flattened:?} belongs INSIDE the `spec` string, not beside it"
+            );
+        }
+    }
+
+    #[test]
+    fn surface_tags_is_a_string_list() {
+        let s = surface_schema();
+        let tags = s
+            .fields
+            .iter()
+            .find(|f| f.name == "tags")
+            .expect("tags field");
+        assert_eq!(tags.field_type, FieldType::StringArray);
+        assert!(!tags.required);
+    }
+
+    #[test]
+    fn surface_state_required_fields() {
+        let s = surface_state_schema();
+        let required: Vec<&str> = s
+            .fields
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(required, vec!["surface", "host"]);
+    }
+
+    #[test]
+    fn surface_state_carries_cursor_as_an_int() {
+        let s = surface_state_schema();
+        let cursor = s
+            .fields
+            .iter()
+            .find(|f| f.name == "cursor")
+            .expect("cursor field");
+        assert_eq!(cursor.field_type, FieldType::Int);
+        assert!(!cursor.required);
+    }
+
+    #[test]
+    fn surface_event_required_fields() {
+        let s = surface_event_schema();
+        let required: Vec<&str> = s
+            .fields
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(required, vec!["surface", "host", "name"]);
+    }
+
+    #[test]
+    fn surface_event_carries_seq_as_an_int_and_at_as_a_timestamp() {
+        let s = surface_event_schema();
+        let seq = s
+            .fields
+            .iter()
+            .find(|f| f.name == "seq")
+            .expect("seq field");
+        assert_eq!(seq.field_type, FieldType::Int);
+        let at = s.fields.iter().find(|f| f.name == "at").expect("at field");
+        assert_eq!(at.field_type, FieldType::DateTime);
+    }
+
+    /// Ephemeral, device-scoped rows (ADR-0033 D5) expect no edges: they are
+    /// keyed by `(surface, host)`, not linked into the graph.
+    #[test]
+    fn surface_state_and_event_expect_no_edges() {
+        assert!(surface_state_schema().expected_edges.is_empty());
+        assert!(surface_event_schema().expected_edges.is_empty());
+    }
+
+    #[test]
     fn ui_schemas_do_not_inherit() {
-        assert_eq!(layout_schema().inherits, None);
-        assert_eq!(preset_schema().inherits, None);
+        for s in [
+            layout_schema(),
+            preset_schema(),
+            surface_schema(),
+            surface_state_schema(),
+            surface_event_schema(),
+        ] {
+            assert_eq!(s.inherits, None, "{} should not inherit", s.id);
+        }
     }
 
     #[test]
     fn ui_schemas_expect_derived_from_edges() {
-        for s in [layout_schema(), preset_schema()] {
+        for s in [layout_schema(), preset_schema(), surface_schema()] {
             assert!(
                 s.expected_edges.contains(&EdgeType::DerivedFrom),
-                "{} should expect DerivedFrom (layout ← preset)",
+                "{} should expect DerivedFrom",
                 s.id
             );
         }
@@ -495,7 +918,13 @@ mod tests {
 
     #[test]
     fn ui_schemas_serde_round_trip() {
-        for s in [layout_schema(), preset_schema()] {
+        for s in [
+            layout_schema(),
+            preset_schema(),
+            surface_schema(),
+            surface_state_schema(),
+            surface_event_schema(),
+        ] {
             let json = serde_json::to_string_pretty(&s).unwrap();
             let back: Schema = serde_json::from_str(&json).unwrap();
             assert_eq!(s, back);

@@ -1,21 +1,20 @@
-//! Bridge between the `impress-service-core` inventory of
-//! [`McpToolDescriptor`]s and the MCP JSON-RPC server.
+//! Bridge between the `impress-capabilities` inventory (ADR-0033 D4) and the
+//! MCP JSON-RPC server.
 //!
-//! Phase 3B: each `#[impress_service]` trait method registers an
-//! `McpToolDescriptor` via the `inventory` crate. Simply depending on the
-//! per-app `*-service` crates (e.g. `imbib-service`, `imprint-service`)
-//! causes those entries to be linked into this binary at compile time.
-//!
-//! Here we expose two helpers used by `server.rs`:
+//! Phase 3B linked the `#[impress_service]` inventory directly into this
+//! binary; ADR-0033 D4 / plan S2 moved that linking — and the lookup/dispatch
+//! logic that used to live in this file — into `crates/impress-capabilities`,
+//! the one place it happens now, shared with `impress-cli` (and, later, the
+//! FFI's `kit` build). This file is a thin wrapper: same function names, same
+//! signatures, same error strings, so `server.rs` needed no change for the
+//! move.
 //!
 //! * [`inventory_tool_definitions`] — returns the MCP-protocol JSON shape
 //!   (`{name, description, inputSchema}`) for every descriptor registered
 //!   in this binary, suitable for splicing into `tools/list`.
 //! * [`call_inventory_tool`] — looks up a descriptor by name and invokes
-//!   its async handler synchronously via
-//!   [`impress_service_core::runtime::block_on`].
+//!   its async handler synchronously via `impress_capabilities::call`.
 
-use impress_service_core::{runtime, McpToolDescriptor};
 use serde_json::{json, Value};
 
 /// Build the `tools/list` JSON for every inventory-registered descriptor.
@@ -23,7 +22,7 @@ use serde_json::{json, Value};
 /// The shape matches the MCP protocol's tool descriptor:
 /// `{ "name", "description", "inputSchema" }`.
 pub fn inventory_tool_definitions() -> Vec<Value> {
-    McpToolDescriptor::iter()
+    impress_capabilities::descriptors()
         .map(|d| {
             json!({
                 "name": d.name,
@@ -38,12 +37,14 @@ pub fn inventory_tool_definitions() -> Vec<Value> {
 /// diagnostics.
 #[allow(dead_code)]
 pub fn inventory_tool_names() -> Vec<&'static str> {
-    McpToolDescriptor::iter().map(|d| d.name).collect()
+    impress_capabilities::descriptors()
+        .map(|d| d.name)
+        .collect()
 }
 
 /// True if `name` matches an inventory-registered tool.
 pub fn is_inventory_tool(name: &str) -> bool {
-    McpToolDescriptor::iter().any(|d| d.name == name)
+    impress_capabilities::find(name).is_some()
 }
 
 /// Invoke an inventory tool synchronously.
@@ -55,13 +56,13 @@ pub fn is_inventory_tool(name: &str) -> bool {
 /// Errors:
 /// * `"Unknown tool: <name>"` — no descriptor with that name is registered.
 /// * `"<descriptor>: <handler error>"` — the handler future returned `Err`.
+///
+/// These are exactly [`impress_capabilities::CallError`]'s two `Display`
+/// forms; this function stays `Result<Value, String>` (rather than
+/// `Result<Value, CallError>`) because `server.rs` threads the error straight
+/// into `wrap_text_result`, which wants a `String`.
 pub fn call_inventory_tool(name: &str, args: Value) -> Result<Value, String> {
-    let descriptor = McpToolDescriptor::iter()
-        .find(|d| d.name == name)
-        .ok_or_else(|| format!("Unknown tool: {name}"))?;
-
-    let future = (descriptor.handler)(args);
-    runtime::block_on(future).map_err(|e| format!("{}: {}", descriptor.name, e))
+    impress_capabilities::call(name, args).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -70,8 +71,9 @@ mod tests {
 
     #[test]
     fn imbib_service_tools_are_linked_in() {
-        // Pulling in `imbib-service` as a dependency should cause its
-        // five `#[impress_method]` entries to appear in the inventory.
+        // Pulling in `impress-capabilities` with `features = ["full"]`
+        // (Cargo.toml) should cause imbib-service's five `#[impress_method]`
+        // entries to appear in the inventory.
         let names = inventory_tool_names();
         for expected in [
             "imbib-text-service_decode-latex",

@@ -11,8 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use impress_core::item::ItemId;
-use impress_core::pane_query::RecordKindId;
+use impress_pane_query::{ItemId, RecordKindId};
 use serde::{Deserialize, Serialize};
 
 /// Per channel number (`1..=8`), per record kind, the current selection.

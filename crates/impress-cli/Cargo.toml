@@ -11,20 +11,26 @@ name = "impress"
 path = "src/main.rs"
 
 [dependencies]
-# Linking impress-store-service pulls its inventory submissions (the
-# collection kernel, triage, store query and docs-import subcommands) into
-# the final binary, where this CLI iterates them at startup.
+# ADR-0033 D4 / plan S2: the ONE place the `#[impress_service]` inventory is
+# linked, `features = ["full"]` so this binary keeps linking every capability
+# the old per-crate force-link consts below it did (impress-ai-service,
+# impress-layout-service, impress-parsers-service,
+# impress-smart-search-service, impress-memory-service, and
+# impress-store-service's DocsImportService, alongside everything else `full`
+# names). `main.rs`'s CLI dispatch walks `CliSubcommand::iter()` (via
+# `impress_service_core::cli`) against this same process-wide inventory, and
+# that real call is what keeps `impress-capabilities` — and, transitively,
+# everything it names — out of the linker's dead-code path.
+impress-capabilities = { workspace = true, features = ["full"] }
+# `take_store_path` below calls `impress_store_service::set_store_path`
+# directly, beyond what the inventory alone needs — kept as a direct
+# dependency for that.
 impress-store-service = { workspace = true }
-impress-ai-service = { workspace = true }
-# ADR-0031 D8 layout verbs: split / move / retype / save / recall over the
-# shared store, so an agent can arrange a workspace from a shell.
-impress-layout-service = { workspace = true }
-# The smart-search verbs belong to no app (pure functions over strings), so
-# the store-generic binary is their CLI host.
-impress-parsers-service = { workspace = true }
-impress-smart-search-service = { workspace = true }
 # ADR-0028 memory kernel P2: remember/recall/brief/confirm/supersede/forget.
-# Belongs to no app either — the shared store is its host, like the others.
+# Kept as a direct dependency for the same reason `impress-mcp` keeps it:
+# `impress-capabilities`'s `memory` feature deliberately does NOT enable
+# `vector-embedder` (it would drag ort-sys/ONNX into every `full` build), so
+# this binary enables it itself to keep the vector tier it always had.
 impress-memory-service = { workspace = true, features = ["vector-embedder"] }
 impress-service-core = { workspace = true, features = ["cli"] }
 serde_json = { workspace = true }

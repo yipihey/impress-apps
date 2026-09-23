@@ -1667,6 +1667,14 @@ public protocol SharedLayoutProtocol : AnyObject {
     func setDebounceMs(millis: UInt32) 
     
     /**
+     * How often the feed polls `SqliteItemStore::data_version()` to notice
+     * writes made by another process or another store handle on the same
+     * file (ADR-0033 D6 — see the module docs). Default
+     * [`EXTERNAL_POLL_MS`]. Set before subscribing.
+     */
+    func setExternalPollMs(millis: UInt32) 
+    
+    /**
      * Collect invalidations for this many seconds after `subscribe_invalidations`
      * without delivering any, then deliver one batch.
      *
@@ -1953,6 +1961,19 @@ open func select(pane: UInt64, kind: String, ids: [String], actor: String)throws
      */
 open func setDebounceMs(millis: UInt32) {try! rustCall() {
     uniffi_impress_store_ffi_fn_method_sharedlayout_set_debounce_ms(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(millis),$0
+    )
+}
+}
+    
+    /**
+     * How often the feed polls `SqliteItemStore::data_version()` to notice
+     * writes made by another process or another store handle on the same
+     * file (ADR-0033 D6 — see the module docs). Default
+     * [`EXTERNAL_POLL_MS`]. Set before subscribing.
+     */
+open func setExternalPollMs(millis: UInt32) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_set_external_poll_ms(self.uniffiClonePointer(),
         FfiConverterUInt32.lower(millis),$0
     )
 }
@@ -4304,6 +4325,369 @@ public func FfiConverterTypeSharedStore_lift(_ pointer: UnsafeMutableRawPointer)
 #endif
 public func FfiConverterTypeSharedStore_lower(_ value: SharedStore) -> UnsafeMutableRawPointer {
     return FfiConverterTypeSharedStore.lower(value)
+}
+
+
+
+
+/**
+ * One store's worth of agent surfaces, bound to an open [`SharedStore`] and
+ * a resolved `host`.
+ *
+ * Construct it once per app launch and keep it: like `SharedLayout`, it
+ * holds the session registry where each `(surface, host)` instance's live
+ * state and source cache live for the duration of this sitting.
+ */
+public protocol SharedSurfaceProtocol : AnyObject {
+    
+    /**
+     * Reduce one renderer event, run its effects, and re-render — the JSON
+     * is exactly [`impress_surface_service::dto::SurfaceDispatchResult`]'s
+     * shape (`{"ok", "message", "tree", "effects"}`), so Swift and MCP read
+     * one document. `event_json` is `impress_surface::Event` JSON
+     * (`{"widget", "kind", "value"}`). `pane`, when given, is bound first —
+     * see [`Self::render`].
+     *
+     * Only a malformed `surface_id`/`event_json` fails as `Err`: a refused
+     * dispatch (no such surface, a `reduce` error) comes back `Ok` with
+     * `ok: false` in the JSON, because [`SurfaceDispatchResult`] always
+     * carries that field and a caller reading the same shape from MCP would
+     * see the same thing.
+     */
+    func dispatch(surfaceId: String, pane: UInt64?, eventJson: String) throws  -> String
+    
+    /**
+     * This object's resolved host/device tag.
+     */
+    func host()  -> String
+    
+    /**
+     * Every stored surface, for a pane's title or a picker.
+     */
+    func list() throws  -> [SharedSurfaceRow]
+    
+    /**
+     * The resolved render tree for `(surface_id, this object's host)` —
+     * exactly what a renderer turns into pixels, as JSON
+     * (`serde_json::to_string(&RenderTree)`). Runs every stale source
+     * through the linked inventory / the store first. When `pane` is given,
+     * records it as this instance's [`PaneHandle`] first (see the module
+     * docs) — so a `publish`/`open` action the render loop had queued from
+     * an EARLIER dispatch still has somewhere to land once a pane is known,
+     * and any renderer that shows this surface before its own `surface_show`
+     * leaves this object with an answer either way.
+     */
+    func render(surfaceId: String, pane: UInt64?) throws  -> String
+    
+    /**
+     * See `SharedLayout::set_debounce_ms`. Set before subscribing.
+     */
+    func setDebounceMs(millis: UInt32) 
+    
+    /**
+     * See `SharedLayout::set_external_poll_ms`. Set before subscribing.
+     */
+    func setExternalPollMs(millis: UInt32) 
+    
+    /**
+     * See `SharedLayout::set_startup_grace_secs`. Set before subscribing.
+     */
+    func setStartupGraceSecs(secs: UInt32) 
+    
+    /**
+     * The stored spec JSON of one surface — `serde_json::to_string(&SurfaceSpec)`.
+     */
+    func spec(surfaceId: String) throws  -> String
+    
+    /**
+     * Start (or restart) the invalidation feed. See the module docs.
+     */
+    func subscribe(listener: SharedSurfaceListener) throws 
+    
+    /**
+     * Route one `/api/surface/…` request. `path` may carry a query string
+     * (`?pane=7`, `?after=12`); `body` is the raw request body, ignored for
+     * methods that do not take one. Every response is JSON; a failure is
+     * `{"error": "…"}` at 400 or 404 (see [`status_for`]) except
+     * `POST …/validate`, whose 400 carries `{"problems": […]}` — the same
+     * shape a 200 from it would, so a caller never has to branch on status
+     * to read what is wrong.
+     */
+    func surfaceHttp(method: String, path: String, body: String)  -> SharedHttpReply
+    
+    /**
+     * Stop the feed. Idempotent; `SharedSurface`'s `Drop` does it too.
+     */
+    func unsubscribe() 
+    
+}
+
+/**
+ * One store's worth of agent surfaces, bound to an open [`SharedStore`] and
+ * a resolved `host`.
+ *
+ * Construct it once per app launch and keep it: like `SharedLayout`, it
+ * holds the session registry where each `(surface, host)` instance's live
+ * state and source cache live for the duration of this sitting.
+ */
+open class SharedSurface:
+    SharedSurfaceProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_impress_store_ffi_fn_clone_sharedsurface(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_impress_store_ffi_fn_free_sharedsurface(pointer, $0) }
+    }
+
+    
+    /**
+     * Bind to the surfaces of the given `store`. `host` defaults to the
+     * layout device id when empty — see the module docs.
+     */
+public static func `open`(store: SharedStore, host: String) -> SharedSurface {
+    return try!  FfiConverterTypeSharedSurface.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_constructor_sharedsurface_open(
+        FfiConverterTypeSharedStore.lower(store),
+        FfiConverterString.lower(host),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Reduce one renderer event, run its effects, and re-render — the JSON
+     * is exactly [`impress_surface_service::dto::SurfaceDispatchResult`]'s
+     * shape (`{"ok", "message", "tree", "effects"}`), so Swift and MCP read
+     * one document. `event_json` is `impress_surface::Event` JSON
+     * (`{"widget", "kind", "value"}`). `pane`, when given, is bound first —
+     * see [`Self::render`].
+     *
+     * Only a malformed `surface_id`/`event_json` fails as `Err`: a refused
+     * dispatch (no such surface, a `reduce` error) comes back `Ok` with
+     * `ok: false` in the JSON, because [`SurfaceDispatchResult`] always
+     * carries that field and a caller reading the same shape from MCP would
+     * see the same thing.
+     */
+open func dispatch(surfaceId: String, pane: UInt64?, eventJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedSurfaceError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_dispatch(self.uniffiClonePointer(),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterOptionUInt64.lower(pane),
+        FfiConverterString.lower(eventJson),$0
+    )
+})
+}
+    
+    /**
+     * This object's resolved host/device tag.
+     */
+open func host() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_host(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Every stored surface, for a pane's title or a picker.
+     */
+open func list()throws  -> [SharedSurfaceRow] {
+    return try  FfiConverterSequenceTypeSharedSurfaceRow.lift(try rustCallWithError(FfiConverterTypeSharedSurfaceError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_list(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The resolved render tree for `(surface_id, this object's host)` —
+     * exactly what a renderer turns into pixels, as JSON
+     * (`serde_json::to_string(&RenderTree)`). Runs every stale source
+     * through the linked inventory / the store first. When `pane` is given,
+     * records it as this instance's [`PaneHandle`] first (see the module
+     * docs) — so a `publish`/`open` action the render loop had queued from
+     * an EARLIER dispatch still has somewhere to land once a pane is known,
+     * and any renderer that shows this surface before its own `surface_show`
+     * leaves this object with an answer either way.
+     */
+open func render(surfaceId: String, pane: UInt64?)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedSurfaceError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_render(self.uniffiClonePointer(),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterOptionUInt64.lower(pane),$0
+    )
+})
+}
+    
+    /**
+     * See `SharedLayout::set_debounce_ms`. Set before subscribing.
+     */
+open func setDebounceMs(millis: UInt32) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_set_debounce_ms(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(millis),$0
+    )
+}
+}
+    
+    /**
+     * See `SharedLayout::set_external_poll_ms`. Set before subscribing.
+     */
+open func setExternalPollMs(millis: UInt32) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_set_external_poll_ms(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(millis),$0
+    )
+}
+}
+    
+    /**
+     * See `SharedLayout::set_startup_grace_secs`. Set before subscribing.
+     */
+open func setStartupGraceSecs(secs: UInt32) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_set_startup_grace_secs(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(secs),$0
+    )
+}
+}
+    
+    /**
+     * The stored spec JSON of one surface — `serde_json::to_string(&SurfaceSpec)`.
+     */
+open func spec(surfaceId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedSurfaceError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_spec(self.uniffiClonePointer(),
+        FfiConverterString.lower(surfaceId),$0
+    )
+})
+}
+    
+    /**
+     * Start (or restart) the invalidation feed. See the module docs.
+     */
+open func subscribe(listener: SharedSurfaceListener)throws  {try rustCallWithError(FfiConverterTypeSharedSurfaceError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_subscribe(self.uniffiClonePointer(),
+        FfiConverterCallbackInterfaceSharedSurfaceListener.lower(listener),$0
+    )
+}
+}
+    
+    /**
+     * Route one `/api/surface/…` request. `path` may carry a query string
+     * (`?pane=7`, `?after=12`); `body` is the raw request body, ignored for
+     * methods that do not take one. Every response is JSON; a failure is
+     * `{"error": "…"}` at 400 or 404 (see [`status_for`]) except
+     * `POST …/validate`, whose 400 carries `{"problems": […]}` — the same
+     * shape a 200 from it would, so a caller never has to branch on status
+     * to read what is wrong.
+     */
+open func surfaceHttp(method: String, path: String, body: String) -> SharedHttpReply {
+    return try!  FfiConverterTypeSharedHttpReply.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_surface_http(self.uniffiClonePointer(),
+        FfiConverterString.lower(method),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(body),$0
+    )
+})
+}
+    
+    /**
+     * Stop the feed. Idempotent; `SharedSurface`'s `Drop` does it too.
+     */
+open func unsubscribe() {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_unsubscribe(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSurface: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = SharedSurface
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedSurface {
+        return SharedSurface(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: SharedSurface) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSurface {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: SharedSurface, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSurface_lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedSurface {
+    return try FfiConverterTypeSharedSurface.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSurface_lower(_ value: SharedSurface) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeSharedSurface.lower(value)
 }
 
 
@@ -8999,6 +9383,76 @@ public func FfiConverterTypeSharedFieldEq_lower(_ value: SharedFieldEq) -> RustB
 
 
 /**
+ * [`SharedSurface::surface_http`]'s answer: enough for the Swift automation
+ * router to hand straight to its own HTTP response type.
+ */
+public struct SharedHttpReply {
+    public var status: UInt16
+    public var body: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: UInt16, body: String) {
+        self.status = status
+        self.body = body
+    }
+}
+
+
+
+extension SharedHttpReply: Equatable, Hashable {
+    public static func ==(lhs: SharedHttpReply, rhs: SharedHttpReply) -> Bool {
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.body != rhs.body {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(status)
+        hasher.combine(body)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedHttpReply: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedHttpReply {
+        return
+            try SharedHttpReply(
+                status: FfiConverterUInt16.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedHttpReply, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.status, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedHttpReply_lift(_ buf: RustBuffer) throws -> SharedHttpReply {
+    return try FfiConverterTypeSharedHttpReply.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedHttpReply_lower(_ value: SharedHttpReply) -> RustBuffer {
+    return FfiConverterTypeSharedHttpReply.lower(value)
+}
+
+
+/**
  * One publication returned by at least one of imbib's three retrieval engines.
  *
  * A `nil` score means that engine did not return this publication. That is
@@ -11485,6 +11939,92 @@ public func FfiConverterTypeSharedSkippedFile_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeSharedSkippedFile_lower(_ value: SharedSkippedFile) -> RustBuffer {
     return FfiConverterTypeSharedSkippedFile.lower(value)
+}
+
+
+/**
+ * One surface row, for a picker or a pane's title — never the spec (see
+ * [`SharedSurface::spec`] for the full document).
+ */
+public struct SharedSurfaceRow {
+    public var id: String
+    public var name: String
+    public var version: String?
+    public var tags: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, version: String?, tags: [String]) {
+        self.id = id
+        self.name = name
+        self.version = version
+        self.tags = tags
+    }
+}
+
+
+
+extension SharedSurfaceRow: Equatable, Hashable {
+    public static func ==(lhs: SharedSurfaceRow, rhs: SharedSurfaceRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.version != rhs.version {
+            return false
+        }
+        if lhs.tags != rhs.tags {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(version)
+        hasher.combine(tags)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSurfaceRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSurfaceRow {
+        return
+            try SharedSurfaceRow(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                version: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedSurfaceRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterOptionString.write(value.version, into: &buf)
+        FfiConverterSequenceString.write(value.tags, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSurfaceRow_lift(_ buf: RustBuffer) throws -> SharedSurfaceRow {
+    return try FfiConverterTypeSharedSurfaceRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSurfaceRow_lower(_ value: SharedSurfaceRow) -> RustBuffer {
+    return FfiConverterTypeSharedSurfaceRow.lower(value)
 }
 
 
@@ -14165,6 +14705,79 @@ extension SharedStoreError: Foundation.LocalizedError {
 }
 
 
+public enum SharedSurfaceError {
+
+    
+    
+    /**
+     * A verb was refused by the store, the runtime, or the linked
+     * inventory: no such surface, a `reduce` error, a store write that
+     * failed.
+     */
+    case Surface(message: String
+    )
+    /**
+     * A JSON argument or result would not parse.
+     */
+    case Json(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSurfaceError: FfiConverterRustBuffer {
+    typealias SwiftType = SharedSurfaceError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSurfaceError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Surface(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Json(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SharedSurfaceError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Surface(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Json(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension SharedSurfaceError: Equatable, Hashable {}
+
+extension SharedSurfaceError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
 
 
 /**
@@ -14277,6 +14890,114 @@ fileprivate struct FfiConverterCallbackInterfaceSharedLayoutListener {
 #endif
 extension FfiConverterCallbackInterfaceSharedLayoutListener : FfiConverter {
     typealias SwiftType = SharedLayoutListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+
+
+/**
+ * What Swift implements to be told a surface changed — its spec, its state,
+ * or its event ring. Arrives on the feed's own thread; hop to the main
+ * actor before touching a view (same rule `SharedLayoutListener` documents).
+ */
+public protocol SharedSurfaceListener : AnyObject {
+    
+    /**
+     * Deduplicated surface ids (as strings) that changed since the last
+     * delivery, coalesced over the debounce window.
+     */
+    func surfacesChanged(ids: [String]) 
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceSharedSurfaceListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceSharedSurfaceListener = UniffiVTableCallbackInterfaceSharedSurfaceListener(
+        surfacesChanged: { (
+            uniffiHandle: UInt64,
+            ids: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedSurfaceListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.surfacesChanged(
+                     ids: try FfiConverterSequenceString.lift(ids)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceSharedSurfaceListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface SharedSurfaceListener: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitSharedSurfaceListener() {
+    uniffi_impress_store_ffi_fn_init_callback_vtable_sharedsurfacelistener(&UniffiCallbackInterfaceSharedSurfaceListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceSharedSurfaceListener {
+    fileprivate static var handleMap = UniffiHandleMap<SharedSurfaceListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceSharedSurfaceListener : FfiConverter {
+    typealias SwiftType = SharedSurfaceListener
     typealias FfiType = UInt64
 
 #if swift(>=5.8)
@@ -15717,6 +16438,31 @@ fileprivate struct FfiConverterSequenceTypeSharedSkippedFile: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedSurfaceRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedSurfaceRow]
+
+    public static func write(_ value: [SharedSurfaceRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedSurfaceRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedSurfaceRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedSurfaceRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedSurfaceRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedWatchedFile: FfiConverterRustBuffer {
     typealias SwiftType = [SharedWatchedFile]
 
@@ -16068,6 +16814,27 @@ public func supportedManuscriptFormats() -> [String] {
     )
 })
 }
+/**
+ * The signal-explorer worked example's spec JSON — `surface_schema`'s
+ * `example` field alone.
+ */
+public func surfaceExampleJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_surface_example_json($0
+    )
+})
+}
+/**
+ * The `SurfaceSpec` JSON Schema — `surface_schema`'s `schema` field alone,
+ * for a host that wants it without opening a store (mirrors `layout.rs`'s
+ * `compile_pane_query`-style free functions).
+ */
+public func surfaceSchemaJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_surface_schema_json($0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -16100,6 +16867,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_surface_example_json() != 30608) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_surface_schema_json() != 26029) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_aichatstream_cancel() != 3623) {
@@ -16274,6 +17047,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_set_debounce_ms() != 3488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_set_external_poll_ms() != 4637) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_set_startup_grace_secs() != 34653) {
@@ -16564,6 +17340,39 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_record_produced() != 53538) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_dispatch() != 35165) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_host() != 58823) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_list() != 4236) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_render() != 19692) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_set_debounce_ms() != 4617) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_set_external_poll_ms() != 47279) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_set_startup_grace_secs() != 6946) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_spec() != 53585) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_subscribe() != 63432) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 30733) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_unsubscribe() != 53229) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedairegistry_open() != 13818) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16579,14 +17388,21 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open_in_memory() != 51392) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_constructor_sharedsurface_open() != 9026) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_panes_invalidated() != 34210) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_layout_changed() != 36108) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 2563) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitSharedLayoutListener()
+    uniffiCallbackInitSharedSurfaceListener()
     return InitializationResult.ok
 }()
 

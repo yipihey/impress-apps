@@ -5192,6 +5192,67 @@ impl SqliteItemStore {
             .push(tx);
         Ok(rx)
     }
+
+    /// `PRAGMA data_version` on this store's own (writer) connection
+    /// (ADR-0033 D6).
+    ///
+    /// SQLite bumps a connection's `data_version` whenever a DIFFERENT
+    /// connection commits a write to the database file — including another
+    /// `SqliteItemStore` handle opened on the same path, in this process or
+    /// another. It does **not** move when this connection is the one doing
+    /// the writing. That asymmetry is exactly what's needed to detect writes
+    /// from *outside* this store handle without re-querying every row: read
+    /// it once, remember the number, and a change means "someone else wrote
+    /// since I last looked."
+    ///
+    /// Deliberately reads through the writer connection (`self.conn`), not
+    /// the reader pool: writes in this process always go through the writer,
+    /// so only the writer's `data_version` has the "not for my own writes"
+    /// property. A pooled reader is a separate connection and would also
+    /// move on this store's own commits, defeating the purpose.
+    ///
+    /// Cheap and does no I/O beyond the pragma itself — safe to poll.
+    pub fn data_version(&self) -> Result<i64, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        conn.query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(|e| StoreError::Storage(format!("data_version: {}", e)))
+    }
+
+    /// Items whose `schema_ref` starts with `schema_ref_prefix` and whose
+    /// `modified` timestamp (store epoch milliseconds) is strictly greater
+    /// than `since_ms`, oldest-modified first.
+    ///
+    /// Built for the FFI invalidation feed's external-poll path (ADR-0033
+    /// D6): when [`Self::data_version`] moves, the feed reads
+    /// `items_modified_since("impress/ui/", high_water_mark)` to find what
+    /// another connection wrote, in modification order, so it can advance
+    /// the mark to the last timestamp it actually consumed.
+    pub fn items_modified_since(
+        &self,
+        schema_ref_prefix: &str,
+        since_ms: i64,
+    ) -> Result<Vec<Item>, StoreError> {
+        self.with_read(|conn| {
+            let sql = format!(
+                "SELECT {} FROM items WHERE schema_ref LIKE ?1 || '%' AND modified > ?2 ORDER BY modified ASC",
+                ITEM_COLUMNS
+            );
+            let mut stmt = conn.prepare_cached(&sql).map_err(|e| {
+                StoreError::Storage(format!("prepare items_modified_since: {}", e))
+            })?;
+            let result = stmt
+                .query_map(params![schema_ref_prefix, since_ms], |row| {
+                    Ok(Self::row_to_item(conn, row))
+                })
+                .map_err(|e| StoreError::Storage(format!("items_modified_since: {}", e)))?
+                .collect::<Result<Result<Vec<_>, _>, _>>()
+                .map_err(|e| StoreError::Storage(format!("collect items_modified_since: {}", e)))?;
+            result
+        })
+    }
 }
 
 impl SqliteItemStore {
@@ -6080,7 +6141,7 @@ mod tests {
         // …and a pane scoped to that collection wakes for it, while one
         // scoped to another kind does not. This is the whole of L4 in one
         // assertion.
-        let manifest = crate::pane_query::KindManifest::builtin();
+        let manifest = crate::pane_query::builtin_manifest();
         let in_collection = crate::pane_query::compile(
             &crate::pane_query::PaneQuery {
                 kinds: vec!["publication".into()],
@@ -6193,7 +6254,7 @@ mod tests {
             },
             &[],
             &crate::pane_query::Bindings::new(),
-            &crate::pane_query::KindManifest::builtin(),
+            &crate::pane_query::builtin_manifest(),
         )
         .unwrap();
         assert!(in_a.invalidation.is_affected_by(&moved));
@@ -6331,7 +6392,7 @@ mod tests {
 
         // The point of the whole exercise: the pane scoped to that
         // collection re-runs, and the one over another kind does not.
-        let manifest = crate::pane_query::KindManifest::builtin();
+        let manifest = crate::pane_query::builtin_manifest();
         let in_collection = crate::pane_query::compile(
             &crate::pane_query::PaneQuery {
                 kinds: vec!["publication".into()],
@@ -8514,5 +8575,72 @@ mod tests {
             OPERATES_ON_EDGE,
             serde_json::to_string(&EdgeType::OperatesOn).unwrap()
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Cross-process liveness (ADR-0033 D6, work package S5)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// `data_version` moves on handle B when handle A writes, but never moves
+    /// on A's own connection for A's own writes. `:memory:` cannot show this
+    /// (private to one connection), so both handles open the SAME temp file.
+    #[test]
+    fn data_version_moves_for_other_connections_writes_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data_version.sqlite");
+
+        let a = SqliteItemStore::open(&path).unwrap();
+        let b = SqliteItemStore::open(&path).unwrap();
+
+        let a_before = a.data_version().unwrap();
+        let b_before = b.data_version().unwrap();
+
+        a.insert(make_item("impress/ui/layout@1.0.0", "layout"))
+            .unwrap();
+
+        assert_eq!(
+            a.data_version().unwrap(),
+            a_before,
+            "a connection's own write must not move its own data_version"
+        );
+        assert_ne!(
+            b.data_version().unwrap(),
+            b_before,
+            "another connection's write must move this connection's data_version"
+        );
+    }
+
+    /// `items_modified_since` sees, from a SECOND handle on the same file,
+    /// the row the first handle wrote — matching on the schema-ref prefix and
+    /// the modified-timestamp watermark, oldest first.
+    #[test]
+    fn items_modified_since_sees_another_connections_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("modified_since.sqlite");
+
+        let a = SqliteItemStore::open(&path).unwrap();
+        let b = SqliteItemStore::open(&path).unwrap();
+
+        let since_ms = Utc::now().timestamp_millis() - 1;
+
+        // A row of a different kind must not match the prefix.
+        a.insert(make_item("imbib/bibliography-entry", "not ui"))
+            .unwrap();
+        let id = a
+            .insert(make_item("impress/ui/layout@1.0.0", "layout"))
+            .unwrap();
+
+        let seen = b.items_modified_since("impress/ui/", since_ms).unwrap();
+        assert_eq!(seen.len(), 1, "only the impress/ui/ row should match");
+        assert_eq!(seen[0].id, id);
+        assert_eq!(seen[0].schema, "impress/ui/layout@1.0.0");
+
+        // Advancing the watermark to (at least) what was just returned finds
+        // nothing more — the pattern the feed's high-water mark relies on.
+        let high_water_mark = seen[0].modified.timestamp_millis();
+        assert!(b
+            .items_modified_since("impress/ui/", high_water_mark)
+            .unwrap()
+            .is_empty());
     }
 }

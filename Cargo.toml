@@ -70,6 +70,20 @@ members = [
     # split/move/retype/save/recall together. Depends on impress-layout for
     # the tree and impress-core for the `impress/ui/layout@1.0.0` rows.
     "crates/impress-layout-service",
+    # the ADR-0031 D2 pane-query algebra, free of impress-core (ADR-0033 D7)
+    "crates/impress-pane-query",
+    # ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure
+    "crates/impress-surface",
+    # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
+    "crates/impress-capabilities",
+    # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
+    # surface, surface-demo) split out so impress-store-ffi can depend on it
+    # without the impress-capabilities package cycle (plan-agent-surfaces.md S6)
+    "crates/impress-capabilities-kit",
+    # ADR-0033 surface verbs, store records and runtime
+    "crates/impress-surface-service",
+    # ADR-0033 D8 demo capability: the scaffold's output and the worked example
+    "crates/surface-demo-service",
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
     # impress-embeddings - the suite's embedding stack (sidecar vector/chunk
@@ -180,6 +194,12 @@ imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-layout = { path = "crates/impress-layout" }
 impress-layout-service = { path = "crates/impress-layout-service" }
+impress-pane-query = { path = "crates/impress-pane-query" }
+impress-surface = { path = "crates/impress-surface" }
+impress-capabilities = { path = "crates/impress-capabilities" }
+impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
+impress-surface-service = { path = "crates/impress-surface-service" }
+surface-demo-service = { path = "crates/surface-demo-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and

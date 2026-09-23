@@ -86,11 +86,28 @@ pub struct LayoutSession {
     pub item_id: ItemId,
     pub layout: Layout,
     pub undo: UndoStacks,
+    /// The registry's write generation, bumped by every mutation below so a
+    /// renderer sharing the registry learns the tree moved under it. See
+    /// [`SessionRegistry::generation`].
+    pub(crate) generation: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl LayoutSession {
+    fn note_write(&self) {
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl LayoutSession {
     /// Apply a verb, recording its patch on the ring [`stack_for`] chooses.
     pub fn apply(&mut self, verb: Verb) -> Result<AppliedVerb, LayoutError> {
+        let applied = self.apply_inner(verb)?;
+        self.note_write();
+        Ok(applied)
+    }
+
+    fn apply_inner(&mut self, verb: Verb) -> Result<AppliedVerb, LayoutError> {
         let window = self.layout.current_window()?;
 
         // Resolved BEFORE the verb runs, for the same reason `UndoStacks::apply`
@@ -152,19 +169,27 @@ impl LayoutSession {
     /// with nothing to undo is a no-op everywhere else in macOS too.
     pub fn undo(&mut self, target: &UndoTarget) -> Result<Option<Patch>, LayoutError> {
         let pane = self.ring_pane(target)?;
-        Ok(match pane {
+        let stepped = match pane {
             Some(tile) => self.undo.undo_exploration(&mut self.layout, tile),
             None => self.undo.undo_arrangement(&mut self.layout),
-        })
+        };
+        if stepped.is_some() {
+            self.note_write();
+        }
+        Ok(stepped)
     }
 
     /// Redo on one ring.
     pub fn redo(&mut self, target: &UndoTarget) -> Result<Option<Patch>, LayoutError> {
         let pane = self.ring_pane(target)?;
-        Ok(match pane {
+        let stepped = match pane {
             Some(tile) => self.undo.exploration_ring(tile).redo(&mut self.layout),
             None => self.undo.arrangement.redo(&mut self.layout),
-        })
+        };
+        if stepped.is_some() {
+            self.note_write();
+        }
+        Ok(stepped)
     }
 
     /// Forget both rings.
@@ -182,6 +207,7 @@ impl LayoutSession {
     pub fn replace(&mut self, layout: Layout) {
         self.layout = layout;
         self.undo = UndoStacks::new(self.undo.capacity);
+        self.note_write();
     }
 
     /// The focused leaf of `window`, or of whatever window survived.
@@ -232,11 +258,27 @@ type SessionMap = HashMap<(String, String), LayoutSession>;
 #[derive(Default)]
 pub struct SessionRegistry {
     sessions: Mutex<SessionMap>,
+    /// Bumped by every session mutation made through this registry — see
+    /// [`Self::generation`]. An `Arc` so each session can hold a handle and
+    /// bump it without reaching back through the registry's lock.
+    generation: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl SessionRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// How many live-row writes this registry has made. A renderer that
+    /// SHARES the registry with other writers in its process (ADR-0033 D6:
+    /// a surface's `open`/`publish` effect composes layout verbs) polls
+    /// this to learn the tree changed under it — the in-process mutation
+    /// channel reports the write as a pane invalidation, not as a tree
+    /// change, and `PRAGMA data_version` is silent for the connection's own
+    /// writes, so without this number a pane a surface opened sat in the
+    /// store, in this very process, invisible to the window (2026-09-23).
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The shared registry, matching `store_instance()`'s shape.
@@ -274,6 +316,7 @@ impl SessionRegistry {
                     item_id,
                     layout,
                     undo: UndoStacks::default(),
+                    generation: self.generation.clone(),
                 },
             );
         }

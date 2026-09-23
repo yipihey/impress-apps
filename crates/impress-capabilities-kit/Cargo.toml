@@ -1,0 +1,23 @@
+[package]
+name = "impress-capabilities-kit"
+description = "the ADR-0033 D7 standalone-kit slice of the linked inventory (store, layout, surface, surface-demo), split out of impress-capabilities so impress-store-ffi can depend on it directly (ADR-0033 D4/D7, plan-agent-surfaces.md S6)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+impress-service-core = { workspace = true }
+# The exact four crates ADR-0033 D7 calls "the kit" among the *-service
+# family (impress-service-core + impress-service-macros, impress-pane-query,
+# impress-layout, impress-surface and their *-service crates are the rest of
+# the standalone cut — those are plain, non-optional deps of the crates
+# below, not repeated here). None of these four reach `impress-store-ffi`:
+# see this crate's module docs and `scripts/check-kit-deps.sh`'s sibling
+# check in the work package report.
+impress-layout-service = { workspace = true }
+impress-store-service = { workspace = true }
+impress-surface-service = { workspace = true }
+surface-demo-service = { workspace = true }

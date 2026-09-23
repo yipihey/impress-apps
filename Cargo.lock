@@ -4425,15 +4425,47 @@ dependencies = [
 ]
 
 [[package]]
-name = "impress-cli"
+name = "impress-capabilities"
 version = "0.1.0"
 dependencies = [
+ "imbib-service",
+ "impart-service",
+ "impel-service",
+ "implore-service",
  "impress-ai-service",
- "impress-layout-service",
+ "impress-bridges-service",
+ "impress-capabilities-kit",
  "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
+ "imprint-selftest",
+ "imprint-service",
+ "serde_json",
+ "thiserror 1.0.69",
+ "vw-impress-adapter",
+]
+
+[[package]]
+name = "impress-capabilities-kit"
+version = "0.1.0"
+dependencies = [
+ "impress-layout-service",
+ "impress-service-core",
+ "impress-store-service",
+ "impress-surface-service",
+ "serde_json",
+ "surface-demo-service",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "impress-cli"
+version = "0.1.0"
+dependencies = [
+ "impress-capabilities",
+ "impress-memory-service",
+ "impress-service-core",
  "impress-store-service",
  "serde_json",
 ]
@@ -4457,6 +4489,7 @@ dependencies = [
  "automerge",
  "base64 0.22.1",
  "chrono",
+ "impress-pane-query",
  "proptest",
  "rusqlite",
  "schemars 0.8.22",
@@ -4540,7 +4573,7 @@ dependencies = [
 name = "impress-layout"
 version = "0.1.0"
 dependencies = [
- "impress-core",
+ "impress-pane-query",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4573,30 +4606,20 @@ dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
  "imbib-core",
- "imbib-service",
  "imbib-service-http",
- "impart-service",
  "impart-service-http",
- "impel-service",
- "implore-service",
  "implore-service-http",
- "impress-ai-service",
- "impress-bridges-service",
+ "impress-capabilities",
  "impress-embeddings",
- "impress-layout-service",
  "impress-memory-service",
- "impress-parsers-service",
  "impress-service-core",
- "impress-smart-search-service",
  "impress-store-service",
- "imprint-selftest",
  "imprint-service",
  "imprint-service-http",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
- "vw-impress-adapter",
 ]
 
 [[package]]
@@ -4627,6 +4650,17 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "impress-pane-query"
+version = "0.1.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
  "uuid",
 ]
 
@@ -4752,9 +4786,12 @@ dependencies = [
  "chrono",
  "futures-util",
  "impress-ai",
+ "impress-capabilities-kit",
  "impress-core",
  "impress-layout",
  "impress-layout-service",
+ "impress-surface",
+ "impress-surface-service",
  "serde",
  "serde_json",
  "tempfile",
@@ -4781,6 +4818,40 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "impress-surface"
+version = "0.1.0"
+dependencies = [
+ "impress-pane-query",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
+name = "impress-surface-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-layout",
+ "impress-layout-service",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "impress-surface",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "surface-demo-service",
+ "thiserror 1.0.69",
  "tokio",
  "uuid",
 ]
@@ -8971,6 +9042,21 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "surface-demo-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "imprint-core",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "svgtypes"

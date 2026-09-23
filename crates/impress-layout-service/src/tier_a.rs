@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use impress_core::pane_query::{compile, Bindings, KindManifest, PaneQuery, ParamDecl, Scope};
+use impress_core::pane_query::{builtin_manifest, compile, Bindings, PaneQuery, ParamDecl, Scope};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout::preset::DETAIL_PARAM;
@@ -1898,7 +1898,7 @@ async fn cap_every_shipped_preset_compiles() -> CapabilityResult {
         "every pane of every shipped preset compiles against the record-kind manifest",
         Tier::A,
         || async {
-            let manifest = KindManifest::builtin();
+            let manifest = builtin_manifest();
             let mut checked = 0usize;
             for preset in presets::shipped_presets() {
                 for (name, query) in &preset.queries {

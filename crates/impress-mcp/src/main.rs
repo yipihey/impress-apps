@@ -11,38 +11,16 @@ mod store;
 mod surface;
 mod tools;
 
-// Phase 3B: force the linker to retain the `inventory::submit!` entries
-// that the service crates register at static-init time. Without an
-// explicit reference, dead-code elimination on rlib-only deps can drop
-// the entire crate (and its `ctor`-style submissions with it).
-#[allow(unused_imports)]
-use imbib_service as _force_link_imbib_service;
-#[allow(unused_imports)]
-use impart_service as _force_link_impart_service;
-#[allow(unused_imports)]
-use impel_service as _force_link_impel_service;
-#[allow(unused_imports)]
-use implore_service as _force_link_implore_service;
-#[allow(unused_imports)]
-use impress_ai_service as _force_link_ai_service;
-#[allow(unused_imports)]
-use impress_bridges_service as _force_link_bridges;
-#[allow(unused_imports)]
-use impress_layout_service as _force_link_layout_service;
-#[allow(unused_imports)]
-use impress_memory_service as _force_link_memory_service;
-#[allow(unused_imports)]
-use impress_parsers_service as _force_link_parsers_service;
-#[allow(unused_imports)]
-use impress_smart_search_service as _force_link_smart_search_service;
-#[allow(unused_imports)]
-use impress_store_service as _force_link_store_service;
-#[allow(unused_imports)]
-use imprint_selftest as _force_link_imprint_selftest;
-#[allow(unused_imports)]
-use imprint_service as _force_link_imprint_service;
-#[allow(unused_imports)]
-use vw_impress_adapter as _force_link_vw_diagnostic_service;
+// ADR-0033 D4 / plan S2: the force-link list this comment used to carry
+// (fourteen `use X as _force_link_X;` lines, one per `*-service` crate) has
+// moved to `crates/impress-capabilities`, the one place the
+// `#[impress_service]` inventory is linked now — see that crate's module docs
+// for why the linker needs a reference at all. This binary links it with
+// `features = ["full"]` (Cargo.toml), so it still links every capability it
+// always did; `inventory_bridge` (below) delegates to
+// `impress_capabilities::descriptors()`/`call()`, and those real calls are
+// themselves the reference that keeps `impress-capabilities` — and,
+// transitively, everything it names — out of the linker's dead-code path.
 
 use std::path::PathBuf;
 use tools::ToolContext;

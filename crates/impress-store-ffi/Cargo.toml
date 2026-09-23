@@ -36,6 +36,39 @@ impress-ai.workspace = true
 # never decides anything about the tree.
 impress-layout.workspace = true
 impress-layout-service.workspace = true
+# The ADR-0033 agent-surface tree (S6). `impress-surface` for the pure
+# vocabulary (`Event`, `SurfaceSpec`) this crate's `dispatch`/`spec`/HTTP
+# handlers speak directly; `impress-surface-service` for the store-backed
+# `SurfaceStore`/`SessionRegistry`/`DefaultExecutor`/`DefaultImpressSurfaceService`
+# this crate drives — this crate translates, it never decides anything about
+# a surface (same division `impress-layout`/`impress-layout-service` draw
+# above).
+impress-surface.workspace = true
+impress-surface-service.workspace = true
+# ADR-0033 D4 wants the linked-verb inventory (store + layout + surface +
+# surface-demo) to be ONE dependency edge, shared with `impress-mcp`/
+# `impress-cli`'s `full`. `impress-capabilities` itself is still not that
+# edge for this crate — `impress-capabilities` (regardless of which features
+# are selected — Cargo's cyclic-package check walks every OPTIONAL
+# dependency a manifest lists, feature-gated or not) reaches
+# `impress-bridges-service` -> `imprint-service` -> `impress-app-client` ->
+# `imbib-service-http` -> `impress-store-ffi` (THIS crate, a real,
+# unconditional dependency of `imprint-service` — see that crate's
+# Cargo.toml), so `impress-store-ffi` depending on `impress-capabilities` AT
+# ALL is a cyclic package dependency Cargo refuses to resolve.
+#
+# `impress-capabilities-kit` (ADR-0033 D7 / plan S6) is that edge instead: it
+# holds exactly the four kit service crates and nothing that reaches back to
+# `impress-store-ffi` (verified with `cargo tree -p impress-capabilities-kit
+# -e normal | grep -c impress-store-ffi` == 0), so it is not part of the
+# cycle above. `impress-layout-service` and `impress-surface-service` stay as
+# their own direct dependencies too, above, because `layout.rs`/`surface.rs`
+# name their types directly (`DefaultLayoutService`,
+# `SurfaceStore`/`SessionRegistry`/`DefaultExecutor`) — this one dependency
+# is what replaces the two force-linked-by-hand crates (`impress-store-service`,
+# `surface-demo-service`) that had no real reference anywhere in this crate;
+# see `lib.rs`'s force-link comment for the mechanism.
+impress-capabilities-kit.workspace = true
 futures-util = "0.3"
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }

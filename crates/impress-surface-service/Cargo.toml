@@ -1,0 +1,51 @@
+[package]
+name = "impress-surface-service"
+description = "ADR-0033 surface verbs, store records and runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `sqlite`: this crate owns the store side of a surface (the
+# `impress/ui/surface@1.0.0` / `-state` / `-event` rows). `schema`: the DTOs
+# that cross the `#[impress_method]` boundary need `schemars::JsonSchema`.
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# The pure vocabulary: `SurfaceSpec`, `validate`, `plan`, `resolve`, `reduce`.
+# `schema` so `SurfaceSpec` and friends publish their JSON schema, which
+# `surface_schema` hands back verbatim.
+impress-surface = { workspace = true, features = ["schema"] }
+# `surface_show` composes ordinary layout verbs (split, set_query,
+# set_view_kind, set_role, get_layout, focus) rather than reaching into the
+# layout tree itself.
+impress-layout = { workspace = true, features = ["schema"] }
+impress-layout-service = { workspace = true }
+# For `store_instance()` ONLY — the ONE shared `impress.sqlite` handle of the
+# process, exactly as `impress-layout-service` uses it. Opening our own would
+# ignore `--store-path` and read a different store from every other verb in
+# the binary.
+impress-store-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+# `surface_wait` long-polls the event ring every 250ms (ADR-0033 D6) —
+# `tokio::time::sleep`, so this is a real dependency, not dev-only.
+tokio = { workspace = true }
+
+[dev-dependencies]
+# The `cli` feature builds the clap tree from the same inventory
+# `impress-cli` iterates, mirroring `impress-layout-service`'s own test of
+# this — proof the subcommands this crate registers actually construct.
+impress-service-core = { workspace = true, features = ["cli"] }
+# The demo capability (ADR-0033 S9, a concurrent work package as this crate
+# was written): force-linked in the Tier A loop test so it runs the real
+# `surface-demo-service_series` / `surface-demo-service_histogram` verbs when
+# they exist. See `tier_a.rs`'s module docs for what happens when they do not
+# exist yet.
+surface-demo-service = { workspace = true }

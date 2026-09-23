@@ -26,12 +26,17 @@ rusqlite = { workspace = true }
 dirs = { workspace = true }
 # Inlining rasterised pages as MCP image content.
 base64 = "0.22"
-# Phase 3B: pull in the service crates so their inventory-registered
-# McpToolDescriptor entries link into this binary at compile time, plus
-# the core runtime helpers for descriptor iteration and `block_on`.
+# ADR-0033 D4 / plan S2: the ONE place the `#[impress_service]` inventory is
+# linked, `features = ["full"]` so this binary keeps linking every capability
+# the old per-crate force-link list did (imbib, impart, impel, implore,
+# imprint(+selftest), ai, bridges, layout, memory, parsers, smart-search,
+# store, vw, surface, surface-demo). `inventory_bridge.rs` delegates to it.
+impress-capabilities = { workspace = true, features = ["full"] }
+# The core runtime helpers (descriptor iteration used to live here too, but
+# `server.rs` and `surface.rs` still reach `McpToolDescriptor`/`runtime`
+# directly outside the inventory-tool path, e.g. for the ADR-0024 grouped
+# surface rendering, so this stays a direct dependency).
 impress-service-core = { workspace = true }
-impress-ai-service = { workspace = true }
-imbib-service = { workspace = true }
 imbib-service-http = { workspace = true }
 # `typst-render` is OFF by default in imprint-service (Typst linkage is heavy —
 # ADR-0018) and turned on HERE, because this binary is exactly where a headless
@@ -41,34 +46,30 @@ imbib-service-http = { workspace = true }
 # 46,990,144 → 98,709,072 bytes (45 → 94 MiB, +110%). That cost is exactly why
 # the feature is not in imprint-service's `default` — every other consumer
 # (imprint-service-http, imprint-selftest, the app FFI, which already links
-# Typst its own way) would pay it for a capability only this binary uses.
+# Typst its own way) would pay it for a capability only this binary uses. Kept
+# as a direct dependency (impress-capabilities also pulls imprint-service, at
+# its default features) so cargo's feature unification turns typst-render on
+# for the one compiled copy of the crate that ends up in this binary.
 imprint-service = { workspace = true, features = ["typst-render"] }
 imprint-service-http = { workspace = true }
-# implore + impart services (TypeScript MCP retirement, phase 3).
-implore-service = { workspace = true }
+# implore + impart HTTP reachability probes (TypeScript MCP retirement,
+# phase 3) — `main.rs` calls `maybe_install_http_backend()` on these
+# directly; the non-HTTP `*-service` crates that register the inventory now
+# come from `impress-capabilities`.
 implore-service-http = { workspace = true }
-impart-service = { workspace = true }
 impart-service-http = { workspace = true }
-# Cross-app orchestration (the imbib/imprint/implore/impart seams).
-impress-bridges-service = { workspace = true }
-# Store-generic services (ADR-0022 WP G1): the collection kernel + generic
-# triage verbs. Never app-gated — they open the shared store directly.
+# Store-generic services (ADR-0022 WP G1): `server.rs` calls
+# `impress_store_service::{store_instance, store_path, set_store_path, …}`
+# directly, beyond what the inventory alone needs — kept as a direct
+# dependency for that, same reasoning as `imprint-service` above.
 impress-store-service = { workspace = true }
-# ADR-0031 D8: the layout verbs. Store-generic like the line above — it
-# opens the shared store directly, so it answers with every app closed.
-impress-layout-service = { workspace = true }
-# VW expert-system semantic service and Impress repository adapter.
-vw-impress-adapter = { path = "../vw-impress-adapter" }
-# Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
-imprint-selftest = { workspace = true }
-# Pulls the SmartSearchService inventory (pure, app-independent — no
-# reachability gate entry needed).
-impel-service = { workspace = true }
-impress-parsers-service = { workspace = true }
-impress-smart-search-service = { workspace = true }
 # Pulls the MemoryService inventory (ADR-0028 memory kernel P2 — remember/
-# recall/brief/confirm/supersede/forget, FTS tier). Never app-gated — it opens
-# the shared store directly, like the other store-generic services above.
+# recall/brief/confirm/supersede/forget, FTS tier + the opt-in vector tier).
+# `server.rs` also constructs `DefaultMemoryService` directly. Kept as a
+# direct dependency (impress-capabilities' `memory` feature deliberately does
+# NOT enable `vector-embedder` — it would drag ort-sys/ONNX into every `full`
+# build, including ones that never wanted it) so this binary keeps the vector
+# tier it always had.
 impress-memory-service = { workspace = true, features = ["vector-embedder"] }
 
 [dev-dependencies]

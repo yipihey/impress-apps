@@ -115,6 +115,27 @@ list wrappers (`MessageListWrapper`, `AgentRecordListWrapper`) and in impel's
 | o | Open selected item's working surface | `TriageKeyGrammar` |
 | / | Focus filter | `TriageKeyGrammar` |
 
+## Surface panes (ADR-0033)
+
+A `surface` pane (an agent-authored `impress/ui/surface@1.0.0` document,
+rendered by the `surface` view kind) is an ordinary pane, so h/l and the
+universal chords above are unchanged — it is not a special case of the
+layout tree. Inside the pane, widget focus follows the ADR-0033 defaults and
+nothing more:
+
+| Key | Semantic |
+|-----|----------|
+| j / k | Walk the RenderTree's `focus_order` (the widget ordering `surface_render` computes) |
+| Enter | Activate the focused widget — a button click, a field edit, a table/list select |
+| Escape | Leave a field back to widget focus |
+
+All of this runs under `.keyboardGuarded`, so a text `field` never loses
+keystrokes to j/k/Enter/Escape while it has focus — the same guard rule every
+other guarded single key in this document follows.
+
+This is the specification the Swift renderer (`packages/ImpressSurface`, work
+package S7) implements; it has not yet been verified on the Mac.
+
 ## Per-surface appearance
 
 Appearance is controlled per surface — app chrome, editor, PDF viewer — each

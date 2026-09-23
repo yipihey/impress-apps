@@ -27,6 +27,49 @@ mod layout;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
+/// The ADR-0033 agent-surface tree as Swift drives it (work package S6).
+mod surface;
+/// The pieces `layout`'s and `surface`'s invalidation feeds share (ADR-0033
+/// D6) — see that module's docs.
+mod ui_feed;
+
+// Force the linker to keep all four ADR-0033 D4 `kit` service crates linked
+// into this crate: `impress-layout-service` (used throughout `layout.rs`)
+// and `impress-surface-service` (used throughout `surface.rs`) already have
+// real references and need no help from this call. `impress-store-service`
+// and `surface-demo-service` do not — nothing in this crate calls either by
+// name — so without it the linker would be free to drop their
+// `inventory::submit!` entries, and `surface.rs`'s `DefaultExecutor` (which
+// reaches every source/action verb a spec names through the process-wide
+// `McpToolDescriptor` inventory) would silently not find
+// `surface-demo-service_series`/`histogram` or the generic store verbs.
+//
+// This is the ONE dependency on the kit list ADR-0033 D4 wants, split out as
+// `impress-capabilities-kit` (ADR-0033 D7 / plan S6) so this crate can carry
+// it without depending on `impress-capabilities` itself — see `Cargo.toml`'s
+// module comment on this dependency for the cyclic-package error that still
+// blocks that. A bare `use impress_capabilities_kit as _;` is not enough on
+// its own (that only proves this crate references the *crate*, not that it
+// calls anything in it — the same reasoning `impress-capabilities-kit`'s own
+// module docs give for needing `force_link` at all), so this calls its
+// `force_link()` for real. The surface tests
+// (`surface.rs`'s tests driving `surface-demo-service_series` through the
+// inventory) are what catch a regression here: they fail if this link is
+// ever dropped.
+#[allow(unused_imports)]
+use impress_capabilities_kit as _force_link_impress_capabilities_kit;
+
+/// Calls [`impress_capabilities_kit::force_link`] so the two kit crates that
+/// have no other real reference in this crate — `impress-store-service` and
+/// `surface-demo-service` — are not dropped by the linker. See the module
+/// comment above for why the `use … as _;` alone does not already guarantee
+/// this. Called from both `SharedStore` constructors (`open` and
+/// `open_in_memory`), which between them are the one initialisation point
+/// every Swift caller — and every test in this crate — passes through before
+/// touching the store.
+fn force_link_kit() {
+    impress_capabilities_kit::force_link();
+}
 
 pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
@@ -36,6 +79,10 @@ pub use layout::{
     cold_start_layout_json, compile_pane_query, kind_manifest_json, pane_spec_json,
     SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
     SharedLayoutSnapshot, SharedPane, SharedWindow,
+};
+pub use surface::{
+    surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
+    SharedSurfaceListener, SharedSurfaceRow,
 };
 
 pub use ai_registry::{
@@ -692,12 +739,24 @@ pub struct SharedManuscriptCommitOutcome {
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct SharedStore {
     inner: Arc<SqliteItemStore>,
+    /// The ONE layout session registry for everything opened on this store
+    /// in this process — `SharedLayout` renders from it, and `SharedSurface`'s
+    /// executor applies `open`/`publish` effects into it. Two registries
+    /// meant a surface could add a pane to a tree the window never re-read
+    /// (2026-09-23).
+    layout_sessions: Arc<impress_layout_service::SessionRegistry>,
     /// The workspace's content-addressed blob directory (`<workspace>/content`,
     /// next to the database) — `None` for an in-memory store (ADR-0030 D3).
     blob_root: Option<std::path::PathBuf>,
 }
 
 impl SharedStore {
+    /// The layout session registry shared by every object opened on this
+    /// store — see the field.
+    pub(crate) fn layout_sessions(&self) -> Arc<impress_layout_service::SessionRegistry> {
+        self.layout_sessions.clone()
+    }
+
     /// The one `SqliteItemStore` handle this object wraps.
     ///
     /// Not exported: it hands out a Rust type. It exists so that another FFI
@@ -719,6 +778,7 @@ impl SharedStore {
     /// WAL mode provides concurrent-reader, exclusive-writer access.
     #[cfg_attr(feature = "native", uniffi::constructor)]
     pub fn open(path: String) -> Result<Arc<Self>, SharedStoreError> {
+        force_link_kit();
         let store =
             SqliteItemStore::open(Path::new(&path)).map_err(|e| SharedStoreError::Storage {
                 message: e.to_string(),
@@ -729,6 +789,7 @@ impl SharedStore {
                 .to_path_buf()
         });
         Ok(Arc::new(SharedStore {
+            layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
             inner: Arc::new(store),
             blob_root,
         }))
@@ -737,10 +798,12 @@ impl SharedStore {
     /// Open an ephemeral in-memory store. Intended for unit tests only.
     #[cfg_attr(feature = "native", uniffi::constructor)]
     pub fn open_in_memory() -> Result<Arc<Self>, SharedStoreError> {
+        force_link_kit();
         let store = SqliteItemStore::open_in_memory().map_err(|e| SharedStoreError::Storage {
             message: e.to_string(),
         })?;
         Ok(Arc::new(SharedStore {
+            layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
             inner: Arc::new(store),
             blob_root: None,
         }))

@@ -2861,6 +2861,27 @@ Two invariants a future reader will need (see ADR-0027 D2/D4):
   document. A raw write is not lost (D4 recovery catches it), but it forfeits
   merge — the write is applied last-writer-wins on next touch.
 
+### `impress/ui/surface@1.0.0`, `-state`, `-event` — agent-authored UI documents (ADR-0033)
+
+Added 2026-09-22, registered in the same module as `impress/ui/layout@1.0.0`
+and `impress/ui/preset@1.0.0` — `crates/impress-core/src/schemas/ui.rs` — so
+all five workspace-UI refs share one source of truth. **Copy the spelling
+from the constants there, never from a sibling call site**, exactly as this
+section's rule already states for every other ref:
+
+| Ref | Constant | Scope |
+|---|---|---|
+| `impress/ui/surface@1.0.0` | `SURFACE_SCHEMA_REF` | Private + Durable; syncs — a stored `SurfaceSpec` document is a durable artifact of the conversation that built it, like a named layout |
+| `impress/ui/surface-state@1.0.0` | `SURFACE_STATE_SCHEMA_REF` | Ephemeral, device-scoped, never synced — one row per `(surface, host)` pair |
+| `impress/ui/surface-event@1.0.0` | `SURFACE_EVENT_SCHEMA_REF` | Ephemeral, device-scoped, never synced, pruned to the last 200 rows per `(surface, host)` |
+
+Written and read only through `impress-surface-service`'s verbs
+(`surface_create`/`surface_update`; `surface_dispatch`; `surface_events`/
+`surface_wait`) — never a raw payload upsert, for the same reason a
+manuscript body is not written that way above. See ADR-0033 D1/D5 and
+[docs/agent-surfaces.md](agent-surfaces.md) for the full vocabulary and the
+five-verb loop that creates and drives these rows.
+
 ## Layout tree (ADR-0031 L6)
 
 **Status: the Swift host exists and is OFF in every shipped preset.**
@@ -2978,6 +2999,7 @@ placeholder forever, in silence, on every platform). Copy the spelling from
 | `bibtex` | ⏳ placeholder | — | ➖ | `BibTeXTab` takes the paper + id list; L8 |
 | `source` | ⏳ placeholder | — | ✅ | Needs `PaneSessionRegistry` (shipped in L6, unused): an `NSTextView`, its undo stack and an in-flight compile must outlive every layout mutation |
 | `plot`, `console` | ❌ unregistered | placeholder | ➖ | implore / the log console; not in imbib's build |
+| `surface` | ✅ rendered — Mac-verified 2026-09-22/23 | `SurfaceView(tree:)` in `packages/ImpressSurface`, mapping a `RenderTree` node to SwiftUI one to one with no logic of its own (ADR-0033 D2, work package S7), hosted by `LayoutSurfacePaneView` | ➖ — a surface's working state is the `impress/ui/surface-state@1.0.0` row, not anything the pane itself holds | A pane of this kind renders a stored `impress/ui/surface@1.0.0` document: the pane's query is `item(id)` of the `surface` kind (registered in `impress-core`'s pane-query builtin manifest, same as every other kind). Reached by `surface_show` (composes ordinary `layout-service` verbs — split/take a role, set the query, set the view kind — so a surface pane is not a special case of the tree) and mirrored at `/api/surface/*`, per the `/api/layout/*` pattern above. Select → the surface's own `publish` action runs on the pane's channel, the same channel mechanism every pane uses; there is no rename/delete/drag/drop OF THE PANE — those act on the surface RECORD through `surface_update`/`surface_delete`, not on the tile. **Mac-verified (impress, flag on, driven from impress-mcp as a second process):** the pane appears in the running window with no HTTP to the app (D6 — needed the cross-process AND the in-process liveness fixes in `impress-store-ffi::layout`); j/k walk the focus ring; a slider drag is ONE `change` on release; the histogram renders through `renderPlotSvg`; `GET /api/surface`, `GET …/<id>/render`, `POST …/<id>/dispatch` answer on 23125 with the verbs' shapes; `surface_wait` returned `bins-chosen {"bins": 40}` when the button was clicked in the window; a table row's `publish` puts `publication: [id]` on channel 1 and the detail pane's `item` binds to it; an `open` effect dispatched over HTTP grew the tree 8 → 9 tiles at once. Enter on the highlighted button fires its `click` (one `kind click` event, watched in the log); Escape drops a slider's real focus back to the highlight (the knob's focus halo goes, the highlight box stays). A `list` of six papers renders as mail-style rows and grows with them. **Headless: everything through `surface_render`** — it returns the exact `RenderTree` (every `{{path}}` resolved, `focus_order` computed) that the Swift renderer would otherwise turn into pixels, so a surface's behaviour is Tier-A testable without opening the app |
 
 ### Containers
 

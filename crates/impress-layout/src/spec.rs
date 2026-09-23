@@ -1,8 +1,7 @@
 //! The pane specification (ADR-0031 D1): what a pane shows, how it is
 //! rendered, and where each of its parameters gets its value.
 
-use impress_core::item::ItemId;
-use impress_core::pane_query::{PaneQuery, ParamDecl};
+use impress_pane_query::{ItemId, PaneQuery, ParamDecl};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{ChannelId, Role, SessionId, ViewKindId};

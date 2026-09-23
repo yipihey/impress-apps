@@ -6,7 +6,7 @@
 //! manuscripts and impart's mail — which is the whole claim of D10, and the
 //! reason the five binaries become a distribution decision.
 
-use impress_core::pane_query::{ItemRef, PaneQuery, Scope};
+use impress_pane_query::{ItemRef, PaneQuery, Scope};
 
 use crate::ids::{ChannelId, Role, TileId, ViewKindId, WindowId};
 use crate::layout::Layout;
@@ -70,9 +70,9 @@ pub fn three_column_parts(
         // pane before the first selection is the canonical case — it compiles
         // to a query that matches nothing, which is what "no paper selected"
         // looks like. Only a query that is WRONG (an unknown kind, a
-        // parameter of the wrong kind) is a typed refusal; see
-        // `impress_core::pane_query`, "Empty is not an error, and an error is
-        // not empty".
+        // parameter of the wrong kind) is a typed refusal; see the
+        // `impress_pane_query` crate docs, "Empty is not an error, and an
+        // error is not empty".
         .with_param(ParamBinding::optional(
             DETAIL_PARAM,
             item_kind,

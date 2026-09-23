@@ -64,7 +64,7 @@
 //! }
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::{Map, Value};
@@ -78,18 +78,50 @@ pub fn build_cli_from_inventory(app_name: &str) -> Command {
         .subcommand_required(true)
         .arg_required_else_help(true);
 
-    for sub in CliSubcommand::iter() {
-        app = app.subcommand(build_subcommand(sub));
+    for (name, sub) in effective_names() {
+        app = app.subcommand(build_subcommand(name, sub));
     }
 
     app
 }
 
-/// Build one `clap::Command` from a single [`CliSubcommand`] descriptor.
-fn build_subcommand(sub: &'static CliSubcommand) -> Command {
+/// Every linked subcommand with the name the CLI actually exposes it under.
+///
+/// The flat method name (`remove-tag`) wins whenever it is unique. When two
+/// linked services declare the same method — `imbib-tags-service` and
+/// `triage-service` both have `remove_tag` and `add_tag` — EVERY party to the
+/// collision is exposed under its qualified `service_method` name instead,
+/// so neither shadows the other and nothing that was unique changes
+/// spelling. Before this, `impress-cli` panicked at startup on clap's
+/// duplicate-name assertion the moment `impress-capabilities`' `full`
+/// feature linked both services (2026-09-22), and no verb ran at all.
+///
+/// The choice is per BINARY, not per crate: a binary that links only one of
+/// the two keeps the short name. That is deliberate — the short name is the
+/// documented one and the prefix is the exception a collision earns.
+pub fn effective_names() -> Vec<(String, &'static CliSubcommand)> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for sub in CliSubcommand::iter() {
+        *counts.entry(sub.name).or_insert(0) += 1;
+    }
+    CliSubcommand::iter()
+        .map(|sub| {
+            let name = if counts[sub.name] > 1 {
+                sub.qualified_name.to_string()
+            } else {
+                sub.name.to_string()
+            };
+            (name, sub)
+        })
+        .collect()
+}
+
+/// Build one `clap::Command` from a single [`CliSubcommand`] descriptor,
+/// under the name [`effective_names`] chose for it.
+fn build_subcommand(name: String, sub: &'static CliSubcommand) -> Command {
     let schema = (sub.input_schema)();
 
-    let mut cmd = Command::new(sub.name.to_string()).about(sub.description.to_string());
+    let mut cmd = Command::new(name).about(sub.description.to_string());
 
     let required: HashSet<String> = schema
         .get("required")
@@ -225,8 +257,10 @@ pub fn dispatch_matches(matches: &ArgMatches) -> Result<Value, BoxError> {
         .subcommand()
         .ok_or_else(|| -> BoxError { "no subcommand provided".into() })?;
 
-    let descriptor = CliSubcommand::iter()
-        .find(|c| c.name == sub_name)
+    let descriptor = effective_names()
+        .into_iter()
+        .find(|(name, _)| name == sub_name)
+        .map(|(_, sub)| sub)
         .ok_or_else(|| -> BoxError { format!("unknown subcommand `{sub_name}`").into() })?;
 
     let schema = (descriptor.input_schema)();
@@ -529,5 +563,64 @@ mod tests {
         )
         .expect("negative array items parse");
         assert_eq!(out["items"], json!([-1, -2]));
+    }
+}
+
+#[cfg(test)]
+mod collision_tests {
+    use super::*;
+
+    fn schema() -> serde_json::Value {
+        serde_json::json!({"type": "object", "properties": {}})
+    }
+    fn apply(_: serde_json::Value) -> crate::ServiceFuture {
+        Box::pin(async { Ok(serde_json::Value::Null) })
+    }
+
+    // Two services that both declare `probe_collide`, and one that alone
+    // declares `probe_unique` — submitted into the same process-wide
+    // inventory the real services use, so this pins the rule on the real
+    // path rather than a model of it.
+    inventory::submit! {
+        CliSubcommand { name: "probe-collide", qualified_name: "alpha-service_probe-collide",
+            description: "", input_schema: schema, apply }
+    }
+    inventory::submit! {
+        CliSubcommand { name: "probe-collide", qualified_name: "beta-service_probe-collide",
+            description: "", input_schema: schema, apply }
+    }
+    inventory::submit! {
+        CliSubcommand { name: "probe-unique", qualified_name: "alpha-service_probe-unique",
+            description: "", input_schema: schema, apply }
+    }
+
+    /// A unique method keeps its short name; every party to a collision is
+    /// exposed qualified, and the bare colliding name is exposed by nobody.
+    #[test]
+    fn a_collision_qualifies_every_party_and_leaves_unique_names_alone() {
+        let names: Vec<String> = effective_names().into_iter().map(|(n, _)| n).collect();
+        assert!(names.iter().any(|n| n == "probe-unique"));
+        assert!(names.iter().any(|n| n == "alpha-service_probe-collide"));
+        assert!(names.iter().any(|n| n == "beta-service_probe-collide"));
+        assert!(
+            !names.iter().any(|n| n == "probe-collide"),
+            "a shadowed verb is worse than a renamed one"
+        );
+    }
+
+    /// The failure this exists to prevent: clap asserts unique subcommand
+    /// names at build time, and used to panic in `impress-cli`'s main.
+    #[test]
+    fn the_built_command_has_no_duplicate_subcommands() {
+        let app = build_cli_from_inventory("probe");
+        let mut seen = std::collections::HashSet::new();
+        for sub in app.get_subcommands() {
+            assert!(
+                seen.insert(sub.get_name().to_string()),
+                "duplicate: {}",
+                sub.get_name()
+            );
+        }
+        app.debug_assert();
     }
 }

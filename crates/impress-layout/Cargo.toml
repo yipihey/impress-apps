@@ -10,14 +10,16 @@ repository.workspace = true
 default = []
 # Derive `schemars::JsonSchema` on the layout value and every verb, so the
 # `layout-service` verbs (L3) can publish their argument schemas. Pulls the
-# same feature through impress-core, whose `PaneQuery` we embed.
-schema = ["dep:schemars", "impress-core/schema"]
+# same feature through impress-pane-query, whose `PaneQuery` we embed.
+schema = ["dep:schemars", "impress-pane-query/schema"]
 
 [dependencies]
 # Types only: `PaneQuery`, `ParamDecl`, `Bindings`, `RecordKindId`, `ParamName`
-# and `ItemId` are spelled once, in the algebra (ADR-0031 D2). This crate never
-# compiles or runs a query; it only carries them.
-impress-core = { workspace = true }
+# and `ItemId` are spelled once, in the algebra (ADR-0031 D2), which lives in
+# its own crate free of impress-core's domain modules (ADR-0033 D7). This
+# crate never compiles or runs a query; it only carries them, and must never
+# gain a dependency on impress-core.
+impress-pane-query = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }

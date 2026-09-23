@@ -14,17 +14,21 @@
 //! # What this crate is not
 //!
 //! There is **no I/O and no store access here**. Nothing opens a database,
-//! reads a file, or runs a query: [`impress_core::pane_query::PaneQuery`] is
+//! reads a file, or runs a query: [`impress_pane_query::PaneQuery`] is
 //! carried, never compiled or executed. Persisting a layout as an
 //! `impress/ui/layout` item, emitting operations, and exposing the verbs as
 //! `#[impress_service]` methods are the `layout-service`'s job (work package
 //! L3). That cut is what makes the whole model testable by `cargo test` with
 //! no app running.
 //!
+//! This crate depends on [`impress_pane_query`] alone — never on
+//! `impress-core`'s domain modules (ADR-0033 D7) — so it can leave the suite
+//! as part of a standalone kit.
+//!
 //! ```
 //! use impress_layout::{Layout, PaneRef, Role, Verb};
 //! use impress_layout::preset;
-//! use impress_core::pane_query::PaneQuery;
+//! use impress_pane_query::PaneQuery;
 //!
 //! let mut layout = preset::three_column(
 //!     PaneQuery { kinds: vec!["publication".into()], ..Default::default() },
@@ -68,11 +72,9 @@ pub use tree::{Container, ContainerKind, Geometry, LinearDir, Tile, Window};
 pub use undo::{stack_for, StackKind, UndoRing, UndoStacks, DEFAULT_CAPACITY};
 pub use verb::{Direction, PaneRef, Placement, Verb};
 
-// Re-exported so a caller does not have to depend on impress-core just to
-// spell a pane's query or read its resolved bindings.
-pub use impress_core::pane_query::{
-    Bindings, PaneQuery, ParamDecl, ParamName, RecordKindId, Scope,
-};
+// Re-exported so a caller does not have to depend on impress-pane-query just
+// to spell a pane's query or read its resolved bindings.
+pub use impress_pane_query::{Bindings, PaneQuery, ParamDecl, ParamName, RecordKindId, Scope};
 
 #[cfg(all(test, feature = "schema"))]
 mod schema_tests {

@@ -240,8 +240,14 @@ pub fn envelope_structured_content(value: serde_json::Value) -> serde_json::Valu
 /// A CLI binary collects them at startup and builds the `clap::Command` tree
 /// dynamically.
 pub struct CliSubcommand {
-    /// Subcommand name (kebab-case method ident).
+    /// Subcommand name (kebab-case method ident) — the spelling the CLI uses
+    /// unless another linked service declares the same method name.
     pub name: &'static str,
+    /// `service_method`, the MCP tool name. The CLI falls back to this for
+    /// every party to a collision (see `cli::effective_names`), so a binary
+    /// that links two services with a `remove_tag` keeps both reachable
+    /// instead of failing clap's duplicate-name assertion at startup.
+    pub qualified_name: &'static str,
     /// Description (the method's doc comment).
     pub description: &'static str,
     /// JSON Schema for the args object (used to build clap args).

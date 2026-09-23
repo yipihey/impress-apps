@@ -484,6 +484,7 @@ fn expand_method(
         ::impress_service_core::inventory::submit! {
             ::impress_service_core::CliSubcommand {
                 name: #kebab_name,
+                qualified_name: concat!(#service_kebab, "_", #kebab_name),
                 description: #doc,
                 input_schema: #schema_fn,
                 apply: #invoker_fn,
