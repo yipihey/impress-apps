@@ -61,12 +61,44 @@
           "node": {
             "kind": "plot",
             "spec": {
-              "bars": [
-                1,
-                2,
-                1
+              "height": 320.0,
+              "kind": "plot-spec@1.0.0",
+              "series": [
+                {
+                  "color": {
+                    "b": 180,
+                    "g": 119,
+                    "r": 31
+                  },
+                  "kind": "line",
+                  "xs": [
+                    -0.75,
+                    -0.25,
+                    0.25,
+                    0.75
+                  ],
+                  "ys": [
+                    1.0,
+                    2.0,
+                    2.0,
+                    1.0
+                  ]
+                }
               ],
-              "kind": "plot-spec@1.0.0"
+              "title": "Histogram",
+              "width": 480.0,
+              "x": {
+                "label": "value",
+                "max": null,
+                "min": null,
+                "scale": "linear"
+              },
+              "y": {
+                "label": "count",
+                "max": null,
+                "min": null,
+                "scale": "linear"
+              }
             }
           }
         },

@@ -23,8 +23,21 @@ const GOLDEN: &str = concat!(
 /// against anything live.
 fn fake_source_data() -> Value {
     json!({
-        "series": { "values": [0.0, 1.0, 0.0, -1.0] },
-        "hist": { "plot": { "kind": "plot-spec@1.0.0", "bars": [1, 2, 1] } },
+        // The shapes `surface-demo-service_series` / `_histogram` really
+        // emit: `x` + `values` for the series, and a `plot-spec@1.0.0` whose
+        // `series` is what imprint-core's `FfiPlotSpec` decodes — a synthetic
+        // `bars` here kept the Swift golden test from ever exercising the
+        // real plot decoder.
+        "series": { "x": [0.0, 0.25, 0.5, 0.75], "values": [0.0, 1.0, 0.0, -1.0] },
+        "hist": { "plot": {
+            "kind": "plot-spec@1.0.0",
+            "title": "Histogram",
+            "width": 480.0, "height": 320.0,
+            "x": { "label": "value", "scale": "linear", "min": null, "max": null },
+            "y": { "label": "count", "scale": "linear", "min": null, "max": null },
+            "series": [ { "kind": "line", "color": { "r": 31, "g": 119, "b": 180 },
+                          "xs": [-0.75, -0.25, 0.25, 0.75], "ys": [1.0, 2.0, 2.0, 1.0] } ]
+        } },
         "papers": [
             { "title": "A dark matter survey", "year": 2024 },
             { "title": "Signal processing notes", "year": 2023 }
