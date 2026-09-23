@@ -270,10 +270,12 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   done until the crate's committed Swift binding is regenerated and committed in
   the same PR. Nothing regenerates these at build time — they are checked-in
   source files, refreshed only by `crates/<crate>/build-xcframework.sh` (or
-  `./scripts/build-xcframeworks.sh --fast <crate>`). There are **eight** tracked
+  `./scripts/build-xcframeworks.sh --fast <crate>`). There are **seven** tracked
   bindings, listed in `BINDINGS` in
-  [`scripts/check-uniffi-bindings.sh`](scripts/check-uniffi-bindings.sh); imprint
-  commits the same generated file **twice** and both copies must stay identical.
+  [`scripts/check-uniffi-bindings.sh`](scripts/check-uniffi-bindings.sh) — one per
+  crate; imprint's `ImprintCore` re-exports `ImprintRustCore` rather than
+  carrying a second copy (the two copies drifted for six commits before
+  `95d4c69` deleted one).
   Run `./scripts/check-uniffi-bindings.sh` before pushing (the pre-push hook runs
   it for you on any `crates/*/src` change; `uniffi-bindings.yml` blocks the PR).
   Two failure modes, worth keeping straight: a **changed signature** moves the
