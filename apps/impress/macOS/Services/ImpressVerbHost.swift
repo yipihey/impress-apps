@@ -58,11 +58,11 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
     /// host on `store` — call once, from impress's own launch path, beside
     /// `ImpressHTTPServer.shared.start()`.
     ///
-    /// **Known limit**: `configure` probes each sibling once per process
-    /// (`impel-tools`' own doc comment on `configure`). An app started AFTER
-    /// this call stays `.unavailable` until impress itself restarts — worth
-    /// recording for whoever verifies this on the Mac, since it means "start
-    /// imbib, then try a surface" needs impress relaunched in between.
+    /// The first probe runs here; an app that is closed at that moment is
+    /// re-probed by `impel-tools` on the next call that needs it (at most once
+    /// every five seconds), so "start imbib, then use a surface" works without
+    /// relaunching impress — it did not on 2026-09-23, when `configure` was a
+    /// once-per-process cell.
     static func install(on store: SharedStore) {
         let backends = configure(
             imbibUrl: "http://localhost:\(SiblingApp.imbib.httpPort)",
