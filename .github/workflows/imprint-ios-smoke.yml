@@ -61,6 +61,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `rustup toolchain install stable` (the action's first step) aborts
+      # with "failure removing component 'cargo-aarch64-apple-darwin',
+      # directory does not exist: 'bin/cargo'" when the toolchain directory
+      # is half there. That is what turned this lane red on 2026-09-06: the
+      # four runners on this Mac still shared ONE ~/.rustup, and two jobs
+      # updating stable at once left it in that state. Each runner has had
+      # its own RUSTUP_HOME since 2026-09-07 (`.env`), which removed the
+      # race; this step removes the other way in — a job cancelled mid-install
+      # — by uninstalling a stable that has no cargo, so the action installs
+      # it clean instead of failing to update it.
+      - name: Repair a half-installed stable toolchain
+        run: |
+          tc="${RUSTUP_HOME:-$HOME/.rustup}/toolchains/stable-aarch64-apple-darwin"
+          if [ -d "$tc" ] && [ ! -x "$tc/bin/cargo" ]; then
+            echo "stable toolchain at $tc has no cargo — removing it for a clean install"
+            rustup toolchain uninstall stable || rm -rf "$tc"
+          fi
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -161,6 +179,15 @@ jobs:
           done
           if [ "$LAUNCHED" = "1" ]; then
             echo "imprint-iOS launched OK"
+          # The app this lane launched is a HOST process that outlives the
+          # job: the simulator shares the Mac's network namespace, so the
+          # launched app's automation server (enabled by default) sat on
+          # 23121 for hours after the run and shadowed the DESKTOP app on
+          # the same port — `/api/status` answered from the simulator, and
+          # host-side verification was reading the wrong app (2026-09-23,
+          # a sim imbib up 4½ h on 23120). Terminate what was launched; the
+          # simulator itself stays booted so the next run is warm.
+            xcrun simctl terminate "$UDID" com.imbib.imprint || true
           else
             echo "imprint-iOS did not launch — diagnostics follow"
             echo "=== process log (last 3m) ==="
