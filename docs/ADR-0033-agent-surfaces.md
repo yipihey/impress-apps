@@ -81,6 +81,14 @@ app without a second copy of a domain core. Domain cores already shipped as thei
 xcframeworks (imbib, imprint, implore) are not in `kit`; their verbs reach a surface later
 through the app's own automation router, not by linking them twice.
 
+*Amended 2026-09-23 (wave 5).* In the app that "router" is a callback: the FFI exposes a
+`SharedVerbHost` the shell installs on its store, and the executor consults it after the
+inventory (the inventory wins on a shared name). impress implements it over `impel-tools`,
+the suite's already-linked full inventory whose `call_tool` runs the same handler
+`impress-mcp` runs and reaches imbib and imprint through their own HTTP routers — so a
+domain core is still linked once per app, and a verb whose app is not running fails in
+the source, by name, rather than silently writing the store behind the running app.
+
 ### D5 — State and events are store records, so agents can read what the human did
 
 Surface state (`impress/ui/surface-state@1.0.0`, one row per surface and host instance) and

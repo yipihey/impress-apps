@@ -195,6 +195,31 @@ This file's log, ADR-0033, `docs/chassis-capability-matrix.md` (a `surface` row)
 3. S6, S9 in parallel.
 4. S7, S10.
 
+## Wave 5 — surfaces reach real verbs (2026-09-23)
+
+Decided with Tom after the Mac pass closed S0–S10. A surface rendered **in the app** can
+only call the four kit crates' verbs today: the FFI links `impress-capabilities-kit`, and
+the domain services cannot join it — `imbib-service` would put a second `imbib-core` in
+the app (ADR-0033 D4 forbids it) and `imprint-service` depends on `impress-store-ffi`
+itself (the cycle S6b split around). The same verbs are already reachable in a running
+app process by a library the suite ships: `crates/impel-tools` (`ImpelTools.xcframework`)
+links every `*-service` crate with their HTTP backends, and its `call_tool(name, args)`
+runs the identical handler `impress-mcp` runs, reaching imbib and imprint through their
+own automation routers (and refusing, named, when that app is not running). D4's
+"through the app's own automation router" is therefore one callback away.
+
+| WP | Deliverable | Files | Proof |
+|---|---|---|---|
+| **V1** | Host verb bridge. `impress-surface-service`: a `VerbHost` the executor and the service consult after the inventory (`call_verb` and `surface_validate`); `impress-store-ffi`: `SharedVerbHost` callback interface + `SharedStore::set_verb_host`, read lazily so a host installed after a surface was opened still serves it; Swift: `ImpelToolsFFI` exported as a product of CounselEngine, impress links it and installs an `ImpelToolsVerbHost` on its store at launch, configured with the sibling-app ports | `crates/impress-surface-service/src/{runtime,service,lib}.rs`, `crates/impress-store-ffi/src/{surface,lib}.rs`, `apps/impel/Packages/CounselEngine/Package.swift`, `apps/impress/{project.yml,macOS/Services/ImpressVerbHost.swift,…}` | Rust tests with a fake host (render through the host; validate accepts a host verb; inventory wins on a shared name; a host error is a source error, not a panic); FFI test with a Rust-implemented callback; binding regenerated at the end of the wave (declarations gained: the protocol + one method, none lost) |
+| **V2** | `delete-layout`: the one verb the stack lacked — a saved layout could be overwritten but never removed. Refuses the live row and presets (`reset-preset` is theirs); FFI method and HTTP route mirroring `save_layout`; CLAUDE.md's UniFFI bullet corrected (imprint commits ONE binding) | `crates/impress-layout-service/src/{service,tier_a}.rs`, `crates/impress-store-ffi/src/layout.rs`, the layout route table, `CLAUDE.md`, `docs/chassis-capability-matrix.md` | Tier-A capability: save → listed → delete → gone → delete again refused with a message; FFI test |
+| **V3** | Second worked example, on the user's own data: `paper-triage` — a `query` source over the `publication` kind, a table, star / flag / tag actions on `triage-service_*` (kit verbs, in-process everywhere) and an emitted `triaged` event; returned by `surface_examples` beside the signal explorer | `crates/impress-surface/{src/example.rs,examples/paper-triage.surface.json,tests/golden/…}`, `crates/impress-surface-service/src/{service,tier_a}.rs`, `docs/agent-surfaces.md` | golden; a dev-only loop test that seeds `imbib/bibliography-entry` rows in an in-memory store, renders, dispatches a star click and sees the row starred on re-render |
+| **V4** | Mac hand-off, round 2: link + verb host live (a source naming `imbib-library-service_list-libraries` lists the libraries with imbib running and names the missing app without), `delete-layout` over HTTP, L7's Swift half (⌃⌘1–9), Enter/Escape editing watched, `list` growth | `docs/next-steps-agent-surfaces-mac.md` | the Mac agent's log entries |
+
+Rules: V1–V3 run in parallel in one checkout on disjoint files; agents do not commit and do
+not regenerate the Swift binding (both FFI changes land in one regeneration at the end);
+the vocabulary and the three schema refs do not change (a gap V3 hits is logged, not
+patched); `impress-store-ffi` must still not reach a domain core (`check-kit-deps.sh`).
+
 ## Session log
 
 - 2026-09-22 — ADR-0033 written; plan opened; workspace stubs committed. Facts that shaped
