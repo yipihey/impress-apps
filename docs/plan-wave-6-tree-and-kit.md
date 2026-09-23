@@ -130,3 +130,70 @@ preparation may start earlier on a branch).
 - Not proven here: the app was already built and running from earlier today, so this
   round did not exercise `scripts/build-impress-app.sh`. Every later package adds its
   capability to this catalogue, per the row.
+
+- 2026-09-23 — **W2 done for two leaves of three; mail is blocked on a base-red build.**
+  The row's first sentence turned out to be already true in Rust: `implore_default()`,
+  `impel_default()` and `impart_default()` all build `outline` + `list` + `info` through
+  `three_columns(...)` over `q::figures()` / `q::agents()` / `q::mail()`, and the string
+  `legacy` does not occur anywhere in `presets.rs`. Nothing was ported and nothing was
+  removed — the "preset stops naming `legacy`" half of the row had no work in it, which is
+  worth recording so the next leaf does not go looking for it again.
+- The whole gap was one Swift line. `LayoutInfoPaneView` hard-coded
+  `DetailView(publicationID:)`, so every `info` pane in the three apps resolved a real id
+  and then fell into "Detail Unavailable". The fix is a dispatch on
+  `PaneContext.primaryKind` — for a detail pane that is `detail_query(list).kinds.first`,
+  the list's kind scoped to `$item`, so the kind is read from the spec rather than guessed.
+  **No extraction was needed anywhere:** `FigureDetailPane`, `MessageDetailPane` and
+  `AgentRecordDetailPane` are already `public` and already take
+  `(id, Binding<DetailTab>, topInset:)`, because a section's detail half and a tree's
+  detail pane want the same two things. `topInset` stays 0 — the 40pt the section views
+  pass clears a toolbar band they reclaim with `.ignoresSafeArea(.top)`, which a layout
+  pane does not. A plain enum switched over a plain `some View`, never a `@ViewBuilder`
+  returning `(some View)?`.
+- `LayoutPaneRowMapper` needed nothing: it reads the kind manifest out of the FFI
+  (`kindManifestJson()`), and `impress_core::pane_query::builtin_manifest()` already claims
+  `figure`, `message`, `task` and `agent-run`. The row style for these kinds was already
+  arriving through `RecordViewerRegistry.makeListRow` — impel's list pane drew 500 task
+  rows on the first launch with no change to the mapper.
+- **Proven live (Mac, 2026-09-23).** implore on 23123 and impel on 23124, each built from
+  this branch, each with `impress.layoutTree.enabled` written to its OWN bundle id — the
+  flag is `UserDefaults.standard` read once per launch, so it is per app, and impart's id
+  is `com.imbib.impart`, not `com.impress.impart`. For both apps `/api/layout/tree` after
+  `{"op":"apply-layout","ordinal":1}` is four tiles — `1 outline navigator [collection,
+  library]`, `2 list list [<kind>]`, `3 info detail [<kind>] params=[(item, <kind>)]`,
+  `4 container [1,2,3]` — with **no `legacy` tile anywhere in the document**. Tier B is
+  **8/8, 0 skipped** against each. Then the leaf's own proof: a `select` verb on tile 2
+  followed by `?category=layout` shows `pane 3 info: figure detail for B2AACB40-…`
+  (implore) and `pane 3 info: task detail for 438F4F2D-…` (impel) — the `info` pane
+  reaching that kind's detail view, which is exactly the branch that used to be
+  "Detail Unavailable".
+- That log line is new and deliberate. A leaf's conversion is otherwise invisible from
+  outside the window: a figure detail and a "no publication detail" empty state occupy the
+  same pixels, so the proof would have been a screenshot and a promise. It sits beside the
+  `pane N display: R rows` the list pane already logs, so the two panes can be seen
+  agreeing on one id.
+- **Tier B now takes a base url.** W0's `tier_b::run(base_url)` was already parameterized;
+  every caller just passed the impress constant. The override is the env var
+  `IMPRESS_LAYOUT_SELFTEST_BASE_URL`, NOT a second argument on `run_selftest` — a verb's
+  arguments are vocabulary and this plan says ask first, so the catalogue did not decide
+  it alone. Default unchanged; the rule is a pure function with a test. Nothing in the
+  catalogue turned out to be impress-specific: `/api/layout/*` and `/api/surface/*` are
+  served by every app, and "ordinal 1 is this app's own Default" holds per app.
+- **Not proven, and why.** (a) **impart.** `scripts/build-impress-app.sh impart Debug`
+  fails on `main`, before any of this branch's code: `bookmarkCreationOptions` and
+  `bookmarkResolutionOptions` are each declared twice in the same type in
+  `apps/impart/MessageManagerCore/Sources/MessageManagerCore/Artifacts/DirectoryArtifact.swift`
+  (lines 32/40 and 66/67, a merge that kept both spellings). Fixing it is outside this
+  package's scope, so the mail leaf ships its Swift dispatch unproven against a running
+  impart. (b) **The detail panes' CONTENT.** The shared store on this machine holds zero
+  `figure`, `message`, `task` and `agent-run` rows, so the ids selected above are synthetic
+  and each pane rendered its own not-found state. What is proven is the DISPATCH — which
+  view the pane chose — which is the whole of what W2 changed; the panes themselves are
+  unmodified and already carry their section routes' proof. (c) **The sidebar-node rows**
+  of the matrix (`section(.figures)` / `(.mail)` / `(.agents)`: context menu, rename,
+  delete, drag, drop, counts) are NOT re-proven and are not W2's: those are the navigator
+  pane, which is W3. Their matrix notes now say so rather than implying the tree covers
+  them. (d) **Row context menus in a `list` pane do not exist yet for ANY kind** — there is
+  no `.contextMenu` anywhere under `Chassis/Layout/`, publications included. So there was
+  no established path to extend to three more kinds; building one is a cross-leaf change,
+  not this row's "map, not rewrite".
