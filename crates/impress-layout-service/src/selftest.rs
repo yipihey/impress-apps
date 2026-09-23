@@ -29,6 +29,10 @@ pub trait LayoutSelftestService: Send + Sync + 'static {
     /// * `"b"` — drives the RUNNING impress app over `/api/layout/*` and
     ///   `/api/surface/*` (port 23125). Skips cleanly when no app answers, so
     ///   a headless box stays green. It restores the arrangement it found.
+    ///   Set `IMPRESS_LAYOUT_SELFTEST_BASE_URL` to drive a DIFFERENT chassis
+    ///   app instead (implore 23123, impart 23122, impel 23124) — the
+    ///   catalogue asserts nothing impress-specific, and ordinal 1 is each
+    ///   app's own Default preset.
     /// * `"all"`/`""` — both, Tier A first.
     #[impress_method]
     async fn run_selftest(&self, tier: String) -> SelfTestReport;
@@ -49,7 +53,7 @@ impl LayoutSelftestService for DefaultLayoutSelftestService {
             // "everything" wants one pass/fail, not two.
             "all" | "" => {
                 let mut results = crate::tier_a::run().await;
-                results.extend(crate::tier_b::run(crate::tier_b::IMPRESS_BASE_URL).await);
+                results.extend(crate::tier_b::run(&crate::tier_b::configured_base_url()).await);
                 SelfTestReport::from_results(results)
             }
             _ => crate::run_tier_a().await,

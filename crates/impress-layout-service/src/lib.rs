@@ -124,7 +124,7 @@ pub async fn run_tier_a() -> SelfTestReport {
 /// Run the Tier B catalogue against the running impress app. Skips cleanly,
 /// rather than failing, when nothing is listening on 23125.
 pub async fn run_tier_b() -> SelfTestReport {
-    SelfTestReport::from_results(tier_b::run(tier_b::IMPRESS_BASE_URL).await)
+    SelfTestReport::from_results(tier_b::run(&tier_b::configured_base_url()).await)
 }
 
 #[cfg(test)]

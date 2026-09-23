@@ -41,6 +41,42 @@ use crate::{check, skipped, CapabilityResult, Tier};
 /// this constant is a copy of that table's value, not an independent choice.
 pub const IMPRESS_BASE_URL: &str = "http://127.0.0.1:23125";
 
+/// The environment variable that points the catalogue at a DIFFERENT app.
+///
+/// Tier B drives whatever chassis app is listening, not impress specifically:
+/// every capability it asserts is over `/api/layout/*` and `/api/surface/*`,
+/// which every app in the suite serves, and its one preset assumption is
+/// "ordinal 1 is this app's own Default" — true for implore, impart and impel
+/// as much as for impress (`presets::ordinal_targets` numbers the shipped
+/// presets first, per app).
+///
+/// An ENV VAR rather than a second argument on `run_selftest`: that verb's
+/// arguments are vocabulary, and changing them is a decision this catalogue
+/// does not get to make on its own (plan wave 6, "Ask first"). The default is
+/// unchanged, so every existing caller still drives impress on 23125.
+///
+/// ```text
+/// IMPRESS_LAYOUT_SELFTEST_BASE_URL=http://127.0.0.1:23123 \
+///     implore layout-selftest-service_run-selftest --tier b
+/// ```
+pub const BASE_URL_ENV: &str = "IMPRESS_LAYOUT_SELFTEST_BASE_URL";
+
+/// The base url Tier B should drive: the override when it is set and
+/// non-empty, `IMPRESS_BASE_URL` otherwise.
+pub fn configured_base_url() -> String {
+    base_url_from(std::env::var(BASE_URL_ENV).ok())
+}
+
+/// The override rule, as a pure function so it has a test: a set,
+/// non-blank value wins (trimmed — a trailing newline out of a shell is not
+/// a different host); anything else is impress.
+pub fn base_url_from(override_value: Option<String>) -> String {
+    match override_value {
+        Some(value) if !value.trim().is_empty() => value.trim().to_string(),
+        _ => IMPRESS_BASE_URL.to_string(),
+    }
+}
+
 /// The name the catalogue saves the live arrangement under before it touches
 /// anything. Deliberately unlikely to collide with a human's layout, and
 /// deleted again by the restore step.
@@ -985,5 +1021,27 @@ mod tests {
         assert_eq!(share_of(&tree, 2).unwrap(), 3.0);
         assert_eq!(tile_with_role(&tree, "list").unwrap(), 2);
         assert!(share_of(&tree, 99).is_err());
+    }
+}
+
+#[cfg(test)]
+mod base_url_tests {
+    use super::*;
+
+    #[test]
+    fn unset_or_blank_is_impress() {
+        assert_eq!(base_url_from(None), IMPRESS_BASE_URL);
+        assert_eq!(base_url_from(Some(String::new())), IMPRESS_BASE_URL);
+        assert_eq!(base_url_from(Some("   ".into())), IMPRESS_BASE_URL);
+    }
+
+    /// implore, impart and impel, at the ports `SiblingApp` assigns them.
+    #[test]
+    fn a_sibling_port_is_honoured() {
+        for port in ["23123", "23122", "23124"] {
+            let url = format!("http://127.0.0.1:{port}");
+            assert_eq!(base_url_from(Some(url.clone())), url);
+            assert_eq!(base_url_from(Some(format!("{url}\n"))), url);
+        }
     }
 }
