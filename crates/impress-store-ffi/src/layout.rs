@@ -1890,8 +1890,13 @@ mod tests {
         ));
         assert!(split.ok, "{}", split.message);
 
+        // Ten seconds, not two: the feed answers in milliseconds on a quiet
+        // machine, but under a parallel release build on Linux this wait
+        // missed a two-second window three runs out of three (2026-09-23) and
+        // passed every time alone. The bound only has to be longer than a
+        // starved scheduler, never a measure of the feed's own latency.
         versions
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(10))
             .expect("the host is told the tree changed");
         let after = layout.snapshot().expect("snapshot after");
         assert!(
