@@ -326,7 +326,10 @@ impl SharedLayout {
     pub fn open(store: Arc<SharedStore>, app_id: String, device: Option<String>) -> Arc<Self> {
         let core = store.core();
         Arc::new(SharedLayout {
-            service: DefaultLayoutService::with_store(core.clone()),
+            service: DefaultLayoutService::with_store_and_sessions(
+                core.clone(),
+                store.layout_sessions(),
+            ),
             store: core,
             app_id,
             device,
@@ -1067,6 +1070,15 @@ impl InvalidationFeed {
         // mechanism `surface.rs`'s feed uses, narrowed to its own prefix.
         let mut external = ExternalPoll::baseline(&self.store);
         let mut last_external_poll = Instant::now();
+        // In-process, cross-object liveness: the session registry is shared
+        // with the surface executor (see `SharedStore::layout_sessions`), and
+        // its generation moves on every mutation made through it. One this
+        // handle made comes with a `self.version` bump from `finish`; one it
+        // did NOT make — a surface's `open` or `publish` effect — moves the
+        // generation alone, and that is the tree changing under the window.
+        let sessions = self.service.sessions();
+        let mut seen_generation = sessions.generation();
+        let mut seen_version = self.version.load(Ordering::SeqCst);
 
         while self.running.load(Ordering::SeqCst) {
             match rx.recv_timeout(POLL) {
@@ -1121,6 +1133,19 @@ impl InvalidationFeed {
                     last_seen = Some(Instant::now());
                     pending.extend(mutations);
                 }
+            }
+
+            let generation = sessions.generation();
+            if generation != seen_generation {
+                seen_generation = generation;
+                let version_now = self.version.load(Ordering::SeqCst);
+                if version_now == seen_version {
+                    // Nobody bumped the version, so this was not one of our
+                    // verbs: the session is already current (same registry),
+                    // only the host does not know yet.
+                    self.version.fetch_add(1, Ordering::SeqCst);
+                }
+                seen_version = self.version.load(Ordering::SeqCst);
             }
 
             // The tree changed under us: tell the host, and remember that the
@@ -1795,6 +1820,57 @@ mod tests {
             tiles_before
         );
 
+        layout.unsubscribe_invalidations();
+    }
+
+    /// The in-process half of D6: another object on the SAME store and the
+    /// SAME connection — the surface executor running an `open` effect —
+    /// applies a verb through the shared session registry. `data_version`
+    /// is silent for a connection's own writes and nothing bumps this
+    /// handle's version, so before the registry's generation was watched the
+    /// pane sat in the store, in this process, and the window never re-read
+    /// the tree (2026-09-23, an `open` effect reported ok and drew nothing).
+    #[test]
+    fn a_verb_from_another_object_in_this_process_tells_the_host_the_tree_changed() {
+        let (store, layout) = open();
+        let leaves_before = layout.snapshot().expect("snapshot").leaves.len();
+
+        layout.set_debounce_ms(20);
+        layout.set_startup_grace_secs(0);
+        let (listener, _panes, versions) = recorder_with_versions();
+        layout.subscribe_invalidations(listener).expect("subscribe");
+
+        // What `SharedSurface`'s executor does: the same store, the same
+        // registry, a different service object.
+        let other =
+            DefaultLayoutService::with_store_and_sessions(store.core(), store.layout_sessions());
+        let new_pane = PaneSpec::new(
+            serde_json::from_value(serde_json::json!({
+                "kinds": ["surface"], "scope": {"scope": "all"}, "filters": [],
+                "sort": [], "limit": null, "relation": null, "text": null
+            }))
+            .unwrap(),
+            impress_layout::ViewKindId::from("surface".to_string()),
+        );
+        let split = runtime().block_on(other.split(
+            "test-app".into(),
+            Some("test".into()),
+            PaneRefDto::role("detail"),
+            "vertical".into(),
+            true,
+            Some(new_pane),
+            Some("agent".into()),
+        ));
+        assert!(split.ok, "{}", split.message);
+
+        versions
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the host is told the tree changed");
+        let after = layout.snapshot().expect("snapshot after");
+        assert!(
+            after.leaves.len() > leaves_before,
+            "the reloaded tree must contain the pane the other object opened"
+        );
         layout.unsubscribe_invalidations();
     }
 }

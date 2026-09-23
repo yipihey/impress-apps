@@ -251,7 +251,10 @@ impl SharedSurface {
         let host = resolve_device(Some(host.trim()).filter(|h| !h.is_empty()));
         Arc::new(SharedSurface {
             surfaces: SurfaceStore::new(core.clone()),
-            executor: DefaultExecutor::with_store(core.clone()),
+            executor: DefaultExecutor::with_store_and_sessions(
+                core.clone(),
+                store.layout_sessions(),
+            ),
             service: DefaultImpressSurfaceService::with_store(core.clone()),
             registry: Arc::new(SessionRegistry::new()),
             store: core,
@@ -958,5 +961,60 @@ mod tests {
         assert_eq!(batch, vec![created.id.to_string()]);
 
         surface.unsubscribe();
+    }
+
+    /// The live case behind `Executor::pane_showing`: `surface_show` ran
+    /// through one instance (the service's, or the app's pane view), and a
+    /// `publish`/`open` effect arrives through ANOTHER `SharedSurface` handle
+    /// on the same surface — an HTTP dispatch. Before, that handle's instance
+    /// had no pane and refused; now it recovers the pane from the layout.
+    #[test]
+    fn an_effect_on_a_fresh_handle_finds_the_pane_the_layout_shows() {
+        use impress_surface_service::dto::{ShowTargetDto, SplitTargetDto};
+        use impress_surface_service::{DefaultImpressSurfaceService, ImpressSurfaceService};
+
+        let (store, _first) = open();
+        let id = create_signal_explorer(&store);
+
+        // Shown through the SERVICE — a different registry from any handle's.
+        let service = DefaultImpressSurfaceService::with_store(store.core());
+        let shown = runtime().block_on(service.surface_show(
+            id.clone(),
+            ShowTargetDto {
+                role: None,
+                tile: None,
+                split: Some(SplitTargetDto {
+                    direction: "horizontal".into(),
+                    from_focused: true,
+                }),
+            },
+            Some(impress_surface_service::runtime::SURFACE_APP_ID.into()),
+            None,
+        ));
+        assert!(shown.ok, "{}", shown.message);
+
+        // A brand-new handle, as the HTTP bridge opens per request.
+        let fresh = SharedSurface::open(store.clone(), "test-host".into());
+        fresh
+            .render(id.clone(), None)
+            .expect("render on the fresh handle");
+        let event = serde_json::json!({
+            "widget": "n0.3", // the table, whose on_select publishes
+            "kind": "select",
+            "value": ["2b995442-c45a-4922-8c22-600d98900fc1"]
+        })
+        .to_string();
+        let out = fresh
+            .dispatch(id, None, event)
+            .expect("dispatch on the fresh handle");
+        let dispatched: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let effects = dispatched["effects"].as_array().expect("effects");
+        assert_eq!(effects.len(), 1, "{out}");
+        assert_eq!(effects[0]["kind"], "publish", "{out}");
+        assert_eq!(
+            effects[0]["ok"],
+            serde_json::json!(true),
+            "the effect must find the pane the layout shows: {out}"
+        );
     }
 }

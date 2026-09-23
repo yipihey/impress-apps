@@ -739,12 +739,24 @@ pub struct SharedManuscriptCommitOutcome {
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct SharedStore {
     inner: Arc<SqliteItemStore>,
+    /// The ONE layout session registry for everything opened on this store
+    /// in this process — `SharedLayout` renders from it, and `SharedSurface`'s
+    /// executor applies `open`/`publish` effects into it. Two registries
+    /// meant a surface could add a pane to a tree the window never re-read
+    /// (2026-09-23).
+    layout_sessions: Arc<impress_layout_service::SessionRegistry>,
     /// The workspace's content-addressed blob directory (`<workspace>/content`,
     /// next to the database) — `None` for an in-memory store (ADR-0030 D3).
     blob_root: Option<std::path::PathBuf>,
 }
 
 impl SharedStore {
+    /// The layout session registry shared by every object opened on this
+    /// store — see the field.
+    pub(crate) fn layout_sessions(&self) -> Arc<impress_layout_service::SessionRegistry> {
+        self.layout_sessions.clone()
+    }
+
     /// The one `SqliteItemStore` handle this object wraps.
     ///
     /// Not exported: it hands out a Rust type. It exists so that another FFI
@@ -777,6 +789,7 @@ impl SharedStore {
                 .to_path_buf()
         });
         Ok(Arc::new(SharedStore {
+            layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
             inner: Arc::new(store),
             blob_root,
         }))
@@ -790,6 +803,7 @@ impl SharedStore {
             message: e.to_string(),
         })?;
         Ok(Arc::new(SharedStore {
+            layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
             inner: Arc::new(store),
             blob_root: None,
         }))

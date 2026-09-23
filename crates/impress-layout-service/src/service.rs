@@ -542,10 +542,26 @@ impl DefaultLayoutService {
 
     /// An instance over an explicit store, with a private session registry.
     pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
+        Self::with_store_and_sessions(store, Arc::new(SessionRegistry::new()))
+    }
+
+    /// An instance over an explicit store AND an explicit registry — for the
+    /// several objects one process opens on one store (the FFI's
+    /// `SharedLayout` and the surface executor) to share their sessions, so
+    /// a verb one of them applies is the tree the other one reads.
+    pub fn with_store_and_sessions(
+        store: Arc<SqliteItemStore>,
+        sessions: Arc<SessionRegistry>,
+    ) -> Self {
         Self {
             store: Some(store),
-            sessions: Some(Arc::new(SessionRegistry::new())),
+            sessions: Some(sessions),
         }
+    }
+
+    /// The registry this instance's sessions live in.
+    pub fn sessions(&self) -> Arc<SessionRegistry> {
+        self.registry()
     }
 
     /// Drop the cached session for one scope, so the next read re-reads the
