@@ -50,6 +50,7 @@ pub mod service;
 pub mod session;
 pub mod store;
 pub mod tier_a;
+pub mod tier_b;
 
 pub use device::{current_device, resolve_device};
 pub use dto::{
@@ -118,6 +119,12 @@ pub fn skipped(id: &str, description: &str, tier: Tier, reason: &str) -> Capabil
 /// stores.
 pub async fn run_tier_a() -> SelfTestReport {
     SelfTestReport::from_results(tier_a::run().await)
+}
+
+/// Run the Tier B catalogue against the running impress app. Skips cleanly,
+/// rather than failing, when nothing is listening on 23125.
+pub async fn run_tier_b() -> SelfTestReport {
+    SelfTestReport::from_results(tier_b::run(tier_b::IMPRESS_BASE_URL).await)
 }
 
 #[cfg(test)]
