@@ -1334,6 +1334,14 @@ public struct PDFViewerWithControls: View {
         .onReceive(NotificationCenter.default.publisher(for: .pdfFitToWindow)) { _ in
             fitToWindow()
         }
+        // Annotate ▸ Add Note at Selection (⌃N): the annotation toolbar's
+        // note button. Posted and observed by nothing until 2026-09-24 (the
+        // highlight/underline/strike items are observed by the PDF view's
+        // coordinator; this one never was).
+        .onReceive(NotificationCenter.default.publisher(for: .addNoteAtSelection)) { _ in
+            logInfo("Annotate ▸ Add Note at Selection", category: "annotations")
+            addNoteAtSelection()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { notification in
             // A `page` (1-based) in the userInfo navigates — the Notes tab's
             // reMarkable rows and `imbib://pdf?action=go-to-page` post one;

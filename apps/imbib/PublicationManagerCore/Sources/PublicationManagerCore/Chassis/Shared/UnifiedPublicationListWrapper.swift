@@ -497,6 +497,17 @@ struct UnifiedPublicationListWrapper: View {
                 onMoveToCollection: { requestCollectionPick(.move, $0) },
                 onAddToCollection: { requestCollectionPick(.add, $0) },
                 onRemoveFromCollection: removeSelectedFromScopedCollection,
+                onRefresh: {
+                    logInfo("Window ▸ Refresh: \(navigationTitle)", category: "refresh")
+                    Task { await refreshFromNetwork() }
+                },
+                onFocusList: {
+                    logInfo("View ▸ Focus List", category: "focus")
+                    // false → true, as on selection change: AppKit may hold
+                    // first responder elsewhere while the binding still says true.
+                    isListFocused = false
+                    DispatchQueue.main.async { isListFocused = true }
+                },
                 onToggleEInkMirror: toggleEinkForSelected,
                 onCopyPublications: { Task { await copySelectedPublications() } },
                 onCutPublications: { Task { await cutSelectedPublications() } },
@@ -1945,6 +1956,8 @@ private struct NotificationModifiers: ViewModifier {
     let onMoveToCollection: (Notification) -> Void
     let onAddToCollection: (Notification) -> Void
     let onRemoveFromCollection: (Notification) -> Void
+    let onRefresh: () -> Void
+    let onFocusList: () -> Void
     let onToggleEInkMirror: () -> Void
     let onCopyPublications: () -> Void
     let onCutPublications: () -> Void
@@ -1979,6 +1992,16 @@ private struct NotificationModifiers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .removeFromCollection)) { note in
                 onRemoveFromCollection(note)
+            }
+            // Window ▸ Refresh (⇧⌘N): the list's own refresh — the row
+            // actions' Refresh and the error view's Retry. A feed refreshes
+            // from the network (automatic work: no undo); a library reloads.
+            .onReceive(NotificationCenter.default.publisher(for: .refreshData)) { _ in
+                onRefresh()
+            }
+            // View ▸ Focus List (⌥⌘2).
+            .onReceive(NotificationCenter.default.publisher(for: .focusList)) { _ in
+                onFocusList()
             }
             // Paper ▸ Mirror to reMarkable (⌃⌘E) and the command palette.
             .onReceive(NotificationCenter.default.publisher(for: .toggleEInkMirror)) { _ in

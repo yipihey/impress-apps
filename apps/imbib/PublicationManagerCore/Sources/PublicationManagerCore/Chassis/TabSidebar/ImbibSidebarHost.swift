@@ -252,6 +252,21 @@ struct ImbibSidebarLifecycle: ViewModifier {
                         viewModel.bumpDataVersion()
                     }
                 }),
+                // View ▸ Show Library (⌘1) / Show Inbox (⌘3), and the URL
+                // scheme's library/collection "show". Observed only by the iOS
+                // root since b748151d deleted the pre-chassis macOS handlers, so
+                // on the Mac both menu items did nothing. Gated on the shell:
+                // a host without the section has nowhere to go.
+                (.showLibrary, { notification in
+                    guard shellConfiguration.permits(.libraries),
+                          let tab = Self.libraryTab(for: notification, libraryManager: libraryManager)
+                    else { return }
+                    viewModel.navigateToTab(tab)
+                }),
+                (.showInbox, { _ in
+                    guard shellConfiguration.permits(.inbox) else { return }
+                    viewModel.navigateToTab(.inbox)
+                }),
                 (.openStoreSearch, { _ in
                     // WP G4 (ADR-0022 D6): ⌘⇧F in shells with nothing else bound
                     // (implore, impel) selects the chassis's builtin search
@@ -344,6 +359,31 @@ struct ImbibSidebarLifecycle: ViewModifier {
                 // Run retention cleanup on launch
                 RetentionCleanupService.shared.performCleanup()
             }
+    }
+}
+
+extension ImbibSidebarLifecycle {
+    /// Where ⌘1 / `.showLibrary` goes: the collection or library the poster
+    /// named (`userInfo["collectionID"]` / `["libraryID"]`, UUID or string,
+    /// or a UUID object), else the active library, else the first library
+    /// that is not a triage place (Inbox, Dismissed, Exploration).
+    @MainActor
+    static func libraryTab(for notification: Notification, libraryManager: LibraryManager) -> ImbibTab? {
+        func uuid(_ key: String) -> UUID? {
+            (notification.userInfo?[key] as? UUID)
+                ?? (notification.userInfo?[key] as? String).flatMap(UUID.init(uuidString:))
+        }
+        if let collectionID = uuid("collectionID") { return .collection(collectionID) }
+        if let libraryID = uuid("libraryID") ?? (notification.object as? UUID) {
+            return .library(libraryID)
+        }
+        let triage = Set([libraryManager.dismissedLibrary?.id, libraryManager.explorationLibrary?.id]
+            .compactMap { $0 })
+        let filing = libraryManager.libraries.filter { !$0.isInbox && !triage.contains($0.id) }
+        if let active = libraryManager.activeLibrary, filing.contains(where: { $0.id == active.id }) {
+            return .library(active.id)
+        }
+        return filing.first.map { .library($0.id) }
     }
 }
 #endif
