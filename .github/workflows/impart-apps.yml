@@ -95,6 +95,13 @@ jobs:
           ls -la target/release/deps/ | grep -i zerofrom || true
           ls -la target/release/deps/*.dylib 2>&1 | head -20 || true
           for f in target/release/deps/libzerofrom_derive-*; do file "$f"; otool -l "$f" | grep -B2 -A6 -i rustc | head -20; done || true
+          echo "=== probe 1: stable (not the 1.97.1 pin)"
+          rustup toolchain install stable --profile minimal --target aarch64-apple-darwin >/dev/null 2>&1 || true
+          CARGO_TARGET_DIR=/tmp/p1 cargo +stable build --release --target aarch64-apple-darwin -p zerofrom 2>&1 | tail -4 || true
+          echo "=== probe 2: 1.97.1, strip off"
+          CARGO_TARGET_DIR=/tmp/p2 CARGO_PROFILE_RELEASE_STRIP=false cargo build --release --target aarch64-apple-darwin -p zerofrom 2>&1 | tail -4 || true
+          echo "=== probe 3: 1.97.1, host proc-macro loaded with RUSTC_LOG"
+          CARGO_TARGET_DIR=/tmp/p3 RUSTC_LOG=rustc_metadata::locator=debug cargo build --release --target aarch64-apple-darwin -p zerofrom 2>&1 | grep -iE "zerofrom_derive|rejected|mismatch|error" | head -30 || true
 
       # impart links PublicationManagerCore on both platforms, and PMC drags in
       # four Rust cores on top of impart's own ImpressRustCore. Every one is a
