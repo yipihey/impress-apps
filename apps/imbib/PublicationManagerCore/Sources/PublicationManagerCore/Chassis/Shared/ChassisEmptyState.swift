@@ -98,6 +98,29 @@ public extension ChassisEmptyState {
                 : "Select a publication to view details")
     }
 
+    /// The same state for a layout tree's `info` pane, which shows whatever
+    /// kind its query names — implore's is a figure pane, impart's a message
+    /// pane, impel's a task pane. Before the first selection each of them
+    /// asked for "a publication". Glyphs are the ones the kind's own section
+    /// placeholder already uses; a publication keeps its existing state, id
+    /// and all.
+    static func noRowSelection(kind: RecordKindID) -> ChassisEmptyState {
+        let (noun, glyph): (String, String)
+        switch kind {
+        case .publication: return noRowSelection(isArtifact: false)
+        case .figure: (noun, glyph) = ("figure", "photo.on.rectangle.angled")
+        case .message: (noun, glyph) = ("message", "envelope")
+        case .task: (noun, glyph) = ("task", "checklist")
+        case .agentRun: (noun, glyph) = ("run", "bolt")
+        default: (noun, glyph) = ("item", "doc.text")
+        }
+        return ChassisEmptyState(
+            id: "no-row-selection.\(noun)",
+            title: "No Selection",
+            systemImage: glyph,
+            message: "Select a\(noun == "item" ? "n" : "") \(noun) to view details")
+    }
+
     /// The search pane's signpost: results land in the sidebar, not here.
     static let searchResultsElsewhere = ChassisEmptyState(
         id: "search-results-elsewhere",

@@ -588,48 +588,157 @@ struct LayoutRowsPaneView: View {
     }
 }
 
-/// The `info` view kind: the existing publication detail pane, for whatever
+/// The `info` view kind: the record kind's EXISTING detail pane, for whatever
 /// the pane's `item` parameter currently resolves to.
 ///
-/// `DetailView`'s failable `init(publicationID:selectedTab:)` is the same
-/// entry point `SectionContentView` uses, so this is the real detail surface
-/// and not a reimplementation of it. The detail TAB is view state of this
-/// view kind, not layout state — in L8 it becomes `PaneSpec.view_state`,
-/// which is where a per-pane tab belongs (ADR-0031 D1).
+/// Five kinds route here today and every one of them is a view the chassis
+/// already ships: `DetailView` is the same failable entry point
+/// `SectionContentView` uses for a publication, and `FigureDetailPane`,
+/// `MessageDetailPane` and `AgentRecordDetailPane` are the same id-based
+/// panes `FigureSectionView` / `MessageSectionView` / `AgentSectionView`
+/// build for their own detail half. Nothing was extracted to get here: all
+/// four already took an id and a tab binding, because a section's detail
+/// pane and a tree's detail pane want exactly the same two things (ADR-0031
+/// D11 — map, do not rewrite).
+///
+/// `topInset` is the toolbar band the tree measured for this pane
+/// (`layoutToolbarBand`), not the section views' fixed 40 pt. A layout pane
+/// DOES reclaim the band — `LayoutLinearSplit` ignores the top safe area for
+/// every horizontal child but the first, which is where every preset's `info`
+/// pane sits — so 0 put each detail pane's tab picker under the window
+/// toolbar, invisible and unclickable. A pane that is not under the toolbar
+/// is told 0 and gets no gap.
+///
+/// The detail TAB is view state of this view kind, not layout state — in L8
+/// it becomes `PaneSpec.view_state`, which is where a per-pane tab belongs
+/// (ADR-0031 D1).
 @MainActor
 struct LayoutInfoPaneView: View {
+
+    /// Which detail the pane shows. A plain enum switched over a plain
+    /// `some View`, NOT a `@ViewBuilder` returning `(some View)?` — that
+    /// shape does not propagate `nil` through `if let` and silently renders
+    /// the wrong branch for every case (impress-swiftui-pitfalls rule 3, a
+    /// bug this file is the exact shape of).
+    private enum DetailKind {
+        case publication
+        case figure
+        case message
+        case task
+        case agentRun
+        /// A kind this build has no detail pane for — the honest fallback,
+        /// unchanged from before the other four existed.
+        case unsupported
+
+        /// From the pane's own layout kind — the manifest's short id
+        /// (`figure`), which is what a pane query and a `select` verb spell.
+        /// NOT the chassis' namespaced `RecordKindID`; see
+        /// `LayoutPaneRowMapper.kindBySchemaRef` for why the two are one
+        /// string apart on purpose.
+        init(layoutKind: String?) {
+            switch layoutKind {
+            case RecordKindID.publication.rawValue: self = .publication
+            case RecordKindID.figure.rawValue: self = .figure
+            case RecordKindID.message.rawValue: self = .message
+            case RecordKindID.task.rawValue: self = .task
+            case RecordKindID.agentRun.rawValue: self = .agentRun
+            default: self = .unsupported
+            }
+        }
+    }
 
     let context: PaneContext
 
     @State private var selectedTab: DetailTab = .info
 
+    @Environment(\.layoutToolbarBand) private var toolbarBand
+
     private var itemID: UUID? {
-        guard let raw = context.singleItem ?? context.bindings["item"] else { return nil }
+        guard let raw = rawItem else { return nil }
         return UUID(uuidString: raw)
+    }
+
+    private var rawItem: String? {
+        context.singleItem ?? context.bindings["item"]
+    }
+
+    /// The kind the pane's query names. A detail pane's query is
+    /// `detail_query(list)` — the list's kinds, scoped to `$item` — so this
+    /// is the kind of the thing the parameter resolved to, not a guess.
+    private var detailKind: DetailKind {
+        DetailKind(layoutKind: context.primaryKind)
     }
 
     var body: some View {
         Group {
-            if let itemID, let detail = DetailView(publicationID: itemID, selectedTab: $selectedTab) {
-                detail
-            } else if let raw = context.singleItem ?? context.bindings["item"] {
-                // The parameter resolved to something this pane cannot render
-                // (a non-publication kind, or a row that has since gone).
-                ChassisEmptyState(
-                    id: "detail-unavailable",
-                    title: "Detail Unavailable",
-                    systemImage: RecordKindDescriptor.unknownSymbolName,
-                    message: "No publication detail for \u{201C}\(raw)\u{201D}."
-                )
-                .view
+            if let itemID {
+                detail(for: itemID)
+                    // The leaf's conversion is otherwise invisible: a figure
+                    // detail and a "no publication detail" empty state occupy
+                    // the same pixels. Naming the branch makes
+                    // `?category=layout` the place the proof is read, rather
+                    // than a screenshot.
+                    .onAppear { logDispatch(itemID) }
+                    .onChange(of: itemID) { _, id in logDispatch(id) }
+            } else if let raw = rawItem {
+                // A bound parameter whose value is not an id at all.
+                unavailable(raw)
             } else {
                 // An unfilled parameter renders the empty state, NEVER an
                 // error (ADR-0031 D3) — this is what a detail pane looks like
                 // before the first selection.
-                ChassisEmptyState.noRowSelection(isArtifact: false).view
+                ChassisEmptyState.noRowSelection(
+                    kind: RecordKindID(context.primaryKind ?? "")
+                ).view
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func logDispatch(_ id: UUID) {
+        logInfo(
+            "pane \(context.tile) info: \(detailKind) detail for \(id.uuidString)",
+            category: "layout")
+    }
+
+    @ViewBuilder
+    private func detail(for id: UUID) -> some View {
+        switch detailKind {
+        case .publication:
+            // Failable: the id may name a row that has since gone.
+            if let view = DetailView(publicationID: id, selectedTab: $selectedTab) {
+                view
+            } else {
+                unavailable(id.uuidString)
+            }
+        case .figure:
+            FigureDetailPane(figureID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+        case .message:
+            MessageDetailPane(messageID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+        case .task:
+            AgentRecordDetailPane(
+                kind: .task, recordID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+        case .agentRun:
+            AgentRecordDetailPane(
+                kind: .run, recordID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+        case .unsupported:
+            unavailable(id.uuidString)
+        }
+    }
+
+    /// The parameter resolved to something this build has no detail for.
+    /// Names the KIND as well as the id: "no detail for <id>" sent every
+    /// earlier reader looking for a missing row when the real answer was a
+    /// missing view.
+    private func unavailable(_ raw: String) -> some View {
+        ChassisEmptyState(
+            id: "detail-unavailable",
+            title: "Detail Unavailable",
+            systemImage: RecordKindDescriptor.unknownSymbolName,
+            message: "No \u{201C}\(context.primaryKind ?? "item")\u{201D} detail for "
+                + "\u{201C}\(raw)\u{201D}."
+        )
+        .view
     }
 }
 #endif

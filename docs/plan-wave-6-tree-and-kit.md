@@ -130,3 +130,141 @@ preparation may start earlier on a branch).
 - Not proven here: the app was already built and running from earlier today, so this
   round did not exercise `scripts/build-impress-app.sh`. Every later package adds its
   capability to this catalogue, per the row.
+
+- 2026-09-23 — **W2 done: all three leaves proven live, with real rows.** (Mail needs PR #50
+  on `main` first; see below.)
+  The row's first sentence turned out to be already true in Rust: `implore_default()`,
+  `impel_default()` and `impart_default()` all build `outline` + `list` + `info` through
+  `three_columns(...)` over `q::figures()` / `q::agents()` / `q::mail()`, and the string
+  `legacy` does not occur anywhere in `presets.rs`. Nothing was ported and nothing was
+  removed — the "preset stops naming `legacy`" half of the row had no work in it, which is
+  worth recording so the next leaf does not go looking for it again.
+- The whole gap was one Swift line. `LayoutInfoPaneView` hard-coded
+  `DetailView(publicationID:)`, so every `info` pane in the three apps resolved a real id
+  and then fell into "Detail Unavailable". The fix is a dispatch on
+  `PaneContext.primaryKind` — for a detail pane that is `detail_query(list).kinds.first`,
+  the list's kind scoped to `$item`, so the kind is read from the spec rather than guessed.
+  **No extraction was needed anywhere:** `FigureDetailPane`, `MessageDetailPane` and
+  `AgentRecordDetailPane` are already `public` and already take
+  `(id, Binding<DetailTab>, topInset:)`, because a section's detail half and a tree's
+  detail pane want the same two things. A plain enum switched over a plain `some View`,
+  never a `@ViewBuilder` returning `(some View)?`.
+- **`topInset` is NOT 0, and the first version of this entry was wrong to say so.** It
+  claimed a layout pane reclaims no toolbar band. `LayoutLinearSplit` does reclaim it —
+  `.ignoresSafeArea(.container, edges: .top)` on every horizontal child but the first,
+  which is exactly where each preset's `info` pane sits — so with `topInset: 0` the
+  Info / Source / View picker of every figure, message and task detail drew under the
+  window toolbar: the record rendered, the control that switches it could not be seen or
+  clicked. Screenshots of impel and impart showed the body flush under the toolbar with
+  no picker. The section views' fixed 40pt is the wrong number for a tree, whose pane may
+  not be under the toolbar at all, so the split now MEASURES the band it still sees as
+  safe area (before any child reclaims it) and hands it down as `layoutToolbarBand`: a
+  reclaiming child gets it, a first child or a vertical split's top child inherits its
+  parent's, a vertical split's lower children get 0. Checked live in three positions on
+  impel — info as the third column (picker clears the ~52pt toolbar, read off the screenshot), info on top of a
+  vertical split inside that column (still clears it), info in that split's lower half
+  (picker flush with its own top, no gap) — and on implore, which has no toolbar, only a
+  title bar, where the picker sits just under it (by screenshot, not by a measured
+  number).
+- `LayoutPaneRowMapper` needed nothing: it reads the kind manifest out of the FFI
+  (`kindManifestJson()`), and `impress_core::pane_query::builtin_manifest()` already claims
+  `figure`, `message`, `task` and `agent-run`. The row style for these kinds was already
+  arriving through `RecordViewerRegistry.makeListRow` — impel's list pane drew 500 task
+  rows on the first launch with no change to the mapper.
+- **Proven live (Mac, 2026-09-23).** implore on 23123, impel on 23124 and impart on 23122,
+  each built from this branch (impart from a scratch merge of this branch with PR #50 —
+  see "Not proven"), each with `impress.layoutTree.enabled` written to its OWN bundle id.
+  The flag is `UserDefaults.standard` read once per launch, so it is per app, and impart's
+  id is `com.imbib.impart`, not `com.impress.impart`. For all three `/api/layout/tree`
+  after `{"op":"apply-layout","ordinal":1}` is four tiles — `1 outline navigator
+  [collection, library]`, `2 list list [<kind>]`, `3 info detail [<kind>] params=[(item,
+  <kind>)]`, `4 container linear horizontal [1,2,3]` — with **the string `legacy` nowhere
+  in the document**. Tier B is **8/8, 0 skipped** against each, and afterwards the
+  `layout` object is identical to before the run (compared as parsed JSON), `/api/layout/layouts` is empty and
+  `/api/surface` is `{"surfaces":[]}`. Re-run on the final binaries after the two fixes
+  below; same result.
+- **The dispatch, with real rows.** Tier B's own `select` sends a random `new_v4` id, so it
+  proves only which branch the pane took. Each kind was then selected with a row that
+  exists, via `POST /api/layout/verb {"verb":"select","target":{"ref":"id","tile":2},
+  "kind":"<kind>","ids":[<id>]}`, and read back from `?category=layout` and a
+  `screencapture -R` of the window:
+  - **task** (impel): `pane 3 info: task detail for DCC8E5A9-…` — a live `task@1.0.0` row
+    ("Backfill memory embeddings"); the pane shows its state (Done), assignee
+    (impel-taskd), dates and its latest run (impel-memory/embed, 0.6 s).
+  - **message** (impart): `pane 3 info: message detail for F892B51A-…` — one of the store's
+    33 `chat-message` rows (impart's list pane shows the same 33); the pane shows its
+    sender (`user:local`) and its date (Aug 6, 2026, 2:40 AM, matching the row's
+    `created`), not "Message Unavailable". The store holds zero `email-message` rows, so
+    the email half of `MailStoreReader.fetchMessage` was not exercised.
+  - **figure** (implore): the store held zero `figure` rows, so one was seeded through
+    implore's own verb, `POST /api/figures` (`LibraryManager.addFigure` mirrors it into the
+    store as `figure`, the ref schema-refs.json lists): `pane 3 info: figure detail for
+    7813BE3B-…`, and the pane showed its title, format and dates. Cleanup took two steps,
+    because `DELETE /api/figures/{id}` removes the figure from implore's library JSON but
+    NOT its store row (`removeFigure` never calls the store — a gap of its own, see
+    below). The row was deleted with a throwaway program over `SqliteItemStore::delete`,
+    which refuses any row whose schema is not `figure`; `list-items --schema-ref figure`
+    is back to 0.
+  - **agent-run** (impel): no preset has an `agent-run` pane, so a `split` verb added one
+    beside tile 3 (`info` over `agent-run`, `item` from channel 1) and a `select` published
+    a live `agent-run@1.0.0` id: `pane 5 info: agentRun detail for 0FE2885B-…`, rendering
+    the run's summary, agent, model, prompt hash and duration. `apply-layout 1` restored
+    the arrangement afterwards.
+  The earlier version of this entry said the store held no `task`, `message` or
+  `agent-run` rows. It holds 7,793, 33 and 5,748; only `figure` (and `email-message`) was
+  empty. Its own line about impel drawing 500 task rows already contradicted it.
+- **Publications still reach `DetailView`.** In impress (23125, a `main` build — the
+  publication branch is unchanged here), a `select` of a live `imbib/bibliography-entry`
+  row put the paper's authors, year, title, Explore buttons and abstract in the `info`
+  pane.
+- **Two bugs found by looking, both fixed on this branch.** (1) The `topInset` one above.
+  (2) Before a selection, every tree `info` pane said "Select a publication to view
+  details", figure, message and task panes included; seen in impel, beside an `agent-run`
+  pane, as a task pane asking for a publication. `ChassisEmptyState.noRowSelection(kind:)`
+  now phrases it by the pane's own kind ("Select a figure to view details", with that
+  kind's section glyph), and a publication pane keeps its old state, id and all.
+  RecordKindPresentationTests pins the strings. PMC `swift test` after both: 2083 XCTest,
+  0 failures, 2 skipped; 112 swift-testing, green.
+- That log line is new and deliberate. A leaf's conversion is otherwise invisible from
+  outside the window: a figure detail and a "no publication detail" empty state occupy the
+  same pixels, so the proof would have been a screenshot and a promise. It sits beside the
+  `pane N display: R rows` the list pane already logs, so the two panes can be seen
+  agreeing on one id.
+- **Tier B now takes a base url.** W0's `tier_b::run(base_url)` was already parameterized;
+  every caller just passed the impress constant. The override is the env var
+  `IMPRESS_LAYOUT_SELFTEST_BASE_URL`, NOT a second argument on `run_selftest` — a verb's
+  arguments are vocabulary and this plan says ask first, so the catalogue did not decide
+  it alone. Default unchanged; the rule is a pure function with a test. Nothing in the
+  catalogue turned out to be impress-specific: `/api/layout/*` and `/api/surface/*` are
+  served by every app, and "ordinal 1 is this app's own Default" holds per app.
+- **Not proven, and why.** (a) **impart on `main`.** `main` does not compile impart:
+  `bookmarkCreationOptions` / `bookmarkResolutionOptions` are each declared twice in
+  `apps/impart/MessageManagerCore/Sources/MessageManagerCore/Artifacts/DirectoryArtifact.swift`.
+  The fix is PR #50 (`claude/impart-bookmark-dup`), still open. It is NOT on this branch:
+  the mail proof above ran on a scratch branch that merged the two and was never pushed.
+  Until #50 lands, an impart built from `main` + W2 does not build at all. (b) **The
+  sidebar-node rows** of the matrix (`section(.figures)` / `(.mail)` / `(.agents)`: context
+  menu, rename, delete, drag, drop, counts) are NOT re-proven and are not W2's: they are
+  the navigator pane, which is W3. (c) **Row context menus in a `list` pane exist for NO
+  kind** — there is no `.contextMenu` anywhere under `Chassis/Layout/`, publications
+  included. The W2 row assumed "the section's row style and context menu come through
+  `LayoutPaneRowMapper` + the row registry as `list` already does for publications"; the
+  row style does, the context menu does not, for anything. Building it is a cross-leaf
+  change, not this row's "map, not rewrite": **a gap for W3/W4 to own**, recorded here so
+  it is not silently dropped. (d) **The `list` pane's first row sits under the toolbar**
+  in all three apps — the same reclaimed band as the `topInset` bug, in
+  `LayoutRowsPaneView`, which predates W2 and which this branch did not touch.
+  `layoutToolbarBand` is now in the environment for it to use. (e) **implore's
+  `DELETE /api/figures/{id}` leaves the store row behind**, so a deleted figure keeps
+  showing in every store reader, the tree's figure list included. Pre-existing, implore's.
+  (f) **`LayoutTabsView` and `LayoutGridView` pass the band through unchanged**, so a
+  detail pane under a tab strip or in a grid's lower row gets clearance it may not need
+  (a gap, never a hidden control). No preset builds either today. (g) **An impart wedge
+  seen once and not reproduced.** At 16:39:27 local, with impart idle on this build,
+  AppKit swallowed an exception (a `SOME_OTHER_THREAD_SWALLOWED_AT_LEAST_ONE_EXCEPTION`
+  thread in `sample`). From then on every `@MainActor` route (`/api/layout/*`,
+  `/api/logs`) hung while `/api/status` answered and the main thread sat idle in its run
+  loop. The system log held nothing for the process. A relaunch plus deliberate
+  cross-process store mutations (figure create, library delete, store delete) did not
+  reproduce it, and neither did three more Tier B runs. Cause unknown; not attributed to
+  W2.
