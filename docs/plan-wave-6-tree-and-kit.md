@@ -376,3 +376,11 @@ preparation may start earlier on a branch).
   one `pane 2 display: 153 rows` and **0** stale reloads; `impress-cli apply-layout --ordinal 1`
   from a second process still logs `layout changed elsewhere → version 6`, one display pass,
   and the list back on the Default query. PMC `swift test` 2090 XCTest, 0 failures.
+- 2026-09-24 — **Correction: the package cache was never damaged.** W2 and W3 each pushed with
+  `SKIP_DUAL_PLATFORM_CHECK=1`, blaming "the machine's global Swift package cache" for the
+  hook's `Couldn't check out revision … unable to read tree`. The cause was the hook: git
+  exports `GIT_DIR=<repo>/.git/worktrees/<name>` into a hook run from a worktree, and the git
+  xcodebuild spawns for package checkouts inherited it and looked for every package's tree in
+  this repository. Reproduced by checking out NetworkImage from the SwiftPM cache with and
+  without that `GIT_DIR`. Fixed in #53 (the hook unsets the git environment after finding the
+  repo root); this branch's follow-up push went through the full hook with no bypass.
