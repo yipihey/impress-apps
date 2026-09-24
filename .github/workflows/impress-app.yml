@@ -36,6 +36,7 @@ on:
       - 'schema-refs.json'
       - 'scripts/check-schema-refs.sh'
       - 'scripts/check-chassis-deps.sh'
+      - 'scripts/check-kit-packages.sh'
       - '.github/workflows/impress-app.yml'
 # NO pull_request trigger, deliberately — the same rule every other lane
 # documents: this runs on a self-hosted runner and the repo is public, so a fork
@@ -85,6 +86,12 @@ jobs:
         # impress is the app with the strongest interest in PMC not growing:
         # it links everything, so every dependency added there lands here.
         run: ./scripts/check-chassis-deps.sh
+
+      - name: Kit package lint
+        # The layout host (packages/ImpressLayout) and the surface renderer
+        # (packages/ImpressSurface) depend on the five kit-grade packages and
+        # nothing else, so the kit can leave the repository (ADR-0033 D7).
+        run: ./scripts/check-kit-packages.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
