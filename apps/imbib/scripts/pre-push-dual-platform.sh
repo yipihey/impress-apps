@@ -36,6 +36,18 @@ if [ "${SKIP_DUAL_PLATFORM_CHECK:-0}" = "1" ]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Git exports its own environment into a hook when the push comes from a
+# WORKTREE (GIT_DIR=<repo>/.git/worktrees/<name>, and friends). Everything
+# below inherits it, including the git that xcodebuild spawns to check out
+# Swift packages — which then looks for NetworkImage's tree in THIS
+# repository and fails with "Couldn't check out revision … unable to read
+# tree", every package, every time. It read as a damaged package cache for
+# two wave-6 pushes (2026-09-23/24) that bypassed this hook because of it;
+# reproduced by running that checkout by hand with and without GIT_DIR.
+# The git calls below all pass -C "$REPO_ROOT", so none of them needs it.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX \
+    GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_QUARANTINE_PATH
 IMBIB_DIR="$REPO_ROOT/apps/imbib/imbib"
 
 # Rust formatting gate: every Rust CI workflow runs `cargo fmt --check`,
