@@ -942,3 +942,37 @@ The first two are done in this pass (above).
   kit-enabled one still fails). Strict results: `kit deps OK` (13 crates) and `kit standalone
   OK: 13 crates build with nothing else from this repository`, 0 warnings. Demo: making the FFI
   enable `impress-ai/executor` fails both checks, naming the path.
+- 2026-09-24 — **Follow-up: `plot` and `console` render (Tom: fix the shortcoming).** The
+  matrix listed both as "❌ unregistered". Both were already `impress_layout::ViewKindId`
+  constants, so this added Swift factories and `ViewKindID.plot` / `.console` (spelled from
+  `ids.rs`), and no verb, `PaneSpec` field, view kind or schema ref.
+- **`console` is a kit kind.** It renders `ImpressLogging.ConsoleView` (the ⌘⇧C console)
+  unchanged over `LogStore.shared`. ImpressLogging is already on ImpressLayout's allowlist
+  and the view knows no domain, so `ViewKindRegistry.builtin` is placeholder + surface +
+  console, and a host that registers nothing (kit-demo) gets a real console.
+  `check-kit-packages.sh` is unchanged and green. The pane is scoped by the console's own two
+  controls, seeded from the pane's opaque `view_state` (`search`, which matches message or
+  category, and `levels`). `ConsoleView` gained additive init parameters for those two seeds
+  and an embedded mode that drops the 600×300 window minimum. Every existing call site is
+  unchanged.
+- **`plot` is a chassis kind** (it reads the figure store). A store `figure` carries no plot
+  spec, only the artifact implore rendered (`data_hash`), and the one view that draws it was
+  `FigureDetailPane`'s View tab. That body became the public `FigureArtifactView`, which the
+  tab and `LayoutPlotPaneView` both call (W4's `ManuscriptPreviewContent` move). Resolution is
+  `info`'s. A pane over another kind, a value that is not an id, or an id that is another
+  record gets a named "Plot Unavailable". The artifact now fits its space instead of scrolling
+  at natural size, a bug that the tab had too.
+- **Proven live.** implore (this branch): split `plot` beside `info` over a figure seeded with
+  `POST /api/figures` → `pane 5 plot: figure C563336D… (no rendered artifact)`. Given a
+  rendered PNG (imprint's `renderPlotSvg`, via implore's content store and the FFI's additive
+  `upsert_item`), the plot drew. A publication id gave the named state. Cleanup: implore's
+  `DELETE`, then the store row (the W2 gap, removed by a throwaway over `SharedStore::delete_item`
+  that refuses non-figures), then the CAS file, leaving 0 figure rows. impress (this branch):
+  `split` + `set-view-kind console` → `pane 6 console: impress log, all`, the live log on
+  screen. Tier B gained `layout.console_pane`: impress **13/13**, implore **13/13**.
+- **Found on the way.** A sibling session relaunched impress on 23125 from its own build
+  mid-proof. My build was re-run for Tier B on 23135 (`-httpAutomationPort 23135`, the
+  argument domain, not persisted), sharing impress's layout row with the other window for the
+  few seconds the catalogue ran. No verb writes a figure's artifact, so implore's own figures
+  reach other apps without a plot until something exports one. In a ≈500 pt column the
+  console's window toolbar squeezes its level toggles.
