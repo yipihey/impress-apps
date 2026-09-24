@@ -146,6 +146,19 @@ public struct LayoutWindowView: View {
             .focusable()
             .keyboardGuarded { press in handleCharacter(press) }
             .onKeyPress(keys: ["z", "Z"]) { press in handleUndoChord(press) }
+            // h / l pressed INSIDE a pane that claims them first. `DetailView`
+            // (the `info` pane) and the publication list (in a `legacy` pane)
+            // answer h/l as `.handled` and post `.cycleFocusLeft/Right` for
+            // imbib's pre-chassis `ContentView` to cycle its `FocusedPane`.
+            // In a chassis window nobody else observes them, so before W5 the
+            // key was swallowed there and focus never moved. The tree is the
+            // only root now, so they route to the one place focus lives.
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
+                controller.apply(.focusDirection(.left))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusRight)) { _ in
+                controller.apply(.focusDirection(.right))
+            }
     }
 
     @ViewBuilder

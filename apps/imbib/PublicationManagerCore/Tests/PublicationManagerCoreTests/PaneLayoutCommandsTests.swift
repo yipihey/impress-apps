@@ -73,6 +73,35 @@ final class PaneLayoutCommandsTests: XCTestCase {
         XCTAssertEqual(Set(bindings).count, chords.count)
     }
 
+    // MARK: - Where each chord lands (plan wave 6 W5)
+
+    /// In a chassis window a chord resizes a ROLE in the layout tree
+    /// (ADR-0031 D5) — the tree is the only chassis root since W5. A
+    /// transposed role (⌘0 collapsing the navigator) is the same one-character
+    /// error `testEachChordTogglesExactlyItsOwnField` guards on the other side.
+    func testEachChordNamesItsTreeRole() {
+        let chords = ImpressPaneLayoutButtons.chords()
+        XCTAssertEqual(chords.map(\.role), ["detail", "list", "navigator"])
+        XCTAssertEqual(chords.map(\.role), [
+            PaneLayoutChordRouter.detailRole,
+            PaneLayoutChordRouter.listRole,
+            PaneLayoutChordRouter.navigatorRole,
+        ])
+    }
+
+    /// Only imbib's pre-chassis window may route the chords to
+    /// `PaneLayoutState`; every chassis app's are the tree's. A chassis host
+    /// passing `.imbibPreChassisWindow` would flip a Boolean nothing draws.
+    func testOnlyImbibsOwnWindowRoutesToPaneLayoutState() throws {
+        for path in Self.migratedAppFiles {
+            let source = try Self.source(of: path)
+            let preChassis = source.contains("target: .imbibPreChassisWindow")
+            XCTAssertEqual(
+                preChassis, path == "apps/imbib/imbib/imbib/imbibApp.swift",
+                "\(path): only imbib's pre-chassis ContentView reads PaneLayoutState")
+        }
+    }
+
     // MARK: - What each chord actually does
 
     /// Each chord flips ITS field and no other. The four hand-written copies

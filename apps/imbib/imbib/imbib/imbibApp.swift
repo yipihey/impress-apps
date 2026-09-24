@@ -1158,7 +1158,11 @@ struct AppCommands: Commands {
             // column of EVERY imbib route (publication SectionContentView
             // included) and is the shortcut advertised by TabContentView's list
             // toolbar button ("Show/Hide the list ⌥⌘0").
-            ImpressPaneLayoutButtons()
+            //
+            // `.imbibPreChassisWindow`: this window is imbib's own
+            // `ContentView`, which reads `PaneLayoutState`. Every chassis app
+            // passes nothing and gets `.layoutTree` (plan wave 6 W5).
+            ImpressPaneLayoutButtons(target: .imbibPreChassisWindow)
 
             layoutsMenu
 
