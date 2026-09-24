@@ -7,7 +7,8 @@
 //  The chassis' view kinds, registered into the kit's `ViewKindRegistry`.
 //
 //  The layout host is `packages/ImpressLayout` (W6). The kit registers only
-//  `placeholder` and `surface`; everything a pane needs the CHASSIS for is
+//  `placeholder`, `surface` and `console` (ImpressLogging's `ConsoleView`,
+//  which needs nothing the kit lacks); everything a pane needs the CHASSIS for is
 //  here and is registered at startup by `ChassisViewKinds.registerIfNeeded()`,
 //  which `ChassisRootView.init` calls — before its body, so before the first
 //  pane of any window renders. Tests that render or ask about these kinds
@@ -35,7 +36,8 @@ import SwiftUI
 public enum ChassisViewKinds {
 
     /// Every kind this package registers, in the order `factories` lists
-    /// them. With the kit's own two, the whole L8 vocabulary.
+    /// them. With the kit's own three, the whole vocabulary of
+    /// `impress_layout::ViewKindId`.
     public static let kinds: [ViewKindID] = factories.map(\.kind)
 
     /// The chassis' factories. `surface` replaces the kit's plain one with
@@ -80,6 +82,12 @@ public enum ChassisViewKinds {
         ViewKindFactory(kind: .source, isSessionBearing: true) {
             AnyView(LayoutSourcePaneView(context: $0))
         },
+
+        // A figure's rendered plot — `FigureDetailPane`'s View tab body,
+        // moved into `FigureArtifactView` so both draw it one way — resolved
+        // like `info`. Not session-bearing: it holds no document or undo.
+        // (`console` is the kit's own: `ImpressLayout.LayoutConsolePaneView`.)
+        ViewKindFactory(kind: .plot) { AnyView(LayoutPlotPaneView(context: $0)) },
     ]
 
     @MainActor private static var registered = false
@@ -583,6 +591,12 @@ struct LayoutRowsPaneView: View {
         loadFailed = fetched.isEmpty && context.controller.lastError != nil
         context.controller.didRefresh(tile)
         logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
+        PublicationTagRemoval.reportDisplay(
+            surface: "pane \(tile)",
+            rows: rows.compactMap { row in
+                guard let tagged = row.mailStyleRow, tagged.kind == .publication else { return nil }
+                return (tagged.id, tagged.tagDisplays.map(\.path))
+            })
     }
 }
 

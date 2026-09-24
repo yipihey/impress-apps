@@ -62,7 +62,11 @@ public final class PublicationListActions {
     public var onSetFlag: ((Set<UUID>, FlagColor) async -> Void)?
     public var onClearFlag: ((Set<UUID>) async -> Void)?
     public var onAddTag: ((Set<UUID>) -> Void)?
-    public var onRemoveTag: ((UUID, UUID) -> Void)?
+    /// Remove a tag PATH from the given rows (`PublicationTagRemoval.remove`).
+    /// It took `(publication, tag UUID)` until 2026-09, and every host's
+    /// handler was an empty TODO: the store keys tags by path, and the row
+    /// data every caller holds already carries it.
+    public var onRemoveTag: ((Set<UUID>, String) -> Void)?
     public var onMuteAuthor: ((String) -> Void)?
     public var onMutePaper: ((UUID) -> Void)?
     public var onCategoryTap: ((String) -> Void)?
@@ -739,6 +743,8 @@ public struct PublicationListView: View {
         }
 
         listSnapshot.apply(rows: publications)
+        PublicationTagRemoval.reportDisplay(
+            surface: "list", rows: publications.map { ($0.id, $0.tagDisplays.map(\.path)) })
 
         // Log tag summary for debugging
         let taggedCount = publications.filter { !$0.tagDisplays.isEmpty }.count
@@ -1510,7 +1516,8 @@ public struct PublicationListView: View {
         } : nil
 
         let removeTagHandler: ((UUID) -> Void)? = actions.onRemoveTag != nil ? { tagID in
-            actions.onRemoveTag?(rowData.id, tagID)
+            guard let path = rowData.tagDisplays.first(where: { $0.id == tagID })?.path else { return }
+            actions.onRemoveTag?([rowData.id], path)
         } : nil
 
         // Enhanced context menu handlers — all use UUID now

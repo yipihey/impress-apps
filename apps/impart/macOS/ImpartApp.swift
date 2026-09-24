@@ -291,6 +291,14 @@ struct ImpartApp: App {
 
                 Divider()
 
+                // ⌃⌘1–9 — the tree's layout ordinals, as in every chassis app.
+                // impart mounted the pane toggles above but never these, so
+                // the grammar's "every chassis app: Apply Layout N" was untrue
+                // here until 2026-09-24. ⌘1–5 above are view modes; no clash.
+                ImpressLayoutOrdinalButtons()
+
+                Divider()
+
                 Button("Show Console") {
                     openWindow(id: "console")
                 }

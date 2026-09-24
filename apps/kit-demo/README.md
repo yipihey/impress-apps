@@ -7,7 +7,9 @@ It is the standalone proof of plan wave 6, W6 (`docs/plan-wave-6-tree-and-kit.md
 a macOS executable that links **only `ImpressLayout` and `ImpressRustCore`**
 (ImpressSurface, ImpressKeyboard and ImpressLogging come in through ImpressLayout)
 and still draws a layout tree. No PublicationManagerCore, and no view kind is
-registered: the kit's own two, `placeholder` and `surface`, are all there is.
+registered: the kit's own kinds are all there is — `placeholder` and `surface` when
+this was written, plus `console` (ImpressLogging's `ConsoleView`) since the plot/console
+fix, so a `console` pane renders here too. The output below is the 2026-09-24 run.
 
 What it does:
 

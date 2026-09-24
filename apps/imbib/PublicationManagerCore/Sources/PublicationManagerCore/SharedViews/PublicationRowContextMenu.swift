@@ -236,6 +236,26 @@ struct PublicationRowContextMenu: View {
             }
         }
 
+        // Remove Tag › — every tag the targets carry. Each item removes the
+        // path from the targets that carry it (so Undo restores exactly
+        // those); hidden when no target carries a tag.
+        if let onRemoveTag = actions.onRemoveTag {
+            let tags = PublicationTagRemoval.removableTags(ids: ids, row: row)
+            if !tags.isEmpty {
+                Menu {
+                    ForEach(tags, id: \.path) { tag in
+                        Button(tag.path) {
+                            onRemoveTag(
+                                PublicationTagRemoval.carriers(of: tag.path, in: ids, row: row),
+                                tag.path)
+                        }
+                    }
+                } label: {
+                    Label("Remove Tag", systemImage: "tag.slash")
+                }
+            }
+        }
+
         Divider()
 
         // MARK: Organization

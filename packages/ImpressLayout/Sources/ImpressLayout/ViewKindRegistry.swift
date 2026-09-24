@@ -8,11 +8,13 @@
 //
 //  ## What the kit registers, and what the host does (plan wave 6, W6)
 //
-//  `ViewKindRegistry.builtin` starts with TWO factories: `placeholder` and
-//  `surface`. Those are the only view kinds that need nothing but the tree,
-//  the store and `ImpressSurface`. Every other kind in the vocabulary below —
-//  outline, list, info, pdf, notes, bibtex, source, legacy — renders a
-//  domain's own views, so the HOST registers it: PublicationManagerCore's
+//  `ViewKindRegistry.builtin` starts with THREE factories: `placeholder`,
+//  `surface` and `console`. Those are the only view kinds that need nothing
+//  but the tree, the store, `ImpressSurface` and `ImpressLogging` (the
+//  console is `ConsoleView` over the app's own `LogStore`). Every other kind
+//  in the vocabulary below — outline, list, info, pdf, notes, bibtex, source,
+//  plot, legacy — renders a domain's own views, so the HOST registers it:
+//  PublicationManagerCore's
 //  `ChassisViewKinds.registerIfNeeded()`, called from `ChassisRootView`
 //  before the first pane renders. A kind nobody registered still renders,
 //  as the placeholder, which keeps the spec (ADR-0031 D4) — so a host that
@@ -78,10 +80,17 @@ public struct ViewKindID: RawRepresentable, Hashable, Sendable, Codable,
     /// query is `item(id)` of the surface, so this is an ordinary view kind
     /// with no special case anywhere else in the tree (ADR-0033 D1).
     public static let surface = ViewKindID("surface")
+    /// `impress_layout::ViewKindId::PLOT` — a figure's rendered plot. A
+    /// host kind: the chassis registers it (`LayoutPlotPaneView`).
+    public static let plot = ViewKindID("plot")
+    /// `impress_layout::ViewKindId::CONSOLE` — the app's own log
+    /// (`ImpressLogging.ConsoleView`), which the kit registers itself
+    /// (`LayoutConsolePaneView`).
+    public static let console = ViewKindID("console")
 
     /// The kinds the kit itself has a factory for. The rest of the
     /// vocabulary above is a host's to register (see the file header).
-    public static let kitBuiltins: [ViewKindID] = [.placeholder, .surface]
+    public static let kitBuiltins: [ViewKindID] = [.placeholder, .surface, .console]
 }
 
 // MARK: - Pane context
@@ -275,7 +284,7 @@ public final class ViewKindRegistry: @unchecked Sendable {
 
     /// The registry the tree renders from (the environment's default) and
     /// the one `LayoutController` asks about session-bearing kinds: the kit's
-    /// two factories, plus whatever the host `register(_:)`s at startup.
+    /// three factories, plus whatever the host `register(_:)`s at startup.
     ///
     /// Shared and mutable on purpose, like `RecordViewerRegistry`: the host
     /// registers once, before the first pane renders, and every lookup after
@@ -285,6 +294,7 @@ public final class ViewKindRegistry: @unchecked Sendable {
     public static let builtin: ViewKindRegistry = ViewKindRegistry([
         ViewKindFactory(kind: .placeholder) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
         ViewKindFactory(kind: .surface) { AnyView(LayoutSurfacePaneView(context: $0)) },
+        ViewKindFactory(kind: .console) { AnyView(LayoutConsolePaneView(context: $0)) },
     ])
 }
 
