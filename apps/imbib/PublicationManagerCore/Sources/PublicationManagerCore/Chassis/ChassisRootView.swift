@@ -147,7 +147,7 @@ public struct ChassisRootView: View {
         self.configuration = configuration
         self.readyLogMessage = readyLogMessage
         self.sidebarComposition = sidebarComposition
-        // The kit renders `placeholder` and `surface` alone; every chassis
+        // The kit renders `placeholder`, `surface` and `console` alone; every chassis
         // view kind is registered here, in `init`, so it is in the registry
         // before this root's body — and so before any pane — renders (plan
         // wave 6, W6).

@@ -77,8 +77,9 @@ they are listed here so the manifest describes the whole kit:
   the generated `impress_store_ffi.swift`).
 - **ImpressLayout**: the layout host that moved out of PublicationManagerCore in W6:
   `LayoutModel`, `LayoutController`, `LayoutTreeView`, `PaneSessionRegistry`,
-  `ViewKindRegistry` (with only the placeholder and surface factories built in) and
-  `LayoutSurfacePaneView`.
+  `ViewKindRegistry` (with only the placeholder, surface and console factories built
+  in; `console` is ImpressLogging's `ConsoleView`, already a kit-grade dependency),
+  `LayoutSurfacePaneView` and `LayoutConsolePaneView`.
 - **ImpressSurface**: the `RenderTree` → SwiftUI renderer, with no logic of its own.
 
 Their allowed dependencies (ImpressKeyboard, ImpressTheme, ImpressLogging and each

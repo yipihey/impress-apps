@@ -5,8 +5,9 @@ import PackageDescription
 // ADR-0033 D7, ADR-0031 D9). It renders a Rust-owned layout tree: `Linear`
 // → a split, `Tabs` → a strip, `Grid` → a grid, `Pane` → whatever view
 // factory the `ViewKindRegistry` holds for the pane's view kind. The kit
-// itself registers two, `placeholder` and `surface`; every domain view kind
-// (outline, list, info, pdf, notes, bibtex, source, legacy) is a factory the
+// itself registers three, `placeholder`, `surface` and `console` (the app's
+// own log, ImpressLogging's `ConsoleView`); every domain view kind (outline,
+// list, info, pdf, notes, bibtex, source, plot, legacy) is a factory the
 // HOST registers at startup — PublicationManagerCore does it from
 // `ChassisRootView`. With nothing registered the kit still draws the whole
 // tree, as placeholders, which is what makes it a kit.
