@@ -38,11 +38,31 @@ jobs:
     # must never reach the self-hosted Mac (the rule every other lane
     # documents). The price is that this runner starts with nothing: every
     # xcframework the package graph declares has to be built or restored here.
-    runs-on: macos-latest
+    #
+    # xcode-27, not macos-latest: the self-hosted lanes build with Xcode 27
+    # (setup-xcode latest-stable), and macos-latest's newest is 26.6, whose
+    # type checker gives up on SectionContentView.swift:462 ("unable to
+    # type-check this expression in reasonable time") — a toolchain this lane
+    # alone was on, compiling Swift every other lane compiles. xcode-27 is
+    # GitHub's hosted image for that toolchain (runner-images#14404).
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
-      # arm64 only. macos-latest is Apple Silicon and the simulator it boots is
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # The arm64-only decision below is only right on Apple Silicon; fail
+      # loudly if the label ever lands on an Intel image instead of producing
+      # frameworks the build cannot link.
+      - name: Runner is arm64
+        run: |
+          uname -m; xcodebuild -version
+          [ "$(uname -m)" = "arm64" ]
+
+      # arm64 only. The runner is Apple Silicon and the simulator it boots is
       # arm64, so x86_64 slices would be built, cached and never linked — two
       # of every framework's five slices. IMPRESS_SKIP_X86=1 below and
       # ARCHS=arm64 in both xcodebuild calls are the same decision.
