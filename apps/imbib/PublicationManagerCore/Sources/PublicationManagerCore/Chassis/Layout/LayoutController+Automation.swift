@@ -30,10 +30,15 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressLayout
 import ImpressLogging
 import ImpressRustCore
 
-extension LayoutController: LayoutAutomationHost {
+// `@retroactive`: since W6 both the type (ImpressLayout) and the protocol
+// (ImpressAutomation) are imported, and this conformance lives here on
+// purpose — ImpressAutomation pulls ImpressKit, so it is not kit-grade, and
+// PMC is where both are visible. One conformance in the process, this one.
+extension LayoutController: @retroactive LayoutAutomationHost {
 
     public var layoutAppID: String { appID }
 

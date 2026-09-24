@@ -1,8 +1,8 @@
 #if os(macOS)
-// Chassis file — macOS-only. ADR-0031 work package L6.
+// Kit file (ImpressLayout) — macOS-only. ADR-0031 work package L6.
 //
 //  LayoutTreeView.swift
-//  PublicationManagerCore
+//  ImpressLayout
 //
 //  The renderer: one walk of the Rust-owned tree (ADR-0031 D4/D9).
 //
@@ -11,6 +11,14 @@
 //  layout: every gesture is a verb on `LayoutController`, and the only state
 //  any of these views hold is the IN-FLIGHT divider drag (see
 //  `LayoutLinearSplit.drag`, which is discarded on release).
+//
+//  ## What the host supplies (plan wave 6, W6)
+//
+//  The kit opens no store of its own and knows no app: `LayoutHostServices`
+//  is how a host hands in the `SharedStore` to open the layout on, and what
+//  to do when a controller opens or closes (PublicationManagerCore registers
+//  it as the HTTP automation host there). With the defaults — an in-memory
+//  store, no hooks — the tree renders on its own.
 //
 //  ## The only chassis root
 //
@@ -36,7 +44,6 @@
 
 import AppKit
 import Foundation
-import ImpressAutomation
 import ImpressKeyboard
 import ImpressLogging
 import ImpressRustCore
@@ -44,21 +51,65 @@ import SwiftUI
 
 // MARK: - Host
 
+/// What a host hands the kit so the tree can open: where the store comes
+/// from, and what to do when the controller opens and closes.
+///
+/// Closures, not a protocol, because the host's answers are three one-liners
+/// and the kit calls each exactly once per window.
+public struct LayoutHostServices: Sendable {
+
+    /// The open `SharedStore` the layout lives in, or nil when it cannot be
+    /// opened (the host says why in its own log). Called once, off the first
+    /// render: a store open can block on a TCC prompt or a WAL lock, so a host
+    /// warms it off-main here.
+    public var openStore: @MainActor @Sendable () async -> SharedStore?
+
+    /// The controller is open and about to render. PublicationManagerCore
+    /// registers it as `LayoutAutomation.shared.host` here, so "a tree is
+    /// rendering" and "layout automation works" stay one fact.
+    public var didOpen: @MainActor @Sendable (LayoutController) -> Void
+
+    /// The window is going away; the controller has already stopped its feed.
+    public var didClose: @MainActor @Sendable (LayoutController) -> Void
+
+    /// Shown while `openStore` runs.
+    public var loading: @MainActor @Sendable () -> AnyView
+
+    public init(
+        openStore: @escaping @MainActor @Sendable () async -> SharedStore?,
+        didOpen: @escaping @MainActor @Sendable (LayoutController) -> Void = { _ in },
+        didClose: @escaping @MainActor @Sendable (LayoutController) -> Void = { _ in },
+        loading: @escaping @MainActor @Sendable () -> AnyView = { AnyView(ProgressView()) }
+    ) {
+        self.openStore = openStore
+        self.didOpen = didOpen
+        self.didClose = didClose
+        self.loading = loading
+    }
+
+    /// A scratch store in memory and no hooks — the kit on its own.
+    public static let standalone = LayoutHostServices(openStore: {
+        try? SharedStore.openInMemory()
+    })
+}
+
 /// Opens `SharedLayout` for one app and renders its first window.
 ///
-/// The store is warmed off-main first, exactly as `ChassisRootView` does —
-/// `SharedLayout.open` needs an open `SharedStore`, and the open itself can
-/// block on a TCC prompt or a WAL lock.
+/// The host's `openStore` runs first — `SharedLayout.open` needs an open
+/// `SharedStore`, and the open itself can block on a TCC prompt or a WAL
+/// lock, which is why it is async.
 @MainActor
 public struct LayoutTreeHost: View {
 
     private let appID: String
+    private let services: LayoutHostServices
 
     @State private var controller: LayoutController?
     @State private var failure: String?
 
-    public init(appID: String) {
+    public init(appID: String, services: LayoutHostServices = .standalone) {
         self.appID = appID
+        self.services = services
     }
 
     public var body: some View {
@@ -66,21 +117,15 @@ public struct LayoutTreeHost: View {
             if let controller {
                 LayoutWindowView(controller: controller)
             } else if let failure {
-                ChassisEmptyState(
-                    id: "layout-unavailable",
-                    title: "Layout Unavailable",
-                    systemImage: "rectangle.split.3x1",
-                    message: failure
-                )
-                .view
+                LayoutUnavailable(
+                    "Layout Unavailable", systemImage: "rectangle.split.3x1", message: failure)
             } else {
-                ChassisRootLoadingView()
+                services.loading()
             }
         }
         .task {
             guard controller == nil else { return }
-            await RustStoreAdapter.warmOffMain()
-            guard let store = RustStoreAdapter.shared.layoutSharedStore() else {
+            guard let store = await services.openStore() else {
                 failure =
                     "The shared store handle the layout tree needs is not open. "
                     + "Relaunch once the workspace is reachable."
@@ -93,19 +138,17 @@ public struct LayoutTreeHost: View {
             // Bind the local, not the `@State` read-back: a freshly written
             // `@State` is not guaranteed to read back as the new value inside
             // the same closure, and the runtime pointer would then be nil.
-            let opened = LayoutController(layout: layout, appID: appID)
+            let opened = LayoutController(layout: layout, appID: appID, store: store)
             controller = opened
             LayoutTreeRuntime.shared.controller = opened
-            // The HTTP automation surface drives THIS controller or answers
-            // 409. Registered here, beside the runtime handle, so "a tree is
-            // rendering" and "layout automation works" are one fact.
-            LayoutAutomation.shared.host = opened
+            services.didOpen(opened)
             logInfo("layout host: tree opened for \(appID)", category: "layout")
         }
         .onDisappear {
-            controller?.stop()
+            guard let controller else { return }
+            controller.stop()
             LayoutTreeRuntime.shared.controller = nil
-            LayoutAutomation.shared.host = nil
+            services.didClose(controller)
         }
     }
 }
@@ -146,19 +189,10 @@ public struct LayoutWindowView: View {
             .focusable()
             .keyboardGuarded { press in handleCharacter(press) }
             .onKeyPress(keys: ["z", "Z"]) { press in handleUndoChord(press) }
-            // h / l pressed INSIDE a pane that claims them first. `DetailView`
-            // (the `info` pane) and the publication list (in a `legacy` pane)
-            // answer h/l as `.handled` and post `.cycleFocusLeft/Right` for
-            // imbib's pre-chassis `ContentView` to cycle its own pane focus.
-            // In a chassis window nobody else observes them, so before W5 the
-            // key was swallowed there and focus never moved. The tree is the
-            // only root now, so they route to the one place focus lives.
-            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
-                controller.apply(.focusDirection(.left))
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusRight)) { _ in
-                controller.apply(.focusDirection(.right))
-            }
+            // h / l pressed INSIDE a pane that claims them first (a hosted
+            // domain view that answers them itself) reach the tree through
+            // the host: PublicationManagerCore's `ChassisRootView` routes
+            // `.cycleFocusLeft/Right` to `LayoutTreeRuntime`'s controller.
     }
 
     @ViewBuilder
@@ -168,13 +202,9 @@ public struct LayoutWindowView: View {
             // one tile and leaves every share and session as they were.
             LayoutTileView(controller: controller, tile: window.maximized ?? window.root)
         } else {
-            ChassisEmptyState(
-                id: "layout-empty",
-                title: "No Layout",
-                systemImage: "rectangle.split.3x1",
-                message: controller.lastError ?? "This app has no layout yet."
-            )
-            .view
+            LayoutUnavailable(
+                "No Layout", systemImage: "rectangle.split.3x1",
+                message: controller.lastError ?? "This app has no layout yet.")
         }
     }
 
@@ -243,13 +273,9 @@ struct LayoutTileView: View {
         case .some(.container(let container)):
             containerView(container)
         case .none:
-            ChassisEmptyState(
-                id: "layout-missing-tile",
-                title: "Missing Tile",
-                systemImage: "questionmark.square.dashed",
-                message: "Tile \(String(tile)) is not in the arena."
-            )
-            .view
+            LayoutUnavailable(
+                "Missing Tile", systemImage: "questionmark.square.dashed",
+                message: "Tile \(String(tile)) is not in the arena.")
         }
     }
 
@@ -286,7 +312,9 @@ private struct LayoutToolbarBandKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
 
-extension EnvironmentValues {
+public extension EnvironmentValues {
+    /// Read by any pane with a control at its top edge (every detail pane's
+    /// tab picker, the list pane's first row) — see `LayoutLinearSplit`.
     var layoutToolbarBand: CGFloat {
         get { self[LayoutToolbarBandKey.self] }
         set { self[LayoutToolbarBandKey.self] = newValue }
@@ -631,14 +659,9 @@ struct LayoutPaneHost: View {
                     PaneContext(
                         tile: tile, pane: resolved, spec: spec, controller: controller))
             } else {
-                ChassisEmptyState(
-                    id: "pane-unresolved",
-                    title: "Pane Unavailable",
-                    systemImage: "rectangle.dashed",
-                    message: controller.lastError
-                        ?? "This pane's query has not resolved yet."
-                )
-                .view
+                LayoutUnavailable(
+                    "Pane Unavailable", systemImage: "rectangle.dashed",
+                    message: controller.lastError ?? "This pane's query has not resolved yet.")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

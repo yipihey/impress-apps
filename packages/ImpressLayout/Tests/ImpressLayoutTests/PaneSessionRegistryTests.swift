@@ -1,7 +1,7 @@
 #if os(macOS)
 //
 //  PaneSessionRegistryTests.swift
-//  PublicationManagerCoreTests
+//  ImpressLayoutTests
 //
 //  ADR-0031 D6. The registry's whole job is LIFETIME, and every rule it holds
 //  is one a previous bug taught us:
@@ -18,7 +18,7 @@
 
 import XCTest
 
-@testable import PublicationManagerCore
+@testable import ImpressLayout
 
 /// A session that records what was done to it.
 private final class FakeSession: PaneSession {

@@ -1,14 +1,16 @@
 #if os(macOS)
 //
 //  ViewKindRegistryTests.swift
-//  PublicationManagerCoreTests
+//  ImpressLayoutTests
 //
-//  ADR-0031 L6. Two properties, both of them about degradation:
+//  ADR-0031 L6; plan wave 6, W6. Three properties:
 //
-//  1. every builtin view kind RESOLVES to itself — a kind that silently fell
-//     through to the placeholder would look like a rendering bug in one pane
-//     and nowhere else;
-//  2. an unknown kind resolves to `placeholder` and does NOT throw or return
+//  1. the kit's registry holds EXACTLY `placeholder` and `surface` — every
+//     other view kind is a host's to register (PublicationManagerCore's side
+//     of this is `ChassisViewKindsTests`), and a kit that quietly grew a
+//     domain factory would no longer be a kit;
+//  2. every kind the kit registers resolves to itself;
+//  3. an unknown kind resolves to `placeholder` and does NOT throw or return
 //     nil. ADR-0031 D4: "a pane whose view kind the platform cannot render
 //     becomes a placeholder that keeps its spec", which is what lets a layout
 //     built on a richer build survive a round trip through this one.
@@ -20,13 +22,29 @@
 import SwiftUI
 import XCTest
 
-@testable import PublicationManagerCore
+@testable import ImpressLayout
 
 final class ViewKindRegistryTests: XCTestCase {
 
-    func testEveryBuiltinKindResolvesToItself() {
+    /// Nothing in this test process registers anything, so the shared
+    /// registry is the kit's own.
+    func testTheKitRegistersOnlyPlaceholderAndSurface() {
+        XCTAssertEqual(ViewKindRegistry.builtin.registeredKinds, [.placeholder, .surface])
+        XCTAssertEqual(Set(ViewKindID.kitBuiltins), [.placeholder, .surface])
+    }
+
+    /// A kind the host has not registered — `list` here — renders the
+    /// placeholder, which is what makes a bare kit draw a tree at all.
+    func testAHostKindTheKitDoesNotRegisterIsAPlaceholder() {
         let registry = ViewKindRegistry.builtin
-        for kind in ViewKindID.builtins {
+        for kind: ViewKindID in [.outline, .list, .info, .pdf, .notes, .bibtex, .source, .legacy] {
+            XCTAssertEqual(registry.resolvedKind(for: kind), .placeholder, kind.rawValue)
+        }
+    }
+
+    func testEveryKitKindResolvesToItself() {
+        let registry = ViewKindRegistry.builtin
+        for kind in ViewKindID.kitBuiltins {
             XCTAssertEqual(
                 registry.resolvedKind(for: kind), kind,
                 "\(kind.rawValue) has no factory — it would render as a placeholder")
@@ -49,19 +67,18 @@ final class ViewKindRegistryTests: XCTestCase {
         XCTAssertEqual(ViewKindID.pdf.rawValue, "pdf")
         XCTAssertEqual(ViewKindID.legacy.rawValue, "legacy")
         XCTAssertEqual(ViewKindID.placeholder.rawValue, "placeholder")
+        XCTAssertEqual(ViewKindID.surface.rawValue, "surface")
+        XCTAssertEqual(ViewKindID.source.rawValue, "source")
     }
 
-    /// ⌘Z routing depends on this and nothing else (ADR-0031 D7): a
-    /// session-bearing pane keeps the chord for its own undo manager.
-    func testOnlyEditorKindsAreSessionBearing() {
+    /// ⌘Z routing asks this registry (ADR-0031 D7). The kit's two kinds own
+    /// no editor; `source` becomes session-bearing only when a host registers
+    /// it so.
+    func testTheKitsKindsAreNotSessionBearing() {
         let registry = ViewKindRegistry.builtin
-        XCTAssertTrue(registry.isSessionBearing(.source))
-        for kind: ViewKindID in [.outline, .list, .info, .pdf, .notes, .bibtex, .legacy, .placeholder] {
-            XCTAssertFalse(
-                registry.isSessionBearing(kind),
-                "\(kind.rawValue) claims a session it does not have")
-        }
-        // An unregistered kind cannot be session-bearing.
+        XCTAssertFalse(registry.isSessionBearing(.placeholder))
+        XCTAssertFalse(registry.isSessionBearing(.surface))
+        XCTAssertFalse(registry.isSessionBearing(.source))
         XCTAssertFalse(registry.isSessionBearing(ViewKindID("holodeck")))
     }
 

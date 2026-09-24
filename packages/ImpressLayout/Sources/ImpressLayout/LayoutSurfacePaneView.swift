@@ -1,9 +1,9 @@
 #if os(macOS)
-// Chassis file — macOS-only, like every other file in this folder.
-// ADR-0033 work package S7.
+// Kit file (ImpressLayout) — macOS-only, like every other file in this
+// package. ADR-0033 work package S7.
 //
 //  LayoutSurfacePaneView.swift
-//  PublicationManagerCore
+//  ImpressLayout
 //
 //  The `surface` view kind: an agent-authored `impress/ui/surface@1.0.0`
 //  document, rendered by `packages/ImpressSurface`'s `SurfaceView`, hosted
@@ -11,15 +11,17 @@
 //  the pane's `item` parameter (`context.singleItem` / `context.bindings
 //  ["item"]`) names WHICH stored surface this pane shows.
 //
-//  ## What this file owns vs. what `ImpressSurface` owns
+//  ## What this file owns vs. what `ImpressSurface` and the host own
 //
 //  `ImpressSurface` is kit-grade (ADR-0033 D7): it maps a `RenderTree` to
-//  SwiftUI and holds no logic. Everything that needs real suite machinery —
-//  opening `SharedSurface` on the app's store, decoding a
-//  `SurfaceDispatchResult`, turning a `plot-spec@1.0.0` payload into pixels
-//  through `renderPlotSvg`, rendering `text` through MarkdownUI, publishing
-//  a `select` event on the pane's own channel — lives HERE, wired in through
-//  `SurfaceHooks` and the `onEvent` closure `SurfaceView` calls.
+//  SwiftUI and holds no logic. This file opens `SharedSurface` on the store
+//  the layout was opened on, decodes a `SurfaceDispatchResult` and publishes
+//  a `select` event on the pane's own channel. What needs the SUITE —
+//  `text` through MarkdownUI, a `plot-spec@1.0.0` through imprint-core's
+//  `renderPlotSvg`, a `list` through the chassis' row registry — is the
+//  host's, handed in as `SurfaceHooks` (plan wave 6, W6):
+//  PublicationManagerCore re-registers `surface` with its hooks
+//  (`LayoutSurfaceHooks.swift`); the kit's own factory uses `.plain`.
 //
 //  ## Session shape
 //
@@ -45,19 +47,24 @@ import Foundation
 import ImpressLogging
 import ImpressRustCore
 import ImpressSurface
-import ImprintCore
-import MarkdownUI
 import Observation
 import SwiftUI
-import WebKit
 
 // MARK: - The view kind
 
 /// The `surface` view kind: see the file header.
 @MainActor
-struct LayoutSurfacePaneView: View {
+public struct LayoutSurfacePaneView: View {
 
     let context: PaneContext
+    /// How `text`, `plot` and `list` widgets render — the host's (see the
+    /// file header). `.plain` is `ImpressSurface`'s kit-grade default.
+    let hooks: SurfaceHooks
+
+    public init(context: PaneContext, hooks: SurfaceHooks = .plain) {
+        self.context = context
+        self.hooks = hooks
+    }
 
     @State private var model: SurfacePaneModel?
 
@@ -69,15 +76,18 @@ struct LayoutSurfacePaneView: View {
         context.singleItem ?? context.bindings["item"]
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             if let surfaceID {
                 content(surfaceID: surfaceID)
             } else {
                 // An unfilled parameter is the empty state, never an error
-                // (ADR-0031 D3) — identical to `LayoutInfoPaneView`'s
-                // unselected state.
-                ChassisEmptyState.noRowSelection(isArtifact: false).view
+                // (ADR-0031 D3). The words and glyph are the ones this pane
+                // drew before W6 (`ChassisEmptyState.noRowSelection(isArtifact:
+                // false)`), kept verbatim by the move.
+                LayoutUnavailable(
+                    "No Selection", systemImage: "doc.text",
+                    message: "Select a publication to view details")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -96,13 +106,9 @@ struct LayoutSurfacePaneView: View {
                 handle(event, model: model)
             }
         } else if let model, let lastError = model.lastError {
-            ChassisEmptyState(
-                id: "surface-unavailable",
-                title: "Surface Unavailable",
-                systemImage: RecordKindDescriptor.unknownSymbolName,
-                message: lastError
-            )
-            .view
+            LayoutUnavailable(
+                "Surface Unavailable", systemImage: LayoutUnavailable.unknownSymbolName,
+                message: lastError)
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,7 +142,7 @@ struct LayoutSurfacePaneView: View {
         let tile = context.tile
         logInfo("surface pane \(tile): opening surface \(surfaceID)", category: "surface")
 
-        guard let store = RustStoreAdapter.shared.layoutSharedStore() else {
+        guard let store = context.controller.store else {
             logError(
                 "surface pane \(tile): no SharedStore handle — surface not rendered",
                 category: "surface")
@@ -165,51 +171,6 @@ struct LayoutSurfacePaneView: View {
             context.select(ids)
         }
         model.dispatch(event)
-    }
-
-    // MARK: Hooks
-
-    /// The suite-aware hooks — MarkdownUI for `text`, `renderPlotSvg` for
-    /// `plot`, and for `list` the row-style registry through
-    /// `SurfaceRecordListRows`: a row that carries a schema the kind manifest
-    /// claims (every row a `query` source returns does) is the chassis' own
-    /// row, and a list of anything else keeps the kit-grade plain line.
-    private var hooks: SurfaceHooks {
-        SurfaceHooks(
-            renderMarkdown: { text in AnyView(Markdown(text)) },
-            renderPlot: { specJSON in AnyView(SurfacePlotView(specJSON: specJSON)) },
-            renderListRows: { rowsJSON, onSelect in
-                AnyView(SurfaceRecordListRows(rowsJSON: rowsJSON, onSelect: onSelect))
-            },
-            log: { message in logInfo(message, category: "surface") }
-        )
-    }
-
-    /// Decodes a `plot-spec@1.0.0` payload the SAME way
-    /// `PlotAutomationHandler` already does for `POST /api/plot/render`
-    /// (`PlotAutomationHandler.decodeSpec`), then renders it through
-    /// `renderPlotSvg` — imprint-core's real Typst-backed SVG renderer, the
-    /// one every plot in the suite goes through.
-    ///
-    /// KNOWN GAP, flagged for the Mac pass / follow-up:
-    /// `PlotAutomationHandler.decodeSpec` only understands the xs/ys
-    /// `series` shape. `impress-plot`'s `plot-spec@1.0.0` ALSO has a `bars`
-    /// shape — the S9 demo's histogram
-    /// (`crates/impress-surface/tests/golden/signal-explorer.render.json`
-    /// carries `{"kind": "plot-spec@1.0.0", "bars": [1, 2, 1]}`) — which this
-    /// decoder returns `nil` for today, so that surface's plot falls through
-    /// to `SurfacePlotView`'s "could not render" placeholder rather than a
-    /// real chart. Fixing it is either a `bars`→`series` shim here or a
-    /// second decode path in `PlotAutomationHandler`; out of scope for S7
-    /// itself, which only wires the ONE decode path that already exists.
-    fileprivate static func renderedSVG(fromSpecJSON specJSON: String) -> String? {
-        guard let data = specJSON.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let spec = PlotAutomationHandler.decodeSpec(object)
-        else { return nil }
-        let rendered = renderPlotSvg(spec: spec)
-        guard rendered.error == nil, !rendered.svg.isEmpty else { return nil }
-        return rendered.svg
     }
 }
 
@@ -354,55 +315,6 @@ private struct SurfaceDispatchReply: Decodable {
 
     static func decode(_ json: String) throws -> SurfaceDispatchReply {
         try JSONDecoder().decode(SurfaceDispatchReply.self, from: Data(json.utf8))
-    }
-}
-
-// MARK: - Plot
-
-/// The `plot` widget: `renderPlotSvg`'s SVG through a `WKWebView`, the SAME
-/// technique `PlotInspectorPanel.swift`'s (file-private) `PlotSVGView` uses
-/// — that type is not reusable from here (Swift `private` at top level is
-/// file-scoped), so this is a second, small copy of the same known-working
-/// approach rather than an `NSImage(data:)` decode, which does not reliably
-/// rasterize raw SVG text on macOS.
-private struct SurfacePlotView: View {
-    let specJSON: String
-
-    var body: some View {
-        if let svg = LayoutSurfacePaneView.renderedSVG(fromSpecJSON: specJSON) {
-            SurfacePlotSVGView(svg: svg)
-                .frame(minHeight: 180)
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Plot", systemImage: "chart.xyaxis.line")
-                Text("This build could not render the plot spec.")
-                    .font(.caption)
-            }
-            .foregroundStyle(.secondary)
-            .padding(8)
-        }
-    }
-}
-
-private struct SurfacePlotSVGView: NSViewRepresentable {
-    let svg: String
-
-    func makeNSView(context: Context) -> WKWebView {
-        let web = WKWebView()
-        web.setValue(false, forKey: "drawsBackground")
-        web.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        return web
-    }
-
-    func updateNSView(_ web: WKWebView, context: Context) {
-        let html = """
-            <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>html,body{margin:0;height:100%;background:transparent}
-            .wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:6px;box-sizing:border-box}
-            svg{max-width:100%;max-height:100%;height:auto;width:auto}</style></head>
-            <body><div class="wrap">\(svg)</div></body></html>
-            """
-        web.loadHTMLString(html, baseURL: nil)
     }
 }
 #endif

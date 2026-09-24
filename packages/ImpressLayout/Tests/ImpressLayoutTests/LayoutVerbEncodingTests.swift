@@ -1,7 +1,7 @@
 #if os(macOS)
 //
 //  LayoutVerbEncodingTests.swift
-//  PublicationManagerCoreTests
+//  ImpressLayoutTests
 //
 //  ADR-0031 L6. `LayoutVerb` must serialize to EXACTLY the serde form of
 //  `impress_layout::Verb`, because that string is the whole mutating surface
@@ -27,7 +27,7 @@
 
 import XCTest
 
-@testable import PublicationManagerCore
+@testable import ImpressLayout
 
 final class LayoutVerbEncodingTests: XCTestCase {
 
