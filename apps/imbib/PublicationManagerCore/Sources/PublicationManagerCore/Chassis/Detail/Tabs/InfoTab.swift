@@ -220,10 +220,21 @@ struct InfoTab: View {
             explorationRunner.reset()
             enrichmentRefreshID = UUID()
         }
-        .task {
+        .task(id: publicationID) {
             // One subscription replaces the three legacy
             // flag/tag/field observers. Reload the publication only
             // when the current pub id is among the affected ids.
+            //
+            // Keyed on `publicationID`, like `publicationDetailLifecycle`'s
+            // subscription: a bare `.task {}` kept the `self` of the FIRST
+            // body, so after a paper switch its `publicationID` (and the
+            // `loadPublication()` it calls) still named the first paper.
+            // The next `.structural` event then reloaded THAT paper into
+            // `cachedPublication`: the header showed the new paper while
+            // Record Info and Attachments showed the old one — seen in the
+            // tree's reading arrangement (W4), where the PDF panes' reading-
+            // position save on the outgoing paper supplies the event on
+            // every switch.
             for await event in ImbibImpressStore.shared.events.subscribe() {
                 if case .structural = event {
                     scheduleStructuralReload()
