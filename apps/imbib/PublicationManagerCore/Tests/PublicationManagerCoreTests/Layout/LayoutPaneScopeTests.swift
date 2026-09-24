@@ -1,6 +1,6 @@
 #if os(macOS)
 //
-//  LayoutPublicationScopeTests.swift
+//  LayoutPaneScopeTests.swift
 //  PublicationManagerCoreTests
 //
 //  A `list` pane's row menu runs the legacy list's delete / dismiss / save
@@ -8,13 +8,13 @@
 //  the pane's query — these pin that reading, with the query JSON spelled as
 //  `impress_pane_query::PaneQuery` serializes it.
 //
-//  FFI-free: `LayoutPublicationScope` is a pure function of the query.
+//  FFI-free: `LayoutPaneScope` is a pure function of the query.
 //
 
 import XCTest
 @testable import PublicationManagerCore
 
-final class LayoutPublicationScopeTests: XCTestCase {
+final class LayoutPaneScopeTests: XCTestCase {
 
     private let inbox = UUID(uuidString: "800E8F6E-983F-4F34-98F1-52DB1113EDB4")!
     private let dismissed = UUID(uuidString: "2B0FA9E6-07BA-45CD-A049-B0D00B4C18E4")!
@@ -26,7 +26,7 @@ final class LayoutPublicationScopeTests: XCTestCase {
     }
 
     private func source(_ json: String, bindings: [String: String] = [:]) -> PublicationSource {
-        LayoutPublicationScope.source(
+        LayoutPaneScope.source(
             query: query(json),
             bindings: bindings,
             isInboxLibrary: { $0 == self.inbox },
@@ -39,6 +39,9 @@ final class LayoutPublicationScopeTests: XCTestCase {
     func testALibraryParentIsThatLibrary() {
         let json = #"{"kinds":["publication"],"scope":{"scope":"parent","id":{"ref":"id","id":"\#(id(library))"}},"filters":[]}"#
         XCTAssertEqual(source(json), .library(library))
+        // A figure folder is a parent scope too.
+        XCTAssertEqual(LayoutPaneScope.parentID(query: query(json), bindings: [:]), library)
+        XCTAssertNil(LayoutPaneScope.collectionID(query: query(json), bindings: [:]))
     }
 
     /// The Inbox is a library, and its list is the one with Save and Mute.
@@ -58,7 +61,7 @@ final class LayoutPublicationScopeTests: XCTestCase {
         let json = #"{"kinds":["publication"],"scope":{"scope":"collection","id":{"ref":"id","id":"\#(id(collection))"}},"filters":[]}"#
         XCTAssertEqual(source(json), .collection(collection))
         XCTAssertEqual(
-            LayoutPublicationScope.collectionID(query: query(json), bindings: [:]), collection)
+            LayoutPaneScope.collectionID(query: query(json), bindings: [:]), collection)
     }
 
     /// A parameter is read from the pane's bindings.
@@ -88,7 +91,7 @@ final class LayoutPublicationScopeTests: XCTestCase {
     func testEverythingHasNoContainer() {
         XCTAssertEqual(source(#"{"kinds":["publication"],"scope":{"scope":"all"},"filters":[]}"#), .combined([]))
         XCTAssertNil(
-            LayoutPublicationScope.collectionID(
+            LayoutPaneScope.collectionID(
                 query: query(#"{"kinds":["manuscript"],"scope":{"scope":"all"},"filters":[]}"#),
                 bindings: [:]))
     }

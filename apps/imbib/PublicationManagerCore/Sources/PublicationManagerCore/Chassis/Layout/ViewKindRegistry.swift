@@ -488,6 +488,9 @@ struct LayoutRowsPaneView: View {
     @State private var manuscriptRenameDraft = ""
     @State private var pendingManuscriptDelete: Set<UUID> = []
     @State private var showManuscriptDelete = false
+    // …and a figure row's Delete… the Figures section's.
+    @State private var pendingFigureDelete: Set<UUID> = []
+    @State private var showFigureDelete = false
     @Environment(\.appShellConfiguration) private var shellConfiguration
     @Environment(\.openWindow) private var openWindow
 
@@ -500,6 +503,12 @@ struct LayoutRowsPaneView: View {
                 pending: $pendingManuscriptDelete, isPresented: $showManuscriptDelete
             ) { ids in
                 ManuscriptDeletion.perform(ids)
+                deselect(ids)
+            }
+            .figureDeleteConfirmation(
+                pending: $pendingFigureDelete, isPresented: $showFigureDelete
+            ) { ids in
+                FigureDeletion.perform(ids)
                 deselect(ids)
             }
             .padding(.top, toolbarBand)
@@ -608,10 +617,14 @@ struct LayoutRowsPaneView: View {
     ///   library row, and shows `PublicationRowContextMenu` over
     ///   `PublicationListActions.chassis`;
     /// * a manuscript drags `ManuscriptDragPayload` onto a folder and shows
-    ///   `ManuscriptRowMenu` over `RecordTriageActions.manuscripts`.
+    ///   `ManuscriptRowMenu` over `RecordTriageActions.manuscripts`;
+    /// * a figure drags `FigureDragPayload` and shows `FigureRowMenu` over
+    ///   `RecordTriageActions.figures`;
+    /// * a message, task or agent-run row shows the shared triage segment
+    ///   over `RecordTriageActions.storeBacked`, as its own list does, and
+    ///   drags nothing (neither list does).
     ///
-    /// Both act on the selection when the row is part of it, else the row.
-    /// Other kinds' rows carry neither yet.
+    /// All act on the selection when the row is part of it, else the row.
     @ViewBuilder
     private func rowChrome(_ content: some View, _ row: LayoutPaneRow) -> some View {
         if style == .list, let id = UUID(uuidString: row.id),
@@ -650,9 +663,67 @@ struct LayoutRowsPaneView: View {
                             manuscriptRename = request
                         })
                 }
+        } else if style == .list, let id = UUID(uuidString: row.id),
+            row.mailStyleRow?.kind == .figure
+        {
+            content
+                .itemProvider {
+                    FigureDragPayload.provider(ids: Array(targets(for: id)))
+                }
+                .contextMenu {
+                    FigureRowMenu(
+                        rowID: id,
+                        isStarred: row.mailStyleRow?.isStarred ?? false,
+                        rowTagPaths: tagPaths(of: row),
+                        targets: targets(for: id),
+                        isFolderScoped: figureFolderID != nil,
+                        actions: figureActions)
+                }
+        } else if style == .list, let id = UUID(uuidString: row.id),
+            let kind = row.mailStyleRow?.kind,
+            [RecordKindID.message, .task, .agentRun].contains(kind),
+            let descriptor = BuiltinRecordKinds.registry[kind]
+        {
+            // What MessageListWrapper and AgentRecordListWrapper show: the
+            // shared triage segment alone, over the store-backed defaults
+            // their sections pass (mail and task lifecycles are owned
+            // elsewhere, so the descriptors declare no dismiss or delete).
+            content
+                .contextMenu {
+                    TriageMenu.items(
+                        triage: descriptor.triage,
+                        row: TriageRowState(
+                            isStarred: row.mailStyleRow?.isStarred ?? false,
+                            isDismissed: false, isArchived: false),
+                        rowTagPaths: tagPaths(of: row),
+                        targets: targets(for: id),
+                        actions: .storeBacked(descriptor: descriptor))
+                }
         } else {
             content
         }
+    }
+
+    /// A row's tag paths, as the pane last read them.
+    private func tagPaths(of row: LayoutPaneRow) -> Set<String> {
+        Set(row.mailStyleRow?.tagDisplays.map(\.path) ?? [])
+    }
+
+    /// The folder a figure list pane is scoped to, if any.
+    private var figureFolderID: UUID? {
+        LayoutPaneScope.parentID(query: context.spec?.query, bindings: context.bindings)
+    }
+
+    /// The Figures section's verbs, with the tree as the host.
+    private var figureActions: RecordTriageActions {
+        .figures(FigureRowActionsHost(
+            isFolderScoped: figureFolderID != nil,
+            shellConfiguration: shellConfiguration,
+            openWindow: openWindow,
+            requestDelete: { ids in
+                pendingFigureDelete = ids
+                showFigureDelete = true
+            }))
     }
 
     /// The ids a row action applies to: the channel's selection when the row
@@ -670,7 +741,7 @@ struct LayoutRowsPaneView: View {
 
     /// The folder a manuscript list pane is scoped to, if any.
     private var manuscriptFolderID: UUID? {
-        LayoutPublicationScope.collectionID(query: context.spec?.query, bindings: context.bindings)
+        LayoutPaneScope.collectionID(query: context.spec?.query, bindings: context.bindings)
     }
 
     /// The Manuscripts section's verbs, with the TREE as the host: the

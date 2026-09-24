@@ -29,7 +29,7 @@ import SwiftUI
 /// (every publication, or a filter over all of them) maps to `.combined([])`
 /// — no scope-specific steps, the default library for anything that needs
 /// one — rather than to a container it is not.
-enum LayoutPublicationScope {
+enum LayoutPaneScope {
 
     static func source(
         query: LayoutJSONValue?,
@@ -66,6 +66,14 @@ enum LayoutPublicationScope {
             }
         }
         return .combined([])
+    }
+
+    /// The envelope parent a pane's query is scoped to, if it is one
+    /// parent's — a figure folder files its members by parent
+    /// (`outline::folder_scope`).
+    static func parentID(query: LayoutJSONValue?, bindings: [String: String]) -> UUID? {
+        guard query?["scope"]?["scope"]?.stringValue == "parent" else { return nil }
+        return resolve(query?["scope"]?["id"], bindings: bindings)
     }
 
     /// The collection a pane's query is scoped to, if it is one collection's
@@ -113,7 +121,7 @@ struct LayoutPublicationRowMenu: View {
     @Environment(LibraryManager.self) private var libraryManager
 
     var body: some View {
-        let source = LayoutPublicationScope.source(
+        let source = LayoutPaneScope.source(
             query: context.spec?.query,
             bindings: context.bindings,
             isInboxLibrary: { id in
