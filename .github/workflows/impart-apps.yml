@@ -85,6 +85,17 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      # TEMPORARY probe, reverted before merge: why rustc on the macOS 27 image
+      # cannot find the proc-macro dylib it has just built.
+      - name: DIAG proc-macro on macOS 27
+        run: |
+          set -x
+          sw_vers; uname -a; xcrun --find ld; ld -v 2>&1 | head -3; rustc -vV; which cc; cc --version | head -2
+          cargo build --release --target aarch64-apple-darwin -p zerofrom -v 2>&1 | grep -vE '^\s+(Fresh|Compiling)' | tail -40 || true
+          ls -la target/release/deps/ | grep -i zerofrom || true
+          ls -la target/release/deps/*.dylib 2>&1 | head -20 || true
+          for f in target/release/deps/libzerofrom_derive-*; do file "$f"; otool -l "$f" | grep -B2 -A6 -i rustc | head -20; done || true
+
       # impart links PublicationManagerCore on both platforms, and PMC drags in
       # four Rust cores on top of impart's own ImpressRustCore. Every one is a
       # gitignored local binaryTarget, and package resolution walks the whole
