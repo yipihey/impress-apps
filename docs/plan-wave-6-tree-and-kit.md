@@ -788,3 +788,60 @@ The first two are done in this pass (above).
   into this branch. impart built from this branch then passed Tier B **12/12** at 2 min 11 s of
   uptime, past the wedge point. Pass B's earlier 12/12 on impart was genuine: it ran inside the
   first 90 s.
+- 2026-09-24: **W6 (Rust half): the kit is named, its dependency line is checked for every
+  crate, and it builds alone.** Branch `claude/wave6-w6-rust`, folded into the Swift half's PR.
+  `docs/kit-manifest.md` names the crate set in a table that both scripts read (the doc and
+  the checks cannot drift), the one allowed reach (impress-core with `sqlite`, and optionally
+  `schema` and `collab`, and why: the store is a concrete `SqliteItemStore`, not a trait the
+  kit owns), the three Swift packages, and what leaving takes step by step.
+- **Census** (`cargo tree -e normal`, workspace-internal crates only). No reach at all:
+  `impress-service-core`, `impress-service-macros`, `impress-pane-query`. Kit only:
+  `impress-layout` and `impress-surface` (→ pane-query), `surface-demo-service` (→ service
+  core, macros). Kit plus impress-core (collab, schema, sqlite): `impress-store-service`,
+  `impress-layout-service` (and → store-service), `impress-surface-service`,
+  `impress-capabilities-kit`. **`impress-store-ffi`: the kit, impress-core and `impress-ai`
+  → `impel-core` → `impress-domain`.** W3–W5 added no workspace edge; their tokio and
+  reqwest are external crates.
+- **Added to the kit set:** `impress-store-service` (impress-layout-service shares its
+  `store_instance()`, impress-capabilities-kit links it; store-generic, reaches only
+  impress-core) and `surface-demo-service` (a capabilities-kit member, D8's demo). Both
+  were already "kit" in impress-capabilities-kit's own docs.
+- **Ask-first, stopped: a kit crate on a domain core.** `impress-store-ffi` depends on
+  `impress-ai` (the AI registry and conversation bindings, 2,331 lines), and `impress-ai`
+  depends on `impel-core` for one module, `executor`, which the FFI never uses. The edge
+  dates from 73d36cd9 (2026-08-06), before ADR-0033. `plan-agent-surfaces.md`'s V-rules
+  said "impress-store-ffi must still not reach a domain core (check-kit-deps.sh)", but the
+  script never looked at the FFI, so that rule was already false when it was written.
+  Nothing was changed. The manifest records it as an open finding with three options:
+  feature-gate `impress_ai::executor`; split the AI bindings into their own FFI; or rule
+  impress-ai a second reach. `ImpressRustCore` is this FFI's xcframework, so the finding
+  reaches the Swift kit too.
+- **What the checks enforce.** `check-kit-deps.sh`: for each manifest crate, `cargo tree
+  --target all -e normal` reaches nothing outside the kit, except impress-core from the
+  store tier, with only the listed features and `sqlite` required. A domain core is reported
+  as ask-first. The open finding prints `KNOWN VIOLATION` and fails if it grows or goes
+  stale, and `--strict` fails on it. `--self-test` runs twelve known trees through the
+  classifier. The Linux `CARGO_TARGET_DIR` default W0 found is gone: an existing value is
+  honoured, otherwise `target/`. `check-kit-standalone.sh` copies the kit (minus open
+  findings) and impress-core into a scratch workspace. Its root is the real `Cargo.toml`
+  with members replaced and uncopied path entries dropped, and the toolchain pin,
+  `.cargo/config.toml` and `Cargo.lock` come along. It runs `cargo check --all-targets`
+  there. `surface-demo-service`'s dev-dependency on `imprint-core` (test-only,
+  `tests/plot_shape.rs`) is dropped, and that one test is named as not checked.
+- **Proven locally:** the deps check passes (17 s; the FFI line reads KNOWN VIOLATION), the
+  self-test passes 12/12 under macOS's bash 3.2, and `--strict` exits 1. Temporarily adding
+  `impress-core` to impress-layout and `imbib-core` to impress-surface-service exits 1, with
+  each edge's `cargo tree -i` path and the second flagged ASK FIRST; reverted. Standalone:
+  11 crates OK in 53 s from a cold target dir. `--strict` exits 1 ("impress-store-ffi has a
+  dependencies entry on impress-ai … it could not leave"), and a temporary `impress-tags`
+  edge on impress-layout exits 1 before cargo runs; reverted. No scratch directory is left
+  behind.
+- **Lane:** `.github/workflows/kit.yml`, on push to main and on pull_request for crates,
+  the root manifests, the toolchain pin, `check-kit-*.sh`, the manifest and the three kit
+  packages. It uses **hosted** runners: the proof has to block a PR, and every self-hosted
+  lane is push-only because the repo is public. `deps` runs on ubuntu-latest (cargo tree
+  only), `standalone` on macos-15, with no cache (the quota is full). A commented block marks
+  where the Swift half adds `check-kit-packages.sh` and the package build. Not yet run in CI:
+  the lane only exists on this branch until the PR opens.
+- **Gates:** `rust-gate.sh fmt`; `clippy auto` (rest shard, green); `check-uniffi-bindings`
+  (7 match); `check-schema-refs`; `check-chassis-deps`. No Rust source changed.
