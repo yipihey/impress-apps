@@ -16,8 +16,9 @@ use crate::tree::{Container, LinearDir};
 /// The parameter a detail pane binds: `item`, of the list's kind, on channel 1.
 pub const DETAIL_PARAM: &str = "item";
 
-/// The tiles a [`three_column`] layout is made of, so callers (presets,
-/// tests, the importer) can address them without re-deriving the ids.
+/// The tiles a [`three_column`] layout is made of, so callers (presets and
+/// tests) can address them without re-deriving the ids. The ADR-0019 D5
+/// importer L7 planned as a third caller was never built (plan wave 6 W5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThreeColumn {
     pub window: WindowId,
