@@ -503,7 +503,7 @@ struct LayoutRowsPaneView: View {
     private var rowList: some View {
         List(selection: selection) {
             ForEach(rows) { row in
-                rowView(row).tag(row.id)
+                draggable(rowView(row), row).tag(row.id)
             }
         }
     }
@@ -548,6 +548,30 @@ struct LayoutRowsPaneView: View {
             }
         } else {
             compactRow(row)
+        }
+    }
+
+    /// A publication row drags what the chassis list drags
+    /// (`PublicationDragPayload`): the selection when the row is part of it,
+    /// else the row — so a paper can be dropped on an outline collection or
+    /// library row, whose drop handler is the sidebar's own
+    /// (`handleExternalDrop`). Other kinds' rows are not drag sources here
+    /// yet; their payloads live in their list wrappers.
+    @ViewBuilder
+    private func draggable(_ content: some View, _ row: LayoutPaneRow) -> some View {
+        if style == .list, let id = UUID(uuidString: row.id),
+            row.mailStyleRow?.kind == .publication
+        {
+            let context = context
+            content.itemProvider {
+                let selected = context.currentSelection.compactMap(UUID.init(uuidString:))
+                let ids = selected.contains(id) && selected.count > 1 ? selected : [id]
+                return PublicationDragPayload.provider(
+                    ids: ids, paperRef: nil,
+                    suggestedName: ids.count > 1 ? "\(ids.count) publications" : row.title)
+            }
+        } else {
+            content
         }
     }
 
