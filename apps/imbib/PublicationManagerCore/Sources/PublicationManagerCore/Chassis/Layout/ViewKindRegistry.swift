@@ -454,6 +454,11 @@ struct LayoutRowsPaneView: View {
 
     @State private var rows: [LayoutPaneRow] = []
     @State private var loadFailed = false
+    /// Bumped by every `load()`. The row menus take it as an input: a menu
+    /// reads its labels (Star / Unstar, Mark as Read / Unread) from the store
+    /// when it is built, and SwiftUI rebuilds it only when an input changes —
+    /// without this the menu kept "Unstar" after the row had been unstarred.
+    @State private var rowsRevision = 0
 
     /// The per-kind row factories, from the environment the chassis already
     /// injects — not a lookup of our own, so a host that registered a custom
@@ -477,8 +482,26 @@ struct LayoutRowsPaneView: View {
     /// until the rows were replaced.
     @Environment(\.layoutToolbarBand) private var toolbarBand
 
+    // A manuscript row's Rename… and Delete… raise the alerts the
+    // Manuscripts section raises (`ManuscriptRowChrome`); their state is here.
+    @State private var manuscriptRename: ManuscriptRenameRequest?
+    @State private var manuscriptRenameDraft = ""
+    @State private var pendingManuscriptDelete: Set<UUID> = []
+    @State private var showManuscriptDelete = false
+    @Environment(\.appShellConfiguration) private var shellConfiguration
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         styledList
+            .manuscriptRenameAlert($manuscriptRename, draft: $manuscriptRenameDraft) { id, title in
+                manuscriptActions.onRename(id, title)
+            }
+            .manuscriptDeleteConfirmation(
+                pending: $pendingManuscriptDelete, isPresented: $showManuscriptDelete
+            ) { ids in
+                ManuscriptDeletion.perform(ids)
+                deselect(ids)
+            }
             .padding(.top, toolbarBand)
             .overlay { emptyOverlay.padding(.top, toolbarBand) }
             // The rows are query RESULTS, so they re-run when the
@@ -488,6 +511,27 @@ struct LayoutRowsPaneView: View {
             // everything below it is main-actor work.
             .onChange(of: context.controller.refreshToken) { _, _ in load() }
             .onAppear { load() }
+            .task {
+                // The invalidation feed sees writes made through the layout's
+                // own store handle, and from other connections only `impress/
+                // ui/` rows — so a star, flag, tag, dismiss or delete made
+                // through `RustStoreAdapter` (every row menu, every triage
+                // key) never marked this pane stale, and its rows kept the old
+                // star, flag and membership until something else re-ran the
+                // query. The legacy lists listen to the store's own event
+                // stream for exactly this; so does the pane: a mutation of a
+                // row on screen, or a structural / membership change (which
+                // can add or remove rows), re-runs the query.
+                for await event in ImbibImpressStore.shared.events.subscribe() {
+                    switch event {
+                    case .itemsMutated(_, let ids):
+                        let shown = Set(rows.compactMap { UUID(uuidString: $0.id) })
+                        if !shown.isDisjoint(with: ids) { load() }
+                    case .structural, .collectionMembershipChanged:
+                        load()
+                    }
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
                 Task { listSettings = await ListViewSettingsStore.shared.settings }
             }
@@ -508,7 +552,7 @@ struct LayoutRowsPaneView: View {
     private var rowList: some View {
         List(selection: selection) {
             ForEach(rows) { row in
-                draggable(rowView(row), row).tag(row.id)
+                rowChrome(rowView(row), row).tag(row.id)
             }
         }
     }
@@ -556,28 +600,106 @@ struct LayoutRowsPaneView: View {
         }
     }
 
-    /// A publication row drags what the chassis list drags
-    /// (`PublicationDragPayload`): the selection when the row is part of it,
-    /// else the row — so a paper can be dropped on an outline collection or
-    /// library row, whose drop handler is the sidebar's own
-    /// (`handleExternalDrop`). Other kinds' rows are not drag sources here
-    /// yet; their payloads live in their list wrappers.
+    /// What a `list` row carries besides its look — the legacy list's own
+    /// drag payload and context menu for its kind (plan wave 6, W3 / W4):
+    ///
+    /// * a publication drags `PublicationDragPayload` (the payload
+    ///   `MailStylePublicationRow` writes) onto an outline collection or
+    ///   library row, and shows `PublicationRowContextMenu` over
+    ///   `PublicationListActions.chassis`;
+    /// * a manuscript drags `ManuscriptDragPayload` onto a folder and shows
+    ///   `ManuscriptRowMenu` over `RecordTriageActions.manuscripts`.
+    ///
+    /// Both act on the selection when the row is part of it, else the row.
+    /// Other kinds' rows carry neither yet.
     @ViewBuilder
-    private func draggable(_ content: some View, _ row: LayoutPaneRow) -> some View {
+    private func rowChrome(_ content: some View, _ row: LayoutPaneRow) -> some View {
         if style == .list, let id = UUID(uuidString: row.id),
             row.mailStyleRow?.kind == .publication
         {
             let context = context
-            content.itemProvider {
-                let selected = context.currentSelection.compactMap(UUID.init(uuidString:))
-                let ids = selected.contains(id) && selected.count > 1 ? selected : [id]
-                return PublicationDragPayload.provider(
-                    ids: ids, paperRef: nil,
-                    suggestedName: ids.count > 1 ? "\(ids.count) publications" : row.title)
-            }
+            content
+                .itemProvider {
+                    let selected = context.currentSelection.compactMap(UUID.init(uuidString:))
+                    let ids = selected.contains(id) && selected.count > 1 ? selected : [id]
+                    return PublicationDragPayload.provider(
+                        ids: ids, paperRef: nil,
+                        suggestedName: ids.count > 1 ? "\(ids.count) publications" : row.title)
+                }
+                .contextMenu {
+                    LayoutPublicationRowMenu(
+                        context: context, targets: targets(for: id), order: rowOrder,
+                        revision: rowsRevision)
+                }
+        } else if style == .list, let id = UUID(uuidString: row.id),
+            row.mailStyleRow?.kind == .manuscript
+        {
+            content
+                .itemProvider {
+                    ManuscriptDragPayload.provider(ids: Array(targets(for: id)))
+                }
+                .contextMenu {
+                    LayoutManuscriptRowMenu(
+                        rowID: id,
+                        revision: rowsRevision,
+                        targets: targets(for: id),
+                        isFolderScoped: manuscriptFolderID != nil,
+                        actions: manuscriptActions,
+                        onRename: { request in
+                            manuscriptRenameDraft = request.title
+                            manuscriptRename = request
+                        })
+                }
         } else {
             content
         }
+    }
+
+    /// The ids a row action applies to: the channel's selection when the row
+    /// is in it (and it is more than the row), else the row — Mail semantics,
+    /// as both legacy lists.
+    private func targets(for id: UUID) -> Set<UUID> {
+        let selected = Set(context.currentSelection.compactMap(UUID.init(uuidString:)))
+        return selected.contains(id) && selected.count > 1 ? selected : [id]
+    }
+
+    /// The rows' ids in the order the pane shows them.
+    private var rowOrder: [UUID] {
+        rows.compactMap { UUID(uuidString: $0.id) }
+    }
+
+    /// The folder a manuscript list pane is scoped to, if any.
+    private var manuscriptFolderID: UUID? {
+        LayoutPublicationScope.collectionID(query: context.spec?.query, bindings: context.bindings)
+    }
+
+    /// The Manuscripts section's verbs, with the TREE as the host: the
+    /// selection is the channel's, Delete… raises this pane's confirmation.
+    private var manuscriptActions: RecordTriageActions {
+        let context = context
+        let kind = RecordKindID.manuscript.rawValue
+        return .manuscripts(ManuscriptRowActionsHost(
+            folderID: manuscriptFolderID,
+            shellConfiguration: shellConfiguration,
+            openWindow: openWindow,
+            selectedID: {
+                context.currentSelection.first.flatMap(UUID.init(uuidString:))
+            },
+            select: { id in
+                context.select(id.map { [$0.uuidString.lowercased()] } ?? [], kind: kind)
+            },
+            requestDelete: { ids in
+                pendingManuscriptDelete = ids
+                showManuscriptDelete = true
+            }))
+    }
+
+    /// Drop deleted ids from the channel's selection.
+    private func deselect(_ ids: Set<UUID>) {
+        let kept = context.currentSelection.filter {
+            UUID(uuidString: $0).map { !ids.contains($0) } ?? true
+        }
+        context.select(Array(kept), kind: context.primaryKind)
     }
 
     /// The `outline` row: a navigator line, not a message row.
@@ -641,6 +763,7 @@ struct LayoutRowsPaneView: View {
         let tile = context.tile
         let fetched = context.rows()
         rows = fetched.map(LayoutPaneRow.init)
+        rowsRevision &+= 1
         loadFailed = fetched.isEmpty && context.controller.lastError != nil
         context.controller.didRefresh(tile)
         logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
