@@ -596,3 +596,82 @@ The first two are done in this pass (above).
   skipped**, restored; `list-presets --app-id impress` answers ordinals 1–5 as above. Nothing
   here is ask-first: no verb, field, view kind or schema ref changed, only preset data, and the
   decision was Tom's.
+
+- 2026-09-24 — **W5 pass A: the flag is gone and the tree is the only chassis root.** Every
+  chassis app was built from `claude/wave6-w5-flag` (scripts/build-impress-app.sh, isolated
+  DerivedData) with `impress.layoutTree.enabled` deleted from every bundle first, and each
+  logged `layout host: tree opened for <app>`: impress (23125), imprint (23121), implore
+  (23123), impel (23124), impart (23122). imbib built too; its window is its pre-chassis
+  `ContentView`, out of scope, and now says so (imbib CLAUDE.md, the matrix, keyboard-grammar).
+  Pass B deletes the three types; nothing of them is deleted here.
+- **What went.** `LayoutTreeFlag`, its defaults key, `AppShellConfiguration.usesLayoutTree` /
+  `withLayoutTree`, `LayoutAutomation.isActive` and imbib's `treeActive` marker — each existed
+  only because of the flag. The layout routes' 409 names no flag (a chassis app: the tree has
+  not opened yet; imbib: its window has none). imbib's `/api/layout` routes still drive
+  `PaneLayoutState`, which imbib's own window still draws, so they keep answering honestly
+  with `model: "pane-layout-state"`; no chassis app serves them.
+- **Chords.** `PaneLayoutChordTarget`: `.layoutTree` (every chassis app) routes ⌘0 / ⌥⌘0 /
+  ⌃⌘S / ⌃⌘1–9 only through `LayoutController` — no fallback, a chord before the tree opens is
+  logged and ignored; `.imbibPreChassisWindow` is passed by `imbibApp.swift` alone (a source
+  scan pins it). h / l: `DetailView` and the hosted publication list answered h/l as
+  `.handled` and posted `.cycleFocusLeft/Right` for imbib's `ContentView`, which no chassis
+  window observed, so focus did not move from the info pane; `LayoutWindowView` now routes
+  both. imprint's ⌃⌘1 bug: its Layouts menu bound ⌃⌘1–9 to the editor window's saved layouts
+  unconditionally; `ImprintLayoutsMenu` gives the chord to the editor layouts only while a
+  manuscript editor window is key (a new `imprintEditorWindow` focused value) and to
+  `ImpressLayoutOrdinalButtons` otherwise. imprint's editor-window `PaneLayoutState` is
+  untouched (`git grep -n PaneLayoutState apps/imprint/Shared` still finds it).
+- **Chords live.** impress: ⌃⌘S → `resize-share(pane 1 → 0.0001)`, shares [1,2,3] →
+  [0.0001,2,3]; ⌘0 → pane 3 to 0.0001; again → sibling average; shares put back to [1,2,3].
+  h with the info pane focused → `focus-direction(left)`, focus 3 → 2; l → 3. imprint: ⌃⌘S and
+  ⌘0 the same (versions 32, 33); **⌃⌘1 in the chassis window → `chord: apply layout 1 → layout
+  tree`, `apply-layout(1) → version 34`**, shares restored, no `Layout applied: 'Writing'`; with
+  a manuscript editor window key, ⌃⌘1 → `Layout applied: 'Writing'` and no tree verb (both
+  halves; the editor's arrangement is left on Writing).
+- **Gaps W5 owned.** (a) **Inbox**: the legacy Inbox is `queryPublications(parentId:)` with no
+  read predicate (`disableUnreadFilter`; only the badge is unread), so `q::inbox` drops
+  `Filter::Read` (store-backed Rust test runs both revisions). It is every imbib/impress
+  preset's list query, so presets move to shipped revision 2 and `ensure_shipped` rewrites a
+  row only while it is exactly revision 1 (`previous_revision`); a live list still on revision
+  1 — param form, or with the Inbox id bound, which is what the outline itself wrote — counts
+  as the preset's at launch (`is_superseded_list_query`; found by launching, fixed in its own
+  commit). Live: launch `set-query` with `"filters":[]` → `pane 2 display: 67 rows` (57
+  before). **Not 68, and that is ask-first:** the legacy query is `HasParent OR
+  ReferencedBy(Contains)`; one Inbox paper (ab9c0da4, parented to Save) is in the Inbox by a
+  `Contains` edge only, and `Scope::Parent` compiles to `HasParent`. Widening what
+  `Scope::Parent` means (it scopes every library and figure/mail folder pane too) is a
+  vocabulary change — stopped, written in the PR. (b) **Deleting the selected
+  collection/library**: the legacy sidebar does NOT fall back to the parent (the gap's
+  wording assumed it did) — `deleteFolder`/`deleteCollection` set the selection to nil, a
+  deleted library leaves one that resolves to nothing, the content says "No Selection". Rust
+  `outline_cleared_verbs` matches it; live for a collection (`… the sidebar's selection went
+  to nil → 2 verb(s)`) and a library (`… its library was deleted → 2 verb(s)`), channel 1
+  emptied, "Nothing Here" | "No Selection". (c) **Info beside a hosted route**: a legacy row's
+  verbs end with an empty `select` of the detail's kind; live: SciX Search → `legacy, 2
+  verb(s)`, the paper left the `info` pane. (d) **implore and impart outlines** launched from
+  the branch: `outline: implore shows 2 sections from Rust (1 legacy: tags)`, same for impart;
+  screenshots show outline | list | info in both.
+- **AppShellConfiguration.** The shipped presets' `sectionBindings` moved to Rust
+  (`section_bindings`, tested against the named queries; `libraries` the one documented
+  exception); Swift reads it (`ShippedSectionBindings`) and a test pins the six tables to the
+  literals they replaced. What stays, and why, is in the matrix beside the truth table —
+  chiefly `visibleSections` (read by iOS, which has no tree) and the initializer parameter for
+  unshipped shells (the Litmus kinds).
+- **Tier B, every chassis app, W5 build, no flag:** impress, imprint, implore, impel, impart
+  each **12/12, 0 skipped**; `tiles`/`windows`/`channels` identical before and after on all
+  five, no layouts, no surfaces.
+- **For pass B.** The **ADR-0019 D5 importer was never built** — nothing reads
+  `PaneLayoutState` or `imbib.layout.*` into presets (only doc comments at
+  `impress-layout-service/src/store.rs:229` and `impress-layout/src/preset.rs:20` name it);
+  there is no code to delete. PMC `PaneLayoutState` is read by imbib's pre-chassis window
+  (`imbibApp.swift` Layouts and appearance menus) and by the legacy chassis views the tree's
+  `legacy` pane still hosts; `SidebarComposition` is live on impress-iOS
+  (`IOSImpressHostView.swift:130`); `FocusedPane`'s only live reader is imbib's `ContentView`.
+  All three deletions touch imbib's out-of-scope window or iOS: ask-first before pass B.
+- **Ask-first in this pass:** one — the Inbox's `Contains`-linked paper (the algebra's Parent
+  scope). Nothing else: no verb, schema ref, `PaneSpec` field or view kind changed; the two new
+  FFI free functions (`outline_cleared_verbs_json`, `section_bindings_json`) are bindings of
+  Rust decisions, the binding regenerated in the same commits (+2 declarations, 0 lost).
+- **Left as found:** the throwaway collection and library were deleted in the proof itself;
+  the one CLI-made collection was removed with the kernel `delete` (membership gone, paper
+  intact); viewing papers wrote `last_activity_at` "viewed", which is what viewing does.
