@@ -154,9 +154,8 @@ extension PublicationListActions {
         a.onAddTag = { ids in
             host.beginTagInput(ids)
         }
-        a.onRemoveTag = { _, _ in
-            // TODO: implement tag removal by tagID with Rust store
-            // The Rust store uses tag paths, not tag UUIDs. Need to look up the tag path from tagID.
+        a.onRemoveTag = { ids, path in
+            PublicationTagRemoval.remove(path, from: ids)
         }
         a.onGlobalSearch = {
             ImbibSearchAction.localFind(source: .toolbarButton).post()

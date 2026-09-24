@@ -384,7 +384,7 @@ struct IOSUnifiedPublicationListWrapper: View {
                 }
                 a.onSetFlag = { ids, color in await handleSetFlag(ids, color) }
                 a.onClearFlag = { ids in await handleClearFlag(ids) }
-                a.onRemoveTag = { pubID, tagID in handleRemoveTag(pubID: pubID, tagID: tagID) }
+                a.onRemoveTag = { ids, path in handleRemoveTag(ids: ids, path: path) }
                 a.onCategoryTap = { cat in handleCategoryTap(cat) }
                 a.onRefresh = { await refreshFromSource() }
                 a.onOpenInBrowser = { pubID, dest in handleOpenInBrowser(pubID, dest) }
@@ -646,14 +646,10 @@ struct IOSUnifiedPublicationListWrapper: View {
     }
 
     /// Remove a tag from a publication.
-    private func handleRemoveTag(pubID: UUID, tagID: UUID) {
-        // Migration debt, on BOTH platforms: the Rust store keys tag membership
-        // by tag PATH, but this callback hands us a tag UUID and there is no
-        // tagID→path lookup in the store (TagDefinition.id is the path string,
-        // not a UUID). macOS's `handleRemoveTag` is the same no-op with the same
-        // TODO. No-op until the row model surfaces the tag path or the store
-        // gains a UUID-keyed removal.
-        logger.warning("removeTag is a no-op — no tagID(\(tagID))→path mapping in Rust store for pub \(pubID)")
+    private func handleRemoveTag(ids: Set<UUID>, path: String) {
+        // The row hands over the tag PATH now (it used to hand a tag UUID the
+        // store could not resolve, and this was a logged no-op).
+        PublicationTagRemoval.remove(path, from: ids)
         core.reload()
     }
 

@@ -146,17 +146,49 @@ final class PaneLayoutCommandsTests: XCTestCase {
 
     // MARK: - Migration: no app may re-grow a private copy
 
-    /// Every app file that hand-wrote these buttons. All four.
+    /// Every app that binds these buttons: the four that once hand-wrote
+    /// them, plus impel and implore.
     ///
-    /// implore and impel are absent because they never bound the chords at all
-    /// — they take `ImpressStoreSearchCommands` and no pane toggles. Adding
-    /// them is a product decision (their windows have panes), not a migration.
+    /// impel and implore were absent until 2026-09-24 — they never bound the
+    /// chords at all, and this comment called adding them a product decision
+    /// (their windows have panes). Tom made it: the grammar is "same chord,
+    /// same meaning, in every app", and both windows are the layout tree, so
+    /// they mount the same chassis buttons and route only through
+    /// `LayoutController`. They never had a private copy to migrate, so the
+    /// no-private-copy scan below simply holds for them too.
     private static let migratedAppFiles = [
         "apps/imbib/imbib/imbib/imbibApp.swift",
         "apps/imprint/Shared/ImprintApp.swift",
         "apps/impart/macOS/ImpartApp.swift",
         "apps/impress/macOS/ImpressApp.swift",
+        "apps/impel/Shared/ImpelApp.swift",
+        "apps/implore/Implore/Sources/App/ImploreApp.swift",
     ]
+
+    /// Where each chassis app mounts ⌃⌘1–9 (`ImpressLayoutOrdinalButtons`).
+    /// imprint's sits in its Layouts menu; everyone else's is in the app file.
+    /// imbib is absent by design: its own window is not a chassis root and
+    /// keeps View ▸ Layouts over its own model. impart mounted the pane
+    /// toggles and not these until 2026-09-24.
+    private static let ordinalButtonFiles = [
+        "apps/imprint/Shared/Layout/PaneLayout.swift",
+        "apps/impart/macOS/ImpartApp.swift",
+        "apps/impress/macOS/ImpressApp.swift",
+        "apps/impel/Shared/ImpelApp.swift",
+        "apps/implore/Implore/Sources/App/ImploreApp.swift",
+    ]
+
+    func testEveryChassisAppMountsTheLayoutOrdinals() throws {
+        for path in Self.ordinalButtonFiles {
+            XCTAssertTrue(
+                try Self.source(of: path).contains("ImpressLayoutOrdinalButtons()"),
+                "\(path) must mount the chassis's ⌃⌘1–9 (ImpressLayoutOrdinalButtons)")
+        }
+        XCTAssertFalse(
+            try Self.source(of: "apps/imbib/imbib/imbib/imbibApp.swift")
+                .contains("ImpressLayoutOrdinalButtons()"),
+            "imbib's own window has no tree; its ⌃⌘1–9 are View ▸ Layouts")
+    }
 
     private static let repoRoot: URL = {
         URL(fileURLWithPath: #filePath)          // …/Tests/PublicationManagerCoreTests/<this>
@@ -212,6 +244,67 @@ final class PaneLayoutCommandsTests: XCTestCase {
             body.contains("Button {") || body.contains("Button("),
             "an action button in the pane-toggle cluster widens the list toggle's toolbar group")
         XCTAssertTrue(body.contains("Toggle(isOn:"), "the cluster should still hold the pane toggles")
+    }
+
+    // MARK: - imbib's menu: no two commands share a chord
+
+    /// Every chord imbib's menu bar registers, and none twice. Paper ▸ Save to
+    /// Library carried ⌃⌘S from January 2026 (cdca0b23) — the Toggle Sidebar
+    /// chord — and a key equivalent that two menu items claim does NEITHER
+    /// reliably, so ⌃⌘S stopped toggling the sidebar in imbib's own window and
+    /// nothing noticed, because each binding looked right on its own.
+    ///
+    /// Source scan of `imbibApp.swift` (SwiftUI cannot enumerate a built
+    /// `Commands` body), plus the three chords `ImpressPaneLayoutButtons`
+    /// contributes as data, plus View ▸ Layouts' ⌃⌘1–9.
+    func testNoTwoImbibMenuCommandsShareAChord() throws {
+        let source = try Self.source(of: "apps/imbib/imbib/imbib/imbibApp.swift")
+        var seen: [String: Int] = [:]
+        var chords: [String] = []
+
+        // `.keyboardShortcut("k")`, `.keyboardShortcut("k", modifiers: X)`,
+        // `.keyboardShortcut(.return, modifiers: X)`.
+        let pattern = #"\.keyboardShortcut\((?:"([^"]+)"|\.([a-zA-Z]+))(?:,\s*modifiers:\s*(\[[^\]]*\]|\.[a-z]+))?\)"#
+        let regex = try NSRegularExpression(pattern: pattern)
+        let ns = source as NSString
+        for match in regex.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
+            let key: String = {
+                for group in [1, 2] where match.range(at: group).location != NSNotFound {
+                    return ns.substring(with: match.range(at: group)).lowercased()
+                }
+                return "?"
+            }()
+            let modifierText = match.range(at: 3).location == NSNotFound
+                ? ".command"  // SwiftUI's default
+                : ns.substring(with: match.range(at: 3))
+            chords.append(Self.chord(key: key, modifierText: modifierText))
+        }
+        XCTAssertGreaterThan(chords.count, 40, "the scan stopped matching imbibApp.swift's shortcuts")
+
+        for chord in ImpressPaneLayoutButtons.chords() {
+            var names: [String] = []
+            if chord.modifiers.contains(.control) { names.append("control") }
+            if chord.modifiers.contains(.option) { names.append("option") }
+            if chord.modifiers.contains(.shift) { names.append("shift") }
+            if chord.modifiers.contains(.command) { names.append("command") }
+            chords.append("\(names.joined(separator: "+"))-\(chord.key)")
+        }
+        XCTAssertTrue(
+            source.contains("KeyEquivalent(Character(\"\\(index + 1)\")), modifiers: [.command, .control]"),
+            "View ▸ Layouts' ⌃⌘1–9 moved; update this scan")
+        chords += (1...9).map { "control+command-\($0)" }
+
+        for chord in chords { seen[chord, default: 0] += 1 }
+        let shared = seen.filter { $0.value > 1 }.keys.sorted()
+        XCTAssertEqual(shared, [], "imbib's menu registers these chords more than once: \(shared)")
+    }
+
+    /// `[.command, .shift]` and `[.shift, .command]` are one chord.
+    private static func chord(key: String, modifierText: String) -> String {
+        let names = ["control", "option", "shift", "command"].filter {
+            modifierText.contains(".\($0)")
+        }
+        return "\(names.joined(separator: "+"))-\(key)"
     }
 
     /// The repo root really is seven levels up from this file — assert it, or a
