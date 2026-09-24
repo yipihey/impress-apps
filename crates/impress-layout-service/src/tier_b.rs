@@ -89,7 +89,7 @@ const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
 /// maps this list, so a capability added below without a description here
 /// fails to compile rather than silently vanishing from a headless run.
-const CATALOGUE: [(&str, &str); 11] = [
+const CATALOGUE: [(&str, &str); 12] = [
     ("app.reachable", "impress HTTP automation is reachable"),
     (
         "layout.apply_preset",
@@ -130,6 +130,10 @@ const CATALOGUE: [(&str, &str); 11] = [
     (
         "layout.reading_preset",
         "Applying the Reading preset by name gives a `pdf` detail pane that follows the list",
+    ),
+    (
+        "layout.console_pane",
+        "A `console` pane split beside the detail pane renders the app's log, scoped by its `view_state`",
     ),
 ];
 
@@ -414,6 +418,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(reading_pdf_pane_capability(&http).await);
     out.push(source_pane_session_capability(&http).await);
     out.push(reading_preset_capability(&http).await);
+    out.push(console_pane_capability(&http).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
@@ -1035,6 +1040,74 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
         http.verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": pdf_tile } }))
             .await?;
         outcome
+    })
+    .await
+}
+
+/// The `console` view kind in the running app: a pane whose spec is only
+/// `view_kind: console` plus the console's own two controls in `view_state`
+/// (`search`, `levels` — what `ImpressLogging.ConsoleView` already has; the
+/// query is left at its default because a log is not store items). The pane
+/// logs `pane N console: <app> log, search 'layout', levels …` when it
+/// renders — a `layout`-category line, so it is one of the lines its own
+/// search matches, i.e. the pane is seen showing its own log line. The spec
+/// is read back from the tree to prove `view_state` survived the split
+/// untouched (the tree never interprets it), then the pane is closed.
+async fn console_pane_capability(http: &Http) -> CapabilityResult {
+    let (id, description) = CATALOGUE[11];
+    check(id, description, Tier::B, || async {
+        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
+            .await?;
+        let tree = http.tree().await?;
+        let detail = tile_with_role(&tree, "detail")?;
+        let view_state = json!({ "search": "layout", "levels": ["info", "warning", "error"] });
+        let before = log_cursor();
+        let split = http
+            .verb(&json!({
+                "verb": "split",
+                "target": { "ref": "id", "tile": detail },
+                "dir": "vertical",
+                "after": true,
+                "new": { "view_kind": "console", "view_state": view_state }
+            }))
+            .await?;
+        let console = split
+            .get("focused")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "the split did not report the new tile".to_string())?;
+
+        let checked = async {
+            let pane = pane_of_tree(&http.tree().await?, console)?;
+            if pane.get("view_kind").and_then(Value::as_str) != Some("console") {
+                return Err(format!("tile {console} is not a console pane: {pane}"));
+            }
+            if pane.get("view_state") != Some(&view_state) {
+                return Err(format!(
+                    "the console pane's view_state changed on the way in: {pane}"
+                ));
+            }
+            wait_for_log(
+                http,
+                &before,
+                &[
+                    &format!("pane {console} console: "),
+                    "search 'layout'",
+                    "levels info,warning,error",
+                ],
+            )
+            .await
+        }
+        .await;
+
+        // Tidy up even when the log never came.
+        http.verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": console } }))
+            .await?;
+        checked.map(|line| {
+            format!(
+                "`console` pane tile {console} split below detail tile {detail}, view_state kept; \
+                 the pane logged `{line}`"
+            )
+        })
     })
     .await
 }

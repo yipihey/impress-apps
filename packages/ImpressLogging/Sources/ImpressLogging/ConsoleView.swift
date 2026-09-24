@@ -59,14 +59,19 @@ public struct ConsoleView: View {
 
     private let appName: String
 
+    /// `true` when the console is one pane among others (the layout tree's
+    /// `console` view kind) rather than the content of its own window: the
+    /// window minimum below would force a 600 pt pane open.
+    private let isEmbedded: Bool
+
     // MARK: - State
 
     @State private var logStore = LogStore.shared
-    @State private var searchText = ""
-    @State private var showDebug = true
-    @State private var showInfo = true
-    @State private var showWarning = true
-    @State private var showError = true
+    @State private var searchText: String
+    @State private var showDebug: Bool
+    @State private var showInfo: Bool
+    @State private var showWarning: Bool
+    @State private var showError: Bool
     @State private var autoScroll = true
     @State private var selection: Set<LogEntry.ID> = []
     @State private var mode: ConsoleMode = .logs
@@ -77,8 +82,30 @@ public struct ConsoleView: View {
 
     // MARK: - Init
 
-    public init(appName: String = "impress") {
+    /// - Parameters:
+    ///   - appName: the export filename's prefix.
+    ///   - search: what the search field starts with. It matches a message
+    ///     OR a category (`LogStore.filteredEntries`), so a category name here
+    ///     is the console's category filter — the one it has always had.
+    ///   - levels: which level toggles start on; `nil` is all four, as before.
+    ///   - isEmbedded: a pane, not a window — drops the window minimum size.
+    ///
+    /// Both seeds are only the starting state: the toggles and the field stay
+    /// the user's to change, exactly as in the window.
+    public init(
+        appName: String = "impress",
+        search: String = "",
+        levels: Set<LogLevel>? = nil,
+        isEmbedded: Bool = false
+    ) {
         self.appName = appName
+        self.isEmbedded = isEmbedded
+        let levels = levels ?? Set(LogLevel.allCases)
+        _searchText = State(initialValue: search)
+        _showDebug = State(initialValue: levels.contains(.debug))
+        _showInfo = State(initialValue: levels.contains(.info))
+        _showWarning = State(initialValue: levels.contains(.warning))
+        _showError = State(initialValue: levels.contains(.error))
     }
 
     // MARK: - Computed
@@ -116,8 +143,9 @@ public struct ConsoleView: View {
         }
         #if os(macOS)
         // Window metrics. A phone has no window to size, and 600pt of minimum
-        // width on an iPhone clipped the console off screen.
-        .frame(minWidth: 600, minHeight: 300)
+        // width on an iPhone clipped the console off screen. A pane is sized
+        // by its split, not by this view.
+        .frame(minWidth: isEmbedded ? nil : 600, minHeight: isEmbedded ? nil : 300)
         #else
         .sheet(item: $exportedFile) { file in
             ConsoleShareSheet(items: [file.url])

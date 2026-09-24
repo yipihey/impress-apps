@@ -5,8 +5,9 @@
 //
 //  ADR-0031 L6; plan wave 6, W6. Three properties:
 //
-//  1. the kit's registry holds EXACTLY `placeholder` and `surface` — every
-//     other view kind is a host's to register (PublicationManagerCore's side
+//  1. the kit's registry holds EXACTLY `placeholder`, `surface` and
+//     `console` — every other view kind is a host's to register
+//     (PublicationManagerCore's side
 //     of this is `ChassisViewKindsTests`), and a kit that quietly grew a
 //     domain factory would no longer be a kit;
 //  2. every kind the kit registers resolves to itself;
@@ -28,16 +29,19 @@ final class ViewKindRegistryTests: XCTestCase {
 
     /// Nothing in this test process registers anything, so the shared
     /// registry is the kit's own.
-    func testTheKitRegistersOnlyPlaceholderAndSurface() {
-        XCTAssertEqual(ViewKindRegistry.builtin.registeredKinds, [.placeholder, .surface])
-        XCTAssertEqual(Set(ViewKindID.kitBuiltins), [.placeholder, .surface])
+    func testTheKitRegistersOnlyPlaceholderSurfaceAndConsole() {
+        XCTAssertEqual(
+            ViewKindRegistry.builtin.registeredKinds, [.placeholder, .surface, .console])
+        XCTAssertEqual(Set(ViewKindID.kitBuiltins), [.placeholder, .surface, .console])
     }
 
     /// A kind the host has not registered — `list` here — renders the
     /// placeholder, which is what makes a bare kit draw a tree at all.
     func testAHostKindTheKitDoesNotRegisterIsAPlaceholder() {
         let registry = ViewKindRegistry.builtin
-        for kind: ViewKindID in [.outline, .list, .info, .pdf, .notes, .bibtex, .source, .legacy] {
+        for kind: ViewKindID in [
+            .outline, .list, .info, .pdf, .notes, .bibtex, .source, .plot, .legacy,
+        ] {
             XCTAssertEqual(registry.resolvedKind(for: kind), .placeholder, kind.rawValue)
         }
     }
@@ -69,15 +73,19 @@ final class ViewKindRegistryTests: XCTestCase {
         XCTAssertEqual(ViewKindID.placeholder.rawValue, "placeholder")
         XCTAssertEqual(ViewKindID.surface.rawValue, "surface")
         XCTAssertEqual(ViewKindID.source.rawValue, "source")
+        // `crates/impress-layout/src/ids.rs`: `ViewKindId::PLOT` / `CONSOLE`.
+        XCTAssertEqual(ViewKindID.plot.rawValue, "plot")
+        XCTAssertEqual(ViewKindID.console.rawValue, "console")
     }
 
-    /// ⌘Z routing asks this registry (ADR-0031 D7). The kit's two kinds own
+    /// ⌘Z routing asks this registry (ADR-0031 D7). The kit's three kinds own
     /// no editor; `source` becomes session-bearing only when a host registers
     /// it so.
     func testTheKitsKindsAreNotSessionBearing() {
         let registry = ViewKindRegistry.builtin
         XCTAssertFalse(registry.isSessionBearing(.placeholder))
         XCTAssertFalse(registry.isSessionBearing(.surface))
+        XCTAssertFalse(registry.isSessionBearing(.console))
         XCTAssertFalse(registry.isSessionBearing(.source))
         XCTAssertFalse(registry.isSessionBearing(ViewKindID("holodeck")))
     }
