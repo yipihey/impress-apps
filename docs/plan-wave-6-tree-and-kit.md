@@ -580,3 +580,19 @@ preparation may start earlier on a branch).
 - Nothing above is ask-first.
 
 The first two are done in this pass (above).
+- 2026-09-24 — **W4: impress offers the sibling arrangements; "apply Reading" is now a real proof.**
+  Decided with Tom: impress, the shell that shows everything, lists imbib's Triage / Reading /
+  Full and imprint's Writing after its own Default, so impress's ⌃⌘1–5 are Default, Triage,
+  Reading, Full, Writing and a saved layout starts at ⌃⌘6. Before this, imbib's three rendered in
+  no window (imbib's own is pre-chassis) and Writing only in imprint. Built as
+  `presets::for_impress(sibling())`: the sibling's own function builds the tree, so there is one
+  definition of each arrangement, and the row is impress's (`preset_id("impress", name)`,
+  impress's named queries) because preset rows are per app family: editing Reading in impress
+  never edits imbib's. Existing stores gain the four rows on the next read (`ensure_shipped`
+  inserts missing rows). Two tests pin the order and the borrowed-not-redefined rule; imbib's
+  and imprint's own lists are unchanged. Tier B gained `layout.reading_preset`: apply Reading
+  by name, the detail pane is `pdf`, and a list selection logs
+  `pane 3 pdf: publication 30F30B68-…`. Against impress rebuilt from this branch: **12/12, 0
+  skipped**, restored; `list-presets --app-id impress` answers ordinals 1–5 as above. Nothing
+  here is ask-first: no verb, field, view kind or schema ref changed, only preset data, and the
+  decision was Tom's.

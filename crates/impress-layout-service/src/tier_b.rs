@@ -89,7 +89,7 @@ const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
 /// maps this list, so a capability added below without a description here
 /// fails to compile rather than silently vanishing from a headless run.
-const CATALOGUE: [(&str, &str); 10] = [
+const CATALOGUE: [(&str, &str); 11] = [
     ("app.reachable", "impress HTTP automation is reachable"),
     (
         "layout.apply_preset",
@@ -126,6 +126,10 @@ const CATALOGUE: [(&str, &str); 10] = [
     (
         "layout.source_pane_session",
         "A `source` pane keeps its session through split, swap and a preset; a new source pane gets its own",
+    ),
+    (
+        "layout.reading_preset",
+        "Applying the Reading preset by name gives a `pdf` detail pane that follows the list",
     ),
 ];
 
@@ -409,6 +413,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(outline_collection_capability(&http).await);
     out.push(reading_pdf_pane_capability(&http).await);
     out.push(source_pane_session_capability(&http).await);
+    out.push(reading_preset_capability(&http).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
@@ -852,6 +857,76 @@ async fn outline_collection_capability(http: &Http) -> CapabilityResult {
 ///
 /// The new pane is closed again; the catalogue's restore step re-applies the
 /// parked arrangement regardless.
+/// W4's row proof as written: "apply Reading → the pdf pane shows the selected
+/// paper". Reading is a real preset in impress since impress lists imbib's
+/// arrangements after its own Default (2026-09-24); every other app answers
+/// with why it has nothing to apply, which is a pass, not a skip, because the
+/// app is behaving as shipped.
+async fn reading_preset_capability(http: &Http) -> CapabilityResult {
+    let (id, description) = CATALOGUE[10];
+    check(id, description, Tier::B, || async {
+        let status = http.get("/api/status").await?;
+        let app = status
+            .get("app")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if app != "impress" {
+            return Ok(format!("`{app}` ships no Reading preset; nothing to apply"));
+        }
+        http.op(&json!({ "op": "apply-layout", "name": "Reading" }))
+            .await?;
+        let tree = http.tree().await?;
+        let detail = tile_with_role(&tree, "detail")?;
+        let list = tile_with_role(&tree, "list")?;
+        let detail_pane = pane_of_tree(&tree, detail)?;
+        let kind = detail_pane
+            .get("view_kind")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if kind != "pdf" {
+            return Err(format!("Reading's detail pane is `{kind}`, not `pdf`"));
+        }
+        // Reading's list is the inbox; point it at read papers so the
+        // selection writes nothing (no read dwell), as `reading_pdf_pane` does.
+        let mut read_papers = pane_of_tree(&tree, list)?
+            .get("query")
+            .cloned()
+            .ok_or_else(|| "the list pane has no query".to_string())?;
+        let query = read_papers
+            .as_object_mut()
+            .ok_or_else(|| "the list pane's query is not an object".to_string())?;
+        query.insert("scope".into(), json!({ "scope": "all" }));
+        query.insert("filters".into(), json!([{ "filter": "read", "read": true }]));
+        query.insert("text".into(), Value::Null);
+        http.verb(&json!({
+            "verb": "set-query",
+            "target": { "ref": "id", "tile": list },
+            "query": read_papers
+        }))
+        .await?;
+        let paper = first_row_of(&pane_of_tree(&http.tree().await?, list)?)?;
+        let before = log_cursor();
+        http.verb(&json!({
+            "verb": "select",
+            "target": { "ref": "id", "tile": list },
+            "kind": "publication",
+            "ids": [paper]
+        }))
+        .await?;
+        let line = wait_for_log(
+            http,
+            &before,
+            &[&format!("pane {detail} pdf: publication "), &paper],
+        )
+        .await?;
+        Ok(format!(
+            "applied Reading by name; detail tile {detail} is `pdf`; selecting {paper} on list tile {list} logged `{line}`"
+        ))
+    })
+    .await
+}
+
 async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
     let (id, description) = CATALOGUE[8];
     check(id, description, Tier::B, || async {
