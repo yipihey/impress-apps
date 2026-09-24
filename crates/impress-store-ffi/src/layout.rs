@@ -1358,10 +1358,128 @@ pub fn pane_spec_json(query_json: String, view_kind: String) -> Result<String> {
     serde_json::to_string(&spec).map_err(SharedLayoutError::json)
 }
 
+// ─── The outline sidebar (plan wave 6, W3) ──────────────────────────────
+
+/// The sections `app_id`'s outline shows, as JSON: `[{"section": <case
+/// name>, "legacy": bool}]`. The host shows exactly these and drops (and
+/// logs) any other section the chassis would draw.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn outline_sections_json(app_id: String) -> String {
+    serde_json::to_string(&impress_layout_service::outline_sections(&app_id))
+        .unwrap_or_else(|_| "[]".into())
+}
+
+/// What selecting an outline row does, decided in Rust
+/// (`impress_layout_service::outline`).
+///
+/// * `node_json` — an `OutlineNode` (`{"node": "collection", "id": …}`).
+/// * `bindings_json` — parameter name → item id the host knows for a section
+///   query (`{"library": <inbox library>}`); empty string for none.
+/// * `list_spec_json` / `detail_spec_json` — the panes with the `list` and
+///   `detail` roles as they are now; empty string when the layout has none.
+/// * `initial` — the chassis' own launch selection, which applies only to a
+///   list still on the preset's query.
+///
+/// Returns `{"target": OutlineTarget, "applies": bool, "verbs": [Verb]}`. The
+/// verbs are `impress_layout::Verb`'s serde form, for `SharedLayout::apply`
+/// one at a time; the host adds nothing to them.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn outline_row_verbs_json(
+    app_id: String,
+    node_json: String,
+    bindings_json: String,
+    list_spec_json: String,
+    detail_spec_json: String,
+    initial: bool,
+) -> Result<String> {
+    use impress_layout_service::{
+        initial_selection_applies, outline_target, outline_verbs, OutlineNode, OutlinePanes,
+    };
+    let node: OutlineNode = serde_json::from_str(&node_json).map_err(SharedLayoutError::json)?;
+    let bindings: BTreeMap<String, ItemId> = if bindings_json.trim().is_empty() {
+        BTreeMap::new()
+    } else {
+        serde_json::from_str(&bindings_json).map_err(SharedLayoutError::json)?
+    };
+    let spec = |json: &str| -> Result<Option<PaneSpec>> {
+        if json.trim().is_empty() {
+            Ok(None)
+        } else {
+            serde_json::from_str(json)
+                .map(Some)
+                .map_err(SharedLayoutError::json)
+        }
+    };
+    let panes = OutlinePanes {
+        list: spec(&list_spec_json)?,
+        detail: spec(&detail_spec_json)?,
+    };
+    let target = outline_target(&app_id, &node, &bindings);
+    let applies = !initial || initial_selection_applies(&app_id, &panes);
+    let verbs = if applies {
+        outline_verbs(&node, &target, &panes)
+    } else {
+        Vec::new()
+    };
+    serde_json::to_string(&serde_json::json!({
+        "target": target,
+        "applies": applies,
+        "verbs": verbs,
+    }))
+    .map_err(SharedLayoutError::json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    #[test]
+    fn an_outline_collection_row_comes_back_as_verbs_the_layout_applies() {
+        let (_store, layout) = open();
+        let list = layout.pane(role_of(&layout, "list")).expect("list pane");
+        let detail = layout
+            .pane(role_of(&layout, "detail"))
+            .expect("detail pane");
+        let collection = uuid::Uuid::new_v4();
+        let out = outline_row_verbs_json(
+            "test-app".into(),
+            format!(r#"{{"node":"collection","id":"{collection}"}}"#),
+            String::new(),
+            list.spec_json.clone(),
+            detail.spec_json,
+            false,
+        )
+        .expect("verbs");
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(parsed["target"]["target"], "query");
+        let verbs = parsed["verbs"].as_array().expect("verbs array");
+        assert!(!verbs.is_empty());
+        for verb in verbs {
+            layout
+                .apply(verb.to_string(), "human".into())
+                .expect("every outline verb is a verb the layout takes");
+        }
+        let after = layout.pane(role_of(&layout, "list")).expect("list pane");
+        assert!(
+            after.spec_json.contains(&collection.to_string()),
+            "the list pane's query names the collection: {}",
+            after.spec_json
+        );
+    }
+
+    #[test]
+    fn outline_sections_are_the_apps_table() {
+        let impress: serde_json::Value =
+            serde_json::from_str(&outline_sections_json("impress".into())).expect("json");
+        let sections = impress.as_array().expect("array");
+        assert_eq!(sections.len(), 16, "impress shows every section");
+        assert_eq!(
+            sections.iter().filter(|s| s["legacy"] == true).count(),
+            4,
+            "sharedWithMe, scixLibraries, tags, reviewQueue (search is a query; its forms are rows)"
+        );
+    }
 
     const PUBLICATION_SCHEMA: &str = "imbib/bibliography-entry";
 

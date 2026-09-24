@@ -16991,6 +16991,46 @@ public func kindManifestJson() -> String {
 })
 }
 /**
+ * What selecting an outline row does, decided in Rust
+ * (`impress_layout_service::outline`).
+ *
+ * * `node_json` — an `OutlineNode` (`{"node": "collection", "id": …}`).
+ * * `bindings_json` — parameter name → item id the host knows for a section
+ * query (`{"library": <inbox library>}`); empty string for none.
+ * * `list_spec_json` / `detail_spec_json` — the panes with the `list` and
+ * `detail` roles as they are now; empty string when the layout has none.
+ * * `initial` — the chassis' own launch selection, which applies only to a
+ * list still on the preset's query.
+ *
+ * Returns `{"target": OutlineTarget, "applies": bool, "verbs": [Verb]}`. The
+ * verbs are `impress_layout::Verb`'s serde form, for `SharedLayout::apply`
+ * one at a time; the host adds nothing to them.
+ */
+public func outlineRowVerbsJson(appId: String, nodeJson: String, bindingsJson: String, listSpecJson: String, detailSpecJson: String, initial: Bool)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_func_outline_row_verbs_json(
+        FfiConverterString.lower(appId),
+        FfiConverterString.lower(nodeJson),
+        FfiConverterString.lower(bindingsJson),
+        FfiConverterString.lower(listSpecJson),
+        FfiConverterString.lower(detailSpecJson),
+        FfiConverterBool.lower(initial),$0
+    )
+})
+}
+/**
+ * The sections `app_id`'s outline shows, as JSON: `[{"section": <case
+ * name>, "legacy": bool}]`. The host shows exactly these and drops (and
+ * logs) any other section the chassis would draw.
+ */
+public func outlineSectionsJson(appId: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_outline_sections_json(
+        FfiConverterString.lower(appId),$0
+    )
+})
+}
+/**
  * A pane spec's JSON, for a host building a `Split` verb's `new` pane without
  * hand-writing the shape.
  */
@@ -17076,6 +17116,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 39295) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_outline_row_verbs_json() != 46789) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_outline_sections_json() != 56876) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_pane_spec_json() != 21207) {
