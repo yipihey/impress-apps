@@ -35,6 +35,10 @@ schemars = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true }
+# Tier B only: the outline capability polls `/api/logs` for the pane's own
+# display line, which lands on the app's next run-loop turn, not inside the
+# verb's response. An async sleep, so the poll does not block the runtime.
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

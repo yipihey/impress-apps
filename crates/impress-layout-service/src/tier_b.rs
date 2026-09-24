@@ -89,7 +89,7 @@ const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
 /// maps this list, so a capability added below without a description here
 /// fails to compile rather than silently vanishing from a headless run.
-const CATALOGUE: [(&str, &str); 7] = [
+const CATALOGUE: [(&str, &str); 8] = [
     ("app.reachable", "impress HTTP automation is reachable"),
     (
         "layout.apply_preset",
@@ -114,6 +114,10 @@ const CATALOGUE: [(&str, &str); 7] = [
     (
         "layout.hidden_share",
         "A pane resizes to HIDDEN_SHARE and back",
+    ),
+    (
+        "layout.outline_collection_row",
+        "Selecting an outline collection row re-queries the list pane, and `info` follows a list selection",
     ),
 ];
 
@@ -394,6 +398,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(channel_selection_capability(&http).await);
     out.push(surface_capability(&http, &mut created_surfaces).await);
     out.push(hidden_share_capability(&http).await);
+    out.push(outline_collection_capability(&http).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
@@ -666,6 +671,207 @@ async fn channel_selection_capability(http: &Http) -> CapabilityResult {
         ))
     })
     .await
+}
+
+/// 7. The outline sidebar (plan wave 6, W3).
+///
+/// Select a collection row → the list pane's query changes → the `info` pane
+/// follows a list selection.
+///
+/// The row is driven the way the Swift outline drives it: the node goes
+/// through `outline::outline_target` + `outline::outline_verbs` — the SAME
+/// two functions `outline_row_verbs_json` hands the app when a person clicks
+/// the row — and the verbs they return are posted one by one. So what is
+/// proven is the decision (Rust) plus the app's application of it, over the
+/// wire; the click itself is AppKit's and is proven by hand.
+///
+/// The collection is a fresh id, not a row in the store: a `Collection`
+/// scope over an id with no members is a valid, empty query, and the tree
+/// and the logs are the evidence, not the rows. So there is no throwaway
+/// collection to create or clean up, and nothing is written to the store.
+///
+/// Evidence, all read back from the app: the tree's list pane carries
+/// `scope: collection(<id>)`; channel 1 carries the collection
+/// (`select` on the navigator); the list pane logged `pane <n> display:`
+/// after the verb (it re-ran its query); after a `select` in the list, the
+/// detail pane logged `pane <n> info: <kind> detail for <id>` (it followed).
+async fn outline_collection_capability(http: &Http) -> CapabilityResult {
+    let (id, description) = CATALOGUE[7];
+    check(id, description, Tier::B, || async {
+        let tree = http.tree().await?;
+        let app = tree
+            .get("app")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "tree response names no `app`".to_string())?
+            .to_string();
+        let spec_of = |role: &str| -> Result<Option<(u64, impress_layout::PaneSpec)>, String> {
+            let Ok(tile) = tile_with_role(&tree, role) else {
+                return Ok(None);
+            };
+            let pane = panes(&tree)?
+                .into_iter()
+                .find(|(t, _)| *t == tile)
+                .map(|(_, p)| p.clone())
+                .ok_or_else(|| format!("tile {tile} is not a pane"))?;
+            let spec: impress_layout::PaneSpec = serde_json::from_value(pane)
+                .map_err(|e| format!("the `{role}` pane does not decode as a PaneSpec: {e}"))?;
+            Ok(Some((tile, spec)))
+        };
+        let (list_tile, list_spec) =
+            spec_of("list")?.ok_or_else(|| "no pane carries the `list` role".to_string())?;
+        let detail = spec_of("detail")?;
+
+        let collection = uuid::Uuid::new_v4();
+        let node = crate::outline::OutlineNode::Collection { id: collection };
+        let target = crate::outline::outline_target(&app, &node, &Default::default());
+        let crate::outline::OutlineTarget::Query { query } = &target else {
+            return Err(format!("a collection row must be a query, Rust said {target:?}"));
+        };
+        let verbs = crate::outline::outline_verbs(
+            &node,
+            &target,
+            &crate::outline::OutlinePanes {
+                list: Some(list_spec),
+                detail: detail.as_ref().map(|(_, s)| s.clone()),
+            },
+        );
+        if verbs.is_empty() {
+            return Err("the outline produced no verbs for a new collection".into());
+        }
+
+        let before_verbs = log_cursor();
+        for verb in &verbs {
+            let body = serde_json::to_value(verb).map_err(|e| e.to_string())?;
+            http.verb(&body).await?;
+        }
+
+        // 1. The list pane's query IS the collection now.
+        let after = http.tree().await?;
+        let list_query = panes(&after)?
+            .into_iter()
+            .find(|(t, _)| *t == list_tile)
+            .and_then(|(_, p)| p.get("query").cloned())
+            .ok_or_else(|| format!("tile {list_tile} lost its query"))?;
+        let expected = serde_json::to_value(query).map_err(|e| e.to_string())?;
+        if list_query != expected {
+            return Err(format!(
+                "the list pane's query is {list_query}, not the collection's {expected}"
+            ));
+        }
+        // 2. The navigator published the collection on channel 1.
+        let carried = channel_ids(&after, 1, "collection");
+        if carried != vec![collection.to_string()] {
+            return Err(format!(
+                "channel 1 carries collection {carried:?}, not {collection}"
+            ));
+        }
+        // 3. The list re-ran THE NEW query. The collection is fresh, so the
+        // query matches nothing and the pane's own display line says 0 rows.
+        // Any other count is the list re-running its OLD query on the
+        // `select`'s refresh — seen on impel, where that line read "500 rows"
+        // and would have passed as evidence had only the prefix been matched.
+        let display = wait_for_log(
+            http,
+            &before_verbs,
+            &[&format!("pane {list_tile} display: 0 rows")],
+        )
+        .await?;
+
+        // 4. Select in the list; `info` follows.
+        let Some((detail_tile, _)) = detail else {
+            return Ok(format!(
+                "list tile {list_tile} re-queried to collection {collection} ({display}); no detail pane in this layout, so `info` was not checked"
+            ));
+        };
+        let kind = query.kinds.first().cloned().unwrap_or_else(|| "publication".into());
+        let item = uuid::Uuid::new_v4();
+        let before_select = log_cursor();
+        http.verb(&json!({
+            "verb": "select",
+            "target": { "ref": "id", "tile": list_tile },
+            "kind": kind,
+            "ids": [item.to_string()]
+        }))
+        .await?;
+        // The line must name THIS item: an earlier capability's selection
+        // logged the same `pane N info:` prefix moments ago.
+        let followed = wait_for_log(
+            http,
+            &before_select,
+            &[&format!("pane {detail_tile} info: "), &item.to_string()],
+        )
+        .await?;
+
+        Ok(format!(
+            "{} verb(s) from the outline; list tile {list_tile} now queries collection {collection} and logged `{display}`; channel 1 carries it; a `{kind}` select in the list reached tile {detail_tile}: `{followed}`",
+            verbs.len()
+        ))
+    })
+    .await
+}
+
+/// The ids channel `n` carries for `kind`, read from a tree response.
+fn channel_ids(tree: &Value, n: u64, kind: &str) -> Vec<String> {
+    layout_of(tree)
+        .ok()
+        .and_then(|l| l.get("channels"))
+        .and_then(|c| c.get("channels").unwrap_or(c).get(n.to_string()))
+        .and_then(|k| k.get(kind))
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Now, as the `after` cursor `/api/logs` takes. The app and this process
+/// share a clock (it is a loopback call), so the slack is only the
+/// millisecond truncation on either side — a whole second of it let the
+/// previous capability's `pane N info:` line answer for this one.
+fn log_cursor() -> String {
+    (chrono::Utc::now() - chrono::Duration::milliseconds(5))
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string()
+}
+
+/// Poll `/api/logs?category=layout&after=<cursor>` for a message containing
+/// every one of `needles` (case-insensitively — the Swift side logs
+/// `UUID.uuidString`, upper case), for up to three seconds: a pane re-renders
+/// on the next main run-loop turn after the verb returns, not inside it.
+async fn wait_for_log(http: &Http, after: &str, needles: &[&str]) -> Result<String, String> {
+    let wanted: Vec<String> = needles.iter().map(|n| n.to_lowercase()).collect();
+    for _ in 0..30 {
+        let logs = http
+            .get(&format!(
+                "/api/logs?category=layout&limit=500&after={after}"
+            ))
+            .await?;
+        let found = logs
+            .get("data")
+            .and_then(|d| d.get("entries"))
+            .and_then(Value::as_array)
+            .and_then(|entries| {
+                entries.iter().find_map(|e| {
+                    let message = e.get("message")?.as_str()?;
+                    let lower = message.to_lowercase();
+                    wanted
+                        .iter()
+                        .all(|n| lower.contains(n.as_str()))
+                        .then(|| message.to_string())
+                })
+            });
+        if let Some(message) = found {
+            return Ok(message);
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(format!(
+        "no `{}` in the layout log within 3 s",
+        needles.join("` + `")
+    ))
 }
 
 /// 5. Create a surface, render it, dispatch an event, see the state change.
