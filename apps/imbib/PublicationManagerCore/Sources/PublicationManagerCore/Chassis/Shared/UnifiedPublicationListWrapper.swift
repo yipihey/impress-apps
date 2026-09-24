@@ -485,6 +485,12 @@ struct UnifiedPublicationListWrapper: View {
                         category: "triage")
                     saveSelectedToDefaultLibrary()
                 },
+                onDismissFromInbox: {
+                    logInfo(
+                        "Paper ▸ Dismiss from Inbox: \(selectedPublicationIDs.count) selected",
+                        category: "triage")
+                    dismissSelectedFromInbox()
+                },
                 onToggleEInkMirror: toggleEinkForSelected,
                 onCopyPublications: { Task { await copySelectedPublications() } },
                 onCutPublications: { Task { await cutSelectedPublications() } },
@@ -1853,6 +1859,7 @@ struct UnifiedPublicationListWrapper: View {
 private struct NotificationModifiers: ViewModifier {
     let onToggleReadStatus: () -> Void
     let onSaveToLibrary: () -> Void
+    let onDismissFromInbox: () -> Void
     let onToggleEInkMirror: () -> Void
     let onCopyPublications: () -> Void
     let onCutPublications: () -> Void
@@ -1869,6 +1876,12 @@ private struct NotificationModifiers: ViewModifier {
             // menu item never saved anything.
             .onReceive(NotificationCenter.default.publisher(for: .saveToLibrary)) { _ in
                 onSaveToLibrary()
+            }
+            // Paper ▸ Dismiss from Inbox (⇧⌘J) and the command palette: the
+            // inbox list's Delete key (`dismissSelectedFromInbox`, which is
+            // also `d`). Posted and observed by nothing until 2026-09-24.
+            .onReceive(NotificationCenter.default.publisher(for: .dismissFromInbox)) { _ in
+                onDismissFromInbox()
             }
             // Paper ▸ Mirror to reMarkable (⌃⌘E) and the command palette.
             .onReceive(NotificationCenter.default.publisher(for: .toggleEInkMirror)) { _ in
