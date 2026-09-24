@@ -1942,31 +1942,18 @@ public actor HTTPAutomationRouter: HTTPRouter {
         ]
     }
 
-    /// Is the ADR-0031 layout tree rendering this app's windows?
-    ///
-    /// When it is, `PaneLayoutState` is NOT what the window draws: the three
-    /// pane toggles are resizes of a role's share in the tree, and the saved
-    /// "layouts" here are a different store from the tree's. The routes below
-    /// still answer — the flagged-off build is the shipping one — but they say
-    /// which model they acted on rather than returning a bare `ok` an agent
-    /// would read as "the window changed". The tree's own surface is
-    /// `/api/layout/tree`, `/api/layout/verb` and `/api/layout/op`
-    /// (`SharedAutomationRoutes`).
-    private var layoutTreeIsRendering: Bool {
-        get async { await MainActor.run { LayoutAutomation.shared.isActive } }
-    }
-
     /// The model marker every legacy layout response carries.
-    private func paneModelKeys(treeActive: Bool) -> [String: Any] {
-        var keys: [String: Any] = ["model": "pane-layout-state"]
-        if treeActive {
-            keys["treeActive"] = true
-            keys["detail"] =
-                "The ADR-0031 layout tree is rendering this window; PaneLayoutState is not "
-                + "what it draws. Use GET /api/layout/tree and POST /api/layout/verb."
-        }
-        return keys
-    }
+    ///
+    /// These routes are served by imbib's router only, and imbib's window is
+    /// its pre-chassis `ContentView`, which reads `PaneLayoutState`: here the
+    /// routes change what the window draws. Every chassis app's window is the
+    /// layout tree (plan wave 6 W5 removed the flag that made the tree
+    /// optional), whose own surface is `/api/layout/tree`,
+    /// `/api/layout/verb` and `/api/layout/op` (`SharedAutomationRoutes`).
+    /// The `treeActive` marker that warned "the tree is drawing, not this"
+    /// existed only while one imbib-hosted chassis window could be either; no
+    /// window of this app renders the tree, so it is gone.
+    private static let paneModelKeys: [String: String] = ["model": "pane-layout-state"]
 
     /// GET /api/layout — live pane arrangement + saved layouts.
     private func handleGetLayout() async -> HTTPResponse {
@@ -1979,7 +1966,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
             "current": layoutStateDict(current),
             "layouts": layouts.map { ["name": $0.name, "state": layoutStateDict($0.state)] },
         ]
-        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+        for (key, value) in Self.paneModelKeys {
             payload[key] = value
         }
         return .json(payload)
@@ -2016,7 +2003,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
         logInfo("HTTP layout update: \(keys)", category: "layout")
         var payload: [String: Any] = ["status": "ok", "current": layoutStateDict(updated)]
-        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+        for (key, value) in Self.paneModelKeys {
             payload[key] = value
         }
         return .json(payload)
@@ -2035,7 +2022,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         var payload: [String: Any] = [
             "status": "ok", "applied": name, "current": layoutStateDict(current),
         ]
-        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+        for (key, value) in Self.paneModelKeys {
             payload[key] = value
         }
         return .json(payload)
@@ -2052,7 +2039,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return PaneLayoutStore.shared.layouts.map(\.name)
         }
         var payload: [String: Any] = ["status": "ok", "saved": name, "layouts": names]
-        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+        for (key, value) in Self.paneModelKeys {
             payload[key] = value
         }
         return .json(payload)

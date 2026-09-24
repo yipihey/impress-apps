@@ -101,8 +101,9 @@ public extension EnvironmentValues {
 
 /// The chassis root every sibling app's macOS window renders.
 ///
-/// Warms the shared store off-main, then hands `TabContentView` the three view
-/// models and the app's `AppShellConfiguration`. Shows a loading state until the
+/// Warms the shared store off-main, then hands the layout tree
+/// (`LayoutTreeHost`) the three view models and the app's
+/// `AppShellConfiguration`. Shows a loading state until the
 /// store is open.
 ///
 /// A host wraps this in whatever is genuinely its own — its `.withAppearance()`,
@@ -146,25 +147,13 @@ public struct ChassisRootView: View {
         self.sidebarComposition = sidebarComposition
     }
 
-    /// Does this window render the ADR-0031 layout tree?
-    ///
-    /// Either the preset says so (`usesLayoutTree`, false in every shipped
-    /// one) or the developer override is set for this machine
-    /// (`defaults write com.impress.imbib impress.layoutTree.enabled -bool YES`,
-    /// read once per launch). Off, this view is byte-identical to what it was
-    /// before ADR-0031 L6.
-    private var usesLayoutTree: Bool {
-        configuration.usesLayoutTree || LayoutTreeFlag.isEnabled
-    }
-
-    /// The window's content: the layout tree, or today's chassis.
-    @ViewBuilder
+    /// The window's content: the ADR-0031 layout tree, always (plan wave 6
+    /// W5 removed the `impress.layoutTree.enabled` flag and the preset's
+    /// `usesLayoutTree`). `TabContentView` is still reachable — a `legacy`
+    /// pane hosts it, whole or scoped to one route — but it is no longer a
+    /// window root for any chassis app.
     private var root: some View {
-        if usesLayoutTree {
-            LayoutTreeHost(appID: configuration.appID)
-        } else {
-            TabContentView()
-        }
+        LayoutTreeHost(appID: configuration.appID)
     }
 
     public var body: some View {

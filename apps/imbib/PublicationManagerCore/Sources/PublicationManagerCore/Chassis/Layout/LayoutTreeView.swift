@@ -12,19 +12,14 @@
 //  any of these views hold is the IN-FLIGHT divider drag (see
 //  `LayoutLinearSplit.drag`, which is discarded on release).
 //
-//  ## Turning it on
+//  ## The only chassis root
 //
-//  Two switches, both off by default:
-//
-//    * `AppShellConfiguration.usesLayoutTree` — a preset opts in. No shipped
-//      preset does; changing one is a product decision.
-//    * `defaults write com.impress.imbib impress.layoutTree.enabled -bool YES`
-//      — a DEVELOPER opts in without touching a preset. Read ONCE per launch
-//      (`LayoutTreeFlag.isEnabled` is a `static let`), so the flag cannot
-//      change under a running window and half-render.
-//
-//  Turn it off again with
-//  `defaults delete com.impress.imbib impress.layoutTree.enabled`.
+//  Since plan wave 6 W5 this is what `ChassisRootView` renders for every
+//  chassis app (impress, impel, implore, impart, imprint's main window) —
+//  there is no switch. The `impress.layoutTree.enabled` defaults key and
+//  `AppShellConfiguration.usesLayoutTree` that gated it through L6–L8 are
+//  gone. imbib's own window is its pre-chassis `ContentView`, which never
+//  rendered this tree and is out of W5's scope.
 //
 //  ## Why the split primitive is not `ImpressSplitView`
 //
@@ -46,20 +41,6 @@ import ImpressKeyboard
 import ImpressLogging
 import ImpressRustCore
 import SwiftUI
-
-// MARK: - Feature flag
-
-/// The developer override for the ADR-0031 layout tree.
-public enum LayoutTreeFlag {
-
-    /// `defaults write com.impress.imbib impress.layoutTree.enabled -bool YES`
-    public static let defaultsKey = "impress.layoutTree.enabled"
-
-    /// Read ONCE, at first touch, for the life of the process: a layout root
-    /// that could change mid-session would tear down a window's whole view
-    /// tree (and, in L8, its editor sessions) on a `defaults write`.
-    public static let isEnabled: Bool = UserDefaults.standard.bool(forKey: defaultsKey)
-}
 
 // MARK: - Host
 
@@ -132,10 +113,9 @@ public struct LayoutTreeHost: View {
 /// The one live controller of this process, for the menu chords.
 ///
 /// `Commands` values are built outside any window's environment, so ⌃⌘S /
-/// ⌥⌘0 / ⌘0 cannot reach a controller through `@Environment`. This is the
-/// same shape `PaneLayoutStore.shared` already has for the flagged-off path,
-/// and it holds no layout state of its own: it is a pointer to the object
-/// that asks Rust.
+/// ⌥⌘0 / ⌘0 / ⌃⌘1–9 cannot reach a controller through `@Environment`. It
+/// holds no layout state of its own: it is a pointer to the object that asks
+/// Rust.
 @MainActor
 public final class LayoutTreeRuntime {
     public static let shared = LayoutTreeRuntime()

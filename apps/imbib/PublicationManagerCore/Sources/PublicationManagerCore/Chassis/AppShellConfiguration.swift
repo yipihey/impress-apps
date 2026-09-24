@@ -103,20 +103,6 @@ public struct AppShellConfiguration: Sendable {
     ///   per-host wiring.
     public let presentableKinds: Set<RecordKindID>?
 
-    /// Does this shell render the ADR-0031 LAYOUT TREE instead of
-    /// `TabContentView`?
-    ///
-    /// **False in every shipped preset, and that is the point of L6.** The
-    /// tree is a whole second chassis root (`Chassis/Layout/`), and switching
-    /// a preset onto it changes what an app IS — a product decision, taken
-    /// once per app in L7/L8, not a flag flipped in passing. A developer who
-    /// wants to see it today uses the per-machine override instead:
-    ///
-    ///     defaults write com.impress.imbib impress.layoutTree.enabled -bool YES
-    ///
-    /// (`LayoutTreeFlag`, read once per launch). `ChassisRootView` takes the
-    /// tree path when EITHER is true.
-    public let usesLayoutTree: Bool
 
     public init(
         appID: String,
@@ -132,10 +118,8 @@ public struct AppShellConfiguration: Sendable {
         auxiliaryRoutes: Set<AuxiliaryRoute> = [],
         openOverrides: [RecordKindID: OpenBehavior] = [:],
         customSurfaces: CustomSurfaceRegistry = CustomSurfaceRegistry(),
-        presentableKinds: Set<RecordKindID>? = nil,
-        usesLayoutTree: Bool = false
+        presentableKinds: Set<RecordKindID>? = nil
     ) {
-        self.usesLayoutTree = usesLayoutTree
         self.appID = appID
         self.visibleSections = visibleSections
         self.defaultSection = defaultSection
@@ -174,8 +158,7 @@ public struct AppShellConfiguration: Sendable {
             auxiliaryRoutes: auxiliaryRoutes,
             openOverrides: openOverrides,
             customSurfaces: customSurfaces,
-            presentableKinds: kinds,
-            usesLayoutTree: usesLayoutTree)
+            presentableKinds: kinds)
     }
 
     /// The record kind a section serves in this shell (nil = shell default).
@@ -482,27 +465,7 @@ public struct AppShellConfiguration: Sendable {
             auxiliaryRoutes: auxiliaryRoutes,
             openOverrides: openOverrides,
             customSurfaces: CustomSurfaceRegistry(surfaces),
-            presentableKinds: presentableKinds,
-            usesLayoutTree: usesLayoutTree
-        )
-    }
-
-    /// Copy of this configuration rendered by the ADR-0031 layout tree.
-    /// The `withCustomSurfaces(_:)` seam, for the shell that adopts the tree
-    /// first — no preset calls it yet.
-    public func withLayoutTree(_ enabled: Bool = true) -> AppShellConfiguration {
-        AppShellConfiguration(
-            appID: appID,
-            visibleSections: visibleSections,
-            defaultSection: defaultSection,
-            defaultDetailTab: defaultDetailTab,
-            recordKinds: recordKinds,
-            sectionBindings: sectionBindings,
-            auxiliaryRoutes: auxiliaryRoutes,
-            openOverrides: openOverrides,
-            customSurfaces: customSurfaces,
-            presentableKinds: presentableKinds,
-            usesLayoutTree: enabled
+            presentableKinds: presentableKinds
         )
     }
 }
@@ -522,7 +485,6 @@ extension AppShellConfiguration: Equatable {
             && lhs.openOverrides == rhs.openOverrides
             && lhs.customSurfaces.surfaces.map(\.id) == rhs.customSurfaces.surfaces.map(\.id)
             && lhs.presentableKinds == rhs.presentableKinds
-            && lhs.usesLayoutTree == rhs.usesLayoutTree
     }
 }
 

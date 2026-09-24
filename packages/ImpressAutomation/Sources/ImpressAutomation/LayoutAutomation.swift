@@ -14,12 +14,12 @@
 //
 //  WHAT WAS THERE BEFORE. imbib's `/api/layout`, `/api/layout/apply` and
 //  `/api/layout/save` drive `PaneLayoutStore` — the pre-tree Boolean model
-//  (`sidebarVisible`, `detailPaneVisible`, `detailTab`). Those routes are
-//  untouched and still answer for the flagged-off build. With the tree
-//  rendering the window they describe a model nothing is drawing, so they now
-//  say so in their own payload (`model`, `treeActive`) rather than returning
-//  an `ok` an agent would read as "done". A route that reports success while
-//  doing nothing is the failure mode ADR-0032 was written about.
+//  (`sidebarVisible`, `detailPaneVisible`, `detailTab`). They are served only
+//  by imbib's own router, and imbib's window is its pre-chassis
+//  `ContentView`, which still reads that model; every CHASSIS window is the
+//  layout tree (plan wave 6 W5 removed the flag), and none of them serves
+//  those routes. They carry `model: "pane-layout-state"` so an agent can tell
+//  which of the two models it drove.
 //
 //  THE VOCABULARY STAYS IN ONE PLACE. This package must not learn
 //  `impress_layout::Verb`: the verbs are Rust's, the Swift spelling is
@@ -83,10 +83,6 @@ public final class LayoutAutomation {
     /// Weak: the controller belongs to the window, and a registry that kept it
     /// alive would answer verbs into a tree nobody is looking at.
     public weak var host: LayoutAutomationHost?
-
-    /// Is a layout tree rendering right now? Read by the legacy
-    /// `PaneLayoutStore` routes so they can say which model they acted on.
-    public var isActive: Bool { host != nil }
 
     private init() {}
 }
@@ -190,9 +186,10 @@ public enum LayoutAutomationRoutes {
                         "status": "error",
                         "error": "no layout tree is rendering in this app",
                         "detail":
-                            "The ADR-0031 layout tree is behind a flag: "
-                            + "`defaults write com.impress.<app> impress.layoutTree.enabled -bool YES`, "
-                            + "then relaunch. Headless callers do not need the app at all — "
+                            "Every chassis app's window is the ADR-0031 layout tree (impress, impel, "
+                            + "implore, impart, imprint), so there this answer means the window has not "
+                            + "opened its tree yet. imbib's own window is its pre-chassis ContentView "
+                            + "and has no tree. Headless callers do not need the app at all — "
                             + "the same verbs are `layout-service_*` over MCP and `impress <verb>` in the CLI.",
                     ],
                     status: 409)
