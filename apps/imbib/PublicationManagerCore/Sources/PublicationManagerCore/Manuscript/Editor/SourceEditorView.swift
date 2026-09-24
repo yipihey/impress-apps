@@ -28,6 +28,11 @@ public struct SourceEditorView: View {
     /// papers window (and imprint's HTTP API, and an agent) can put a cite key
     /// at this editor's caret. `nil` — a scratch editor — registers nothing.
     var manuscriptID: UUID? = nil
+    /// An editor that outlives this view (a `source` pane's session,
+    /// ADR-0031 D6). `nil` — the Source tab and the standalone editor window —
+    /// builds the editor with this view and loses it with this view, exactly
+    /// as before.
+    var host: TypstEditorHost? = nil
 
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
     @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
@@ -54,6 +59,25 @@ public struct SourceEditorView: View {
         self.onSelectionChange = onSelectionChange
     }
 
+    init(
+        source: Binding<String>,
+        cursorPosition: Binding<Int>,
+        syntaxMode: DocumentFormat,
+        highlight: EditorHighlightRequest?,
+        manuscriptID: UUID?,
+        host: TypstEditorHost?,
+        onSelectionChange: ((String, NSRange) -> Void)?
+    ) {
+        self.init(
+            source: source, cursorPosition: cursorPosition, syntaxMode: syntaxMode,
+            highlight: highlight, manuscriptID: manuscriptID, onSelectionChange: onSelectionChange)
+        self.host = host
+    }
+
+    /// The Helix state the editor's adaptor was built with: the host's when
+    /// there is one, since the adaptor outlives this view.
+    private var activeHelixState: HelixState { host?.helixState ?? helixState }
+
     public var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Color.clear expands to fill available space, forcing ZStack to full size
@@ -63,19 +87,20 @@ public struct SourceEditorView: View {
                 source: $source,
                 cursorPosition: $cursorPosition,
                 syntaxMode: syntaxMode,
-                helixState: helixState,
+                helixState: activeHelixState,
                 helixEnabled: helixModeEnabled,
                 showCellBrackets: showCellBrackets,
                 inlineCompletionService: inlineCompletionService,
                 highlight: highlight,
                 manuscriptID: manuscriptID,
+                host: host,
                 onSelectionChange: onSelectionChange
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Helix mode indicator
             if helixModeEnabled && helixShowModeIndicator {
-                HelixModeIndicator(state: helixState, position: .bottomLeft)
+                HelixModeIndicator(state: activeHelixState, position: .bottomLeft)
                     .padding(12)
             }
 
@@ -177,9 +202,34 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     var highlight: EditorHighlightRequest? = nil
     /// See `SourceEditorView.manuscriptID`.
     var manuscriptID: UUID? = nil
+    /// See `SourceEditorView.host`.
+    var host: TypstEditorHost? = nil
     var onSelectionChange: ((String, NSRange) -> Void)?
 
-    func makeNSView(context: Context) -> NSScrollView {
+    /// Two shapes. Without a host, the editor's scroll view IS this
+    /// representable's view: built here, torn down with it (the Source tab,
+    /// unchanged). With a host (a `source` pane), the view is a plain
+    /// container and the host's editor — built once, by the same
+    /// `makeEditor` — is moved into it: a split or a swap rebuilds the pane's
+    /// SwiftUI structure, and the SAME `NSTextView`, text and undo stack
+    /// arrive in the new place (ADR-0031 D6). A container rather than the
+    /// scroll view itself, so the old representable's teardown can tell
+    /// whether the editor is still its own: SwiftUI may build the new pane
+    /// before it dismantles the old one.
+    func makeNSView(context: Context) -> NSView {
+        guard let host else { return makeEditor(coordinator: context.coordinator) }
+        if host.scrollView == nil {
+            host.adopt(makeEditor(coordinator: context.coordinator))
+        }
+        let container = NSView()
+        host.mount(in: container)
+        return container
+    }
+
+    /// Build the editor: the scroll view, the `TypstTextView` and everything
+    /// the coordinator wires into it. The one construction path — the Source
+    /// tab calls it per mount, a pane session's host calls it once.
+    func makeEditor(coordinator: Coordinator) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
@@ -188,7 +238,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         scrollView.appearance = Self.appearanceOverride(editorAppearance)
 
         let textView = TypstTextView()
-        textView.delegate = context.coordinator
+        textView.delegate = coordinator
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -235,7 +285,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         let adaptor = NSTextViewHelixAdaptor(textView: textView, helixState: helixState)
         adaptor.isEnabled = helixEnabled
         textView.helixAdaptor = adaptor
-        context.coordinator.helixAdaptor = adaptor
+        coordinator.helixAdaptor = adaptor
 
         // Set up inline completion service
         textView.inlineCompletionService = inlineCompletionService
@@ -247,14 +297,14 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         textView.ghostTextView = ghostTextView
 
         scrollView.documentView = textView
-        context.coordinator.textView = textView
+        coordinator.textView = textView
 
         // Hover preview for cite keys
-        textView.hoverController = context.coordinator.hoverController
+        textView.hoverController = coordinator.hoverController
         textView.currentFormat = syntaxMode
 
         // Focus-scoped ⌘S → citation insert.
-        textView.onManualCitation = { [weak coordinator = context.coordinator, weak textView] in
+        textView.onManualCitation = { [weak coordinator, weak textView] in
             guard let coordinator, let textView else { return }
             coordinator.insertCitationManually(in: textView)
         }
@@ -279,23 +329,26 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Set initial text
         textView.string = source
         applySyntaxHighlighting(to: textView)
-        if showCellBrackets { rebuildBrackets(textView, context: context, force: true) }
+        if showCellBrackets { rebuildBrackets(textView, coordinator: coordinator, force: true) }
 
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ view: NSView, context: Context) {
+        // First, before any early return (impress-swiftui-pitfalls rule 2) —
+        // and for a host's editor this is also how the ONE coordinator learns
+        // which pane's bindings it now serves.
+        context.coordinator.parent = self
+        guard let scrollView = host?.scrollView ?? (view as? NSScrollView) else { return }
         scrollView.appearance = Self.appearanceOverride(editorAppearance)
         guard let textView = scrollView.documentView as? TypstTextView else { return }
 
-        // Refresh the coordinator's view of the latest SwiftUI struct so
-        // that delegate callbacks (textDidChange, etc.) read current
-        // bindings. Without this, the coordinator keeps the *initial*
-        // struct — which defaults `syntaxMode` to `.typst` — even after
-        // the document loads as LaTeX. The result: on every keystroke
+        // (The `parent = self` refresh above keeps delegate callbacks
+        // reading current bindings. Without it, the coordinator keeps the
+        // *initial* struct — which defaults `syntaxMode` to `.typst` — even
+        // after the document loads as LaTeX. The result: on every keystroke
         // textDidChange would dispatch to the typst highlighter, painting
-        // `\b`, `\d`, `\u` etc. as `@constant.character.escape` (red).
-        context.coordinator.parent = self
+        // `\b`, `\d`, `\u` etc. as `@constant.character.escape` (red).)
         context.coordinator.registerForCitationInsertion(manuscriptID)
 
         // Ensure text view fills at least the visible area of the scroll view
@@ -324,7 +377,20 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         }
 
         // Update text if changed externally
-        if textView.string != source {
+        if let host {
+            // A pane's editor knows which document it shows: a different
+            // manuscript is a SWITCH (its own undo history comes with it), the
+            // same one with other text is an external change.
+            switch host.present(document: manuscriptID, text: source, in: textView) {
+            case .unchanged:
+                break
+            case .switched:
+                context.coordinator.syntaxHighlighter = nil
+                applySyntaxHighlighting(to: textView)
+            case .external:
+                applySyntaxHighlighting(to: textView)
+            }
+        } else if textView.string != source {
             let selectedRange = textView.selectedRange()
             textView.string = source
             applySyntaxHighlighting(to: textView)
@@ -336,7 +402,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         }
 
         // Cell brackets: add/remove per the toggle, then refresh from the text.
-        syncBracketRuler(textView, context: context)
+        syncBracketRuler(textView, coordinator: context.coordinator)
 
         // Handle programmatic cursor navigation (outline click, or a jump back
         // from the compiled preview).
@@ -411,15 +477,31 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
+    /// A host's editor keeps ONE coordinator — it is the text view's
+    /// delegate and holds the Helix adaptor, the palettes and the highlighter
+    /// — so every representable that mounts the editor gets that one.
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        if let existing = host?.coordinator { return existing }
+        let coordinator = Coordinator(self)
+        host?.coordinator = coordinator
+        return coordinator
     }
 
     /// SwiftUI is done with this editor — stop offering it as a citation target.
     /// Without this, a closed manuscript's editor stays registered and an
     /// insert aimed at it reports success into a dead text view.
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        MainActor.assumeIsolated { coordinator.resignCitationInsertion() }
+    ///
+    /// A host's editor is DETACHED, never destroyed, and only when it is still
+    /// in this representable's container: after a split the new pane may
+    /// already have moved it.
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        MainActor.assumeIsolated {
+            if let host = coordinator.host {
+                host.detach(from: view)
+            } else {
+                coordinator.resignCitationInsertion()
+            }
+        }
     }
 
     // MARK: - Syntax Highlighting (tree-sitter via ImpressSyntaxHighlight)
@@ -461,7 +543,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     /// Reconcile the bracket ruler with the `showCellBrackets` toggle (adding or
     /// removing it + adjusting the text-container inset), then rebuild its nodes.
-    private func syncBracketRuler(_ textView: TypstTextView, context: Context) {
+    private func syncBracketRuler(_ textView: TypstTextView, coordinator: Coordinator) {
         if showCellBrackets {
             if textView.bracketRuler == nil {
                 let ruler = BracketRulerNSView(frame: NSRect(
@@ -474,7 +556,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                 textView.addSubview(ruler)
                 textView.textContainerInset = NSSize(width: BracketRulerNSView.gutterWidth, height: 4)
             }
-            rebuildBrackets(textView, context: context)
+            rebuildBrackets(textView, coordinator: coordinator)
             textView.bracketRuler?.needsDisplay = true
         } else if let ruler = textView.bracketRuler {
             ruler.removeFromSuperview()
@@ -495,7 +577,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     /// Rebuild the cell-bracket structure from the current text and hand it to
     /// the ruler. Skips work when the source is unchanged (unless `force`).
-    private func rebuildBrackets(_ textView: TypstTextView, context: Context, force: Bool = false) {
+    private func rebuildBrackets(_ textView: TypstTextView, coordinator: Coordinator, force: Bool = false) {
         guard let ruler = textView.bracketRuler else { return }
         let src = textView.string
         // Markdown/plaintext have no Typst/LaTeX heading grammar — show a
@@ -510,17 +592,19 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // flips to .latex after the document loads — without this the structure
         // would stay stuck on the wrong heading grammar (0 headings → flat).
         if !force,
-           context.coordinator.lastStructureSource == src,
-           context.coordinator.lastStructureFormat == syntaxMode {
+           coordinator.lastStructureSource == src,
+           coordinator.lastStructureFormat == syntaxMode {
             return
         }
-        context.coordinator.lastStructureSource = src
-        context.coordinator.lastStructureFormat = syntaxMode
+        coordinator.lastStructureSource = src
+        coordinator.lastStructureFormat = syntaxMode
         ruler.update(nodes: DocumentStructure.build(source: src, format: fmt))
     }
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TypstEditorRepresentable
+        /// The pane session's editor host this coordinator belongs to, if any.
+        weak var host: TypstEditorHost?
         weak var textView: NSTextView?
         var helixAdaptor: NSTextViewHelixAdaptor?
         /// Last source the bracket structure was computed from (debounce).
@@ -566,6 +650,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
+            self.host = parent.host
             self.lastSyntaxMode = parent.syntaxMode
         }
 
@@ -899,6 +984,52 @@ class TypstTextView: HelixTextView {
 
     /// Cell-bracket ruler pinned to the right margin (nil when disabled).
     var bracketRuler: BracketRulerNSView?
+
+    // MARK: - Per-document undo (a pane session's editor)
+
+    /// The undo manager of the document this view shows, when a pane session
+    /// owns the editor (`TypstEditorHost`). One per manuscript, so switching
+    /// documents in a pane never mixes their histories, and one that lives
+    /// with the editor rather than the window, so it survives the editor
+    /// moving between panes. `nil` — the Source tab — leaves undo exactly as
+    /// it was: the responder chain's (the window's) undo manager.
+    var documentUndoManager: UndoManager?
+
+    override var undoManager: UndoManager? {
+        documentUndoManager ?? super.undoManager
+    }
+
+    /// Edit ▸ Undo / Redo go to the responder chain; claim them only when
+    /// this view has its own history, so the Source tab's ⌘Z still reaches
+    /// the window's undo manager as before.
+    override func responds(to aSelector: Selector!) -> Bool {
+        if aSelector == #selector(undo(_:)) || aSelector == #selector(redo(_:)) {
+            return documentUndoManager != nil
+        }
+        return super.responds(to: aSelector)
+    }
+
+    @objc func undo(_ sender: Any?) {
+        documentUndoManager?.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        documentUndoManager?.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if let history = documentUndoManager {
+            if item.action == #selector(undo(_:)) {
+                (item as? NSMenuItem)?.title = history.undoMenuItemTitle
+                return history.canUndo
+            }
+            if item.action == #selector(redo(_:)) {
+                (item as? NSMenuItem)?.title = history.redoMenuItemTitle
+                return history.canRedo
+            }
+        }
+        return super.validateUserInterfaceItem(item)
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)

@@ -20,7 +20,14 @@ import ImprintCore  // SourceMapEntry / SourceMapUtils — source↔preview sync
 
 public struct ManuscriptSourceTab: View {
 
-    @State private var session: ManuscriptEditorSession
+    /// A plain input, not `@State`: a host that shows another manuscript
+    /// passes another session, and the tab must follow it (the same staleness
+    /// `ManuscriptDetailPane.liveSession` exists to prevent). `@Bindable` for
+    /// the `$session.source` binding the editor takes.
+    @Bindable private var session: ManuscriptEditorSession
+    /// A `source` pane's editor, which outlives this view (ADR-0031 D6);
+    /// `nil` in the detail pane's Source tab and the standalone window.
+    private let editorHost: TypstEditorHost?
     @AppStorage("manuscript.sourceTab.showPreview") private var showPreview = true
     @AppStorage("manuscript.sourceTab.showOutline") private var showOutline = false
     @AppStorage("manuscript.sourceTab.showComments") private var showComments = false
@@ -39,7 +46,13 @@ public struct ManuscriptSourceTab: View {
     }
 
     public init(session: ManuscriptEditorSession) {
-        _session = State(initialValue: session)
+        self.session = session
+        self.editorHost = nil
+    }
+
+    init(session: ManuscriptEditorSession, editorHost: TypstEditorHost?) {
+        self.session = session
+        self.editorHost = editorHost
     }
 
     public var body: some View {
@@ -116,6 +129,7 @@ public struct ManuscriptSourceTab: View {
             // imbib's papers window (another process) can put a cite key at
             // the caret.
             manuscriptID: session.manuscriptID,
+            host: editorHost,
             onSelectionChange: { _, range in session.selectedRange = range }
         )
     }

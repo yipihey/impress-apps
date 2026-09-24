@@ -4395,6 +4395,19 @@ extension RustStoreAdapter {
         }
     }
 
+    /// Whether this manuscript may take a live editor session
+    /// (`ManuscriptEditorSessionPolicy`): false when its payload carries
+    /// `external_source`. A row that cannot be read answers true, as imprint's
+    /// guard does for a missing model — there is no file to protect.
+    public func manuscriptAllowsEditorSession(id: UUID) -> Bool {
+        guard let shared = sharedReviewStore(),
+              let row = try? shared.getItem(id: id.uuidString.lowercased()),
+              let data = row.payloadJson.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return true }
+        return ManuscriptEditorSessionPolicy.allowsEditorSession(payload: payload)
+    }
+
     /// The inline source text captured in a revision snapshot (the
     /// `source_inline` payload field written by manuscript_ops::create_revision
     /// for in-store revisions). Nil for blob-archived revisions or when the

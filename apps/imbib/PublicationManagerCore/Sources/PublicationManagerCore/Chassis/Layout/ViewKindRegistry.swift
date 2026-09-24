@@ -291,13 +291,13 @@ public final class ViewKindRegistry: @unchecked Sendable {
         ViewKindFactory(kind: .bibtex) {
             AnyView(LayoutPublicationTabPaneView(context: $0, tab: .bibtex))
         },
-        // Session-bearing (D6), and still the placeholder: W4's second pass
-        // gives it the editor, whose `NSTextView` and undo stack must come
-        // from `PaneSessionRegistry` keyed by the spec's `SessionId`, never
-        // from view identity — so a split, swap, move or preset change hands
-        // the same editor to whichever pane shows it.
+        // Session-bearing (D6): the manuscript Source tab over an editor
+        // whose `NSTextView` and undo histories come from
+        // `SourcePaneSession.registry`, keyed by the spec's `SessionId` —
+        // never from view identity — so a split, swap, move or preset change
+        // hands the same editor to whichever pane shows it.
         ViewKindFactory(kind: .source, isSessionBearing: true) {
-            AnyView(LayoutPlaceholderPaneView(context: $0))
+            AnyView(LayoutSourcePaneView(context: $0))
         },
     ])
 }

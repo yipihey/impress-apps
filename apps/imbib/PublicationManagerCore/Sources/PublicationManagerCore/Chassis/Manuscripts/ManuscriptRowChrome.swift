@@ -252,6 +252,9 @@ enum ManuscriptDeletion {
             category: "manuscripts")
         for id in ids {
             ManuscriptSessionRegistry.shared.discard(id: id)
+            // A layout-tree `source` pane's editor holds the session too, and
+            // its own undo history for the manuscript: both go first.
+            SourcePaneSession.abandonEverywhere(manuscriptID: id)
             RustStoreAdapter.shared.deleteItem(id: id)
         }
     }

@@ -256,7 +256,10 @@ public enum WatchedManuscriptGuard {
     /// therefore its own copy of the risk).
     public static func allowsEditorSession(_ model: ManuscriptModel?) -> Bool {
         guard let model else { return true }
-        return !model.isExternalReference
+        // The predicate itself is the chassis' (PMC), so the layout tree's
+        // `source` pane and this guard cannot disagree.
+        return ManuscriptEditorSessionPolicy.allowsEditorSession(
+            externalSource: model.externalSourceJSON)
     }
 
     /// The same question by id, for hosts that hold one.
