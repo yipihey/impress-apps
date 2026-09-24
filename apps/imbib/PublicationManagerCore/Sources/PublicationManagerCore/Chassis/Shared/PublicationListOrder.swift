@@ -158,24 +158,33 @@ public enum PublicationListOrder {
         removing ids: Set<UUID>,
         from visualOrder: [PublicationRowData]
     ) -> UUID? {
+        nextSelection(removing: ids, inOrder: visualOrder.map(\.id))
+    }
+
+    /// The same rule over bare ids in visual order — what a host that renders
+    /// no `PublicationRowData` has (the layout tree's `list` pane, W4).
+    public static func nextSelection(
+        removing ids: Set<UUID>,
+        inOrder visualOrder: [UUID]
+    ) -> UUID? {
         // Find the last selected item in visual order (bottom of the selection
         // block). This ensures we advance "downward" from where it ends.
-        guard let lastSelectedIndex = visualOrder.lastIndex(where: { ids.contains($0.id) }) else {
+        guard let lastSelectedIndex = visualOrder.lastIndex(where: { ids.contains($0) }) else {
             return nil
         }
 
         // Try the item immediately after the last selected item
         for i in (lastSelectedIndex + 1)..<visualOrder.count {
-            if !ids.contains(visualOrder[i].id) {
-                return visualOrder[i].id
+            if !ids.contains(visualOrder[i]) {
+                return visualOrder[i]
             }
         }
 
         // If no next item, try before the first selected item
-        if let firstSelectedIndex = visualOrder.firstIndex(where: { ids.contains($0.id) }) {
+        if let firstSelectedIndex = visualOrder.firstIndex(where: { ids.contains($0) }) {
             for i in (0..<firstSelectedIndex).reversed() {
-                if !ids.contains(visualOrder[i].id) {
-                    return visualOrder[i].id
+                if !ids.contains(visualOrder[i]) {
+                    return visualOrder[i]
                 }
             }
         }

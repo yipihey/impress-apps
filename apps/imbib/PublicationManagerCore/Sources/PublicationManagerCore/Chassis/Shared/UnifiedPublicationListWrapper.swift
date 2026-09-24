@@ -832,145 +832,70 @@ struct UnifiedPublicationListWrapper: View {
         )
     }
 
+    /// The row menu's verbs are `PublicationListActions.chassis` — shared with
+    /// the layout tree's `list` pane (plan wave 6, W4). What they do to THIS
+    /// list's own state is the host hooks below.
     private func buildListActions() -> PublicationListActions {
-        let a = PublicationListActions()
-        if sourceCanEdit {
-            a.onDelete = { ids in
-                // Remove from local state FIRST to prevent rendering deleted objects
+        PublicationListActions.chassis(PublicationListActionsHost(
+            source: source,
+            canEdit: sourceCanEdit,
+            libraryViewModel: libraryViewModel,
+            libraryManager: libraryManager,
+            rows: { self.publications },
+            willDelete: { ids in
                 for id in ids { self.dataSource.removeRow(id: id) }
                 self.publications.removeAll { pub in
                     ids.contains(pub.id)
                 }
                 // Clear selection for deleted items
                 self.selectedPublicationIDs.subtract(ids)
-
-                // Stage 5d SPLIT: the sequence below moved verbatim to
-                // `PublicationListMutations.delete`. iOS's copy called
-                // `deletePublications` unconditionally from every scope, so
-                // "Delete" destroyed the paper there and soft-deleted it here.
-                var isDismissedScope = false
-                if case .dismissed = self.source { isDismissedScope = true }
-                PublicationListMutations.delete(
-                    ids: ids,
-                    source: self.source,
-                    permanently: isDismissedScope,
-                    // Lazy: deleting OUT of Dismissed must not create it.
-                    dismissedLibraryID: { self.libraryManager.getOrCreateDismissedLibrary().id }
-                )
-            }
-            a.onCut = { ids in
-                await self.libraryViewModel.cutToClipboard(ids)
-            }
-            a.onPaste = {
-                try? await self.libraryViewModel.pasteFromClipboard()
-            }
-            a.onRemoveFromAllCollections = { ids in
-                // Stage 5d SPLIT: the body lives in
-                // `PublicationListMutations.removeFromAllCollections`. This
-                // closure was empty, so the menu item silently did nothing on
-                // macOS. Like `onAddToCollection`, the store's
-                // `removeFromCollection` posts a `.structural` event, so the
-                // list refresh is the subscription's — not this closure's.
-                PublicationListMutations.removeFromAllCollections(ids: ids)
-            }
-            a.onFileDrop = { id, providers in
-                // TODO: implement file drop with Rust store (FileDropHandler needs UUID-based API)
-            }
-        }
-        a.onToggleRead = { id in
-            let store = RustStoreAdapter.shared
-            let pub = store.getPublication(id: id)
-            store.setRead(ids: [id], read: !(pub?.isRead ?? false))
-        }
-        a.onCopy = { ids in
-            await self.libraryViewModel.copyToClipboard(ids)
-        }
-        a.onAddToLibrary = { ids, targetLibraryID in
-            // Multi-library membership via Contains edges — no duplicate item created.
-            RustStoreAdapter.shared.libraryAddMembers(libraryId: targetLibraryID, publicationIds: Array(ids))
-        }
-        a.onAddToScixLibrary = { ids, scixLibraryID in
-            RustStoreAdapter.shared.addToScixLibrary(publicationIds: Array(ids), scixLibraryId: scixLibraryID)
-        }
-        a.onAddToCollection = { ids, collectionID in
-            RustStoreAdapter.shared.addToCollection(publicationIds: Array(ids), collectionId: collectionID)
-        }
-        a.onOpenPDF = { id in
-            self.openPDF(for: id)
-        }
-        a.onListDrop = { providers, target in
-            // Handle PDF drop on list background for import
-            logger.info("onListDrop triggered with target: \(String(describing: target))")
-            Task {
-                let result = await DragDropCoordinator.shared.performDrop(
-                    DragDropInfo(providers: providers),
-                    target: target
-                )
-                logger.info("performDrop returned: \(String(describing: result))")
-                if case .needsConfirmation = result {
-                    await MainActor.run {
-                        switch target {
-                        case .library(let libraryID):
-                            logger.info("Setting dropPreviewTargetLibraryID from .library: \(libraryID)")
-                            self.dropPreviewTargetLibraryID = libraryID
-                        case .collection(_, let libraryID):
-                            logger.info("Setting dropPreviewTargetLibraryID from .collection: \(libraryID)")
-                            self.dropPreviewTargetLibraryID = libraryID
-                        case .inbox, .publication, .newLibraryZone:
-                            logger.info("Fallback - currentLibraryID: \(String(describing: self.currentLibraryID))")
-                            self.dropPreviewTargetLibraryID = self.currentLibraryID
+            },
+            nextSelection: { ids in
+                // Visual order computed synchronously for correct selection advancement
+                self.computeNextSelection(removing: ids, from: self.computeVisualOrder())
+            },
+            select: { nextID in
+                if let nextID {
+                    self.selectedPublicationIDs = [nextID]
+                    self.selectedPublicationID = nextID
+                } else {
+                    self.selectedPublicationIDs.removeAll()
+                    self.selectedPublicationID = nil
+                }
+            },
+            beginTagInput: { ids in self.handleAddTag(ids) },
+            openPDF: { id in self.openPDF(for: id) },
+            onListDrop: { providers, target in
+                // Handle PDF drop on list background for import
+                logger.info("onListDrop triggered with target: \(String(describing: target))")
+                Task {
+                    let result = await DragDropCoordinator.shared.performDrop(
+                        DragDropInfo(providers: providers),
+                        target: target
+                    )
+                    logger.info("performDrop returned: \(String(describing: result))")
+                    if case .needsConfirmation = result {
+                        await MainActor.run {
+                            switch target {
+                            case .library(let libraryID):
+                                logger.info("Setting dropPreviewTargetLibraryID from .library: \(libraryID)")
+                                self.dropPreviewTargetLibraryID = libraryID
+                            case .collection(_, let libraryID):
+                                logger.info("Setting dropPreviewTargetLibraryID from .collection: \(libraryID)")
+                                self.dropPreviewTargetLibraryID = libraryID
+                            case .inbox, .publication, .newLibraryZone:
+                                logger.info("Fallback - currentLibraryID: \(String(describing: self.currentLibraryID))")
+                                self.dropPreviewTargetLibraryID = self.currentLibraryID
+                            }
+                            logger.info("Setting showingDropPreview = true")
+                            self.showingDropPreview = true
                         }
-                        logger.info("Setting showingDropPreview = true")
-                        self.showingDropPreview = true
                     }
                 }
-            }
-        }
-        a.onDownloadPDFs = onDownloadPDFs
-        if isInboxView {
-            a.onSaveToLibrary = { ids, targetLibraryID in
-                await self.saveToLibrary(ids: ids, targetLibraryID: targetLibraryID)
-            }
-            a.onMuteAuthor = { authorName in
-                self.muteAuthor(authorName)
-            }
-            a.onMutePaper = { id in
-                self.mutePaper(id)
-            }
-        }
-        a.onDismiss = { ids in
-            await self.dismissFromInbox(ids: ids)
-        }
-        a.onToggleStar = { ids in
-            await self.toggleStarForIDs(ids)
-        }
-        // ADR-025: the mirror verb exists only while a device in individual
-        // mode is configured. Read here (inside body) so the observable
-        // model re-evaluates the actions bag when the mode flips.
-        if EInkMirrorModel.shared.showsIndividualControls {
-            a.onToggleEink = { ids in
-                self.toggleEinkForIDs(ids)
-            }
-        }
-        a.onSetFlag = { ids, color in
-            await self.setFlagForIDs(ids, color: color)
-        }
-        a.onClearFlag = { ids in
-            await self.clearFlagForIDs(ids)
-        }
-        a.onAddTag = { ids in
-            self.handleAddTag(ids)
-        }
-        a.onRemoveTag = { pubID, tagID in
-            self.handleRemoveTag(pubID: pubID, tagID: tagID)
-        }
-        a.onGlobalSearch = {
-            ImbibSearchAction.localFind(source: .toolbarButton).post()
-        }
-        a.onRefresh = {
-            await self.refreshFromNetwork()
-        }
-        return a
+            },
+            onDownloadPDFs: onDownloadPDFs,
+            onRefresh: { await self.refreshFromNetwork() }
+        ))
     }
 
     // MARK: - Toolbar
@@ -1567,15 +1492,6 @@ struct UnifiedPublicationListWrapper: View {
         RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: anyUnstarred)
     }
 
-    /// Toggle star for publications by IDs (used by PublicationListView callback)
-    private func toggleStarForIDs(_ ids: Set<UUID>) async {
-        guard !ids.isEmpty else { return }
-
-        // Determine the action: if ANY are unstarred, star ALL; otherwise unstar ALL
-        let anyUnstarred = publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
-        RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: anyUnstarred)
-    }
-
     /// Toggle the reMarkable mirror mark for the selection (`e`, ⌃⌘E, menu).
     private func toggleEinkForSelected() {
         toggleEinkForIDs(selectedPublicationIDs)
@@ -1587,28 +1503,7 @@ struct UnifiedPublicationListWrapper: View {
     /// `.itemsMutated(kind: .einkMirror)` for the rows that changed, which is
     /// what refreshes the row marker.
     private func toggleEinkForIDs(_ ids: Set<UUID>) {
-        guard !ids.isEmpty, EInkMirrorModel.shared.showsIndividualControls else { return }
-
-        let anyUnmirrored = publications.filter { ids.contains($0.id) }.contains { $0.einkState == nil }
-        if anyUnmirrored {
-            RustStoreAdapter.shared.einkMark(ids: Array(ids))
-        } else {
-            RustStoreAdapter.shared.einkUnmark(ids: Array(ids))
-        }
-    }
-
-    /// Set flag for publications by IDs
-    private func setFlagForIDs(_ ids: Set<UUID>, color: FlagColor) async {
-        guard !ids.isEmpty else { return }
-
-        RustStoreAdapter.shared.setFlag(ids: Array(ids), color: color.rawValue)
-    }
-
-    /// Clear flag for publications by IDs
-    private func clearFlagForIDs(_ ids: Set<UUID>) async {
-        guard !ids.isEmpty else { return }
-
-        RustStoreAdapter.shared.setFlag(ids: Array(ids), color: nil)
+        PublicationListActions.toggleEink(ids, rows: publications)
     }
 
     /// Handle adding a tag (triggers tag input mode for the given publication IDs)
@@ -1910,85 +1805,7 @@ struct UnifiedPublicationListWrapper: View {
         PublicationListOrder.nextSelection(removing: ids, from: visualOrder)
     }
 
-    // MARK: - Save Implementation
-
-    /// Save publications to a target library (adds to target AND removes from current).
-    /// Advances selection to next paper for rapid triage.
-    private func saveToLibrary(ids: Set<UUID>, targetLibraryID: UUID) async {
-        // Compute visual order synchronously for correct selection advancement
-        let visualOrder = computeVisualOrder()
-
-        // Track dismissal for inbox papers to prevent reappearance in feeds.
-        // Stage 5d SPLIT: `PublicationListMutations.trackInboxDismissals`. It is
-        // a separate verb from `save` because it has to run BEFORE the selection
-        // advance below, and the advance writes this view's bindings.
-        PublicationListMutations.trackInboxDismissals(ids: ids, source: source)
-
-        // Compute and advance selection BEFORE mutation
-        let nextID = computeNextSelection(removing: ids, from: visualOrder)
-        if let nextID {
-            selectedPublicationIDs = [nextID]
-            selectedPublicationID = nextID
-        } else {
-            selectedPublicationIDs.removeAll()
-            selectedPublicationID = nil
-        }
-
-        // Delink from the feed, then move. Stage 5d SPLIT:
-        // `PublicationListMutations.save`.
-        PublicationListMutations.save(ids: ids, to: targetLibraryID, source: source)
-    }
-
-    // MARK: - Inbox Triage Callback Implementations
-
-    /// Dismiss publications from inbox (for context menu) - moves to Dismissed library, not delete
-    private func dismissFromInbox(ids: Set<UUID>) async {
-        // Compute visual order synchronously for correct selection advancement
-        let visualOrder = computeVisualOrder()
-
-        // Compute and advance selection BEFORE mutation
-        let nextID = computeNextSelection(removing: ids, from: visualOrder)
-        if let nextID {
-            selectedPublicationIDs = [nextID]
-            selectedPublicationID = nextID
-        } else {
-            selectedPublicationIDs.removeAll()
-            selectedPublicationID = nil
-        }
-
-        // Track the dismissal, delink from the feed, move to Dismissed.
-        // Stage 5d SPLIT: `PublicationListMutations.dismiss` — iOS's copy of this
-        // sequence skipped the tracking, so a paper dismissed on a phone came
-        // back on the next feed refresh.
-        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
-        PublicationListMutations.dismiss(
-            ids: ids, source: source, dismissedLibraryID: dismissedLibrary.id)
-    }
-
-    /// Mute an author
-    private func muteAuthor(_ authorName: String) {
-        _ = RustStoreAdapter.shared.createMutedItem(muteType: "author", value: authorName)
-        logger.info("Muted author: \(authorName)")
-    }
-
-    /// Mute a paper (by DOI, arXiv ID, bibcode, or cite key)
-    private func mutePaper(_ publicationID: UUID) {
-        let store = RustStoreAdapter.shared
-        guard let pub = store.getPublication(id: publicationID) else { return }
-
-        let doi = pub.doi?.isEmpty == false ? pub.doi : nil
-        let arxivId = pub.arxivID?.isEmpty == false ? pub.arxivID : nil
-        let bibcode = pub.bibcode?.isEmpty == false ? pub.bibcode : nil
-        let citeKey: String? = pub.citeKey.isEmpty ? nil : pub.citeKey
-
-        guard doi != nil || arxivId != nil || bibcode != nil || citeKey != nil else {
-            logger.warning("Cannot mute paper - no identifiers available")
-            return
-        }
-
-        _ = store.dismissPaper(doi: doi, arxivId: arxivId, bibcode: bibcode, citeKey: citeKey)
-        logger.info("Muted paper: DOI=\(doi ?? "nil"), arXiv=\(arxivId ?? "nil"), bibcode=\(bibcode ?? "nil"), citeKey=\(citeKey ?? "nil")")
-    }
+    // Save / dismiss / mute from the menu: `PublicationListActions.chassis`.
 
     // MARK: - Helpers
 
