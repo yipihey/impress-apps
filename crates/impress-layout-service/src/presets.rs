@@ -1746,6 +1746,17 @@ mod tests {
                      MATERIALIZE_FIRST"
                 );
             }
+            // And the outline shows exactly this app's sections: no more (a
+            // section the chassis would hide), no fewer (a section the
+            // outline would drop and only log).
+            let mut outline: Vec<String> = crate::outline::outline_sections(app)
+                .into_iter()
+                .map(|s| s.section)
+                .collect();
+            outline.sort();
+            let mut expected: Vec<String> = sections.iter().map(|s| s.to_string()).collect();
+            expected.sort();
+            assert_eq!(outline, expected, "{app}'s outline sections");
         }
     }
 
