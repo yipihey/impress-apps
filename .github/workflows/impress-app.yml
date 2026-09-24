@@ -136,6 +136,18 @@ jobs:
         with:
           crate: impress-helix
 
+      # impress links CounselEngine's `ImpelToolsFFI` product (the host half of
+      # the surface verb bridge, ADR-0033 D4 amended 2026-09-23), and that
+      # package declares the `impel_toolsFFI` binary target. Package resolution
+      # walks the whole graph, so the artifact has to exist even though only the
+      # macOS target links it — the merge of #44 failed here (run 60) for its
+      # absence. macOS-only by the script's own design; impel's lanes build it
+      # the same way.
+      - name: ImpelTools.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impel-tools
+
       # FULL slice set, not IMPRINT_SKIP_IOS=1: impress's generated project
       # carries an iOS target beside the macOS one, so package resolution walks
       # the whole graph even in a macOS-only build.
@@ -262,6 +274,14 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
+
+      # Not linked by impress-iOS, but declared by CounselEngine, which the
+      # generated project references for the macOS target — resolution of the
+      # shared package graph needs the artifact on disk (see the macOS job).
+      - name: ImpelTools.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impel-tools
 
       - name: ImprintCore.xcframework (multi-platform)
         uses: ./.github/actions/xcframework
