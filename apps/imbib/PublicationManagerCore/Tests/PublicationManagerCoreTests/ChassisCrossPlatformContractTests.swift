@@ -142,7 +142,6 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
 
         // Route / focus vocabulary.
         "Chassis/TabSidebar/TabSidebarTypes.swift",
-        "Chassis/TabSidebar/FocusedPane.swift",
         "Chassis/Manuscripts/FocusedManuscript.swift",
         "Chassis/Shared/FindCoordinator.swift",
 

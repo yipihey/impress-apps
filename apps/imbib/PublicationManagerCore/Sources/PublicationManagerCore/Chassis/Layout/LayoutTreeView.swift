@@ -149,7 +149,7 @@ public struct LayoutWindowView: View {
             // h / l pressed INSIDE a pane that claims them first. `DetailView`
             // (the `info` pane) and the publication list (in a `legacy` pane)
             // answer h/l as `.handled` and post `.cycleFocusLeft/Right` for
-            // imbib's pre-chassis `ContentView` to cycle its `FocusedPane`.
+            // imbib's pre-chassis `ContentView` to cycle its own pane focus.
             // In a chassis window nobody else observes them, so before W5 the
             // key was swallowed there and focus never moved. The tree is the
             // only root now, so they route to the one place focus lives.
@@ -212,9 +212,9 @@ public struct LayoutWindowView: View {
         }
         guard !controller.focusedPaneIsSessionBearing else { return .ignored }
         if isRedo {
-            controller.redoForFocusedPane()
+            controller.redoInFocus()
         } else {
-            controller.undoForFocusedPane()
+            controller.undoInFocus()
         }
         return .handled
     }

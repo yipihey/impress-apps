@@ -526,14 +526,14 @@ public final class LayoutController {
 
     /// ⌘Z. Returns false when the chord belongs to the responder chain.
     @discardableResult
-    public func undoForFocusedPane() -> Bool {
+    public func undoInFocus() -> Bool {
         guard !focusedPaneIsSessionBearing else { return false }
         return apply(.undo(stack: .exploration, pane: focused))
     }
 
     /// ⇧⌘Z, same routing.
     @discardableResult
-    public func redoForFocusedPane() -> Bool {
+    public func redoInFocus() -> Bool {
         guard !focusedPaneIsSessionBearing else { return false }
         return apply(.redo(stack: .exploration, pane: focused))
     }

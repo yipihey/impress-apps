@@ -12,8 +12,6 @@ import OSLog
 
 private let contentLogger = Logger(subsystem: "com.imbib.app", category: "content")
 
-// FocusedPane moved into PublicationManagerCore Chassis/ (GUI-meld Phase 1).
-
 struct ContentView: View {
 
     // MARK: - Environment
