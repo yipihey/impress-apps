@@ -196,23 +196,54 @@ public struct FigureDetailPane: View {
 
     // MARK: View tab (CAS artifact)
 
-    @ViewBuilder
+    /// The rendered artifact, drawn by `FigureArtifactView` — the same view
+    /// the layout tree's `plot` pane shows, so the two cannot disagree.
     private var viewTab: some View {
-        if let hash = row?.dataHash,
+        FigureArtifactView(dataHash: row?.dataHash)
+    }
+}
+
+// MARK: - Figure artifact
+
+/// A figure's rendered plot: the CAS artifact its `data_hash` names, decoded
+/// by `PlatformArtifactImage` (PNG / JPEG / TIFF / PDF), or the honest "no
+/// renderable artifact" hint when there is none or it cannot be decoded.
+///
+/// Moved out of `FigureDetailPane`'s View tab (plan wave 6 follow-up: the
+/// `plot` view kind) so the tab and the layout tree's `plot` pane
+/// (`LayoutPlotPaneView`) draw a figure ONE way. Unchanged except that the
+/// image now fits its space instead of scrolling at natural size (below). A figure in the store
+/// carries no plot spec — implore renders from its own session and mirrors
+/// the result into the CAS — so this artifact is the figure's plot as every
+/// app other than implore can see it.
+public struct FigureArtifactView: View {
+
+    let dataHash: String?
+
+    public init(dataHash: String?) {
+        self.dataHash = dataHash
+    }
+
+    public var body: some View {
+        if let hash = dataHash,
            let data = FigureStoreReader.shared.contentData(hash: hash),
            let artifact = PlatformArtifactImage(data: data) {
             // NSImage/UIImage decode PNG/JPEG/TIFF and PDF data. SVG (and
             // anything else they can't decode) falls through to the hint below.
-            ScrollView([.horizontal, .vertical]) {
-                artifact.image
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(
-                        maxWidth: max(artifact.size.width, 100),
-                        maxHeight: max(artifact.size.height, 100))
-                    .padding(12)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            //
+            // Fitted to the space it is given, never enlarged past its
+            // natural size. It sat in a two-axis ScrollView, which proposes
+            // unlimited space, so a 1384 pt plot drew at 1384 pt and a pane
+            // (or a narrow detail column) showed its top-left corner — seen
+            // live in implore's `plot` pane, 2026-09-24.
+            artifact.image
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(
+                    maxWidth: max(artifact.size.width, 100),
+                    maxHeight: max(artifact.size.height, 100))
+                .padding(12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "photo").font(.system(size: 32))
