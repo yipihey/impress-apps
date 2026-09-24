@@ -84,6 +84,10 @@ struct NotesTab: View {
     @State private var isCheckingPDF = true
     @State private var isDownloading = false
     @State private var checkPDFTask: Task<Void, Never>?
+    /// The paper the PDF state belongs to, set by every `checkAndLoadPDF()`;
+    /// see `PDFTab.checkedPublicationID` — a download that finishes after a
+    /// paper switch must not put its PDF beside the next paper's notes.
+    @State private var checkedPublicationID: UUID?
 
     private var notesPosition: NotesPosition {
         NotesPosition(rawValue: notesPositionRaw) ?? .below
@@ -221,6 +225,7 @@ struct NotesTab: View {
 
         checkPDFTask?.cancel()
 
+        checkedPublicationID = publication.id
         linkedFile = nil
         isCheckingPDF = true
         isDownloading = false
@@ -274,6 +279,12 @@ struct NotesTab: View {
         do {
             let local = try await PDFAcquisitionService.shared.acquire(publicationID: pubID, policy: .interactive)
             await MainActor.run {
+                guard checkedPublicationID == pubID else {
+                    Logger.files.infoCapture(
+                        "[NotesTab] PDF for \(pubID) arrived after the tab moved on — not shown",
+                        category: "pdf")
+                    return
+                }
                 isDownloading = false
                 guard local != nil else {
                     Logger.files.infoCapture("[NotesTab] downloadPDF(): no PDF source available", category: "pdf")
@@ -285,7 +296,10 @@ struct NotesTab: View {
             }
         } catch {
             Logger.files.errorCapture("[NotesTab] Download/import FAILED: \(error.localizedDescription)", category: "pdf")
-            await MainActor.run { isDownloading = false }
+            await MainActor.run {
+                guard checkedPublicationID == pubID else { return }
+                isDownloading = false
+            }
         }
     }
 }

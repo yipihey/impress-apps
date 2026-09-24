@@ -737,6 +737,10 @@ fn apply_tree(
     for window in &mut layout.windows {
         window.geometry = None;
     }
+    // ADR-0031 D6: the editor in a role survives the tree being replaced —
+    // a preset carries no sessions, so the live one of the pane in the same
+    // role is carried over, and every other session-bearing pane gets its own.
+    layout.adopt_sessions_by_role(&session.layout);
     session.replace(layout);
     store.save_live(
         &session.app_id,

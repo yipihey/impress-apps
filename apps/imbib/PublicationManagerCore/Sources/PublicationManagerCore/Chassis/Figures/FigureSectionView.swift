@@ -59,21 +59,10 @@ public struct FigureSectionView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .alert(
-            pendingDeleteIDs.count == 1
-                ? "Delete Figure?" : "Delete \(pendingDeleteIDs.count) Figures?",
-            isPresented: $showDeleteConfirmation
-        ) {
-            Button("Delete", role: .destructive) {
-                // Capture before the state resets (capture-before-Task rule).
-                let ids = pendingDeleteIDs
-                pendingDeleteIDs = []
-                performDelete(ids)
-            }
-            Button("Cancel", role: .cancel) { pendingDeleteIDs = [] }
-        } message: {
-            Text("The figure record is removed from the library. "
-                + "You can recover it immediately with Edit → Undo.")
+        .figureDeleteConfirmation(
+            pending: $pendingDeleteIDs, isPresented: $showDeleteConfirmation
+        ) { ids in
+            performDelete(ids)
         }
     }
 
@@ -109,42 +98,23 @@ public struct FigureSectionView: View {
 
     // MARK: Actions
 
-    /// Compose the shared store-backed triage defaults (ADR-0021) with the
-    /// verbs only this host can supply: open behavior (canvas window),
-    /// delete (confirmation), and remove-from-folder (envelope setParent).
+    /// The figure row verbs are `RecordTriageActions.figures` — shared with
+    /// the layout tree's `list` pane (plan wave 6, W4).
     private func makeActions() -> RecordTriageActions {
-        var a = RecordTriageActions.storeBacked(descriptor: FigureRecordKind.descriptor)
-        a.onDelete = { ids in
-            pendingDeleteIDs = ids
-            showDeleteConfirmation = true
-        }
-        a.onOpen = { id in
-            if case .window(let windowID) = shellConfiguration.openBehavior(for: .figure) {
-                // implore's canvas WindowGroup takes the figure id STRING
-                // (lowercase store form).
-                openWindow(id: windowID, value: id.uuidString.lowercased())
-            }
-            // No app-handoff target for figures today (implore IS the app).
-        }
-        a.onRemoveFromScope = { ids in
-            guard scope.folderID != nil else { return }
-            for id in ids {
-                FigureStoreReader.shared.setParent(
-                    itemID: id.uuidString, parentID: nil)
-            }
-        }
-        return a
+        .figures(FigureRowActionsHost(
+            isFolderScoped: scope.folderID != nil,
+            shellConfiguration: shellConfiguration,
+            openWindow: openWindow,
+            requestDelete: { ids in
+                pendingDeleteIDs = ids
+                showDeleteConfirmation = true
+            }))
     }
 
     /// Confirmed delete: hard delete with undo (figures have no editor
     /// session to discard — simpler than manuscripts by design).
     private func performDelete(_ ids: Set<UUID>) {
-        Logger.library.infoCapture(
-            "delete figures: \(ids.map(\.uuidString).joined(separator: ","))",
-            category: "figures")
-        for id in ids {
-            RustStoreAdapter.shared.deleteItem(id: id)
-        }
+        FigureDeletion.perform(ids)
         if let sel = selectedID, ids.contains(sel) { selectedID = nil }
     }
 }

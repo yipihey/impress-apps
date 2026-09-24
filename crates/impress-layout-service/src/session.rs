@@ -307,7 +307,20 @@ impl SessionRegistry {
         let mut sessions = self.lock();
         let key = (app_id.to_string(), device.to_string());
         if !sessions.contains_key(&key) {
-            let (item_id, layout) = store.load_live(app_id, device, actor)?;
+            let (item_id, mut layout) = store.load_live(app_id, device, actor)?;
+            // A tree stored before its panes had sessions (or cold-started
+            // from a preset, which carries none) is given them now, and saved
+            // at once: a second process loading the same row must read the
+            // SAME ids, or its next save would re-key every editor (D6).
+            if layout.ensure_sessions() {
+                store.save_live(
+                    app_id,
+                    device,
+                    &layout,
+                    actor,
+                    "gave session-bearing panes their sessions",
+                )?;
+            }
             sessions.insert(
                 key.clone(),
                 LayoutSession {

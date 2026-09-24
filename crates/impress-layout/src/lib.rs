@@ -55,6 +55,7 @@ mod ids;
 mod layout;
 mod patch;
 pub mod preset;
+mod sessions;
 pub mod shares;
 mod spec;
 mod tree;

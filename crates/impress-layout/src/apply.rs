@@ -31,6 +31,11 @@ impl Layout {
         let mut scratch = before.clone();
         scratch.apply_inner(window, &verb)?;
         scratch.normalize();
+        // ADR-0031 D6, in the one place every verb passes: each
+        // session-bearing pane holds a session of its own, and a pane that
+        // held one before the verb keeps it — so a split's new pane is the
+        // one that gets a fresh id (`sessions.rs`).
+        scratch.ensure_sessions_keeping(&before.session_holders());
         let patch = Patch::diff(verb, &before, &scratch);
         *self = scratch;
         Ok(patch)
@@ -66,7 +71,13 @@ impl Layout {
             Verb::SetPane { target, spec } => {
                 let tile = self.resolve(window, target)?;
                 let slot = self.expect_pane_mut(tile)?;
+                let session = slot.session.take();
                 *slot = spec.clone();
+                // Replacing a pane's spec is not closing it: a spec that
+                // names no session keeps the one the pane had (D6).
+                if slot.session.is_none() {
+                    slot.session = session;
+                }
                 Ok(())
             }
             Verb::SetQuery { target, query } => {

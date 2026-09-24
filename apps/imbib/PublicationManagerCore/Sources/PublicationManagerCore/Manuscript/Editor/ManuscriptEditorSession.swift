@@ -12,8 +12,14 @@
 //  ManuscriptEditorSession owns one manuscript's editor buffer, cursor, compile
 //  controller, and debounced-save machinery. Sessions live in a registry
 //  OUTSIDE the SwiftUI view tree so the detail pane can present the Source tab
-//  WITHOUT `.id(manuscriptID)` — switching manuscripts or tabs never tears down
-//  the NSTextView, its undo stack, or an in-flight compile.
+//  WITHOUT `.id(manuscriptID)` — switching manuscripts or tabs never loses the
+//  buffer or an in-flight compile.
+//
+//  It owns NO view and NO undo stack. The `NSTextView` belongs to whoever
+//  shows the text: the Source tab's `TypstEditorRepresentable` builds one per
+//  mount (its undo is the window's), and a layout-tree `source` pane's
+//  `SourcePaneSession` keeps one across re-layouts, with an UndoManager per
+//  manuscript (`TypstEditorHost`, ADR-0031 D6).
 
 import SwiftUI
 import Combine
@@ -309,7 +315,12 @@ public final class ManuscriptEditorSession {
         if stored.hash == savedHash || source == stored.text {
             savedHash = stored.hash
             savedHeads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
-            lastPersistedSource = source
+            // What the STORE holds is what was last persisted — not the
+            // buffer, which may carry a keystroke still inside the save
+            // debounce. Recording the buffer here marked that keystroke as
+            // saved, and the next external change would then fast-forward
+            // over it instead of merging it.
+            lastPersistedSource = stored.text
             return
         }
         if source == lastPersistedSource {

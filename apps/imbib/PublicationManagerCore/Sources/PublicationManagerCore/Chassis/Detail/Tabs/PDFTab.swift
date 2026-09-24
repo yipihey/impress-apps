@@ -52,6 +52,13 @@ struct PDFTab: View {
     @State private var downloadError: Error?
     @State private var hasRemotePDF = false
     @State private var checkPDFTask: Task<Void, Never>?
+    /// The paper the view's PDF state currently belongs to — set by every
+    /// `resetAndCheckPDF()`. Read from INSIDE a download's completion on
+    /// purpose: `@State` is heap-backed, so a completion running on the
+    /// `self` captured when the download started still reads the CURRENT
+    /// value here, and can tell that the view has moved on to another paper
+    /// (impress-swiftui-pitfalls rule 1, used deliberately).
+    @State private var checkedPublicationID: UUID?
     @State private var showFileImporter = false
     @State private var isCheckingPDF = true  // Start in loading state
     @State private var browserFallbackURL: URL?  // URL to open in browser when publisher PDF fails
@@ -420,6 +427,7 @@ struct PDFTab: View {
 
         checkPDFTask?.cancel()
 
+        checkedPublicationID = publicationID
         linkedFile = nil
         downloadError = nil
         browserFallbackURL = nil
@@ -526,6 +534,20 @@ struct PDFTab: View {
         do {
             let local = try await PDFAcquisitionService.shared.acquire(publicationID: pubID, policy: .interactive)
             await MainActor.run {
+                // A download outlives a paper switch (the acquisition is not
+                // cancelled with `checkPDFTask`). Its completion runs on the
+                // `self` captured when it started, so `resetAndCheckPDF()`
+                // here would load the OLD paper's PDF into a view that now
+                // shows another paper — seen in the tree's `pdf` pane, which
+                // switched to one paper and displayed the previous one's
+                // freshly downloaded PDF. The file is filed either way; the
+                // view just stays with the paper it is on.
+                guard checkedPublicationID == pubID else {
+                    Logger.files.infoCapture(
+                        "[PDFTab] PDF for \(pubID) arrived after the tab moved on — not shown",
+                        category: "pdf")
+                    return
+                }
                 isDownloading = false
                 if local != nil {
                     logger.info("[PDFTab] PDF acquired - refreshing view")
@@ -538,6 +560,10 @@ struct PDFTab: View {
         } catch let error as PDFAcquisitionError {
             logger.warning("[PDFTab] downloadPDF() FAILED: \(error.localizedDescription)")
             await MainActor.run {
+                // Same guard as the success path: a failure for a paper the
+                // tab has left must not show its error, or open ITS
+                // publisher page, over the paper now on screen.
+                guard checkedPublicationID == pubID else { return }
                 isDownloading = false
                 switch error {
                 case .requiresUserAction(let browserURL, _):
@@ -563,6 +589,7 @@ struct PDFTab: View {
         } catch {
             logger.error("[PDFTab] Download/import FAILED: \(error.localizedDescription)")
             await MainActor.run {
+                guard checkedPublicationID == pubID else { return }
                 isDownloading = false
                 downloadError = error
             }

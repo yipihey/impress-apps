@@ -162,22 +162,7 @@ public struct FigureListWrapper: View {
                             // [uuid-string] payload, mirroring manuscript rows;
                             // dragging a selected row carries the whole selection.
                             .itemProvider {
-                                let dragged = Array(targetIDs(for: row))
-                                // Record for the sidebar's synchronous drop
-                                // read (see RecordDragSession).
-                                RecordDragSession.figure.begin(ids: dragged)
-                                let ids = dragged.map(\.uuidString)
-                                logger.info("drag started: \(ids.count) figure(s)")
-                                let provider = NSItemProvider()
-                                provider.registerDataRepresentation(
-                                    forTypeIdentifier: UTType.figureID.identifier,
-                                    visibility: .all
-                                ) { completion in
-                                    let jsonData = try? JSONEncoder().encode(ids)
-                                    completion(jsonData, nil)
-                                    return nil
-                                }
-                                return provider
+                                FigureDragPayload.provider(ids: Array(targetIDs(for: row)))
                             }
                     }
                 }
@@ -216,26 +201,16 @@ public struct FigureListWrapper: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
-    private func rowMenu(_ row: FigureRowData) -> some View {
-        let targets = targetIDs(for: row)
-        Button("Open in Canvas") { actions.onOpen(row.id) }
-        Divider()
-        // The shared triage segment: star, Flag and Tags submenus, Delete…
-        // last (ADR-0021 grammar; figures have no dismiss/archive lifecycle).
-        TriageMenu.items(
-            triage: FigureRecordKind.descriptor.triage,
-            row: triageState(row),
+    /// The row menu is `FigureRowMenu` — shared with the layout tree's
+    /// `list` pane (plan wave 6, W4).
+    private func rowMenu(_ row: FigureRowData) -> FigureRowMenu {
+        FigureRowMenu(
+            rowID: row.id,
+            isStarred: row.isStarredState,
             rowTagPaths: Set(row.tagPaths),
-            targets: targets,
+            targets: targetIDs(for: row),
+            isFolderScoped: scope.folderID != nil,
             actions: actions)
-        if scope.folderID != nil {
-            Divider()
-            Button(targets.count > 1
-                ? "Remove \(targets.count) from Folder" : "Remove from Folder") {
-                actions.onRemoveFromScope(targets)
-            }
-        }
     }
 
     private func triageState(_ row: FigureRowData) -> TriageRowState {

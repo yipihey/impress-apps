@@ -30,8 +30,11 @@ private final class FakeSession: PaneSession {
         sessionID = id
     }
 
+    var pinned = false
+
     func flush() { flushes += 1 }
     func abandon() { abandons += 1 }
+    var isPinned: Bool { pinned }
 }
 
 @MainActor
@@ -127,6 +130,30 @@ final class PaneSessionRegistryTests: XCTestCase {
         let a = registry.session(for: "a") { FakeSession("a") }
         XCTAssertNotNil(a)
         XCTAssertTrue(registry.contains("a"))
+    }
+
+    /// A session on screen is never the LRU victim: evicting it would give
+    /// the pane still showing it a second editor on its next lookup.
+    func testAPinnedSessionIsNeverEvicted() {
+        let registry = registry(capacity: 2)
+        let visible = registry.session(for: "a") { FakeSession("a") }!
+        visible.pinned = true
+        registry.session(for: "b") { FakeSession("b") }
+        registry.session(for: "c") { FakeSession("c") }
+        XCTAssertTrue(registry.contains("a"), "the on-screen session stays")
+        XCTAssertFalse(registry.contains("b"), "the oldest OFF-screen session goes")
+        XCTAssertEqual(visible.flushes, 0)
+
+        // Everything pinned: the registry runs over capacity instead.
+        registry.existingSession(for: "c")?.pinned = true
+        registry.session(for: "d") {
+            let session = FakeSession("d")
+            session.pinned = true  // on screen from the start
+            return session
+        }
+        registry.session(for: "e") { FakeSession("e") }
+        XCTAssertTrue(registry.contains("a") && registry.contains("c") && registry.contains("d"))
+        XCTAssertEqual(registry.liveSessions.map(\.sessionID).sorted(), ["a", "c", "d"])
     }
 }
 #endif

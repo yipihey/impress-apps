@@ -260,5 +260,7 @@ public extension ManuscriptModel {
     /// The single predicate every no-write-back gate reads. Spelled as a
     /// computed property rather than a stored flag so it cannot disagree with
     /// the payload it is derived from.
-    var isExternalReference: Bool { externalSourceJSON != nil }
+    var isExternalReference: Bool {
+        ManuscriptEditorSessionPolicy.isExternalReference(externalSource: externalSourceJSON)
+    }
 }

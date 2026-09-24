@@ -45,7 +45,7 @@ public struct ManuscriptListWrapper: View {
     /// follows) tracks its primary member.
     @State private var selectedIDs = Set<UUID>()
     /// Row the Rename… alert is editing (nil = alert down).
-    @State private var renameTarget: ManuscriptRowData?
+    @State private var renameTarget: ManuscriptRenameRequest?
     @State private var renameDraft = ""
 
     @FocusState private var listFocused: Bool
@@ -85,17 +85,8 @@ public struct ManuscriptListWrapper: View {
         }
         // ⌘F target: whichever list is frontmost gets the Find in List command.
         .focusedSceneValue(\.listFilterFocusAction, { filterFocused = true })
-        .alert(
-            "Rename Manuscript",
-            isPresented: Binding(
-                get: { renameTarget != nil },
-                set: { if !$0 { renameTarget = nil } }
-            ),
-            presenting: renameTarget
-        ) { row in
-            TextField("Title", text: $renameDraft)
-            Button("Rename") { commitRename(row) }
-            Button("Cancel", role: .cancel) {}
+        .manuscriptRenameAlert($renameTarget, draft: $renameDraft) { id, title in
+            actions.onRename(id, title)
         }
         .task(id: scopeKey) { await reload() }
         .task {
@@ -177,22 +168,7 @@ public struct ManuscriptListWrapper: View {
                             // [uuid-string] payload, mirroring publication rows;
                             // dragging a selected row carries the whole selection.
                             .itemProvider {
-                                let dragged = Array(targetIDs(for: row))
-                                // Record for the sidebar's synchronous drop
-                                // read (see RecordDragSession).
-                                RecordDragSession.manuscript.begin(ids: dragged)
-                                let ids = dragged.map(\.uuidString)
-                                logger.info("drag started: \(ids.count) manuscript(s)")
-                                let provider = NSItemProvider()
-                                provider.registerDataRepresentation(
-                                    forTypeIdentifier: UTType.manuscriptID.identifier,
-                                    visibility: .all
-                                ) { completion in
-                                    let jsonData = try? JSONEncoder().encode(ids)
-                                    completion(jsonData, nil)
-                                    return nil
-                                }
-                                return provider
+                                ManuscriptDragPayload.provider(ids: Array(targetIDs(for: row)))
                             }
                     }
                 }
@@ -238,48 +214,24 @@ public struct ManuscriptListWrapper: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
-    private func rowMenu(_ row: ManuscriptRowData) -> some View {
-        let targets = targetIDs(for: row)
-        Button(shellConfiguration.openBehavior(for: .manuscript) != .appHandoff
-            ? "Open in New Window" : "Open in imprint") {
-            actions.onOpen(row.id)
-        }
-        Button("Duplicate") { actions.onDuplicate(row.id) }
-        Button("Rename…") {
-            renameDraft = row.title
-            renameTarget = row
-        }
-        Divider()
-        // The shared triage segment: star/dismiss-or-restore/archive, Flag
-        // and Tags submenus, Delete… last (ADR-0021 grammar).
-        TriageMenu.items(
-            triage: ManuscriptRecordKind.descriptor.triage,
-            row: triageState(row),
+    /// The row menu is `ManuscriptRowMenu` — shared with the layout tree's
+    /// `list` pane (plan wave 6, W4).
+    private func rowMenu(_ row: ManuscriptRowData) -> ManuscriptRowMenu {
+        ManuscriptRowMenu(
+            rowID: row.id,
+            triage: triageState(row),
             rowTagPaths: Set(row.tagDisplays.map(\.path)),
-            targets: targets,
-            actions: actions)
-        if scope.folderID != nil {
-            Divider()
-            Button(targets.count > 1
-                ? "Remove \(targets.count) from Folder" : "Remove from Folder") {
-                actions.onRemoveFromScope(targets)
-            }
-        }
-    }
-
-    private func commitRename(_ row: ManuscriptRowData) {
-        let title = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, title != row.title else { return }
-        logger.info("rename manuscript \(row.id) → '\(title)'")
-        actions.onRename(row.id, title)
+            targets: targetIDs(for: row),
+            isFolderScoped: scope.folderID != nil,
+            actions: actions,
+            onRename: {
+                renameDraft = row.title
+                renameTarget = ManuscriptRenameRequest(id: row.id, title: row.title)
+            })
     }
 
     private func triageState(_ row: ManuscriptRowData) -> TriageRowState {
-        TriageRowState(
-            isStarred: row.isStarredState,
-            isDismissed: row.status == .dismissed,
-            isArchived: row.status == .archived)
+        row.triageRowState
     }
 
     /// The IDs a row-level action applies to: the whole selection when the

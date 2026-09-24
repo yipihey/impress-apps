@@ -389,3 +389,210 @@ preparation may start earlier on a branch).
   this repository. Reproduced by checking out NetworkImage from the SwiftPM cache with and
   without that `GIT_DIR`. Fixed in #53 (the hook unsets the git environment after finding the
   repo root); this branch's follow-up push went through the full hook with no bypass.
+- 2026-09-24 — **W4 pass A, step 1: `pdf`, `notes` and `bibtex` render, proven live in
+  impress** (23125, built from `claude/wave6-w4-kinds`, flag on). `source` is still the
+  placeholder; the session-bearing editor is pass B.
+- **What they are.** `LayoutPublicationTabPaneView` renders `PDFTab`, `NotesTab` and
+  `BibTeXTab` unchanged, fed the paper the way `info` resolves it (`single_item`, else
+  the `item` binding), inside `publicationDetailLifecycle`, padded by `layoutToolbarBand`.
+  A pane over another kind answers "Detail Unavailable" by name. Each logs
+  `pane N <tab>: publication <id>`.
+- **The arrangement, composed with existing verbs** (impress ships only Default; imbib's
+  Reading preset is app_id `imbib`): three `split`s of the detail pane, each `new` spec a
+  copy of the detail pane's (same `detail_query`, same `item` param on channel 1) with
+  `view_kind` changed and no role — `pdf` beside `info` (tile 5), `notes` (6) and
+  `bibtex` (8) below it — plus a `set-query` of the list onto the ULDM library. One
+  click on a list row: `pane 8 bibtex / pane 6 notes / pane 5 pdf / pane 3 info:
+  publication 3D087F58…`, all in the same millisecond; the next click moved all four to
+  E202F3C0 (Banik & Sikivie 2013). Screenshots: the PDF (1/33 pages) in `pdf`, the same
+  PDF beside the annotation fields in `notes`, the entry in `bibtex`.
+- **No PDF.** Gaia GraL X (E156D69B, no DOI/arXiv/bibcode/eprint): `pdf` shows PDFTab's
+  own "No PDF — No PDF is available for this paper", `notes` NotesTab's "Add a PDF to
+  view it here while taking notes"; the log says `result=false`, no download attempted.
+- **Notes, three points, reverted exactly.** With `notes` maximized, Key Findings enabled
+  and "w4 probe hjkl" typed (the `hjkl` reached the field; no pane stole them). Save: the
+  store's `note` became `---\nKey Findings: w4 probe hjkl\n---\n\nN` — label-keyed YAML
+  front matter over the freeform `N`, through `PublicationNotesDocument`. Display: after
+  selecting another paper and back, the pane re-parsed it (Key Findings checked, the
+  text in it, `N` alone as prose). Unchecking wrote `N` back: hex `4E`, length 1, as
+  before.
+- **Found and fixed on the way (each would have shown as "the pane is wrong").**
+  (1) `InfoTab`'s store subscription was a bare `.task {}`: after a paper switch the next
+  `.structural` event reloaded the FIRST paper, so the `info` pane beside a `pdf` pane
+  showed one paper's header and another's Record Info and Attachments. Keyed on the id.
+  (2) An auto-download that finishes after a paper switch loaded the old paper's PDF into
+  the pane now on another paper (PDFTab and NotesTab). Both now drop a completion for a
+  paper they no longer show; re-proven by selecting a paper mid-download and switching
+  away: `[NotesTab] PDF for 3D087F58… arrived after the tab moved on — not shown`, and the
+  `pdf` pane stayed on the paper selected. (3) The tab panes read read-state from the
+  store after the dwell, so four detail panes on one unread paper make one `setRead`,
+  not four undoable ones (Rust already throttles `recordRecentView`).
+- **Two things the proof cost, and what was put back.** impress is sandboxed and its
+  container has no `imbib/Libraries`, so EVERY library PDF is "not found" from impress, in
+  any host: a suite gap, not a pane one. To render a real PDF, one copy of the Banik PDF
+  (sha256 matching the store's) was placed at impress's own
+  `…/Containers/com.impress.impress/…/imbib/Libraries/1AD5E936…/Papers/` and removed at
+  the end. And selecting Vortices (3D087F58, DOI, no file) made PDFTab auto-download it
+  from arXiv — the user's own setting doing what it does in imbib — three times over the
+  session; each linked file was deleted through the info pane's own Delete Attachment
+  (0 children now). Left behind on that paper: `has_pdf_downloaded: false` and a
+  `pdf_download_date`, where both keys were absent (no API removes a payload key); and
+  `last_activity_at` "viewed" on the papers looked at, which is what viewing does.
+- **Found, not fixed.** `NotesPanel` re-reads the note on any `itemsMutated` event for its
+  paper and resets the visible annotation fields to the populated ones; a mouse click
+  into a just-enabled, still-empty annotation field produces such an event (source not
+  identified; no store operation is recorded), so the field vanishes under the cursor.
+  Its guard covers only the freeform editor. Same in any host; worked around here by
+  entering the freeform editor first.
+- 2026-09-24 — **W4 pass A, step 2: every `list` row carries its kind's menu and drag; Tier
+  B proves the reading pane.** Proven live in impress (23125, this branch, flag on); every
+  mutation reverted. `origin/main` merged in (#47, #48, #53); no conflict.
+- **Reuse, not rewrite.** The legacy menus moved to one definition each and both hosts call
+  it: `PublicationRowContextMenu` (from `PublicationListView.contextMenuItems`) over
+  `PublicationListActions.chassis` (from `UnifiedPublicationListWrapper.buildListActions`,
+  whose effects on the wrapper's own state — drop rows, advance the selection, open the
+  inline tag field, the drop preview — are `PublicationListActionsHost` hooks the wrapper
+  fills exactly as before); `ManuscriptRowChrome` (menu, drag payload, Rename and Delete
+  alerts, actions, delete sequence, from `ManuscriptListWrapper` / `ManuscriptSectionView`);
+  `FigureRowChrome` (the same, from `FigureListWrapper` / `FigureSectionView`). Messages,
+  tasks and agent runs show the shared `TriageMenu.items` over
+  `RecordTriageActions.storeBacked`, which is all their own lists show; nothing to extract.
+  In the pane the scope is read off its query (`LayoutPaneScope`, 7 tests: collection →
+  `.collection`, parent → `.library` / `.inbox` / `.dismissed`, flag / starred / tag → their
+  virtual scopes, everything else `.combined([])`; a figure folder is a parent scope, a
+  manuscript folder a collection, as the outline files them).
+- **Proven** (details in the matrix, § List-pane rows): a paper — Star/Unstar, Flag ›
+  Blue/Clear, Add Tag (the pane asks with the triage "New Tag…" prompt; the legacy list's
+  inline tag field has no pane equivalent); a throwaway manuscript made by the pane's own
+  Duplicate — Rename… (`renamed manuscript AC123311… → 'ZZ W4 pane probe'`), dragged onto a
+  folder (`sidebar dropped 1 manuscript(s) into folder f99d09b2…`), Remove from Folder in
+  the folder-scoped list, Delete… through the section's confirmation (count back to 64); a
+  figure seeded through implore's `POST /api/figures` — dragged onto a throwaway figure
+  folder (`sidebar dropped 1 figure(s) into folder ae6a8116…`), Remove from Folder, Delete…
+  (`delete figures: DBE69FE6…`), implore's own entry removed with its `DELETE`, the folder
+  deleted from its menu; a task (3FCB6694…) — Star/Unstar, Flag › Red/Clear, Tags ›
+  `ai/field/physics` on and off from the same submenu. Messages share the task code path and
+  were not driven live.
+- **Found and fixed:** the tree's `list` rows (and every menu built from them) went stale
+  after a star, flag, tag, dismiss or delete: the invalidation feed watches only its own
+  store handle, plus `impress/ui/` rows from other connections, and every menu writes
+  through `RustStoreAdapter`'s handle. The pane now also re-reads on the store's own event
+  stream, as the legacy lists do; a row revision is passed to the menus so they rebuild with
+  the rows ("Unstar" after Star, without a relaunch).
+- **Found, not fixed:** the publication menu has no remove-tag item in either host (the
+  legacy `onRemoveTag` is an empty TODO), and Edit → Undo did not reach `addTag`'s undo
+  registration in impress; the `ai` tag added by the proof was removed with the store verb
+  `triage-service_remove-tag`.
+- **Tier B** gained `layout.reading_pdf_pane`: apply Default, point the list at read
+  papers, split a `pdf` pane beside the detail pane (its own spec, `view_kind: pdf`, no
+  role), select the first read row that already has its PDF (from the list pane's compiled
+  query on the shared store — so neither the read dwell nor PDFTab's auto-download writes
+  anything), wait for `pane N pdf: publication <id>`, close the pane. Against impress:
+  **10/10, 0 skipped** (2.3 s): `pane 5 pdf: publication 30F30B68…`; that paper's
+  `modified` unchanged and no operation recorded on it; `tiles`/`windows`/`channels`
+  identical before and after, no layouts, no surfaces.
+- **Left as it was found:** the proof arrangement was parked as a named layout at the start
+  and re-applied at the end (tiles/windows/channels identical to the first read), then
+  deleted; the one PDF copy placed in impress's container was removed with the folder it
+  needed.
+
+- 2026-09-24 — **W4 pass B: `source` is a session-bearing view kind; the manuscript editor
+  survives split, swap and preset change without `.id`.** Proven live in **imprint** (23121,
+  built from `claude/wave6-w4-kinds`, flag on) on two throwaway manuscripts made by the list
+  pane's Duplicate and deleted at the end; impress rebuilt from the branch for Tier B.
+  **Nothing here was ask-first:** Rust fills in the existing `PaneSpec.session` field; no
+  verb, no field, no view kind was added, and no `#[uniffi::export]` changed (the store-ffi
+  xcframework was rebuilt for the new Rust; its committed binding came out byte-identical).
+- **Rust decides the session id** (`impress_layout::sessions`, `tests/sessions.rs`, 13
+  tests; Tier A `source-pane-sessions`). `ViewKindId::SESSION_BEARING = [source]` is the one
+  list. After every verb `apply_in` runs `ensure_sessions_keeping(before.session_holders())`:
+  each session-bearing pane holds a session and, on a duplicate, the pane that held it before
+  keeps it — so a split's new pane gets a fresh id even when its spec is a copy of the
+  target's; swap/move/resize/close/set_view_kind change nothing; `set_pane` keeps the
+  replaced pane's session when the new spec names none (the outline re-points the detail pane
+  that way). `apply_tree` (a preset or a saved layout) calls `adopt_sessions_by_role`, so the
+  editor in the `detail` role survives ⌃⌘1/⌃⌘2; presets themselves stay sessionless and
+  deterministic (`normalize` assigns nothing, `matches_shipped` still compares). A first load
+  of a stored tree assigns and SAVES at once, so a second process reads the same ids.
+- **The host** (`Chassis/Layout/SourcePaneSession.swift`, `Manuscript/Editor/TypstEditorHost
+  .swift`). `SourcePaneSession: PaneSession` in `PaneSessionRegistry<SourcePaneSession>`
+  (capacity 6 off-screen; an on-screen session is never evicted — `isPinned`, new in the
+  protocol) owns a `TypstEditorHost`: scroll view, `TypstTextView`, the ONE coordinator (the
+  delegate), the Helix state, and an `UndoManager` per manuscript it has shown, installed as
+  `TypstTextView.documentUndoManager` (the view claims `undo:`/`redo:` only when it has one,
+  so the Source tab's ⌘Z still reaches the window). The text is the manuscript's
+  `ManuscriptEditorSession`; `flush()` flushes it, `abandon()` cancels its save. **Deviation
+  from the brief, on contact:** the representable does not return the host's scroll view
+  itself but a per-mount container it moves the editor into — SwiftUI may build the new pane
+  before dismantling the old one, and only a container lets the old teardown tell whether the
+  editor is still its own (here it dismantled first). And the per-document undo manager is an
+  override of `TypstTextView.undoManager`, not the delegate's `undoManager(for:)`: implementing
+  that delegate method would have changed the legacy editor's resolution too. The legacy path
+  is unchanged: no host → `makeEditor` per mount, as before; `ManuscriptSourceTab` takes its
+  session `@Bindable` rather than `@State` so it follows a new one.
+- **Proof, imprint.** (1) Outline renders under the tree: `outline: imprint shows 5 sections
+  from Rust (1 legacy: tags)` (its live row had been cold-started as imbib's publication
+  three-column, so the outline's first selection was refused as "not on the preset's query";
+  ⌃⌘1 → imprint's own Default fixed it). (2) Typed `W4B hjkl typed` (the `hjkl` reached the
+  editor), then a split, a split that wrapped the editor again, a swap, and preset 1 applied:
+  `ObjectIdentifier(0x0000000805a89900)` through `mounted (mount 2…5)`, ⌘Z/⇧⌘Z undid and
+  redid the typing every time (store body read back), one `source session … opened` for the
+  whole run, `session-ec2e2242…` unchanged in `/api/layout/tree`. (3) Two manuscripts in one
+  pane: ⌘Z in each undid only its own typing. (4) D6 liveness: `impress commit-manuscript-body`
+  from another process — `took an external change … in place: 0 chars at 134 replaced by 35`,
+  same view; racing a keystroke still inside the save debounce, Automerge forked from one head
+  and kept both (the retitle and ` U2`; later ` U3!` with the caret where it belonged). (5)
+  Delete: `discarded editor session` → `abandoned manuscript … — was on screen; pending save
+  cancelled, undo history dropped, nothing written`; rows=0 for 35 s after. Writing's `pdf`
+  pane now shows the manuscript's compiled preview (`ManuscriptPreviewContent`, moved out of
+  `ManuscriptDetailPane`'s Preview tab) instead of pass A's "Detail Unavailable".
+- **Found and fixed on the way.** (a) A write from another process reaches the app only as the
+  store's cross-process signal, a bare `.structural` (deferred 90 s after launch by
+  `StoreMutationObserver`); the detail pane's Source tab listens only for events naming its
+  manuscript. The pane answers both. (b) `absorbExternalChange`'s in-sync branch recorded the
+  buffer as last persisted, marking a keystroke inside the debounce as saved; it records the
+  store's text now. (c) After an in-place change the caret jumped back by the length of an
+  insertion above it (the caret-jump block read the binding's stale value in the same pass).
+  (d) A stale SwiftUI pass re-presented a just-deleted manuscript once (nothing written); the
+  host ignores a forgotten document until a fresh session shows it. (e) Tier B's
+  `outline_collection_row` waited for `pane N info:` whatever the detail kind; it waits for the
+  detail pane's own kind now.
+- **Tier B** gained `layout.source_pane_session`. imprint **11/11, 0 skipped**; impress
+  **11/11, 0 skipped**; both restored (impress's tree identical before and after).
+- **Found, not fixed:** in imprint ⌃⌘1 is claimed by the legacy `PaneLayout` menu command
+  (`Layout applied: 'Writing'`), not the tree — chord routing is W5's; applying a preset also
+  clears the channels, so the editor comes back on the next selection rather than at once; a
+  narrow pane clips the Source tab's columns (outline 160 + editor 320 + preview 280 +
+  inspector 300 minimums); `/api/manuscripts/{id}/body` (imbib) and the CLI commit post no
+  `manuscript-changed`, so a sibling editor hears them only through the 90-s-gated store
+  signal; the legacy detail pane's Source tab still ignores cross-process writes; `info` over a
+  manuscript says "unsupported detail". The tree flag set on imprint for the proof
+  (`impress.layoutTree.enabled`) was removed again; imprint's live layout row is left on its
+  own Default preset.
+### Open gaps and their owners (assigned 2026-09-24 by the orchestrator)
+
+- List-pane row context menus, all kinds: W4 (pass A).
+- Figure and manuscript rows as drag sources: W4 (pass A).
+- The Inbox named query shows unread only (57 rows vs 68 in the flag-off list): W5. Once the flag is gone the tree is the only root, so the Inbox must match the legacy list. Parity decides the query; it is not a product question.
+- Deleting the selected collection or library leaves the list on an empty query: W5. The expected behaviour is the legacy one, falling back to the parent.
+- The info pane keeps its last selection beside a hosted legacy route: W5.
+- implore, impart and imprint outlines not yet launched from a tree branch: imprint in W4 (pass B, which launches imprint for the editor proof) — **done in pass B** (imprint's outline renders; Tier B 11/11 on imprint); implore and impart in W5, whose proof is "Tier B green on every app".
+- Nothing above is ask-first.
+
+The first two are done in this pass (above).
+- 2026-09-24 — **W4: impress offers the sibling arrangements; "apply Reading" is now a real proof.**
+  Decided with Tom: impress, the shell that shows everything, lists imbib's Triage / Reading /
+  Full and imprint's Writing after its own Default, so impress's ⌃⌘1–5 are Default, Triage,
+  Reading, Full, Writing and a saved layout starts at ⌃⌘6. Before this, imbib's three rendered in
+  no window (imbib's own is pre-chassis) and Writing only in imprint. Built as
+  `presets::for_impress(sibling())`: the sibling's own function builds the tree, so there is one
+  definition of each arrangement, and the row is impress's (`preset_id("impress", name)`,
+  impress's named queries) because preset rows are per app family: editing Reading in impress
+  never edits imbib's. Existing stores gain the four rows on the next read (`ensure_shipped`
+  inserts missing rows). Two tests pin the order and the borrowed-not-redefined rule; imbib's
+  and imprint's own lists are unchanged. Tier B gained `layout.reading_preset`: apply Reading
+  by name, the detail pane is `pdf`, and a list selection logs
+  `pane 3 pdf: publication 30F30B68-…`. Against impress rebuilt from this branch: **12/12, 0
+  skipped**, restored; `list-presets --app-id impress` answers ordinals 1–5 as above. Nothing
+  here is ask-first: no verb, field, view kind or schema ref changed, only preset data, and the
+  decision was Tom's.

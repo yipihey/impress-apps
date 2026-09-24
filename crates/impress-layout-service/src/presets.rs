@@ -207,7 +207,35 @@ pub fn shipped_presets() -> Vec<ShippedPreset> {
         impel_default(),
         impart_default(),
         impress_default(),
+        // impress is the shell that shows everything (ADR-0022 D9), and it is
+        // the only window that renders these arrangements today: imbib's own
+        // window is its pre-chassis `ContentView`, so its Triage / Reading /
+        // Full rendered nowhere, and imprint's Writing only in imprint. Decided
+        // with Tom 2026-09-24: impress lists them after its own Default, so
+        // ⌃⌘1–5 are Default, Triage, Reading, Full, Writing and a saved layout
+        // starts at ⌃⌘6.
+        for_impress(imbib_triage()),
+        for_impress(imbib_reading()),
+        for_impress(imbib_full()),
+        for_impress(imprint_writing()),
     ]
+}
+
+/// A sibling app's preset, offered by impress as impress's own.
+///
+/// The SAME tree the sibling ships, built by the same function, so there is
+/// one definition of each arrangement. What changes is whose row it is: preset
+/// rows are per app family (`PresetStore::rows(app_id)`), so impress gets its
+/// own row under `preset_id("impress", name)`. Editing Reading in impress
+/// therefore edits impress's Reading, never imbib's, which is what a per-app
+/// preset means. The named queries are impress's union, because a preset
+/// carries its app's sections and impress's are every app's.
+fn for_impress(preset: ShippedPreset) -> ShippedPreset {
+    ShippedPreset {
+        app_id: "impress",
+        queries: named_queries("impress"),
+        ..preset
+    }
 }
 
 /// The shipped presets of one app, in table order.
@@ -1501,6 +1529,55 @@ mod tests {
             .map(|p| p.name)
             .collect();
         assert_eq!(names, vec!["Default", "Triage", "Reading", "Full"]);
+    }
+
+    /// impress offers the arrangements that render nowhere else, after its
+    /// own Default, in a fixed order: ⌃⌘1–5 (decided 2026-09-24).
+    #[test]
+    fn impress_lists_the_sibling_arrangements_after_its_default() {
+        let impress = shipped_presets_for("impress");
+        let names: Vec<&str> = impress.iter().map(|p| p.name).collect();
+        assert_eq!(
+            names,
+            vec!["Default", "Triage", "Reading", "Full", "Writing"]
+        );
+        for preset in &impress {
+            assert_eq!(
+                preset.app_id, "impress",
+                "{} is impress's own row",
+                preset.name
+            );
+            assert_eq!(preset.queries, named_queries("impress"), "{}", preset.name);
+        }
+    }
+
+    /// Borrowed, not redefined: the tree is the sibling's, byte for byte, and
+    /// the row is impress's, so an edit in one app never reaches the other.
+    #[test]
+    fn a_borrowed_preset_is_the_siblings_tree_under_impresss_own_row() {
+        for (sibling, name) in [
+            ("imbib", "Triage"),
+            ("imbib", "Reading"),
+            ("imbib", "Full"),
+            ("imprint", "Writing"),
+        ] {
+            let theirs = shipped_preset(sibling, name).expect("the sibling ships it");
+            let ours = shipped_preset("impress", name).expect("impress offers it");
+            assert_eq!(ours.layout, theirs.layout, "{name}: same tree");
+            assert_eq!(ours.roles, theirs.roles, "{name}: same roles");
+            assert_ne!(ours.item_id(), theirs.item_id(), "{name}: a row of its own");
+        }
+        // The siblings' own families are unchanged.
+        let imbib: Vec<&str> = shipped_presets_for("imbib")
+            .iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(imbib, vec!["Default", "Triage", "Reading", "Full"]);
+        let imprint: Vec<&str> = shipped_presets_for("imprint")
+            .iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(imprint, vec!["Default", "Writing"]);
     }
 
     #[test]

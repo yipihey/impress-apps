@@ -114,67 +114,10 @@ public struct ManuscriptDetailPane: View {
                 unavailable
             }
         case .pdf:
-            // The Preview tab: compiled artifact for Typst/LaTeX, live
-            // MarkdownUI render for Markdown (no compile step).
-            if previewKind == .renderedMarkdown, let session = liveSession {
-                MarkdownPreviewTab(session: session)
-            } else if let session = liveSession, session.latexPreviewUnavailable {
-                ManuscriptLaTeXImprintPrompt(session: session)
-            } else if let data = liveSession?.vm.pdfData {
-                // Preview tab: a click both jumps the caret AND switches to the
-                // Source tab so the jump is visible.
-                ManuscriptPDFPreview(
-                    data: data,
-                    // Entering the Preview tab lands on the region matching the
-                    // caret instead of page 1.
-                    cursorOffset: liveSession?.cursorPosition,
-                    sourceMapEntries: liveSession?.vm.sourceMapEntries ?? [],
-                    onInverseSync: { page, x, y in
-                        guard let session = self.liveSession else { return }
-                        Task {
-                            if let offset = await ManuscriptInverseSync.resolveOffset(
-                                session: session, page: page, x: x, y: y) {
-                                // Switch FIRST, then move the caret: the editor
-                                // has to exist before it can scroll to the
-                                // offset. Setting cursorPosition while the tab
-                                // is still .pdf lands in a view that isn't in
-                                // the hierarchy, and the jump is lost.
-                                selectedTab = .source
-                                session.cursorPosition = offset
-                            }
-                        }
-                    })
-                    // A stale PDF must not impersonate the current manuscript:
-                    // when the LATEST compile failed, say so on the preview
-                    // itself, with the error one copy-click away.
-                    .overlay(alignment: .bottom) {
-                        if let session = liveSession, let error = session.vm.compilationError {
-                            ManuscriptCompileErrorBanner(
-                                errorText: error,
-                                diagnostics: session.vm.compilationDiagnostics
-                            )
-                        }
-                    }
-            } else if let session = liveSession, let error = session.vm.compilationError {
-                // A failed compile used to fall through to the "Nothing
-                // compiled yet" placeholder — the user was left staring at an
-                // empty state while the error sat unshown on the controller.
-                ManuscriptCompileErrorCard(
-                    errorText: error,
-                    diagnostics: session.vm.compilationDiagnostics,
-                    onOpenSource: { selectedTab = .source }
-                )
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "doc.richtext").font(.system(size: 32))
-                        .foregroundStyle(.tertiary)
-                    Text("Nothing compiled yet")
-                        .foregroundStyle(.secondary)
-                    Text("Edit in the Source tab to compile a preview.")
-                        .font(.caption).foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            // The Preview tab — shared with the layout tree's `pdf` pane over
+            // manuscripts (`ManuscriptPreviewContent`). A click in it switches
+            // to the Source tab here.
+            ManuscriptPreviewContent(session: liveSession, onShowSource: { selectedTab = .source })
         case .notes, .bibtex:
             // Not part of the manuscript tab set; coerced away on entry.
             unavailable

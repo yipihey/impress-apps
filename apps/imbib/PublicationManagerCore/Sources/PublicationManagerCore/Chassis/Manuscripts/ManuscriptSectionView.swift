@@ -83,21 +83,10 @@ public struct ManuscriptSectionView: View {
             session = ManuscriptSessionRegistry.shared.session(for: id)
         }
         .focusedSceneValue(\.focusedManuscriptID, selectedID)
-        .alert(
-            pendingDeleteIDs.count == 1
-                ? "Delete Manuscript?" : "Delete \(pendingDeleteIDs.count) Manuscripts?",
-            isPresented: $showDeleteConfirmation
-        ) {
-            Button("Delete", role: .destructive) {
-                // Capture before the state resets (capture-before-Task rule).
-                let ids = pendingDeleteIDs
-                pendingDeleteIDs = []
-                performDelete(ids)
-            }
-            Button("Cancel", role: .cancel) { pendingDeleteIDs = [] }
-        } message: {
-            Text("The manuscript and its body are removed from the library. "
-                + "You can recover it immediately with Edit → Undo.")
+        .manuscriptDeleteConfirmation(
+            pending: $pendingDeleteIDs, isPresented: $showDeleteConfirmation
+        ) { ids in
+            performDelete(ids)
         }
     }
 
@@ -143,83 +132,25 @@ public struct ManuscriptSectionView: View {
 
     // MARK: Actions
 
-    /// Compose the shared store-backed triage defaults (ADR-0021) with the
-    /// verbs only this host can supply: creation (folder scoping + undo +
-    /// select), duplication, open behavior, delete (confirmation + session
-    /// discard), and remove-from-folder.
+    /// The manuscript row verbs are `RecordTriageActions.manuscripts` —
+    /// shared with the layout tree's `list` pane (plan wave 6, W4).
     private func makeActions() -> RecordTriageActions {
-        var a = RecordTriageActions.storeBacked(descriptor: ManuscriptRecordKind.descriptor)
-        a.onCreate = { affordance in
-            let format = affordance.formatValue ?? DocumentFormat.typst.rawValue
-            if let row = RustStoreAdapter.shared.createManuscript(
-                title: "Untitled Manuscript", format: format
-            ) {
-                if let folder = scope.folderID,
-                   let mID = UUID(uuidString: row.id) {
-                    RustStoreAdapter.shared.addToCollection(
-                        publicationIds: [mID], collectionId: folder
-                    )
-                }
-                if let mID = UUID(uuidString: row.id) {
-                    RustStoreAdapter.shared.registerCreationUndo(
-                        itemID: mID, actionName: "New Manuscript",
-                        onUndoRemoved: { if selectedID == mID { selectedID = nil } })
-                }
-                selectedID = UUID(uuidString: row.id)
-            }
-        }
-        a.onDelete = { ids in
-            pendingDeleteIDs = ids
-            showDeleteConfirmation = true
-        }
-        a.onDuplicate = { id in
-            guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: id) else { return }
-            if let row = RustStoreAdapter.shared.createManuscript(
-                title: "\(detail.title) copy",
-                format: detail.format.isEmpty ? "typst" : detail.format,
-                body: detail.bodyContent,
-                authors: detail.authors
-            ) {
-                if let mID = UUID(uuidString: row.id) {
-                    RustStoreAdapter.shared.registerCreationUndo(
-                        itemID: mID, actionName: "Duplicate Manuscript",
-                        onUndoRemoved: { if selectedID == mID { selectedID = nil } })
-                }
-                selectedID = UUID(uuidString: row.id)
-            }
-        }
-        a.onOpen = { id in
-            if case .window(let windowID) = shellConfiguration.openBehavior(for: .manuscript) {
-                // In-process editor window (imprint's `manuscript-editor`
-                // WindowGroup) — no imprint:// URL roundtrip needed.
-                openWindow(id: windowID, value: id)
-            } else {
-                openInImprint(manuscriptID: id)
-            }
-        }
-        a.onRemoveFromScope = { ids in
-            guard let folder = scope.folderID else { return }
-            RustStoreAdapter.shared.removeFromCollection(
-                publicationIds: Array(ids), collectionId: folder)
-        }
-        return a
-    }
-
-    private func openInImprint(manuscriptID: UUID) {
-        // Shared-store handoff: imprint opens the same manuscript by UUID.
-        ManuscriptImprintHandoff.open(manuscriptID: manuscriptID)
+        .manuscripts(ManuscriptRowActionsHost(
+            folderID: scope.folderID,
+            shellConfiguration: shellConfiguration,
+            openWindow: openWindow,
+            selectedID: { selectedID },
+            select: { selectedID = $0 },
+            requestDelete: { ids in
+                pendingDeleteIDs = ids
+                showDeleteConfirmation = true
+            }))
     }
 
     /// Confirmed delete: drop the live editor session FIRST (so its debounced
     /// CAS save can't resurrect the body post-delete), then delete undoably.
     private func performDelete(_ ids: Set<UUID>) {
-        Logger.library.infoCapture(
-            "delete manuscripts: \(ids.map(\.uuidString).joined(separator: ","))",
-            category: "manuscripts")
-        for id in ids {
-            ManuscriptSessionRegistry.shared.discard(id: id)
-            RustStoreAdapter.shared.deleteItem(id: id)
-        }
+        ManuscriptDeletion.perform(ids)
         if let live = session?.manuscriptID, ids.contains(live) { session = nil }
         if let sel = selectedID, ids.contains(sel) { selectedID = nil }
     }

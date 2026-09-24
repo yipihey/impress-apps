@@ -27,9 +27,9 @@
 //  session moved out of the view. `LayoutPaneHost` carries the same statement
 //  at the one place it could be violated.
 //
-//  L6 ships the SHAPE only — the protocol, the LRU and its test. The `source`
-//  view kind that will use it is registered as a placeholder until L8, so
-//  nothing constructs a session yet.
+//  L6 shipped the SHAPE — the protocol, the LRU and its test. W4 pass B
+//  gives it its first user: the `source` view kind's `SourcePaneSession`,
+//  which owns a pane's editor (`TypstEditorHost`).
 //
 
 import Foundation
@@ -42,6 +42,7 @@ import ImpressLogging
 /// Deliberately tiny: the registry's job is lifetime, not behaviour. Anything
 /// richer belongs on the concrete session (`ManuscriptEditorSession` and its
 /// CAS save are the worked example).
+@MainActor
 public protocol PaneSession: AnyObject {
 
     /// The handle the pane spec carries (`PaneSpec.session`). Stable for the
@@ -58,10 +59,17 @@ public protocol PaneSession: AnyObject {
     /// resurrect the deleted item (the bug
     /// `ManuscriptSessionRegistry.discard(id:)` exists for).
     func abandon()
+
+    /// Is the session on screen right now? A pinned session is never
+    /// evicted: eviction drops the registry's reference, and a pane still
+    /// showing the session would then get a SECOND one on its next lookup —
+    /// a new editor under the user's hands.
+    var isPinned: Bool { get }
 }
 
 public extension PaneSession {
     func abandon() {}
+    var isPinned: Bool { false }
 }
 
 // MARK: - Registry
@@ -89,6 +97,9 @@ public final class PaneSessionRegistry<Session: PaneSession> {
     public var count: Int { sessions.count }
 
     public var liveSessionIDs: [String] { lru }
+
+    /// Every live session, least recently used first.
+    public var liveSessions: [Session] { lru.compactMap { sessions[$0] } }
 
     public func contains(_ id: String) -> Bool { sessions[id] != nil }
 
@@ -145,7 +156,10 @@ public final class PaneSessionRegistry<Session: PaneSession> {
 
     private func evictIfNeeded() {
         while sessions.count > capacity {
-            guard let victim = lru.first else { return }
+            // The least recently used session that is not on screen. When
+            // every one is, the registry runs over capacity rather than take
+            // an editor out from under a visible pane.
+            guard let victim = lru.first(where: { sessions[$0]?.isPinned != true }) else { return }
             sessions[victim]?.flush()
             sessions.removeValue(forKey: victim)
             lru.removeAll { $0 == victim }

@@ -277,22 +277,31 @@ public final class ViewKindRegistry: @unchecked Sendable {
         ViewKindFactory(kind: .legacy) { AnyView(LayoutLegacyPaneView(context: $0)) },
         ViewKindFactory(kind: .placeholder) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
 
-        // ---- declared, not ported in L6 ----
+        // ---- the detail tabs, one per pane (plan wave 6, W4) ----
         //
-        // These four render the placeholder ON PURPOSE. Porting them is not a
-        // matter of calling the existing tab view: `PDFTab`, `NotesTab` and
-        // `BibTeXTab` all take `any PaperRepresentable` plus a `DetailTab`
-        // binding and expect the publication detail lifecycle around them,
-        // and `source` is session-bearing (D6) — its `NSTextView` and undo
-        // stack must come from a `PaneSessionRegistry`, not from view
-        // identity. Both are L8 work, one leaf at a time (D11), and a
-        // placeholder that keeps the spec is exactly what D4 prescribes in
-        // the meantime.
-        ViewKindFactory(kind: .pdf) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
-        ViewKindFactory(kind: .notes) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
-        ViewKindFactory(kind: .bibtex) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
+        // `PDFTab`, `NotesTab` and `BibTeXTab` unchanged, fed from the pane's
+        // `single_item` / `$item` with the publication detail lifecycle
+        // supplied by `LayoutPublicationTabPaneView` rather than `DetailView`.
+        // Over manuscripts `pdf` is the compiled preview (imprint's Writing
+        // preset puts it beside `source`); over anything else, PDFTab.
+        ViewKindFactory(kind: .pdf) { context in
+            context.primaryKind == RecordKindID.manuscript.rawValue
+                ? AnyView(LayoutManuscriptPreviewPaneView(context: context))
+                : AnyView(LayoutPublicationTabPaneView(context: context, tab: .pdf))
+        },
+        ViewKindFactory(kind: .notes) {
+            AnyView(LayoutPublicationTabPaneView(context: $0, tab: .notes))
+        },
+        ViewKindFactory(kind: .bibtex) {
+            AnyView(LayoutPublicationTabPaneView(context: $0, tab: .bibtex))
+        },
+        // Session-bearing (D6): the manuscript Source tab over an editor
+        // whose `NSTextView` and undo histories come from
+        // `SourcePaneSession.registry`, keyed by the spec's `SessionId` —
+        // never from view identity — so a split, swap, move or preset change
+        // hands the same editor to whichever pane shows it.
         ViewKindFactory(kind: .source, isSessionBearing: true) {
-            AnyView(LayoutPlaceholderPaneView(context: $0))
+            AnyView(LayoutSourcePaneView(context: $0))
         },
     ])
 }
@@ -449,6 +458,11 @@ struct LayoutRowsPaneView: View {
 
     @State private var rows: [LayoutPaneRow] = []
     @State private var loadFailed = false
+    /// Bumped by every `load()`. The row menus take it as an input: a menu
+    /// reads its labels (Star / Unstar, Mark as Read / Unread) from the store
+    /// when it is built, and SwiftUI rebuilds it only when an input changes —
+    /// without this the menu kept "Unstar" after the row had been unstarred.
+    @State private var rowsRevision = 0
 
     /// The per-kind row factories, from the environment the chassis already
     /// injects — not a lookup of our own, so a host that registered a custom
@@ -472,8 +486,35 @@ struct LayoutRowsPaneView: View {
     /// until the rows were replaced.
     @Environment(\.layoutToolbarBand) private var toolbarBand
 
+    // A manuscript row's Rename… and Delete… raise the alerts the
+    // Manuscripts section raises (`ManuscriptRowChrome`); their state is here.
+    @State private var manuscriptRename: ManuscriptRenameRequest?
+    @State private var manuscriptRenameDraft = ""
+    @State private var pendingManuscriptDelete: Set<UUID> = []
+    @State private var showManuscriptDelete = false
+    // …and a figure row's Delete… the Figures section's.
+    @State private var pendingFigureDelete: Set<UUID> = []
+    @State private var showFigureDelete = false
+    @Environment(\.appShellConfiguration) private var shellConfiguration
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         styledList
+            .manuscriptRenameAlert($manuscriptRename, draft: $manuscriptRenameDraft) { id, title in
+                manuscriptActions.onRename(id, title)
+            }
+            .manuscriptDeleteConfirmation(
+                pending: $pendingManuscriptDelete, isPresented: $showManuscriptDelete
+            ) { ids in
+                ManuscriptDeletion.perform(ids)
+                deselect(ids)
+            }
+            .figureDeleteConfirmation(
+                pending: $pendingFigureDelete, isPresented: $showFigureDelete
+            ) { ids in
+                FigureDeletion.perform(ids)
+                deselect(ids)
+            }
             .padding(.top, toolbarBand)
             .overlay { emptyOverlay.padding(.top, toolbarBand) }
             // The rows are query RESULTS, so they re-run when the
@@ -483,6 +524,27 @@ struct LayoutRowsPaneView: View {
             // everything below it is main-actor work.
             .onChange(of: context.controller.refreshToken) { _, _ in load() }
             .onAppear { load() }
+            .task {
+                // The invalidation feed sees writes made through the layout's
+                // own store handle, and from other connections only `impress/
+                // ui/` rows — so a star, flag, tag, dismiss or delete made
+                // through `RustStoreAdapter` (every row menu, every triage
+                // key) never marked this pane stale, and its rows kept the old
+                // star, flag and membership until something else re-ran the
+                // query. The legacy lists listen to the store's own event
+                // stream for exactly this; so does the pane: a mutation of a
+                // row on screen, or a structural / membership change (which
+                // can add or remove rows), re-runs the query.
+                for await event in ImbibImpressStore.shared.events.subscribe() {
+                    switch event {
+                    case .itemsMutated(_, let ids):
+                        let shown = Set(rows.compactMap { UUID(uuidString: $0.id) })
+                        if !shown.isDisjoint(with: ids) { load() }
+                    case .structural, .collectionMembershipChanged:
+                        load()
+                    }
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
                 Task { listSettings = await ListViewSettingsStore.shared.settings }
             }
@@ -503,7 +565,7 @@ struct LayoutRowsPaneView: View {
     private var rowList: some View {
         List(selection: selection) {
             ForEach(rows) { row in
-                draggable(rowView(row), row).tag(row.id)
+                rowChrome(rowView(row), row).tag(row.id)
             }
         }
     }
@@ -551,28 +613,168 @@ struct LayoutRowsPaneView: View {
         }
     }
 
-    /// A publication row drags what the chassis list drags
-    /// (`PublicationDragPayload`): the selection when the row is part of it,
-    /// else the row — so a paper can be dropped on an outline collection or
-    /// library row, whose drop handler is the sidebar's own
-    /// (`handleExternalDrop`). Other kinds' rows are not drag sources here
-    /// yet; their payloads live in their list wrappers.
+    /// What a `list` row carries besides its look — the legacy list's own
+    /// drag payload and context menu for its kind (plan wave 6, W3 / W4):
+    ///
+    /// * a publication drags `PublicationDragPayload` (the payload
+    ///   `MailStylePublicationRow` writes) onto an outline collection or
+    ///   library row, and shows `PublicationRowContextMenu` over
+    ///   `PublicationListActions.chassis`;
+    /// * a manuscript drags `ManuscriptDragPayload` onto a folder and shows
+    ///   `ManuscriptRowMenu` over `RecordTriageActions.manuscripts`;
+    /// * a figure drags `FigureDragPayload` and shows `FigureRowMenu` over
+    ///   `RecordTriageActions.figures`;
+    /// * a message, task or agent-run row shows the shared triage segment
+    ///   over `RecordTriageActions.storeBacked`, as its own list does, and
+    ///   drags nothing (neither list does).
+    ///
+    /// All act on the selection when the row is part of it, else the row.
     @ViewBuilder
-    private func draggable(_ content: some View, _ row: LayoutPaneRow) -> some View {
+    private func rowChrome(_ content: some View, _ row: LayoutPaneRow) -> some View {
         if style == .list, let id = UUID(uuidString: row.id),
             row.mailStyleRow?.kind == .publication
         {
             let context = context
-            content.itemProvider {
-                let selected = context.currentSelection.compactMap(UUID.init(uuidString:))
-                let ids = selected.contains(id) && selected.count > 1 ? selected : [id]
-                return PublicationDragPayload.provider(
-                    ids: ids, paperRef: nil,
-                    suggestedName: ids.count > 1 ? "\(ids.count) publications" : row.title)
-            }
+            content
+                .itemProvider {
+                    let selected = context.currentSelection.compactMap(UUID.init(uuidString:))
+                    let ids = selected.contains(id) && selected.count > 1 ? selected : [id]
+                    return PublicationDragPayload.provider(
+                        ids: ids, paperRef: nil,
+                        suggestedName: ids.count > 1 ? "\(ids.count) publications" : row.title)
+                }
+                .contextMenu {
+                    LayoutPublicationRowMenu(
+                        context: context, targets: targets(for: id), order: rowOrder,
+                        revision: rowsRevision)
+                }
+        } else if style == .list, let id = UUID(uuidString: row.id),
+            row.mailStyleRow?.kind == .manuscript
+        {
+            content
+                .itemProvider {
+                    ManuscriptDragPayload.provider(ids: Array(targets(for: id)))
+                }
+                .contextMenu {
+                    LayoutManuscriptRowMenu(
+                        rowID: id,
+                        revision: rowsRevision,
+                        targets: targets(for: id),
+                        isFolderScoped: manuscriptFolderID != nil,
+                        actions: manuscriptActions,
+                        onRename: { request in
+                            manuscriptRenameDraft = request.title
+                            manuscriptRename = request
+                        })
+                }
+        } else if style == .list, let id = UUID(uuidString: row.id),
+            row.mailStyleRow?.kind == .figure
+        {
+            content
+                .itemProvider {
+                    FigureDragPayload.provider(ids: Array(targets(for: id)))
+                }
+                .contextMenu {
+                    FigureRowMenu(
+                        rowID: id,
+                        isStarred: row.mailStyleRow?.isStarred ?? false,
+                        rowTagPaths: tagPaths(of: row),
+                        targets: targets(for: id),
+                        isFolderScoped: figureFolderID != nil,
+                        actions: figureActions)
+                }
+        } else if style == .list, let id = UUID(uuidString: row.id),
+            let kind = row.mailStyleRow?.kind,
+            [RecordKindID.message, .task, .agentRun].contains(kind),
+            let descriptor = BuiltinRecordKinds.registry[kind]
+        {
+            // What MessageListWrapper and AgentRecordListWrapper show: the
+            // shared triage segment alone, over the store-backed defaults
+            // their sections pass (mail and task lifecycles are owned
+            // elsewhere, so the descriptors declare no dismiss or delete).
+            content
+                .contextMenu {
+                    TriageMenu.items(
+                        triage: descriptor.triage,
+                        row: TriageRowState(
+                            isStarred: row.mailStyleRow?.isStarred ?? false,
+                            isDismissed: false, isArchived: false),
+                        rowTagPaths: tagPaths(of: row),
+                        targets: targets(for: id),
+                        actions: .storeBacked(descriptor: descriptor))
+                }
         } else {
             content
         }
+    }
+
+    /// A row's tag paths, as the pane last read them.
+    private func tagPaths(of row: LayoutPaneRow) -> Set<String> {
+        Set(row.mailStyleRow?.tagDisplays.map(\.path) ?? [])
+    }
+
+    /// The folder a figure list pane is scoped to, if any.
+    private var figureFolderID: UUID? {
+        LayoutPaneScope.parentID(query: context.spec?.query, bindings: context.bindings)
+    }
+
+    /// The Figures section's verbs, with the tree as the host.
+    private var figureActions: RecordTriageActions {
+        .figures(FigureRowActionsHost(
+            isFolderScoped: figureFolderID != nil,
+            shellConfiguration: shellConfiguration,
+            openWindow: openWindow,
+            requestDelete: { ids in
+                pendingFigureDelete = ids
+                showFigureDelete = true
+            }))
+    }
+
+    /// The ids a row action applies to: the channel's selection when the row
+    /// is in it (and it is more than the row), else the row — Mail semantics,
+    /// as both legacy lists.
+    private func targets(for id: UUID) -> Set<UUID> {
+        let selected = Set(context.currentSelection.compactMap(UUID.init(uuidString:)))
+        return selected.contains(id) && selected.count > 1 ? selected : [id]
+    }
+
+    /// The rows' ids in the order the pane shows them.
+    private var rowOrder: [UUID] {
+        rows.compactMap { UUID(uuidString: $0.id) }
+    }
+
+    /// The folder a manuscript list pane is scoped to, if any.
+    private var manuscriptFolderID: UUID? {
+        LayoutPaneScope.collectionID(query: context.spec?.query, bindings: context.bindings)
+    }
+
+    /// The Manuscripts section's verbs, with the TREE as the host: the
+    /// selection is the channel's, Delete… raises this pane's confirmation.
+    private var manuscriptActions: RecordTriageActions {
+        let context = context
+        let kind = RecordKindID.manuscript.rawValue
+        return .manuscripts(ManuscriptRowActionsHost(
+            folderID: manuscriptFolderID,
+            shellConfiguration: shellConfiguration,
+            openWindow: openWindow,
+            selectedID: {
+                context.currentSelection.first.flatMap(UUID.init(uuidString:))
+            },
+            select: { id in
+                context.select(id.map { [$0.uuidString.lowercased()] } ?? [], kind: kind)
+            },
+            requestDelete: { ids in
+                pendingManuscriptDelete = ids
+                showManuscriptDelete = true
+            }))
+    }
+
+    /// Drop deleted ids from the channel's selection.
+    private func deselect(_ ids: Set<UUID>) {
+        let kept = context.currentSelection.filter {
+            UUID(uuidString: $0).map { !ids.contains($0) } ?? true
+        }
+        context.select(Array(kept), kind: context.primaryKind)
     }
 
     /// The `outline` row: a navigator line, not a message row.
@@ -636,6 +838,7 @@ struct LayoutRowsPaneView: View {
         let tile = context.tile
         let fetched = context.rows()
         rows = fetched.map(LayoutPaneRow.init)
+        rowsRevision &+= 1
         loadFailed = fetched.isEmpty && context.controller.lastError != nil
         context.controller.didRefresh(tile)
         logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
