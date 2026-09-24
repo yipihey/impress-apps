@@ -164,6 +164,21 @@ struct ImpelApp: App {
             }
 
             CommandGroup(after: .sidebar) {
+                // ⌘0 / ⌥⌘0 / ⌃⌘S and ⌃⌘1–9 — the chassis's universal pane
+                // chords, the same buttons impress, imprint and impart mount.
+                // impel's window is the layout tree (Stage 4c; plan wave 6
+                // W5), so they resize its roles and apply its ordinals through
+                // `LayoutController` and nothing else. Until 2026-09-24 impel
+                // bound none of them, and the keyboard grammar's "same chord,
+                // same meaning, every app" had a gap here (Tom's decision).
+                ImpressPaneLayoutButtons()
+
+                Divider()
+
+                ImpressLayoutOrdinalButtons()
+
+                Divider()
+
                 // Stage 4c: lowercase. `"R"` + `.command` registers ⌘⇧R in
                 // SwiftUI (a capital literal implies Shift), so the menu said ⌘R,
                 // `KeyboardHelpView` said ⌘R, and the chord was ⌘⇧R — harmless

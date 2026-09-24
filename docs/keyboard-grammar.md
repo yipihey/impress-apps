@@ -65,6 +65,13 @@ console opens with ⌃⌘C, View ▸ Show Console, as in impress and impart), an
 the Keyboard Shortcuts window scene held ⌘/ beside Help ▸ Keyboard Shortcuts.
 Both scene chords are gone.
 
+**Every app binds all four (2026-09-24).** impel and implore bound none of
+⌘0 / ⌥⌘0 / ⌃⌘S / ⌃⌘1–9 — a test called adding them a product decision, and
+Tom made it: they mount `ImpressPaneLayoutButtons` and
+`ImpressLayoutOrdinalButtons` like impress, imprint and impart. impart had
+the pane toggles and not the ordinals; it mounts both now.
+`PaneLayoutCommandsTests.testEveryChassisAppMountsTheLayoutOrdinals` pins it.
+
 **⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every chassis window —
 the layout tree, the only chassis root since plan wave 6 W5 — they resize
 whichever pane carries `navigator` / `list` / `detail`, wherever the user has

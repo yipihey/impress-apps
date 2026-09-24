@@ -230,6 +230,21 @@ struct ImploreApp: App {
             // surface (ADR-0022 D6). implore had NO ⌘⇧F binding, so the
             // universal chord in docs/keyboard-grammar.md was unclaimed here.
             ImpressStoreSearchCommands()
+
+            // ⌘0 / ⌥⌘0 / ⌃⌘S and ⌃⌘1–9 — the chassis's universal pane
+            // chords, the same buttons impress, imprint and impart mount.
+            // implore's window is the layout tree (plan wave 6 W5), so they
+            // resize its roles and apply its ordinals through
+            // `LayoutController` and nothing else. Until 2026-09-24 implore
+            // bound none of them (Tom's decision to close the gap). No
+            // collision: the render modes are ⌘1–4, not ⌃⌘.
+            CommandGroup(after: .sidebar) {
+                ImpressPaneLayoutButtons()
+
+                Divider()
+
+                ImpressLayoutOrdinalButtons()
+            }
         }
 
         // The Metal canvas as a figure-addressed window: the chassis'

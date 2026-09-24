@@ -146,17 +146,49 @@ final class PaneLayoutCommandsTests: XCTestCase {
 
     // MARK: - Migration: no app may re-grow a private copy
 
-    /// Every app file that hand-wrote these buttons. All four.
+    /// Every app that binds these buttons: the four that once hand-wrote
+    /// them, plus impel and implore.
     ///
-    /// implore and impel are absent because they never bound the chords at all
-    /// — they take `ImpressStoreSearchCommands` and no pane toggles. Adding
-    /// them is a product decision (their windows have panes), not a migration.
+    /// impel and implore were absent until 2026-09-24 — they never bound the
+    /// chords at all, and this comment called adding them a product decision
+    /// (their windows have panes). Tom made it: the grammar is "same chord,
+    /// same meaning, in every app", and both windows are the layout tree, so
+    /// they mount the same chassis buttons and route only through
+    /// `LayoutController`. They never had a private copy to migrate, so the
+    /// no-private-copy scan below simply holds for them too.
     private static let migratedAppFiles = [
         "apps/imbib/imbib/imbib/imbibApp.swift",
         "apps/imprint/Shared/ImprintApp.swift",
         "apps/impart/macOS/ImpartApp.swift",
         "apps/impress/macOS/ImpressApp.swift",
+        "apps/impel/Shared/ImpelApp.swift",
+        "apps/implore/Implore/Sources/App/ImploreApp.swift",
     ]
+
+    /// Where each chassis app mounts ⌃⌘1–9 (`ImpressLayoutOrdinalButtons`).
+    /// imprint's sits in its Layouts menu; everyone else's is in the app file.
+    /// imbib is absent by design: its own window is not a chassis root and
+    /// keeps View ▸ Layouts over its own model. impart mounted the pane
+    /// toggles and not these until 2026-09-24.
+    private static let ordinalButtonFiles = [
+        "apps/imprint/Shared/Layout/PaneLayout.swift",
+        "apps/impart/macOS/ImpartApp.swift",
+        "apps/impress/macOS/ImpressApp.swift",
+        "apps/impel/Shared/ImpelApp.swift",
+        "apps/implore/Implore/Sources/App/ImploreApp.swift",
+    ]
+
+    func testEveryChassisAppMountsTheLayoutOrdinals() throws {
+        for path in Self.ordinalButtonFiles {
+            XCTAssertTrue(
+                try Self.source(of: path).contains("ImpressLayoutOrdinalButtons()"),
+                "\(path) must mount the chassis's ⌃⌘1–9 (ImpressLayoutOrdinalButtons)")
+        }
+        XCTAssertFalse(
+            try Self.source(of: "apps/imbib/imbib/imbib/imbibApp.swift")
+                .contains("ImpressLayoutOrdinalButtons()"),
+            "imbib's own window has no tree; its ⌃⌘1–9 are View ▸ Layouts")
+    }
 
     private static let repoRoot: URL = {
         URL(fileURLWithPath: #filePath)          // …/Tests/PublicationManagerCoreTests/<this>
