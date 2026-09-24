@@ -19,6 +19,9 @@
 #          in the same crate, so this pins WHO may reach impress-core and WITH
 #          WHAT FEATURES. Keeping the imports to the store is left to review.
 #
+# Trees are taken with `--target all`, so the answer is the same on a Linux
+# runner as on a Mac: a platform-gated dependency counts everywhere.
+#
 # Any other workspace crate a kit crate reaches through normal dependencies is a
 # failure, named with its `cargo tree -i` path. A reach into a domain core
 # (imbib-*, imprint-*, implore-*, impart-*, impel-*) is reported as the
@@ -229,7 +232,7 @@ while read -r crate tier; do
         continue
     fi
 
-    tree_output="$(cargo -q tree -p "$crate" -e normal --prefix none -f '{p}|{f}' 2>&1)" || {
+    tree_output="$(cargo -q tree -p "$crate" --target all -e normal --prefix none -f '{p}|{f}' 2>&1)" || {
         echo "FAIL: 'cargo tree -p $crate' errored:" >&2
         echo "$tree_output" >&2
         status=1
@@ -262,7 +265,7 @@ while read -r crate tier; do
                 break
             fi
             echo "  path (cargo tree -e normal -p $crate -i $off):" >&2
-            cargo -q tree -e normal -p "$crate" -i "$off" 2>&1 | sed 's/^/    /' >&2 || true
+            cargo -q tree --target all -e normal -p "$crate" -i "$off" 2>&1 | sed 's/^/    /' >&2 || true
             shown=$((shown + 1))
         done
         status=1
