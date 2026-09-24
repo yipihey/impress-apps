@@ -775,3 +775,16 @@ The first two are done in this pass (above).
 - **Ask-first in this pass:** none beyond Tom's three decisions. No vocabulary, schema ref,
   verb argument, `PaneSpec` field or view kind changed; `KindManifest` is the compiler's
   input and gained data that Tom's decision names.
+- 2026-09-24 — **W5 verification found the impart wedge, and it was not the tree.** The
+  orchestrator's own Tier B run against impart went 3/12: `/api/status` answered, every
+  `@MainActor` route timed out, the connections sat half-open. It is W2's "impart wedge seen once
+  and not reproduced". A sample showed an idle main run loop and a thread parked in
+  `SOME_OTHER_THREAD_SWALLOWED_AT_LEAST_ONE_EXCEPTION`; a breakpoint on `objc_exception_throw`
+  caught it ~90 s after launch in `ImpartSpotlightProvider.allItemIDs()`: a Core Data fetch for
+  entity "Thread" in a model that names it "CDThread". The raise happened on the main actor inside
+  a Swift task and the main actor never ran another job. Latent since 2026-03-05, on every launch
+  (the Spotlight snapshot runs whether or not it rebuilds). Fixed in #56 (typed `fetchRequest()`,
+  three tests that fail with the production exception when the old spelling is restored), merged
+  into this branch. impart built from this branch then passed Tier B **12/12** at 2 min 11 s of
+  uptime, past the wedge point. Pass B's earlier 12/12 on impart was genuine: it ran inside the
+  first 90 s.
