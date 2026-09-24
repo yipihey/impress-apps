@@ -24,38 +24,86 @@ on:
       - '.github/workflows/impart-apps.yml'
 
 env:
+  # Every Swift lane sets this. The root manifest turns on release-profile
+  # incremental for the local loop; on a runner it only writes gigabytes of
+  # incremental state onto a 14 GB disk that is thrown away afterwards.
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
 
 jobs:
   build-apps:
     name: Build impart (macOS + iOS Simulator)
+    # HOSTED on purpose, and the only Swift app lane that is: it is also the
+    # only one with a pull_request trigger. The repo is public, so a fork PR
+    # must never reach the self-hosted Mac (the rule every other lane
+    # documents). The price is that this runner starts with nothing: every
+    # xcframework the package graph declares has to be built or restored here.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
+      # arm64 only. macos-latest is Apple Silicon and the simulator it boots is
+      # arm64, so x86_64 slices would be built, cached and never linked — two
+      # of every framework's five slices. IMPRESS_SKIP_X86=1 below and
+      # ARCHS=arm64 in both xcodebuild calls are the same decision.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impart-apps-${{ hashFiles('**/Cargo.lock') }}
+      # No target/ cache. It used to be round-tripped here keyed on Cargo.lock,
+      # which for five release builds is several GB of tarball against a 10 GB
+      # repo quota that is already full and already evicting the xcframework
+      # entries. The xcframework action below caches the OUTPUTS instead, which
+      # is what lets a Swift-only PR skip the Rust entirely.
 
       - name: Install xcodegen
         run: brew install xcodegen
 
-      # impart's only binary dependency: ImpressRustCore's binaryTarget
-      # points at this gitignored xcframework.
-      - name: Build ImpressStoreFfi.xcframework
-        run: bash crates/impress-store-ffi/build-xcframework.sh
+      # impart links PublicationManagerCore on both platforms, and PMC drags in
+      # four Rust cores on top of impart's own ImpressRustCore. Every one is a
+      # gitignored local binaryTarget, and package resolution walks the whole
+      # graph before building anything, so ONE missing artifact fails the lane
+      # at "Could not resolve package dependencies" — which is how this lane
+      # failed on every PR for weeks before 2026-09-24 while it built only
+      # ImpressStoreFfi, and was waved through as "base-red". The set matches
+      # impart-tests.yml's; FULL iOS slices because the smoke below builds
+      # impart-iOS.
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
+
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+          env-extra: IMPRESS_SKIP_X86=1
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
+          env-extra: IMPRESS_SKIP_X86=1
+
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+          env-extra: IMPRESS_SKIP_X86=1
+
+      # The hosted image has ~14 GB free and imprint-core's release target
+      # alone is several GB, so record the headroom: when this lane next fails
+      # for space, the number is already in the log.
+      - name: Disk after Rust
+        run: df -h "$GITHUB_WORKSPACE" && du -sh target 2>/dev/null || true
 
       - name: Generate Xcode project
         working-directory: apps/impart
@@ -69,6 +117,7 @@ jobs:
             -scheme impart \
             -configuration Debug \
             -destination 'platform=macOS' \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             build | tail -50
 
@@ -89,7 +138,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -project impart.xcodeproj -scheme impart-iOS -configuration Debug \
             -destination "id=$UDID" -derivedDataPath build-ios \
-            CODE_SIGNING_ALLOWED=NO build | tail -30
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build | tail -30
           APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'impart.app' | head -1)
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
