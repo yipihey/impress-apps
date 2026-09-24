@@ -788,3 +788,85 @@ The first two are done in this pass (above).
   into this branch. impart built from this branch then passed Tier B **12/12** at 2 min 11 s of
   uptime, past the wedge point. Pass B's earlier 12/12 on impart was genuine: it ran inside the
   first 90 s.
+
+- 2026-09-24 — **W6 (Swift half): the layout host is `packages/ImpressLayout`, and the kit
+  draws a tree on its own.** Branch `claude/wave6-w6-kit`. The Rust half (kit manifest,
+  `check-kit-deps.sh`, `check-kit-standalone.sh`, `kit.yml`) is a parallel branch.
+- **Census (what each named file used from outside the five kit-grade packages, and the
+  decision).** `LayoutModel`: Foundation only → moved. `PaneSessionRegistry`: ImpressLogging
+  → moved. `LayoutController`: `ViewKindRegistry.builtin` (moves with it) → moved; its
+  automation seam (`applyVerbJSON`, `performForAutomation`, `liveSnapshot`) made public for
+  PMC. `LayoutController+Automation`: ImpressAutomation's `LayoutAutomationHost` →
+  **stayed in PMC** (`@retroactive`). ImpressAutomation depends on ImpressKit, so it is not
+  kit-grade and was not added to the list. `LayoutTreeView`: `RustStoreAdapter.warmOffMain`
+  / `layoutSharedStore`, `LayoutAutomation.shared.host`, `ChassisEmptyState`,
+  `ChassisRootLoadingView`, PMC's `.cycleFocusLeft/Right` names → **inverted**:
+  `LayoutTreeHost(appID:services:)` takes a `LayoutHostServices` (open the store, didOpen,
+  didClose, the loading view; `.standalone` is an in-memory store), `ChassisRootView`
+  supplies the adapter's store and the automation host, and the h/l notification bridge
+  moved to `ChassisRootView` (it calls `LayoutTreeRuntime.shared.controller`). The empty
+  states are the kit's `LayoutUnavailable`, which is the same `ContentUnavailableView` with
+  the same words and glyphs. `TriageKeyGrammar` is ImpressKeyboard's. `layoutToolbarBand`
+  became public, because PMC's panes read it. `ViewKindRegistry`: the registry,
+  `ViewKindID`, `PaneContext`, the factory and the placeholder → moved.
+  `LayoutRowsPaneView` / `LayoutPaneRow` (the row mapper, `RecordViewerRegistry`, the row
+  menus), `LayoutInfoPaneView` (`DetailView` and the detail panes) and
+  `LayoutLegacyPaneView` (`TabContentView`) are factories → **stayed**, now in
+  `Chassis/Layout/ChassisViewKinds.swift`. `LayoutSurfacePaneView`: `RustStoreAdapter` →
+  inverted (`LayoutController.store`, the store the layout was opened on). ImprintCore's
+  `renderPlotSvg`, MarkdownUI, WebKit, `PlotAutomationHandler` and `SurfaceRecordListRows`
+  → inverted: the pane takes `SurfaceHooks` (default `.plain`), and PMC's
+  `LayoutSurfaceHooks.swift` holds `SurfaceHooks.chassis` and the plot views. Every file
+  under `Chassis/Layout/` that the row does not name stayed in PMC: the outline, the row
+  menus, the publication-tab / manuscript-preview / source panes, `SourcePaneSession`, the
+  row mapper and `SurfaceRecordListRows`.
+- **Registration.** `ViewKindRegistry.builtin` is `placeholder` + `surface`.
+  `ChassisViewKinds.registerIfNeeded()`, called in `ChassisRootView.init` (before its body,
+  so before any pane), registers outline, list, info, legacy, pdf, notes, bibtex and
+  source (session-bearing). It also re-registers `surface` with `.chassis` hooks. Live:
+  `view kinds: chassis registered outline, list, info, surface, legacy, pdf, notes, bibtex,
+  source (10 in the registry)` precedes `layout host: tree opened for …` in impress and in
+  imprint. PMC re-exports ImpressLayout (as it does ImpressChassis), so no app target
+  changed. PMC depends on it for macOS only (`condition: .when(platforms: [.macOS])`).
+- **The package.** `packages/ImpressLayout`, macOS 26, deps ImpressRustCore, ImpressSurface,
+  ImpressKeyboard and ImpressLogging (ImpressTheme through ImpressSurface).
+  `scripts/check-kit-packages.sh` is `check-chassis-deps.sh`'s pattern over ImpressLayout
+  and ImpressSurface: the kit-grade four plus each other, no remote package, and a separate
+  error for any reach for PMC. It runs in `impress-app.yml` beside the chassis lint. With
+  a temporary `../ImpressAutomation` dependency it printed `DISALLOWED local dependency in
+  ImpressLayout: ../ImpressAutomation`. Adding PMC as well also printed `ImpressLayout must
+  not depend on PublicationManagerCore …`. Both runs exited 1. The manifest was restored
+  byte-identical. `check-chassis-deps.sh` allows `packages/ImpressLayout` for PMC.
+- **Tests.** `LayoutModelTests`, `PaneSessionRegistryTests`, `LayoutVerbEncodingTests` and
+  `LayoutFeedVersionTests` moved with their files (FFI-free; the golden path is recounted).
+  `ViewKindRegistryTests` now pins the kit's own two kinds and that a host kind is a
+  placeholder. The new PMC `ChassisViewKindsTests` pins that after registration the whole
+  vocabulary resolves and only `source` is session-bearing. ImpressLayout `swift test`: 45
+  passed. PMC: 2067 XCTest, 0 failures, 2 skipped; 112 swift-testing, all passing.
+- **Standalone proof.** `apps/kit-demo` (throwaway: a SwiftPM executable with no Xcode
+  project and not in the workspace; its README says so) links only ImpressLayout and
+  ImpressRustCore. It opens a scratch store in `$TMPDIR`, creates a surface through
+  `SharedSurface.surfaceHttp("POST", "/api/surface", …)` and splits impress's Default tree
+  with a `surface` pane over `item(<id>)`. Its output: `kit registry: ["placeholder",
+  "surface"]`, `pane 1: outline → renders placeholder`, `pane 2: list → renders
+  placeholder`, `pane 3: info → renders placeholder`, `pane 5: surface → renders surface
+  (single item 4529b182-…)`. The `screencapture -R` of the window (`apps/kit-demo/standalone.png`)
+  shows three "View Kind Unavailable" panes, each naming its query kinds, role and tile,
+  and the surface's text, Bins slider and Emit button.
+- **Nothing regressed.** All six apps build (`build-impress-app.sh`, DerivedData `w6-kit`),
+  and the launchers were put back afterwards. `check-chassis-deps`, `check-kit-packages`,
+  `check-uniffi-bindings` (7 match) and `check-schema-refs` pass. The store-ffi xcframework
+  was rebuilt, and its binding is byte-identical to `main`'s. Live, both apps built from
+  this branch: impress **12/12, 0 skipped**, imprint **12/12, 0 skipped**, including
+  `layout.source_pane_session` on imprint (the split pane kept its session) and
+  `surface.show_and_dispatch` through the moved surface pane. The first impress window
+  logged `pane 3 info: publication detail for …` and `pane 2 display: 85 rows`.
+- **Ask-first:** none. No layout or surface vocabulary changed; no kit package depends on
+  PMC or a domain package; the kit-grade list is the row's five.
+- **Found, not changed.** (a) A `surface` pane with no item says "Select a publication to
+  view details". That is what it said before the move, and the words were kept verbatim.
+  (b) `build-impress-app.sh` repoints `~/MyApplications/<app>.app` even when
+  `IMPRESS_DERIVED` is set. The launchers were restored by hand to their `w5-flag`
+  targets, but that DerivedData had already been deleted, so they now dangle. The
+  impress and imprint processes that were running from it were stopped for the proof,
+  and this branch's builds are running on 23125 / 23121.
