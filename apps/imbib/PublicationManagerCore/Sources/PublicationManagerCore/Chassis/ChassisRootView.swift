@@ -32,6 +32,7 @@
 
 import SwiftUI
 import ImpressAutomation
+import ImpressKit
 import ImpressLayout
 import ImpressLogging
 
@@ -202,6 +203,15 @@ public struct ChassisRootView: View {
                     .environment(models.searchViewModel)
                     .environment(\.appShellConfiguration, configuration)
                     .environment(\.sidebarComposition, sidebarComposition)
+                    // The publication verbs a chassis window runs (Add Tag,
+                    // Remove Tag, star, flag, … through `RustStoreAdapter`)
+                    // register their undo with `UndoCoordinator.shared`, and
+                    // it registers NOTHING without an undo manager. Only
+                    // imbib's own `ContentView` handed it one, so in impress
+                    // Add Tag's undo was dropped at registration and Edit ▸
+                    // Undo had nothing to undo (plan wave 6 W4's finding).
+                    // This is the window's manager, the one Edit ▸ Undo reads.
+                    .wireUndo(to: UndoCoordinator.shared)
             } else {
                 ChassisRootLoadingView()
             }
