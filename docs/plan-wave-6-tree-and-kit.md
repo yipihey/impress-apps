@@ -384,3 +384,58 @@ preparation may start earlier on a branch).
   this repository. Reproduced by checking out NetworkImage from the SwiftPM cache with and
   without that `GIT_DIR`. Fixed in #53 (the hook unsets the git environment after finding the
   repo root); this branch's follow-up push went through the full hook with no bypass.
+- 2026-09-24 — **W4 pass A, step 1: `pdf`, `notes` and `bibtex` render, proven live in
+  impress** (23125, built from `claude/wave6-w4-kinds`, flag on). `source` is still the
+  placeholder; the session-bearing editor is pass B.
+- **What they are.** `LayoutPublicationTabPaneView` renders `PDFTab`, `NotesTab` and
+  `BibTeXTab` unchanged, fed the paper the way `info` resolves it (`single_item`, else
+  the `item` binding), inside `publicationDetailLifecycle`, padded by `layoutToolbarBand`.
+  A pane over another kind answers "Detail Unavailable" by name. Each logs
+  `pane N <tab>: publication <id>`.
+- **The arrangement, composed with existing verbs** (impress ships only Default; imbib's
+  Reading preset is app_id `imbib`): three `split`s of the detail pane, each `new` spec a
+  copy of the detail pane's (same `detail_query`, same `item` param on channel 1) with
+  `view_kind` changed and no role — `pdf` beside `info` (tile 5), `notes` (6) and
+  `bibtex` (8) below it — plus a `set-query` of the list onto the ULDM library. One
+  click on a list row: `pane 8 bibtex / pane 6 notes / pane 5 pdf / pane 3 info:
+  publication 3D087F58…`, all in the same millisecond; the next click moved all four to
+  E202F3C0 (Banik & Sikivie 2013). Screenshots: the PDF (1/33 pages) in `pdf`, the same
+  PDF beside the annotation fields in `notes`, the entry in `bibtex`.
+- **No PDF.** Gaia GraL X (E156D69B, no DOI/arXiv/bibcode/eprint): `pdf` shows PDFTab's
+  own "No PDF — No PDF is available for this paper", `notes` NotesTab's "Add a PDF to
+  view it here while taking notes"; the log says `result=false`, no download attempted.
+- **Notes, three points, reverted exactly.** With `notes` maximized, Key Findings enabled
+  and "w4 probe hjkl" typed (the `hjkl` reached the field; no pane stole them). Save: the
+  store's `note` became `---\nKey Findings: w4 probe hjkl\n---\n\nN` — label-keyed YAML
+  front matter over the freeform `N`, through `PublicationNotesDocument`. Display: after
+  selecting another paper and back, the pane re-parsed it (Key Findings checked, the
+  text in it, `N` alone as prose). Unchecking wrote `N` back: hex `4E`, length 1, as
+  before.
+- **Found and fixed on the way (each would have shown as "the pane is wrong").**
+  (1) `InfoTab`'s store subscription was a bare `.task {}`: after a paper switch the next
+  `.structural` event reloaded the FIRST paper, so the `info` pane beside a `pdf` pane
+  showed one paper's header and another's Record Info and Attachments. Keyed on the id.
+  (2) An auto-download that finishes after a paper switch loaded the old paper's PDF into
+  the pane now on another paper (PDFTab and NotesTab). Both now drop a completion for a
+  paper they no longer show; re-proven by selecting a paper mid-download and switching
+  away: `[NotesTab] PDF for 3D087F58… arrived after the tab moved on — not shown`, and the
+  `pdf` pane stayed on the paper selected. (3) The tab panes read read-state from the
+  store after the dwell, so four detail panes on one unread paper make one `setRead`,
+  not four undoable ones (Rust already throttles `recordRecentView`).
+- **Two things the proof cost, and what was put back.** impress is sandboxed and its
+  container has no `imbib/Libraries`, so EVERY library PDF is "not found" from impress, in
+  any host: a suite gap, not a pane one. To render a real PDF, one copy of the Banik PDF
+  (sha256 matching the store's) was placed at impress's own
+  `…/Containers/com.impress.impress/…/imbib/Libraries/1AD5E936…/Papers/` and removed at
+  the end. And selecting Vortices (3D087F58, DOI, no file) made PDFTab auto-download it
+  from arXiv — the user's own setting doing what it does in imbib — three times over the
+  session; each linked file was deleted through the info pane's own Delete Attachment
+  (0 children now). Left behind on that paper: `has_pdf_downloaded: false` and a
+  `pdf_download_date`, where both keys were absent (no API removes a payload key); and
+  `last_activity_at` "viewed" on the papers looked at, which is what viewing does.
+- **Found, not fixed.** `NotesPanel` re-reads the note on any `itemsMutated` event for its
+  paper and resets the visible annotation fields to the populated ones; a mouse click
+  into a just-enabled, still-empty annotation field produces such an event (source not
+  identified; no store operation is recorded), so the field vanishes under the cursor.
+  Its guard covers only the freeform editor. Same in any host; worked around here by
+  entering the freeform editor first.
