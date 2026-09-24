@@ -389,6 +389,19 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                 applySyntaxHighlighting(to: textView)
             case .external:
                 applySyntaxHighlighting(to: textView)
+                // The caret moved with its text. `cursorPosition` in THIS
+                // pass still holds where it was, and the jump block below
+                // would put it back there — 30 characters early after a
+                // co-author's 30-character insertion above it. Skip the jump
+                // now; hand the moved caret to the binding after the pass.
+                let caret = textView.selectedRange().location
+                let coordinator = context.coordinator
+                let binding = $cursorPosition
+                coordinator.lastReportedCursorPosition = cursorPosition
+                DispatchQueue.main.async {
+                    coordinator.lastReportedCursorPosition = caret
+                    binding.wrappedValue = caret
+                }
             }
         } else if textView.string != source {
             let selectedRange = textView.selectedRange()

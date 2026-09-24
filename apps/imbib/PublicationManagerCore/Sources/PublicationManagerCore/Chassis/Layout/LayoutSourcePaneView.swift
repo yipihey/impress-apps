@@ -59,14 +59,25 @@ struct LayoutSourcePaneView: View {
             .onAppear { resolve() }
             .onChange(of: manuscriptID) { _, _ in resolve() }
             .onChange(of: sessionID) { _, _ in resolve() }
-            // The same wake-up the detail pane's Source tab has: another view
-            // or another app changed this manuscript — merge it into the
-            // buffer (the editor applies it in place).
+            // Another view or another process changed this manuscript: merge
+            // it into the buffer (the editor applies it in place, D6). Two
+            // shapes arrive: an in-process write names the manuscript; a
+            // write from ANOTHER process (the CLI, an agent) reaches this one
+            // only as the store's cross-process signal, which names nothing
+            // (`noteExternalMutation` → `.structural`). The detail pane's
+            // Source tab hears only the first. `absorbExternalChange` compares
+            // hashes and returns at once when this manuscript did not move,
+            // so answering every structural event costs one row read.
             .task(id: manuscriptID) {
                 guard let id = manuscriptID else { return }
                 for await event in ImbibImpressStore.shared.events.subscribe() {
-                    if case .itemsMutated(_, let ids) = event, ids.contains(id) {
+                    switch event {
+                    case .itemsMutated(_, let ids) where ids.contains(id):
                         editorSession?.absorbExternalChange()
+                    case .structural:
+                        editorSession?.absorbExternalChange()
+                    default:
+                        break
                     }
                 }
             }

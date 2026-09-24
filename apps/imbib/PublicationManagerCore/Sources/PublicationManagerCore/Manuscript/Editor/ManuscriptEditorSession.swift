@@ -315,7 +315,12 @@ public final class ManuscriptEditorSession {
         if stored.hash == savedHash || source == stored.text {
             savedHash = stored.hash
             savedHeads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
-            lastPersistedSource = source
+            // What the STORE holds is what was last persisted — not the
+            // buffer, which may carry a keystroke still inside the save
+            // debounce. Recording the buffer here marked that keystroke as
+            // saved, and the next external change would then fast-forward
+            // over it instead of merging it.
+            lastPersistedSource = stored.text
             return
         }
         if source == lastPersistedSource {
