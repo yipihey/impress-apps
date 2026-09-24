@@ -909,8 +909,9 @@ struct ImprintApp: App {
 
             Divider()
 
-            // Declarative chassis layout (PaneLayoutStore is what the main
-            // window actually reads; the old bindings drove retired AppState).
+            // Declarative chassis layout: since plan wave 6 W5 the main window
+            // IS the layout tree, and these resize its roles (the old bindings
+            // drove retired AppState; `PaneLayoutStore` is imbib's own window's).
             //
             // The CHASSIS's since ADR-0022 X2 (D9 finding 4). Embedded as
             // content rather than inserted as a `Commands` value so the toggles

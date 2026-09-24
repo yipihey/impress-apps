@@ -258,6 +258,9 @@ struct ImpartApp: App {
                 // impart just never spoke to it.
                 // …and since ADR-0022 X2 (D9 finding 4) those three commands
                 // are the CHASSIS's, not a fourth hand-written copy of them.
+                // Since plan wave 6 W5 they resize the layout tree's roles
+                // (this window IS the tree); `PaneLayoutStore` is imbib's own
+                // pre-chassis window's model only.
                 // Embedded as content rather than inserted as a `Commands`
                 // value so they keep their position in this group, ahead of the
                 // view-mode accelerators below.
