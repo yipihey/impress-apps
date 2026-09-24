@@ -214,6 +214,19 @@ impl ViewKindId {
     /// Hosts a legacy `SectionContentView` route unchanged (ADR-0031 D11).
     pub const LEGACY: ViewKindId = ViewKindId(Cow::Borrowed("legacy"));
     pub const PLACEHOLDER: ViewKindId = ViewKindId(Cow::Borrowed("placeholder"));
+
+    /// The view kinds whose panes carry a [`SessionId`] (ADR-0031 D6): the
+    /// ones that own state a re-layout must not destroy — an `NSTextView`
+    /// and its undo stack. The one list; the Swift `ViewKindRegistry` marks
+    /// the same kinds `isSessionBearing`, and the layout gives every pane of
+    /// one of these kinds a session of its own
+    /// ([`crate::Layout::ensure_sessions`]).
+    pub const SESSION_BEARING: &'static [ViewKindId] = &[ViewKindId::SOURCE];
+
+    /// Does a pane of this kind carry a session?
+    pub fn is_session_bearing(&self) -> bool {
+        Self::SESSION_BEARING.contains(self)
+    }
 }
 
 string_newtype! {
@@ -221,6 +234,17 @@ string_newtype! {
     /// session lives in a registry *outside* the tree; no layout mutation ever
     /// tears one down, which is why the tree stores only this id.
     SessionId
+}
+
+impl SessionId {
+    /// A new, unique session handle. Random rather than counted: a session
+    /// outlives the layout value that named it (a preset re-application
+    /// replaces the whole tree, and a registry on the Swift side still holds
+    /// the old id), so a counter restarting with a new tree could hand one
+    /// pane's editor to another.
+    pub fn fresh() -> Self {
+        SessionId::from(format!("session-{}", uuid::Uuid::new_v4()))
+    }
 }
 
 #[cfg(test)]

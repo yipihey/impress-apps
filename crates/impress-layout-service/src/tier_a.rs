@@ -74,6 +74,8 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_save_and_reset_preset().await,
         cap_preset_ordinals().await,
         cap_every_shipped_preset_compiles().await,
+        // session-bearing panes (W4 pass B, ADR-0031 D6)
+        cap_source_pane_sessions().await,
     ]
 }
 
@@ -2057,6 +2059,156 @@ async fn cap_every_shipped_preset_compiles() -> CapabilityResult {
             Ok(format!(
                 "{checked} queries compile across the shipped table"
             ))
+        },
+    )
+    .await
+}
+
+/// ADR-0031 D6 through the service: imprint's editor pane keeps its session
+/// through two bare splits, a swap and the preset re-applied, every new
+/// source pane gets its own, and a second process reads the same ids.
+async fn cap_source_pane_sessions() -> CapabilityResult {
+    check(
+        "source-pane-sessions",
+        "a source pane keeps its session through split, swap and a preset re-applied; \
+         each new source pane gets its own",
+        Tier::A,
+        || async {
+            const IMPRINT: &str = "imprint";
+            let w = World::open()?;
+            let applied = w
+                .service
+                .apply_preset(IMPRINT.into(), w.device(), "Default".into(), None)
+                .await;
+            want(applied.ok, applied.message.clone())?;
+            let live = |w: &World| -> Result<Layout> {
+                w.layouts()
+                    .live_row(IMPRINT, DEVICE)?
+                    .map(|(_, layout)| layout)
+                    .ok_or_else(|| "no live imprint row".to_string())
+            };
+            let session_of =
+                |layout: &Layout, tile: TileId| layout.pane(tile).and_then(|p| p.session.clone());
+            let first = live(&w)?;
+            let editor_tile = first
+                .pane_with_role(&Role::DETAIL)
+                .ok_or("imprint's Default has a detail pane")?;
+            let editor = session_of(&first, editor_tile)
+                .ok_or("the persisted source pane must hold a session")?;
+
+            // Split the editor twice (a bare split duplicates the pane).
+            let mut new_tiles = Vec::new();
+            for _ in 0..2 {
+                let split = w
+                    .service
+                    .split(
+                        IMPRINT.into(),
+                        w.device(),
+                        PaneRefDto::tile(editor_tile),
+                        "vertical".into(),
+                        true,
+                        None,
+                        None,
+                    )
+                    .await;
+                want(split.ok, split.message.clone())?;
+                let layout = live(&w)?;
+                let focused = layout
+                    .window(layout.current_window().map_err(|e| e.to_string())?)
+                    .and_then(|win| win.focused)
+                    .ok_or("a split focuses its new pane")?;
+                new_tiles.push(focused);
+            }
+            let split = live(&w)?;
+            want(
+                session_of(&split, editor_tile).as_ref() == Some(&editor),
+                "the split editor keeps its session",
+            )?;
+            let a = session_of(&split, new_tiles[0]).ok_or("the first copy has a session")?;
+            let b = session_of(&split, new_tiles[1]).ok_or("the second copy has a session")?;
+            want(
+                a != editor && b != editor && a != b,
+                "each new source pane gets a session of its own",
+            )?;
+
+            // Swap the editor with its sibling.
+            let swapped = w
+                .service
+                .swap(
+                    IMPRINT.into(),
+                    w.device(),
+                    PaneRefDto::tile(editor_tile),
+                    PaneRefDto::tile(new_tiles[0]),
+                    None,
+                )
+                .await;
+            want(swapped.ok, swapped.message.clone())?;
+            let after_swap = live(&w)?;
+            want(
+                session_of(&after_swap, editor_tile).as_ref() == Some(&editor)
+                    && session_of(&after_swap, new_tiles[0]).as_ref() == Some(&a),
+                "a swap moves panes, not sessions",
+            )?;
+
+            // ⌃⌘1 and ⌃⌘2: the editor in the detail role survives both.
+            for preset in ["Default", "Writing"] {
+                let again = w
+                    .service
+                    .apply_preset(IMPRINT.into(), w.device(), preset.into(), None)
+                    .await;
+                want(again.ok, again.message.clone())?;
+                let layout = live(&w)?;
+                let detail = layout
+                    .pane_with_role(&Role::DETAIL)
+                    .ok_or("the preset has a detail pane")?;
+                want(
+                    session_of(&layout, detail).as_ref() == Some(&editor),
+                    format!("re-applying {preset} must keep the detail editor's session"),
+                )?;
+            }
+
+            // A second process (its own session registry) reads the same ids.
+            let other = DefaultLayoutService::with_store(w.store.clone());
+            let seen = other.get_layout(IMPRINT.into(), w.device()).await;
+            let seen = seen.layout.ok_or("the second process reads the tree")?;
+            let detail = seen
+                .pane_with_role(&Role::DETAIL)
+                .ok_or("the second process sees the detail pane")?;
+            want(
+                session_of(&seen, detail).as_ref() == Some(&editor),
+                "another process must read the same session id",
+            )?;
+
+            // A stored tree from before sessions is given them on first load,
+            // and saved at once.
+            let bare = presets::shipped_preset(IMPRINT, "Default")
+                .ok_or("Default is shipped")?
+                .layout;
+            w.layouts().save_live(
+                IMPRINT,
+                "older-device",
+                &bare,
+                impress_core::item::ActorKind::Human,
+                "a tree stored before sessions",
+            )?;
+            let fresh = DefaultLayoutService::with_store(w.store.clone());
+            let loaded = fresh
+                .get_layout(IMPRINT.into(), Some("older-device".into()))
+                .await
+                .layout
+                .ok_or("the older tree loads")?;
+            let detail = loaded.pane_with_role(&Role::DETAIL).ok_or("detail")?;
+            let assigned = session_of(&loaded, detail).ok_or("load assigns a session")?;
+            let stored = w
+                .layouts()
+                .live_row(IMPRINT, "older-device")?
+                .map(|(_, layout)| layout)
+                .ok_or("row")?;
+            want(
+                session_of(&stored, detail) == Some(assigned),
+                "the assigned session must be persisted on load",
+            )?;
+            Ok(format!("editor {editor} kept; copies {a}, {b}"))
         },
     )
     .await
