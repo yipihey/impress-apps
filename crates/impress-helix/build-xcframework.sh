@@ -132,10 +132,17 @@ fi
 
 if [ "$BUILD_IOS" = "1" ]; then
     echo "Creating universal iOS Simulator binary..."
-    lipo -create \
-        "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix.a" \
-        "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimpress_helix.a" \
-        -output "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
+    # IMPRESS_SKIP_X86=1 never built the x86_64 simulator slice, so there is
+    # nothing to lipo: the simulator slice is arm64 alone.
+    if [ "$BUILD_X86" = "1" ]; then
+        lipo -create \
+            "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix.a" \
+            "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimpress_helix.a" \
+            -output "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
+    else
+        cp "$BUILD_DIR/$IOS_SIM_TARGET/release/libimpress_helix.a" \
+            "$IOS_SIM_UNIVERSAL_DIR/libimpress_helix.a"
+    fi
 fi
 
 # Generate Swift bindings
