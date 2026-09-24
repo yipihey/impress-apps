@@ -1,6 +1,7 @@
 import Foundation
 import ImbibRustCore
 import ImpressKit
+import ImpressLogging
 import ImpressUndoHistory
 import OSLog
 
@@ -30,12 +31,66 @@ public final class UndoCoordinator: UndoRegistering {
         }
     }
 
+    // MARK: - Work nobody asked for
+
+    /// Why the current task's mutations are not the user's, or nil when they
+    /// are. Set by `performAutomatic(_:_:)`.
+    ///
+    /// The undo stack is the USER's: ⌘Z undoes the last thing they did. A
+    /// feed refresh imports papers through the same adapter verbs a drag or
+    /// ⌘I does, and every one of those verbs registers undo, so after a
+    /// refresh ⌘Z undid "Import Paper" (or the feed's own `last_executed`
+    /// write) instead of the user's last action — and undoing it deleted a
+    /// paper the feed would bring straight back.
+    ///
+    /// A task-local, not a flag: it follows the refresh through every
+    /// `await MainActor.run` hop and child task, and never reaches a user
+    /// event, which runs in a task of its own even while a refresh is in
+    /// flight.
+    @TaskLocal public static var automaticWork: String?
+
+    /// Run `operation` as automatic work: nothing it mutates registers undo,
+    /// and nothing reaches the Undo History panel. User-initiated imports
+    /// (⌘I, drag, Send to Inbox, automation) do not use this and keep their
+    /// undo.
+    nonisolated(nonsending) public static func performAutomatic<T>(
+        _ reason: String,
+        _ operation: nonisolated(nonsending) () async throws -> T
+    ) async rethrows -> T {
+        try await $automaticWork.withValue(reason, operation: operation)
+    }
+
+    /// The synchronous form, for a main-actor block with no suspension.
+    public nonisolated static func performAutomatic<T>(
+        _ reason: String,
+        _ operation: () throws -> T
+    ) rethrows -> T {
+        try $automaticWork.withValue(reason, operation: operation)
+    }
+
+    /// Registrations dropped because they came from automatic work, per
+    /// reason — read by the log line and by tests.
+    @ObservationIgnored public private(set) var skippedAutomatic: [String: Int] = [:]
+
+    /// True (and logged) when the caller is automatic work.
+    private func skipsAutomatic(_ actionName: String) -> Bool {
+        guard let reason = Self.automaticWork else { return false }
+        let count = skippedAutomatic[reason, default: 0] + 1
+        skippedAutomatic[reason] = count
+        Logger.library.debugCapture(
+            "Undo: not registering '\(actionName)' — automatic work (\(reason)), "
+                + "\(count) skipped for this reason since launch",
+            category: "undo")
+        return true
+    }
+
     /// Register an undoable action after a mutation completes.
     ///
     /// The `info` parameter comes from the Rust store's mutation return value.
     /// When the user presses Cmd+Z, the inverse operation is applied through
     /// RustStoreAdapter, and a redo action is registered automatically.
     public func registerUndo(info: UndoInfo) {
+        if skipsAutomatic(info.description) { return }
         guard let um = undoManager else { return }
         guard !info.operationIds.isEmpty else { return }
 
@@ -92,6 +147,7 @@ public final class UndoCoordinator: UndoRegistering {
         undo undoClosure: @escaping @MainActor () -> Void,
         redo redoClosure: (@MainActor () -> Void)? = nil
     ) {
+        if skipsAutomatic(actionName) { return }
         guard let um = undoManager else { return }
 
         um.registerUndo(withTarget: self) { coordinator in

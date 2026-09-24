@@ -170,7 +170,13 @@ public actor GroupFeedRefreshService {
             throw GroupFeedError.notGroupFeed
         }
 
-        return try await refreshGroupFeedInternal(feedData)
+        // Automatic work: the papers this refresh imports and links are the
+        // feed's, not the user's, so none of it lands on the window's undo
+        // stack (UndoCoordinator.performAutomatic). A manual Refresh is still
+        // not an import the user chose paper by paper.
+        return try await UndoCoordinator.performAutomatic("group feed refresh '\(feedData.name)'") {
+            try await refreshGroupFeedInternal(feedData)
+        }
     }
 
     /// Internal refresh implementation using Sendable data.

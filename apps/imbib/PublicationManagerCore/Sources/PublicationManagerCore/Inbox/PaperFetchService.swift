@@ -161,7 +161,12 @@ public actor PaperFetchService {
         let results = try await sourceManager.search(query: query, options: options)
         Logger.inbox.debugCapture("Search returned \(results.count) results", category: "fetch")
 
-        let newCount = await processResultsForInbox(results, feedID: feedID)
+        // Automatic work: a feed's imports are not the user's to undo, and
+        // registering them buried the user's last action under
+        // "Import Paper" (UndoCoordinator.performAutomatic).
+        let newCount = await UndoCoordinator.performAutomatic("feed refresh '\(feedName)'") {
+            await processResultsForInbox(results, feedID: feedID)
+        }
 
         lastFetchDate = Date()
         lastFetchCount = newCount
@@ -220,6 +225,15 @@ public actor PaperFetchService {
     ///   parent library is used as the import target
     @discardableResult
     public func fetchForFeed(smartSearchID: UUID) async throws -> Int {
+        // Automatic work end to end: the imports, the feed links and the
+        // feed's own `last_executed` / `last_fetch_count` writes all used to
+        // register undo, so ⌘Z after a scheduled refresh undid the refresh.
+        try await UndoCoordinator.performAutomatic("feed refresh \(smartSearchID)") {
+            try await fetchForFeedAutomatically(smartSearchID: smartSearchID)
+        }
+    }
+
+    private func fetchForFeedAutomatically(smartSearchID: UUID) async throws -> Int {
         let searchData = await withStore { store -> (query: String, name: String, feedsToInbox: Bool, autoRefreshEnabled: Bool, maxResults: Int, sources: [String], saveTargetID: UUID?, libraryID: UUID?)? in
             guard let ss = store.getSmartSearch(id: smartSearchID) else { return nil }
             return (ss.query, ss.name, ss.feedsToInbox, ss.autoRefreshEnabled, ss.maxResults, ss.sourceIDs, ss.saveTargetID, ss.libraryID)

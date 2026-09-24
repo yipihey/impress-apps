@@ -338,7 +338,9 @@ already in the library is still an entry that file contains. Passing only the
 created ids made every re-scan claim the source had *dropped* every deduped
 entry. `importBibTeXOutcome` is the same call with the same dedup, the same undo
 entry and the same `dataVersion` discipline — it just does not throw away
-`existing`. (Fixed in the same phase: `import_bibtex_into` only populated
+`existing`. (The watched-folder hooks run it inside
+`UndoCoordinator.performAutomatic`, so a re-scan's import and provenance tags
+never reach the user's undo stack — see Critical Invariants.) (Fixed in the same phase: `import_bibtex_into` only populated
 `existing` when filing into a collection, so the field read as "nothing was
 deduped" on the plain-library path.)
 
@@ -442,6 +444,8 @@ ratchets down; the per-builder source-of-truth table is
 [docs/chassis-capability-matrix.md](../../docs/chassis-capability-matrix.md)
 § Sidebar data sources. New data a builder needs = a new `SidebarTreeData`
 field gathered in BOTH maintainer paths, not a new query in the builder.
+
+**The undo stack is the user's; automatic work never registers on it.** (2026-09-24.) Every adapter verb registers undo (`importBibTeX` → "Import Paper", `setRead`, `addToCollection`, `updateIntField`, …), and the feed pipeline calls exactly those verbs, so after a refresh ⌘Z undid "Import Paper" — deleting a paper the next refresh brings back — instead of the user's last action. Work nobody asked for runs inside `UndoCoordinator.performAutomatic(reason) { … }`, a `@TaskLocal` scope that follows it across `await MainActor.run` hops and child tasks (not `Task.detached`) and never reaches a user event, which runs in its own task; `registerUndo` / `registerUndoClosure` drop registrations inside it (debug log `Undo: not registering '…' — automatic work (…)`, category `undo`). Wrapped today: `PaperFetchService.performInboxFetch` + `fetchForFeed`, `GroupFeedRefreshService.runRefreshLocked`, `SmartSearchProvider.refresh`, the watched-folder hooks. NOT wrapped, deliberately: `sendToInbox` (the user's Send to Inbox) and every manual import (⌘I, drop, automation). A NEW background writer must run in the scope. Guarded by `AutomaticWorkUndoTests`.
 
 **Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.
 

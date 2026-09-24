@@ -221,17 +221,27 @@ public struct WatchedFolderImportHooks {
     /// imbib's real import path.
     public static var live: WatchedFolderImportHooks {
         WatchedFolderImportHooks(
+            // Automatic work: a watched file's entries are the FILE's, not
+            // an import the user can take back — undoing one deleted papers
+            // the next re-scan re-created — so neither the import nor the
+            // provenance tags below register undo.
             importBibTeX: { bibtex, library in
-                RustStoreAdapter.shared.importBibTeXOutcome(bibtex, libraryId: library)
+                UndoCoordinator.performAutomatic("watched folder") {
+                    RustStoreAdapter.shared.importBibTeXOutcome(bibtex, libraryId: library)
+                }
             },
             defaultLibraryID: { RustStoreAdapter.shared.getDefaultLibrary()?.id },
             addTag: { ids, path in
                 guard !ids.isEmpty else { return }
-                RustStoreAdapter.shared.addTag(ids: ids, tagPath: path)
+                UndoCoordinator.performAutomatic("watched folder") {
+                    RustStoreAdapter.shared.addTag(ids: ids, tagPath: path)
+                }
             },
             removeTag: { ids, path in
                 guard !ids.isEmpty else { return }
-                RustStoreAdapter.shared.removeTag(ids: ids, tagPath: path)
+                UndoCoordinator.performAutomatic("watched folder") {
+                    RustStoreAdapter.shared.removeTag(ids: ids, tagPath: path)
+                }
             })
     }
 

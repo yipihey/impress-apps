@@ -193,6 +193,9 @@ struct UnifiedPublicationListWrapper: View {
     @State private var ftsDebounceTask: Task<Void, Never>?
     @State private var filteredCount: Int?  // match count for display
 
+    // Paper ▸ Move to / Add to Collection…: the pending "which collection?"
+    @State private var collectionPick: CollectionPickRequest?
+
     /// Focus state for keyboard navigation - list needs focus to receive key events
     @FocusState private var isListFocused: Bool
 
@@ -485,6 +488,26 @@ struct UnifiedPublicationListWrapper: View {
                         category: "triage")
                     saveSelectedToDefaultLibrary()
                 },
+                onDismissFromInbox: {
+                    logInfo(
+                        "Paper ▸ Dismiss from Inbox: \(selectedPublicationIDs.count) selected",
+                        category: "triage")
+                    dismissSelectedFromInbox()
+                },
+                onMoveToCollection: { requestCollectionPick(.move, $0) },
+                onAddToCollection: { requestCollectionPick(.add, $0) },
+                onRemoveFromCollection: removeSelectedFromScopedCollection,
+                onRefresh: {
+                    logInfo("Window ▸ Refresh: \(navigationTitle)", category: "refresh")
+                    Task { await refreshFromNetwork() }
+                },
+                onFocusList: {
+                    logInfo("View ▸ Focus List", category: "focus")
+                    // false → true, as on selection change: AppKit may hold
+                    // first responder elsewhere while the binding still says true.
+                    isListFocused = false
+                    DispatchQueue.main.async { isListFocused = true }
+                },
                 onToggleEInkMirror: toggleEinkForSelected,
                 onCopyPublications: { Task { await copySelectedPublications() } },
                 onCutPublications: { Task { await cutSelectedPublications() } },
@@ -589,6 +612,11 @@ struct UnifiedPublicationListWrapper: View {
             .sheet(isPresented: $showingDropPreview) {
                 dropPreviewSheetContent
                     .impressResizableSheet(minWidth: 500, minHeight: 400)
+            }
+            .sheet(item: $collectionPick) { request in
+                CollectionPickerSheet(request: request) { target in
+                    fileIntoCollection(request.publicationIDs, target, request.verb)
+                }
             }
     }
 
@@ -1814,6 +1842,77 @@ struct UnifiedPublicationListWrapper: View {
 
     // Save / dismiss / mute from the menu: `PublicationListActions.chassis`.
 
+    // MARK: - Paper ▸ Move to / Add to / Remove from Collection
+
+    /// ⌃⌘M / ⌘L: ask which collection, unless the poster already said
+    /// (`collectionNamed(in:)`).
+    private func requestCollectionPick(_ verb: CollectionPickRequest.Verb, _ note: Notification) {
+        // Captured now: the sheet must file the rows that were selected when
+        // the command fired, whatever the list does while it is up.
+        let ids = Array(selectedPublicationIDs)
+        logInfo(
+            "Paper ▸ \(verb == .move ? "Move to" : "Add to") Collection: \(ids.count) selected",
+            category: "collections")
+        guard !ids.isEmpty else { return }
+        let targets = CollectionTarget.current(libraryManager: libraryManager)
+        if let named = Self.collectionNamed(in: note), let target = targets.first(where: { $0.id == named }) {
+            fileIntoCollection(ids, target, verb)
+            return
+        }
+        collectionPick = CollectionPickRequest(verb: verb, publicationIDs: ids, targets: targets)
+    }
+
+    /// Move: the sidebar drop's sequence, leaving the collection this list
+    /// shows (`PublicationListMutations.moveToCollection`). Add: the row
+    /// actions' `addToCollection`, nothing else.
+    private func fileIntoCollection(
+        _ ids: [UUID], _ target: CollectionTarget, _ verb: CollectionPickRequest.Verb
+    ) {
+        switch verb {
+        case .move:
+            var leaving: UUID?
+            if case .collection(let scoped) = source { leaving = scoped }
+            PublicationListMutations.moveToCollection(
+                ids: ids, collectionID: target.id, libraryID: target.libraryID, leaving: leaving)
+            UndoCoordinator.shared.undoManager?.setActionName("Move to Collection")
+        case .add:
+            RustStoreAdapter.shared.addToCollection(publicationIds: ids, collectionId: target.id)
+            logInfo(
+                "Add to Collection: \(ids.count) pub(s) → \(target.path)", category: "collections")
+        }
+    }
+
+    /// The collection a poster named: `userInfo["collection"]` is the key
+    /// `Notifications.swift` documents, `userInfo["collectionID"]` the one
+    /// `URLSchemeHandler` sends; either as a UUID or its string.
+    static func collectionNamed(in note: Notification) -> UUID? {
+        for key in ["collection", "collectionID"] {
+            if let id = note.userInfo?[key] as? UUID { return id }
+            if let id = (note.userInfo?[key] as? String).flatMap(UUID.init(uuidString:)) { return id }
+        }
+        return nil
+    }
+
+    /// ⇧⌘L: take the selection out of the collection the poster named, else
+    /// the one this list shows. The paper stays in its library; only the
+    /// membership goes (undoable).
+    private func removeSelectedFromScopedCollection(_ note: Notification) {
+        let ids = Array(selectedPublicationIDs)
+        var scoped: UUID?
+        if case .collection(let id) = source { scoped = id }
+        guard let collectionID = Self.collectionNamed(in: note) ?? scoped else {
+            logInfo(
+                "Paper ▸ Remove from Collection: the list is not a collection — nothing to do",
+                category: "collections")
+            return
+        }
+        guard !ids.isEmpty else { return }
+        RustStoreAdapter.shared.removeFromCollection(publicationIds: ids, collectionId: collectionID)
+        logInfo(
+            "Paper ▸ Remove from Collection: \(ids.count) pub(s) out of \(collectionID)",
+            category: "collections")
+    }
+
     // MARK: - Helpers
 
     private func openPDF(for publicationID: UUID) {
@@ -1853,6 +1952,12 @@ struct UnifiedPublicationListWrapper: View {
 private struct NotificationModifiers: ViewModifier {
     let onToggleReadStatus: () -> Void
     let onSaveToLibrary: () -> Void
+    let onDismissFromInbox: () -> Void
+    let onMoveToCollection: (Notification) -> Void
+    let onAddToCollection: (Notification) -> Void
+    let onRemoveFromCollection: (Notification) -> Void
+    let onRefresh: () -> Void
+    let onFocusList: () -> Void
     let onToggleEInkMirror: () -> Void
     let onCopyPublications: () -> Void
     let onCutPublications: () -> Void
@@ -1869,6 +1974,34 @@ private struct NotificationModifiers: ViewModifier {
             // menu item never saved anything.
             .onReceive(NotificationCenter.default.publisher(for: .saveToLibrary)) { _ in
                 onSaveToLibrary()
+            }
+            // Paper ▸ Dismiss from Inbox (⇧⌘J) and the command palette: the
+            // inbox list's Delete key (`dismissSelectedFromInbox`, which is
+            // also `d`). Posted and observed by nothing until 2026-09-24.
+            .onReceive(NotificationCenter.default.publisher(for: .dismissFromInbox)) { _ in
+                onDismissFromInbox()
+            }
+            // Paper ▸ Move to Collection… (⌃⌘M), Add to Collection… (⌘L) and
+            // Remove from Collection (⇧⌘L). All three were posted and observed
+            // by nothing until 2026-09-24.
+            .onReceive(NotificationCenter.default.publisher(for: .moveToCollection)) { note in
+                onMoveToCollection(note)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .addToCollection)) { note in
+                onAddToCollection(note)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .removeFromCollection)) { note in
+                onRemoveFromCollection(note)
+            }
+            // Window ▸ Refresh (⇧⌘N): the list's own refresh — the row
+            // actions' Refresh and the error view's Retry. A feed refreshes
+            // from the network (automatic work: no undo); a library reloads.
+            .onReceive(NotificationCenter.default.publisher(for: .refreshData)) { _ in
+                onRefresh()
+            }
+            // View ▸ Focus List (⌥⌘2).
+            .onReceive(NotificationCenter.default.publisher(for: .focusList)) { _ in
+                onFocusList()
             }
             // Paper ▸ Mirror to reMarkable (⌃⌘E) and the command palette.
             .onReceive(NotificationCenter.default.publisher(for: .toggleEInkMirror)) { _ in

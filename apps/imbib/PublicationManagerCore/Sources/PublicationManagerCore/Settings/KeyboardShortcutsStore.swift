@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressLogging
 import OSLog
 import SwiftUI
 
@@ -39,7 +40,15 @@ public final class KeyboardShortcutsStore {
 
     private init(userDefaults: UserDefaults = .forCurrentEnvironment) {
         self.userDefaults = userDefaults
-        self.settings = Self.load(from: userDefaults, key: storageKey)
+        let (loaded, migrated) = Self.load(from: userDefaults, key: storageKey)
+        self.settings = loaded
+        if !migrated.isEmpty {
+            // Persist once so the saved table stops carrying the old chord.
+            save()
+            Logger.settings.infoCapture(
+                "Keyboard shortcuts: moved \(migrated.joined(separator: ", ")) off a retired default",
+                category: "settings")
+        }
         logger.info("KeyboardShortcutsStore initialized with \(self.settings.bindings.count) shortcuts")
     }
 
@@ -142,9 +151,14 @@ public final class KeyboardShortcutsStore {
         }
     }
 
-    private static func load(from userDefaults: UserDefaults, key: String) -> KeyboardShortcutsSettings {
+    /// The saved table, merged with new defaults and moved off retired ones
+    /// (`KeyboardShortcutsSettings.retiredDefaults`), plus the ids that moved.
+    /// Internal for tests.
+    static func load(
+        from userDefaults: UserDefaults, key: String
+    ) -> (settings: KeyboardShortcutsSettings, migrated: [String]) {
         guard let data = userDefaults.data(forKey: key) else {
-            return .defaults
+            return (.defaults, [])
         }
 
         do {
@@ -153,10 +167,10 @@ public final class KeyboardShortcutsStore {
             // Merge with defaults to ensure new shortcuts are included
             loaded = mergeWithDefaults(loaded)
 
-            return loaded
+            return loaded.migratingRetiredDefaults()
         } catch {
             Logger.settings.error("Failed to load keyboard shortcuts: \(error.localizedDescription)")
-            return .defaults
+            return (.defaults, [])
         }
     }
 

@@ -153,21 +153,24 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             modifiers: .command,
             notificationName: "showPDFTab"
         )),
-        .own(KeyboardShortcutBinding(
-            id: "showBibTeXTab",
-            displayName: "Show BibTeX Tab",
-            category: .views,
-            key: .character("5"),
-            modifiers: .command,
-            notificationName: "showBibTeXTab"
-        )),
+        // ⌘5 Notes, ⌘6 BibTeX — View ▸ Show Notes Tab / Show BibTeX Tab.
+        // This table had the two swapped (BibTeX ⌘5, Notes ⌘6) against the
+        // menu that actually binds them; `retiredDefaults` moves saved rows.
         .own(KeyboardShortcutBinding(
             id: "showNotesTab",
             displayName: "Show Notes Tab",
             category: .views,
-            key: .character("6"),
+            key: .character("5"),
             modifiers: .command,
             notificationName: "showNotesTab"
+        )),
+        .own(KeyboardShortcutBinding(
+            id: "showBibTeXTab",
+            displayName: "Show BibTeX Tab",
+            category: .views,
+            key: .character("6"),
+            modifiers: .command,
+            notificationName: "showBibTeXTab"
         )),
         .shared("toggleDetailPane"),
         .shared("toggleSidebar"),
@@ -209,12 +212,15 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             modifiers: [.option, .command],
             notificationName: "markAllAsRead"
         )),
+        // ↩ — the list's own save (`TriageModifier`), which is what the
+        // command palette shows too. It was ⌃⌘S until 2026-09-24, the chord
+        // Toggle Sidebar owns; the menu item gave it up and has no chord.
         .own(KeyboardShortcutBinding(
             id: "saveToLibrary",
             displayName: "Save to Library",
             category: .paperActions,
-            key: .character("s"),
-            modifiers: [.control, .command],
+            key: .special(.return),
+            modifiers: .none,
             notificationName: "saveToLibrary"
         )),
         .own(KeyboardShortcutBinding(
@@ -403,6 +409,42 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
     public static let defaults = KeyboardShortcutsSettings(
         bindings: ShortcutCatalog.resolve(profile)
     )
+
+    // MARK: - Retired Defaults
+
+    /// Chords this table used to ship as DEFAULTS and no longer does.
+    ///
+    /// Settings persist the whole table per user (`KeyboardShortcutsStore`),
+    /// and `mergeWithDefaults` only ADDS rows a saved table lacks, so a
+    /// corrected default never reached anyone who had ever saved: their row
+    /// kept showing the old chord. Each entry here is (id, the old default);
+    /// a saved row still carrying exactly that chord is moved to today's
+    /// default. A row the user changed to anything else is theirs and stays.
+    static let retiredDefaults: [(id: String, key: ShortcutKey, modifiers: ShortcutModifiers)] = [
+        // ⌃⌘S is Toggle Sidebar; Paper ▸ Save to Library gave it up (2026-09-24).
+        ("saveToLibrary", .character("s"), [.control, .command]),
+        // The menu binds Notes ⌘5 and BibTeX ⌘6; this table had them swapped.
+        ("showBibTeXTab", .character("5"), .command),
+        ("showNotesTab", .character("6"), .command),
+    ]
+
+    /// `self` with every row still at a retired default moved to today's
+    /// default, and the ids that moved.
+    public func migratingRetiredDefaults() -> (settings: KeyboardShortcutsSettings, migrated: [String]) {
+        var result = self
+        var migrated: [String] = []
+        for retired in Self.retiredDefaults {
+            guard let index = result.bindings.firstIndex(where: { $0.id == retired.id }),
+                  result.bindings[index].key == retired.key,
+                  result.bindings[index].modifiers == retired.modifiers,
+                  let current = Self.defaults.binding(id: retired.id)
+            else { continue }
+            result.bindings[index].key = current.key
+            result.bindings[index].modifiers = current.modifiers
+            migrated.append(retired.id)
+        }
+        return (result, migrated)
+    }
 
     // MARK: - Documentation Export
 

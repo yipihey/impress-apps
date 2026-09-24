@@ -59,9 +59,31 @@ keys: ⏎ saves, `s` saves and stars, `*` stars
 hint in the menu, because a bare-key equivalent would fire while typing
 (the command palette shows ↩). The menu item had also never SAVED: it posted
 `.saveToLibrary`, which nothing observed from cdca0b23 on. The publication
-list now observes it and runs the ⏎ key's save. Settings ▸ Keyboard still
-lists Save to Library at ⌃⌘S: that table binds nothing for this action and
-its rows persist per user, so correcting it needs a settings migration.
+list now observes it and runs the ⏎ key's save. Settings ▸ Keyboard (and
+the ⌘/ window, which reads the same table) listed Save to Library at ⌃⌘S
+until 2026-09-24; the row reads ↩ now, the list's own save. The table's
+rows persist per user and `mergeWithDefaults` only ever ADDS rows, so a
+corrected default never reached a saved table:
+`KeyboardShortcutsSettings.retiredDefaults` moves a saved row that still
+carries an old default to the new one at load (and saves once), and leaves
+a chord the user chose alone. The same pass fixed Show Notes Tab / Show
+BibTeX Tab, which the table had swapped against View ▸ (Notes is ⌘5,
+BibTeX ⌘6). `KeyboardShortcutCatalogParityTests
+.testMenuActionRowsShowTheMenusChords` compares every menu-backed row with
+the chord `imbibApp.swift` binds.
+
+**A chord's menu item must DO something.** Save to Library was not alone:
+on 2026-09-24 seventeen more imbib menu commands posted a notification
+nothing on the Mac observed — among them ⇧⌘J Dismiss from Inbox, ⌃⌘M /
+⌘L / ⇧⌘L Move / Add / Remove Collection, ⌥⌘C Copy DOI/URL, ⇧⌘R Open
+References, ⇧⌘N Refresh, ⌥⌘2 Focus List, ⌃N Add Note, and ⌘1 / ⌘3
+(observed only by the iOS root since b748151d). Each is wired to the action
+that already existed (the list's Delete-key dismiss, the sidebar drop's
+move, the toolbar's Copy Link, Explore ▸ References, …).
+`MenuNotificationObserverTests` scans every post in `AppCommands` and fails
+on a name with no observer anywhere the Mac app links; the commands still
+unwired (⌘2, ⌘[ / ⌘], ⇧⌘C, ⌥⌘1 / ⌥⌘3, ⇧⌘F, ⇧⌘\, ⇧⌘?) are listed there by
+name with the reason, and leave the list when they are wired.
 `PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord` scans
 `imbibApp.swift` (plus the chassis's pane chords and View ▸ Layouts' ⌃⌘1–9)
 and fails if any chord is registered twice. Its first run found two more:

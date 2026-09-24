@@ -92,7 +92,18 @@ public actor SmartSearchProvider {
     // MARK: - Refresh (Auto-Import)
 
     /// Execute the search and auto-import results.
+    ///
+    /// Automatic work (`UndoCoordinator.performAutomatic`): the import is
+    /// already the undo-free background variant, but linking the results into
+    /// the smart search registered "Add to Collection" on the window's undo
+    /// stack every time a search ran.
     public func refresh() async throws {
+        try await UndoCoordinator.performAutomatic("smart search '\(name)'") {
+            try await refreshAutomatically()
+        }
+    }
+
+    private func refreshAutomatically() async throws {
         if query.hasPrefix("GROUP_FEED|") {
             Logger.smartSearch.errorCapture(
                 "Group feed '\(name)' incorrectly routed to SmartSearchProvider. " +

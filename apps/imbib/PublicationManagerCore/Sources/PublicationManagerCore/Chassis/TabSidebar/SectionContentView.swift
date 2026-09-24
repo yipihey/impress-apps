@@ -341,6 +341,9 @@ struct SectionContentView: View {
     }
 
     @State private var displayedPublication: PublicationRowData?
+    /// Paper ▸ Open References (⇧⌘R) — the Info tab's Explore ▸ References,
+    /// run for the displayed paper even when another tab is showing.
+    @State private var referencesRunner = PublicationExplorationRunner()
 
     /// Get the full publication detail for APIs that need the full model.
     private func getPublicationDetail(id: UUID) -> PublicationModel? {
@@ -630,6 +633,10 @@ struct SectionContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleRAGPanel)) { _ in
             showRAGPanel.toggle()
         }
+        // Edit ▸ Copy DOI/URL (⌥⌘C) and Paper ▸ Open References (⇧⌘R).
+        .modifier(PaperCommandObservers(
+            onCopyIdentifier: copyDisplayedIdentifier,
+            onOpenReferences: openDisplayedReferences))
         #endif
         .inspector(isPresented: $showRAGPanel) {
             RAGChatPanel(viewModel: ragViewModel,
@@ -1003,6 +1010,33 @@ struct SectionContentView: View {
         return nil
     }
 
+    /// Edit ▸ Copy DOI/URL (⌥⌘C): the toolbar's Copy Link, for the paper the
+    /// detail pane shows. Posted and observed by nothing until 2026-09-24.
+    private func copyDisplayedIdentifier() {
+        guard let pub = displayedPublication else { return }
+        copyLink(for: pub)
+        logInfo(
+            "Edit ▸ Copy DOI/URL: \(pub.citeKey) → \(webURL(for: pub)?.absoluteString ?? "no identifier")",
+            category: "clipboard")
+    }
+
+    /// Paper ▸ Open References (⇧⌘R): the Info tab's Explore ▸ References
+    /// (`PublicationExplorationRunner`), which files the references into an
+    /// exploration collection and navigates there. Observed by nothing until
+    /// 2026-09-24.
+    private func openDisplayedReferences() {
+        guard let pub = displayedPublication, !referencesRunner.isExploring else { return }
+        let id = pub.id
+        let runner = referencesRunner
+        logInfo("Paper ▸ Open References: exploring \(pub.citeKey)", category: "exploration")
+        Task {
+            await runner.run(.references, for: id, libraryManager: libraryManager)
+            if let failure = runner.errorMessage {
+                logWarning("Paper ▸ Open References failed: \(failure)", category: "exploration")
+            }
+        }
+    }
+
     private func copyLink(for pub: PublicationRowData) {
         guard let url = webURL(for: pub) else { return }
         NSPasteboard.general.clearContents()
@@ -1288,6 +1322,25 @@ struct SectionContentView: View {
             // Show the Info tab for the selected paper
             selectedDetailTab = .info
         }
+    }
+}
+#endif
+
+#if os(macOS)
+/// Menu commands that act on the paper the detail pane shows. A modifier of
+/// its own so `SectionContentView.body` stays within the type-checker's reach.
+private struct PaperCommandObservers: ViewModifier {
+    let onCopyIdentifier: () -> Void
+    let onOpenReferences: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .copyIdentifier)) { _ in
+                onCopyIdentifier()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openReferences)) { _ in
+                onOpenReferences()
+            }
     }
 }
 #endif
