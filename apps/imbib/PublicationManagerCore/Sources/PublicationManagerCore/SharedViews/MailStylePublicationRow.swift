@@ -398,38 +398,17 @@ public struct MailStylePublicationRow: View, Equatable {
                 [data.id]
             }
 
-            let provider = NSItemProvider()
-            // Encode all UUIDs as JSON array in a single representation
-            provider.registerDataRepresentation(
-                forTypeIdentifier: UTType.publicationID.identifier,
-                visibility: .all
-            ) { completion in
-                // Encode as JSON array of UUID strings
-                let uuidStrings = idsToDrag.map { $0.uuidString }
-                let jsonData = try? JSONEncoder().encode(uuidStrings)
-                completion(jsonData, nil)
-                return nil
-            }
-            // Register cross-app ImpressPaperRef representation
-            provider.registerDataRepresentation(
-                forTypeIdentifier: UTType.impressPaperReference.identifier,
-                visibility: .all
-            ) { completion in
-                let ref = ImpressPaperRef(
+            return PublicationDragPayload.provider(
+                ids: idsToDrag,
+                paperRef: ImpressPaperRef(
                     id: data.id,
                     citeKey: data.citeKey ?? data.id.uuidString,
                     title: data.title,
                     doi: data.doi
-                )
-                let jsonData = try? JSONEncoder().encode(ref)
-                completion(jsonData, nil)
-                return nil
-            }
-            // Set suggested name for drag preview
-            provider.suggestedName = idsToDrag.count > 1
-                ? "\(idsToDrag.count) publications"
-                : data.title
-            return provider
+                ),
+                suggestedName: idsToDrag.count > 1
+                    ? "\(idsToDrag.count) publications"
+                    : data.title)
         }
         .overlay {
             // Drop target visual feedback
@@ -960,3 +939,47 @@ public struct MailStylePublicationRow: View, Equatable {
     }
 }
 
+
+// MARK: - Drag payload
+
+/// What dragging publications puts on the pasteboard, spelled once.
+///
+/// Every sidebar drop handler reads `UTType.publicationID` as a JSON array of
+/// UUID strings (`ImbibSidebarViewModel.handleExternalDrop`), and a sibling app
+/// reads `UTType.impressPaperReference`. This row was the only writer; the
+/// layout tree's `list` pane is the second (plan wave 6, W3 — a paper dragged
+/// from it onto an outline collection row), and a second hand-written copy of
+/// this payload is exactly how a drop starts silently decoding nothing.
+enum PublicationDragPayload {
+
+    static func provider(
+        ids: [UUID], paperRef: ImpressPaperRef?, suggestedName: String
+    ) -> NSItemProvider {
+        let provider = NSItemProvider()
+        // Encode all UUIDs as JSON array in a single representation
+        provider.registerDataRepresentation(
+            forTypeIdentifier: UTType.publicationID.identifier,
+            visibility: .all
+        ) { completion in
+            // Encode as JSON array of UUID strings
+            let uuidStrings = ids.map { $0.uuidString }
+            let jsonData = try? JSONEncoder().encode(uuidStrings)
+            completion(jsonData, nil)
+            return nil
+        }
+        // Register cross-app ImpressPaperRef representation
+        if let paperRef {
+            provider.registerDataRepresentation(
+                forTypeIdentifier: UTType.impressPaperReference.identifier,
+                visibility: .all
+            ) { completion in
+                let jsonData = try? JSONEncoder().encode(paperRef)
+                completion(jsonData, nil)
+                return nil
+            }
+        }
+        // Set suggested name for drag preview
+        provider.suggestedName = suggestedName
+        return provider
+    }
+}

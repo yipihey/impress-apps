@@ -37,6 +37,12 @@ final class ImbibSidebarViewModel {
     }
     var selectedTab: ImbibTab? = .inbox
 
+    /// The sections a layout-tree `outline` pane may show, from Rust
+    /// (`outline_sections_json`, plan wave 6 W3). nil — every host but that
+    /// pane — leaves `shouldShowSection` exactly as it was. Set before
+    /// `configure()`, so the first tree is already filtered.
+    var layoutSectionFilter: Set<SidebarSectionType>?
+
     /// Resolved sources for the current multi-selection — derived from NSOutlineView's
     /// `selectedRowIndexes` via `SidebarOutlineConfiguration.onMultipleSelectionChanged`.
     /// Empty when 0 or 1 rows are selected (downstream uses the single-source path).
@@ -695,6 +701,7 @@ final class ImbibSidebarViewModel {
         // Thin-twin: the app-shell config restricts which sections exist at all
         // (imprint = Manuscripts facet only). Content gating applies on top.
         guard shellConfiguration.permits(section) else { return false }
+        if let layoutSectionFilter, !layoutSectionFilter.contains(section) { return false }
         switch section {
         case .inbox, .libraries, .search, .flagged:
             return true

@@ -266,7 +266,11 @@ public final class ViewKindRegistry: @unchecked Sendable {
 
     public static let builtin: ViewKindRegistry = ViewKindRegistry([
         // ---- rendered ----
-        ViewKindFactory(kind: .outline) { AnyView(LayoutRowsPaneView(context: $0, style: .outline)) },
+        // The navigator IS the chassis sidebar (plan wave 6, W3):
+        // `LayoutOutlinePaneView` hosts `ImbibSidebarColumn` and turns a
+        // selected row into Rust's verbs. `LayoutRowsPaneView`'s `.outline`
+        // style stays for a host that registers it explicitly.
+        ViewKindFactory(kind: .outline) { AnyView(LayoutOutlinePaneView(context: $0)) },
         ViewKindFactory(kind: .list) { AnyView(LayoutRowsPaneView(context: $0, style: .list)) },
         ViewKindFactory(kind: .info) { AnyView(LayoutInfoPaneView(context: $0)) },
         ViewKindFactory(kind: .surface) { AnyView(LayoutSurfacePaneView(context: $0)) },
@@ -347,24 +351,38 @@ struct LayoutPlaceholderPaneView: View {
     }
 }
 
-/// D11's migration leaf: today's chassis, whole, inside one pane.
+/// D11's migration leaf.
 ///
-/// For L6 this is the app's CURRENT route — `TabContentView`, exactly what
-/// the flagged-off build renders — so that turning the tree on shows the same
-/// app rather than a half-converted one. It reads the same three view models
-/// and the same `AppShellConfiguration` from the environment that
-/// `ChassisRootView` already supplies, so there is nothing to wire.
+/// Two shapes, chosen by the pane's `view_state`:
 ///
-/// L8 replaces this with a per-ROUTE legacy host (the pane's query names the
-/// route), one section at a time, in the order ADR-0031 D11 sets out.
+/// * **Scoped** (plan wave 6, W3) — `view_state` carries `{"section",
+///   "node", "reason"}`, written by the outline for a row the algebra cannot
+///   express yet (`outline.rs`, `OutlineTarget::Legacy`): ONE section's route,
+///   `LayoutScopedLegacyPaneView`, not the chassis.
+/// * **Whole** — no such `view_state`: today's chassis, `TabContentView`,
+///   exactly what the flagged-off build renders, for a layout written before
+///   the outline existed. It reads the same view models and
+///   `AppShellConfiguration` from the environment `ChassisRootView` supplies.
 @MainActor
 struct LayoutLegacyPaneView: View {
 
     let context: PaneContext
 
+    private var scope: (section: String?, node: LayoutJSONValue, reason: String?)? {
+        guard let state = context.spec?.viewState.objectValue,
+              let node = state["node"], node.objectValue != nil
+        else { return nil }
+        return (state["section"]?.stringValue, node, state["reason"]?.stringValue)
+    }
+
     var body: some View {
-        TabContentView()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if let scope {
+            LayoutScopedLegacyPaneView(
+                context: context, section: scope.section, node: scope.node, reason: scope.reason)
+        } else {
+            TabContentView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 
@@ -443,9 +461,21 @@ struct LayoutRowsPaneView: View {
     /// settings pane that claims to control it.
     @State private var listSettings: ListViewSettings = ListViewSettingsStore.loadSettingsSync()
 
+    /// The toolbar band this pane sits under (`LayoutLinearSplit` reclaims it
+    /// for every horizontal child but the first — which is where every
+    /// preset's `list` pane is). Without it the first row drew under the
+    /// window toolbar: the W2 screenshots of impel, impart and implore all
+    /// showed it. Padding OUTSIDE the scroll view, not a content margin: the
+    /// band is measured after the first layout, and a content margin that
+    /// grows then leaves the scroll origin where it was, so at launch the
+    /// first row still sat under the title bar (seen in impress, 2026-09-23)
+    /// until the rows were replaced.
+    @Environment(\.layoutToolbarBand) private var toolbarBand
+
     var body: some View {
         styledList
-            .overlay { emptyOverlay }
+            .padding(.top, toolbarBand)
+            .overlay { emptyOverlay.padding(.top, toolbarBand) }
             // The rows are query RESULTS, so they re-run when the
             // invalidation feed marks this pane stale — `refreshToken` is one
             // Equatable value to watch instead of a Set's identity. NOT
@@ -473,7 +503,7 @@ struct LayoutRowsPaneView: View {
     private var rowList: some View {
         List(selection: selection) {
             ForEach(rows) { row in
-                rowView(row).tag(row.id)
+                draggable(rowView(row), row).tag(row.id)
             }
         }
     }
@@ -518,6 +548,30 @@ struct LayoutRowsPaneView: View {
             }
         } else {
             compactRow(row)
+        }
+    }
+
+    /// A publication row drags what the chassis list drags
+    /// (`PublicationDragPayload`): the selection when the row is part of it,
+    /// else the row — so a paper can be dropped on an outline collection or
+    /// library row, whose drop handler is the sidebar's own
+    /// (`handleExternalDrop`). Other kinds' rows are not drag sources here
+    /// yet; their payloads live in their list wrappers.
+    @ViewBuilder
+    private func draggable(_ content: some View, _ row: LayoutPaneRow) -> some View {
+        if style == .list, let id = UUID(uuidString: row.id),
+            row.mailStyleRow?.kind == .publication
+        {
+            let context = context
+            content.itemProvider {
+                let selected = context.currentSelection.compactMap(UUID.init(uuidString:))
+                let ids = selected.contains(id) && selected.count > 1 ? selected : [id]
+                return PublicationDragPayload.provider(
+                    ids: ids, paperRef: nil,
+                    suggestedName: ids.count > 1 ? "\(ids.count) publications" : row.title)
+            }
+        } else {
+            content
         }
     }
 

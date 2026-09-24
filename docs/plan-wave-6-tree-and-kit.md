@@ -273,3 +273,119 @@ preparation may start earlier on a branch).
   Fixed in its own PR (#48: the lane builds it beside the other five). Worth knowing for
   W6: a package that declares a binary target is resolved by every project that references
   the package, whichever targets link it.
+
+- 2026-09-23 — **W3 done: the navigator is the sidebar.** Proven live on impress (23125,
+  every section) and impel (23124, one section), both built from
+  `claude/wave6-w3-outline`, flag on per bundle id.
+- **What was built, and the one decision that shaped it.** The row said the outline's
+  rows are "the app's sections and their query-defined children", with counts from "the
+  same queries the badges use today", and context menus / rename / delete / drag / drop
+  "through the chassis' existing capabilities". Those are all ONE object already:
+  `ImbibSidebarViewModel` behind `SidebarOutlineView`. So the `outline` view kind now
+  hosts that sidebar (`LayoutOutlinePaneView`), and what changed is only what SELECTING a
+  row does. `TabContentView`'s column and lifecycle — configure, store events, navigation
+  notifications, the delete confirmations and sheets its menus raise — moved verbatim to
+  `TabSidebar/ImbibSidebarHost.swift` and both hosts apply them; the flag-off window is
+  the same view tree it was (its Delete Library confirmation re-checked live after the
+  move). No builder was added, so `SidebarStoreCallRatchetTests` holds unchanged.
+- **Rust decides, Swift maps.** `crates/impress-layout-service/src/outline.rs`:
+  `OutlineNode` (a row, in data), `outline_target` (→ `Query` | `Legacy{section, reason}` |
+  `Inert`), `outline_verbs` (→ `select` on the channel + `set-query` on the `list` role, or
+  `set-pane` when that pane is not a list; `set-pane` to a scoped `legacy` pane; a detail
+  `set-pane` when the list's KIND changes, because a channel carries one value per kind
+  and a publication `$item` never hears a figure), `initial_selection_applies`, and
+  `outline_sections` (per-app section table: named queries + the MATERIALIZE_FIRST
+  sections the app shows; `every_visible_section_is_accounted_for` now also asserts the
+  outline's table equals each app's `visibleSections`). 15 tests. FFI: two free
+  functions, `outline_sections_json(app_id)` and `outline_row_verbs_json(app_id,
+  node_json, bindings_json, list_spec_json, detail_spec_json, initial)`; binding
+  regenerated, +2 declarations, 0 lost. No verb, `PaneSpec` field or `ViewKindId` was
+  added — the scoped legacy pane is `view_state {section, node, reason}`.
+- **Proven live, impress.** `/api/layout/tree` after each click (CGEvents): Red flag →
+  `set-query flag(red)`, `pane 2 display: 2 rows` (badge 2); Tom's papers → `select
+  library` + `set-query parent=cfa8e8d5…`, 153 rows (badge 153), channel 1 carries the
+  library; ULDM › "State, Coherence…" → `select collection` + `set-query
+  collection=446ba33c…`, 78 rows (badge 78); a list click → `pane 3 info: publication detail
+  for 546E03A1…` and the pane showed that paper. Badges compared with the flag-off build
+  on the same store: Save 2657★116, Dismissed 2992★71, Exploration 533, Tom's papers
+  153★7, ChemistryKernels 25, ULDM 78, Any Flag 2, Red 2 — identical. SciX Search (a search
+  form) → `set-pane` to `legacy` with `view_state.section = search`, and the pane showed the
+  ADS Modern form alone under "search — hosted, not yet a query"; Red again → `set-pane`
+  back to `list`, params kept. Matrix rows with a throwaway collection "ZZ W3 outline
+  probe" in ChemistryKernels: library menu (Rename / New Collection / Add Feed… / Export… /
+  Import… / Delete Library), New Collection, collection menu → Rename (`renamed … → 'ZZ W3
+  outline probe'`), a paper dragged from the tree's list onto it (`filed 1/1 item(s)`, badge
+  0 → 1, selecting it → 1 row), New Subcollection, the subcollection dragged onto the library
+  (`reparented … → root`), Delete from the menu (`members unfiled: 0`) and ⌫ (`members
+  unfiled: 1`); a throwaway library created from the Libraries header menu and deleted
+  through the confirmation alert. Libraries back to 7, collections back to what they were.
+  Keyboard: with the NSOutlineView first responder, l/h still walk the tree (focus 1→2,
+  3→2→1) — type-select does not take them; ↓ in the outline moves the row and the list
+  follows. The launch selection: with the list restored on Tom's papers, relaunch logged
+  `→ query, 0 verb(s) — not applied: the list is not on the preset's query`.
+- **The other four MATERIALIZE_FIRST sections** have no row in this store: the sidebar's own
+  content gates hide them (no readable SciX key; `sharedWithMe` is always hidden, a TODO in
+  the view model; 0 pending reviews; the Tags header is not selectable, and a tag ROW is a
+  query by MATERIALIZE_FIRST's own reasoning). The scoped pane was driven for each with
+  the same `set-pane` shape over `/api/layout/verb`: `pane 2 legacy: section reviewQueue
+  route reviewQueue`, `section sharedWithMe route sharedLibrary(CFA8E8D5…)` (the library's
+  153 papers, the chassis' own list), `section scixLibraries route scixLibrary(…BEEF)`
+  (blank: no such library), `section tags` → "Nothing to Show" (a header is not a route).
+- **Proven live, impel.** `outline: impel shows 2 sections from Rust (1 legacy: tags)`;
+  Runs → `set-query agent-run` + detail `set-pane` (`item: agent-run`), a run clicked →
+  `pane 3 info: agentRun detail for 0FE2885B…`; Failed (a task state) → scoped legacy
+  (`a task's lifecycle is payload.state…`), the agents route alone; Dashboard → scoped
+  legacy, impel's surface alone; Tasks → back to `task` in both panes.
+- **Tier B** gained `layout.outline_collection_row`: the node goes through the same
+  `outline_target` + `outline_verbs` the app calls, the verbs are posted, and the evidence
+  is read back — the list pane's query is the collection, channel 1 carries it, the list
+  logged `display: 0 rows` (a fresh collection; a first version matched any `display:` line
+  and passed on impel with "500 rows" from the OLD query's refresh — tightened), and a
+  list `select` logged `pane 3 info: … detail for <that id>`. No collection is created: a
+  fresh id is a valid empty query. `IMPRESS_LAYOUT_SELFTEST_BASE_URL=…
+  layout-selftest-service_run-selftest --tier b`: impress **9/9, 0 skipped** (369 ms), impel
+  **9/9, 0 skipped**; `tiles`/`windows`/`channels` identical before and after on both, no
+  layouts, no surfaces.
+- **Also fixed:** the `list` pane's first row sat under the toolbar (W2's leftover d) —
+  `LayoutRowsPaneView` pads by `layoutToolbarBand`. A content margin was tried first and
+  failed at launch: the band is measured after the first layout and a growing margin left
+  the scroll origin where it was. And the tree's `list` rows had no drag source, so a paper
+  could not reach an outline collection; publication rows now write
+  `PublicationDragPayload`, the payload `MailStylePublicationRow` already wrote, extracted
+  so there is one spelling.
+- **Found, not fixed (recorded in the matrix):** (a) the `inbox` named query is UNREAD in
+  the Inbox (`q::inbox`) — 57 rows — where the flag-off route lists every Inbox paper (68);
+  the section has no badge, so no count disagrees, but the list does; changing a named
+  query's meaning is L7's table, not this row. (b) A new library/collection does not open
+  its inline rename field — the flag-off sidebar on the same build does the same, so it is
+  pre-existing. (c) Deleting the SELECTED collection leaves the list on its empty query (a
+  nil selection sends no verb). (d) Beside a scoped legacy route the tree's `info` pane keeps
+  the last selection, and the hosted route's own list|detail split is cramped in a
+  list-width column. (e) Figure / manuscript rows of the tree's list are not drag sources
+  yet. (f) "`layout changed elsewhere → version N`" follows most local verbs in the log,
+  naming a version this controller itself applied a moment earlier; it re-reads the tree
+  and draws the same thing. Not investigated, and not compared with a `main` build.
+- **Not proven here:** the other four chassis apps' outlines (implore, impart, imprint)
+  were not launched from this branch; the code path is the same `LayoutOutlinePaneView`
+  and Rust's table covers them (`every_visible_section_is_accounted_for`).
+- 2026-09-24 — **W3 follow-up: a gesture no longer redraws the tree for its own writes.** Every
+  local verb was followed by one or two `layout changed elsewhere → version N` lines naming
+  versions this process had just applied, each a full `reload()` and display pass. The feed
+  reports every version the layout passes through, each report hops to the main actor in its
+  own `Task`, so it lands after the local `apply` has adopted a later snapshot; the guard was
+  `version != self.version`, so an outline library click (`select` then `set-query`, 3 → 5)
+  reloaded twice more for 3 and 4. It is now `version > self.version`
+  (`LayoutController.isNewer`, three FFI-free tests): exact, because the counter is one
+  `AtomicU64` per `SharedLayout` that only `fetch_add`s and a change made elsewhere bumps the
+  same counter. Proven live on impress built from this branch: a library click logs two verbs,
+  one `pane 2 display: 153 rows` and **0** stale reloads; `impress-cli apply-layout --ordinal 1`
+  from a second process still logs `layout changed elsewhere → version 6`, one display pass,
+  and the list back on the Default query. PMC `swift test` 2090 XCTest, 0 failures.
+- 2026-09-24 — **Correction: the package cache was never damaged.** W2 and W3 each pushed with
+  `SKIP_DUAL_PLATFORM_CHECK=1`, blaming "the machine's global Swift package cache" for the
+  hook's `Couldn't check out revision … unable to read tree`. The cause was the hook: git
+  exports `GIT_DIR=<repo>/.git/worktrees/<name>` into a hook run from a worktree, and the git
+  xcodebuild spawns for package checkouts inherited it and looked for every package's tree in
+  this repository. Reproduced by checking out NetworkImage from the SwiftPM cache with and
+  without that `GIT_DIR`. Fixed in #53 (the hook unsets the git environment after finding the
+  repo root); this branch's follow-up push went through the full hook with no bypass.
