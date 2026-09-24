@@ -15,6 +15,7 @@
 import Foundation
 import SwiftUI
 import ImpressLogging
+import PublicationManagerCore
 
 // MARK: - Layout state
 
@@ -182,4 +183,86 @@ final class LayoutStore {
         }
     }
 }
+// MARK: - The Layouts menu (plan wave 6 W5)
+
+/// "A manuscript editor window is key." Published by `ManuscriptEditorView`
+/// only — the chassis window never sets it — so the Layouts menu can tell the
+/// two windows apart. `focusedManuscriptID` cannot: the chassis' manuscript
+/// section publishes that one too.
+struct ImprintEditorWindowKey: FocusedValueKey {
+    typealias Value = Bool
+}
+
+extension FocusedValues {
+    var imprintEditorWindow: Bool? {
+        get { self[ImprintEditorWindowKey.self] }
+        set { self[ImprintEditorWindowKey.self] = newValue }
+    }
+}
+
+/// View ▸ Layouts. Two kinds of layout, one chord, decided by the key window.
+///
+/// imprint has two windows with two layout models: the chassis window, which
+/// IS the layout tree (the chassis' `ImpressLayoutOrdinalButtons`: ⌃⌘N applies
+/// the tree's ordinal N, presets first — ⌃⌘1 is imprint's Default), and the
+/// manuscript editor window, whose arrangement is this file's
+/// `PaneLayoutState` (Writing, Review, Two-up, and the user's own). Before W5
+/// the editor layouts took ⌃⌘1–9 unconditionally, so ⌃⌘1 in the chassis
+/// window applied 'Writing' to an editor window that was not even open and
+/// the tree never heard the chord.
+///
+/// Now: while an editor window is key, ⌃⌘N is its N-th saved layout, as it
+/// always was there; otherwise ⌃⌘N is the tree's ordinal, and the editor
+/// layouts stay listed (no chord) for the next time an editor is key.
+struct ImprintLayoutsMenu: View {
+
+    let appState: AppState
+    let saveCurrent: () -> Void
+
+    @FocusedValue(\.imprintEditorWindow) private var editorWindowIsKey
+
+    var body: some View {
+        Menu("Layouts") {
+            if editorWindowIsKey == true {
+                editorLayouts(withChords: true)
+            } else {
+                ImpressLayoutOrdinalButtons()
+                Divider()
+                editorLayouts(withChords: false)
+            }
+
+            Divider()
+
+            Button("Save Current Layout…") {
+                saveCurrent()
+            }
+
+            if !LayoutStore.shared.layouts.isEmpty {
+                Menu("Delete Layout") {
+                    ForEach(LayoutStore.shared.layouts) { layout in
+                        Button(layout.name) {
+                            LayoutStore.shared.delete(layout)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func editorLayouts(withChords: Bool) -> some View {
+        ForEach(Array(LayoutStore.shared.layouts.enumerated()), id: \.element.id) { index, layout in
+            let button = Button(withChords ? layout.name : "Editor: \(layout.name)") {
+                LayoutStore.shared.apply(layout, to: appState)
+            }
+            if withChords, index < 9 {
+                button.keyboardShortcut(
+                    KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control])
+            } else {
+                button
+            }
+        }
+    }
+}
+
 #endif // os(macOS)

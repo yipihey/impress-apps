@@ -81,6 +81,9 @@ struct ManuscriptEditorView: View {
             }
         }
         .focusedSceneValue(\.focusedManuscriptID, manuscriptID)
+        // The Layouts menu's ⌃⌘1–9 belong to this window's saved arrangements
+        // only while it is key (`ImprintLayoutsMenu`).
+        .focusedSceneValue(\.imprintEditorWindow, true)
         .task(id: manuscriptID) {
             session = ManuscriptSessionRegistry.shared.session(for: manuscriptID)
         }

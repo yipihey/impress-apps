@@ -751,38 +751,11 @@ struct ImprintApp: App {
         }
     }
 
-    /// View ▸ Layouts: user-named pane arrangements (declarative layout
-    /// system, PaneLayout.swift). First nine get ⌃⌘1-9 so switching a saved
-    /// layout is one chord.
+    /// View ▸ Layouts — the tree's ⌃⌘1–9 in the chassis window, the editor
+    /// window's saved arrangements while an editor is key (`ImprintLayoutsMenu`,
+    /// PaneLayout.swift; plan wave 6 W5).
     private var layoutsMenu: some View {
-        Menu("Layouts") {
-            ForEach(Array(LayoutStore.shared.layouts.enumerated()), id: \.element.id) { index, layout in
-                let button = Button(layout.name) {
-                    LayoutStore.shared.apply(layout, to: appState)
-                }
-                if index < 9 {
-                    button.keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control])
-                } else {
-                    button
-                }
-            }
-
-            Divider()
-
-            Button("Save Current Layout…") {
-                promptForLayoutName()
-            }
-
-            if !LayoutStore.shared.layouts.isEmpty {
-                Menu("Delete Layout") {
-                    ForEach(LayoutStore.shared.layouts) { layout in
-                        Button(layout.name) {
-                            LayoutStore.shared.delete(layout)
-                        }
-                    }
-                }
-            }
-        }
+        ImprintLayoutsMenu(appState: appState, saveCurrent: promptForLayoutName)
     }
 
     /// Name prompt for "Save Current Layout…". NSAlert keeps this dependency-
