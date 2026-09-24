@@ -105,15 +105,16 @@ jobs:
       - name: Kit plus impress-core in a scratch workspace
         run: ./scripts/check-kit-standalone.sh --strict
 
-  # --- Swift half (W6): add the package jobs here ---------------------------
-  # The Swift half of W6 adds a job (or jobs) on `runs-on: macos-15` for the
-  # same pull_request reason as above:
-  #   - ./scripts/check-kit-packages.sh   (ImpressLayout + ImpressSurface
-  #     manifests depend on nothing outside the kit's allowlist)
-  #   - swift build of packages/ImpressLayout (and the throwaway app target
-  #     that links only ImpressLayout + ImpressRustCore, if it is buildable
-  #     without the xcframework being rebuilt).
-  # The `paths` list above already names packages/ImpressLayout,
-  # packages/ImpressSurface and packages/ImpressRustCore, and
-  # scripts/check-kit-*.sh covers check-kit-packages.sh.
-  # ---------------------------------------------------------------------------
+  packages:
+    name: Kit Swift packages depend only on kit-grade packages
+    # The manifests are parsed as text, like check-chassis-deps.sh, so no Swift
+    # toolchain and no xcframework are needed and the cheapest runner will do.
+    # BUILDING packages/ImpressLayout needs ImpressRustCore's xcframework, which
+    # is a Rust build of impress-store-ffi; that happens on the self-hosted
+    # impress-app lane (push-only), which also runs this script.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ImpressLayout + ImpressSurface stay kit-grade (ADR-0033 D7)
+        run: ./scripts/check-kit-packages.sh
