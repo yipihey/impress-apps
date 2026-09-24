@@ -59,28 +59,7 @@ struct LayoutSourcePaneView: View {
             .onAppear { resolve() }
             .onChange(of: manuscriptID) { _, _ in resolve() }
             .onChange(of: sessionID) { _, _ in resolve() }
-            // Another view or another process changed this manuscript: merge
-            // it into the buffer (the editor applies it in place, D6). Two
-            // shapes arrive: an in-process write names the manuscript; a
-            // write from ANOTHER process (the CLI, an agent) reaches this one
-            // only as the store's cross-process signal, which names nothing
-            // (`noteExternalMutation` → `.structural`). The detail pane's
-            // Source tab hears only the first. `absorbExternalChange` compares
-            // hashes and returns at once when this manuscript did not move,
-            // so answering every structural event costs one row read.
-            .task(id: manuscriptID) {
-                guard let id = manuscriptID else { return }
-                for await event in ImbibImpressStore.shared.events.subscribe() {
-                    switch event {
-                    case .itemsMutated(_, let ids) where ids.contains(id):
-                        editorSession?.absorbExternalChange()
-                    case .structural:
-                        editorSession?.absorbExternalChange()
-                    default:
-                        break
-                    }
-                }
-            }
+            .manuscriptLiveness(editorSession, manuscriptID: manuscriptID)
     }
 
     @ViewBuilder
@@ -163,6 +142,15 @@ struct LayoutSourcePaneView: View {
             paneSession.show(nil)
             editorSession = nil
             readOnlySnapshot = nil
+            if let raw = rawItem {
+                // The same kind of line `info` writes for an item it cannot
+                // show: the pane followed the selection, and said why there
+                // is no editor.
+                logInfo(
+                    "pane \(context.tile) source: \(context.primaryKind ?? "item") \(raw) — "
+                        + "not a manuscript, no editor",
+                    category: "layout")
+            }
             return
         }
         // ADR-0023 D4, at session CREATION: a file-backed manuscript never
@@ -187,6 +175,48 @@ struct LayoutSourcePaneView: View {
                 + "(\(SourcePaneSession.registry.count) source sessions live)"
                 + (session == nil ? " — not in the store" : ""),
             category: "layout")
+    }
+}
+/// Keep a manuscript session current with writes made elsewhere (D6).
+///
+/// Two shapes arrive: an in-process write names the manuscript; a write from
+/// ANOTHER process (the CLI, an agent) reaches this one only as the store's
+/// cross-process signal, which names nothing (`noteExternalMutation` →
+/// `.structural`). The detail pane's Source tab hears only the first.
+/// `absorbExternalChange` compares hashes and returns at once when this
+/// manuscript did not move, so answering every structural event costs one row
+/// read.
+private struct ManuscriptLiveness: ViewModifier {
+    let session: ManuscriptEditorSession?
+    let manuscriptID: UUID?
+
+    /// Keyed on the SESSION too: the task captures `session` when it starts,
+    /// and on a pane's first pass that is still nil.
+    private struct Key: Hashable {
+        let manuscriptID: UUID?
+        let session: ObjectIdentifier?
+    }
+
+    func body(content: Content) -> some View {
+        content.task(id: Key(manuscriptID: manuscriptID, session: session.map(ObjectIdentifier.init))) {
+            guard let id = manuscriptID else { return }
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                switch event {
+                case .itemsMutated(_, let ids) where ids.contains(id):
+                    session?.absorbExternalChange()
+                case .structural:
+                    session?.absorbExternalChange()
+                default:
+                    break
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    func manuscriptLiveness(_ session: ManuscriptEditorSession?, manuscriptID: UUID?) -> some View {
+        modifier(ManuscriptLiveness(session: session, manuscriptID: manuscriptID))
     }
 }
 #endif

@@ -89,7 +89,7 @@ const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
 /// maps this list, so a capability added below without a description here
 /// fails to compile rather than silently vanishing from a headless run.
-const CATALOGUE: [(&str, &str); 9] = [
+const CATALOGUE: [(&str, &str); 10] = [
     ("app.reachable", "impress HTTP automation is reachable"),
     (
         "layout.apply_preset",
@@ -122,6 +122,10 @@ const CATALOGUE: [(&str, &str); 9] = [
     (
         "layout.reading_pdf_pane",
         "A `pdf` pane split beside the detail pane shows the paper selected in the list",
+    ),
+    (
+        "layout.source_pane_session",
+        "A `source` pane keeps its session through split, swap and a preset; a new source pane gets its own",
     ),
 ];
 
@@ -404,6 +408,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(hidden_share_capability(&http).await);
     out.push(outline_collection_capability(&http).await);
     out.push(reading_pdf_pane_capability(&http).await);
+    out.push(source_pane_session_capability(&http).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
@@ -699,7 +704,8 @@ async fn channel_selection_capability(http: &Http) -> CapabilityResult {
 /// `scope: collection(<id>)`; channel 1 carries the collection
 /// (`select` on the navigator); the list pane logged `pane <n> display:`
 /// after the verb (it re-ran its query); after a `select` in the list, the
-/// detail pane logged `pane <n> info: <kind> detail for <id>` (it followed).
+/// detail pane logged `pane <n> <view kind>: … <id>` (it followed) — `info`
+/// in impress, `source` in imprint.
 async fn outline_collection_capability(http: &Http) -> CapabilityResult {
     let (id, description) = CATALOGUE[7];
     check(id, description, Tier::B, || async {
@@ -782,8 +788,10 @@ async fn outline_collection_capability(http: &Http) -> CapabilityResult {
         )
         .await?;
 
-        // 4. Select in the list; `info` follows.
-        let Some((detail_tile, _)) = detail else {
+        // 4. Select in the list; the detail pane follows — `info` in
+        // impress, `source` in imprint: each view kind logs
+        // `pane <n> <kind>: … <id>` when it resolves its item.
+        let Some((detail_tile, detail_spec)) = detail else {
             return Ok(format!(
                 "list tile {list_tile} re-queried to collection {collection} ({display}); no detail pane in this layout, so `info` was not checked"
             ));
@@ -799,11 +807,14 @@ async fn outline_collection_capability(http: &Http) -> CapabilityResult {
         }))
         .await?;
         // The line must name THIS item: an earlier capability's selection
-        // logged the same `pane N info:` prefix moments ago.
+        // logged the same `pane N <kind>:` prefix moments ago.
         let followed = wait_for_log(
             http,
             &before_select,
-            &[&format!("pane {detail_tile} info: "), &item.to_string()],
+            &[
+                &format!("pane {detail_tile} {}: ", detail_spec.view_kind),
+                &item.to_string(),
+            ],
         )
         .await?;
 
@@ -949,6 +960,166 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
         http.verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": pdf_tile } }))
             .await?;
         outcome
+    })
+    .await
+}
+
+/// ADR-0031 D6 in the running app: the session id Rust gives a `source` pane
+/// is the pane's for good. A `source` pane is split in beside the detail
+/// pane (whatever that pane shows — over publications the pane renders its
+/// "edits manuscripts" state, but the session is the tree's either way), the
+/// app is seen to open the editor session under that id, and then:
+///
+/// * a split whose new spec is a COPY of the source pane, session included,
+///   leaves the source pane its id and gives the copy a different one;
+/// * a split with a `pdf` pane (which wraps the source pane in a new
+///   container) and a swap with its sibling change nothing;
+/// * re-applying preset 1 keeps the detail pane's session when the detail
+///   pane is itself `source` (imprint's Default), by role.
+///
+/// Everything it split is closed again; the restore step re-applies the
+/// arrangement that was live.
+async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
+    let (id, description) = CATALOGUE[9];
+    check(id, description, Tier::B, || async {
+        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
+            .await?;
+        let tree = http.tree().await?;
+        let detail = tile_with_role(&tree, "detail")?;
+        let detail_pane = pane_of_tree(&tree, detail)?;
+        let session_at = |tree: &Value, tile: u64| -> Option<String> {
+            pane_of_tree(tree, tile)
+                .ok()?
+                .get("session")?
+                .as_str()
+                .map(str::to_string)
+        };
+        let detail_session = session_at(&tree, detail);
+
+        // 1. A source pane beside the detail pane, from the detail pane's spec.
+        let mut spec = detail_pane.clone();
+        let object = spec
+            .as_object_mut()
+            .ok_or_else(|| "the detail pane is not an object".to_string())?;
+        object.insert("view_kind".into(), json!("source"));
+        object.remove("role");
+        object.remove("session");
+        let before = log_cursor();
+        let source = http
+            .verb(&json!({
+                "verb": "split",
+                "target": { "ref": "id", "tile": detail },
+                "dir": "horizontal",
+                "after": true,
+                "new": spec
+            }))
+            .await?
+            .get("focused")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "the split did not report the new tile".to_string())?;
+        let tree = http.tree().await?;
+        let session = session_at(&tree, source)
+            .ok_or_else(|| format!("the new source pane {source} was given no session"))?;
+        let opened = wait_for_log(http, &before, &["source session", &session, "opened"]).await?;
+
+        let mut made = vec![source];
+        let outcome = async {
+            // 2. A copy of the source pane, session and all.
+            let copy_spec = pane_of_tree(&tree, source)?;
+            let copy = http
+                .verb(&json!({
+                    "verb": "split",
+                    "target": { "ref": "id", "tile": source },
+                    "dir": "vertical",
+                    "after": true,
+                    "new": copy_spec
+                }))
+                .await?
+                .get("focused")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "the second split did not report its tile".to_string())?;
+            made.push(copy);
+            let tree = http.tree().await?;
+            let copy_session = session_at(&tree, copy)
+                .ok_or_else(|| format!("the copied source pane {copy} has no session"))?;
+            if session_at(&tree, source).as_deref() != Some(session.as_str()) {
+                return Err(format!(
+                    "the split source pane {source} lost session {session}"
+                ));
+            }
+            if copy_session == session {
+                return Err(format!(
+                    "the copy {copy} shares session {session} with the pane it was split from"
+                ));
+            }
+
+            // 3. Wrap it in a new container with a `pdf` pane, then swap.
+            let mut pdf_spec = detail_pane.clone();
+            if let Some(o) = pdf_spec.as_object_mut() {
+                o.insert("view_kind".into(), json!("pdf"));
+                o.remove("role");
+                o.remove("session");
+            }
+            let pdf = http
+                .verb(&json!({
+                    "verb": "split",
+                    "target": { "ref": "id", "tile": source },
+                    "dir": "horizontal",
+                    "after": true,
+                    "new": pdf_spec
+                }))
+                .await?
+                .get("focused")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "the pdf split did not report its tile".to_string())?;
+            made.push(pdf);
+            http.verb(&json!({
+                "verb": "swap",
+                "a": { "ref": "id", "tile": source },
+                "b": { "ref": "id", "tile": copy }
+            }))
+            .await?;
+            let tree = http.tree().await?;
+            if session_at(&tree, source).as_deref() != Some(session.as_str())
+                || session_at(&tree, copy).as_deref() != Some(copy_session.as_str())
+            {
+                return Err("a wrap or a swap changed a pane's session".to_string());
+            }
+            if session_at(&tree, pdf).is_some() {
+                return Err(format!("the `pdf` pane {pdf} was given a session"));
+            }
+            Ok((copy, copy_session, pdf))
+        }
+        .await;
+
+        // Tidy up whatever was made, newest first, even after a failure.
+        for tile in made.iter().rev() {
+            let _ = http
+                .verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": tile } }))
+                .await;
+        }
+        let (copy, copy_session, pdf) = outcome?;
+
+        // 4. The preset again: the detail pane keeps its own session.
+        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
+            .await?;
+        let tree = http.tree().await?;
+        let detail_after = session_at(&tree, tile_with_role(&tree, "detail")?);
+        let preset_note = match (&detail_session, &detail_after) {
+            (Some(before), Some(after)) if before == after => {
+                format!("preset 1 re-applied, detail editor kept {before}")
+            }
+            (Some(before), after) => {
+                return Err(format!(
+                    "re-applying preset 1 changed the detail editor's session {before} → {after:?}"
+                ))
+            }
+            (None, _) => "the detail pane is not a source pane here".to_string(),
+        };
+        Ok(format!(
+            "source tile {source} kept {session} (app: `{opened}`); its copy {copy} got \
+             {copy_session}; wrapped with pdf tile {pdf} and swapped, unchanged; {preset_note}"
+        ))
     })
     .await
 }

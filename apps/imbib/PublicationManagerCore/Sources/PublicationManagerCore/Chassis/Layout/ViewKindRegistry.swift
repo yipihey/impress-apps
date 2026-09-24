@@ -282,8 +282,12 @@ public final class ViewKindRegistry: @unchecked Sendable {
         // `PDFTab`, `NotesTab` and `BibTeXTab` unchanged, fed from the pane's
         // `single_item` / `$item` with the publication detail lifecycle
         // supplied by `LayoutPublicationTabPaneView` rather than `DetailView`.
-        ViewKindFactory(kind: .pdf) {
-            AnyView(LayoutPublicationTabPaneView(context: $0, tab: .pdf))
+        // Over manuscripts `pdf` is the compiled preview (imprint's Writing
+        // preset puts it beside `source`); over anything else, PDFTab.
+        ViewKindFactory(kind: .pdf) { context in
+            context.primaryKind == RecordKindID.manuscript.rawValue
+                ? AnyView(LayoutManuscriptPreviewPaneView(context: context))
+                : AnyView(LayoutPublicationTabPaneView(context: context, tab: .pdf))
         },
         ViewKindFactory(kind: .notes) {
             AnyView(LayoutPublicationTabPaneView(context: $0, tab: .notes))
