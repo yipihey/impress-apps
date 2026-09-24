@@ -496,6 +496,79 @@ preparation may start earlier on a branch).
   deleted; the one PDF copy placed in impress's container was removed with the folder it
   needed.
 
+- 2026-09-24 — **W4 pass B: `source` is a session-bearing view kind; the manuscript editor
+  survives split, swap and preset change without `.id`.** Proven live in **imprint** (23121,
+  built from `claude/wave6-w4-kinds`, flag on) on two throwaway manuscripts made by the list
+  pane's Duplicate and deleted at the end; impress rebuilt from the branch for Tier B.
+  **Nothing here was ask-first:** Rust fills in the existing `PaneSpec.session` field; no
+  verb, no field, no view kind was added, and no `#[uniffi::export]` changed (the store-ffi
+  xcframework was rebuilt for the new Rust; its committed binding came out byte-identical).
+- **Rust decides the session id** (`impress_layout::sessions`, `tests/sessions.rs`, 13
+  tests; Tier A `source-pane-sessions`). `ViewKindId::SESSION_BEARING = [source]` is the one
+  list. After every verb `apply_in` runs `ensure_sessions_keeping(before.session_holders())`:
+  each session-bearing pane holds a session and, on a duplicate, the pane that held it before
+  keeps it — so a split's new pane gets a fresh id even when its spec is a copy of the
+  target's; swap/move/resize/close/set_view_kind change nothing; `set_pane` keeps the
+  replaced pane's session when the new spec names none (the outline re-points the detail pane
+  that way). `apply_tree` (a preset or a saved layout) calls `adopt_sessions_by_role`, so the
+  editor in the `detail` role survives ⌃⌘1/⌃⌘2; presets themselves stay sessionless and
+  deterministic (`normalize` assigns nothing, `matches_shipped` still compares). A first load
+  of a stored tree assigns and SAVES at once, so a second process reads the same ids.
+- **The host** (`Chassis/Layout/SourcePaneSession.swift`, `Manuscript/Editor/TypstEditorHost
+  .swift`). `SourcePaneSession: PaneSession` in `PaneSessionRegistry<SourcePaneSession>`
+  (capacity 6 off-screen; an on-screen session is never evicted — `isPinned`, new in the
+  protocol) owns a `TypstEditorHost`: scroll view, `TypstTextView`, the ONE coordinator (the
+  delegate), the Helix state, and an `UndoManager` per manuscript it has shown, installed as
+  `TypstTextView.documentUndoManager` (the view claims `undo:`/`redo:` only when it has one,
+  so the Source tab's ⌘Z still reaches the window). The text is the manuscript's
+  `ManuscriptEditorSession`; `flush()` flushes it, `abandon()` cancels its save. **Deviation
+  from the brief, on contact:** the representable does not return the host's scroll view
+  itself but a per-mount container it moves the editor into — SwiftUI may build the new pane
+  before dismantling the old one, and only a container lets the old teardown tell whether the
+  editor is still its own (here it dismantled first). And the per-document undo manager is an
+  override of `TypstTextView.undoManager`, not the delegate's `undoManager(for:)`: implementing
+  that delegate method would have changed the legacy editor's resolution too. The legacy path
+  is unchanged: no host → `makeEditor` per mount, as before; `ManuscriptSourceTab` takes its
+  session `@Bindable` rather than `@State` so it follows a new one.
+- **Proof, imprint.** (1) Outline renders under the tree: `outline: imprint shows 5 sections
+  from Rust (1 legacy: tags)` (its live row had been cold-started as imbib's publication
+  three-column, so the outline's first selection was refused as "not on the preset's query";
+  ⌃⌘1 → imprint's own Default fixed it). (2) Typed `W4B hjkl typed` (the `hjkl` reached the
+  editor), then a split, a split that wrapped the editor again, a swap, and preset 1 applied:
+  `ObjectIdentifier(0x0000000805a89900)` through `mounted (mount 2…5)`, ⌘Z/⇧⌘Z undid and
+  redid the typing every time (store body read back), one `source session … opened` for the
+  whole run, `session-ec2e2242…` unchanged in `/api/layout/tree`. (3) Two manuscripts in one
+  pane: ⌘Z in each undid only its own typing. (4) D6 liveness: `impress commit-manuscript-body`
+  from another process — `took an external change … in place: 0 chars at 134 replaced by 35`,
+  same view; racing a keystroke still inside the save debounce, Automerge forked from one head
+  and kept both (the retitle and ` U2`; later ` U3!` with the caret where it belonged). (5)
+  Delete: `discarded editor session` → `abandoned manuscript … — was on screen; pending save
+  cancelled, undo history dropped, nothing written`; rows=0 for 35 s after. Writing's `pdf`
+  pane now shows the manuscript's compiled preview (`ManuscriptPreviewContent`, moved out of
+  `ManuscriptDetailPane`'s Preview tab) instead of pass A's "Detail Unavailable".
+- **Found and fixed on the way.** (a) A write from another process reaches the app only as the
+  store's cross-process signal, a bare `.structural` (deferred 90 s after launch by
+  `StoreMutationObserver`); the detail pane's Source tab listens only for events naming its
+  manuscript. The pane answers both. (b) `absorbExternalChange`'s in-sync branch recorded the
+  buffer as last persisted, marking a keystroke inside the debounce as saved; it records the
+  store's text now. (c) After an in-place change the caret jumped back by the length of an
+  insertion above it (the caret-jump block read the binding's stale value in the same pass).
+  (d) A stale SwiftUI pass re-presented a just-deleted manuscript once (nothing written); the
+  host ignores a forgotten document until a fresh session shows it. (e) Tier B's
+  `outline_collection_row` waited for `pane N info:` whatever the detail kind; it waits for the
+  detail pane's own kind now.
+- **Tier B** gained `layout.source_pane_session`. imprint **11/11, 0 skipped**; impress
+  **11/11, 0 skipped**; both restored (impress's tree identical before and after).
+- **Found, not fixed:** in imprint ⌃⌘1 is claimed by the legacy `PaneLayout` menu command
+  (`Layout applied: 'Writing'`), not the tree — chord routing is W5's; applying a preset also
+  clears the channels, so the editor comes back on the next selection rather than at once; a
+  narrow pane clips the Source tab's columns (outline 160 + editor 320 + preview 280 +
+  inspector 300 minimums); `/api/manuscripts/{id}/body` (imbib) and the CLI commit post no
+  `manuscript-changed`, so a sibling editor hears them only through the 90-s-gated store
+  signal; the legacy detail pane's Source tab still ignores cross-process writes; `info` over a
+  manuscript says "unsupported detail". The tree flag set on imprint for the proof
+  (`impress.layoutTree.enabled`) was removed again; imprint's live layout row is left on its
+  own Default preset.
 ### Open gaps and their owners (assigned 2026-09-24 by the orchestrator)
 
 - List-pane row context menus, all kinds: W4 (pass A).
@@ -503,7 +576,7 @@ preparation may start earlier on a branch).
 - The Inbox named query shows unread only (57 rows vs 68 in the flag-off list): W5. Once the flag is gone the tree is the only root, so the Inbox must match the legacy list. Parity decides the query; it is not a product question.
 - Deleting the selected collection or library leaves the list on an empty query: W5. The expected behaviour is the legacy one, falling back to the parent.
 - The info pane keeps its last selection beside a hosted legacy route: W5.
-- implore, impart and imprint outlines not yet launched from a tree branch: imprint in W4 (pass B, which launches imprint for the editor proof); implore and impart in W5, whose proof is "Tier B green on every app".
+- implore, impart and imprint outlines not yet launched from a tree branch: imprint in W4 (pass B, which launches imprint for the editor proof) — **done in pass B** (imprint's outline renders; Tier B 11/11 on imprint); implore and impart in W5, whose proof is "Tier B green on every app".
 - Nothing above is ask-first.
 
 The first two are done in this pass (above).
