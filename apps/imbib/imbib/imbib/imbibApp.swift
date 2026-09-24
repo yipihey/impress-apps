@@ -1245,10 +1245,14 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // No chord. ⌃⌘S is Toggle Sidebar (the universal layer,
+            // `ImpressPaneLayoutButtons` above); giving it to Save as well made
+            // the keystroke do neither. Saving from the keyboard is the inbox
+            // list's own guarded keys — ⏎ saves, `s` saves and stars — and a
+            // bare-key equivalent here would fire while typing in a field.
             Button("Save to Library") {
                 NotificationCenter.default.post(name: .saveToLibrary, object: nil)
             }
-            .keyboardShortcut("s", modifiers: [.control, .command])
 
             Button("Dismiss from Inbox") {
                 NotificationCenter.default.post(name: .dismissFromInbox, object: nil)

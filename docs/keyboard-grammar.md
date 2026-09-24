@@ -11,7 +11,7 @@ them.
 | Chord | Semantic | imbib | imprint |
 |-------|----------|-------|---------|
 | ⌘1 ⌘2 ⌘3 | Switch primary view | Library / Search / Inbox | Text Only / Split View / Direct PDF |
-| ⌃⌘S | Toggle leading sidebar | Sidebar | Outline sidebar |
+| ⌃⌘S | Toggle leading sidebar — and nothing else, in every app (Paper ▸ Save to Library held it too until 2026-09-24; see below) | Sidebar | Outline sidebar |
 | ⌘0 | Toggle secondary pane | Detail pane | Preview pane |
 | ⌥⌘0 | Toggle list (middle) pane | List pane | Manuscript list |
 | ⌘\ | Split editor | — | Two views of the same document |
@@ -48,6 +48,15 @@ every one of those apps bound it. Rule 2 below ("new universal actions go into
 and not for the doc, and nothing checked. It is checked now:
 `PaneLayoutCommandsTests.testTheKeyboardGrammarDocumentsAllThreeChords` fails if
 a row for ⌘0, ⌥⌘0 or ⌃⌘S leaves this table.
+
+**⌃⌘S is Toggle Sidebar, only.** From January 2026 (cdca0b23) until
+2026-09-24 imbib's Paper ▸ Save to Library ALSO carried ⌃⌘S, and a key
+equivalent two menu items claim does neither reliably — in imbib's own window
+the chord stopped toggling the sidebar. Save to Library keeps its menu item
+and has no chord; saving from the keyboard is the inbox list's own guarded
+keys: ⏎ saves, `s` saves and stars, `*` stars
+(`UnifiedPublicationListWrapper`'s triage modifier). It shows no plain-key
+hint in the menu, because a bare-key equivalent would fire while typing.
 
 **⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every chassis window —
 the layout tree, the only chassis root since plan wave 6 W5 — they resize
