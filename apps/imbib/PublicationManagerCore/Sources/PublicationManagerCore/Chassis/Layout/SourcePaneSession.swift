@@ -60,6 +60,9 @@ public final class SourcePaneSession: PaneSession {
     func show(_ session: ManuscriptEditorSession?) {
         guard session !== manuscript else { return }
         manuscript = session
+        if let session {
+            editor.remember(document: session.manuscriptID)
+        }
     }
 
     // MARK: PaneSession

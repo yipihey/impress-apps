@@ -60,6 +60,12 @@ final class TypstEditorHost {
     /// keep its history: every entry in it is a range into the old text.
     private var textWhenLeft: [UUID: String] = [:]
 
+    /// Manuscripts deleted while this editor knew them. A SwiftUI pass still
+    /// holding the old binding can ask to show one after the delete; it is
+    /// ignored until a fresh session for it is shown (`remember`), which is
+    /// what an Edit ▸ Undo of the delete produces.
+    private var forgotten: Set<UUID> = []
+
     /// How many times the editor has been put into a pane container.
     private(set) var mounts = 0
 
@@ -121,6 +127,7 @@ final class TypstEditorHost {
     /// Show `text` as document `id`, deciding whether that is a switch or an
     /// external change to the document already shown.
     func present(document id: UUID?, text: String, in textView: TypstTextView) -> Presentation {
+        if let id, forgotten.contains(id) { return .unchanged }
         if id != documentID {
             if let previous = documentID {
                 textWhenLeft[previous] = textView.string
@@ -202,11 +209,18 @@ final class TypstEditorHost {
     func forget(document id: UUID) -> Bool {
         let known = undoManagers.removeValue(forKey: id) != nil || documentID == id
         textWhenLeft[id] = nil
+        forgotten.insert(id)
         guard documentID == id else { return known }
         documentID = nil
         textView?.documentUndoManager = nil
         textView?.string = ""
         return known
+    }
+
+    /// A live session for `id` is being shown again (the delete was undone):
+    /// it may be presented, with a new, empty history.
+    func remember(document id: UUID) {
+        forgotten.remove(id)
     }
 
     private func history(for id: UUID) -> UndoManager {

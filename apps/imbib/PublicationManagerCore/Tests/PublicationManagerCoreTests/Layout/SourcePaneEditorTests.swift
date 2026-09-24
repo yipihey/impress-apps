@@ -135,8 +135,16 @@ final class SourcePaneEditorTests: XCTestCase {
         XCTAssertNil(host.documentID)
         XCTAssertNil(textView.documentUndoManager)
         XCTAssertEqual(textView.string, "")
-        // Shown again (an undo of the delete): a fresh, empty history.
-        _ = host.present(document: a, text: "doomed", in: textView)
+        // A stale pass still holding the deleted document's binding is
+        // ignored: nothing comes back on screen, no history is made.
+        XCTAssertEqual(host.present(document: a, text: "doomed", in: textView), .unchanged)
+        XCTAssertEqual(textView.string, "")
+        XCTAssertNil(textView.documentUndoManager)
+
+        // Shown again by a fresh session (an undo of the delete): a new,
+        // empty history.
+        host.remember(document: a)
+        XCTAssertEqual(host.present(document: a, text: "doomed", in: textView), .switched)
         XCTAssertEqual(textView.documentUndoManager?.canUndo, false)
     }
 
