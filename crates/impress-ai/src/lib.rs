@@ -10,6 +10,7 @@ pub mod catalogue;
 pub mod categories;
 pub mod credentials;
 pub mod error;
+#[cfg(feature = "executor")]
 pub mod executor;
 pub mod fs_lock;
 pub mod migration;
@@ -36,6 +37,7 @@ pub use credentials::{
     KeychainCliCredentials, LayeredCredentials,
 };
 pub use error::{Error, Result};
+#[cfg(feature = "executor")]
 pub use executor::{AiTaskExecutor, AiTitleTaskExecutor, OmlxTaskExecutor};
 pub use migration::{migrate_localmodels, LocalModelsMigrationReport};
 pub use omlx::{EventStream, OmlxClient};
