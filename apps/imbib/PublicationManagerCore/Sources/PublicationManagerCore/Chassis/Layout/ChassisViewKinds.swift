@@ -583,6 +583,12 @@ struct LayoutRowsPaneView: View {
         loadFailed = fetched.isEmpty && context.controller.lastError != nil
         context.controller.didRefresh(tile)
         logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
+        PublicationTagRemoval.reportDisplay(
+            surface: "pane \(tile)",
+            rows: rows.compactMap { row in
+                guard let tagged = row.mailStyleRow, tagged.kind == .publication else { return nil }
+                return (tagged.id, tagged.tagDisplays.map(\.path))
+            })
     }
 }
 
