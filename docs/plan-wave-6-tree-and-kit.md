@@ -444,3 +444,66 @@ preparation may start earlier on a branch).
   identified; no store operation is recorded), so the field vanishes under the cursor.
   Its guard covers only the freeform editor. Same in any host; worked around here by
   entering the freeform editor first.
+- 2026-09-24 — **W4 pass A, step 2: every `list` row carries its kind's menu and drag; Tier
+  B proves the reading pane.** Proven live in impress (23125, this branch, flag on); every
+  mutation reverted. `origin/main` merged in (#47, #48, #53); no conflict.
+- **Reuse, not rewrite.** The legacy menus moved to one definition each and both hosts call
+  it: `PublicationRowContextMenu` (from `PublicationListView.contextMenuItems`) over
+  `PublicationListActions.chassis` (from `UnifiedPublicationListWrapper.buildListActions`,
+  whose effects on the wrapper's own state — drop rows, advance the selection, open the
+  inline tag field, the drop preview — are `PublicationListActionsHost` hooks the wrapper
+  fills exactly as before); `ManuscriptRowChrome` (menu, drag payload, Rename and Delete
+  alerts, actions, delete sequence, from `ManuscriptListWrapper` / `ManuscriptSectionView`);
+  `FigureRowChrome` (the same, from `FigureListWrapper` / `FigureSectionView`). Messages,
+  tasks and agent runs show the shared `TriageMenu.items` over
+  `RecordTriageActions.storeBacked`, which is all their own lists show; nothing to extract.
+  In the pane the scope is read off its query (`LayoutPaneScope`, 7 tests: collection →
+  `.collection`, parent → `.library` / `.inbox` / `.dismissed`, flag / starred / tag → their
+  virtual scopes, everything else `.combined([])`; a figure folder is a parent scope, a
+  manuscript folder a collection, as the outline files them).
+- **Proven** (details in the matrix, § List-pane rows): a paper — Star/Unstar, Flag ›
+  Blue/Clear, Add Tag (the pane asks with the triage "New Tag…" prompt; the legacy list's
+  inline tag field has no pane equivalent); a throwaway manuscript made by the pane's own
+  Duplicate — Rename… (`renamed manuscript AC123311… → 'ZZ W4 pane probe'`), dragged onto a
+  folder (`sidebar dropped 1 manuscript(s) into folder f99d09b2…`), Remove from Folder in
+  the folder-scoped list, Delete… through the section's confirmation (count back to 64); a
+  figure seeded through implore's `POST /api/figures` — dragged onto a throwaway figure
+  folder (`sidebar dropped 1 figure(s) into folder ae6a8116…`), Remove from Folder, Delete…
+  (`delete figures: DBE69FE6…`), implore's own entry removed with its `DELETE`, the folder
+  deleted from its menu; a task (3FCB6694…) — Star/Unstar, Flag › Red/Clear, Tags ›
+  `ai/field/physics` on and off from the same submenu. Messages share the task code path and
+  were not driven live.
+- **Found and fixed:** the tree's `list` rows (and every menu built from them) went stale
+  after a star, flag, tag, dismiss or delete: the invalidation feed watches only its own
+  store handle, plus `impress/ui/` rows from other connections, and every menu writes
+  through `RustStoreAdapter`'s handle. The pane now also re-reads on the store's own event
+  stream, as the legacy lists do; a row revision is passed to the menus so they rebuild with
+  the rows ("Unstar" after Star, without a relaunch).
+- **Found, not fixed:** the publication menu has no remove-tag item in either host (the
+  legacy `onRemoveTag` is an empty TODO), and Edit → Undo did not reach `addTag`'s undo
+  registration in impress; the `ai` tag added by the proof was removed with the store verb
+  `triage-service_remove-tag`.
+- **Tier B** gained `layout.reading_pdf_pane`: apply Default, point the list at read
+  papers, split a `pdf` pane beside the detail pane (its own spec, `view_kind: pdf`, no
+  role), select the first read row that already has its PDF (from the list pane's compiled
+  query on the shared store — so neither the read dwell nor PDFTab's auto-download writes
+  anything), wait for `pane N pdf: publication <id>`, close the pane. Against impress:
+  **10/10, 0 skipped** (2.3 s): `pane 5 pdf: publication 30F30B68…`; that paper's
+  `modified` unchanged and no operation recorded on it; `tiles`/`windows`/`channels`
+  identical before and after, no layouts, no surfaces.
+- **Left as it was found:** the proof arrangement was parked as a named layout at the start
+  and re-applied at the end (tiles/windows/channels identical to the first read), then
+  deleted; the one PDF copy placed in impress's container was removed with the folder it
+  needed.
+
+### Open gaps and their owners (assigned 2026-09-24 by the orchestrator)
+
+- List-pane row context menus, all kinds: W4 (pass A).
+- Figure and manuscript rows as drag sources: W4 (pass A).
+- The Inbox named query shows unread only (57 rows vs 68 in the flag-off list): W5. Once the flag is gone the tree is the only root, so the Inbox must match the legacy list. Parity decides the query; it is not a product question.
+- Deleting the selected collection or library leaves the list on an empty query: W5. The expected behaviour is the legacy one, falling back to the parent.
+- The info pane keeps its last selection beside a hosted legacy route: W5.
+- implore, impart and imprint outlines not yet launched from a tree branch: imprint in W4 (pass B, which launches imprint for the editor proof); implore and impart in W5, whose proof is "Tier B green on every app".
+- Nothing above is ask-first.
+
+The first two are done in this pass (above).
