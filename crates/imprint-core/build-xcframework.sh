@@ -212,10 +212,17 @@ if [ "$BUILD_IOS" = "1" ]; then
     # "iOS Simulator" destination links both architectures.
     IOS_SIM_UNIVERSAL_DIR="$FRAMEWORK_DIR/ios-simulator-universal"
     mkdir -p "$IOS_SIM_UNIVERSAL_DIR"
-    lipo -create \
-        "$BUILD_DIR/$IOS_SIM_TARGET/release/libimprint_core.a" \
-        "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimprint_core.a" \
-        -output "$IOS_SIM_UNIVERSAL_DIR/libimprint_core.a"
+    # IMPRESS_SKIP_X86=1 never built the x86_64 simulator slice, so there is
+    # nothing to lipo: the simulator slice is arm64 alone.
+    if [ "$BUILD_X86" = "1" ]; then
+        lipo -create \
+            "$BUILD_DIR/$IOS_SIM_TARGET/release/libimprint_core.a" \
+            "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimprint_core.a" \
+            -output "$IOS_SIM_UNIVERSAL_DIR/libimprint_core.a"
+    else
+        cp "$BUILD_DIR/$IOS_SIM_TARGET/release/libimprint_core.a" \
+            "$IOS_SIM_UNIVERSAL_DIR/libimprint_core.a"
+    fi
     XCFRAMEWORK_ARGS+=(
         -library "$BUILD_DIR/$IOS_TARGET/release/libimprint_core.a"
         -headers "$FRAMEWORK_DIR/headers"

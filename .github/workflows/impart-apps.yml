@@ -24,43 +24,128 @@ on:
       - '.github/workflows/impart-apps.yml'
 
 env:
+  # Every Swift lane sets this. The root manifest turns on release-profile
+  # incremental for the local loop; on a runner it only writes gigabytes of
+  # incremental state onto a 14 GB disk that is thrown away afterwards.
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
+  # The xcode-27 image runs macOS 27, where rustc 1.97.1 (rust-toolchain.toml)
+  # cannot read back a proc-macro dylib after release's default
+  # strip=debuginfo: every framework build died at the first derive with
+  # "can't find crate for `zerofrom_derive`", the locator logging "metadata
+  # mismatch" (runs 36047933967, 36049515666). The same run built with
+  # stable 1.98.1, or with 1.97.1 and stripping off. rustc never strips a
+  # staticlib, so the .a files in the xcframeworks are unchanged; only
+  # proc-macro dylibs and build scripts keep their symbols. Delete this when
+  # the toolchain pin moves to 1.98 or later.
+  CARGO_PROFILE_RELEASE_STRIP: "false"
 
 jobs:
   build-apps:
     name: Build impart (macOS + iOS Simulator)
-    runs-on: macos-latest
+    # HOSTED on purpose, and the only Swift app lane that is: it is also the
+    # only one with a pull_request trigger. The repo is public, so a fork PR
+    # must never reach the self-hosted Mac (the rule every other lane
+    # documents). The price is that this runner starts with nothing: every
+    # xcframework the package graph declares has to be built or restored here.
+    #
+    # xcode-27, not macos-latest: the self-hosted lanes build with Xcode 27.0,
+    # and macos-latest's newest is 26.6, whose
+    # type checker gives up on SectionContentView.swift:462 ("unable to
+    # type-check this expression in reasonable time") — a toolchain this lane
+    # alone was on, compiling Swift every other lane compiles. xcode-27 is
+    # GitHub's hosted image for that toolchain (runner-images#14404).
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
+      # PINNED to 27.0 (27A266a), the exact build the self-hosted lanes get
+      # from latest-stable. On this image latest-stable picks 27.1, which is
+      # installed as Xcode_27.1_beta.app, and under it every Rust build died
+      # before compiling a line of ours: "can't find crate for
+      # `zerofrom_derive`" (run 36047933967). Move this with the self-hosted Mac.
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '27.0'
+
+      # The arm64-only decision below is only right on Apple Silicon; fail
+      # loudly if the label ever lands on an Intel image instead of producing
+      # frameworks the build cannot link.
+      - name: Runner is arm64
+        run: |
+          uname -m; xcodebuild -version
+          [ "$(uname -m)" = "arm64" ]
+
+      # arm64 only. The runner is Apple Silicon and the simulator it boots is
+      # arm64, so x86_64 slices would be built, cached and never linked — two
+      # of every framework's five slices. IMPRESS_SKIP_X86=1 below and
+      # ARCHS=arm64 in both xcodebuild calls are the same decision.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impart-apps-${{ hashFiles('**/Cargo.lock') }}
+      # No target/ cache. It used to be round-tripped here keyed on Cargo.lock,
+      # which for five release builds is several GB of tarball against a 10 GB
+      # repo quota that is already full and already evicting the xcframework
+      # entries. The xcframework action below caches the OUTPUTS instead, which
+      # is what lets a Swift-only PR skip the Rust entirely.
 
       - name: Install xcodegen
         run: brew install xcodegen
 
-      # impart's only binary dependency: ImpressRustCore's binaryTarget
-      # points at this gitignored xcframework.
-      - name: Build ImpressStoreFfi.xcframework
-        run: bash crates/impress-store-ffi/build-xcframework.sh
+      # impart links PublicationManagerCore on both platforms, and PMC drags in
+      # four Rust cores on top of impart's own ImpressRustCore. Every one is a
+      # gitignored local binaryTarget, and package resolution walks the whole
+      # graph before building anything, so ONE missing artifact fails the lane
+      # at "Could not resolve package dependencies" — which is how this lane
+      # failed on every PR for weeks before 2026-09-24 while it built only
+      # ImpressStoreFfi, and was waved through as "base-red". The set matches
+      # impart-tests.yml's; FULL iOS slices because the smoke below builds
+      # impart-iOS.
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+          env-extra: IMPRESS_SKIP_X86=1
+
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+          env-extra: IMPRESS_SKIP_X86=1
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
+          env-extra: IMPRESS_SKIP_X86=1
+
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+          env-extra: IMPRESS_SKIP_X86=1
+
+      # Record the headroom so a space failure never has to be guessed at. The
+      # first full build (run 36037604487) left target/ at 8.9 GB with 83 GiB
+      # still free on macos-26-arm64.
+      - name: Disk after Rust
+        run: df -h "$GITHUB_WORKSPACE" && du -sh target 2>/dev/null || true
 
       - name: Generate Xcode project
         working-directory: apps/impart
         run: xcodegen generate
 
+      # tee + grep on failure: `tail -50` alone keeps xcodebuild's summary of
+      # WHICH files failed and drops every `error:` line saying why.
       - name: Build impart (macOS)
         working-directory: apps/impart
         run: |
@@ -69,8 +154,10 @@ jobs:
             -scheme impart \
             -configuration Debug \
             -destination 'platform=macOS' \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
-            build | tail -50
+            build 2>&1 | tee build-output-macos.txt | tail -50 \
+          || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-macos.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
 
       # Install-smoke: boot a sim, build for it, install, launch. A plain
       # `build` (generic destination) never installs, so it CANNOT catch
@@ -81,15 +168,26 @@ jobs:
         working-directory: apps/impart
         run: |
           set -eo pipefail
-          UDID=$(xcrun simctl list devices available | grep -oE 'iPad Pro[^(]*\(([0-9A-F-]+)\)' | grep -oE '[0-9A-F-]{36}' | head -1)
-          [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
-          echo "sim: $UDID"
+          # `|| true` on each lookup: under pipefail a grep with no match
+          # killed the step on the FIRST line, so the fallback never ran and
+          # the step died silently — which it did on the xcode-27 image, whose
+          # device set has no iPad Pro.
+          DEVICES=$(xcrun simctl list devices available)
+          UDID=$(echo "$DEVICES" | grep -E 'iPad Pro' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
+          [ -n "$UDID" ] || UDID=$(echo "$DEVICES" | grep -E 'iPhone|iPad' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
+          if [ -z "$UDID" ]; then
+            echo "::error::no available iOS simulator on this image"
+            echo "$DEVICES"; xcrun simctl list runtimes
+            exit 1
+          fi
+          echo "sim: $UDID ($(echo "$DEVICES" | grep "$UDID" | sed -E 's/^ +//'))"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -project impart.xcodeproj -scheme impart-iOS -configuration Debug \
             -destination "id=$UDID" -derivedDataPath build-ios \
-            CODE_SIGNING_ALLOWED=NO build | tail -30
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-output-ios.txt | tail -30 \
+            || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-ios.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
           APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'impart.app' | head -1)
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
