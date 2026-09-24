@@ -80,6 +80,12 @@ struct imbibApp: App {
         // editor. Same install as macOS.
         ManuscriptEditorEnvironment.shared.citationSearch = ImbibCitationSearchService.shared
 
+        // Copy library files into the suite's shared container (same as
+        // macOS; see LibraryFilesMigration). Idempotent, keeps originals.
+        if !UITestingEnvironment.isUITesting {
+            LibraryFilesMigrationRunner.start()
+        }
+
         // Capture libraryManager for use in Task (can't capture self in struct)
         let capturedLibraryManager = libraryManager
 

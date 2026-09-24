@@ -154,24 +154,10 @@ struct IOSMailComposer: UIViewControllerRepresentable {
         }
     }
 
-    /// Resolve a linked file to an on-disk URL using the value-type store's
-    /// UUID-keyed container path (mirrors IOSInfoTab.resolveFileURL), with a
-    /// fallback to the legacy pre-v1.3.0 `imbib/` app-support location.
+    /// Resolve a linked file to an on-disk URL through the one resolver
+    /// (shared root, then the private pre-migration root and legacy layouts).
     private func resolveFileURL(_ file: LinkedFileModel, libraryID: UUID) -> URL? {
-        guard let path = file.relativePath else { return nil }
-        let normalizedPath = path.precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-
-        let containerURL = AttachmentManager.shared.containerURL(for: libraryID)
-            .appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: containerURL.path) { return containerURL }
-
-        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?.appendingPathComponent("imbib") {
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-            if fileManager.fileExists(atPath: legacyURL.path) { return legacyURL }
-        }
-        return nil
+        AttachmentManager.shared.existingURL(for: file, in: libraryID)
     }
 
     @MainActor

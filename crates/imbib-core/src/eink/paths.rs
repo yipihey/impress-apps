@@ -7,6 +7,12 @@
 //! legacy layout. A headless process (the `impress` CLI, the MCP server)
 //! must find the same file, so the ladder is mirrored here.
 //!
+//! Since 2026-09-24 library files live in the suite app group
+//! (`<group>/workspace/imbib/Libraries`, Swift's `LibraryFilesLocation`), so
+//! every suite app can read them; the per-app containers stay on the ladder
+//! as legacy roots, because imbib migrates by copying and older builds may
+//! still write there.
+//!
 //! `HOME` inside a sandboxed app is the container's data directory
 //! (`~/Library/Containers/<bundle>/Data`); the user's real home is derived
 //! from it so both sides of the sandbox are searched from either process.
@@ -17,6 +23,20 @@ use std::path::{Path, PathBuf};
 const SANDBOX_BUNDLES: [&str; 2] = ["com.impress.imbib", "com.imbib.app"];
 const LIBRARIES_SUFFIX: &str = "Library/Application Support/imbib/Libraries";
 const LEGACY_SUFFIX: &str = "Library/Application Support/imbib";
+/// The suite app group every sandboxed suite app can read (macOS team-prefixed
+/// id; the same literal as `store_singleton.rs` and Swift's
+/// `SiblingDiscovery.suiteGroupID`).
+const SUITE_GROUP: &str = "QG3MEYVHMS.com.impress.suite";
+const SHARED_LIBRARIES_SUFFIX: &str = "workspace/imbib/Libraries";
+
+/// `~/Library/Group Containers/<suite>/workspace/imbib/Libraries` — the
+/// shared root, where library files live.
+pub fn shared_library_root(home: &Path) -> PathBuf {
+    home.join("Library")
+        .join("Group Containers")
+        .join(SUITE_GROUP)
+        .join(SHARED_LIBRARIES_SUFFIX)
+}
 
 /// The user's real home directory, even when `HOME` points into a sandbox
 /// container.
@@ -41,10 +61,11 @@ pub fn real_home(home: &Path) -> PathBuf {
 }
 
 /// Every `…/imbib/Libraries` directory a library folder could sit under,
-/// most likely first: the app's own Application Support, then each sandbox
-/// container that has held imbib's data.
+/// most likely first: the shared app-group root, then the app's own
+/// Application Support, then each sandbox container that has held imbib's
+/// data.
 pub fn library_roots(home: &Path) -> Vec<PathBuf> {
-    let mut roots = vec![home.join(LIBRARIES_SUFFIX)];
+    let mut roots = vec![shared_library_root(home), home.join(LIBRARIES_SUFFIX)];
     for bundle in SANDBOX_BUNDLES {
         roots.push(
             home.join("Library")
@@ -102,7 +123,7 @@ pub fn candidates(library_id: Option<&str>, relative_path: &str, home: &Path) ->
 }
 
 /// The library folder a new file should be written into: the first one that
-/// already exists, else the app's own Application Support layout.
+/// already exists (the shared root is tried first), else the shared root.
 pub fn library_dir_for_write(library_id: &str, home: &Path) -> PathBuf {
     for root in library_roots(home) {
         for name in library_dir_names(library_id) {
@@ -112,8 +133,7 @@ pub fn library_dir_for_write(library_id: &str, home: &Path) -> PathBuf {
             }
         }
     }
-    home.join(LIBRARIES_SUFFIX)
-        .join(library_id.to_ascii_uppercase())
+    shared_library_root(home).join(library_id.to_ascii_uppercase())
 }
 
 /// How to record a file that lives under `library_dir`: relative to it
@@ -198,7 +218,45 @@ mod tests {
         // Writes go to the existing library folder, not a fresh one.
         assert!(library_dir_for_write(library, home)
             .ends_with(format!("com.imbib.app/Data/{LIBRARIES_SUFFIX}/{library}")));
-        assert!(library_dir_for_write("nope", home).ends_with(format!("{LIBRARIES_SUFFIX}/NOPE")));
+        assert!(library_dir_for_write("nope", home)
+            .ends_with(format!("{SUITE_GROUP}/{SHARED_LIBRARIES_SUFFIX}/NOPE")));
+    }
+
+    #[test]
+    fn the_shared_group_root_wins_over_the_legacy_containers() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let library = "1AD5E936-0F53-4FDC-BE37-D1217D2D33FA";
+
+        let legacy = home
+            .join("Library/Containers/com.impress.imbib/Data")
+            .join(LIBRARIES_SUFFIX)
+            .join(library)
+            .join("Papers");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("Banik_2024.pdf"), b"%PDF legacy").unwrap();
+
+        // Only the legacy copy exists: it is still found.
+        let found = resolve_relative(Some(library), "Papers/Banik_2024.pdf", home).unwrap();
+        assert!(found.starts_with(home.join("Library/Containers")));
+
+        // After the migration copied it, the shared copy is the one used.
+        let shared = shared_library_root(home).join(library).join("Papers");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join("Banik_2024.pdf"), b"%PDF legacy").unwrap();
+        let found = resolve_relative(Some(library), "Papers/Banik_2024.pdf", home).unwrap();
+        assert_eq!(found, shared.join("Banik_2024.pdf"));
+        assert_eq!(
+            library_dir_for_write(library, home),
+            shared_library_root(home).join(library)
+        );
+
+        // A sandboxed process derives the real home, so it looks in the same group.
+        let sandbox_home = home.join("Library/Containers/com.impress.impress/Data");
+        assert_eq!(
+            shared_library_root(&real_home(&sandbox_home)),
+            shared_library_root(home)
+        );
     }
 
     #[test]
