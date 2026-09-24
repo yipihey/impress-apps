@@ -238,6 +238,42 @@ public enum PublicationListMutations {
 
     // MARK: - Collection membership
 
+    /// Move `ids` into `collectionID`, a collection of `libraryID`: each paper
+    /// moves to the collection's library and joins the collection.
+    ///
+    /// The sequence is the sidebar's: dropping a publication on a collection
+    /// (`DragDropCoordinator`) has always done exactly these two calls, and
+    /// Paper ▸ Move to Collection… (⌃⌘M) — which posted a notification nothing
+    /// observed until 2026-09-24 — now runs the same ones.
+    ///
+    /// `leaving` is the collection the list is scoped to, if any: moving out
+    /// of it drops that membership, which is what separates Move from
+    /// Add to Collection (⌘L). A drop does not know where the drag started,
+    /// so it passes nil and keeps its old behaviour.
+    ///
+    /// Undo: each call registers its own entry, and they land in ONE undo
+    /// group because they run in one event (the window's undo manager groups
+    /// by event), so ⌘Z takes the whole move back.
+    public static func moveToCollection(
+        ids: [UUID],
+        collectionID: UUID,
+        libraryID: UUID,
+        leaving sourceCollectionID: UUID? = nil
+    ) {
+        guard !ids.isEmpty else { return }
+        let store = RustStoreAdapter.shared
+        store.movePublications(ids: ids, toLibraryId: libraryID)
+        store.addToCollection(publicationIds: ids, collectionId: collectionID)
+        if let sourceCollectionID, sourceCollectionID != collectionID {
+            store.removeFromCollection(publicationIds: ids, collectionId: sourceCollectionID)
+        }
+        Logger.library.infoCapture(
+            "Move to Collection: \(ids.count) pub(s) → collection \(collectionID) "
+                + "(library \(libraryID))"
+                + (sourceCollectionID.map { ", leaving \($0)" } ?? ""),
+            category: "collections")
+    }
+
     /// Remove every collection membership edge for each of `ids`.
     ///
     /// The publications themselves are untouched — only `Contains` edges go.

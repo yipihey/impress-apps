@@ -348,8 +348,9 @@ public final class DragDropCoordinator {
             return .success(message: "Added \(uuids.count) publication(s) to library")
 
         case .collection(let collectionID, let libraryID):
-            store.movePublications(ids: uuids, toLibraryId: libraryID)
-            store.addToCollection(publicationIds: uuids, collectionId: collectionID)
+            // Paper ▸ Move to Collection… runs this same verb.
+            PublicationListMutations.moveToCollection(
+                ids: uuids, collectionID: collectionID, libraryID: libraryID)
             return .success(message: "Added \(uuids.count) publication(s) to collection")
 
         default:
