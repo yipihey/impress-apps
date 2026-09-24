@@ -83,6 +83,10 @@ public actor PDFHealthCheckService {
     // MARK: - Check Implementation
 
     private func performCheck() async -> PDFHealthCheckResult {
+        // Index the shared root only once imbib's private files have been
+        // copied into it; before that every file would read "missing".
+        await LibraryFilesMigrationRunner.waitUntilDone()
+
         // Phase 1: Gather data from MainActor in batched hops (not per-file)
         let libraryData: [LibraryCheckData] = await MainActor.run {
             let store = RustStoreAdapter.shared

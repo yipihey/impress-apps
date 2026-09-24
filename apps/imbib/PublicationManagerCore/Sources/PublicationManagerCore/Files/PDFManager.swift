@@ -35,18 +35,30 @@ public final class AttachmentManager {
     private let store: RustStoreAdapter
     private let fileManager = FileManager.default
 
-    /// Root of imbib's Application Support folder. Nil means the real one;
-    /// tests point it at a scratch directory.
+    /// Root of the library files. Nil means the real one, the suite's shared
+    /// `LibraryFilesLocation.sharedRoot`; tests point it at a scratch directory.
+    /// (The parameter keeps its historical name: until 2026-09-24 this root
+    /// WAS `<Application Support>/imbib`, which under the sandbox is per app.)
     private let applicationSupportRoot: URL?
+
+    /// The pre-2026-09-24 per-app root, still searched: imbib's migration
+    /// copies rather than moves, and an older build may still write there.
+    /// Nil means `LibraryFilesLocation.legacyRoot`.
+    private let legacyRootOverride: URL?
 
     /// Default papers directory name
     private let papersFolderName = "Papers"
 
     // MARK: - Initialization
 
-    public init(store: RustStoreAdapter = .shared, applicationSupportRoot: URL? = nil) {
+    public init(
+        store: RustStoreAdapter = .shared,
+        applicationSupportRoot: URL? = nil,
+        legacyRoot: URL? = nil
+    ) {
         self.store = store
         self.applicationSupportRoot = applicationSupportRoot
+        self.legacyRootOverride = legacyRoot
     }
 
     // MARK: - Link Existing PDF (BibDesk Import)
@@ -663,20 +675,33 @@ public final class AttachmentManager {
         guard let appSupport = applicationSupportURL else { return nil }
 
         if let libraryId = libraryId {
-            // Primary: container-based path (iCloud-only storage)
+            // Primary: the library's container under the shared root — the
+            // one every suite app can read.
             let libContainerURL = containerURL(for: libraryId).appendingPathComponent(normalizedPath)
+            // The same container under this app's private pre-2026-09-24
+            // root: a file the migration has not copied yet (only imbib's
+            // own sandbox can see these).
+            let privateURL = legacyContainerURL(for: libraryId)?.appendingPathComponent(normalizedPath)
             // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
             let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            let privateLegacyURL = legacyRoot?.appendingPathComponent(normalizedPath)
             // Sandbox fallback: check alternate sandbox/non-sandbox Application Support path
-            let altSandboxURL = alternateSandboxURL(for: libContainerURL)
+            let altSandboxURL = privateURL.flatMap { alternateSandboxURL(for: $0) }
 
             if fileManager.fileExists(atPath: libContainerURL.path) {
                 return libContainerURL
+            } else if let privateURL, fileManager.fileExists(atPath: privateURL.path) {
+                Logger.files.infoCapture(
+                    "resolveURL: '\(linkedFile.filename)' is still only in the private container (not migrated yet)",
+                    category: "files")
+                return privateURL
             } else if let altURL = altSandboxURL, fileManager.fileExists(atPath: altURL.path) {
                 Logger.files.infoCapture("PDF found via alternate sandbox path: \(altURL.path)", category: "files")
                 return altURL
             } else if fileManager.fileExists(atPath: legacyURL.path) {
                 return legacyURL
+            } else if let privateLegacyURL, fileManager.fileExists(atPath: privateLegacyURL.path) {
+                return privateLegacyURL
             }
             // Filed under another library — what imports that followed the
             // UI's active library rather than the paper's left behind.
@@ -687,7 +712,7 @@ public final class AttachmentManager {
             // (callers may still act on it, e.g. reveal the parent folder),
             // but surface the miss so it isn't silent.
             Logger.files.warningCapture(
-                "resolveURL: linked file '\(linkedFile.filename)' not found — checked container=\(libContainerURL.path), alt=\(altSandboxURL?.path ?? "n/a"), legacy=\(legacyURL.path)",
+                "resolveURL: linked file '\(linkedFile.filename)' not found — checked container=\(libContainerURL.path), private=\(privateURL?.path ?? "n/a"), alt=\(altSandboxURL?.path ?? "n/a"), legacy=\(legacyURL.path)",
                 category: "files"
             )
             return libContainerURL
@@ -696,15 +721,21 @@ public final class AttachmentManager {
         // No library - check default library path and legacy path
         let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
         let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-        let altDefaultURL = alternateSandboxURL(for: defaultURL)
+        let privateCandidates = [
+            legacyRoot?.appendingPathComponent("DefaultLibrary/\(normalizedPath)"),
+            legacyRoot?.appendingPathComponent(normalizedPath),
+        ].compactMap { $0 }
+        let altDefaultURL = privateCandidates.first.flatMap { alternateSandboxURL(for: $0) }
 
         if fileManager.fileExists(atPath: defaultURL.path) {
             return defaultURL
+        } else if fileManager.fileExists(atPath: legacyURL.path) {
+            return legacyURL
+        } else if let found = privateCandidates.first(where: { fileManager.fileExists(atPath: $0.path) }) {
+            return found
         } else if let altURL = altDefaultURL, fileManager.fileExists(atPath: altURL.path) {
             Logger.files.infoCapture("PDF found via alternate sandbox path: \(altURL.path)", category: "files")
             return altURL
-        } else if fileManager.fileExists(atPath: legacyURL.path) {
-            return legacyURL
         }
         if let misfiled = findInOtherLibraries(linkedFile, path: normalizedPath, skipping: nil) {
             return misfiled
@@ -740,7 +771,9 @@ public final class AttachmentManager {
     ) -> URL? {
         for library in store.listLibraries() where library.id != libraryId {
             let candidate = containerURL(for: library.id).appendingPathComponent(path)
-            for url in [candidate, alternateSandboxURL(for: candidate)].compactMap({ $0 }) {
+            let privateCandidate = legacyContainerURL(for: library.id)?.appendingPathComponent(path)
+            let candidates = [candidate, privateCandidate, privateCandidate.flatMap { alternateSandboxURL(for: $0) }]
+            for url in candidates.compactMap({ $0 }) {
                 guard fileManager.fileExists(atPath: url.path) else { continue }
                 if linkedFile.fileSize > 0,
                    let size = (try? fileManager.attributesOfItem(atPath: url.path))?[.size] as? Int64,
@@ -800,9 +833,16 @@ public final class AttachmentManager {
     ) throws {
         Logger.files.infoCapture("Deleting linked file: \(linkedFile.filename)", category: "files")
 
-        // Delete file from disk
+        // Delete file from disk — and its not-yet-cleaned private twin, or the
+        // next migration run would copy the deleted file back into the
+        // shared root (the migration keeps originals; see
+        // `LibraryFilesMigration`).
         if let url = resolveURL(for: linkedFile, in: libraryId) {
             try? fileManager.removeItem(at: url)
+            if let twin = privateTwin(of: url), fileManager.fileExists(atPath: twin.path) {
+                try? fileManager.removeItem(at: twin)
+                Logger.files.infoCapture("Deleted the private copy too: \(twin.lastPathComponent)", category: "files")
+            }
         }
 
         // Delete from Rust store. The event names the publication so the
@@ -937,7 +977,10 @@ public final class AttachmentManager {
 
     /// Compute the container URL for a library.
     ///
-    /// Pattern: `~/Library/Application Support/imbib/Libraries/{UUID}/`
+    /// Pattern: `<suite group>/workspace/imbib/Libraries/{UUID}/` — see
+    /// `LibraryFilesLocation`. Every suite app computes the same URL, which
+    /// is the point: impress, imprint and the tree's `pdf` pane read the
+    /// files imbib wrote.
     public func containerURL(for libraryId: UUID) -> URL {
         guard let appSupport = applicationSupportURL else {
             // Fallback — should never happen in practice
@@ -948,9 +991,34 @@ public final class AttachmentManager {
             .appendingPathComponent(libraryId.uuidString, isDirectory: true)
     }
 
+    /// The library's container under this app's private pre-2026-09-24
+    /// root, or nil when there is no separate private root.
+    public func legacyContainerURL(for libraryId: UUID) -> URL? {
+        legacyRoot.map { LibraryFilesLocation.libraryContainer(libraryId, under: $0) }
+    }
+
+    /// The private root, unless it is the same directory as the shared one.
+    /// A scratch `applicationSupportRoot` without a scratch legacy root means
+    /// none — a test must never read, or Delete, a real user's file.
+    private var legacyRoot: URL? {
+        if applicationSupportRoot != nil && legacyRootOverride == nil { return nil }
+        let root = (legacyRootOverride ?? LibraryFilesLocation.legacyRoot).standardizedFileURL
+        guard let shared = applicationSupportURL?.standardizedFileURL, shared.path != root.path else { return nil }
+        return root
+    }
+
+    /// The same relative location under the other root: shared → private.
+    private func privateTwin(of url: URL) -> URL? {
+        guard let shared = applicationSupportURL?.standardizedFileURL.path,
+              let legacy = legacyRoot?.path else { return nil }
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(shared + "/") else { return nil }
+        return URL(fileURLWithPath: legacy + path.dropFirst(shared.count))
+    }
+
     /// Compute the Papers directory URL for a library.
     ///
-    /// Pattern: `~/Library/Application Support/imbib/Libraries/{UUID}/Papers/`
+    /// Pattern: `<suite group>/workspace/imbib/Libraries/{UUID}/Papers/`
     public func papersContainerURL(for libraryId: UUID) -> URL {
         return containerURL(for: libraryId).appendingPathComponent(papersFolderName, isDirectory: true)
     }
@@ -959,11 +1027,10 @@ public final class AttachmentManager {
 
     /// Resolve the Papers directory for a library.
     ///
-    /// With iCloud-only storage, all PDFs are stored in the app container at:
-    /// `~/Library/Application Support/imbib/Libraries/{UUID}/Papers/`
-    ///
-    /// This eliminates sandbox complexity since files in the app container
-    /// are always accessible without security-scoped bookmarks.
+    /// New files are written under the shared root:
+    /// `<suite group>/workspace/imbib/Libraries/{UUID}/Papers/` — inside the
+    /// app group every suite app holds, so no security-scoped bookmark is
+    /// needed by any of them.
     private func resolvePapersDirectory(for libraryId: UUID?) throws -> URL {
         let papersURL: URL
 
@@ -987,11 +1054,10 @@ public final class AttachmentManager {
         return papersURL
     }
 
-    /// Application support directory.
+    /// Root of the library files: the shared `LibraryFilesLocation.sharedRoot`
+    /// (a test's scratch root when one was given).
     private var applicationSupportURL: URL? {
-        if let applicationSupportRoot { return applicationSupportRoot }
-        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("imbib")
+        applicationSupportRoot ?? LibraryFilesLocation.sharedRoot
     }
 
     /// Parse the last name from an author string.
@@ -1133,7 +1199,11 @@ public final class AttachmentManager {
         guard let relativePath = linkedFile.relativePath else { return }
         let normalized = relativePath.precomposedStringWithCanonicalMapping
 
-        let sourceURL = containerURL(for: sourceLibraryID).appendingPathComponent(normalized)
+        // The source may still be only in the private (pre-migration) root;
+        // the destination is always the shared one.
+        let sharedSource = containerURL(for: sourceLibraryID).appendingPathComponent(normalized)
+        let privateSource = legacyContainerURL(for: sourceLibraryID)?.appendingPathComponent(normalized)
+        let sourceURL = fileManager.fileExists(atPath: sharedSource.path) ? sharedSource : (privateSource ?? sharedSource)
         let destURL = containerURL(for: destLibraryID).appendingPathComponent(normalized)
 
         guard fileManager.fileExists(atPath: sourceURL.path) else {
