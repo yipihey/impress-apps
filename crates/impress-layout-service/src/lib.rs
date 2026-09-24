@@ -43,6 +43,7 @@ use std::time::Instant;
 
 pub mod device;
 pub mod dto;
+pub mod outline;
 pub mod presets;
 pub mod report;
 pub mod selftest;
@@ -57,6 +58,10 @@ pub use dto::{
     ChannelResult, CompiledQueryDto, LayoutListResult, LayoutResult, LayoutVerbResult,
     MaterializeFirstDto, PaneRefDto, PaneResult, PatchSummary, PresetDto, PresetListResult,
     PresetResult, ReferenceResult, SavedLayoutDto,
+};
+pub use outline::{
+    initial_selection_applies, outline_sections, outline_target, outline_verbs, OutlineNode,
+    OutlinePanes, OutlineSection, OutlineTarget, RecordScope,
 };
 pub use presets::{
     named_queries, ordinal_targets, preset_id, shipped_preset, shipped_presets,
