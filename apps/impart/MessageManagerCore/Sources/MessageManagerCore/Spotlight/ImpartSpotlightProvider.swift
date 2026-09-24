@@ -8,6 +8,17 @@ import UniformTypeIdentifiers
 ///
 /// Indexes CDThread (email threads) and CDResearchConversation entries
 /// so researchers can find conversations via system Spotlight.
+///
+/// **Fetch through the classes' own `fetchRequest()`, never a typed-out
+/// entity name.** This file asked for "Thread" and "ResearchConversation"
+/// while the model names them "CDThread" and "CDResearchConversation". For an
+/// unknown entity Core Data does not return an error, it raises an
+/// Objective-C exception, which `try?` cannot catch. It fired ~90 s after
+/// every launch (the deferred Spotlight snapshot), on the main actor, inside
+/// a Swift task; unwinding through Swift frames left the main actor unable to
+/// run another job, so every `@MainActor` HTTP route hung while `/api/status`
+/// still answered (found 2026-09-24 with a breakpoint on
+/// `objc_exception_throw`; seen before as "an impart wedge, not reproduced").
 public struct ImpartSpotlightProvider: SpotlightItemProvider {
     public let domain = SpotlightDomain.conversation
     public let legacyDomains = ["com.impart.conversation"]
@@ -21,7 +32,7 @@ public struct ImpartSpotlightProvider: SpotlightItemProvider {
         var allIDs = Set<UUID>()
 
         // Fetch thread IDs
-        let threadRequest = NSFetchRequest<CDThread>(entityName: "Thread")
+        let threadRequest: NSFetchRequest<CDThread> = CDThread.fetchRequest()
         if let threads = try? context.fetch(threadRequest) {
             for thread in threads {
                 allIDs.insert(thread.id)
@@ -29,7 +40,7 @@ public struct ImpartSpotlightProvider: SpotlightItemProvider {
         }
 
         // Fetch research conversation IDs
-        let rcRequest = NSFetchRequest<CDResearchConversation>(entityName: "ResearchConversation")
+        let rcRequest: NSFetchRequest<CDResearchConversation> = CDResearchConversation.fetchRequest()
         if let conversations = try? context.fetch(rcRequest) {
             for conv in conversations {
                 allIDs.insert(conv.id)
@@ -45,7 +56,7 @@ public struct ImpartSpotlightProvider: SpotlightItemProvider {
         var items: [any SpotlightItem] = []
 
         // Fetch threads
-        let threadRequest = NSFetchRequest<CDThread>(entityName: "Thread")
+        let threadRequest: NSFetchRequest<CDThread> = CDThread.fetchRequest()
         if let threads = try? context.fetch(threadRequest) {
             let threadsByID = Dictionary(
                 threads.map { ($0.id, $0) },
@@ -64,7 +75,7 @@ public struct ImpartSpotlightProvider: SpotlightItemProvider {
         }
 
         // Fetch research conversations
-        let rcRequest = NSFetchRequest<CDResearchConversation>(entityName: "ResearchConversation")
+        let rcRequest: NSFetchRequest<CDResearchConversation> = CDResearchConversation.fetchRequest()
         if let conversations = try? context.fetch(rcRequest) {
             let convsByID = Dictionary(
                 conversations.map { ($0.id, $0) },

@@ -1094,6 +1094,12 @@ public extension CDResearchConversation {
     }
 }
 
+public extension CDThread {
+    @nonobjc class func fetchRequest() -> NSFetchRequest<CDThread> {
+        NSFetchRequest<CDThread>(entityName: "CDThread")
+    }
+}
+
 public extension CDResearchMessage {
     @nonobjc class func fetchRequest() -> NSFetchRequest<CDResearchMessage> {
         NSFetchRequest<CDResearchMessage>(entityName: "CDResearchMessage")
