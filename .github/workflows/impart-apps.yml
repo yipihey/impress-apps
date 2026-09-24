@@ -168,9 +168,19 @@ jobs:
         working-directory: apps/impart
         run: |
           set -eo pipefail
-          UDID=$(xcrun simctl list devices available | grep -oE 'iPad Pro[^(]*\(([0-9A-F-]+)\)' | grep -oE '[0-9A-F-]{36}' | head -1)
-          [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
-          echo "sim: $UDID"
+          # `|| true` on each lookup: under pipefail a grep with no match
+          # killed the step on the FIRST line, so the fallback never ran and
+          # the step died silently — which it did on the xcode-27 image, whose
+          # device set has no iPad Pro.
+          DEVICES=$(xcrun simctl list devices available)
+          UDID=$(echo "$DEVICES" | grep -E 'iPad Pro' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
+          [ -n "$UDID" ] || UDID=$(echo "$DEVICES" | grep -E 'iPhone|iPad' | grep -oE '[0-9A-F-]{36}' | head -1 || true)
+          if [ -z "$UDID" ]; then
+            echo "::error::no available iOS simulator on this image"
+            echo "$DEVICES"; xcrun simctl list runtimes
+            exit 1
+          fi
+          echo "sim: $UDID ($(echo "$DEVICES" | grep "$UDID" | sed -E 's/^ +//'))"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
