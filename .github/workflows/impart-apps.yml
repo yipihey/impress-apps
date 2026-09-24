@@ -39,8 +39,8 @@ jobs:
     # documents). The price is that this runner starts with nothing: every
     # xcframework the package graph declares has to be built or restored here.
     #
-    # xcode-27, not macos-latest: the self-hosted lanes build with Xcode 27
-    # (setup-xcode latest-stable), and macos-latest's newest is 26.6, whose
+    # xcode-27, not macos-latest: the self-hosted lanes build with Xcode 27.0,
+    # and macos-latest's newest is 26.6, whose
     # type checker gives up on SectionContentView.swift:462 ("unable to
     # type-check this expression in reasonable time") — a toolchain this lane
     # alone was on, compiling Swift every other lane compiles. xcode-27 is
@@ -49,10 +49,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # PINNED to 27.0 (27A266a), the exact build the self-hosted lanes get
+      # from latest-stable. On this image latest-stable picks 27.1, which is
+      # installed as Xcode_27.1_beta.app, and under it every Rust build died
+      # before compiling a line of ours: "can't find crate for
+      # `zerofrom_derive`" (run 36047933967). Move this with the self-hosted Mac.
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: '27.0'
 
       # The arm64-only decision below is only right on Apple Silicon; fail
       # loudly if the label ever lands on an Intel image instead of producing
