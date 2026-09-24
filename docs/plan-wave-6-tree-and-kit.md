@@ -845,3 +845,18 @@ The first two are done in this pass (above).
   the lane only exists on this branch until the PR opens.
 - **Gates:** `rust-gate.sh fmt`; `clippy auto` (rest shard, green); `check-uniffi-bindings`
   (7 match); `check-schema-refs`; `check-chassis-deps`. No Rust source changed.
+- 2026-09-24 — **W6: the store FFI no longer reaches a domain core (decided by Tom).** The Rust
+  half's census found `impress-store-ffi → impress-ai → impel-core → impress-domain` and stopped
+  (ask-first). Verified by the orchestrator: `impel-core` entered only through
+  `impress_ai::executor` (the impel `TaskExecutor` impls), which the FFI never calls; its one user
+  is `impel-taskd`. Tom chose the smallest fix: `executor` is now an opt-in `impress-ai` feature
+  carrying the `impel-core` dependency, enabled only by `impel-taskd`. `cargo tree -p
+  impress-store-ffi -i impel-core` now finds nothing; `impress-ai` joins the kit's store tier
+  (it reaches only `impress-core` + sqlite). `impress-ai` tests: 84 without the feature, 96 with
+  it; `impel-taskd` and the FFI build; no export changed (bindings: 7 match). The manifest's
+  open-findings block is empty, `kit.yml` runs both checks with `--strict`, and
+  `check-kit-standalone.sh` learned one rule: an optional out-of-kit dependency is dropped from
+  the scratch copy when no kit crate enables a feature that turns it on (a default-on or
+  kit-enabled one still fails). Strict results: `kit deps OK` (13 crates) and `kit standalone
+  OK: 13 crates build with nothing else from this repository`, 0 warnings. Demo: making the FFI
+  enable `impress-ai/executor` fails both checks, naming the path.

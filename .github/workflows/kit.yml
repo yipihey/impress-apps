@@ -89,7 +89,7 @@ jobs:
         run: ./scripts/check-kit-deps.sh --self-test
 
       - name: Kit dependency line (ADR-0033 D7)
-        run: ./scripts/check-kit-deps.sh
+        run: ./scripts/check-kit-deps.sh --strict
 
   standalone:
     name: Kit builds without the rest of the repository
@@ -103,7 +103,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Kit plus impress-core in a scratch workspace
-        run: ./scripts/check-kit-standalone.sh
+        run: ./scripts/check-kit-standalone.sh --strict
 
   # --- Swift half (W6): add the package jobs here ---------------------------
   # The Swift half of W6 adds a job (or jobs) on `runs-on: macos-15` for the

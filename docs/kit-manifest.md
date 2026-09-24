@@ -33,7 +33,8 @@ change with it. They do not keep a second list.
 | `impress-layout-service` | store | The layout verbs over a store-backed live layout (`impress/ui/layout@1.0.0` rows), plus the Tier-B catalogue. |
 | `impress-surface-service` | store | The surface verbs, surface records and the runtime that executes a surface's effects. |
 | `impress-capabilities-kit` | store | The kit's slice of the linked `#[impress_service]` inventory (the four service crates above), so the FFI can link it without a package cycle. |
-| `impress-store-ffi` | store | The UniFFI bindings the Swift side links (`ImpressRustCore`'s xcframework): store, layout, surface. **Blocked, see "Open findings".** |
+| `impress-ai` | store | Provenance-first AI conversations and the provider registry, which the FFI binds (`ai.rs`, `ai_registry.rs`, ADR-0029). **Added in W6:** it reaches only `impress-core` (sqlite) once its `executor` feature (the impel task executors, and its one path to `impel-core`) is off, which it is for every kit consumer. |
+| `impress-store-ffi` | store | The UniFFI bindings the Swift side links (`ImpressRustCore`'s xcframework): store, layout, surface, and the AI conversation and registry bindings. |
 <!-- kit-crates:end -->
 
 `impress-capabilities` (the whole suite's inventory) is **not** in the kit. It links
@@ -121,22 +122,15 @@ reach changes in any way: if it grows, or if it disappears (then the entry is st
 has to go). `--strict` makes both scripts treat a listed finding as a failure.
 
 <!-- kit-open-findings:begin -->
-- `impress-store-ffi`: `impress-ai` `impel-core` `impress-domain`
 <!-- kit-open-findings:end -->
 
-**`impress-store-ffi` → `impress-ai` → `impel-core` (→ `impress-domain`).** This is
-ask-first ("a kit crate on a domain core", plan-wave-6 § Ask first) and is unresolved.
-The FFI carries the suite's AI registry and conversation store (`ai.rs`,
-`ai_registry.rs`, 2,331 lines, ADR-0029) next to the kit's store, layout and surface
-bindings. `impress-ai` depends on `impel-core` for one module, `impress_ai::executor`
-(the `TaskExecutor` impl), which the FFI never uses. The edge dates from 73d36cd9
-(2026-08-06), before ADR-0033. Until it is resolved, `check-kit-standalone.sh` leaves
-the FFI out of the scratch workspace and says so, and the rest of the kit is checked
-without it. The options, none of them taken here:
+**Resolved in W6 (decided by Tom, 2026-09-24): `impress-store-ffi` no longer reaches a
+domain core.** It reached `impel-core` (→ `impress-domain`) through `impress-ai`, whose
+only use of it was `impress_ai::executor`, the impel `TaskExecutor` impls the FFI never
+calls. That module and the `impel-core` dependency are now behind `impress-ai`'s opt-in
+`executor` feature, which only `impel-taskd`, the executors' one user, turns on.
+`impress-ai` itself joins the kit's store tier (above). The edge had existed since
+73d36cd9 (2026-08-06); `docs/plan-agent-surfaces.md`'s wave-5 rule that the FFI "must
+still not reach a domain core" was written before any check covered the FFI, and is now
+enforced by `check-kit-deps.sh` in strict mode.
 
-- put `impress-ai`'s `executor` module and its `impel-core` dependency behind a
-  feature, so the FFI's graph loses `impel-core` and `impress-domain` (and decide
-  whether `impress-ai` itself is kit or host);
-- split the AI bindings out of `impress-store-ffi` into their own FFI crate and
-  xcframework (touches every app's link line and `ImpressRustCore`);
-- rule `impress-ai` a second allowed reach (changes D7).

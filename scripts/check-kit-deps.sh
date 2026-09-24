@@ -195,14 +195,16 @@ if [[ $SELF_TEST -eq 1 ]]; then
     expect fail "kit crate on a domain core"         impress-surface-service store "imbib-core|default"
     expect fail "kit crate on impel-*"               impress-surface pure "impel-core|"
     expect fail "kit crate on a non-kit crate"       impress-layout pure "impress-tags|"
-    expect ok   "open finding, exact"                impress-store-ffi store "impress-ai|
-impel-core|" "impress-ai impel-core"
+    # The open-finding cases need a crate OUTSIDE the kit. They used impress-ai
+    # until W6 made it a kit crate (its executor feature gated off impel-core).
+    expect ok   "open finding, exact"                impress-store-ffi store "impress-tags|
+impel-core|" "impress-tags impel-core"
     STRICT=1
-    expect fail "open finding under --strict"        impress-store-ffi store "impress-ai|" "impress-ai"
+    expect fail "open finding under --strict"        impress-store-ffi store "impress-tags|" "impress-tags"
     STRICT=0
-    expect fail "open finding grew"                  impress-store-ffi store "impress-ai|
-imbib-core|" "impress-ai"
-    expect fail "open finding went stale"            impress-store-ffi store "impress-core|sqlite" "impress-ai"
+    expect fail "open finding grew"                  impress-store-ffi store "impress-tags|
+imbib-core|" "impress-tags"
+    expect fail "open finding went stale"            impress-store-ffi store "impress-core|sqlite" "impress-tags"
     if [[ $failures -ne 0 ]]; then
         echo "kit-deps self-test: $failures case(s) did not behave" >&2
         exit 1

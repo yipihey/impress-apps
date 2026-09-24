@@ -13,7 +13,8 @@ chrono.workspace = true
 dirs.workspace = true
 futures-util = "0.3"
 html-escape = "0.2"
-impel-core = { workspace = true }
+# Optional: only `executor` (the impel task executors) needs it. See [features].
+impel-core = { workspace = true, optional = true }
 impress-core = { workspace = true, features = ["sqlite"] }
 regex.workspace = true
 reqwest.workspace = true
@@ -26,6 +27,14 @@ tokio.workspace = true
 tokio-stream = "0.1"
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 url.workspace = true
+
+[features]
+# The impel TaskExecutor impls (`executor.rs`) and the only reason this crate
+# ever depended on impel-core. Opt-in, so the store FFI, which links impress-ai
+# for the conversation and registry bindings and never runs a task executor,
+# no longer reaches a domain core (ADR-0033 D7; decided by Tom 2026-09-24 in
+# wave 6's W6). impel-taskd, the executors' one user, turns it on.
+executor = ["dep:impel-core"]
 
 [dev-dependencies]
 mockito.workspace = true

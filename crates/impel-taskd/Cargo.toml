@@ -14,7 +14,7 @@ impel-core = { workspace = true }
 impel-enrichment = { path = "../impel-enrichment" }
 impel-throughline = { path = "../impel-throughline", features = ["llm"] }
 impel-memory = { workspace = true }
-impress-ai = { workspace = true }
+impress-ai = { workspace = true, features = ["executor"] }
 impress-ai-tools = { workspace = true }
 imprint-service = { workspace = true }
 impress-sources = { workspace = true }

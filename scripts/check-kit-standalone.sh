@@ -141,6 +141,7 @@ for c in left_out:
 
 # --- the dependency census, before anything is copied -------------------------
 errors, drops = [], {}  # drops: crate -> [(section, key, package)]
+opt_drops = {}  # crate -> [(section, key, package)]: optional, out of kit
 for c in members:
     cdir = ROOT / "crates" / c
     if not (cdir / "Cargo.toml").exists():
@@ -159,9 +160,48 @@ for c in members:
                 continue
             if sec.endswith("dev-dependencies"):
                 drops.setdefault(c, []).append((sec, key, pkg))
+            elif isinstance(spec, dict) and spec.get("optional"):
+                # An optional dependency outside the kit is fine while nothing in
+                # the kit turns it on (impress-ai -> impel-core behind `executor`).
+                opt_drops.setdefault(c, []).append((sec, key, pkg))
             else:
                 errors.append(f"{c} has a {sec.split('.')[-1]} entry on {pkg} ({rel}), "
                               f"which is not in the kit: it could not leave")
+
+def gating_features(manifest, key):
+    """The [features] of a crate that turn optional dependency `key` on."""
+    out = []
+    for feat, vals in (manifest.get("features") or {}).items():
+        if any(v in (f"dep:{key}", key) or v.startswith((f"{key}/", f"{key}?/")) for v in vals):
+            out.append(feat)
+    return out
+
+
+root_ws_deps = tomllib.loads(root_text).get("workspace", {}).get("dependencies", {})
+opt_features = {}  # crate -> features to strip from its copy
+for c, ds in opt_drops.items():
+    manifest = tomllib.loads((ROOT / "crates" / c / "Cargo.toml").read_text())
+    for sec, key, pkg in ds:
+        feats = gating_features(manifest, key)
+        if "default" in feats or any(
+                f in (manifest.get("features") or {}).get("default", []) for f in feats):
+            errors.append(f"{c}'s optional {pkg} is on by default, so the kit pulls it: "
+                          f"it could not leave")
+            continue
+        # Who turns those features on? Any kit crate (or the root's workspace entry).
+        ws_spec = root_ws_deps.get(c)
+        if isinstance(ws_spec, dict) and set(ws_spec.get("features", [])) & set(feats):
+            errors.append(f"[workspace.dependencies] enables {c}'s {', '.join(feats)}, "
+                          f"which pulls {pkg}: it could not leave")
+        for other in members:
+            om = tomllib.loads((ROOT / "crates" / other / "Cargo.toml").read_text())
+            for osec, odeps in sections(om):
+                spec = odeps.get(c)
+                if isinstance(spec, dict) and set(spec.get("features", [])) & set(feats):
+                    errors.append(f"kit crate {other} enables {c}'s "
+                                  f"{', '.join(set(spec['features']) & set(feats))}, which pulls "
+                                  f"{pkg} (not in the kit): it could not leave")
+        opt_features.setdefault(c, []).extend(feats)
 if errors:
     for e in errors:
         print(f"FAIL: {e}", file=sys.stderr)
@@ -206,6 +246,31 @@ def strip_dep(text, section, key):
     return "".join(out)
 
 
+def strip_feature(text, feat):
+    """Empty `feat = [...]` (one line or a multi-line array) in [features]: `feat = []`."""
+    lines, out, i, in_sec, removed = text.splitlines(keepends=True), [], 0, False, False
+    while i < len(lines):
+        s = lines[i].strip()
+        if s.startswith("["):
+            in_sec = s == "[features]"
+        if in_sec and re.match(rf"{re.escape(feat)}\s*=", s):
+            depth = lines[i].count("[") - lines[i].count("]")
+            i += 1
+            while depth > 0 and i < len(lines):
+                depth += lines[i].count("[") - lines[i].count("]")
+                i += 1
+            # Kept as an empty feature so `#[cfg(feature = ...)]` stays a known
+            # cfg: nothing in the kit enables it, so the gated code stays out.
+            out.append(f"{feat} = []\n")
+            removed = True
+            continue
+        out.append(lines[i])
+        i += 1
+    if not removed:
+        fail(f"could not find feature {feat} under [features] to drop it")
+    return "".join(out)
+
+
 def mentions(path, lib):
     code = [l for l in path.read_text().splitlines() if not l.lstrip().startswith("//")]
     return any(re.search(rf"\b{lib}\b", l) for l in code)
@@ -239,6 +304,19 @@ try:
         if isinstance(spec, dict) and "path" in spec and not (scratch / spec["path"]).exists():
             fail(f"scratch [workspace.dependencies] still points at {spec['path']}")
     (scratch / "Cargo.toml").write_text(text)
+
+    # Optional out-of-kit dependencies nothing in the kit enables: gone from the copy,
+    # with the features that would turn them on.
+    for c, ds in opt_drops.items():
+        mpath = scratch / "crates" / c / "Cargo.toml"
+        mtext = mpath.read_text()
+        for sec, key, pkg in ds:
+            mtext = strip_dep(mtext, sec, key)
+        for feat in opt_features.get(c, []):
+            mtext = strip_feature(mtext, feat)
+        mpath.write_text(mtext)
+        print(f"optional dependency dropped: {c} -> {', '.join(p for _, _, p in ds)} "
+              f"(feature {', '.join(opt_features.get(c, [])) or 'none'}, enabled by no kit crate)")
 
     # Dropped dev-dependencies, and the targets that can still be checked without them.
     partial = {}
