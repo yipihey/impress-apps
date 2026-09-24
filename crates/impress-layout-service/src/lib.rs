@@ -60,8 +60,8 @@ pub use dto::{
     PresetResult, ReferenceResult, SavedLayoutDto,
 };
 pub use outline::{
-    initial_selection_applies, outline_sections, outline_target, outline_verbs, OutlineNode,
-    OutlinePanes, OutlineSection, OutlineTarget, RecordScope,
+    initial_selection_applies, outline_cleared_verbs, outline_sections, outline_target,
+    outline_verbs, OutlineNode, OutlinePanes, OutlineSection, OutlineTarget, RecordScope,
 };
 pub use presets::{
     named_queries, ordinal_targets, preset_id, previous_revision, shipped_list_queries,

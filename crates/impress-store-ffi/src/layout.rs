@@ -1429,6 +1429,43 @@ pub fn outline_row_verbs_json(
     .map_err(SharedLayoutError::json)
 }
 
+/// What the tree does when the outline's selected library or collection is
+/// deleted, decided in Rust (`impress_layout_service::outline_cleared_verbs`,
+/// plan wave 6 W5): the navigator's channel stops carrying the dead row and
+/// the detail pane empties — the chassis' own "No Selection", with no
+/// fallback to a parent.
+///
+/// * `node_json` — the `OutlineNode` that was selected.
+/// * `list_spec_json` / `detail_spec_json` — as for [`outline_row_verbs_json`].
+///
+/// Returns `{"verbs": [Verb]}`, for `SharedLayout::apply` one at a time.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn outline_cleared_verbs_json(
+    node_json: String,
+    list_spec_json: String,
+    detail_spec_json: String,
+) -> Result<String> {
+    use impress_layout_service::{outline_cleared_verbs, OutlineNode, OutlinePanes};
+    let node: OutlineNode = serde_json::from_str(&node_json).map_err(SharedLayoutError::json)?;
+    let spec = |json: &str| -> Result<Option<PaneSpec>> {
+        if json.trim().is_empty() {
+            Ok(None)
+        } else {
+            serde_json::from_str(json)
+                .map(Some)
+                .map_err(SharedLayoutError::json)
+        }
+    };
+    let panes = OutlinePanes {
+        list: spec(&list_spec_json)?,
+        detail: spec(&detail_spec_json)?,
+    };
+    serde_json::to_string(&serde_json::json!({
+        "verbs": outline_cleared_verbs(&node, &panes),
+    }))
+    .map_err(SharedLayoutError::json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1466,6 +1503,30 @@ mod tests {
             "the list pane's query names the collection: {}",
             after.spec_json
         );
+    }
+
+    #[test]
+    fn a_deleted_outline_selection_comes_back_as_verbs_the_layout_applies() {
+        let (_store, layout) = open();
+        let list = layout.pane(role_of(&layout, "list")).expect("list pane");
+        let detail = layout
+            .pane(role_of(&layout, "detail"))
+            .expect("detail pane");
+        let collection = uuid::Uuid::new_v4();
+        let out = outline_cleared_verbs_json(
+            format!(r#"{{"node":"collection","id":"{collection}"}}"#),
+            list.spec_json,
+            detail.spec_json,
+        )
+        .expect("verbs");
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
+        let verbs = parsed["verbs"].as_array().expect("verbs array");
+        assert_eq!(verbs.len(), 2, "{verbs:?}");
+        for verb in verbs {
+            layout
+                .apply(verb.to_string(), "human".into())
+                .expect("every cleared verb is a verb the layout takes");
+        }
     }
 
     #[test]

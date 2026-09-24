@@ -454,7 +454,10 @@ pub struct OutlinePanes {
 /// * **Legacy** — `set-pane` on the `list` pane: view kind `legacy`, its
 ///   `view_state` naming the section, the node and the reason. Query,
 ///   params, channel and role are kept, so returning to a query row is one
-///   `set-pane` back.
+///   `set-pane` back. The detail pane's selection is cleared with it (an
+///   empty `select` of its kind): the hosted route brings its own list and
+///   detail, and the tree's `info` pane beside it would otherwise keep
+///   showing the paper chosen from the list the route replaced (W5).
 /// * **Inert** — nothing.
 ///
 /// A verb that would change nothing is not emitted: selecting the row the
@@ -530,10 +533,60 @@ pub fn outline_verbs(
                     target: list_ref,
                     spec,
                 });
+                verbs.extend(clear_detail(panes));
             }
         }
         OutlineTarget::Inert { .. } => {}
     }
+    verbs
+}
+
+/// "Nothing of the detail pane's kind is selected", published where the list
+/// publishes its selection — so the detail pane renders its empty state
+/// (`Channels::publish`: an empty selection is a real value). `None` when
+/// there is no detail pane or it binds no `item`.
+fn clear_detail(panes: &OutlinePanes) -> Option<Verb> {
+    let detail = panes.detail.as_ref()?;
+    let binding = detail.param(DETAIL_PARAM)?;
+    Some(Verb::Select {
+        target: PaneRef::role(Role::LIST),
+        kind: binding.decl.kind.clone(),
+        ids: Vec::new(),
+    })
+}
+
+/// The verbs for "the selected row is gone" — its library or collection was
+/// deleted while it was the outline's selection (W5).
+///
+/// The chassis' own sidebar does NOT fall back to the parent: deleting the
+/// selected collection sets its selection to nil
+/// (`ImbibSidebarViewModel.deleteFolder` / `deleteCollection`), deleting the
+/// selected library leaves a selection that resolves to nothing, and in both
+/// cases the content column shows "No Selection" — no list, no detail. The
+/// tree matches that: the list pane keeps its (now empty) query and so lists
+/// nothing, the navigator's channel stops carrying the dead library or
+/// collection (every pane bound to `$library` unbinds rather than holding
+/// it), and the detail pane stops showing the paper chosen from the deleted
+/// row's list. No row is selected for the user, exactly as the chassis
+/// selects none.
+pub fn outline_cleared_verbs(node: &OutlineNode, panes: &OutlinePanes) -> Vec<Verb> {
+    if panes.list.is_none() {
+        return Vec::new();
+    }
+    let mut verbs = Vec::new();
+    let navigator_kind = match node {
+        OutlineNode::Library { .. } => Some("library"),
+        OutlineNode::Collection { .. } => Some("collection"),
+        _ => None,
+    };
+    if let Some(kind) = navigator_kind {
+        verbs.push(Verb::Select {
+            target: PaneRef::role(Role::NAVIGATOR),
+            kind: kind.into(),
+            ids: Vec::new(),
+        });
+    }
+    verbs.extend(clear_detail(panes));
     verbs
 }
 
@@ -732,10 +785,22 @@ mod tests {
             assert!(!reason.is_empty(), "the reason is the recorded work");
 
             let verbs = outline_verbs(&node, &target, &impress_panes());
-            assert_eq!(verbs.len(), 1);
+            assert_eq!(
+                verbs.len(),
+                2,
+                "set-pane, then the detail cleared: {verbs:?}"
+            );
             let Verb::SetPane { spec, .. } = &verbs[0] else {
                 panic!("{verbs:?}")
             };
+            assert!(
+                matches!(
+                    &verbs[1],
+                    Verb::Select { target: PaneRef::Role { role }, kind, ids }
+                        if *role == Role::LIST && kind == "publication" && ids.is_empty()
+                ),
+                "the info pane must not keep the last paper beside a hosted route: {verbs:?}"
+            );
             assert_eq!(spec.view_kind, ViewKindId::LEGACY);
             assert_eq!(spec.role, Some(Role::LIST), "the role stays on the pane");
             assert_eq!(spec.view_state[LEGACY_SECTION_KEY], section);
@@ -911,11 +976,14 @@ mod tests {
         };
         let legacy_target = outline_target("impress", &legacy_node, &BTreeMap::new());
         let mut panes = impress_panes();
-        let Verb::SetPane { spec, .. } = outline_verbs(&legacy_node, &legacy_target, &panes)
-            .pop()
-            .unwrap()
+        let Some(spec) = outline_verbs(&legacy_node, &legacy_target, &panes)
+            .into_iter()
+            .find_map(|verb| match verb {
+                Verb::SetPane { spec, .. } => Some(spec),
+                _ => None,
+            })
         else {
-            panic!()
+            panic!("a legacy row sets the list pane")
         };
         panes.list = Some(spec);
 
@@ -1016,6 +1084,72 @@ mod tests {
     }
 
     // ---------------------------------------------------------------- W5
+
+    #[test]
+    fn a_hosted_route_empties_the_detail_pane_of_whatever_kind_it_reads() {
+        let node = OutlineNode::Section {
+            section: "reviewQueue".into(),
+        };
+        let target = outline_target("impress", &node, &BTreeMap::new());
+        let mut panes = impress_panes();
+        panes.detail = Some(detail_spec("figure"));
+        let verbs = outline_verbs(&node, &target, &panes);
+        assert!(
+            verbs.iter().any(|v| matches!(
+                v,
+                Verb::Select { kind, ids, .. } if kind == "figure" && ids.is_empty()
+            )),
+            "the clear is of the detail pane's own kind: {verbs:?}"
+        );
+
+        // No detail pane, nothing to clear — and still the set-pane.
+        panes.detail = None;
+        let verbs = outline_verbs(&node, &target, &panes);
+        assert_eq!(verbs.len(), 1);
+        assert!(matches!(verbs[0], Verb::SetPane { .. }));
+    }
+
+    #[test]
+    fn a_deleted_selection_selects_nothing_as_the_chassis_does() {
+        let panes = impress_panes();
+        for (node, kind) in [
+            (OutlineNode::Library { id: id(4) }, "library"),
+            (OutlineNode::Collection { id: id(5) }, "collection"),
+        ] {
+            let verbs = outline_cleared_verbs(&node, &panes);
+            assert_eq!(verbs.len(), 2, "{verbs:?}");
+            assert!(matches!(
+                &verbs[0],
+                Verb::Select { target: PaneRef::Role { role }, kind: k, ids }
+                    if *role == Role::NAVIGATOR && k == kind && ids.is_empty()
+            ));
+            assert!(matches!(
+                &verbs[1],
+                Verb::Select { target: PaneRef::Role { role }, kind: k, ids }
+                    if *role == Role::LIST && k == "publication" && ids.is_empty()
+            ));
+            assert!(
+                !verbs
+                    .iter()
+                    .any(|v| matches!(v, Verb::SetQuery { .. } | Verb::SetPane { .. })),
+                "no fallback to a parent or a section: the chassis selects none"
+            );
+        }
+
+        // A record folder publishes nothing on the navigator's channel; only
+        // the detail is emptied.
+        let folder = OutlineNode::Record {
+            kind: "figure".into(),
+            scope: RecordScope::Folder { id: id(6) },
+        };
+        assert_eq!(outline_cleared_verbs(&folder, &panes).len(), 1);
+
+        assert!(outline_cleared_verbs(
+            &OutlineNode::Library { id: id(4) },
+            &OutlinePanes::default()
+        )
+        .is_empty());
+    }
 
     #[test]
     fn a_list_still_on_revision_1_of_the_inbox_is_the_presets_list() {

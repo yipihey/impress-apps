@@ -74,6 +74,15 @@ struct LayoutOutlinePaneView: View {
             .onChange(of: viewModel.selectedTab) { _, tab in
                 route(tab, initial: false)
             }
+            // Deleting the SELECTED library leaves the sidebar's selection on
+            // the dead id (the chassis never reassigns it), so `selectedTab`
+            // does not change and `route` never hears of it. The library list
+            // does change.
+            .onChange(of: libraryManager.libraries.map(\.id)) { _, ids in
+                if case .library(let id) = routedTab, !ids.contains(id) {
+                    clearSelection(because: "its library was deleted")
+                }
+            }
     }
 
     // MARK: Sections
@@ -112,7 +121,13 @@ struct LayoutOutlinePaneView: View {
     // MARK: Routing
 
     private func route(_ tab: ImbibTab?, initial: Bool) {
-        guard let tab else { return }
+        guard let tab else {
+            // The sidebar selected nothing — deleting the selected collection
+            // does exactly this (`deleteFolder` / `deleteCollection` set the
+            // selection to nil).
+            clearSelection(because: "the sidebar's selection went to nil")
+            return
+        }
         if routedTab == tab { return }
         routedTab = tab
 
@@ -169,6 +184,52 @@ struct LayoutOutlinePaneView: View {
             do {
                 let applied = try controller.applyVerbJSON(verb.jsonString(), actor: LayoutController.guiActor)
                 // 2. SAVE — what Rust did with it.
+                logInfo(
+                    "outline applied: \(verb.objectValue?["verb"]?.stringValue ?? "?") → version "
+                        + "\(applied.version), \(applied.affectedPanes.count) affected",
+                    category: "layout")
+            } catch {
+                logWarning("outline verb refused: \((try? verb.jsonString()) ?? "?") — \(error)", category: "layout")
+                return
+            }
+        }
+    }
+
+    /// The routed row is gone. What the tree does about it is Rust's
+    /// (`outline_cleared_verbs`): the chassis' own "No Selection" — the
+    /// navigator's channel stops carrying the dead row, the detail pane
+    /// empties, and no other row is selected on the user's behalf (the
+    /// chassis never falls back to a parent). The list pane keeps its query,
+    /// which names a row that no longer exists and so lists nothing.
+    private func clearSelection(because why: String) {
+        guard let gone = routedTab else { return }
+        routedTab = nil
+
+        let controller = context.controller
+        let (node, _) = LayoutOutlineNode.node(
+            for: gone, shell: shell, dismissedLibraryID: libraryManager.dismissedLibrary?.id)
+        let listSpec = controller.paneWithRole("list").flatMap { controller.pane($0)?.specJson } ?? ""
+        let detailSpec =
+            controller.paneWithRole("detail").flatMap { controller.pane($0)?.specJson } ?? ""
+        let nodeJSON: String
+        let verbs: [LayoutJSONValue]
+        do {
+            nodeJSON = try node.jsonString()
+            let raw = try outlineClearedVerbsJson(
+                nodeJson: nodeJSON, listSpecJson: listSpec, detailSpecJson: detailSpec)
+            verbs = try LayoutJSONValue.decode(raw).objectValue?["verbs"]?.arrayValue ?? []
+        } catch {
+            logWarning("outline: no answer for the cleared selection \(gone): \(error)", category: "layout")
+            return
+        }
+        // 1. MUTATION — which row went away, and what Rust made of it.
+        logInfo(
+            "outline cleared: \(nodeJSON) — \(why) → \(verbs.count) verb(s), no row selected",
+            category: "layout")
+        for verb in verbs {
+            do {
+                let applied = try controller.applyVerbJSON(verb.jsonString(), actor: LayoutController.guiActor)
+                // 2. SAVE
                 logInfo(
                     "outline applied: \(verb.objectValue?["verb"]?.stringValue ?? "?") → version "
                         + "\(applied.version), \(applied.affectedPanes.count) affected",
