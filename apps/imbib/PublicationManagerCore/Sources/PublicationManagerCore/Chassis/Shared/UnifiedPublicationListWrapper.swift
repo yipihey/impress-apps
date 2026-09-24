@@ -479,6 +479,12 @@ struct UnifiedPublicationListWrapper: View {
             }
             .modifier(NotificationModifiers(
                 onToggleReadStatus: toggleReadStatusForSelected,
+                onSaveToLibrary: {
+                    logInfo(
+                        "Paper ▸ Save to Library: \(selectedPublicationIDs.count) selected",
+                        category: "triage")
+                    saveSelectedToDefaultLibrary()
+                },
                 onToggleEInkMirror: toggleEinkForSelected,
                 onCopyPublications: { Task { await copySelectedPublications() } },
                 onCutPublications: { Task { await cutSelectedPublications() } },
@@ -1846,6 +1852,7 @@ struct UnifiedPublicationListWrapper: View {
 /// Handles notification subscriptions for clipboard and selection operations
 private struct NotificationModifiers: ViewModifier {
     let onToggleReadStatus: () -> Void
+    let onSaveToLibrary: () -> Void
     let onToggleEInkMirror: () -> Void
     let onCopyPublications: () -> Void
     let onCutPublications: () -> Void
@@ -1856,6 +1863,12 @@ private struct NotificationModifiers: ViewModifier {
         content
             .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
                 onToggleReadStatus()
+            }
+            // Paper ▸ Save to Library and the command palette: the ⏎ key's
+            // save. Posted since cdca0b23 and observed by nothing, so the
+            // menu item never saved anything.
+            .onReceive(NotificationCenter.default.publisher(for: .saveToLibrary)) { _ in
+                onSaveToLibrary()
             }
             // Paper ▸ Mirror to reMarkable (⌃⌘E) and the command palette.
             .onReceive(NotificationCenter.default.publisher(for: .toggleEInkMirror)) { _ in

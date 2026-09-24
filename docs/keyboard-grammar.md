@@ -56,7 +56,12 @@ the chord stopped toggling the sidebar. Save to Library keeps its menu item
 and has no chord; saving from the keyboard is the inbox list's own guarded
 keys: ⏎ saves, `s` saves and stars, `*` stars
 (`UnifiedPublicationListWrapper`'s triage modifier). It shows no plain-key
-hint in the menu, because a bare-key equivalent would fire while typing.
+hint in the menu, because a bare-key equivalent would fire while typing
+(the command palette shows ↩). The menu item had also never SAVED: it posted
+`.saveToLibrary`, which nothing observed from cdca0b23 on. The publication
+list now observes it and runs the ⏎ key's save. Settings ▸ Keyboard still
+lists Save to Library at ⌃⌘S: that table binds nothing for this action and
+its rows persist per user, so correcting it needs a settings migration.
 `PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord` scans
 `imbibApp.swift` (plus the chassis's pane chords and View ▸ Layouts' ⌃⌘1–9)
 and fails if any chord is registered twice. Its first run found two more:
