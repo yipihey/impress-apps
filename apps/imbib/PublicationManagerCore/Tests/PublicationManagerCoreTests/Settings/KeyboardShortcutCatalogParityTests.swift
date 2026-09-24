@@ -13,7 +13,12 @@
 //  Deliberate changes since the move: 2026-09-07 (ADR-025) added the two
 //  reMarkable mirror bindings — `toggleEInkMirror` (⌃⌘E, the chord the
 //  old "Send to E-Ink Device" item already used) and `toggleEInkMirrorVim`
-//  (`e`, previously unbound) — both in Paper Actions.
+//  (`e`, previously unbound) — both in Paper Actions. 2026-09-24 corrected
+//  three rows that disagreed with the menu that binds them: Save to Library
+//  left ⌃⌘S (Toggle Sidebar's; the menu item has no chord) for ↩, the list's
+//  own save, and Show Notes Tab / Show BibTeX Tab are ⌘5 / ⌘6 as in View ▸
+//  (they were swapped here). Saved tables still carrying the old chords are
+//  migrated (`KeyboardShortcutsSettings.retiredDefaults`, tested below).
 //
 //  If this test fails, the resolved list changed. That is either a bug in the
 //  shared-catalog resolution or a deliberate vocabulary change; either way it
@@ -80,6 +85,107 @@ final class KeyboardShortcutCatalogParityTests: XCTestCase {
         XCTAssertEqual(conflicts.joined(separator: ","), Self.preMoveConflicts)
     }
 
+    // MARK: - The table agrees with the menu
+
+    /// Every row whose action has a menu item in `imbibApp.swift` shows the
+    /// chord that menu item binds. The table binds nothing itself for these
+    /// actions — it is what Settings ▸ Keyboard and the ⌘/ window SHOW — so
+    /// a row that disagrees with the menu teaches the user a chord that does
+    /// something else (⌃⌘S "Save to Library" toggled the sidebar).
+    func testMenuActionRowsShowTheMenusChords() {
+        let rows = Dictionary(
+            KeyboardShortcutsSettings.defaults.bindings.map { ($0.id, $0.displayShortcut) },
+            uniquingKeysWith: { a, _ in a })
+        let menu: [String: String] = [
+            "showLibrary": "⌘1", "showSearch": "⌘2", "showInbox": "⌘3",
+            "showPDFTab": "⌘4", "showNotesTab": "⌘5", "showBibTeXTab": "⌘6",
+            "toggleDetailPane": "⌘0", "toggleSidebar": "⌃⌘s",
+            "focusSidebar": "⌥⌘1", "focusList": "⌥⌘2", "focusDetail": "⌥⌘3",
+            "showNotesTabR": "⌘r", "openReferences": "⇧⌘r",
+            "toggleReadStatus": "⇧⌘u", "markAllAsRead": "⌥⌘u",
+            "dismissFromInbox": "⇧⌘j", "moveToCollection": "⌃⌘m",
+            "addToCollection": "⌘l", "removeFromCollection": "⇧⌘l",
+            "sharePapers": "⇧⌘f", "toggleEInkMirror": "⌃⌘e", "deleteSelectedPapers": "⌘⌫",
+            "copyPublications": "⌘c", "copyAsCitation": "⇧⌘c", "copyIdentifier": "⌥⌘c",
+            "cutPublications": "⌘x", "pastePublications": "⌘v", "selectAllPublications": "⌘a",
+            "toggleUnreadFilter": "⌘\\", "togglePDFFilter": "⇧⌘\\",
+            "pdfGoToPage": "⌘g", "importBibTeX": "⌘i", "exportBibTeX": "⇧⌘e",
+            "refreshData": "⇧⌘n", "showKeyboardShortcuts": "⌘/", "showNLSearch": "⌘s",
+        ]
+        for (id, chord) in menu.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(rows[id], chord, "Settings row \(id) disagrees with the menu")
+        }
+        // Save to Library has no menu chord; its row must not claim one that
+        // belongs to another command.
+        XCTAssertNotEqual(rows["saveToLibrary"], rows["toggleSidebar"])
+    }
+
+    // MARK: - Saved tables move off retired defaults
+
+    private func saved(_ edit: (inout KeyboardShortcutsSettings) -> Void) -> KeyboardShortcutsSettings {
+        var settings = KeyboardShortcutsSettings.defaults
+        edit(&settings)
+        return settings
+    }
+
+    private func set(_ settings: inout KeyboardShortcutsSettings, _ id: String,
+                     _ key: ShortcutKey, _ modifiers: ShortcutModifiers) {
+        let i = settings.bindings.firstIndex { $0.id == id }!
+        settings.bindings[i].key = key
+        settings.bindings[i].modifiers = modifiers
+    }
+
+    /// A table saved before 2026-09-24 carries the old defaults; they move.
+    func testASavedTableAtTheOldDefaultsMovesToTheNewOnes() {
+        let old = saved {
+            set(&$0, "saveToLibrary", .character("s"), [.control, .command])
+            set(&$0, "showBibTeXTab", .character("5"), .command)
+            set(&$0, "showNotesTab", .character("6"), .command)
+        }
+        let (migrated, ids) = old.migratingRetiredDefaults()
+        XCTAssertEqual(ids, ["saveToLibrary", "showBibTeXTab", "showNotesTab"])
+        XCTAssertEqual(migrated, KeyboardShortcutsSettings.defaults)
+    }
+
+    /// A chord the user chose is theirs, even for a row whose default moved.
+    func testAUsersOwnChordSurvivesTheMigration() {
+        let custom = saved {
+            set(&$0, "saveToLibrary", .character("k"), [.control, .command])
+            set(&$0, "showBibTeXTab", .character("5"), .command)  // still the old default
+            set(&$0, "showNotesTab", .character("7"), .command)   // the user's
+        }
+        let (migrated, ids) = custom.migratingRetiredDefaults()
+        XCTAssertEqual(ids, ["showBibTeXTab"])
+        XCTAssertEqual(migrated.binding(id: "saveToLibrary")?.displayShortcut, "⌃⌘k")
+        XCTAssertEqual(migrated.binding(id: "showNotesTab")?.displayShortcut, "⌘7")
+        XCTAssertEqual(migrated.binding(id: "showBibTeXTab")?.displayShortcut, "⌘6")
+    }
+
+    /// Today's defaults are a fixed point: nothing to migrate.
+    func testTheCurrentDefaultsNeedNoMigration() {
+        let (migrated, ids) = KeyboardShortcutsSettings.defaults.migratingRetiredDefaults()
+        XCTAssertTrue(ids.isEmpty)
+        XCTAssertEqual(migrated, KeyboardShortcutsSettings.defaults)
+    }
+
+    /// Through the store's own load path: a saved table in UserDefaults comes
+    /// back migrated, and a custom chord comes back as saved.
+    @MainActor
+    func testTheStoreLoadsASavedTableMigrated() throws {
+        let suite = "KeyboardShortcutMigrationTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let old = saved {
+            set(&$0, "saveToLibrary", .character("s"), [.control, .command])
+            set(&$0, "sharePapers", .character("y"), [.shift, .command])
+        }
+        defaults.set(try JSONEncoder().encode(old), forKey: "k")
+        let (loaded, ids) = KeyboardShortcutsStore.load(from: defaults, key: "k")
+        XCTAssertEqual(ids, ["saveToLibrary"])
+        XCTAssertEqual(loaded.binding(id: "saveToLibrary")?.displayShortcut, "↩")
+        XCTAssertEqual(loaded.binding(id: "sharePapers")?.displayShortcut, "⇧⌘y")
+    }
+
     // MARK: - Fixtures (captured from the literal table before the move)
 
     static let preMoveSnapshot = #"""
@@ -104,8 +210,8 @@ showLibrary|Show Library|Views|1|1|showLibrary|1|⌘1
 showSearch|Show Search|Views|2|1|showSearch|1|⌘2
 showInbox|Show Inbox|Views|3|1|showInbox|1|⌘3
 showPDFTab|Show PDF Tab|Views|4|1|showPDFTab|1|⌘4
-showBibTeXTab|Show BibTeX Tab|Views|5|1|showBibTeXTab|1|⌘5
-showNotesTab|Show Notes Tab|Views|6|1|showNotesTab|1|⌘6
+showNotesTab|Show Notes Tab|Views|5|1|showNotesTab|1|⌘5
+showBibTeXTab|Show BibTeX Tab|Views|6|1|showBibTeXTab|1|⌘6
 toggleDetailPane|Toggle Detail Pane|Views|0|1|toggleDetailPane|1|⌘0
 toggleSidebar|Toggle Sidebar|Views|s|9|toggleSidebar|1|⌃⌘s
 focusSidebar|Focus Sidebar|Focus|1|5|focusSidebar|1|⌥⌘1
@@ -116,7 +222,7 @@ showNotesTabR|Open Notes|Paper Actions|r|1|showNotesTab|1|⌘r
 openReferences|Open References|Paper Actions|r|3|openReferences|1|⇧⌘r
 toggleReadStatus|Toggle Read/Unread|Paper Actions|u|3|toggleReadStatus|1|⇧⌘u
 markAllAsRead|Mark All as Read|Paper Actions|u|5|markAllAsRead|1|⌥⌘u
-saveToLibrary|Save to Library|Paper Actions|s|9|saveToLibrary|1|⌃⌘s
+saveToLibrary|Save to Library|Paper Actions|return|0|saveToLibrary|1|↩
 dismissFromInbox|Dismiss from Inbox|Paper Actions|j|3|dismissFromInbox|1|⇧⌘j
 addToCollection|Add to Collection|Paper Actions|l|1|addToCollection|1|⌘l
 removeFromCollection|Remove from Collection|Paper Actions|l|3|removeFromCollection|1|⇧⌘l
@@ -180,8 +286,8 @@ Views/showLibrary/⌘1
 Views/showSearch/⌘2
 Views/showInbox/⌘3
 Views/showPDFTab/⌘4
-Views/showBibTeXTab/⌘5
-Views/showNotesTab/⌘6
+Views/showNotesTab/⌘5
+Views/showBibTeXTab/⌘6
 Views/toggleDetailPane/⌘0
 Views/toggleSidebar/⌃⌘s
 Focus/focusSidebar/⌥⌘1
@@ -192,7 +298,7 @@ Paper Actions/showNotesTabR/⌘r
 Paper Actions/openReferences/⇧⌘r
 Paper Actions/toggleReadStatus/⇧⌘u
 Paper Actions/markAllAsRead/⌥⌘u
-Paper Actions/saveToLibrary/⌃⌘s
+Paper Actions/saveToLibrary/↩
 Paper Actions/dismissFromInbox/⇧⌘j
 Paper Actions/addToCollection/⌘l
 Paper Actions/removeFromCollection/⇧⌘l
@@ -234,5 +340,7 @@ App/showKeyboardShortcuts/⌘/
 App/showNLSearch/⌘s
 """#
 
-    static let preMoveConflicts = "navigateDown+inboxNextItem,navigateUp+inboxPreviousItem,toggleSidebar+saveToLibrary"
+    /// ↩ is Open Paper's and the list's save alike (`TriageModifier`), so
+    /// the two rows show as a conflict — which they are. ⌃⌘S no longer does.
+    static let preMoveConflicts = "navigateDown+inboxNextItem,navigateUp+inboxPreviousItem,openSelectedPaper+saveToLibrary"
 }
