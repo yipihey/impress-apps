@@ -246,11 +246,17 @@ mod tests {
         std::fs::write(shared.join("Banik_2024.pdf"), b"%PDF legacy").unwrap();
         let found = resolve_relative(Some(library), "Papers/Banik_2024.pdf", home).unwrap();
         assert_eq!(found, shared.join("Banik_2024.pdf"));
-        assert_eq!(library_dir_for_write(library, home), shared_library_root(home).join(library));
+        assert_eq!(
+            library_dir_for_write(library, home),
+            shared_library_root(home).join(library)
+        );
 
         // A sandboxed process derives the real home, so it looks in the same group.
         let sandbox_home = home.join("Library/Containers/com.impress.impress/Data");
-        assert_eq!(shared_library_root(&real_home(&sandbox_home)), shared_library_root(home));
+        assert_eq!(
+            shared_library_root(&real_home(&sandbox_home)),
+            shared_library_root(home)
+        );
     }
 
     #[test]
