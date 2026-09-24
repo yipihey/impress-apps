@@ -42,7 +42,7 @@ use impress_layout::{PaneRef, PaneSpec, Role, Verb, ViewKindId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::presets::{named_queries, q, MATERIALIZE_FIRST};
+use crate::presets::{named_queries, q, shipped_list_queries, MATERIALIZE_FIRST};
 
 // ---------------------------------------------------------------------------
 // The node — what a selected sidebar row IS, in data
@@ -545,12 +545,16 @@ pub fn outline_verbs(
 /// selection the user never made must not overwrite it. A list still on the
 /// preset query is the cold-start case, where the outline's highlighted row
 /// and the list should agree.
+///
+/// "The preset's own list query" is any revision of it the table has shipped
+/// ([`shipped_list_queries`]): a layout stored before the Inbox stopped
+/// filtering to unread (W5) still holds revision 1, and that list is still
+/// the preset's, not a place the user chose.
 pub fn initial_selection_applies(app_id: &str, panes: &OutlinePanes) -> bool {
     let Some(list) = panes.list.as_ref() else {
         return false;
     };
-    let named = named_queries(app_id);
-    list.view_kind == ViewKindId::LIST && named.get("list") == Some(&list.query)
+    list.view_kind == ViewKindId::LIST && shipped_list_queries(app_id).contains(&list.query)
 }
 
 // ---------------------------------------------------------------------------
@@ -801,7 +805,9 @@ mod tests {
                 id: ItemRef::Id { id: id(42) }
             }
         );
-        assert_eq!(query.filters, vec![Filter::Read { read: false }]);
+        // Read AND unread (W5 parity with the chassis' Inbox list; the
+        // badge, not the list, is unread-only).
+        assert!(query.filters.is_empty(), "{:?}", query.filters);
     }
 
     #[test]
@@ -1007,5 +1013,18 @@ mod tests {
             }
         }
         assert!(outline_sections("nope").is_empty());
+    }
+
+    // ---------------------------------------------------------------- W5
+
+    #[test]
+    fn a_list_still_on_revision_1_of_the_inbox_is_the_presets_list() {
+        let mut panes = impress_panes();
+        panes.list.as_mut().unwrap().query = q::inbox_revision_1();
+        assert!(
+            initial_selection_applies("impress", &panes),
+            "a layout stored before W5 still holds the unread Inbox; the launch \
+             selection must retarget it to the current one"
+        );
     }
 }

@@ -117,7 +117,13 @@ pub const DISMISSED_LIBRARY_PARAM: &str = "dismissed_library";
 /// The version every preset in the table ships at. Bumping one entry's
 /// `version` is how "we shipped a newer Triage" becomes distinguishable from
 /// "the user edited Triage" (`schemas/ui.rs`, `version`).
-const SHIPPED_VERSION: u32 = 1;
+///
+/// **2** (plan wave 6 W5): the `inbox` named query stopped filtering to
+/// unread papers, for parity with the chassis' own Inbox list (see
+/// [`q::inbox`]). [`previous_revision`] rebuilds revision 1 from the table,
+/// and [`PresetStore::ensure_shipped`] upgrades a stored row only while it is
+/// still exactly revision 1 — an edited row stays the user's.
+const SHIPPED_VERSION: u32 = 2;
 
 /// Sections a preset permits that have **no** `PaneQuery`, with the reason.
 ///
@@ -253,6 +259,57 @@ pub fn shipped_preset(app_id: &str, name: &str) -> Option<ShippedPreset> {
     shipped_presets_for(app_id)
         .into_iter()
         .find(|p| p.name.to_lowercase() == wanted)
+}
+
+/// Revision 1 of a shipped preset, rebuilt from revision 2.
+///
+/// The only difference between the two is the `inbox` named query
+/// ([`q::inbox`] vs [`q::inbox_revision_1`]), wherever it occurs: in the
+/// query map and as a pane's query in the tree. A preset that never named the
+/// Inbox is its own revision 1 with the version number changed.
+pub fn previous_revision(preset: &ShippedPreset) -> ShippedPreset {
+    let current = q::inbox();
+    let previous = q::inbox_revision_1();
+    let mut out = preset.clone();
+    for query in out.queries.values_mut() {
+        if *query == current {
+            *query = previous.clone();
+        }
+    }
+    for tile in out.layout.panes() {
+        if let Some(spec) = out.layout.pane_mut(tile) {
+            if spec.query == current {
+                spec.query = previous.clone();
+            }
+        }
+    }
+    out.version = SHIPPED_VERSION - 1;
+    out
+}
+
+/// Every list query `app_id`'s presets have shipped, newest first: the
+/// current `list` named query, then what earlier revisions shipped in its
+/// place. A live layout written before an upgrade still holds the old one,
+/// and it is still the preset's list rather than a place the user chose.
+pub fn shipped_list_queries(app_id: &str) -> Vec<PaneQuery> {
+    let mut out = Vec::new();
+    if let Some(list) = named_queries(app_id).remove("list") {
+        if list == q::inbox() {
+            out.push(list);
+            out.push(q::inbox_revision_1());
+        } else {
+            out.push(list);
+        }
+    }
+    out
+}
+
+/// Does a stored row carry exactly `shipped` — tree, queries, roles, version?
+fn stored_matches(row: &PresetRow, stored: &StoredPreset, shipped: &ShippedPreset) -> bool {
+    stored.layout.as_ref() == Some(&shipped.layout)
+        && stored.queries == shipped.queries
+        && stored.roles == role_ids(&shipped.roles)
+        && row.version == Some(shipped.version)
 }
 
 /// The apps the table ships a preset for, in table order.
@@ -580,7 +637,17 @@ pub mod q {
         }]
     }
 
-    /// Inbox — the unread publications of the selected library, newest first.
+    /// Inbox — every publication of the selected library, read and unread,
+    /// newest first.
+    ///
+    /// Parity with the chassis' own Inbox list, which the tree replaced as
+    /// the only root in W5: `SectionContentView` shows `.inbox(id)`, which
+    /// `RustStoreAdapter` answers with `queryPublications(parentId:)` — no
+    /// read predicate — and the list is built with `disableUnreadFilter`, so
+    /// the user cannot even narrow it to unread. Only the sidebar BADGE is
+    /// unread (`countUnread`). Revision 1 of this query filtered to unread
+    /// ([`inbox_revision_1`]), and the Inbox listed 57 papers where the
+    /// chassis listed 68.
     pub fn inbox() -> PaneQuery {
         PaneQuery {
             kinds: kinds(&["publication"]),
@@ -589,9 +656,19 @@ pub mod q {
                     name: LIBRARY_PARAM.into(),
                 },
             },
-            filters: vec![Filter::Read { read: false }],
             sort: newest_first(),
             ..PaneQuery::default()
+        }
+    }
+
+    /// Revision 1 of [`inbox`]: the unread papers only. Kept so a stored
+    /// preset row that still carries it can be recognised as untouched and
+    /// upgraded ([`super::previous_revision`]), and so a live list still on
+    /// it counts as "on the preset's query" at launch.
+    pub fn inbox_revision_1() -> PaneQuery {
+        PaneQuery {
+            filters: vec![Filter::Read { read: false }],
+            ..inbox()
         }
     }
 
@@ -962,12 +1039,49 @@ impl PresetStore {
         let existing = self.rows(app_id)?;
         for shipped in shipped_presets_for(app_id) {
             let id = shipped.item_id();
-            if existing.iter().any(|row| row.id == id) {
+            if let Some(row) = existing.iter().find(|row| row.id == id) {
+                self.upgrade_if_untouched(row, &shipped)?;
                 continue;
             }
             self.insert(&shipped)?;
         }
         self.rows(app_id)
+    }
+
+    /// Rewrite a row that is still EXACTLY the previous shipped revision to
+    /// the current one, and leave every other row alone.
+    ///
+    /// "Exactly" is the whole safeguard: a row the user edited differs from
+    /// both revisions and is theirs, as [`Self::ensure_shipped`] promises. The
+    /// write is attributed to [`ActorKind::System`], like the seed, and its
+    /// operation's reason names the upgrade, so the store's history says why
+    /// the row changed.
+    fn upgrade_if_untouched(&self, row: &PresetRow, shipped: &ShippedPreset) -> Result<()> {
+        if row.version == Some(shipped.version) {
+            return Ok(());
+        }
+        let Some(item) = self.item(row.id)? else {
+            return Ok(());
+        };
+        let stored = stored_of(&item)?;
+        if !stored_matches(row, &stored, &previous_revision(shipped)) {
+            return Ok(());
+        }
+        self.save(
+            shipped.app_id,
+            shipped.name,
+            Some(shipped.purpose),
+            &shipped.layout,
+            &shipped.queries,
+            &shipped.roles,
+            Some(shipped.version),
+            ActorKind::System,
+            &format!(
+                "upgrade the untouched preset '{}' to shipped revision {}",
+                shipped.name, shipped.version
+            ),
+        )?;
+        Ok(())
     }
 
     /// Every preset row of `app_id`, in **ordinal order**: the shipped
@@ -1107,11 +1221,7 @@ impl PresetStore {
     /// preset the user has edited, and `None` for one the table never shipped.
     pub fn matches_shipped(&self, row: &PresetRow, stored: &StoredPreset) -> Option<bool> {
         let shipped = shipped_preset(&row.app_id, &row.name)?;
-        let same_tree = stored.layout.as_ref() == Some(&shipped.layout);
-        let same_queries = stored.queries == shipped.queries;
-        let same_roles = stored.roles == role_ids(&shipped.roles);
-        let same_version = row.version == Some(shipped.version);
-        Some(same_tree && same_queries && same_roles && same_version)
+        Some(stored_matches(row, stored, &shipped))
     }
 
     // ------------------------------------------------------------ internals
@@ -2047,5 +2157,173 @@ mod tests {
         assert_eq!(presets.rows("imbib").expect("rows").len(), 4);
         assert_eq!(presets.rows("imprint").expect("rows").len(), 2);
         assert!(presets.load("imprint", "Triage").expect("load").is_none());
+    }
+
+    // ------------------------------------------------ W5: Inbox parity
+
+    /// A library row, so a paper's `parent_id` has something to reference.
+    fn library(id: ItemId) -> Item {
+        Item {
+            schema: "imbib/library".into(),
+            parent: None,
+            ..paper(id, id, false)
+        }
+    }
+
+    /// A publication row parented to `parent`.
+    fn paper(id: ItemId, parent: ItemId, is_read: bool) -> Item {
+        let now = Utc::now();
+        let mut payload = BTreeMap::new();
+        payload.insert("title".to_string(), Value::String(format!("paper {id}")));
+        Item {
+            id,
+            schema: "imbib/bibliography-entry".into(),
+            payload,
+            created: now,
+            modified: now,
+            author: "test".into(),
+            author_kind: ActorKind::Human,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read,
+            is_starred: false,
+            priority: Priority::None,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: Some(parent),
+        }
+    }
+
+    /// The chassis' Inbox lists EVERY paper in the Inbox library, read and
+    /// unread (`RustStoreAdapter.queryPublications(for: .inbox)` →
+    /// `queryPublications(parentId:)`, no read predicate; the list is built
+    /// with `disableUnreadFilter`). The tree is now the only root, so the
+    /// `inbox` named query must list the same rows — run here against a real
+    /// store, not compared as a shape.
+    #[test]
+    fn the_inbox_lists_read_and_unread_papers_like_the_chassis_list() {
+        let store = store();
+        let inbox = Uuid::new_v4();
+        let elsewhere = Uuid::new_v4();
+        let unread = Uuid::new_v4();
+        let read = Uuid::new_v4();
+        store.insert(library(inbox)).expect("the Inbox library");
+        store.insert(library(elsewhere)).expect("another library");
+        store.insert(paper(unread, inbox, false)).expect("unread");
+        store.insert(paper(read, inbox, true)).expect("read");
+        store
+            .insert(paper(Uuid::new_v4(), elsewhere, false))
+            .expect("another library's paper");
+
+        let decls = vec![ParamDecl {
+            name: LIBRARY_PARAM.into(),
+            kind: "library".into(),
+            required: false,
+        }];
+        let bindings = Bindings::new().with(LIBRARY_PARAM, inbox);
+        let run = |query: &PaneQuery| -> Vec<ItemId> {
+            let compiled = compile(query, &decls, &bindings, &manifest()).expect("compiles");
+            let mut ids: Vec<ItemId> = store
+                .query(&compiled.item_query)
+                .expect("runs")
+                .into_iter()
+                .map(|item| item.id)
+                .collect();
+            ids.sort();
+            ids
+        };
+
+        let mut both = vec![unread, read];
+        both.sort();
+        assert_eq!(run(&q::inbox()), both, "read AND unread, only the Inbox's");
+        assert_eq!(
+            run(&q::inbox_revision_1()),
+            vec![unread],
+            "revision 1 was the unread subset — the 57-of-68 the W3 log recorded"
+        );
+    }
+
+    #[test]
+    fn a_seeded_revision_1_preset_is_upgraded_and_then_matches_the_table() {
+        let presets = PresetStore::new(store());
+        let triage = shipped_preset("imbib", "Triage").expect("imbib ships Triage");
+        let old = previous_revision(&triage);
+        assert!(
+            old.queries.values().any(|q| *q == q::inbox_revision_1()),
+            "Triage named the Inbox, so its revision 1 carries the unread query"
+        );
+        presets
+            .save(
+                old.app_id,
+                old.name,
+                Some(old.purpose),
+                &old.layout,
+                &old.queries,
+                &old.roles,
+                Some(old.version),
+                ActorKind::System,
+                "seed revision 1",
+            )
+            .expect("seed revision 1");
+
+        presets.ensure_shipped("imbib").expect("upgrade");
+        let (row, stored) = presets.load("imbib", "Triage").expect("load").expect("row");
+        assert_eq!(row.version, Some(SHIPPED_VERSION));
+        assert_eq!(presets.matches_shipped(&row, &stored), Some(true));
+        assert_eq!(stored.queries.get("list"), Some(&q::inbox()));
+    }
+
+    #[test]
+    fn an_edited_revision_1_preset_is_left_as_the_user_left_it() {
+        let presets = PresetStore::new(store());
+        let triage = shipped_preset("imbib", "Triage").expect("imbib ships Triage");
+        let mut edited = previous_revision(&triage);
+        edited
+            .queries
+            .insert("list".into(), q::flagged_publications());
+        presets
+            .save(
+                edited.app_id,
+                edited.name,
+                Some(edited.purpose),
+                &edited.layout,
+                &edited.queries,
+                &edited.roles,
+                Some(edited.version),
+                ActorKind::Human,
+                "the user's own Triage",
+            )
+            .expect("seed an edited revision 1");
+
+        presets.ensure_shipped("imbib").expect("ensure");
+        let (row, stored) = presets.load("imbib", "Triage").expect("load").expect("row");
+        assert_eq!(row.version, Some(SHIPPED_VERSION - 1), "not upgraded");
+        assert_eq!(stored.queries.get("list"), Some(&q::flagged_publications()));
+        assert_eq!(presets.matches_shipped(&row, &stored), Some(false));
+    }
+
+    #[test]
+    fn a_preset_that_never_named_the_inbox_is_its_own_previous_revision() {
+        let figures = shipped_preset("implore", "Default").expect("implore ships Default");
+        let old = previous_revision(&figures);
+        assert_eq!(old.queries, figures.queries);
+        assert_eq!(old.layout, figures.layout);
+        assert_eq!(old.version, SHIPPED_VERSION - 1);
+    }
+
+    #[test]
+    fn the_inbox_list_of_either_revision_is_the_presets_list() {
+        assert_eq!(
+            shipped_list_queries("imbib"),
+            vec![q::inbox(), q::inbox_revision_1()]
+        );
+        assert_eq!(shipped_list_queries("implore"), vec![q::figures()]);
     }
 }
