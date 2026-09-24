@@ -13,12 +13,11 @@
 //  turned a duplication into a finding).
 //
 //  WHAT WAS THERE BEFORE. imbib's `/api/layout`, `/api/layout/apply` and
-//  `/api/layout/save` drive `PaneLayoutStore` — the pre-tree Boolean model
-//  (`sidebarVisible`, `detailPaneVisible`, `detailTab`). They are served only
-//  by imbib's own router, and imbib's window is its pre-chassis
-//  `ContentView`, which still reads that model; every CHASSIS window is the
-//  layout tree (plan wave 6 W5 removed the flag), and none of them serves
-//  those routes. They carry `model: "pane-layout-state"` so an agent can tell
+//  `/api/layout/save` drive the pre-tree Boolean model of imbib's own window
+//  (`sidebarVisible`, `detailPaneVisible`, `detailTab`), which lives in
+//  imbib's app target and answers through the host imbib registers with its
+//  router. Every CHASSIS window is the layout tree (plan wave 6 W5 removed
+//  the flag), and none of them serves those routes. They carry `model: "pane-layout-state"` so an agent can tell
 //  which of the two models it drove.
 //
 //  THE VOCABULARY STAYS IN ONE PLACE. This package must not learn

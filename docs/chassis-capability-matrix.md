@@ -383,7 +383,7 @@ split and is listed here so the reach table stays complete.
 | `Chassis/RecordKind/RecordViewerRegistry+Builtin.swift` | macOS | SPLIT out: the four builtin factories, each constructing an AppKit-adjacent section view (`FigureSectionView` / `MessageSectionView` / `AgentSectionView`) |
 | `Chassis/RecordKind/AnyRecordListWrapper.swift` | ✅ both | the mixed-kind list over `KindTaggedRow` — plain SwiftUI `List` |
 | `Chassis/TabSidebar/TabSidebarTypes.swift` | ✅ both | 345 lines of route enums (`ImbibTab`, `ImbibContentRoute`, journal/figure/mail/agent routes) + notification names. The chassis's ROUTE vocabulary, which iOS had to re-encode as literals |
-| `Chassis/TabSidebar/FocusedPane.swift` | ✅ both | the focus twin of the never-gated `DetailTab` |
+| `Chassis/Shared/HostWindowPanes.swift` | ✅ both | a host window's pane model as a protocol plus an environment value (`hostWindowPanes`). imbib's pre-chassis window injects its app-target `PaneLayoutStore`; inside the layout tree it is nil and a hosted `TabContentView` keeps its own panes (`OwnWindowPanes`). Replaced `FocusedPane.swift` in this table: `FocusedPane` and `PaneLayoutState` moved to imbib's app target in plan wave 6 W5 pass B |
 | `ImpressChassis/Manuscripts/FocusedManuscript.swift` | ✅ both | a `FocusedValueKey` — pure SwiftUI focus plumbing. **Lifted out of PMC into `packages/ImpressChassis` by C5** (ADR-0021 D5); PMC re-exports the module, so the import that reaches it is unchanged |
 | `Chassis/Shared/FindCoordinator.swift` | ✅ both | ⌘F / ⌘⇧F `Commands`, the `listFilterFocusAction` focused value, and the store-search notification names. `Commands` is SwiftUI, not AppKit. ISLAND: `ImpressStoreSearchCommands` contributes nothing on iOS — the surface it opens (`StoreSearchSurface`) is the one AppKit-linking builtin, so the chord would open nothing (the `RecordTriageNewTagPrompt` "omit the affordance" rule) |
 | `Chassis/Manuscripts/ManuscriptRowData.swift` | ✅ both | display-ready row snapshot (Foundation + ImpressFTUI/ImpressMailStyle value types) |
@@ -2924,6 +2924,16 @@ only as a `legacy` pane (whole, or scoped to one route by the outline).
 **imbib's own window is not a chassis root.** It is imbib's pre-chassis
 `ContentView`, which hosts `TabContentView` directly and still reads
 `PaneLayoutState`; it never rendered the tree and is out of W5's scope.
+Since W5 pass B that model (and `FocusedPane`) lives in imbib's app target
+(`apps/imbib/imbib/imbib/`), not in PublicationManagerCore. The shared views
+reach it only through `HostWindowPanes` (the environment, injected by
+`ContentView`: list / detail visibility and the detail tab of
+`SectionContentView` and the figure / mail / agent / manuscript section
+views, the sidebar column and list toggle of `TabContentView`) and the chords
+through `PaneLayoutChordTarget.imbibPreChassisWindow(_:)`. Inside the tree
+nothing is injected: a scoped section view shows its list and its detail
+(the tree decides what is on screen), and a whole hosted `TabContentView`
+keeps its own panes in memory.
 
 ### HTTP automation (the tree's agent surface, 2026-09-21)
 
@@ -2957,11 +2967,14 @@ Three properties worth keeping:
   did, below.
 
 `/api/layout`, `/api/layout/apply` and `/api/layout/save` are imbib's OLD
-`PaneLayoutState` routes. They are served by imbib's router only, and
-imbib's window is its pre-chassis `ContentView`, which still reads that
-model — so there they still change what the window draws, and they carry
-`model: "pane-layout-state"` to say which model they drove. No chassis app
-serves them. The `treeActive` marker they grew in L6 (for an imbib-served
+`PaneLayoutState` routes. PMC's router forwards them to a host the imbib
+app registers at launch (`PreChassisLayoutRoutes`, the `LayoutAutomationHost`
+pattern; W5 pass B), because the model lives in imbib's app target with the
+window that draws it — so they still change what that window draws, and
+they carry `model: "pane-layout-state"` to say which model they drove. No
+chassis app serves them (their routers answer 404), and a process with no
+host — imbib-iOS, where nothing draws that model and the routes used to
+answer a silent `ok` — answers 404 naming the tree's routes. The `treeActive` marker they grew in L6 (for an imbib-served
 window that might be the tree) went with the flag in W5: no window of
 imbib's renders the tree. Before the marker they answered a plain `ok` while
 changing nothing anyone could see: the same "reported success while doing
@@ -3135,7 +3148,7 @@ mutation reverted.
 
 | Chord | Chassis window (the tree, since W5 the only root) | imbib's pre-chassis window |
 |---|---|---|
-| ⌃⌘S / ⌥⌘0 / ⌘0 | `resizeShare` on whichever pane carries the `navigator` / `list` / `detail` ROLE (D5), through `LayoutController` only — a chord before the tree opens is logged and ignored, never redirected. Un-collapsing restores the **sibling average** — the remembered width lives in the tree, never in a Swift value | flips `PaneLayoutState.sidebarVisible` / `listPaneVisible` / `detailPaneVisible` (`PaneLayoutChordTarget.imbibPreChassisWindow`, `imbibApp.swift` only) |
+| ⌃⌘S / ⌥⌘0 / ⌘0 | `resizeShare` on whichever pane carries the `navigator` / `list` / `detail` ROLE (D5), through `LayoutController` only — a chord before the tree opens is logged and ignored, never redirected. Un-collapsing restores the **sibling average** — the remembered width lives in the tree, never in a Swift value | flips `PaneLayoutState.sidebarVisible` / `listPaneVisible` / `detailPaneVisible` (imbib's app target, reached as `HostWindowPanes` through `PaneLayoutChordTarget.imbibPreChassisWindow(_:)`, `imbibApp.swift` only) |
 | ⌃⌘1–9 | `apply-layout` ordinal N (`ImpressLayoutOrdinalButtons`: the app's presets, then its saved layouts). imprint: the tree's ordinal in its chassis window, its editor-window layouts while a manuscript editor window is key (`ImprintLayoutsMenu`) | View ▸ Layouts, the N-th saved `PaneLayoutState` |
 | h / l | `focus_direction` left/right over the tree's leaves (`TriageKeyGrammar.focusPaneLeft/Right`), including when the info pane or a hosted list claimed the key and posted `.cycleFocusLeft/Right` | `PaneFocusCycler` over `FocusedPane` |
 | ⌘Z / ⇧⌘Z | `undo`/`redo` on the focused pane's **exploration** ring — unless the focused pane is session-bearing, when the chord is left to the responder chain (D7 stack 1) | the responder chain |

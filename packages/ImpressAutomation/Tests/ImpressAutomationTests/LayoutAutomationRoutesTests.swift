@@ -230,7 +230,7 @@ struct LayoutAutomationRoutesTests {
     func wrongMethodFallsThrough() async {
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "POST", path: "/api/layout/tree")) == nil)
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "GET", path: "/api/layout/verb")) == nil)
-        // imbib's legacy PaneLayoutStore routes are NOT ours: `/api/layout`
+        // imbib's own-window layout routes are NOT ours: `/api/layout`
         // itself must still reach the app's own table.
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "GET", path: "/api/layout")) == nil)
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "POST", path: "/api/layout/apply")) == nil)

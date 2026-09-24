@@ -662,7 +662,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
 
         if path == "/api/layout" {
-            return await handleGetLayout()
+            return await handlePreChassisLayout(request)
         }
 
         if path == "/api/appearance" {
@@ -949,16 +949,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
                          status: out.status)
         }
 
-        if path == "/api/layout" {
-            return await handleSetLayout(request)
-        }
-
-        if path == "/api/layout/apply" {
-            return await handleApplyLayout(request)
-        }
-
-        if path == "/api/layout/save" {
-            return await handleSaveLayout(request)
+        if PreChassisLayoutRoutes.paths.contains(path) {
+            return await handlePreChassisLayout(request)
         }
 
         if path == "/api/appearance" {
@@ -1930,119 +1922,25 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    // MARK: - Layout & Appearance (declarative pane-layout system)
+    // MARK: - Layout (imbib's pre-chassis window)
 
-    private func layoutStateDict(_ state: PaneLayoutState) -> [String: Any] {
-        [
-            "sidebarVisible": state.sidebarVisible,
-            "detailPaneVisible": state.detailPaneVisible,
-            "detailTab": state.detailTab,
-            "appAppearance": state.appAppearance,
-            "pdfDarkMode": state.pdfDarkMode
-        ]
-    }
-
-    /// The model marker every legacy layout response carries.
-    ///
-    /// These routes are served by imbib's router only, and imbib's window is
-    /// its pre-chassis `ContentView`, which reads `PaneLayoutState`: here the
-    /// routes change what the window draws. Every chassis app's window is the
-    /// layout tree (plan wave 6 W5 removed the flag that made the tree
-    /// optional), whose own surface is `/api/layout/tree`,
-    /// `/api/layout/verb` and `/api/layout/op` (`SharedAutomationRoutes`).
-    /// The `treeActive` marker that warned "the tree is drawing, not this"
-    /// existed only while one imbib-hosted chassis window could be either; no
-    /// window of this app renders the tree, so it is gone.
-    private static let paneModelKeys: [String: String] = ["model": "pane-layout-state"]
-
-    /// GET /api/layout — live pane arrangement + saved layouts.
-    private func handleGetLayout() async -> HTTPResponse {
-        let (current, layouts) = await MainActor.run {
-            (PaneLayoutStore.shared.current,
-             PaneLayoutStore.shared.layouts)
+    /// `/api/layout`, `/api/layout/apply`, `/api/layout/save`: forwarded to
+    /// the host imbib's app registers (`PreChassisLayoutRoutes`), which owns
+    /// the window model they drive. No host → 404 with the reason.
+    private func handlePreChassisLayout(_ request: HTTPRequest) async -> HTTPResponse {
+        let path = (request.path.components(separatedBy: "?").first ?? request.path).lowercased()
+        let method = request.method
+        let body = Data((request.body ?? "").utf8)
+        let reply: PreChassisLayoutReply? = await MainActor.run {
+            PreChassisLayoutRoutes.shared.host?.layoutRoute(path: path, method: method, body: body)
         }
-        var payload: [String: Any] = [
-            "status": "ok",
-            "current": layoutStateDict(current),
-            "layouts": layouts.map { ["name": $0.name, "state": layoutStateDict($0.state)] },
-        ]
-        for (key, value) in Self.paneModelKeys {
-            payload[key] = value
+        guard let reply else {
+            return .notFound(PreChassisLayoutRoutes.unservedReason(path))
         }
-        return .json(payload)
-    }
-
-    /// POST /api/layout — set any subset of the live pane arrangement.
-    /// Body: {"sidebarVisible"?, "detailPaneVisible"?, "detailTab"?,
-    ///        "appAppearance"?, "pdfDarkMode"?}
-    private func handleSetLayout(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let json = parseJSONBody(request) else {
-            return .badRequest("Expected JSON object body")
+        guard let object = try? JSONSerialization.jsonObject(with: reply.json) else {
+            return .serverError("layout host answered with a body that is not JSON")
         }
-        // Extract Sendable values before hopping to the MainActor.
-        let sidebar = json["sidebarVisible"] as? Bool
-        let detailPane = json["detailPaneVisible"] as? Bool
-        let tab = json["detailTab"] as? String
-        let app = json["appAppearance"] as? String
-        let pdfDark = json["pdfDarkMode"] as? Bool
-        let keys = json.keys.sorted().joined(separator: ",")
-
-        let updated = await MainActor.run {
-            let store = PaneLayoutStore.shared
-            var state = store.current
-            if let v = sidebar { state.sidebarVisible = v }
-            if let v = detailPane { state.detailPaneVisible = v }
-            if let v = tab { state.detailTab = v }
-            if let v = app { state.appAppearance = v }
-            if let v = pdfDark { state.pdfDarkMode = v }
-            store.current = state
-            if app != nil || pdfDark != nil {
-                store.pushAppearance()
-            }
-            return state
-        }
-        logInfo("HTTP layout update: \(keys)", category: "layout")
-        var payload: [String: Any] = ["status": "ok", "current": layoutStateDict(updated)]
-        for (key, value) in Self.paneModelKeys {
-            payload[key] = value
-        }
-        return .json(payload)
-    }
-
-    /// POST /api/layout/apply {"name": "Reading"} — apply a saved layout.
-    private func handleApplyLayout(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let json = parseJSONBody(request), let name = json["name"] as? String else {
-            return .badRequest("Expected {\"name\": ...}")
-        }
-        let (applied, current) = await MainActor.run {
-            (PaneLayoutStore.shared.applyLayout(named: name),
-             PaneLayoutStore.shared.current)
-        }
-        guard applied else { return .notFound("No saved layout named '\(name)'") }
-        var payload: [String: Any] = [
-            "status": "ok", "applied": name, "current": layoutStateDict(current),
-        ]
-        for (key, value) in Self.paneModelKeys {
-            payload[key] = value
-        }
-        return .json(payload)
-    }
-
-    /// POST /api/layout/save {"name": "My Setup"} — save the live arrangement.
-    private func handleSaveLayout(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let json = parseJSONBody(request), let name = json["name"] as? String,
-              !name.trimmingCharacters(in: .whitespaces).isEmpty else {
-            return .badRequest("Expected {\"name\": ...}")
-        }
-        let names = await MainActor.run {
-            PaneLayoutStore.shared.saveCurrent(named: name)
-            return PaneLayoutStore.shared.layouts.map(\.name)
-        }
-        var payload: [String: Any] = ["status": "ok", "saved": name, "layouts": names]
-        for (key, value) in Self.paneModelKeys {
-            payload[key] = value
-        }
-        return .json(payload)
+        return .json(object, status: reply.status)
     }
 
     // MARK: - Surfaces (ADR-0033)
@@ -2501,11 +2399,15 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("appAppearance must be system|light|dark")
             }
             await ThemeSettingsStore.shared.updateAppearanceMode(mode)
-            await MainActor.run { PaneLayoutStore.shared.current.appAppearance = raw }
+            await MainActor.run {
+                PreChassisLayoutRoutes.shared.host?.appearanceDidChange(appAppearance: raw, pdfDarkMode: nil)
+            }
         }
         if let dark = json["pdfDarkMode"] as? Bool {
             await PDFSettingsStore.shared.updateDarkMode(enabled: dark)
-            await MainActor.run { PaneLayoutStore.shared.current.pdfDarkMode = dark }
+            await MainActor.run {
+                PreChassisLayoutRoutes.shared.host?.appearanceDidChange(appAppearance: nil, pdfDarkMode: dark)
+            }
         }
         return await handleGetAppearance()
     }

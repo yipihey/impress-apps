@@ -35,7 +35,7 @@ struct ImpressThemeTests {
     /// The storage key is a MIGRATION contract, not an implementation detail:
     /// it is what four hand-written app-local modifiers read before ADR-0022 X2
     /// moved them here, what the chassis settings builtin writes, and what
-    /// `PaneLayoutState.appAppearance` mirrors. Renaming it silently resets
+    /// imbib's window layout model mirrors (`appAppearance`). Renaming it silently resets
     /// every existing user's preference — which reads as "my settings were
     /// lost", not as a bug. Change it only with a stored-value migration in the
     /// same commit.

@@ -56,8 +56,9 @@ moved it, through `LayoutController` and nothing else (a chord that arrives
 before the tree has opened is logged and ignored). The routing is in
 `PaneLayoutChordRouter`, in the same file as the buttons. imbib's own window
 is its pre-chassis `ContentView`, not a chassis root: there the same three
-chords flip the `PaneLayoutState` Booleans that window reads
-(`PaneLayoutChordTarget.imbibPreChassisWindow`, passed by `imbibApp.swift`
+chords flip the `PaneLayoutState` Booleans that window reads — a model in
+imbib's app target, handed to the chassis as `HostWindowPanes`
+(`PaneLayoutChordTarget.imbibPreChassisWindow(_:)`, passed by `imbibApp.swift`
 alone). h / l follow the same split: `focus_direction` over the tree in a
 chassis window, `PaneFocusCycler` in imbib's own.
 

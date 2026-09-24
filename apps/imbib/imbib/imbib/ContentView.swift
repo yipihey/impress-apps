@@ -163,6 +163,9 @@ struct ContentView: View {
     /// Tab sidebar content — the sole sidebar implementation
     private var tabSidebarContent: some View {
         TabContentView()
+            // This window's panes are its own layout model (⌘0 / ⌥⌘0 / ⌃⌘S,
+            // saved layouts, /api/layout); the shared views read it here.
+            .environment(\.hostWindowPanes, PaneLayoutStore.shared)
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
             }
