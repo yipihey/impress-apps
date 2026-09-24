@@ -165,6 +165,7 @@ impress-apps/
 │   ├── ImpressAutomation/ # HTTPServer, HTTPRouter, AutomationSettingsSection
 │   ├── ImpressTheme/   # AppearanceMode, AppearanceSettingsSection, font scale
 │   ├── ImpressCommandPalette/ # Command registry and palette view
+│   ├── ImpressLayout/  # The layout-tree host — kit-grade, policed by check-kit-packages.sh (ADR-0033 D7)
 └── crates/
     ├── imbib-core/     # Rust core for imbib
     ├── impress-mcp/    # THE MCP server (generated from #[impress_service])
