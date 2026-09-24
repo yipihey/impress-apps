@@ -109,6 +109,8 @@ jobs:
         working-directory: apps/impart
         run: xcodegen generate
 
+      # tee + grep on failure: `tail -50` alone keeps xcodebuild's summary of
+      # WHICH files failed and drops every `error:` line saying why.
       - name: Build impart (macOS)
         working-directory: apps/impart
         run: |
@@ -119,7 +121,8 @@ jobs:
             -destination 'platform=macOS' \
             ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
-            build | tail -50
+            build 2>&1 | tee build-output-macos.txt | tail -50 \
+          || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-macos.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
 
       # Install-smoke: boot a sim, build for it, install, launch. A plain
       # `build` (generic destination) never installs, so it CANNOT catch
@@ -138,7 +141,8 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -project impart.xcodeproj -scheme impart-iOS -configuration Debug \
             -destination "id=$UDID" -derivedDataPath build-ios \
-            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build | tail -30
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-output-ios.txt | tail -30 \
+            || { echo "::group::compiler errors"; grep -E '(error|fatal error):' build-output-ios.txt | sort -u | head -60; echo "::endgroup::"; exit 1; }
           APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'impart.app' | head -1)
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
