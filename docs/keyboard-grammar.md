@@ -57,6 +57,13 @@ and has no chord; saving from the keyboard is the inbox list's own guarded
 keys: ⏎ saves, `s` saves and stars, `*` stars
 (`UnifiedPublicationListWrapper`'s triage modifier). It shows no plain-key
 hint in the menu, because a bare-key equivalent would fire while typing.
+`PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord` scans
+`imbibApp.swift` (plus the chassis's pane chords and View ▸ Layouts' ⌃⌘1–9)
+and fails if any chord is registered twice. Its first run found two more:
+the Console window scene held ⇧⌘C, which is Edit ▸ Copy as Citation (the
+console opens with ⌃⌘C, View ▸ Show Console, as in impress and impart), and
+the Keyboard Shortcuts window scene held ⌘/ beside Help ▸ Keyboard Shortcuts.
+Both scene chords are gone.
 
 **⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every chassis window —
 the layout tree, the only chassis root since plan wave 6 W5 — they resize

@@ -190,7 +190,7 @@ To force a row data rebuild after in-place mutations (flag/tag changes that don'
 
 ### Console Logging
 
-The app has an internal console window (Cmd+Shift+C). Use `*Capture()` methods to log to both OSLog and the console:
+The app has an internal console window (⌃⌘C — View ▸ Show Console; ⇧⌘C is Copy as Citation in imbib). Use `*Capture()` methods to log to both OSLog and the console:
 
 ```swift
 Logger.library.infoCapture("message", category: "tags")  // shows in console

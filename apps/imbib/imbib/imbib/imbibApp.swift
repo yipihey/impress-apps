@@ -812,17 +812,21 @@ struct imbibApp: App {
                 .environment(libraryManager)
         }
 
+        // No scene chords on these two windows. ⇧⌘C is Edit ▸ Copy as
+        // Citation, and a key equivalent two menu items claim does neither
+        // reliably; the console opens with ⌃⌘C (View ▸ Show Console), as in
+        // impress and impart. ⌘/ is Help ▸ Keyboard Shortcuts' — the scene
+        // registered it a second time for the same window.
+        // `PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord`.
         Window("Console", id: "console") {
             ConsoleView()
         }
-        .keyboardShortcut("c", modifiers: [.command, .shift])
         .defaultSize(width: 800, height: 400)
         .handlesExternalEvents(matching: Set<String>())
 
         Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
             KeyboardShortcutsView()
         }
-        .keyboardShortcut("/", modifiers: .command)
         .defaultSize(width: 450, height: 700)
         .handlesExternalEvents(matching: Set<String>())
 
