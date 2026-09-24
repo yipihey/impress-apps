@@ -528,3 +528,12 @@ toggles); ⌃⌘1 applied the Default preset over a surface pane, ⌃⌘2 the on
 Not this branch's: `main`'s red "imprint - iOS install smoke" and "Tectonic" lanes fail in
 `rustup` setup on the runner ("failure removing component 'cargo-aarch64-apple-darwin'",
 cryptexd EACCES) — 2026-09-06 and -21, before this work.
+
+### 2026-09-23 — wave 5 merged (PR #44); the Mac hand-off retired
+
+PR #44 merged at 18:51 UTC with V1–V5, the Mac's store-install fix and ⌃⌘1–9. The round-2
+hand-off file (`docs/next-steps-agent-surfaces-mac.md`) is deleted — its two rounds are
+the two "Mac pass" entries above — and the next Mac work is wave 6:
+`docs/plan-wave-6-tree-and-kit.md` with the orchestrator brief
+`docs/next-steps-mac-orchestrator.md` (L8's leaves, the kit cut, and the three findings
+recorded in the round-2 entry).
