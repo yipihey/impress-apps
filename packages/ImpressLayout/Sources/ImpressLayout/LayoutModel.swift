@@ -1,9 +1,9 @@
 #if os(macOS)
-// Chassis file — macOS-only (the layout host renders macOS window contents;
+// Kit file (ImpressLayout) — macOS-only (the layout host renders macOS window contents;
 // iOS keeps its own shells). ADR-0031 work package L6.
 //
 //  LayoutModel.swift
-//  PublicationManagerCore
+//  ImpressLayout
 //
 //  The Swift MIRROR of the ADR-0031 layout wire value: `serde_json` of
 //  `impress_layout::Layout`, handed over UniFFI as

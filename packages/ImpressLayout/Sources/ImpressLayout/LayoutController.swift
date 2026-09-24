@@ -1,8 +1,8 @@
 #if os(macOS)
-// Chassis file — macOS-only. ADR-0031 work package L6.
+// Kit file (ImpressLayout) — macOS-only. ADR-0031 work package L6.
 //
 //  LayoutController.swift
-//  PublicationManagerCore
+//  ImpressLayout
 //
 //  The ONE object between SwiftUI and `SharedLayout`.
 //
@@ -270,11 +270,17 @@ public final class LayoutController {
 
     private let layout: SharedLayout
     public let appID: String
+    /// The store the layout was opened on — what a pane that opens a Rust
+    /// handle of its own (the `surface` view kind's `SharedSurface`) opens it
+    /// on, so the kit never asks a host-specific adapter for it. `nil` only
+    /// for a controller built without one (tests).
+    public let store: SharedStore?
     private var subscribed = false
 
-    public init(layout: SharedLayout, appID: String) {
+    public init(layout: SharedLayout, appID: String, store: SharedStore? = nil) {
         self.layout = layout
         self.appID = appID
+        self.store = store
 
         // CLAUDE.md's startup render-loop guard, applied AT THE SOURCE
         // (ADR-0019 D6): the feed collects invalidations for the first 90
@@ -426,7 +432,7 @@ public final class LayoutController {
     /// door `perform` uses for every tree-shaped verb — so there is no verb
     /// an agent can reach that a keystroke cannot, and none the log spells
     /// differently. Throws what Rust refused; the caller reports it.
-    func applyVerbJSON(_ json: String, actor: String) throws -> SharedAppliedVerb {
+    public func applyVerbJSON(_ json: String, actor: String) throws -> SharedAppliedVerb {
         logInfo("layout verb (\(actor)): \(json)", category: "layout")
         let applied = try layout.apply(verbJson: json, actor: actor)
         adoptApplied(applied)
@@ -435,7 +441,7 @@ public final class LayoutController {
 
     /// The typed half: the operations that are not `Verb` cases (undo, redo,
     /// resize-share, save-layout, apply-layout).
-    func performForAutomation(_ verb: LayoutVerb, actor: String) throws -> SharedAppliedVerb {
+    public func performForAutomation(_ verb: LayoutVerb, actor: String) throws -> SharedAppliedVerb {
         logInfo("layout verb (\(actor)): \(verb.traceDescription)", category: "layout")
         let applied = try perform(verb, actor: actor)
         adoptApplied(applied)
@@ -444,7 +450,7 @@ public final class LayoutController {
 
     /// The live tree as a decoded JSON object, for a caller that wants to ship
     /// it over the wire rather than render it.
-    func liveSnapshot() throws -> [String: Any] {
+    public func liveSnapshot() throws -> [String: Any] {
         let snapshot = try layout.snapshot()
         guard
             let object = try JSONSerialization.jsonObject(

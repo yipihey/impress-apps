@@ -1,7 +1,7 @@
 #if os(macOS)
 //
 //  LayoutFeedVersionTests.swift
-//  PublicationManagerCoreTests
+//  ImpressLayoutTests
 //
 //  The invalidation feed reloads the tree only for a version NEWER than the
 //  one already on screen. Its reports hop to the main actor in their own
@@ -13,7 +13,7 @@
 //
 
 import XCTest
-@testable import PublicationManagerCore
+@testable import ImpressLayout
 
 final class LayoutFeedVersionTests: XCTestCase {
 

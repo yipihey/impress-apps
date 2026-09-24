@@ -21,6 +21,10 @@
 #   * PMC hosts the `surface` view kind (ADR-0033 S7), so it links
 #     `packages/ImpressSurface` — kit-grade by rule (Keyboard, Theme, Logging
 #     and nothing else), a renderer with no logic of its own.
+#   * PMC hosts the ADR-0031 layout tree through `packages/ImpressLayout`
+#     (plan wave 6 W6 moved the host there), kit-grade by rule and policed
+#     to that by `scripts/check-kit-packages.sh`; PMC registers its view
+#     kinds into it at startup.
 #   * ImpressChassis is allowed NOTHING. It holds the part of the chassis
 #     contract that is pure data, and the argument for keeping it that way is
 #     the same blast-radius argument above, only sharper: a dependency added
@@ -49,6 +53,7 @@ PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressHelixCore
     ../../../packages/ImpressKeyboard
     ../../../packages/ImpressKit
+    ../../../packages/ImpressLayout
     ../../../packages/ImpressLogging
     ../../../packages/ImpressMailStyle
     ../../../packages/ImpressOCR

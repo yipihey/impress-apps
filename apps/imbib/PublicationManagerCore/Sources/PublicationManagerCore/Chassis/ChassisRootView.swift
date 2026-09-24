@@ -31,6 +31,8 @@
 //
 
 import SwiftUI
+import ImpressAutomation
+import ImpressLayout
 import ImpressLogging
 
 // MARK: - View models
@@ -145,6 +147,11 @@ public struct ChassisRootView: View {
         self.configuration = configuration
         self.readyLogMessage = readyLogMessage
         self.sidebarComposition = sidebarComposition
+        // The kit renders `placeholder` and `surface` alone; every chassis
+        // view kind is registered here, in `init`, so it is in the registry
+        // before this root's body — and so before any pane — renders (plan
+        // wave 6, W6).
+        ChassisViewKinds.registerIfNeeded()
     }
 
     /// The window's content: the ADR-0031 layout tree, always (plan wave 6
@@ -153,8 +160,38 @@ public struct ChassisRootView: View {
     /// pane hosts it, whole or scoped to one route — but it is no longer a
     /// window root for any chassis app.
     private var root: some View {
-        LayoutTreeHost(appID: configuration.appID)
+        LayoutTreeHost(appID: configuration.appID, services: Self.layoutServices)
+            // h / l pressed INSIDE a pane that claims them first. `DetailView`
+            // (the `info` pane) and the publication list (in a `legacy` pane)
+            // answer h/l as `.handled` and post `.cycleFocusLeft/Right` for
+            // imbib's pre-chassis `ContentView` to cycle its own pane focus.
+            // In a chassis window nobody else observes them, so before W5 the
+            // key was swallowed there and focus never moved. The tree is the
+            // only root now, so they route to the one place focus lives. (In
+            // `LayoutWindowView` until W6 moved it to the kit, which cannot
+            // see PMC's notification names.)
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
+                LayoutTreeRuntime.shared.controller?.apply(.focusDirection(.left))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusRight)) { _ in
+                LayoutTreeRuntime.shared.controller?.apply(.focusDirection(.right))
+            }
     }
+
+    /// What the kit's `LayoutTreeHost` needs from the chassis: the shared
+    /// store (warmed off-main, exactly as this root's own `.task` does), and
+    /// the HTTP automation host registered while the tree is open — "a tree
+    /// is rendering" and "layout automation works" stay one fact.
+    @MainActor
+    static let layoutServices = LayoutHostServices(
+        openStore: {
+            await RustStoreAdapter.warmOffMain()
+            return RustStoreAdapter.shared.layoutSharedStore()
+        },
+        didOpen: { controller in LayoutAutomation.shared.host = controller },
+        didClose: { _ in LayoutAutomation.shared.host = nil },
+        loading: { AnyView(ChassisRootLoadingView()) }
+    )
 
     public var body: some View {
         Group {

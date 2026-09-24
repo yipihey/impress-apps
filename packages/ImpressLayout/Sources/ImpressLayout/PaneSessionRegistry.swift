@@ -1,8 +1,8 @@
 #if os(macOS)
-// Chassis file — macOS-only. ADR-0031 work package L6 (D6).
+// Kit file (ImpressLayout) — macOS-only. ADR-0031 work package L6 (D6).
 //
 //  PaneSessionRegistry.swift
-//  PublicationManagerCore
+//  ImpressLayout
 //
 //  Where a session-bearing pane's session lives: OUTSIDE the view tree.
 //

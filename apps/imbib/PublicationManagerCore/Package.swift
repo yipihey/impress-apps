@@ -57,7 +57,8 @@ let package = Package(
         // `import PublicationManagerCore` still resolves every symbol — the
         // compatibility invariant of the lift. The arrow used to point the
         // other way (ImpressChassis was a façade over PMC).
-        .package(path: "../../../packages/ImpressChassis")
+        .package(path: "../../../packages/ImpressChassis"),
+        .package(path: "../../../packages/ImpressLayout")
     ],
     targets: [
         .target(
@@ -90,7 +91,12 @@ let package = Package(
                 "ImpressUndoHistory",
                 "ImpressSmartSearch",
                 "ImpressHelixCore",
-                "ImpressChassis"
+                "ImpressChassis",
+                // The layout host (plan wave 6, W6): macOS only — iOS has no
+                // tree, and the kit declares no iOS platform.
+                .product(
+                    name: "ImpressLayout", package: "ImpressLayout",
+                    condition: .when(platforms: [.macOS]))
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),

@@ -165,6 +165,7 @@ impress-apps/
 │   ├── ImpressAutomation/ # HTTPServer, HTTPRouter, AutomationSettingsSection
 │   ├── ImpressTheme/   # AppearanceMode, AppearanceSettingsSection, font scale
 │   ├── ImpressCommandPalette/ # Command registry and palette view
+│   ├── ImpressLayout/  # The layout-tree host — kit-grade, policed by check-kit-packages.sh (ADR-0033 D7)
 └── crates/
     ├── imbib-core/     # Rust core for imbib
     ├── impress-mcp/    # THE MCP server (generated from #[impress_service])
@@ -351,9 +352,19 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   reach a surface through the one linked inventory in
   `crates/impress-capabilities` — add a capability there, never a second
   force-link list (the failure `impress-mcp`/`impress-cli` used to risk
-  separately). `scripts/check-kit-deps.sh` pins that no kit crate reaches
-  `impress-core`'s domain modules, so the layer can leave as its own kit one
-  day. The five-verb loop (`surface_schema` → author → `surface_validate` →
+  separately). The kit is named in [docs/kit-manifest.md](docs/kit-manifest.md)
+  (its crates, the one allowed reach into `impress-core`'s store, the Swift
+  packages) and three scripts keep it true, all run by `kit.yml` on every PR
+  that can break them: `scripts/check-kit-deps.sh --strict` (no kit crate
+  reaches past that line, and none reaches a domain core; the store FFI's old
+  path to `impel-core` is gone because `impress-ai`'s task executors are an
+  opt-in `executor` feature only `impel-taskd` enables),
+  `scripts/check-kit-standalone.sh --strict` (the kit plus `impress-core` build
+  in a scratch workspace with nothing else from this repository) and
+  `scripts/check-kit-packages.sh` (`packages/ImpressLayout` and
+  `ImpressSurface` depend only on kit-grade packages). A new dependency of a
+  kit crate or package either goes into the manifest with a reason or does not
+  go in. The five-verb loop (`surface_schema` → author → `surface_validate` →
   `surface_create` → `surface_show`, then `surface_wait`/react) and the
   `scripts/new-capability.sh` scaffold are in
   [docs/agent-surfaces.md](docs/agent-surfaces.md).

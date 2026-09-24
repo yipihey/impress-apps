@@ -1,7 +1,7 @@
 #if os(macOS)
 //
 //  LayoutModelTests.swift
-//  PublicationManagerCoreTests
+//  ImpressLayoutTests
 //
 //  ADR-0031 L6. The Swift mirror of the layout wire value decodes THE SAME
 //  GOLDEN the Rust side asserts against — `crates/impress-layout/tests/
@@ -21,23 +21,23 @@
 
 import XCTest
 
-@testable import PublicationManagerCore
+@testable import ImpressLayout
 
 final class LayoutModelTests: XCTestCase {
 
     // MARK: - The golden
 
-    /// The repo root, eight directories up from this file:
-    /// `…/apps/imbib/PublicationManagerCore/Tests/PublicationManagerCoreTests/Layout/<this>`.
-    /// `PaneLayoutCommandsTests` does the same from one level shallower.
+    /// The repo root, five directories up from this file:
+    /// `…/packages/ImpressLayout/Tests/ImpressLayoutTests/<this>` (it lived
+    /// two levels deeper in PublicationManagerCore until W6 moved it with
+    /// the host; `testTheGoldenIsWhereThisSuiteThinksItIs` is what caught a
+    /// stale count).
     private static let repoRoot: URL = {
         URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // …/Layout
-            .deletingLastPathComponent()   // …/PublicationManagerCoreTests
+            .deletingLastPathComponent()   // …/ImpressLayoutTests
             .deletingLastPathComponent()   // …/Tests
-            .deletingLastPathComponent()   // …/PublicationManagerCore
-            .deletingLastPathComponent()   // …/imbib
-            .deletingLastPathComponent()   // …/apps
+            .deletingLastPathComponent()   // …/ImpressLayout
+            .deletingLastPathComponent()   // …/packages
             .deletingLastPathComponent()   // repo root
     }()
 
