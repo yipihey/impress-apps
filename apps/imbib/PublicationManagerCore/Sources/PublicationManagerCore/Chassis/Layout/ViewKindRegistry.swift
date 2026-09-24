@@ -277,20 +277,25 @@ public final class ViewKindRegistry: @unchecked Sendable {
         ViewKindFactory(kind: .legacy) { AnyView(LayoutLegacyPaneView(context: $0)) },
         ViewKindFactory(kind: .placeholder) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
 
-        // ---- declared, not ported in L6 ----
+        // ---- the detail tabs, one per pane (plan wave 6, W4) ----
         //
-        // These four render the placeholder ON PURPOSE. Porting them is not a
-        // matter of calling the existing tab view: `PDFTab`, `NotesTab` and
-        // `BibTeXTab` all take `any PaperRepresentable` plus a `DetailTab`
-        // binding and expect the publication detail lifecycle around them,
-        // and `source` is session-bearing (D6) — its `NSTextView` and undo
-        // stack must come from a `PaneSessionRegistry`, not from view
-        // identity. Both are L8 work, one leaf at a time (D11), and a
-        // placeholder that keeps the spec is exactly what D4 prescribes in
-        // the meantime.
-        ViewKindFactory(kind: .pdf) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
-        ViewKindFactory(kind: .notes) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
-        ViewKindFactory(kind: .bibtex) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
+        // `PDFTab`, `NotesTab` and `BibTeXTab` unchanged, fed from the pane's
+        // `single_item` / `$item` with the publication detail lifecycle
+        // supplied by `LayoutPublicationTabPaneView` rather than `DetailView`.
+        ViewKindFactory(kind: .pdf) {
+            AnyView(LayoutPublicationTabPaneView(context: $0, tab: .pdf))
+        },
+        ViewKindFactory(kind: .notes) {
+            AnyView(LayoutPublicationTabPaneView(context: $0, tab: .notes))
+        },
+        ViewKindFactory(kind: .bibtex) {
+            AnyView(LayoutPublicationTabPaneView(context: $0, tab: .bibtex))
+        },
+        // Session-bearing (D6), and still the placeholder: W4's second pass
+        // gives it the editor, whose `NSTextView` and undo stack must come
+        // from `PaneSessionRegistry` keyed by the spec's `SessionId`, never
+        // from view identity — so a split, swap, move or preset change hands
+        // the same editor to whichever pane shows it.
         ViewKindFactory(kind: .source, isSessionBearing: true) {
             AnyView(LayoutPlaceholderPaneView(context: $0))
         },
