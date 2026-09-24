@@ -254,13 +254,12 @@ struct ImpartApp: App {
                 // TabContentView's list button help text). Left in place it would
                 // have SHADOWED a working chord with a dead one. Replaced by the
                 // three declarative pane commands imbib and imprint already
-                // declare over the same `PaneLayoutStore` — the chassis reads it,
-                // impart just never spoke to it.
+                // declared, which impart had never spoken to.
                 // …and since ADR-0022 X2 (D9 finding 4) those three commands
                 // are the CHASSIS's, not a fourth hand-written copy of them.
                 // Since plan wave 6 W5 they resize the layout tree's roles
-                // (this window IS the tree); `PaneLayoutStore` is imbib's own
-                // pre-chassis window's model only.
+                // (this window IS the tree); the Boolean pane model they used
+                // to flip is imbib's own window's, in imbib's app target.
                 // Embedded as content rather than inserted as a `Commands`
                 // value so they keep their position in this group, ahead of the
                 // view-mode accelerators below.
