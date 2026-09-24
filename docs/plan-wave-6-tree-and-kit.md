@@ -363,3 +363,16 @@ preparation may start earlier on a branch).
 - **Not proven here:** the other four chassis apps' outlines (implore, impart, imprint)
   were not launched from this branch; the code path is the same `LayoutOutlinePaneView`
   and Rust's table covers them (`every_visible_section_is_accounted_for`).
+- 2026-09-24 — **W3 follow-up: a gesture no longer redraws the tree for its own writes.** Every
+  local verb was followed by one or two `layout changed elsewhere → version N` lines naming
+  versions this process had just applied, each a full `reload()` and display pass. The feed
+  reports every version the layout passes through, each report hops to the main actor in its
+  own `Task`, so it lands after the local `apply` has adopted a later snapshot; the guard was
+  `version != self.version`, so an outline library click (`select` then `set-query`, 3 → 5)
+  reloaded twice more for 3 and 4. It is now `version > self.version`
+  (`LayoutController.isNewer`, three FFI-free tests): exact, because the counter is one
+  `AtomicU64` per `SharedLayout` that only `fetch_add`s and a change made elsewhere bumps the
+  same counter. Proven live on impress built from this branch: a library click logs two verbs,
+  one `pane 2 display: 153 rows` and **0** stale reloads; `impress-cli apply-layout --ordinal 1`
+  from a second process still logs `layout changed elsewhere → version 6`, one display pass,
+  and the list back on the Default query. PMC `swift test` 2090 XCTest, 0 failures.

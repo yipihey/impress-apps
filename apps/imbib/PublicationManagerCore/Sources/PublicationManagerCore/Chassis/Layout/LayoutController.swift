@@ -550,6 +550,26 @@ public final class LayoutController {
 
     // MARK: Private
 
+    /// Should a version the invalidation feed delivers reload the tree?
+    ///
+    /// Only when it is NEWER than what this controller already shows. The
+    /// feed reports every version the layout passes through, and each report
+    /// hops to the main actor in its own `Task`, so it lands AFTER the local
+    /// `apply` that caused it has already adopted a later snapshot. A gesture
+    /// that applies two verbs (an outline row: `select`, then `set-query`)
+    /// moved 101 → 103 locally, then received 101 and 102 — and the old test,
+    /// `version != self.version`, reloaded and redrew the whole tree for each
+    /// (the "layout changed elsewhere" lines after every click, 2026-09-24).
+    ///
+    /// `>` is exact, not a heuristic: the counter is one `AtomicU64` per
+    /// `SharedLayout` that only ever `fetch_add`s, and a change made
+    /// elsewhere bumps the same counter — so a real external change always
+    /// arrives with a version above anything this process has adopted, and a
+    /// version at or below it is already in the snapshot on screen.
+    nonisolated static func isNewer(_ delivered: UInt64, than current: UInt64) -> Bool {
+        delivered > current
+    }
+
     private func adopt(layoutJSON: String, version: UInt64, focused: UInt64?) {
         do {
             tree = try LayoutTree.decode(layoutJSON)
@@ -577,7 +597,7 @@ public final class LayoutController {
                 logInfo("layout invalidation: \(panes.count) panes stale", category: "layout")
             },
             onLayoutChanged: { [weak self] version in
-                guard let self, version != self.version else { return }
+                guard let self, Self.isNewer(version, than: self.version) else { return }
                 logInfo("layout changed elsewhere → version \(version)", category: "layout")
                 self.reload()
             })
