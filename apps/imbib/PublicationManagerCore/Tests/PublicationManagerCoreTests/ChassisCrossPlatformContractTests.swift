@@ -142,7 +142,6 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
 
         // Route / focus vocabulary.
         "Chassis/TabSidebar/TabSidebarTypes.swift",
-        "Chassis/TabSidebar/FocusedPane.swift",
         "Chassis/Manuscripts/FocusedManuscript.swift",
         "Chassis/Shared/FindCoordinator.swift",
 
@@ -173,9 +172,10 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         "Chassis/Agents/AgentStoreWriter.swift",
 
         // X2 (D9 finding 4) — the pane toggles. `Commands` is SwiftUI, not
-        // AppKit, and `PaneLayoutStore` is deliberately Foundation-only; the
-        // sibling `FindCoordinator.swift` above is the precedent.
+        // AppKit, and the host-window pane model they reach is a plain
+        // protocol; the sibling `FindCoordinator.swift` above is the precedent.
         "Chassis/Shared/PaneLayoutCommands.swift",
+        "Chassis/Shared/HostWindowPanes.swift",
 
         // Plain-SwiftUI sections and sheets.
         "Chassis/Shared/RelatedItemsSection.swift",

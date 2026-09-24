@@ -96,10 +96,12 @@ struct LayoutAutomationRoutesTests {
             #expect(response.status == 409)
             let payload = try json(response)
             #expect(payload["status"] as? String == "error")
-            // The 409 must name the way out — the flag, and the headless path
-            // that needs no app at all.
+            // The 409 must say why (no flag exists any more: a chassis window
+            // IS the tree, imbib's own window has none) and name the headless
+            // path that needs no app at all.
             let detail = payload["detail"] as? String ?? ""
-            #expect(detail.contains("layoutTree.enabled"))
+            #expect(!detail.contains("layoutTree.enabled"))
+            #expect(detail.contains("pre-chassis"))
             #expect(detail.contains("layout-service_"))
         }
     }
@@ -228,7 +230,7 @@ struct LayoutAutomationRoutesTests {
     func wrongMethodFallsThrough() async {
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "POST", path: "/api/layout/tree")) == nil)
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "GET", path: "/api/layout/verb")) == nil)
-        // imbib's legacy PaneLayoutStore routes are NOT ours: `/api/layout`
+        // imbib's own-window layout routes are NOT ours: `/api/layout`
         // itself must still reach the app's own table.
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "GET", path: "/api/layout")) == nil)
         #expect(await SharedAutomationRoutes.route(HTTPRequest(method: "POST", path: "/api/layout/apply")) == nil)

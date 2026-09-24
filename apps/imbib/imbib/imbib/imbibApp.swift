@@ -344,6 +344,10 @@ struct imbibApp: App {
         isEditingDefaultSet = Self.setupDevelopmentModeFlags()
         appLogger.info("imbib app initializing...")
 
+        // `/api/layout`, `/apply`, `/save` drive this window's own layout
+        // model, which lives in this target; the router forwards to it.
+        PreChassisLayoutRoutes.shared.host = PaneLayoutStore.shared
+
         // Phase 2: Data layer setup (migrations, Core Data, shared services)
         let deps = Self.setupDataLayer()
 
@@ -1158,7 +1162,11 @@ struct AppCommands: Commands {
             // column of EVERY imbib route (publication SectionContentView
             // included) and is the shortcut advertised by TabContentView's list
             // toolbar button ("Show/Hide the list ⌥⌘0").
-            ImpressPaneLayoutButtons()
+            //
+            // `.imbibPreChassisWindow`: this window is imbib's own
+            // `ContentView`, which draws `PaneLayoutState` (this target). Every
+            // chassis app passes nothing and gets `.layoutTree` (plan wave 6 W5).
+            ImpressPaneLayoutButtons(target: .imbibPreChassisWindow(PaneLayoutStore.shared))
 
             layoutsMenu
 

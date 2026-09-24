@@ -25,8 +25,8 @@
 //
 //  THE STORAGE KEY IS `appearanceMode`, unprefixed, and it is not moving. It is
 //  what all four hand-written copies read, what `SettingsSectionRegistry`'s
-//  builtin appearance pane WRITES, and what `PaneLayoutState.appAppearance`
-//  mirrors. Renaming it would silently reset every existing user's preference,
+//  builtin appearance pane WRITES, and what imbib's window layout model
+//  mirrors (`appAppearance`). Renaming it would silently reset every existing user's preference,
 //  which reads as "my settings were lost" rather than as a bug
 //  (`ImprintSettingsPersistenceTests` pins it for exactly that reason).
 //

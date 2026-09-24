@@ -56,6 +56,11 @@ public struct AppShellConfiguration: Sendable {
     /// `.flagged: .manuscript` makes imprint's Flagged section list flagged
     /// manuscripts while imbib's default (`.publication`) lists papers.
     /// Sections absent from the map use the shell's primary kind semantics.
+    ///
+    /// The six SHIPPED presets read theirs from Rust
+    /// (`ShippedSectionBindings`, `impress_layout_service::section_bindings`)
+    /// — preset data, with one definition beside the named queries it must
+    /// agree with. A shell that is not shipped passes its own (plan wave 6 W5).
     public let sectionBindings: [SidebarSectionType: RecordKindID]
 
     /// Non-record routes present in this shell (Submissions inbox, …).
@@ -103,20 +108,6 @@ public struct AppShellConfiguration: Sendable {
     ///   per-host wiring.
     public let presentableKinds: Set<RecordKindID>?
 
-    /// Does this shell render the ADR-0031 LAYOUT TREE instead of
-    /// `TabContentView`?
-    ///
-    /// **False in every shipped preset, and that is the point of L6.** The
-    /// tree is a whole second chassis root (`Chassis/Layout/`), and switching
-    /// a preset onto it changes what an app IS — a product decision, taken
-    /// once per app in L7/L8, not a flag flipped in passing. A developer who
-    /// wants to see it today uses the per-machine override instead:
-    ///
-    ///     defaults write com.impress.imbib impress.layoutTree.enabled -bool YES
-    ///
-    /// (`LayoutTreeFlag`, read once per launch). `ChassisRootView` takes the
-    /// tree path when EITHER is true.
-    public let usesLayoutTree: Bool
 
     public init(
         appID: String,
@@ -132,10 +123,8 @@ public struct AppShellConfiguration: Sendable {
         auxiliaryRoutes: Set<AuxiliaryRoute> = [],
         openOverrides: [RecordKindID: OpenBehavior] = [:],
         customSurfaces: CustomSurfaceRegistry = CustomSurfaceRegistry(),
-        presentableKinds: Set<RecordKindID>? = nil,
-        usesLayoutTree: Bool = false
+        presentableKinds: Set<RecordKindID>? = nil
     ) {
-        self.usesLayoutTree = usesLayoutTree
         self.appID = appID
         self.visibleSections = visibleSections
         self.defaultSection = defaultSection
@@ -174,8 +163,7 @@ public struct AppShellConfiguration: Sendable {
             auxiliaryRoutes: auxiliaryRoutes,
             openOverrides: openOverrides,
             customSurfaces: customSurfaces,
-            presentableKinds: kinds,
-            usesLayoutTree: usesLayoutTree)
+            presentableKinds: kinds)
     }
 
     /// The record kind a section serves in this shell (nil = shell default).
@@ -234,11 +222,7 @@ public struct AppShellConfiguration: Sendable {
         ],
         defaultSection: .inbox,
         defaultDetailTab: .info,
-        sectionBindings: [
-            .flagged: .publication,
-            .tags: .publication,
-            .dismissed: .publication,
-        ],
+        sectionBindings: ShippedSectionBindings.of("imbib"),
         auxiliaryRoutes: [.submissionsInbox],
         openOverrides: [.manuscript: .appHandoff]
     )
@@ -251,11 +235,7 @@ public struct AppShellConfiguration: Sendable {
         visibleSections: [.manuscripts, .citedInManuscripts, .flagged, .tags, .dismissed],
         defaultSection: .manuscripts,
         defaultDetailTab: .source,
-        sectionBindings: [
-            .flagged: .manuscript,
-            .tags: .manuscript,
-            .dismissed: .manuscript,
-        ],
+        sectionBindings: ShippedSectionBindings.of("imprint"),
         auxiliaryRoutes: [],
         openOverrides: [.manuscript: .window(id: "manuscript-editor")]
     )
@@ -279,8 +259,10 @@ public struct AppShellConfiguration: Sendable {
         ]),
         // Tags must bind THIS app's kind: an empty map falls back to the
         // canonical impress table, where `.tags` is `.publication` — so a
-        // silent inherit would put paper tags in this shell's sidebar.
-        sectionBindings: [.tags: .figure],
+        // silent inherit would put paper tags in this shell's sidebar. The
+        // table is Rust's (`section_bindings`, plan wave 6 W5), which pins
+        // every app's Tags kind in a test.
+        sectionBindings: ShippedSectionBindings.of("implore"),
         auxiliaryRoutes: [],
         openOverrides: [:]   // figure's descriptor default is .window(id: "canvas")
     )
@@ -304,8 +286,10 @@ public struct AppShellConfiguration: Sendable {
         ]),
         // Tags must bind THIS app's kind: an empty map falls back to the
         // canonical impress table, where `.tags` is `.publication` — so a
-        // silent inherit would put paper tags in this shell's sidebar.
-        sectionBindings: [.tags: .message],
+        // silent inherit would put paper tags in this shell's sidebar. The
+        // table is Rust's (`section_bindings`, plan wave 6 W5), which pins
+        // every app's Tags kind in a test.
+        sectionBindings: ShippedSectionBindings.of("impart"),
         auxiliaryRoutes: [],
         openOverrides: [:]   // message's descriptor default is .detailPane
     )
@@ -331,8 +315,10 @@ public struct AppShellConfiguration: Sendable {
         ]),
         // Tags must bind THIS app's kind: an empty map falls back to the
         // canonical impress table, where `.tags` is `.publication` — so a
-        // silent inherit would put paper tags in this shell's sidebar.
-        sectionBindings: [.tags: .task],
+        // silent inherit would put paper tags in this shell's sidebar. The
+        // table is Rust's (`section_bindings`, plan wave 6 W5), which pins
+        // every app's Tags kind in a test.
+        sectionBindings: ShippedSectionBindings.of("impel"),
         auxiliaryRoutes: [],
         openOverrides: [:]   // task/agent-run descriptor default is .detailPane
     )
@@ -418,23 +404,7 @@ public struct AppShellConfiguration: Sendable {
         defaultSection: .inbox,
         defaultDetailTab: .info,
         recordKinds: BuiltinRecordKinds.registry,
-        sectionBindings: [
-            .inbox: .publication,
-            .libraries: .publication,
-            .sharedWithMe: .publication,
-            .scixLibraries: .publication,
-            .search: .publication,
-            .exploration: .publication,
-            .flagged: .publication,
-            .tags: .publication,
-            .citedInManuscripts: .publication,
-            .artifacts: .artifact,
-            .manuscripts: .manuscript,
-            .figures: .figure,
-            .mail: .message,
-            .agents: .task,
-            .dismissed: .publication,
-        ],
+        sectionBindings: ShippedSectionBindings.of("impress"),
         auxiliaryRoutes: [.submissionsInbox],
         openOverrides: [:]
     )
@@ -482,27 +452,7 @@ public struct AppShellConfiguration: Sendable {
             auxiliaryRoutes: auxiliaryRoutes,
             openOverrides: openOverrides,
             customSurfaces: CustomSurfaceRegistry(surfaces),
-            presentableKinds: presentableKinds,
-            usesLayoutTree: usesLayoutTree
-        )
-    }
-
-    /// Copy of this configuration rendered by the ADR-0031 layout tree.
-    /// The `withCustomSurfaces(_:)` seam, for the shell that adopts the tree
-    /// first — no preset calls it yet.
-    public func withLayoutTree(_ enabled: Bool = true) -> AppShellConfiguration {
-        AppShellConfiguration(
-            appID: appID,
-            visibleSections: visibleSections,
-            defaultSection: defaultSection,
-            defaultDetailTab: defaultDetailTab,
-            recordKinds: recordKinds,
-            sectionBindings: sectionBindings,
-            auxiliaryRoutes: auxiliaryRoutes,
-            openOverrides: openOverrides,
-            customSurfaces: customSurfaces,
-            presentableKinds: presentableKinds,
-            usesLayoutTree: enabled
+            presentableKinds: presentableKinds
         )
     }
 }
@@ -522,7 +472,6 @@ extension AppShellConfiguration: Equatable {
             && lhs.openOverrides == rhs.openOverrides
             && lhs.customSurfaces.surfaces.map(\.id) == rhs.customSurfaces.surfaces.map(\.id)
             && lhs.presentableKinds == rhs.presentableKinds
-            && lhs.usesLayoutTree == rhs.usesLayoutTree
     }
 }
 

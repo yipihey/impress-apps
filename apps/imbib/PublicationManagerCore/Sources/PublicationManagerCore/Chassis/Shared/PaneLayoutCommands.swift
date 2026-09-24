@@ -1,5 +1,6 @@
 // Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a `Commands` value
-// over `PaneLayoutStore`, which is itself AppKit-free. `Commands` is SwiftUI,
+// over the layout tree (macOS) or a host window's `HostWindowPanes`, which is
+// AppKit-free. `Commands` is SwiftUI,
 // not AppKit — iOS honours the same key equivalents where a scene has a menu
 // tree, and compiles harmlessly where it does not.
 //
@@ -7,10 +8,11 @@
 //  PublicationManagerCore
 //
 //  ADR-0022 D9 finding 4, closed. The three pane toggles — ⌘0 / ⌥⌘0 / ⌃⌘S —
-//  are CHASSIS state (`PaneLayoutStore.current`) read by every chassis section
-//  view (`TabContentView`, `SectionContentView`, `MessageSectionView`,
-//  `FigureSectionView`, `AgentSectionView`, `ManuscriptSectionView`) and
-//  published in a chassis-wide keyboard grammar (docs/keyboard-grammar.md).
+//  are published in a chassis-wide keyboard grammar (docs/keyboard-grammar.md).
+//  In a chassis window they resize a ROLE in the layout tree; in imbib's
+//  pre-chassis window they flip that window's own pane model, which lives in
+//  imbib's app target and reaches here as `HostWindowPanes` (see
+//  `PaneLayoutChordTarget`).
 //  What they did NOT have was a chassis `Commands` value, so imbib, imprint,
 //  impart and finally impress each re-typed the same three buttons — the
 //  fourth adopter retyping is what turned a duplication into a finding.
@@ -25,30 +27,48 @@
 //  their shape: a `public struct: Commands` with a `public init()`, no
 //  environment injection, no host parameter beyond the one label below.
 //
-//  SCOPE — what this deliberately does NOT absorb: the ⌃⌘1…9 saved-layout
-//  menu. imbib's drives the chassis `PaneLayoutStore`; imprint's drives an
-//  app-local `LayoutStore` over an app-local `PaneLayoutState` with entirely
-//  different fields (`showOutline`, `showComments`, `splitEditor`, …) and its
-//  own `imprint.layout.*` defaults keys. Those two menus look identical and
-//  mean different things; converging them is a decision about imprint's editor
-//  layout model, not a de-duplication. See ADR-0022 D9.
+//  ⌃⌘1…9 is `ImpressLayoutOrdinalButtons` below: the tree's ordinals, in every
+//  chassis window. What stays OUTSIDE it: imbib's pre-chassis View ▸ Layouts
+//  menu (over its own app-target layout model) and imprint's editor-window
+//  layouts (an app-local `LayoutStore` with different fields — `showOutline`,
+//  `showComments`, `splitEditor`, … — and its own `imprint.layout.*` keys). imprint's Layouts menu gives ⌃⌘N to the editor
+//  layouts only while a manuscript editor window is key, and to this value
+//  otherwise (plan wave 6 W5). See ADR-0022 D9.
 //
 
+import ImpressLogging
 import SwiftUI
 
-/// Where the three universal toggles LAND, which is no longer one place.
+/// Which window model a chord drives.
 ///
-/// ADR-0031 D5: "roles, not slots, are what universal chords act on". When
-/// the layout tree is rendering the window, ⌃⌘S toggles whichever pane
-/// carries the `navigator` role, ⌥⌘0 the `list` one and ⌘0 the `detail` one —
-/// wherever the user has since moved them — and the toggle is a RESIZE of
-/// that pane's share in the tree, never a Boolean beside it. With the tree
-/// off (every shipped preset today) the chord flips the same
-/// `PaneLayoutState` field it always did.
+/// Two, and the split is by WINDOW, never by a runtime guess: every chassis
+/// app's window is the ADR-0031 layout tree (plan wave 6 W5 removed the flag
+/// that made it optional), and imbib's own window is its pre-chassis
+/// `ContentView`, which draws its own pane model. Before W5 the router asked
+/// "is a tree rendering?" and fell back to that model when not —
+/// so a chassis app whose tree had not opened yet flipped a Boolean nothing
+/// drew, and reported nothing.
+public enum PaneLayoutChordTarget: Sendable {
+    /// A chassis window: the chord is a verb on `LayoutController`, and
+    /// nothing else. No tree open yet → nothing happens, and the log says so.
+    case layoutTree
+    /// imbib's pre-chassis `ContentView` (`imbibApp.swift` only): the chord
+    /// flips the pane that window's own model shows. The model is imbib's
+    /// (its app target), handed over as `HostWindowPanes`.
+    case imbibPreChassisWindow(any HostWindowPanes)
+}
+
+/// Where the three universal toggles and ⌃⌘1–9 land.
 ///
-/// The routing lives here, in the ONE value that owns these three chords, so
-/// the two chassis roots cannot drift the way the four hand-written copies
-/// did (ADR-0022 D9 finding 4, which is why this file exists at all).
+/// ADR-0031 D5: "roles, not slots, are what universal chords act on". In a
+/// chassis window ⌃⌘S toggles whichever pane carries the `navigator` role,
+/// ⌥⌘0 the `list` one and ⌘0 the `detail` one — wherever the user has since
+/// moved them — and the toggle is a RESIZE of that pane's share in the tree,
+/// never a Boolean beside it.
+///
+/// The routing lives here, in the ONE value that owns these chords, so the
+/// hosts cannot drift the way the four hand-written copies did (ADR-0022 D9
+/// finding 4, which is why this file exists at all).
 @MainActor
 enum PaneLayoutChordRouter {
 
@@ -57,16 +77,35 @@ enum PaneLayoutChordRouter {
     static let listRole = "list"
     static let detailRole = "detail"
 
-    /// Toggle `role` in the layout tree, or apply `fallback` to the live
-    /// `PaneLayoutState` when no tree is rendering.
-    static func toggle(role: String, otherwise fallback: (inout PaneLayoutState) -> Void) {
-        #if os(macOS)
-        if let controller = LayoutTreeRuntime.shared.controller {
-            controller.toggleRole(role)
-            return
+    /// Toggle `role` in the layout tree (`.layoutTree`), or the matching
+    /// pane of imbib's own window (`.imbibPreChassisWindow`).
+    static func toggle(role: String, target: PaneLayoutChordTarget) {
+        switch target {
+        case .layoutTree:
+            #if os(macOS)
+            if let controller = LayoutTreeRuntime.shared.controller {
+                controller.toggleRole(role)
+                return
+            }
+            #endif
+            logWarning(
+                "chord: toggle \(role) ignored — no layout tree is open in this window yet",
+                category: "layout")
+        case .imbibPreChassisWindow(let panes):
+            toggle(role: role, in: panes)
         }
-        #endif
-        fallback(&PaneLayoutStore.shared.current)
+    }
+
+    /// The role → pane mapping of a host window: ⌘0 the detail, ⌥⌘0 the
+    /// list, ⌃⌘S the sidebar.
+    static func toggle(role: String, in panes: any HostWindowPanes) {
+        switch role {
+        case detailRole: panes.detailPaneVisible.toggle()
+        case listRole: panes.listPaneVisible.toggle()
+        case navigatorRole: panes.sidebarVisible.toggle()
+        default:
+            logWarning("chord: no pane of the host window carries role \(role)", category: "layout")
+        }
     }
 }
 
@@ -82,12 +121,9 @@ enum PaneLayoutChordRouter {
 /// as the ordinal); nothing here knows which name N carries, and the titles say
 /// so.
 ///
-/// Routed the way the three toggles above are: with a tree rendering the
-/// window the chord is a layout verb on it, and with the tree off it is
-/// imbib's `PaneLayoutStore` — the N-th saved arrangement, the meaning the
-/// chord has had since ADR-0022. Nine FIXED buttons rather than a `ForEach`
-/// over saved layouts, because with the tree on the first ordinals are
-/// presets that no saved-layout list contains.
+/// Tree only (plan wave 6 W5): a chassis window's ⌃⌘N is always a layout
+/// verb. imbib's pre-chassis window keeps its own View ▸ Layouts menu over its
+/// own layout model and does not embed this.
 public struct ImpressLayoutOrdinalButtons: View {
 
     public init() {}
@@ -106,18 +142,19 @@ public struct ImpressLayoutOrdinalButtons: View {
 
 extension PaneLayoutChordRouter {
 
-    /// ⌃⌘N. The tree resolves the ordinal itself; without a tree, the N-th
-    /// saved `PaneLayoutState`, and nothing when there is none.
+    /// ⌃⌘N. The tree resolves the ordinal itself; with no tree open yet,
+    /// nothing happens and the log says so.
     static func applyOrdinal(_ ordinal: Int) {
         #if os(macOS)
         if let controller = LayoutTreeRuntime.shared.controller {
+            logInfo("chord: apply layout \(ordinal) → layout tree", category: "layout")
             controller.apply(.applyLayout(nameOrOrdinal: String(ordinal)))
             return
         }
         #endif
-        let layouts = PaneLayoutStore.shared.layouts
-        guard ordinal >= 1, ordinal <= layouts.count else { return }
-        _ = PaneLayoutStore.shared.applyLayout(named: layouts[ordinal - 1].name)
+        logWarning(
+            "chord: apply layout \(ordinal) ignored — no layout tree is open in this window yet",
+            category: "layout")
     }
 }
 
@@ -125,11 +162,11 @@ extension PaneLayoutChordRouter {
 /// a `CommandGroup(after: .sidebar)` and wants them at a specific position in
 /// it.
 ///
-/// | Chord | Button | `PaneLayoutState` field |
-/// |---|---|---|
-/// | ⌘0 | Toggle Detail Pane | `detailPaneVisible` |
-/// | ⌥⌘0 | Toggle List | `listPaneVisible` |
-/// | ⌃⌘S | Toggle Sidebar | `sidebarVisible` |
+/// | Chord | Button | Tree role (chassis) | `HostWindowPanes` field (imbib's own window) |
+/// |---|---|---|---|
+/// | ⌘0 | Toggle Detail Pane | `detail` | `detailPaneVisible` |
+/// | ⌥⌘0 | Toggle List | `list` | `listPaneVisible` |
+/// | ⌃⌘S | Toggle Sidebar | `navigator` | `sidebarVisible` |
 ///
 /// TWO SHAPES, and the reason is menu ORDER rather than taste. Three of the four
 /// apps that hand-wrote these buttons wrote them in the MIDDLE of a larger
@@ -155,8 +192,13 @@ public struct ImpressPaneLayoutButtons: View {
     /// the majority spelling; imprint passes its own until someone decides.
     private let listTitle: String
 
-    public init(listTitle: String = "Toggle List") {
+    /// Which window model the chords drive. `.layoutTree` for every chassis
+    /// app; only imbib's `imbibApp.swift` passes `.imbibPreChassisWindow`.
+    private let target: PaneLayoutChordTarget
+
+    public init(listTitle: String = "Toggle List", target: PaneLayoutChordTarget = .layoutTree) {
         self.listTitle = listTitle
+        self.target = target
     }
 
     /// `@ViewBuilder`, and NO enclosing `Group`. The body is then the same
@@ -166,26 +208,22 @@ public struct ImpressPaneLayoutButtons: View {
     /// flatten in a menu; not depending on that is free.
     @ViewBuilder
     public var body: some View {
-        Button("Toggle Detail Pane") {
-            PaneLayoutChordRouter.toggle(role: PaneLayoutChordRouter.detailRole) {
-                $0.detailPaneVisible.toggle()
-            }
+        let chords = Self.chords(listTitle: listTitle)
+        let target = target
+        Button(chords[0].title) {
+            PaneLayoutChordRouter.toggle(role: chords[0].role, target: target)
         }
-        .keyboardShortcut("0", modifiers: .command)
+        .keyboardShortcut(KeyEquivalent(chords[0].key), modifiers: chords[0].modifiers)
 
-        Button(listTitle) {
-            PaneLayoutChordRouter.toggle(role: PaneLayoutChordRouter.listRole) {
-                $0.listPaneVisible.toggle()
-            }
+        Button(chords[1].title) {
+            PaneLayoutChordRouter.toggle(role: chords[1].role, target: target)
         }
-        .keyboardShortcut("0", modifiers: [.command, .option])
+        .keyboardShortcut(KeyEquivalent(chords[1].key), modifiers: chords[1].modifiers)
 
-        Button("Toggle Sidebar") {
-            PaneLayoutChordRouter.toggle(role: PaneLayoutChordRouter.navigatorRole) {
-                $0.sidebarVisible.toggle()
-            }
+        Button(chords[2].title) {
+            PaneLayoutChordRouter.toggle(role: chords[2].role, target: target)
         }
-        .keyboardShortcut("s", modifiers: [.control, .command])
+        .keyboardShortcut(KeyEquivalent(chords[2].key), modifiers: chords[2].modifiers)
     }
 }
 
@@ -207,7 +245,7 @@ public struct ImpressPaneLayoutCommands: Commands {
 
     public var body: some Commands {
         CommandGroup(after: .sidebar) {
-            ImpressPaneLayoutButtons(listTitle: listTitle)
+            ImpressPaneLayoutButtons(listTitle: listTitle, target: .layoutTree)
         }
     }
 }
@@ -220,41 +258,30 @@ public struct ImpressPaneLayoutCommands: Commands {
 /// Anything that changes here changes the published grammar, and
 /// `PaneLayoutCommandsTests` fails until the doc row moves with it.
 ///
-/// `toggle` is still the `PaneLayoutState` mutation, deliberately: it is the
-/// half of the chord that can be exercised without a window, a store or an
-/// FFI. The layout-tree half (`PaneLayoutChordRouter`, ADR-0031 D5) is a
-/// ROUTING decision taken at the button, and it is proven by the tree's own
-/// tests plus the Tier A `resize` capability in `impress-layout-service`, not
-/// by pretending a `PaneLayoutState` stands in for a share.
+/// Each chord carries its effect as data: the tree `role` it resizes in a
+/// chassis window, which `PaneLayoutChordRouter.toggle(role:in:)` maps to a
+/// pane of imbib's pre-chassis window. The buttons above are built FROM this
+/// list, so the data and the menu cannot disagree; the tree half of the effect
+/// is proven by the tree's own tests plus the Tier A `resize` capability in
+/// `impress-layout-service`.
 public extension ImpressPaneLayoutButtons {
 
-    /// One toggle: its menu title, its key, its modifiers, and the
-    /// `PaneLayoutState` field it flips.
+    /// One toggle: its menu title, its key, its modifiers and the tree role
+    /// it resizes.
     struct Chord: Equatable, Sendable {
         public let title: String
         public let key: Character
         public let modifiers: EventModifiers
-        /// Flip this toggle on a state value — the same mutation the button
-        /// performs, so the test exercises the real field and not a name.
-        public let toggle: @Sendable (inout PaneLayoutState) -> Void
-
-        public static func == (lhs: Chord, rhs: Chord) -> Bool {
-            lhs.title == rhs.title && lhs.key == rhs.key && lhs.modifiers == rhs.modifiers
-        }
+        /// The `impress_layout::Role` a chassis window resizes.
+        public let role: String
     }
 
     /// The published grammar, in menu order.
     static func chords(listTitle: String = "Toggle List") -> [Chord] {
         [
-            Chord(title: "Toggle Detail Pane", key: "0", modifiers: .command) {
-                $0.detailPaneVisible.toggle()
-            },
-            Chord(title: listTitle, key: "0", modifiers: [.command, .option]) {
-                $0.listPaneVisible.toggle()
-            },
-            Chord(title: "Toggle Sidebar", key: "s", modifiers: [.control, .command]) {
-                $0.sidebarVisible.toggle()
-            },
+            Chord(title: "Toggle Detail Pane", key: "0", modifiers: .command, role: "detail"),
+            Chord(title: listTitle, key: "0", modifiers: [.command, .option], role: "list"),
+            Chord(title: "Toggle Sidebar", key: "s", modifiers: [.control, .command], role: "navigator"),
         ]
     }
 }

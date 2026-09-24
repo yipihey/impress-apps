@@ -16991,6 +16991,27 @@ public func kindManifestJson() -> String {
 })
 }
 /**
+ * What the tree does when the outline's selected library or collection is
+ * deleted, decided in Rust (`impress_layout_service::outline_cleared_verbs`,
+ * plan wave 6 W5): the navigator's channel stops carrying the dead row and
+ * the detail pane empties — the chassis' own "No Selection", with no
+ * fallback to a parent.
+ *
+ * * `node_json` — the `OutlineNode` that was selected.
+ * * `list_spec_json` / `detail_spec_json` — as for [`outline_row_verbs_json`].
+ *
+ * Returns `{"verbs": [Verb]}`, for `SharedLayout::apply` one at a time.
+ */
+public func outlineClearedVerbsJson(nodeJson: String, listSpecJson: String, detailSpecJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_func_outline_cleared_verbs_json(
+        FfiConverterString.lower(nodeJson),
+        FfiConverterString.lower(listSpecJson),
+        FfiConverterString.lower(detailSpecJson),$0
+    )
+})
+}
+/**
  * What selecting an outline row does, decided in Rust
  * (`impress_layout_service::outline`).
  *
@@ -17062,6 +17083,20 @@ public func rankHybridSearchResults(query: String, candidates: [SharedHybridCand
 })
 }
 /**
+ * The record kind each section serves in `app_id`'s shipped shell, as JSON:
+ * `{"<SidebarSectionType case>": "<kind short id>"}` — `{}` for an app that
+ * ships no preset. `AppShellConfiguration`'s shipped presets read their
+ * `sectionBindings` from this (plan wave 6 W5), so the table has one
+ * definition, beside the named queries it must agree with.
+ */
+public func sectionBindingsJson(appId: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_section_bindings_json(
+        FfiConverterString.lower(appId),$0
+    )
+})
+}
+/**
  * The allowed `manuscript.format` payload values (single source of truth:
  * `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
  * app-side format enums can assert parity without duplicating the list.
@@ -17118,6 +17153,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 39295) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_func_outline_cleared_verbs_json() != 18137) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_func_outline_row_verbs_json() != 46789) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17128,6 +17166,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_rank_hybrid_search_results() != 39200) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_section_bindings_json() != 33769) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {

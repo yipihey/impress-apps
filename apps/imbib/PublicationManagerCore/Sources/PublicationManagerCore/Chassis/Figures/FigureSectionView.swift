@@ -20,6 +20,9 @@ public struct FigureSectionView: View {
     let scope: FigureListScope
     @Environment(\.appShellConfiguration) private var shellConfiguration
     @Environment(\.openWindow) private var openWindow
+    /// imbib's own window's pane model; nil inside the layout tree, where
+    /// both panes show and the tree decides what is on screen.
+    @Environment(\.hostWindowPanes) private var hostPanes
     @State private var selectedID: UUID?
     // Figures land on the Info tab; the View tab is one click/keystroke away.
     @State private var selectedTab: DetailTab = .info
@@ -36,8 +39,9 @@ public struct FigureSectionView: View {
         // ⌥⌘0 hides the list, ⌘0 hides the detail; both hidden falls back to
         // the list so the route is never empty.
         Group {
-            let layout = PaneLayoutStore.shared.current
-            if layout.listPaneVisible && layout.detailPaneVisible {
+            let listVisible = hostPanes?.listPaneVisible ?? true
+            let detailVisible = hostPanes?.detailPaneVisible ?? true
+            if listVisible && detailVisible {
                 ImpressSplitView(
                     listMinWidth: 220,
                     // Quarter by default (the shared default); the user's drag
@@ -50,7 +54,7 @@ public struct FigureSectionView: View {
                     detailPane
                         .ignoresSafeArea(.container, edges: .top)
                 }
-            } else if layout.detailPaneVisible {
+            } else if detailVisible {
                 detailPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: .top)

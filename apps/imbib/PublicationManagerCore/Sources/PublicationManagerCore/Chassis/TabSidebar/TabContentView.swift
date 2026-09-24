@@ -31,12 +31,20 @@ public struct TabContentView: View {
     /// the layout tree's `outline` pane so the two hosts are one sidebar.
     @State private var viewModel = ImbibSidebarViewModel()
 
-    /// NavigationSplitView column state, driven by the declarative layout
-    /// (PaneLayoutStore.current.sidebarVisible ↔ ⌃⌘S / saved layouts /
-    /// HTTP /api/layout). Two-way: the split view's own toolbar toggle and
-    /// drag-collapse mirror back into the store.
-    @State private var columnVisibility: NavigationSplitViewVisibility =
-        PaneLayoutStore.shared.current.sidebarVisible ? .all : .detailOnly
+    /// The host window's pane model: imbib's own window injects its layout
+    /// model (⌃⌘S / ⌥⌘0 / ⌘0, saved layouts, `/api/layout`). Inside the layout
+    /// tree nobody does, and this view keeps its own (`ownPanes`).
+    @Environment(\.hostWindowPanes) private var hostPanes
+
+    /// Panes this view owns when no host gave it any.
+    @State private var ownPanes = OwnWindowPanes()
+
+    private var panes: any HostWindowPanes { hostPanes ?? ownPanes }
+
+    /// NavigationSplitView column state, driven by `panes.sidebarVisible`.
+    /// Two-way: the split view's own toolbar toggle and drag-collapse mirror
+    /// back into it. Starts shown; `onAppear` takes the host's value.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     /// Whether the selected route renders the Manuscripts section (whose
     /// editor pane toggles then join the top-left toolbar cluster).
@@ -63,6 +71,7 @@ public struct TabContentView: View {
             // of whether NavigationSplitView re-evaluates this closure.
             SectionContentView(viewModel: viewModel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.hostWindowPanes, panes)
         }
         #if os(macOS)
         // Pane show/hide cluster. Declared on the NavigationSplitView root —
@@ -72,9 +81,10 @@ public struct TabContentView: View {
         // sidebar / list / editor-pane toggles read as one group.
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                let visible = PaneLayoutStore.shared.current.listPaneVisible
+                let panes = panes
+                let visible = panes.listPaneVisible
                 Button {
-                    PaneLayoutStore.shared.current.listPaneVisible.toggle()
+                    panes.listPaneVisible.toggle()
                 } label: {
                     Image(systemName: visible
                         ? "list.bullet.rectangle.fill" : "list.bullet.rectangle")
@@ -89,14 +99,18 @@ public struct TabContentView: View {
             }
         }
         #endif
-        .onChange(of: PaneLayoutStore.shared.current.sidebarVisible) { _, visible in
+        .onAppear {
+            let target: NavigationSplitViewVisibility = panes.sidebarVisible ? .all : .detailOnly
+            if columnVisibility != target { columnVisibility = target }
+        }
+        .onChange(of: panes.sidebarVisible) { _, visible in
             let target: NavigationSplitViewVisibility = visible ? .all : .detailOnly
             if columnVisibility != target { columnVisibility = target }
         }
         .onChange(of: columnVisibility) { _, visibility in
             let visible = visibility != .detailOnly
-            if PaneLayoutStore.shared.current.sidebarVisible != visible {
-                PaneLayoutStore.shared.current.sidebarVisible = visible
+            if panes.sidebarVisible != visible {
+                panes.sidebarVisible = visible
             }
         }
         .modifier(ImbibSidebarLifecycle(viewModel: viewModel))

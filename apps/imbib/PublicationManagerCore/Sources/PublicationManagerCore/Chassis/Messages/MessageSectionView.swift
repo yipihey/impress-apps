@@ -19,6 +19,9 @@ public struct MessageSectionView: View {
 
     let scope: MessageListScope
     @Environment(\.appShellConfiguration) private var shellConfiguration
+    /// imbib's own window's pane model; nil inside the layout tree, where
+    /// both panes show and the tree decides what is on screen.
+    @Environment(\.hostWindowPanes) private var hostPanes
     @State private var selectedID: UUID?
     // Messages land on the Info tab; Source and View are one keystroke away.
     @State private var selectedTab: DetailTab = .info
@@ -32,8 +35,9 @@ public struct MessageSectionView: View {
         // ⌥⌘0 hides the list, ⌘0 hides the detail; both hidden falls back to
         // the list so the route is never empty.
         Group {
-            let layout = PaneLayoutStore.shared.current
-            if layout.listPaneVisible && layout.detailPaneVisible {
+            let listVisible = hostPanes?.listPaneVisible ?? true
+            let detailVisible = hostPanes?.detailPaneVisible ?? true
+            if listVisible && detailVisible {
                 ImpressSplitView(
                     listMinWidth: 220,
                     // Quarter by default (the shared default); the user's drag
@@ -46,7 +50,7 @@ public struct MessageSectionView: View {
                     detailPane
                         .ignoresSafeArea(.container, edges: .top)
                 }
-            } else if layout.detailPaneVisible {
+            } else if detailVisible {
                 detailPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: .top)

@@ -64,9 +64,6 @@ struct UnifiedPublicationListWrapper: View {
     /// Called when "Download PDFs" is requested for selected publications
     var onDownloadPDFs: ((Set<UUID>) -> Void)?
 
-    /// Focused pane for vim-style navigation (optional - for focus border display)
-    var focusedPane: Binding<FocusedPane?>?
-
     // MARK: - Init
 
     init(
@@ -75,8 +72,7 @@ struct UnifiedPublicationListWrapper: View {
         selectedPublicationIDs: Binding<Set<UUID>>,
         initialFilterMode: LibraryFilterMode = .all,
         initialSortOrder: LibrarySortOrder = .dateAdded,
-        onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
-        focusedPane: Binding<FocusedPane?>? = nil
+        onDownloadPDFs: ((Set<UUID>) -> Void)? = nil
     ) {
         self.source = source
         self._selectedPublicationID = selectedPublicationID
@@ -84,7 +80,6 @@ struct UnifiedPublicationListWrapper: View {
         self.initialFilterMode = initialFilterMode
         self.initialSortOrder = initialSortOrder
         self.onDownloadPDFs = onDownloadPDFs
-        self.focusedPane = focusedPane
         _currentSortOrder = State(initialValue: initialSortOrder)
         _currentSortAscending = State(initialValue: initialSortOrder.defaultAscending)
 

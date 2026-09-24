@@ -152,7 +152,10 @@ pub enum Scope {
     Collection { id: ItemRef },
     /// Members of a collection and of every collection beneath it.
     CollectionSubtree { id: ItemRef },
-    /// Items whose envelope parent is this library / account / folder.
+    /// Items whose envelope parent is this library / account / folder, and,
+    /// for a container the manifest lists in
+    /// [`KindManifest::contains_members`] (a library), the targets of its
+    /// `Contains` edges too.
     Parent { id: ItemRef },
     /// Exactly one item. The detail pane's scope.
     Item { id: ItemRef },
@@ -290,11 +293,50 @@ pub struct KindManifest {
     /// kind id → canonical schema refs (a kind may span several, e.g.
     /// `message` = `email-message` + `chat-message`).
     pub kinds: BTreeMap<RecordKindId, Vec<String>>,
+    /// Container kind → the member kinds it holds by a `Contains` edge as
+    /// well as by the envelope parent.
+    ///
+    /// A [`Scope::Parent`] whose parent is such a container, over only those
+    /// member kinds, selects the parent's children OR the targets of its
+    /// `Contains` edges. Everything else under a Parent scope is the envelope
+    /// children alone. Empty by default: a host that files by parent only
+    /// declares nothing here.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub contains_members: BTreeMap<RecordKindId, Vec<RecordKindId>>,
 }
 
 impl KindManifest {
     pub fn schema_refs(&self, kind: &str) -> Option<&[String]> {
         self.kinds.get(kind).map(Vec::as_slice)
+    }
+
+    /// Does a [`Scope::Parent`] over `members` also take the parent's
+    /// `Contains` targets (see [`Self::contains_members`])?
+    ///
+    /// `parent_kind` is the kind the parent was declared as, when a
+    /// parameter declaration says so. A literal id carries no kind; its
+    /// parent is then the one container whose `Contains` members cover every
+    /// queried kind, and when no container, or more than one, does, the
+    /// scope stays parent-only.
+    pub fn parent_includes_contains(
+        &self,
+        parent_kind: Option<&str>,
+        members: &[RecordKindId],
+    ) -> bool {
+        if members.is_empty() {
+            return false;
+        }
+        let covers = |held: &Vec<RecordKindId>| members.iter().all(|m| held.contains(m));
+        match parent_kind {
+            Some(kind) => self.contains_members.get(kind).is_some_and(covers),
+            None => {
+                self.contains_members
+                    .values()
+                    .filter(|held| covers(held))
+                    .count()
+                    == 1
+            }
+        }
     }
 
     pub fn kind_for_schema_ref(&self, schema_ref: &str) -> Option<&str> {
@@ -361,6 +403,51 @@ pub fn params_in(query: &PaneQuery) -> Vec<ParamName> {
 mod contract_tests {
     use super::*;
     use uuid::Uuid;
+
+    fn shelf_manifest() -> KindManifest {
+        let kinds = ["shelf", "book", "note", "box"]
+            .into_iter()
+            .map(|k| (k.to_string(), vec![format!("x/{k}")]))
+            .collect();
+        KindManifest {
+            kinds,
+            contains_members: [("shelf".to_string(), vec!["book".to_string()])]
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_parent_takes_contains_members_only_for_a_listed_container() {
+        let m = shelf_manifest();
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Declared kind decides.
+        assert!(m.parent_includes_contains(Some("shelf"), &k(&["book"])));
+        assert!(!m.parent_includes_contains(Some("box"), &k(&["book"])));
+        assert!(!m.parent_includes_contains(Some("shelf"), &k(&["note"])));
+        assert!(!m.parent_includes_contains(Some("shelf"), &k(&["book", "note"])));
+        // No declaration: inferred from the members.
+        assert!(m.parent_includes_contains(None, &k(&["book"])));
+        assert!(!m.parent_includes_contains(None, &k(&["note"])));
+        assert!(!m.parent_includes_contains(None, &[]));
+        // A manifest that declares nothing is parent-only everywhere.
+        let bare = KindManifest {
+            contains_members: BTreeMap::new(),
+            ..m
+        };
+        assert!(!bare.parent_includes_contains(None, &k(&["book"])));
+    }
+
+    #[test]
+    fn a_manifest_without_contains_members_still_decodes() {
+        let m: KindManifest = serde_json::from_str(r#"{"kinds":{"book":["x/book"]}}"#).unwrap();
+        assert!(m.contains_members.is_empty());
+        let json = serde_json::to_string(&shelf_manifest()).unwrap();
+        assert_eq!(
+            serde_json::from_str::<KindManifest>(&json).unwrap(),
+            shelf_manifest()
+        );
+    }
 
     #[test]
     fn params_are_listed_in_first_use_order_without_duplicates() {

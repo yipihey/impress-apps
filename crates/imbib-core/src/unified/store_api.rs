@@ -8089,6 +8089,78 @@ mod tests {
         assert!(!ids.contains(&a), "A must NOT appear (only in home)");
     }
 
+    /// The layout tree's library pane (`Scope::Parent` over publications,
+    /// compiled against the built-in manifest) lists exactly what the legacy
+    /// library list lists (`in_library_predicate`): the parented paper AND
+    /// the one filed in by a `Contains` edge. This is the Inbox's paper
+    /// parented to Save that the tree used to miss.
+    #[test]
+    fn a_compiled_library_pane_matches_in_library_predicate() {
+        use impress_core::pane_query::{
+            builtin_manifest, compile, Bindings, ItemRef, PaneQuery, Scope,
+        };
+
+        let store = make_store();
+        let inbox = store.create_library("Inbox".into()).unwrap();
+        let save = store.create_library("Save".into()).unwrap();
+        let parented = store
+            .import_bibtex("@article{P, title={P}}".into(), inbox.id.clone())
+            .unwrap()[0]
+            .clone();
+        let linked = store
+            .import_bibtex("@article{L, title={L}}".into(), save.id.clone())
+            .unwrap()[0]
+            .clone();
+        let _save_only = store
+            .import_bibtex("@article{S, title={S}}".into(), save.id.clone())
+            .unwrap();
+        store
+            .library_add_members(inbox.id.clone(), vec![linked.clone()])
+            .unwrap();
+
+        let ids = |q: &ItemQuery| -> std::collections::BTreeSet<String> {
+            store
+                .store
+                .query(q)
+                .unwrap()
+                .iter()
+                .map(|i| i.id.to_string())
+                .collect()
+        };
+        for library in [&inbox, &save] {
+            let id = parse_uuid(&library.id).unwrap();
+            let legacy = ItemQuery {
+                schema: Some("imbib/bibliography-entry".into()),
+                predicates: vec![in_library_predicate(id)],
+                ..Default::default()
+            };
+            let pane = compile(
+                &PaneQuery {
+                    kinds: vec!["publication".into()],
+                    scope: Scope::Parent {
+                        id: ItemRef::Id { id },
+                    },
+                    ..Default::default()
+                },
+                &[],
+                &Bindings::new(),
+                &builtin_manifest(),
+            )
+            .unwrap();
+            assert_eq!(ids(&pane.item_query), ids(&legacy), "{}", library.name);
+        }
+        let inbox_rows = ids(&ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![in_library_predicate(parse_uuid(&inbox.id).unwrap())],
+            ..Default::default()
+        });
+        assert_eq!(
+            inbox_rows,
+            [parented, linked].into_iter().collect(),
+            "the Inbox holds its own paper and the Contains-linked one"
+        );
+    }
+
     #[test]
     fn sidebar_counts_match_point_queries() {
         let store = make_store();

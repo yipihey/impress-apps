@@ -12,8 +12,6 @@ import OSLog
 
 private let contentLogger = Logger(subsystem: "com.imbib.app", category: "content")
 
-// FocusedPane moved into PublicationManagerCore Chassis/ (GUI-meld Phase 1).
-
 struct ContentView: View {
 
     // MARK: - Environment
@@ -165,6 +163,9 @@ struct ContentView: View {
     /// Tab sidebar content — the sole sidebar implementation
     private var tabSidebarContent: some View {
         TabContentView()
+            // This window's panes are its own layout model (⌘0 / ⌥⌘0 / ⌃⌘S,
+            // saved layouts, /api/layout); the shared views read it here.
+            .environment(\.hostWindowPanes, PaneLayoutStore.shared)
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
             }

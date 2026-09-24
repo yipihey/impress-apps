@@ -10,16 +10,16 @@
 //
 //  SwiftUI offers no way to enumerate a built `Commands` body, which is exactly
 //  why the drift was invisible. `ImpressPaneLayoutButtons.chords()` publishes
-//  the same three bindings AS DATA — same titles, same keys, same modifiers,
-//  and a closure that performs the same `PaneLayoutState` mutation the button
-//  performs — so this suite can check the grammar and the effect without a
-//  running scene. The data and the buttons sit ten lines apart in one file; a
+//  the same three bindings AS DATA — same titles, same keys, same modifiers
+//  and the tree role each resizes, which `PaneLayoutChordRouter` maps to a
+//  host window's pane — so this suite can check the grammar and the effect
+//  without a running scene. The data and the buttons sit ten lines apart in one file; a
 //  change to one that skips the other is a diff a reviewer sees.
 //
 //  The migration half is checked by source scan, in the shape
 //  `ImprintSettingsPersistenceTests` established: the four apps must not
-//  re-grow a private copy. A `PaneLayoutStore.shared.current.<field>.toggle()`
-//  in an app file is the finding, verbatim.
+//  re-grow a private copy. A hand-written `.current.<field>.toggle()` of a
+//  pane field in an app file is the finding, verbatim.
 //
 
 import SwiftUI
@@ -73,43 +73,74 @@ final class PaneLayoutCommandsTests: XCTestCase {
         XCTAssertEqual(Set(bindings).count, chords.count)
     }
 
-    // MARK: - What each chord actually does
+    // MARK: - Where each chord lands (plan wave 6 W5)
 
-    /// Each chord flips ITS field and no other. The four hand-written copies
-    /// each wired three buttons to three fields by hand; a transposed pair
-    /// (⌘0 flipping the list) is a one-character error no compiler catches.
-    func testEachChordTogglesExactlyItsOwnField() {
+    /// In a chassis window a chord resizes a ROLE in the layout tree
+    /// (ADR-0031 D5) — the tree is the only chassis root since W5. A
+    /// transposed role (⌘0 collapsing the navigator) is the same one-character
+    /// error `testEachChordTogglesExactlyItsOwnField` guards on the other side.
+    func testEachChordNamesItsTreeRole() {
         let chords = ImpressPaneLayoutButtons.chords()
-
-        var state = PaneLayoutState()
-        chords[0].toggle(&state)
-        XCTAssertFalse(state.detailPaneVisible)
-        XCTAssertTrue(state.listPaneVisible)
-        XCTAssertTrue(state.sidebarVisible)
-
-        state = PaneLayoutState()
-        chords[1].toggle(&state)
-        XCTAssertTrue(state.detailPaneVisible)
-        XCTAssertFalse(state.listPaneVisible)
-        XCTAssertTrue(state.sidebarVisible)
-
-        state = PaneLayoutState()
-        chords[2].toggle(&state)
-        XCTAssertTrue(state.detailPaneVisible)
-        XCTAssertTrue(state.listPaneVisible)
-        XCTAssertFalse(state.sidebarVisible)
+        XCTAssertEqual(chords.map(\.role), ["detail", "list", "navigator"])
+        XCTAssertEqual(chords.map(\.role), [
+            PaneLayoutChordRouter.detailRole,
+            PaneLayoutChordRouter.listRole,
+            PaneLayoutChordRouter.navigatorRole,
+        ])
     }
 
-    /// A toggle is its own inverse. `PaneLayoutState` persists through
-    /// `PaneLayoutStore.current`'s `didSet`, so a non-involutive toggle would
-    /// leave a saved layout the user cannot get back to.
-    func testTogglingTwiceRestoresTheStartingLayout() {
-        let start = PaneLayoutState()
+    /// Only imbib's pre-chassis window may route the chords to its own pane
+    /// model; every chassis app's are the tree's. A chassis host passing
+    /// `.imbibPreChassisWindow` would flip a Boolean nothing draws.
+    func testOnlyImbibsOwnWindowRoutesToItsOwnPanes() throws {
+        for path in Self.migratedAppFiles {
+            let source = try Self.source(of: path)
+            let preChassis = source.contains("target: .imbibPreChassisWindow")
+            XCTAssertEqual(
+                preChassis, path == "apps/imbib/imbib/imbib/imbibApp.swift",
+                "\(path): only imbib's pre-chassis ContentView draws its own pane model")
+        }
+    }
+
+    // MARK: - What each chord actually does
+
+    /// Each chord flips ITS pane of a host window and no other. The four
+    /// hand-written copies each wired three buttons to three fields by hand; a
+    /// transposed pair (⌘0 flipping the list) is a one-character error no
+    /// compiler catches.
+    func testEachChordTogglesExactlyItsOwnPane() {
+        let chords = ImpressPaneLayoutButtons.chords()
+
+        var panes = OwnWindowPanes()
+        PaneLayoutChordRouter.toggle(role: chords[0].role, target: .imbibPreChassisWindow(panes))
+        XCTAssertFalse(panes.detailPaneVisible)
+        XCTAssertTrue(panes.listPaneVisible)
+        XCTAssertTrue(panes.sidebarVisible)
+
+        panes = OwnWindowPanes()
+        PaneLayoutChordRouter.toggle(role: chords[1].role, target: .imbibPreChassisWindow(panes))
+        XCTAssertTrue(panes.detailPaneVisible)
+        XCTAssertFalse(panes.listPaneVisible)
+        XCTAssertTrue(panes.sidebarVisible)
+
+        panes = OwnWindowPanes()
+        PaneLayoutChordRouter.toggle(role: chords[2].role, target: .imbibPreChassisWindow(panes))
+        XCTAssertTrue(panes.detailPaneVisible)
+        XCTAssertTrue(panes.listPaneVisible)
+        XCTAssertFalse(panes.sidebarVisible)
+    }
+
+    /// A toggle is its own inverse: imbib's window persists every change, so a
+    /// non-involutive toggle would leave a saved layout the user cannot get
+    /// back to.
+    func testTogglingTwiceRestoresTheStartingPanes() {
         for chord in ImpressPaneLayoutButtons.chords() {
-            var state = start
-            chord.toggle(&state)
-            chord.toggle(&state)
-            XCTAssertEqual(state, start, "\(chord.title) is not its own inverse")
+            let panes = OwnWindowPanes()
+            PaneLayoutChordRouter.toggle(role: chord.role, in: panes)
+            PaneLayoutChordRouter.toggle(role: chord.role, in: panes)
+            XCTAssertTrue(
+                panes.detailPaneVisible && panes.listPaneVisible && panes.sidebarVisible,
+                "\(chord.title) is not its own inverse")
         }
     }
 
@@ -150,7 +181,7 @@ final class PaneLayoutCommandsTests: XCTestCase {
                 "\(path) must use the shared pane-layout buttons")
             for field in ["detailPaneVisible", "listPaneVisible", "sidebarVisible"] {
                 XCTAssertFalse(
-                    source.contains("PaneLayoutStore.shared.current.\(field).toggle()"),
+                    source.contains(".current.\(field).toggle()"),
                     """
                     \(path) hand-toggles `\(field)` again. That is D9 finding 4 \
                     verbatim: the chord grammar is the chassis's, and a private \

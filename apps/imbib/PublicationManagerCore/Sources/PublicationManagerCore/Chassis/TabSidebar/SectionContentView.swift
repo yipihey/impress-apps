@@ -38,6 +38,9 @@ struct SectionContentView: View {
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(SearchViewModel.self) private var searchViewModel
+    /// imbib's own window's pane model; nil inside the layout tree, where the
+    /// tree decides what is on screen and both panes show.
+    @Environment(\.hostWindowPanes) private var hostPanes
     @Environment(\.appShellConfiguration) private var shellConfiguration
     @Environment(\.recordViewerRegistry) private var viewerRegistry
 
@@ -447,14 +450,15 @@ struct SectionContentView: View {
 
     @ViewBuilder
     private func contentBody(_ route: ImbibContentRoute) -> some View {
-        // Declarative pane layout: the detail pane's visibility is part of
-        // PaneLayoutStore.current (⌘0, saved layouts, HTTP /api/layout). The
-        // toolbar stays attached to the Group so its fragile positioning
-        // (see CLAUDE.md "macOS Detail Pane Layout") is untouched when the
-        // pane is visible.
+        // Declarative pane layout: the list and detail panes' visibility is
+        // the host window's (`HostWindowPanes`: ⌘0, saved layouts, HTTP
+        // /api/layout in imbib's own window). The toolbar stays attached to
+        // the Group so its fragile positioning (see CLAUDE.md "macOS Detail
+        // Pane Layout") is untouched when the pane is visible.
         Group {
-            let layout = PaneLayoutStore.shared.current
-            if layout.listPaneVisible && layout.detailPaneVisible {
+            let listVisible = hostPanes?.listPaneVisible ?? true
+            let detailVisible = hostPanes?.detailPaneVisible ?? true
+            if listVisible && detailVisible {
                 ImpressSplitView(
                     listMinWidth: 200,
                     fractionStorageKey: "impress.split.publications",
@@ -464,7 +468,7 @@ struct SectionContentView: View {
                 } detail: {
                     detailView
                 }
-            } else if layout.detailPaneVisible {
+            } else if detailVisible {
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: .top)
@@ -571,13 +575,14 @@ struct SectionContentView: View {
                 showSearchForm = false
             }
         }
-        // Two-way mirror between the local detail-tab selection and the
-        // declarative layout state (saved layouts + HTTP /api/layout).
+        // Two-way mirror between the local detail-tab selection and the host
+        // window's layout model (saved layouts + HTTP /api/layout). Nothing
+        // to mirror inside the layout tree.
         .onChange(of: selectedDetailTab) { _, tab in
-            PaneLayoutStore.shared.current.detailTab = tab.rawValue
+            hostPanes?.detailTab = tab.rawValue
         }
-        .onChange(of: PaneLayoutStore.shared.current.detailTab) { _, raw in
-            if let tab = DetailTab(rawValue: raw), tab != selectedDetailTab {
+        .onChange(of: hostPanes?.detailTab) { _, raw in
+            if let raw, let tab = DetailTab(rawValue: raw), tab != selectedDetailTab {
                 selectedDetailTab = tab
             }
         }

@@ -1866,7 +1866,7 @@ async fn cap_save_and_reset_preset() -> CapabilityResult {
                 "the user's own words are kept",
             )?;
             want(
-                dto.version == Some(1),
+                dto.version == crate::presets::shipped_preset(APP, "Triage").map(|p| p.version),
                 "editing a shipped preset leaves its shipped revision alone",
             )?;
 

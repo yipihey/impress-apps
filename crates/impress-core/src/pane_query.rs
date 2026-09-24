@@ -124,7 +124,26 @@ pub fn builtin_manifest() -> KindManifest {
         )
     })
     .collect();
-    KindManifest { kinds }
+    // A library holds its papers two ways: as envelope children, and by a
+    // `Contains` edge from the library (a paper parented to Save that is in
+    // the Inbox, for one). The legacy library list reads both
+    // (`imbib_core::unified::store_api::in_library_predicate`), so a library
+    // pane must too. Figure and mail folders file by the envelope parent
+    // alone (`collection_ops::Membership::EnvelopeParent`; impart writes a
+    // message's mailbox as its parent), so they are not listed.
+    let contains_members = [("library", vec!["publication"])]
+        .into_iter()
+        .map(|(kind, members)| {
+            (
+                kind.to_string(),
+                members.into_iter().map(str::to_string).collect(),
+            )
+        })
+        .collect();
+    KindManifest {
+        kinds,
+        contains_members,
+    }
 }
 
 /// Compiled form: the store query plus, when the query is a single-kind
@@ -459,7 +478,24 @@ mod compiler {
             },
             Scope::Parent { id } => match resolve(id, decls, bindings)? {
                 Resolved::Id(p) => {
-                    predicates.push(Predicate::HasParent(p));
+                    // The parent's declared kind, when a declaration names
+                    // one; a literal id leaves it to the manifest to infer.
+                    let declared = match id {
+                        ItemRef::Param { name } => decls
+                            .iter()
+                            .find(|d| &d.name == name)
+                            .map(|d| d.kind.as_str()),
+                        ItemRef::Id { .. } => None,
+                    };
+                    if manifest.parent_includes_contains(declared, &kinds) {
+                        predicates.push(Predicate::Or(vec![
+                            Predicate::HasParent(p),
+                            Predicate::ReferencedBy(EdgeType::Contains, p),
+                        ]));
+                        inv.depend_on_edge(EdgeType::Contains, p);
+                    } else {
+                        predicates.push(Predicate::HasParent(p));
+                    }
                     inv.depend_on_parent(p);
                     inv.depend_on_item(p);
                 }
@@ -607,6 +643,24 @@ mod compiler {
 mod manifest_tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    /// A container the manifest widens, and every member kind it lists, is
+    /// a kind the manifest maps: a typo here would silently leave a library
+    /// pane parent-only.
+    #[test]
+    fn contains_members_name_known_kinds() {
+        let m = builtin_manifest();
+        assert_eq!(
+            m.contains_members.get("library"),
+            Some(&vec!["publication".to_string()])
+        );
+        for (container, members) in &m.contains_members {
+            assert!(m.kinds.contains_key(container), "{container}");
+            for member in members {
+                assert!(m.kinds.contains_key(member), "{container} → {member}");
+            }
+        }
+    }
 
     /// Repo root, from this crate's manifest dir (`<root>/crates/impress-core`)
     /// — the same derivation `tests/support/schema_ref_manifest_support.rs`
@@ -1136,7 +1190,16 @@ mod compiler_tests {
             },
             ..Default::default()
         });
-        assert_eq!(p.item_query.predicates, vec![Predicate::HasParent(id)]);
+        // Publications under a parent are a library's papers, which the
+        // manifest says a library also holds by a Contains edge
+        // (`in_library_predicate`'s membership).
+        assert_eq!(
+            p.item_query.predicates,
+            vec![Predicate::Or(vec![
+                Predicate::HasParent(id),
+                Predicate::ReferencedBy(EdgeType::Contains, id),
+            ])]
+        );
 
         let i = ok(&PaneQuery {
             kinds: kinds(&["publication"]),
@@ -1150,6 +1213,76 @@ mod compiler_tests {
             vec![Predicate::Eq("id".into(), Value::String(id.to_string()))]
         );
         assert_eq!(i.single_item, Some(id));
+    }
+
+    /// A Parent scope takes the parent's `Contains` targets only when the
+    /// parent is a container the manifest lists (a library) and the pane
+    /// queries only its listed members (publications). Figure and mail
+    /// folders stay envelope-parent only.
+    #[test]
+    fn a_parent_scope_takes_contains_edges_only_under_a_library() {
+        let id = Uuid::new_v4();
+        let widened = vec![Predicate::Or(vec![
+            Predicate::HasParent(id),
+            Predicate::ReferencedBy(EdgeType::Contains, id),
+        ])];
+        let parent_only = vec![Predicate::HasParent(id)];
+        let query = |k: &[&str], r: ItemRef| PaneQuery {
+            kinds: kinds(k),
+            scope: Scope::Parent { id: r },
+            ..Default::default()
+        };
+        let literal = ItemRef::Id { id };
+        let param = ItemRef::Param {
+            name: "parent".into(),
+        };
+        let declared = |kind: &str, q: &PaneQuery| {
+            compile(
+                q,
+                &[ParamDecl {
+                    name: "parent".into(),
+                    kind: kind.into(),
+                    required: true,
+                }],
+                &Bindings::new().with("parent", id),
+                &manifest(),
+            )
+            .expect("compiles")
+        };
+
+        // A literal id: the parent's kind is inferred from the members.
+        let library = ok(&query(&["publication"], literal.clone()));
+        assert_eq!(library.item_query.predicates, widened);
+        assert_eq!(library.invalidation.edges, vec![(EdgeType::Contains, id)]);
+        assert_eq!(library.invalidation.parents, vec![id]);
+        for folder in [
+            &["figure"][..],
+            &["message"],
+            &["publication", "figure"],
+            &[],
+        ] {
+            // A kind with several schema refs adds its `In` after the scope.
+            let c = ok(&query(folder, literal.clone()));
+            assert_eq!(c.item_query.predicates[..1], parent_only[..], "{folder:?}");
+            assert!(c.invalidation.edges.is_empty(), "{folder:?}");
+        }
+
+        // A declared parameter: its kind decides.
+        let q = query(&["publication"], param.clone());
+        assert_eq!(declared("library", &q).item_query.predicates, widened);
+        assert_eq!(
+            declared("collection", &q).item_query.predicates,
+            parent_only
+        );
+        let figures = query(&["figure"], param);
+        assert_eq!(
+            declared("library", &figures).item_query.predicates,
+            parent_only
+        );
+        assert_eq!(
+            declared("collection", &figures).item_query.predicates,
+            parent_only
+        );
     }
 
     #[test]
@@ -2086,6 +2219,84 @@ mod store_tests {
             ..Default::default()
         });
         assert_eq!(run(&store, &c), vec![mine]);
+    }
+
+    /// A library holds a paper by parent or by a `Contains` edge from the
+    /// library (a paper parented to Save that is also in the Inbox). The
+    /// library pane lists both; a paper merely parented elsewhere is not in it.
+    #[test]
+    fn a_library_pane_lists_its_contains_linked_papers_too() {
+        let store = open();
+        let parented = publication(&store, "Parented here");
+        let linked = publication(&store, "Parented elsewhere, linked here");
+        let elsewhere = publication(&store, "Parented elsewhere only");
+        let library = insert(
+            &store,
+            "imbib/library",
+            "Inbox",
+            vec![TypedReference {
+                target: linked,
+                edge_type: EdgeType::Contains,
+                metadata: None,
+            }],
+        );
+        let save = insert(&store, "imbib/library", "Save", vec![]);
+        for (paper, parent) in [(parented, library), (linked, save), (elsewhere, save)] {
+            store
+                .update(
+                    paper,
+                    vec![crate::store::FieldMutation::SetParent(Some(parent))],
+                )
+                .expect("file");
+        }
+
+        let c = compiled(&PaneQuery {
+            kinds: vec!["publication".into()],
+            scope: Scope::Parent {
+                id: ItemRef::Id { id: library },
+            },
+            ..Default::default()
+        });
+        assert_eq!(run(&store, &c), sorted(vec![parented, linked]));
+    }
+
+    /// A figure folder files by the envelope parent alone
+    /// (`collection_ops::Membership::EnvelopeParent`), so a `Contains` edge
+    /// from the folder does not put a figure in it.
+    #[test]
+    fn a_figure_folder_pane_is_still_its_envelope_children() {
+        let store = open();
+        let filed = insert(&store, "figure", "Filed", vec![]);
+        let linked = insert(&store, "figure", "Only linked", vec![]);
+        let folder = insert(
+            &store,
+            "figure-collection",
+            "Folder",
+            vec![TypedReference {
+                target: linked,
+                edge_type: EdgeType::Contains,
+                metadata: None,
+            }],
+        );
+        store
+            .update(
+                filed,
+                vec![crate::store::FieldMutation::SetParent(Some(folder))],
+            )
+            .expect("file");
+
+        let c = compiled(&PaneQuery {
+            kinds: vec!["figure".into()],
+            scope: Scope::Parent {
+                id: ItemRef::Id { id: folder },
+            },
+            ..Default::default()
+        });
+        assert_eq!(
+            c.item_query.predicates,
+            vec![crate::query::Predicate::HasParent(folder)]
+        );
+        assert_eq!(run(&store, &c), vec![filed]);
     }
 
     #[test]

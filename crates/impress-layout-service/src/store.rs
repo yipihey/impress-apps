@@ -225,8 +225,10 @@ impl LayoutStore {
         Ok(rows)
     }
 
-    /// Every layout row of `app_id`, live and named alike. Diagnostics, the
-    /// "one live row per scope" check, and the L7 importer.
+    /// Every layout row of `app_id`, live and named alike. Diagnostics and
+    /// the "one live row per scope" check. (L7 planned an ADR-0019 D5
+    /// importer of imbib's `PaneLayoutState` layouts that would also read
+    /// these; it was never built, and plan wave 6 W5 dropped it.)
     pub fn all_rows(&self, app_id: &str) -> Result<Vec<LayoutRow>> {
         Ok(self.rows(app_id)?.iter().map(row_of).collect())
     }
