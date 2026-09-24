@@ -119,9 +119,9 @@ jobs:
           crate: imprint-core
           env-extra: IMPRESS_SKIP_X86=1
 
-      # The hosted image has ~14 GB free and imprint-core's release target
-      # alone is several GB, so record the headroom: when this lane next fails
-      # for space, the number is already in the log.
+      # Record the headroom so a space failure never has to be guessed at. The
+      # first full build (run 36037604487) left target/ at 8.9 GB with 83 GiB
+      # still free on macos-26-arm64.
       - name: Disk after Rust
         run: df -h "$GITHUB_WORKSPACE" && du -sh target 2>/dev/null || true
 
