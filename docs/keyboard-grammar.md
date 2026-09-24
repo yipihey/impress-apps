@@ -17,10 +17,10 @@ them.
 | ⌘\ | Split editor | — | Two views of the same document |
 | ⌃⌘P | Open on second display | Detached PDF window (also Shift+P, guarded) | Detached PDF window |
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
-| ⌃⌘1…9 | Apply layout N — with the layout tree on, N spans the app's presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number); tree off, the N-th saved `PaneLayoutState` | View ▸ Apply Layout N (`ImpressLayoutOrdinalButtons`, chassis) | Layouts menu |
+| ⌃⌘1…9 | Apply layout N — N spans the app's layout-tree presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number). imbib's own pre-chassis window keeps its View ▸ Layouts menu: the N-th saved `PaneLayoutState` | View ▸ Layouts (its own window's saved arrangements); every chassis app: View ▸ Apply Layout N (`ImpressLayoutOrdinalButtons`) | Layouts menu: the tree's ordinal N in the chassis window; the editor window's N-th saved layout while a manuscript editor window is key (`ImprintLayoutsMenu`) |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
-| ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): a session-bearing pane (`source` / `editor`) keeps the chord for its own undo manager via the responder chain; any other focused pane undoes on its **exploration** ring (parameter bindings + view state) | layout tree only (ADR-0031 L6; off by default) | — |
-| ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | layout tree only | — |
+| ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): a session-bearing pane (`source` / `editor`) keeps the chord for its own undo manager via the responder chain; any other focused pane undoes on its **exploration** ring (parameter bindings + view state) | the responder chain (imbib's own window has no tree) | every chassis window (the tree) |
+| ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | — (no tree in imbib's own window) | every chassis window (the tree) |
 | ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
 
@@ -49,12 +49,17 @@ and not for the doc, and nothing checked. It is checked now:
 `PaneLayoutCommandsTests.testTheKeyboardGrammarDocumentsAllThreeChords` fails if
 a row for ⌘0, ⌥⌘0 or ⌃⌘S leaves this table.
 
-**⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES once the layout tree is on** (ADR-0031 D5):
-they resize whichever pane carries `navigator` / `list` / `detail`, wherever
-the user has moved it, instead of flipping a `PaneLayoutState` Boolean. The
-routing is in `PaneLayoutChordRouter`, in the same file as the buttons, so the
-two chassis roots cannot drift. With the tree off — every shipped preset today
-— the chords behave exactly as the table above describes.
+**⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every chassis window —
+the layout tree, the only chassis root since plan wave 6 W5 — they resize
+whichever pane carries `navigator` / `list` / `detail`, wherever the user has
+moved it, through `LayoutController` and nothing else (a chord that arrives
+before the tree has opened is logged and ignored). The routing is in
+`PaneLayoutChordRouter`, in the same file as the buttons. imbib's own window
+is its pre-chassis `ContentView`, not a chassis root: there the same three
+chords flip the `PaneLayoutState` Booleans that window reads
+(`PaneLayoutChordTarget.imbibPreChassisWindow`, passed by `imbibApp.swift`
+alone). h / l follow the same split: `focus_direction` over the tree in a
+chassis window, `PaneFocusCycler` in imbib's own.
 
 **The three pane toggles are one shared value.** ⌘0 / ⌥⌘0 / ⌃⌘S are
 `ImpressPaneLayoutButtons` (`Chassis/Shared/PaneLayoutCommands.swift`), not four

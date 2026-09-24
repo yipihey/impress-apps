@@ -30,6 +30,15 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 > not imbib. See docs/chassis-capability-matrix.md ("Frozen shell-preset
 > truth table" + Known gaps) and ADR-0022 D9.
 
+> **imbib's window is NOT a chassis root (plan wave 6 W5, 2026-09-24).** Every
+> other app's macOS window is the ADR-0031 layout tree (`ChassisRootView` →
+> `LayoutTreeHost`; the `impress.layoutTree.enabled` flag is gone). imbib's
+> own window is its pre-chassis `ContentView`, which hosts `TabContentView`
+> directly and still reads `PaneLayoutState` — so its ⌘0 / ⌥⌘0 / ⌃⌘S pass
+> `PaneLayoutChordTarget.imbibPreChassisWindow` and its `/api/layout` routes
+> still drive that model. Moving this window onto the tree is its own
+> decision, not a side effect of a chassis change.
+
 ## Architecture
 
 ```

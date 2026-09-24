@@ -15,7 +15,7 @@ git checkout main && git pull
 ./scripts/build-xcframeworks.sh --fast impress-store-ffi
 IMPRESS_SKIP_X86=1 crates/impel-tools/build-xcframework.sh
 cd apps/imbib/PublicationManagerCore && swift build && swift test && cd ../../..
-defaults write com.impress.impress impress.layoutTree.enabled -bool YES
+# (no tree flag since W5: every chassis app renders the layout tree)
 ```
 
 Read before briefing anyone: `CLAUDE.md` (every "Definition of done" bullet and the
