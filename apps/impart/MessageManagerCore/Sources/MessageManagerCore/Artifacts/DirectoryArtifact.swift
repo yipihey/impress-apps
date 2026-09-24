@@ -60,16 +60,6 @@ public struct DirectoryArtifact: Identifiable, Codable, Sendable {
     /// Last time the directory was accessed
     public var lastAccessedAt: Date
 
-    /// `.withSecurityScope` is macOS-only; iOS bookmarks from the document
-    /// picker are implicitly security-scoped and take no options.
-    #if os(macOS)
-    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
-    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = [.withSecurityScope]
-    #else
-    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = []
-    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = []
-    #endif
-
     /// The resolved URL (only valid while access is started).
     /// Returns nil if bookmark is stale or cannot be resolved.
     public var resolvedURL: URL? {
