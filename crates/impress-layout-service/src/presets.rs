@@ -304,6 +304,23 @@ pub fn shipped_list_queries(app_id: &str) -> Vec<PaneQuery> {
     out
 }
 
+/// Is `query` a list query an earlier shipped revision wrote, whatever id its
+/// scope was bound to?
+///
+/// Revision 1's Inbox reached live layouts two ways: as the preset's list
+/// (`$library` still a parameter) and through the outline's Inbox row, which
+/// substitutes the Inbox library's id before its `set-query`. Both are the
+/// suite's query, not a place the user chose, so both are superseded.
+pub fn is_superseded_list_query(query: &PaneQuery) -> bool {
+    let mut normalized = query.clone();
+    if let Scope::Parent { id } = &mut normalized.scope {
+        *id = ItemRef::Param {
+            name: LIBRARY_PARAM.into(),
+        };
+    }
+    normalized == q::inbox_revision_1()
+}
+
 /// Does a stored row carry exactly `shipped` — tree, queries, roles, version?
 fn stored_matches(row: &PresetRow, stored: &StoredPreset, shipped: &ShippedPreset) -> bool {
     stored.layout.as_ref() == Some(&shipped.layout)
@@ -2368,6 +2385,32 @@ mod tests {
         assert_eq!(old.queries, figures.queries);
         assert_eq!(old.layout, figures.layout);
         assert_eq!(old.version, SHIPPED_VERSION - 1);
+    }
+
+    #[test]
+    fn revision_1_of_the_inbox_is_superseded_whatever_library_it_bound() {
+        assert!(is_superseded_list_query(&q::inbox_revision_1()));
+        let bound = PaneQuery {
+            scope: Scope::Parent {
+                id: ItemRef::Id { id: Uuid::new_v4() },
+            },
+            ..q::inbox_revision_1()
+        };
+        assert!(
+            is_superseded_list_query(&bound),
+            "the outline's substituted Inbox"
+        );
+        assert!(!is_superseded_list_query(&q::inbox()));
+        let library_row = PaneQuery {
+            scope: Scope::Parent {
+                id: ItemRef::Id { id: Uuid::new_v4() },
+            },
+            ..q::inbox()
+        };
+        assert!(
+            !is_superseded_list_query(&library_row),
+            "a library row is the user's"
+        );
     }
 
     #[test]

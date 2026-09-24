@@ -64,9 +64,10 @@ pub use outline::{
     outline_verbs, OutlineNode, OutlinePanes, OutlineSection, OutlineTarget, RecordScope,
 };
 pub use presets::{
-    named_queries, ordinal_targets, preset_id, previous_revision, section_bindings,
-    shipped_list_queries, shipped_preset, shipped_presets, shipped_presets_for, OrdinalTarget, PresetRow, PresetStore,
-    ShippedPreset, StoredPreset, HIDDEN_SHARE, MATERIALIZE_FIRST,
+    is_superseded_list_query, named_queries, ordinal_targets, preset_id, previous_revision,
+    section_bindings, shipped_list_queries, shipped_preset, shipped_presets, shipped_presets_for,
+    OrdinalTarget, PresetRow, PresetStore, ShippedPreset, StoredPreset, HIDDEN_SHARE,
+    MATERIALIZE_FIRST,
 };
 pub use report::{CapabilityResult, SelfTestReport, Tier};
 pub use selftest::{DefaultLayoutSelftestService, LayoutSelftestService};

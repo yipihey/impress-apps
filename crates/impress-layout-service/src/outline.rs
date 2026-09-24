@@ -42,7 +42,9 @@ use impress_layout::{PaneRef, PaneSpec, Role, Verb, ViewKindId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::presets::{named_queries, q, shipped_list_queries, MATERIALIZE_FIRST};
+use crate::presets::{
+    is_superseded_list_query, named_queries, q, shipped_list_queries, MATERIALIZE_FIRST,
+};
 
 // ---------------------------------------------------------------------------
 // The node — what a selected sidebar row IS, in data
@@ -602,12 +604,16 @@ pub fn outline_cleared_verbs(node: &OutlineNode, panes: &OutlinePanes) -> Vec<Ve
 /// "The preset's own list query" is any revision of it the table has shipped
 /// ([`shipped_list_queries`]): a layout stored before the Inbox stopped
 /// filtering to unread (W5) still holds revision 1, and that list is still
-/// the preset's, not a place the user chose.
+/// the preset's, not a place the user chose — and so is revision 1 with its
+/// `$library` already bound, which is what the outline's Inbox row itself
+/// wrote before W5 ([`is_superseded_list_query`]).
 pub fn initial_selection_applies(app_id: &str, panes: &OutlinePanes) -> bool {
     let Some(list) = panes.list.as_ref() else {
         return false;
     };
-    list.view_kind == ViewKindId::LIST && shipped_list_queries(app_id).contains(&list.query)
+    list.view_kind == ViewKindId::LIST
+        && (shipped_list_queries(app_id).contains(&list.query)
+            || is_superseded_list_query(&list.query))
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,6 +1165,27 @@ mod tests {
             initial_selection_applies("impress", &panes),
             "a layout stored before W5 still holds the unread Inbox; the launch \
              selection must retarget it to the current one"
+        );
+
+        // The outline's own pre-W5 Inbox click: the same query, library bound.
+        panes.list.as_mut().unwrap().query = PaneQuery {
+            scope: Scope::Parent {
+                id: ItemRef::Id { id: id(9) },
+            },
+            ..q::inbox_revision_1()
+        };
+        assert!(initial_selection_applies("impress", &panes));
+        let node = OutlineNode::Section {
+            section: "inbox".into(),
+        };
+        let bindings = BTreeMap::from([("library".to_string(), id(9))]);
+        let target = outline_target("impress", &node, &bindings);
+        let verbs = outline_verbs(&node, &target, &panes);
+        assert!(
+            verbs
+                .iter()
+                .any(|v| matches!(v, Verb::SetQuery { query, .. } if query.filters.is_empty())),
+            "the launch selection rewrites it to read-and-unread: {verbs:?}"
         );
     }
 }
