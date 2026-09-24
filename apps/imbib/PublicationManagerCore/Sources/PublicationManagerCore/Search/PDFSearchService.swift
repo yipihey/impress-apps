@@ -92,37 +92,20 @@ public actor PDFSearchService {
 
         let startTime = CFAbsoluteTimeGetCurrent()
 
-        // Get linked files for each publication from the store
-        let extractedData: [(publicationID: UUID, relativePath: String)] = await MainActor.run {
+        // Resolve each publication's PDF through the one resolver (the shared
+        // root every suite app reads, then imbib's private pre-migration
+        // root). This used to build `imbib/<library NAME>/…`, which no
+        // version of imbib ever wrote to.
+        let pdfURLs: [(publicationID: UUID, url: URL)] = await MainActor.run {
             let store = RustStoreAdapter.shared
-            return publicationIds.compactMap { pubId -> (UUID, String)? in
-                let linkedFiles = store.listLinkedFiles(publicationId: pubId)
-                guard let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-                      let path = pdfFile.relativePath else {
+            let manager = AttachmentManager.shared
+            return publicationIds.compactMap { pubId -> (UUID, URL)? in
+                guard let pdfFile = store.listLinkedFiles(publicationId: pubId).first(where: { $0.isPDF }),
+                      let url = manager.existingURL(for: pdfFile, in: libraryId) else {
                     return nil
                 }
-                return (pubId, path)
+                return (pubId, url)
             }
-        }
-
-        // Get library container URL from store
-        let containerURL: URL? = await MainActor.run {
-            guard let libId = libraryId,
-                  let library = RustStoreAdapter.shared.getLibrary(id: libId) else {
-                return nil
-            }
-            // Build container URL from library
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("imbib")
-            return appSupport.appendingPathComponent(library.name, isDirectory: true)
-        }
-
-        // Resolve PDF URLs using extracted Sendable values (nonisolated, safe on any thread)
-        let pdfURLs: [(publicationID: UUID, url: URL)] = extractedData.compactMap { item in
-            guard let url = resolvePDFURL(relativePath: item.relativePath, containerURL: containerURL) else {
-                return nil
-            }
-            return (item.publicationID, url)
         }
 
         Logger.search.debugCapture("PDF search: checking \(pdfURLs.count) PDFs for '\(query)'", category: "pdfsearch")
@@ -143,65 +126,13 @@ public actor PDFSearchService {
     public func contains(query: String, publicationId: UUID, libraryId: UUID?) async -> Bool {
         guard !query.isEmpty else { return false }
 
-        // Get linked files from the store
-        let (relativePath, containerURL): (String?, URL?) = await MainActor.run {
-            let store = RustStoreAdapter.shared
-            let linkedFiles = store.listLinkedFiles(publicationId: publicationId)
-            guard let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-                  let path = pdfFile.relativePath else {
-                return (nil, nil)
-            }
-            var contURL: URL? = nil
-            if let libId = libraryId, let library = store.getLibrary(id: libId) {
-                let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                    .appendingPathComponent("imbib")
-                contURL = appSupport.appendingPathComponent(library.name, isDirectory: true)
-            }
-            return (path, contURL)
+        let pdfURL: URL? = await MainActor.run {
+            guard let pdfFile = RustStoreAdapter.shared.listLinkedFiles(publicationId: publicationId)
+                .first(where: { $0.isPDF }) else { return nil }
+            return AttachmentManager.shared.existingURL(for: pdfFile, in: libraryId)
         }
-
-        guard let relativePath = relativePath,
-              let pdfURL = resolvePDFURL(relativePath: relativePath, containerURL: containerURL) else {
-            return false
-        }
+        guard let pdfURL else { return false }
         return await provider.contains(query: query, in: pdfURL)
-    }
-
-    // MARK: - Helpers
-
-    /// Resolve PDF URL from pre-extracted values (nonisolated for thread safety).
-    /// - Parameters:
-    ///   - relativePath: The relative path from the linked file
-    ///   - containerURL: The library container URL (nil for default library)
-    /// - Returns: The resolved PDF URL if found
-    nonisolated private func resolvePDFURL(relativePath: String, containerURL: URL?) -> URL? {
-        let normalizedPath = relativePath.precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
-
-        if let containerURL = containerURL {
-            // Primary: container-based path (iCloud-only storage)
-            let fullContainerURL = containerURL.appendingPathComponent(normalizedPath)
-            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-            if fileManager.fileExists(atPath: fullContainerURL.path) {
-                return fullContainerURL
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                return legacyURL
-            }
-            return fullContainerURL
-        } else {
-            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-            if fileManager.fileExists(atPath: defaultURL.path) {
-                return defaultURL
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                return legacyURL
-            }
-            return defaultURL
-        }
     }
 }
 

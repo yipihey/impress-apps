@@ -48,43 +48,12 @@ public struct PDFKitViewer: View {
 
     /// Create viewer for a linked file (resolves path relative to library)
     public init(linkedFile: LinkedFileModel, libraryID: UUID? = nil) {
-        // Normalize unicode to match how PDFManager saved the file
-        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
-
-        if let libraryID = libraryID {
-            // Primary: container-based path (iCloud-only storage)
-            let containerURL = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(normalizedPath)
-
-            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-            if fileManager.fileExists(atPath: containerURL.path) {
-                Logger.files.debugCapture("PDFKitViewer resolving path: \(containerURL.path)", category: "pdf")
-                self.source = .url(containerURL)
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                Logger.files.debugCapture("PDFKitViewer using legacy path: \(legacyURL.path)", category: "pdf")
-                self.source = .url(legacyURL)
-            } else {
-                // File not found at either location - use container path (will show error)
-                Logger.files.warningCapture("PDFKitViewer file not found: \(containerURL.path)", category: "pdf")
-                self.source = .url(containerURL)
-            }
-        } else {
-            // No library - check default library path and legacy path
-            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-            if fileManager.fileExists(atPath: defaultURL.path) {
-                self.source = .url(defaultURL)
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                self.source = .url(legacyURL)
-            } else {
-                self.source = .url(defaultURL)
-            }
-        }
+        // One resolver for every reader: the shared root every suite app can
+        // read, then imbib's private pre-migration root and legacy layouts.
+        let manager = AttachmentManager.shared
+        let fallback = manager.containerURL(for: libraryID ?? UUID())
+            .appendingPathComponent((linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping)
+        self.source = .url(manager.resolveURL(for: linkedFile, in: libraryID) ?? fallback)
     }
 
     // MARK: - Body
@@ -1068,39 +1037,12 @@ public struct PDFViewerWithControls: View {
     }
 
     public init(linkedFile: LinkedFileModel, libraryID: UUID? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), isDetachedWindow: Bool = false, onCorruptPDF: ((UUID) -> Void)? = nil) {
-        // Normalize unicode to match how PDFManager saved the file
-        let normalizedPath = (linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("imbib")
-
-        if let libraryID = libraryID {
-            // Primary: container-based path (iCloud-only storage)
-            let containerURL = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(normalizedPath)
-            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-
-            if fileManager.fileExists(atPath: containerURL.path) {
-                self.source = .url(containerURL)
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                // Log only for legacy path usage (useful for migration tracking)
-                Logger.files.debugCapture("PDFViewerWithControls using legacy path: \(legacyURL.lastPathComponent)", category: "pdf")
-                self.source = .url(legacyURL)
-            } else {
-                Logger.files.warningCapture("PDFViewerWithControls file not found: \(containerURL.lastPathComponent)", category: "pdf")
-                self.source = .url(containerURL)
-            }
-        } else {
-            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-            if fileManager.fileExists(atPath: defaultURL.path) {
-                self.source = .url(defaultURL)
-            } else if fileManager.fileExists(atPath: legacyURL.path) {
-                self.source = .url(legacyURL)
-            } else {
-                self.source = .url(defaultURL)
-            }
-        }
+        // Same resolver as macOS (shared root, private pre-migration root,
+        // legacy layouts, misfiled-by-size), not a copy of its ladder.
+        let manager = AttachmentManager.shared
+        let fallback = manager.containerURL(for: libraryID ?? UUID())
+            .appendingPathComponent((linkedFile.relativePath ?? linkedFile.filename).precomposedStringWithCanonicalMapping)
+        self.source = .url(manager.resolveURL(for: linkedFile, in: libraryID) ?? fallback)
         self.publicationID = publicationID
         self.linkedFileID = linkedFile.id
         self.isDetachedWindow = isDetachedWindow

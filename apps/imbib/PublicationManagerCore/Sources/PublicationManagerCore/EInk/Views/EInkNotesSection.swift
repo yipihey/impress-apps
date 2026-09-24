@@ -155,9 +155,13 @@ enum EInkInkImageResolver {
             let url = URL(fileURLWithPath: path)
             return FileManager.default.fileExists(atPath: url.path) ? url : nil
         }
+        let manager = AttachmentManager.shared
         for libraryID in libraryIDs {
-            let url = AttachmentManager.shared.containerURL(for: libraryID).appendingPathComponent(path)
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+            let roots = [manager.containerURL(for: libraryID), manager.legacyContainerURL(for: libraryID)]
+            for root in roots.compactMap({ $0 }) {
+                let url = root.appendingPathComponent(path)
+                if FileManager.default.fileExists(atPath: url.path) { return url }
+            }
         }
         return nil
     }

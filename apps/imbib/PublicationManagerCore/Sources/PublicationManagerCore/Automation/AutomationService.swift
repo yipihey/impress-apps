@@ -773,8 +773,8 @@ public actor AutomationService: AutomationOperations {
         try await checkAuthorization()
 
         if deleteFiles {
-            let containerURL = await MainActor.run { LibraryManager.containerURL(for: id) }
-            if FileManager.default.fileExists(atPath: containerURL.path) {
+            let containerURLs = await MainActor.run { LibraryManager.allContainerURLs(for: id) }
+            for containerURL in containerURLs where FileManager.default.fileExists(atPath: containerURL.path) {
                 try? FileManager.default.removeItem(at: containerURL)
             }
         }
@@ -793,7 +793,7 @@ public actor AutomationService: AutomationOperations {
         guard !ids.isEmpty else { return 0 }
 
         if deleteFiles {
-            let urls = await MainActor.run { ids.map(LibraryManager.containerURL(for:)) }
+            let urls = await MainActor.run { ids.flatMap(LibraryManager.allContainerURLs(for:)) }
             for url in urls where FileManager.default.fileExists(atPath: url.path) {
                 try? FileManager.default.removeItem(at: url)
             }

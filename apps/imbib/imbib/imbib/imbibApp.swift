@@ -474,6 +474,15 @@ struct imbibApp: App {
     /// Phase 5: Schedule background initialization tasks.
     /// Runs asynchronously to avoid blocking app launch.
     private static func scheduleBackgroundInit(deps: AppDependencies) {
+        // Copy library files from imbib's private container into the suite's
+        // shared one, so impress/imprint/the tree's pdf pane can open them
+        // (LibraryFilesMigration). Idempotent, keeps originals, file-only (no
+        // store event), so it starts at once rather than after the 90-s gate.
+        // Never under UI testing: that store is a scratch file, these are not.
+        if !UITestingConfiguration.isUITesting {
+            LibraryFilesMigrationRunner.start()
+        }
+
         Task {
             // Handle UI testing mode - reset state and seed data
             if UITestingConfiguration.isUITesting {

@@ -243,8 +243,8 @@ public final class LibraryManager {
         Logger.library.warningCapture("Deleting library: \(id), deleteFiles: \(deleteFiles)", category: "library")
 
         if deleteFiles {
-            let containerURL = Self.containerURL(for: id)
-            if FileManager.default.fileExists(atPath: containerURL.path) {
+            for containerURL in Self.allContainerURLs(for: id)
+            where FileManager.default.fileExists(atPath: containerURL.path) {
                 try? FileManager.default.removeItem(at: containerURL)
                 Logger.library.debugCapture("Deleted library container: \(containerURL.path)", category: "library")
             }
@@ -281,8 +281,8 @@ public final class LibraryManager {
         // Optionally remove file containers (this is FS work, no store traffic).
         if deleteFiles {
             for id in ids {
-                let containerURL = Self.containerURL(for: id)
-                if FileManager.default.fileExists(atPath: containerURL.path) {
+                for containerURL in Self.allContainerURLs(for: id)
+                where FileManager.default.fileExists(atPath: containerURL.path) {
                     try? FileManager.default.removeItem(at: containerURL)
                 }
             }
@@ -527,10 +527,19 @@ public final class LibraryManager {
 
     // MARK: - Container URLs
 
-    /// Container URL for a library's files.
+    /// Container URL for a library's files (under the suite's shared root —
+    /// see `LibraryFilesLocation`).
     public static func containerURL(for libraryId: UUID) -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("imbib/Libraries/\(libraryId.uuidString)", isDirectory: true)
+        LibraryFilesLocation.libraryContainer(libraryId, under: LibraryFilesLocation.sharedRoot)
+    }
+
+    /// Every container that may hold a library's files: the shared one and
+    /// the private pre-migration one. Deleting a library's files removes both.
+    public static func allContainerURLs(for libraryId: UUID) -> [URL] {
+        [
+            containerURL(for: libraryId),
+            LibraryFilesLocation.libraryContainer(libraryId, under: LibraryFilesLocation.legacyRoot),
+        ]
     }
 
     /// Papers container URL for a library.
