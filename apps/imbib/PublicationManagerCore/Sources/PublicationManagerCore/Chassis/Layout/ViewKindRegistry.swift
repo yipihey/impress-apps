@@ -461,9 +461,21 @@ struct LayoutRowsPaneView: View {
     /// settings pane that claims to control it.
     @State private var listSettings: ListViewSettings = ListViewSettingsStore.loadSettingsSync()
 
+    /// The toolbar band this pane sits under (`LayoutLinearSplit` reclaims it
+    /// for every horizontal child but the first — which is where every
+    /// preset's `list` pane is). Without it the first row drew under the
+    /// window toolbar: the W2 screenshots of impel, impart and implore all
+    /// showed it. Padding OUTSIDE the scroll view, not a content margin: the
+    /// band is measured after the first layout, and a content margin that
+    /// grows then leaves the scroll origin where it was, so at launch the
+    /// first row still sat under the title bar (seen in impress, 2026-09-23)
+    /// until the rows were replaced.
+    @Environment(\.layoutToolbarBand) private var toolbarBand
+
     var body: some View {
         styledList
-            .overlay { emptyOverlay }
+            .padding(.top, toolbarBand)
+            .overlay { emptyOverlay.padding(.top, toolbarBand) }
             // The rows are query RESULTS, so they re-run when the
             // invalidation feed marks this pane stale — `refreshToken` is one
             // Equatable value to watch instead of a Set's identity. NOT
