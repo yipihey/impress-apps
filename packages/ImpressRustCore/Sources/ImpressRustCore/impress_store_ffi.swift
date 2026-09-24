@@ -17083,6 +17083,20 @@ public func rankHybridSearchResults(query: String, candidates: [SharedHybridCand
 })
 }
 /**
+ * The record kind each section serves in `app_id`'s shipped shell, as JSON:
+ * `{"<SidebarSectionType case>": "<kind short id>"}` — `{}` for an app that
+ * ships no preset. `AppShellConfiguration`'s shipped presets read their
+ * `sectionBindings` from this (plan wave 6 W5), so the table has one
+ * definition, beside the named queries it must agree with.
+ */
+public func sectionBindingsJson(appId: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_section_bindings_json(
+        FfiConverterString.lower(appId),$0
+    )
+})
+}
+/**
  * The allowed `manuscript.format` payload values (single source of truth:
  * `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
  * app-side format enums can assert parity without duplicating the list.
@@ -17152,6 +17166,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_rank_hybrid_search_results() != 39200) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_section_bindings_json() != 33769) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {

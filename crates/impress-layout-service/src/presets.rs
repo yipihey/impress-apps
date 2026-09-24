@@ -568,6 +568,58 @@ pub fn named_queries(app_id: &str) -> BTreeMap<String, PaneQuery> {
     out
 }
 
+/// The record kind each section serves in each app's shell — the chassis'
+/// `AppShellConfiguration.sectionBindings`, which the shipped Swift presets
+/// READ from here (`section_bindings_json` over the FFI; plan wave 6 W5).
+///
+/// Preset data, like [`named_queries`]: the same section is a different kind
+/// per app (Flagged is publications in imbib, manuscripts in imprint; Tags is
+/// figures in implore), and a named section query must list the kind its
+/// binding names — `bindings_agree_with_the_named_queries` holds the two
+/// together. Keys are `SidebarSectionType` case names, values the manifest's
+/// short kind ids (`RecordKindID`'s raw values).
+///
+/// A section with no entry is the shell default. `reviewQueue` is bound
+/// nowhere, for the reason [`MATERIALIZE_FIRST`] gives. A shell that is not
+/// shipped (the Litmus proofs of a new kind) passes its own bindings in Swift
+/// and never reads this table.
+pub fn section_bindings(app_id: &str) -> BTreeMap<&'static str, &'static str> {
+    let table: &[(&str, &str)] = match app_id.trim() {
+        "imbib" => &[
+            ("flagged", "publication"),
+            ("tags", "publication"),
+            ("dismissed", "publication"),
+        ],
+        "imprint" => &[
+            ("flagged", "manuscript"),
+            ("tags", "manuscript"),
+            ("dismissed", "manuscript"),
+        ],
+        "implore" => &[("tags", "figure")],
+        "impart" => &[("tags", "message")],
+        "impel" => &[("tags", "task")],
+        "impress" => &[
+            ("inbox", "publication"),
+            ("libraries", "publication"),
+            ("sharedWithMe", "publication"),
+            ("scixLibraries", "publication"),
+            ("search", "publication"),
+            ("exploration", "publication"),
+            ("flagged", "publication"),
+            ("tags", "publication"),
+            ("citedInManuscripts", "publication"),
+            ("artifacts", "artifact"),
+            ("manuscripts", "manuscript"),
+            ("figures", "figure"),
+            ("mail", "message"),
+            ("agents", "task"),
+            ("dismissed", "publication"),
+        ],
+        _ => &[],
+    };
+    table.iter().copied().collect()
+}
+
 /// One entry of an app's section table: the `SidebarSectionType` case,
 /// verbatim, and the query it is.
 type Section = (&'static str, fn() -> PaneQuery);
@@ -2325,5 +2377,70 @@ mod tests {
             vec![q::inbox(), q::inbox_revision_1()]
         );
         assert_eq!(shipped_list_queries("implore"), vec![q::figures()]);
+    }
+
+    // --------------------------------------- W5: section bindings as preset data
+
+    /// A section whose named query lists records binds the kind it lists. The
+    /// one exception is `libraries`: its query is the library ROWS (the
+    /// outline's own), while its binding is the kind those libraries hold.
+    #[test]
+    fn bindings_agree_with_the_named_queries() {
+        for app in preset_app_ids() {
+            let named = named_queries(app);
+            for (section, kind) in section_bindings(app) {
+                if section == "libraries" {
+                    continue;
+                }
+                let Some(query) = named.get(section) else {
+                    continue; // a MATERIALIZE_FIRST section: no query to disagree with
+                };
+                assert_eq!(
+                    query.kinds.first().map(String::as_str),
+                    Some(kind),
+                    "{app}.{section} is bound to {kind} but its query lists {:?}",
+                    query.kinds
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_binding_is_a_section_the_app_shows_and_review_is_never_bound() {
+        for app in preset_app_ids() {
+            let shown: Vec<String> = crate::outline::outline_sections(app)
+                .into_iter()
+                .map(|s| s.section)
+                .collect();
+            for (section, _) in section_bindings(app) {
+                assert!(
+                    shown.iter().any(|s| s == section),
+                    "{app} binds {section}, which its outline does not show"
+                );
+            }
+            assert!(!section_bindings(app).contains_key("reviewQueue"));
+        }
+        assert!(section_bindings("nobody").is_empty());
+    }
+
+    /// Tags is the one binding every app has, and the one the tree reads to
+    /// turn a tag row into `Filter::Tag` over the right kind.
+    #[test]
+    fn every_app_binds_tags_to_its_own_kind() {
+        let tags: Vec<(&str, &str)> = preset_app_ids()
+            .into_iter()
+            .map(|app| (app, section_bindings(app)["tags"]))
+            .collect();
+        assert_eq!(
+            tags,
+            vec![
+                ("imbib", "publication"),
+                ("imprint", "manuscript"),
+                ("implore", "figure"),
+                ("impel", "task"),
+                ("impart", "message"),
+                ("impress", "publication"),
+            ]
+        );
     }
 }

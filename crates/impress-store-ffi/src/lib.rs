@@ -77,9 +77,9 @@ pub use ai::{
 };
 pub use layout::{
     cold_start_layout_json, compile_pane_query, kind_manifest_json, outline_cleared_verbs_json,
-    outline_row_verbs_json, outline_sections_json, pane_spec_json, SharedAppliedVerb, SharedLayout,
-    SharedLayoutError, SharedLayoutListener, SharedLayoutRow, SharedLayoutSnapshot, SharedPane,
-    SharedWindow,
+    outline_row_verbs_json, outline_sections_json, pane_spec_json, section_bindings_json,
+    SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
+    SharedLayoutSnapshot, SharedPane, SharedWindow,
 };
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,

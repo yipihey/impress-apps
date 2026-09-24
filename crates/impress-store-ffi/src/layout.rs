@@ -1369,6 +1369,17 @@ pub fn outline_sections_json(app_id: String) -> String {
         .unwrap_or_else(|_| "[]".into())
 }
 
+/// The record kind each section serves in `app_id`'s shipped shell, as JSON:
+/// `{"<SidebarSectionType case>": "<kind short id>"}` — `{}` for an app that
+/// ships no preset. `AppShellConfiguration`'s shipped presets read their
+/// `sectionBindings` from this (plan wave 6 W5), so the table has one
+/// definition, beside the named queries it must agree with.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn section_bindings_json(app_id: String) -> String {
+    serde_json::to_string(&impress_layout_service::section_bindings(&app_id))
+        .unwrap_or_else(|_| "{}".into())
+}
+
 /// What selecting an outline row does, decided in Rust
 /// (`impress_layout_service::outline`).
 ///
@@ -1527,6 +1538,14 @@ mod tests {
                 .apply(verb.to_string(), "human".into())
                 .expect("every cleared verb is a verb the layout takes");
         }
+    }
+
+    #[test]
+    fn section_bindings_come_back_as_a_flat_map() {
+        let implore: BTreeMap<String, String> =
+            serde_json::from_str(&section_bindings_json("implore".into())).expect("json");
+        assert_eq!(implore.get("tags").map(String::as_str), Some("figure"));
+        assert_eq!(section_bindings_json("nobody".into()), "{}");
     }
 
     #[test]

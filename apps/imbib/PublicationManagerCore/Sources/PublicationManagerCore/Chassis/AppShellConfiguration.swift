@@ -56,6 +56,11 @@ public struct AppShellConfiguration: Sendable {
     /// `.flagged: .manuscript` makes imprint's Flagged section list flagged
     /// manuscripts while imbib's default (`.publication`) lists papers.
     /// Sections absent from the map use the shell's primary kind semantics.
+    ///
+    /// The six SHIPPED presets read theirs from Rust
+    /// (`ShippedSectionBindings`, `impress_layout_service::section_bindings`)
+    /// — preset data, with one definition beside the named queries it must
+    /// agree with. A shell that is not shipped passes its own (plan wave 6 W5).
     public let sectionBindings: [SidebarSectionType: RecordKindID]
 
     /// Non-record routes present in this shell (Submissions inbox, …).
@@ -217,11 +222,7 @@ public struct AppShellConfiguration: Sendable {
         ],
         defaultSection: .inbox,
         defaultDetailTab: .info,
-        sectionBindings: [
-            .flagged: .publication,
-            .tags: .publication,
-            .dismissed: .publication,
-        ],
+        sectionBindings: ShippedSectionBindings.of("imbib"),
         auxiliaryRoutes: [.submissionsInbox],
         openOverrides: [.manuscript: .appHandoff]
     )
@@ -234,11 +235,7 @@ public struct AppShellConfiguration: Sendable {
         visibleSections: [.manuscripts, .citedInManuscripts, .flagged, .tags, .dismissed],
         defaultSection: .manuscripts,
         defaultDetailTab: .source,
-        sectionBindings: [
-            .flagged: .manuscript,
-            .tags: .manuscript,
-            .dismissed: .manuscript,
-        ],
+        sectionBindings: ShippedSectionBindings.of("imprint"),
         auxiliaryRoutes: [],
         openOverrides: [.manuscript: .window(id: "manuscript-editor")]
     )
@@ -262,8 +259,10 @@ public struct AppShellConfiguration: Sendable {
         ]),
         // Tags must bind THIS app's kind: an empty map falls back to the
         // canonical impress table, where `.tags` is `.publication` — so a
-        // silent inherit would put paper tags in this shell's sidebar.
-        sectionBindings: [.tags: .figure],
+        // silent inherit would put paper tags in this shell's sidebar. The
+        // table is Rust's (`section_bindings`, plan wave 6 W5), which pins
+        // every app's Tags kind in a test.
+        sectionBindings: ShippedSectionBindings.of("implore"),
         auxiliaryRoutes: [],
         openOverrides: [:]   // figure's descriptor default is .window(id: "canvas")
     )
@@ -287,8 +286,10 @@ public struct AppShellConfiguration: Sendable {
         ]),
         // Tags must bind THIS app's kind: an empty map falls back to the
         // canonical impress table, where `.tags` is `.publication` — so a
-        // silent inherit would put paper tags in this shell's sidebar.
-        sectionBindings: [.tags: .message],
+        // silent inherit would put paper tags in this shell's sidebar. The
+        // table is Rust's (`section_bindings`, plan wave 6 W5), which pins
+        // every app's Tags kind in a test.
+        sectionBindings: ShippedSectionBindings.of("impart"),
         auxiliaryRoutes: [],
         openOverrides: [:]   // message's descriptor default is .detailPane
     )
@@ -314,8 +315,10 @@ public struct AppShellConfiguration: Sendable {
         ]),
         // Tags must bind THIS app's kind: an empty map falls back to the
         // canonical impress table, where `.tags` is `.publication` — so a
-        // silent inherit would put paper tags in this shell's sidebar.
-        sectionBindings: [.tags: .task],
+        // silent inherit would put paper tags in this shell's sidebar. The
+        // table is Rust's (`section_bindings`, plan wave 6 W5), which pins
+        // every app's Tags kind in a test.
+        sectionBindings: ShippedSectionBindings.of("impel"),
         auxiliaryRoutes: [],
         openOverrides: [:]   // task/agent-run descriptor default is .detailPane
     )
@@ -401,23 +404,7 @@ public struct AppShellConfiguration: Sendable {
         defaultSection: .inbox,
         defaultDetailTab: .info,
         recordKinds: BuiltinRecordKinds.registry,
-        sectionBindings: [
-            .inbox: .publication,
-            .libraries: .publication,
-            .sharedWithMe: .publication,
-            .scixLibraries: .publication,
-            .search: .publication,
-            .exploration: .publication,
-            .flagged: .publication,
-            .tags: .publication,
-            .citedInManuscripts: .publication,
-            .artifacts: .artifact,
-            .manuscripts: .manuscript,
-            .figures: .figure,
-            .mail: .message,
-            .agents: .task,
-            .dismissed: .publication,
-        ],
+        sectionBindings: ShippedSectionBindings.of("impress"),
         auxiliaryRoutes: [.submissionsInbox],
         openOverrides: [:]
     )
