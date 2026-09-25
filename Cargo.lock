@@ -4467,6 +4467,8 @@ dependencies = [
 name = "impress-cli"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "implore-service-http",
  "impress-capabilities",
  "impress-memory-service",
  "impress-service-core",

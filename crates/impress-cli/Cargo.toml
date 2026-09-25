@@ -33,4 +33,9 @@ impress-store-service = { workspace = true }
 # this binary enables it itself to keep the vector tier it always had.
 impress-memory-service = { workspace = true, features = ["vector-embedder"] }
 impress-service-core = { workspace = true, features = ["cli"] }
+# implore's verbs only work against the running app, so an implore
+# subcommand probes it and installs this backend first, as impress-mcp does
+# at startup (`install_app_backend` in main.rs).
+implore-service-http = { workspace = true }
+clap = { workspace = true }
 serde_json = { workspace = true }
