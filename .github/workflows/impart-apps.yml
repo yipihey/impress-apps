@@ -10,17 +10,57 @@ on:
     branches: [main]
     paths:
       - 'apps/impart/**'
-      - 'crates/impress-store-ffi/**'
-      - 'crates/impress-core/**'
+      - 'apps/chassis-utis.yml'
+      # Everything impart's package graph resolves outside apps/impart:
+      # both targets link PublicationManagerCore, which reaches imbib's and
+      # imprint's Swift cores and their committed bindings. A PMC-only PR
+      # changes what this lane compiles without touching apps/impart.
+      - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibRustCore/**'
+      - 'apps/imprint/Packages/ImprintCore/**'
+      - 'apps/imprint/ImprintRustCore/**'
       - 'packages/**'
+      # All of crates/, not a list. The five frameworks below reach 32 crate
+      # directories between them (their --all-features path closure, the same
+      # set the xcframework action hashes into each cache key), and an
+      # enumeration here would drift the first time one gains a dependency.
+      # Over-triggering is cheap: a crate outside every closure leaves all
+      # five keys unchanged, so the run is cache hits plus the Swift build, on
+      # a hosted runner.
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/actions/xcframework/**'
       - '.github/workflows/impart-apps.yml'
   pull_request:
     branches: [main]
     paths:
       - 'apps/impart/**'
-      - 'crates/impress-store-ffi/**'
-      - 'crates/impress-core/**'
+      - 'apps/chassis-utis.yml'
+      # Everything impart's package graph resolves outside apps/impart:
+      # both targets link PublicationManagerCore, which reaches imbib's and
+      # imprint's Swift cores and their committed bindings. A PMC-only PR
+      # changes what this lane compiles without touching apps/impart.
+      - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibRustCore/**'
+      - 'apps/imprint/Packages/ImprintCore/**'
+      - 'apps/imprint/ImprintRustCore/**'
       - 'packages/**'
+      # All of crates/, not a list. The five frameworks below reach 32 crate
+      # directories between them (their --all-features path closure, the same
+      # set the xcframework action hashes into each cache key), and an
+      # enumeration here would drift the first time one gains a dependency.
+      # Over-triggering is cheap: a crate outside every closure leaves all
+      # five keys unchanged, so the run is cache hits plus the Swift build, on
+      # a hosted runner.
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/actions/xcframework/**'
       - '.github/workflows/impart-apps.yml'
 
 env:
