@@ -462,47 +462,54 @@ pub fn remove_figure_exports(
 
 // ── UniFFI surface (implore's Swift maps these; it decides nothing) ─────
 
-/// Render a figure's view state and store its PNG in the workspace CAS.
+/// The exports, named as Swift calls them. A submodule so they can share
+/// the names of the Rust functions they wrap (and so the binding lint,
+/// which maps `pub fn` names, finds them).
 #[cfg(feature = "uniffi")]
-#[uniffi::export(name = "storeFigureArtifact")]
-pub fn ffi_store_figure_artifact(
-    workspace_dir: String,
-    view_state_json: String,
-) -> Result<StoredFigureArtifact, FigureArtifactError> {
-    store_figure_artifact(Path::new(&workspace_dir), &view_state_json)
-}
+pub mod ffi {
+    use std::path::Path;
 
-/// Export a figure to `<workspace>/exports/figures/<id>.<png|svg>`.
-#[cfg(feature = "uniffi")]
-#[uniffi::export(name = "exportFigureArtifact")]
-pub fn ffi_export_figure_artifact(
-    workspace_dir: String,
-    figure_id: String,
-    view_state_json: String,
-    format: String,
-    width: Option<f64>,
-    height: Option<f64>,
-    scale: Option<f64>,
-) -> Result<ExportedFigure, FigureArtifactError> {
-    export_figure_artifact(
-        Path::new(&workspace_dir),
-        &figure_id,
-        &view_state_json,
-        &format,
-        width,
-        height,
-        scale,
-    )
-}
+    use super::{ExportedFigure, FigureArtifactError, StoredFigureArtifact};
 
-/// Remove a deleted figure's exported files.
-#[cfg(feature = "uniffi")]
-#[uniffi::export(name = "removeFigureExports")]
-pub fn ffi_remove_figure_exports(
-    workspace_dir: String,
-    figure_id: String,
-) -> Result<u32, FigureArtifactError> {
-    remove_figure_exports(Path::new(&workspace_dir), &figure_id)
+    /// Render a figure's view state and store its PNG in the workspace CAS.
+    #[uniffi::export]
+    pub fn store_figure_artifact(
+        workspace_dir: String,
+        view_state_json: String,
+    ) -> Result<StoredFigureArtifact, FigureArtifactError> {
+        super::store_figure_artifact(Path::new(&workspace_dir), &view_state_json)
+    }
+
+    /// Export a figure to `<workspace>/exports/figures/<id>.<png|svg>`.
+    #[uniffi::export]
+    pub fn export_figure_artifact(
+        workspace_dir: String,
+        figure_id: String,
+        view_state_json: String,
+        format: String,
+        width: Option<f64>,
+        height: Option<f64>,
+        scale: Option<f64>,
+    ) -> Result<ExportedFigure, FigureArtifactError> {
+        super::export_figure_artifact(
+            Path::new(&workspace_dir),
+            &figure_id,
+            &view_state_json,
+            &format,
+            width,
+            height,
+            scale,
+        )
+    }
+
+    /// Remove a deleted figure's exported files.
+    #[uniffi::export]
+    pub fn remove_figure_exports(
+        workspace_dir: String,
+        figure_id: String,
+    ) -> Result<u32, FigureArtifactError> {
+        super::remove_figure_exports(Path::new(&workspace_dir), &figure_id)
+    }
 }
 
 #[cfg(test)]

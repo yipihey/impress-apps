@@ -8438,7 +8438,7 @@ public func createLinePlot(title: String, x: [Double], y: [Double], xLabel: Stri
  */
 public func exportFigureArtifact(workspaceDir: String, figureId: String, viewStateJson: String, format: String, width: Double?, height: Double?, scale: Double?)throws  -> ExportedFigure {
     return try  FfiConverterTypeExportedFigure.lift(try rustCallWithError(FfiConverterTypeFigureArtifactError.lift) {
-    uniffi_implore_core_fn_func_exportfigureartifact(
+    uniffi_implore_core_fn_func_export_figure_artifact(
         FfiConverterString.lower(workspaceDir),
         FfiConverterString.lower(figureId),
         FfiConverterString.lower(viewStateJson),
@@ -8464,7 +8464,7 @@ public func loadLibraryJson(path: String)throws  -> FigureLibrary {
  */
 public func removeFigureExports(workspaceDir: String, figureId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeFigureArtifactError.lift) {
-    uniffi_implore_core_fn_func_removefigureexports(
+    uniffi_implore_core_fn_func_remove_figure_exports(
         FfiConverterString.lower(workspaceDir),
         FfiConverterString.lower(figureId),$0
     )
@@ -8538,7 +8538,7 @@ public func saveLibraryJson(library: FigureLibrary, path: String)throws  {try ru
  */
 public func storeFigureArtifact(workspaceDir: String, viewStateJson: String)throws  -> StoredFigureArtifact {
     return try  FfiConverterTypeStoredFigureArtifact.lift(try rustCallWithError(FfiConverterTypeFigureArtifactError.lift) {
-    uniffi_implore_core_fn_func_storefigureartifact(
+    uniffi_implore_core_fn_func_store_figure_artifact(
         FfiConverterString.lower(workspaceDir),
         FfiConverterString.lower(viewStateJson),$0
     )
@@ -8569,13 +8569,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_implore_core_checksum_func_create_line_plot() != 58984) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_implore_core_checksum_func_exportfigureartifact() != 24350) {
+    if (uniffi_implore_core_checksum_func_export_figure_artifact() != 36467) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_func_load_library_json() != 22992) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_implore_core_checksum_func_removefigureexports() != 24532) {
+    if (uniffi_implore_core_checksum_func_remove_figure_exports() != 24330) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_func_render_grid_svg() != 7724) {
@@ -8593,7 +8593,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_implore_core_checksum_func_save_library_json() != 56400) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_implore_core_checksum_func_storefigureartifact() != 25236) {
+    if (uniffi_implore_core_checksum_func_store_figure_artifact() != 33194) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_method_generatorregistryhandle_categories() != 41569) {
