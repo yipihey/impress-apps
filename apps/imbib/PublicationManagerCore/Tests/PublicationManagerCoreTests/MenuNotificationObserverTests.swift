@@ -39,11 +39,8 @@ final class MenuNotificationObserverTests: XCTestCase {
         "showSearch": "View ▸ Show Search (⌘2): macOS has no single Search tab — the section's children are nine search forms; which one ⌘2 opens is a decision",
         "navigateBack": "Go ▸ Back (⌘[): NavigationHistoryStore exists but nothing pushes to it since b748151d",
         "navigateForward": "Go ▸ Forward (⌘]): as Back",
-        "copyAsCitation": "Edit ▸ Copy as Citation (⇧⌘C): no formatted-citation function exists (CSL formatting is 'Not Yet')",
         "focusSidebar": "View ▸ Focus Sidebar (⌥⌘1): needs first-responder plumbing into the sidebar's NSOutlineView",
         "focusDetail": "View ▸ Focus Detail (⌥⌘3): needs a detail-pane focus target",
-        "sharePapers": "Paper ▸ Share… (⇧⌘F): the toolbar's ShareLink cannot be triggered from code; which payload the chord shares is a decision",
-        "togglePDFFilter": "Window ▸ Toggle PDF Filter (⇧⌘\\): there is no PDF filter state to toggle",
         "showHelpSearchPalette": "Help ▸ Search Help… (⇧⌘?): the palette lives in the Help window, which may not be open when the post arrives",
     ]
 
