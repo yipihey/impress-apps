@@ -209,3 +209,55 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
   - *Outside "Owns", on purpose:* `impress-core` gained `apply_operation_if_clock`,
     `logical_clock_of` and `GuardedWrite` (T2 can use the same primitive for surface rows), and
     `impress-store-ffi/src/lib.rs` gained `layout_sessions_for` (expect a merge with T2).
+- 2026-09-25 — **T3 (Kit behaviour)**, branch `claude/wave7-t3-kit`. Swift only, no Rust or
+  binding change.
+  - **A verb redraws the panes Rust names (PH-H1 = SK-K6).** Each tile has its own refresh
+    token in its own observable slot, and a pane host resolves on that token alone. A verb
+    that leaves the tree unchanged redraws nothing. That covers an undo on an empty ring,
+    which Rust answers `ok` with every pane named (`from_layout(None)`; T1 may want to
+    return none). Live on impress (port 23161, throwaway pane): focus 0, 0; resize 0;
+    set-query 1. PMC's `LayoutRowsPaneView` still watches the global compatibility token:
+    the same set-query re-ran the list pane's query too (`pane 2 display: 85 rows`). T4
+    closes that with `.onChange(of: context.refreshToken)` at `ChassisViewKinds.swift:274`.
+  - **Errors are scoped (SK-K7, PH-M3):** `lastRefusal`, `paneError(for:)`, `treeError`;
+    `PaneContext.loadRows() throws`. PMC's `loadFailed` read is right now because `lastError`
+    is the outcome of the last call, but T4 should switch it to `context.error`.
+  - **A tree that does not decode is not adopted (SK-K8).** Split children keep their
+    identity by tile id (SK-K11). The divider uses a pointer style (SK-K25).
+  - **Several windows (SK-K10 + PH-H3):** `LayoutTreeRuntime` registers each controller by
+    identity, and the key window's is current. `didClose` is always followed by the
+    survivor's `didOpen`, so PMC's unconditional `host = nil` is repaired without touching
+    PMC. Not done: h/l from `ChassisRootView`'s notification bridge still applies once per
+    open root (PMC's; route to the root's own controller). Detached tree windows still do
+    not render (RL-L5, ask-first).
+  - **⌘Z through Edit ▸ Undo (SK-K13):** `LayoutWindowResponder` sits directly before the
+    NSWindow in each tree window's chain. A text first responder or a session-bearing pane
+    goes to the first responder's own undo manager (a SwiftUI text field keeps its own, not
+    the window's). Otherwise the chord goes to the exploration ring, and to the window's
+    manager when the ring is empty. There are no ⌥⌘Z menu items: apps own their menus.
+  - **Surfaces:** fields send on blur, on Return (change then submit), and before any other
+    widget's action (SK-K3). A select or date field never sends unasked (SK-K12). There is no
+    `.focusable()` in `SurfaceView`, and keys come through the root (SK-K14). The subscription
+    is task-lifetime (SK-K18, AC-F17). A malformed node degrades alone (SK-K17). Failed
+    effects are decoded, logged and shown (SK-K16). There is one request line and one result
+    line per event, and identical re-renders are not adopted (SK-K15, narrowed: the FFI render
+    still runs until the feed can tell a write's author). Sessions of closed panes are
+    released, and all are flushed at termination (SK-K23). Seam tests run on a real in-memory
+    `SharedLayout` (SK-K20). The docs were corrected (SK-K21), and there is one JSON value type
+    (SK-K22).
+  - **Found live:** another session's pre-fix impress (port 23125) shares impress's layout
+    row and rendered my throwaway surface pane. It sent `change` for the null select and the
+    date (SK-K12, before) the moment it drew them; my build sent none. The first
+    `build-impress-app.sh` run installed my build over `~/Applications/impress.app` for about
+    four minutes, until another session's build replaced it. Set `IMPRESS_SKIP_INSTALL=1`
+    for any worktree build.
+  - **Proof:** `apps/kit-demo --prove` drives real keys, clicks and menu items in-process,
+    with no assistive-access grant, and all 14 claims pass. osascript has no assistive
+    access here, so impress's own UI (typing, ⌘N, the menu) was not driven from outside.
+    Tier B on 23161: 13/13, 0 skipped.
+  - **Merged with T2 (#67):** the surface pane awaits T2's async `render`/`dispatch` and keeps
+    T2's in-order dispatch chain and generation tickets, plus T3's resubscribe, per-event trace,
+    effects decoding and "an identical tree is not adopted". SK-K15 stays narrowed: T2's
+    revisions are on the spec row (`expected_revision`), but neither the dispatch reply nor the
+    feed's `surfaces_changed(ids)` carries one, so the pane still cannot tell its own write's
+    echo from an agent's. The echo render now runs off the main actor, so it no longer blocks.

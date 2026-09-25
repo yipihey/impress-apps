@@ -38,114 +38,19 @@
 //
 
 import Foundation
+import ImpressSurface
 
 // MARK: - Opaque JSON
 
 /// An arbitrary JSON value: what the layout keeps opaque (`query`,
 /// `view_state`, a `ParamSource`'s payload) and what the verb builder emits.
-public enum LayoutJSONValue: Codable, Hashable, Sendable {
-    case null
-    case bool(Bool)
-    case int(Int)
-    case double(Double)
-    case string(String)
-    case array([LayoutJSONValue])
-    case object([String: LayoutJSONValue])
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode(Int.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .double(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode([LayoutJSONValue].self) {
-            self = .array(value)
-        } else if let value = try? container.decode([String: LayoutJSONValue].self) {
-            self = .object(value)
-        } else {
-            throw DecodingError.dataCorruptedError(
-                in: container, debugDescription: "unrepresentable JSON value")
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .null: try container.encodeNil()
-        case .bool(let value): try container.encode(value)
-        case .int(let value): try container.encode(value)
-        case .double(let value): try container.encode(value)
-        case .string(let value): try container.encode(value)
-        case .array(let value): try container.encode(value)
-        case .object(let value): try container.encode(value)
-        }
-    }
-
-    // MARK: Accessors
-
-    public var objectValue: [String: LayoutJSONValue]? {
-        if case .object(let value) = self { return value }
-        return nil
-    }
-
-    public var arrayValue: [LayoutJSONValue]? {
-        if case .array(let value) = self { return value }
-        return nil
-    }
-
-    public var stringValue: String? {
-        if case .string(let value) = self { return value }
-        return nil
-    }
-
-    public var boolValue: Bool? {
-        if case .bool(let value) = self { return value }
-        return nil
-    }
-
-    /// An integer, whether serde wrote it as one or as a whole double.
-    public var intValue: Int? {
-        switch self {
-        case .int(let value): return value
-        case .double(let value) where value == value.rounded(): return Int(value)
-        default: return nil
-        }
-    }
-
-    public var isNull: Bool {
-        if case .null = self { return true }
-        return false
-    }
-
-    public subscript(key: String) -> LayoutJSONValue? {
-        objectValue?[key]
-    }
-
-    /// The strings of a JSON array of strings (`query.kinds`), or `[]`.
-    public var stringArrayValue: [String] {
-        arrayValue?.compactMap(\.stringValue) ?? []
-    }
-
-    /// Parse a JSON string (the FFI hands every opaque value over as one).
-    public static func decode(_ json: String) throws -> LayoutJSONValue {
-        try JSONDecoder().decode(LayoutJSONValue.self, from: Data(json.utf8))
-    }
-
-    /// Serialize with sorted keys, so a verb's JSON is byte-stable and can be
-    /// asserted in a test without a parser.
-    public func jsonString() throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(self)
-        return String(decoding: data, as: UTF8.self)
-    }
-}
+///
+/// The same type as `ImpressSurface.SurfaceJSONValue`, under the name the
+/// layout has always used for it. There used to be two identical enums
+/// (review SK-K22); a host that mixes layout and surface values now needs no
+/// conversion between them. `jsonString()` sorts keys, so a verb's JSON is
+/// byte-stable and can be asserted in a test without a parser.
+public typealias LayoutJSONValue = SurfaceJSONValue
 
 // MARK: - Small vocabulary
 

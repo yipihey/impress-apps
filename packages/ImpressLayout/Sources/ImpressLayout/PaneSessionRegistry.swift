@@ -92,6 +92,10 @@ public final class PaneSessionRegistry<Session: PaneSession> {
     public init(capacity: Int = 3, label: String = "pane") {
         self.capacity = max(1, capacity)
         self.label = label
+        // Known to the kit, so a verb that closes a pane releases its
+        // session here, and app termination flushes it (SK-K23) — with no
+        // host code, for every registry any host makes.
+        PaneSessionRegistries.add(self)
     }
 
     public var count: Int { sessions.count }
@@ -126,8 +130,10 @@ public final class PaneSessionRegistry<Session: PaneSession> {
         return existing
     }
 
-    /// Release a session, flushing it first. A CLOSED pane releases this way;
-    /// a layout mutation never does.
+    /// Release a session, flushing it first. A CLOSED pane releases this way
+    /// — `LayoutController` names the sessions a verb removed from the tree
+    /// and the kit calls this on every registry — while any other layout
+    /// mutation (a split, a move, a resize) never does.
     public func release(id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.flush()
@@ -144,7 +150,7 @@ public final class PaneSessionRegistry<Session: PaneSession> {
         logInfo("\(label) session \(id) discarded (record deleted)", category: "layout")
     }
 
-    /// Flush everything — app resign-active, window close.
+    /// Flush everything. The kit calls it when the app terminates.
     public func flushAll() {
         for session in sessions.values { session.flush() }
     }

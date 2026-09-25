@@ -13,11 +13,18 @@
 //  ## Keyboard (ADR-0033 Defaults, `docs/keyboard-grammar.md` "Surface
 //  panes")
 //
-//  j / k walk `tree.focusOrder`; Enter activates the focused widget; Escape
-//  leaves a field. All of it lives under ONE `.keyboardGuarded` +
-//  `.focusable()` pair on the OUTERMOST container (CLAUDE.md "Keyboard
-//  Shortcuts Must Not Steal Text Field Input" — `.focusable()` never goes on
-//  a view that contains a text field).
+//  j / k walk `tree.focusOrder`; Enter activates the highlighted widget;
+//  Escape leaves a widget. This view puts NO `.focusable()` anywhere — it
+//  contains text fields, and a focus target around a text field swallows
+//  keys before AppKit sees them (CLAUDE.md, pitfalls rule 5; review SK-K14,
+//  which found one here, nested inside the layout root's own). The keys
+//  reach it two ways:
+//
+//  - from the HOST's one focus target, through `SurfaceKeyInput` — the
+//    layout root forwards j / k / ⏎ / ⎋ to the focused surface pane;
+//  - from inside, when one of its widgets has focus: the `.keyboardGuarded`
+//    and special-key handlers on its outermost container hear the keys that
+//    widget did not use.
 //
 //  The grammar needs TWO separate pieces of focus state, not one, because a
 //  single `@FocusState` would make j/k unusable the moment it lands on a
@@ -27,22 +34,19 @@
 //  - `highlightedID` (`@State`) — the navigation cursor j/k always moves,
 //    rendered as a highlight ring. Purely a Swift-side highlight; never
 //    AppKit focus by itself.
-//  - `focusedWidgetID` (`@FocusState`) — REAL focus. j/k also sets this
-//    immediately for every widget kind that is not a `text`/`number` field
-//    (a slider/select/toggle/date/button/table/list/tabs stop is not a
-//    free-typing surface, so giving it real focus does not break `j`/`k` —
-//    `TextFieldFocusDetection.isTextFieldFocused()` only guards an actual
-//    editable text view). For a `text`/`number` field, `focusedWidgetID` is
-//    set ONLY by Enter — the moment `.keyboardGuarded` is expected to start
-//    yielding to the field, per the grammar's "begin editing a field".
-//    Escape clears `focusedWidgetID` back to nil (real focus drops; the
-//    highlight ring stays), which is "leave a field back to widget focus".
+//  - `focusedWidgetID` (`@FocusState`) — REAL focus, given ONLY by Enter, for
+//    every kind. j / k used to hand real focus to a table as they passed it,
+//    and NSTableView's type-select then ate the next j / k: navigation
+//    stuck on the first table (SK-K14). Escape clears it (real focus drops;
+//    the highlight stays), which is "leave a widget back to widget focus".
 //
-//  This two-layer split, the exact bubbling of Return/Escape between a
-//  focused AppKit control and this view's own `.onKeyPress`, and whether
-//  `.focused(_:equals:)` behaves as expected on `Table`/`TabView` are the
-//  parts of this file `docs/plan-agent-surfaces.md` S7 marks Mac-only —
-//  nothing here compiles or runs on Linux.
+//  ## Typed values are never lost (SK-K3)
+//
+//  A text or number field sends its value when it loses focus, on Return
+//  (then a `submit`), and — through `SurfaceDraftBook` — before any other
+//  widget's click, select or submit leaves this view, so a button acts on
+//  what the person typed even though clicking a button does not take focus
+//  from the field.
 //
 
 import SwiftUI
@@ -62,17 +66,24 @@ public struct SurfaceView: View {
     public let tree: RenderTree
     public let hooks: SurfaceHooks
     public let onEvent: (SurfaceEvent) -> Void
+    /// Keys the host routes in from its own focus target; nil for a host
+    /// that has none (the view's own handlers still work once a widget has
+    /// focus).
+    public let keyInput: SurfaceKeyInput?
 
     @FocusState private var focusedWidgetID: String?
     @State private var highlightedID: String?
+    @State private var drafts = SurfaceDraftBook()
 
     public init(
         tree: RenderTree,
         hooks: SurfaceHooks = .plain,
+        keyInput: SurfaceKeyInput? = nil,
         onEvent: @escaping (SurfaceEvent) -> Void
     ) {
         self.tree = tree
         self.hooks = hooks
+        self.keyInput = keyInput
         self.onEvent = onEvent
     }
 
@@ -83,37 +94,32 @@ public struct SurfaceView: View {
                 hooks: hooks,
                 highlightedID: $highlightedID,
                 focusedWidgetID: $focusedWidgetID,
+                drafts: drafts,
                 onEvent: send
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
         }
-        // The OUTERMOST container, and the only one: no child of this tree
-        // gets its own `.focusable()` (CLAUDE.md).
-        .focusable()
+        // No `.focusable()` (see the file header). These fire for keys a
+        // focused widget inside did not use; the host's root forwards the
+        // same keys through `keyInput` when no widget has focus.
         .keyboardGuarded { press in handleGuardedKey(press) }
-        // Return / Escape are special keys — CLAUDE.md's exception list
-        // ("Handlers that only match special keys ... don't conflict with
-        // text input") — so they stay OUTSIDE `.keyboardGuarded` and are
-        // free to fire even while a field has real focus. Whether a focused
-        // AppKit control (a `TextField`'s own `onSubmit`, a focused
-        // `Table`'s native Enter handling) consumes one before it bubbles
-        // here is exactly the Mac-only part; see the file header.
+        // Return / Escape are special keys — CLAUDE.md's exception list —
+        // so they stay OUTSIDE `.keyboardGuarded`. A focused `TextField`
+        // uses Return itself (`onSubmit`), so only an unclaimed one arrives.
         .onKeyPress(keys: [.return]) { _ in
-            guard highlightedID != nil else { return .ignored }
-            activateHighlighted()
-            return .handled
+            handle(.activate) ? .handled : .ignored
         }
         .onKeyPress(keys: [.escape]) { _ in
-            guard focusedWidgetID != nil else { return .ignored }
-            focusedWidgetID = nil
-            return .handled
+            handle(.leave) ? .handled : .ignored
         }
         .onAppear {
             if highlightedID == nil {
                 highlightedID = tree.focusOrder.first
             }
+            installKeyInput()
         }
+        .onChange(of: tree) { _, _ in installKeyInput() }
         .onChange(of: tree.focusOrder) { _, newOrder in
             // A fresh render (a `dispatch` reply, an invalidation re-render)
             // replaces the tree wholesale. Keep the cursor on the same
@@ -125,42 +131,69 @@ public struct SurfaceView: View {
         }
     }
 
-    // MARK: j / k
+    // MARK: Keys
+
+    /// Point the host's key input at THIS tree (the closure reads the
+    /// struct it was made from, so it is re-made when the tree changes).
+    private func installKeyInput() {
+        guard let keyInput else { return }
+        let view = self
+        keyInput.handler = { key in view.handle(key) }
+    }
 
     private func handleGuardedKey(_ press: KeyPress) -> KeyPress.Result {
         guard press.modifiers.isEmpty else { return .ignored }
         switch press.characters {
-        case "j":
-            move(by: 1)
-            return .handled
-        case "k":
-            move(by: -1)
-            return .handled
-        default:
-            return .ignored
+        case "j": return handle(.next) ? .handled : .ignored
+        case "k": return handle(.previous) ? .handled : .ignored
+        default: return .ignored
         }
     }
 
-    private func move(by delta: Int) {
+    /// The whole grammar, whichever way the key arrived.
+    private func handle(_ key: SurfaceKeyInput.Key) -> Bool {
+        switch key {
+        case .next:
+            return move(by: 1)
+        case .previous:
+            return move(by: -1)
+        case .activate:
+            guard highlightedID != nil else { return false }
+            activateHighlighted()
+            return true
+        case .leave:
+            guard focusedWidgetID != nil else { return false }
+            focusedWidgetID = nil
+            return true
+        }
+    }
+
+    /// j / k move the HIGHLIGHT and nothing else (SK-K14): real focus is
+    /// Enter's to give.
+    private func move(by delta: Int) -> Bool {
         let order = tree.focusOrder
-        guard !order.isEmpty else { return }
+        guard !order.isEmpty else { return false }
         let currentIndex = highlightedID.flatMap { order.firstIndex(of: $0) }
         let startIndex = currentIndex ?? (delta > 0 ? -1 : 0)
         let nextIndex = ((startIndex + delta) % order.count + order.count) % order.count
-        let next = order[nextIndex]
-        highlightedID = next
-        if !isTextEntryField(id: next) {
-            focusedWidgetID = next
-        }
+        highlightedID = order[nextIndex]
+        return true
     }
 
     /// Every `SurfaceEvent` leaving this view funnels through here — the one
     /// point that also calls `hooks.log`, so a host gets a trace line for
     /// every widget interaction without this file threading `hooks` into
-    /// each leaf view's own event-sending code.
+    /// each leaf view's own event-sending code. A click, select or submit
+    /// goes out AFTER the `change` of every field whose typed value was not
+    /// yet sent (SK-K3).
     private func send(_ event: SurfaceEvent) {
-        hooks.log("surface event: widget \(event.widget) kind \(event.kind.rawValue)")
-        onEvent(event)
+        let events = drafts.outgoing(event)
+        if events.count > 1 {
+            hooks.log(
+                "surface: \(events.count - 1) typed value(s) sent before \(event.kind.rawValue) "
+                    + "on \(event.widget)")
+        }
+        for outgoing in events { onEvent(outgoing) }
     }
 
     // MARK: Enter
@@ -172,32 +205,12 @@ public struct SurfaceView: View {
         switch target.node {
         case .button:
             send(SurfaceEvent(widget: id, kind: .click, value: .null))
-        case .field(let fieldSpec, _, _):
-            // "Begin editing a field" — the one case `move(by:)` withheld
-            // real focus for. Every other kind already has it.
-            if SurfaceView.isTextEntry(fieldSpec) {
-                focusedWidgetID = id
-            }
         default:
-            // Table/list "select the highlighted row" and tabs' own stop
-            // ("switching tabs", per `resolve.rs`'s doc comment on
-            // `focus_order`) both fall to the control's own native keyboard
-            // handling once it holds real focus — which `move(by:)` already
-            // gave it. Mac-verify.
+            // A field begins editing; a table, list or tab strip takes real
+            // focus, and its own native keys (arrows, type-select) work from
+            // there until Escape hands the keys back to j / k.
             focusedWidgetID = id
         }
-    }
-
-    private func isTextEntryField(id: String) -> Bool {
-        guard let target = SurfaceView.node(id: id, in: tree.root),
-            case .field(let fieldSpec, _, _) = target.node
-        else { return false }
-        return SurfaceView.isTextEntry(fieldSpec)
-    }
-
-    private static func isTextEntry(_ fieldSpec: SurfaceJSONValue) -> Bool {
-        guard let subKind = fieldSpec.objectValue?.keys.first else { return false }
-        return subKind == "text" || subKind == "number"
     }
 
     /// Depth-first search for a node id — the tree is small (a pane's whole
@@ -237,6 +250,7 @@ private struct SurfaceNodeView: View {
     let hooks: SurfaceHooks
     let highlightedID: Binding<String?>
     let focusedWidgetID: FocusState<String?>.Binding
+    let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
 
     private var isHighlighted: Bool { highlightedID.wrappedValue == node.id }
@@ -276,12 +290,12 @@ private struct SurfaceNodeView: View {
             SurfaceSectionView(
                 title: title, collapsedByDefault: collapsed, bodyNode: body,
                 hooks: hooks, highlightedID: highlightedID, focusedWidgetID: focusedWidgetID,
-                onEvent: onEvent)
+                drafts: drafts, onEvent: onEvent)
 
         case .tabs(let tabs):
             SurfaceTabsView(
                 id: node.id, tabs: tabs, hooks: hooks, highlightedID: highlightedID,
-                focusedWidgetID: focusedWidgetID, onEvent: onEvent)
+                focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
 
         case .text(let text):
             hooks.renderMarkdown(text)
@@ -314,7 +328,7 @@ private struct SurfaceNodeView: View {
         case .field(let fieldSpec, _, let value):
             SurfaceFieldView(
                 id: node.id, label: node.label, fieldSpec: fieldSpec, value: value,
-                focusedWidgetID: focusedWidgetID, onEvent: onEvent)
+                focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
 
         case .button(let label):
             Button(label) {
@@ -347,7 +361,7 @@ private struct SurfaceNodeView: View {
         ForEach(items, id: \.id) { child in
             SurfaceNodeView(
                 node: child, hooks: hooks, highlightedID: highlightedID,
-                focusedWidgetID: focusedWidgetID, onEvent: onEvent)
+                focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
         }
     }
 }
@@ -361,6 +375,7 @@ private struct SurfaceSectionView: View {
     let hooks: SurfaceHooks
     let highlightedID: Binding<String?>
     let focusedWidgetID: FocusState<String?>.Binding
+    let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
 
     // Local-only: the vocabulary defines no "toggle section" action
@@ -373,6 +388,7 @@ private struct SurfaceSectionView: View {
         title: String, collapsedByDefault: Bool, bodyNode: RenderNode,
         hooks: SurfaceHooks, highlightedID: Binding<String?>,
         focusedWidgetID: FocusState<String?>.Binding,
+        drafts: SurfaceDraftBook,
         onEvent: @escaping (SurfaceEvent) -> Void
     ) {
         self.title = title
@@ -381,6 +397,7 @@ private struct SurfaceSectionView: View {
         self.hooks = hooks
         self.highlightedID = highlightedID
         self.focusedWidgetID = focusedWidgetID
+        self.drafts = drafts
         self.onEvent = onEvent
         _expanded = State(initialValue: !collapsedByDefault)
     }
@@ -389,7 +406,7 @@ private struct SurfaceSectionView: View {
         DisclosureGroup(title, isExpanded: $expanded) {
             SurfaceNodeView(
                 node: bodyNode, hooks: hooks, highlightedID: highlightedID,
-                focusedWidgetID: focusedWidgetID, onEvent: onEvent)
+                focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
         }
     }
 }
@@ -400,6 +417,7 @@ private struct SurfaceTabsView: View {
     let hooks: SurfaceHooks
     let highlightedID: Binding<String?>
     let focusedWidgetID: FocusState<String?>.Binding
+    let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
 
     @State private var selection = 0
@@ -409,7 +427,7 @@ private struct SurfaceTabsView: View {
             ForEach(Array(tabs.enumerated()), id: \.offset) { index, tab in
                 SurfaceNodeView(
                     node: tab.body, hooks: hooks, highlightedID: highlightedID,
-                    focusedWidgetID: focusedWidgetID, onEvent: onEvent)
+                    focusedWidgetID: focusedWidgetID, drafts: drafts, onEvent: onEvent)
                     .tabItem { Text(tab.title) }
                     .tag(index)
             }
@@ -481,7 +499,42 @@ private struct SurfaceFieldView: View {
     let fieldSpec: SurfaceJSONValue
     let value: SurfaceJSONValue
     let focusedWidgetID: FocusState<String?>.Binding
+    let drafts: SurfaceDraftBook
     let onEvent: (SurfaceEvent) -> Void
+
+    // Every draft is SEEDED HERE, not in `onAppear`: writing a draft in
+    // `onAppear` fires its `onChange`, which is how a select bound to null
+    // sent its first option and a date field wrote today into state on first
+    // render (SK-K12). A draft seeded in `init` changes only when the person
+    // edits it or the stored value moves.
+    @State private var textDraft: String
+    @State private var numberDraft: String
+    @State private var sliderDraft: Double
+    @State private var selectDraft: String
+    @State private var toggleDraft: Bool
+    @State private var dateDraft: Date
+
+    init(
+        id: String, label: String?, fieldSpec: SurfaceJSONValue, value: SurfaceJSONValue,
+        focusedWidgetID: FocusState<String?>.Binding, drafts: SurfaceDraftBook,
+        onEvent: @escaping (SurfaceEvent) -> Void
+    ) {
+        self.id = id
+        self.label = label
+        self.fieldSpec = fieldSpec
+        self.value = value
+        self.focusedWidgetID = focusedWidgetID
+        self.drafts = drafts
+        self.onEvent = onEvent
+        let options = fieldSpec.objectValue?.first?.value ?? .object([:])
+        let sliderMin = options.objectValue?["min"]?.doubleValue ?? 0
+        _textDraft = State(initialValue: SurfaceFieldLogic.textSeed(value))
+        _numberDraft = State(initialValue: SurfaceFieldLogic.numberSeed(value))
+        _sliderDraft = State(initialValue: value.doubleValue ?? sliderMin)
+        _selectDraft = State(initialValue: SurfaceFieldLogic.selectSeed(value))
+        _toggleDraft = State(initialValue: value.boolValue ?? false)
+        _dateDraft = State(initialValue: SurfaceFieldLogic.parseDate(value) ?? Date())
+    }
 
     private var subKind: String? { fieldSpec.objectValue?.keys.first }
     private var options: SurfaceJSONValue {
@@ -504,38 +557,57 @@ private struct SurfaceFieldView: View {
         }
     }
 
-    // MARK: text
+    /// Send this field's unsent draft, if it has one (SK-K3).
+    private func commit() {
+        guard let draft = drafts.take(id) else { return }
+        onEvent(SurfaceEvent(widget: id, kind: .change, value: draft))
+    }
 
-    @State private var textDraft: String = ""
+    // MARK: text
 
     private var textField: some View {
         TextField(label ?? "", text: $textDraft)
             .focused(focusedWidgetID, equals: id)
-            .onSubmit {
-                onEvent(SurfaceEvent(widget: id, kind: .change, value: .string(textDraft)))
+            .onChange(of: textDraft) { _, text in
+                drafts.stage(id, SurfaceFieldLogic.textDraft(text, stored: value))
             }
-            .onAppear { textDraft = value.stringValue ?? "" }
+            // Return: the value, then `submit` (Rust runs `on_submit`, a
+            // no-op when the spec declares none).
+            .onSubmit {
+                commit()
+                onEvent(SurfaceEvent(widget: id, kind: .submit, value: .null))
+            }
+            // Tab, a click on another focusable control, Escape: the value
+            // leaves with the focus.
+            .onChange(of: isFocused) { was, now in
+                if was && !now { commit() }
+            }
             .onChange(of: value) { _, newValue in
-                guard !isFocused else { return }
-                textDraft = newValue.stringValue ?? ""
+                // Typing the person has not sent wins over a re-render; once
+                // sent, the stored value is what they typed.
+                guard !drafts.has(id) else { return }
+                textDraft = SurfaceFieldLogic.textSeed(newValue)
             }
     }
 
     // MARK: number
 
-    @State private var numberDraft: String = ""
-
     private var numberField: some View {
         TextField(label ?? "", text: $numberDraft)
             .focused(focusedWidgetID, equals: id)
-            .onSubmit {
-                guard let parsed = Double(numberDraft) else { return }
-                onEvent(SurfaceEvent(widget: id, kind: .change, value: .double(parsed)))
+            .onChange(of: numberDraft) { _, text in
+                drafts.stage(id, SurfaceFieldLogic.numberDraft(text, stored: value))
             }
-            .onAppear { numberDraft = value.doubleValue.map { String($0) } ?? "" }
+            .onSubmit {
+                commit()
+                onEvent(SurfaceEvent(widget: id, kind: .submit, value: .null))
+            }
+            .onChange(of: isFocused) { was, now in
+                if was && !now { commit() }
+            }
             .onChange(of: value) { _, newValue in
-                guard !isFocused else { return }
-                numberDraft = newValue.doubleValue.map { String($0) } ?? ""
+                guard !drafts.has(id) else { return }
+                numberDraft = SurfaceFieldLogic.numberSeed(newValue)
             }
             #if os(iOS)
             .keyboardType(.decimalPad)
@@ -548,8 +620,6 @@ private struct SurfaceFieldView: View {
     private var sliderMax: Double { options.objectValue?["max"]?.doubleValue ?? 1 }
     private var sliderStep: Double { max(options.objectValue?["step"]?.doubleValue ?? 1, 0.0001) }
 
-    @State private var sliderDraft: Double = 0
-
     private var sliderField: some View {
         VStack(alignment: .leading, spacing: 2) {
             if let label { Text(label).font(.caption).foregroundStyle(.secondary) }
@@ -557,7 +627,8 @@ private struct SurfaceFieldView: View {
                 value: $sliderDraft, in: sliderMin...max(sliderMax, sliderMin + sliderStep),
                 step: sliderStep,
                 onEditingChanged: { editing in
-                    if !editing {
+                    // Only a drag the person made ends in `editing == false`.
+                    if !editing, sliderDraft != value.doubleValue {
                         onEvent(
                             SurfaceEvent(widget: id, kind: .change, value: .double(sliderDraft)))
                     }
@@ -565,7 +636,6 @@ private struct SurfaceFieldView: View {
             )
             .focused(focusedWidgetID, equals: id)
         }
-        .onAppear { sliderDraft = value.doubleValue ?? sliderMin }
         .onChange(of: value) { _, newValue in
             guard !isFocused else { return }
             sliderDraft = newValue.doubleValue ?? sliderMin
@@ -579,74 +649,65 @@ private struct SurfaceFieldView: View {
             ?? options.objectValue?["options"]?.arrayValue?.compactMap(\.stringValue) ?? []
     }
 
-    @State private var selectDraft: String = ""
-
     private var selectField: some View {
         Picker(label ?? "", selection: $selectDraft) {
+            // Nothing stored shows as nothing chosen, not as the first option.
+            if !selectOptions.contains(selectDraft) {
+                Text("\u{2014}").tag(selectDraft)
+            }
             ForEach(selectOptions, id: \.self) { option in
                 Text(option).tag(option)
             }
         }
         .focused(focusedWidgetID, equals: id)
-        .onAppear { selectDraft = value.stringValue ?? selectOptions.first ?? "" }
         .onChange(of: selectDraft) { _, newValue in
-            guard newValue != (value.stringValue ?? "") else { return }
+            guard SurfaceFieldLogic.selectShouldEmit(newValue, stored: value) else { return }
             onEvent(SurfaceEvent(widget: id, kind: .change, value: .string(newValue)))
         }
         .onChange(of: value) { _, newValue in
             // Resync when the tree changed for a reason OTHER than this
-            // picker's own edit (another widget's action wrote `bind`, an
-            // external `surface_update`) — guarded the same way the
-            // `.onChange(of: selectDraft)` above is, so the round trip
-            // doesn't re-fire a `.change` event for a value that came FROM
-            // the tree in the first place.
-            guard !isFocused, newValue.stringValue != selectDraft else { return }
-            selectDraft = newValue.stringValue ?? selectOptions.first ?? ""
+            // picker's own edit; the resync then equals the stored value, so
+            // the `onChange(of: selectDraft)` above sends nothing.
+            let seed = SurfaceFieldLogic.selectSeed(newValue)
+            if seed != selectDraft { selectDraft = seed }
         }
     }
 
     // MARK: toggle
 
-    @State private var toggleDraft: Bool = false
-
     private var toggleField: some View {
         Toggle(label ?? "", isOn: $toggleDraft)
             .focused(focusedWidgetID, equals: id)
-            .onAppear { toggleDraft = value.boolValue ?? false }
             .onChange(of: toggleDraft) { _, newValue in
                 guard newValue != (value.boolValue ?? false) else { return }
                 onEvent(SurfaceEvent(widget: id, kind: .change, value: .bool(newValue)))
             }
             .onChange(of: value) { _, newValue in
-                guard !isFocused, newValue.boolValue != toggleDraft else { return }
-                toggleDraft = newValue.boolValue ?? false
+                let seed = newValue.boolValue ?? false
+                if seed != toggleDraft { toggleDraft = seed }
             }
     }
 
     // MARK: date
 
-    @State private var dateDraft: Date = Date()
-
+    /// A calendar date (see `SurfaceFieldLogic.parseDate`): sent in the
+    /// stored value's own shape, and only for a DAY the person picked.
     private var dateField: some View {
         DatePicker(label ?? "", selection: $dateDraft, displayedComponents: [.date])
             .focused(focusedWidgetID, equals: id)
-            .onAppear { dateDraft = SurfaceFieldView.parseDate(value) ?? Date() }
             .onChange(of: dateDraft) { _, newValue in
-                let iso = ISO8601DateFormatter().string(from: newValue)
-                guard iso != value.stringValue else { return }
-                onEvent(SurfaceEvent(widget: id, kind: .change, value: .string(iso)))
+                guard SurfaceFieldLogic.dateShouldEmit(newValue, stored: value) else { return }
+                onEvent(
+                    SurfaceEvent(
+                        widget: id, kind: .change,
+                        value: .string(SurfaceFieldLogic.dateString(newValue, like: value))))
             }
             .onChange(of: value) { _, newValue in
-                guard !isFocused, let parsed = SurfaceFieldView.parseDate(newValue),
-                    parsed != dateDraft
+                guard let parsed = SurfaceFieldLogic.parseDate(newValue),
+                      !Calendar.current.isDate(parsed, inSameDayAs: dateDraft)
                 else { return }
                 dateDraft = parsed
             }
-    }
-
-    private static func parseDate(_ value: SurfaceJSONValue) -> Date? {
-        guard let string = value.stringValue else { return nil }
-        return ISO8601DateFormatter().date(from: string)
     }
 }
 

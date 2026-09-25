@@ -41,6 +41,52 @@ kit-demo: pane 3: info → renders placeholder
 kit-demo: pane 5: surface → renders surface (single item 4529b182-65cc-47fe-b05e-014eebf67fcc)
 ```
 
-`standalone.png` is the window: three "View Kind Unavailable" panes naming their
-query kinds, role and tile, and the surface pane with its text, slider and button.
+`standalone.png` is the window (taken in-process by `--prove`, 2026-09-25): three "View
+Kind Unavailable" panes naming their query kinds, role and tile, and the surface pane with
+its text, slider, text field, a select showing "—" (nothing stored, nothing chosen), the
+agent's plain day as a date, and the button.
 The temp store is left in `$TMPDIR`; delete it when done.
+
+## `--prove` (plan wave 7, T3)
+
+With `--prove` the demo then drives its own window IN-PROCESS and prints one PASS/FAIL
+line per claim: real key events typed into the surface's text field, a real mouse click
+on its button, the main menu's own Edit ▸ Undo / Redo and File ▸ New Window items, and a
+window close. In-process means no assistive-access grant, and nothing here can reach
+another app. The surface grew a text field, a select bound to null, a date stored as
+`"2026-09-25"`, and a button whose event carries the text.
+
+The window has to be key: the text-field guard and the menu's responder chain both
+start at `NSApp.keyWindow`. A bare executable launched from a background shell cannot
+activate, so wrap it in a throwaway bundle and launch it through LaunchServices:
+
+```bash
+swift build
+D=$TMPDIR/KitDemo.app; mkdir -p $D/Contents/MacOS && cp .build/debug/KitDemo $D/Contents/MacOS/
+# Info.plist: CFBundleExecutable KitDemo, CFBundlePackageType APPL, NSPrincipalClass NSApplication
+open -n -W --stdout /tmp/kitdemo.out $D --args --prove; grep PROOF /tmp/kitdemo.out
+```
+
+Output (2026-09-25; the store is removed on exit):
+
+```
+PROOF focus redraws no pane: PASS — pane resolves 4 → 4
+PROOF resize redraws no pane: PASS — pane resolves 4 → 4
+PROOF set-query redraws exactly one pane: PASS — pane resolves 4 → 5
+PROOF select bound to null stays null after render: PASS
+PROOF date-only value is not rewritten on render: PASS — day = "2026-09-25"
+PROOF Edit ▸ Undo while typing undoes the typing, not the tree: PASS — "hello" → ""
+PROOF typed value reaches the button: PASS — bins-chosen payload note = "hello"
+PROOF select still unchosen after the click: PASS
+PROOF Edit ▸ Undo undoes the focused pane's selection: PASS — selection 1 → 0
+PROOF Edit ▸ Redo puts it back: PASS — selection → 1
+PROOF ⌘N gives the new window its own controller: PASS — 2 live controllers
+PROOF the new window is current and the host: PASS — current is second, host is second
+PROOF closing it leaves the first window registered and the host: PASS — 1 live, host is first
+PROOF the first window's feed is still on: PASS
+PROOF summary: ALL PASS
+```
+
+The responder chain it printed, which is how Edit ▸ Undo reaches the tree:
+`AppKitWindowHostingView → AppKitWindowHostingController → LayoutWindowResponder →
+AppKitWindow → …`.
