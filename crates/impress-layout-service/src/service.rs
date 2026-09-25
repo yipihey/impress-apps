@@ -19,6 +19,25 @@
 //!
 //! and every result carries `focused` and `affected_panes`, which is the whole
 //! of what a renderer needs to know what to redraw.
+//!
+//! # The written contract (plan wave 7 T6)
+//!
+//! * **Strict arguments.** An argument object is checked against the
+//!   method's input schema (`strict_args` below): a field it does not name is
+//!   `invalid-argument` naming it. A pane reference has one spelling (see
+//!   [`PaneRefDto`]).
+//! * **Versioned, revisioned results.** Every envelope carries
+//!   `wire_version`; verbs and `get_layout` carry the live row's `revision`,
+//!   and a verb that moves the live tree takes `expected_revision`, refused
+//!   `conflict` when it went stale.
+//! * **Reads and the cold start (review RL-L15, decided).** A read that finds
+//!   no live row writes one, and over MCP and the CLI that write is
+//!   attributed to the **agent** whose read caused it. The read verbs take no
+//!   `actor` argument, on purpose: an agent must not be able to record itself
+//!   as the person, the same rule T5 applied to surface dispatch. The GUI
+//!   reads as the human through `get_layout_as` / `compiled_pane`, so the
+//!   workspace a person opens is theirs. A read answered from the in-memory
+//!   fallback store says so (`store: "fallback"`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -2413,6 +2432,9 @@ fn ordinal_of(
 }
 
 impl DefaultLayoutService {
+    // The trait method's own arguments plus the direction; bundling them in
+    // a struct would only restate the trait signature.
+    #[allow(clippy::too_many_arguments)]
     fn step_ring(
         &self,
         app_id: &str,
