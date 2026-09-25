@@ -29,7 +29,8 @@ use impress_core::collection_ops::{
 };
 use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{
-    builtin_manifest, compile_with, Bindings, PaneQuery, ParamDecl, SubtreeResolver,
+    builtin_manifest, compile_with, Bindings, CompiledQuery, PaneQuery, PaneQueryError, ParamDecl,
+    SubtreeResolver,
 };
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout::{ChannelId, Geometry, PaneSpec, ParamSource, Role, TileId, Verb, WindowId};
@@ -611,6 +612,13 @@ impl DefaultLayoutService {
     /// `build` gets the session because some verbs need it to fill in a
     /// default the caller left out — "this window" for the geometry and
     /// default-channel verbs, "the pane I am splitting" for a bare split.
+    ///
+    /// The save is compare-and-swap (see `session`'s module docs). When it
+    /// loses the race — another writer committed between this session's
+    /// revision check and its write — the session reloads and the SAME verb
+    /// is applied once more against the reloaded tree, which is what the
+    /// caller asked for: a reference like "the focused pane" means the pane
+    /// focused now. A second loss is reported, not retried.
     fn apply_verb(
         &self,
         app_id: &str,
@@ -618,34 +626,55 @@ impl DefaultLayoutService {
         actor: Option<String>,
         build: impl FnOnce(&LayoutSession) -> Result<Verb, String>,
     ) -> LayoutVerbResult {
-        let actor_kind = actor_from(actor.as_deref());
+        self.apply_verb_as(app_id, device, actor_from(actor.as_deref()), build)
+    }
+
+    fn apply_verb_as(
+        &self,
+        app_id: &str,
+        device: Option<String>,
+        actor_kind: ActorKind,
+        build: impl FnOnce(&LayoutSession) -> Result<Verb, String>,
+    ) -> LayoutVerbResult {
         let device = resolve_device(device.as_deref());
         let store = self.layout_store();
-        let outcome = self.registry().with(
-            &store,
-            app_id,
-            &device,
-            actor_kind,
-            |session| -> Result<(String, crate::session::AppliedVerb), String> {
-                let verb = build(session)?;
+        let registry = self.registry();
+        let mut build = Some(build);
+        let mut built: Option<Verb> = None;
+        let mut notices: Vec<String> = Vec::new();
+        for _attempt in 0..2 {
+            let outcome = registry.with(&store, app_id, &device, actor_kind, |session| {
+                if let Some(notice) = session.take_notice() {
+                    notices.push(notice);
+                }
+                let verb = match (&built, build.take()) {
+                    (Some(verb), _) => verb.clone(),
+                    (None, Some(build)) => {
+                        let verb = build(session)?;
+                        built = Some(verb.clone());
+                        verb
+                    }
+                    (None, None) => return Err("the verb could not be rebuilt".to_string()),
+                };
                 let intent = intent_text(&verb);
                 let applied = session.apply(verb).map_err(|e| e.to_string())?;
-                // Ephemeral retention, coalescing left to the caller: see
-                // `store`'s module docs and ADR-0019 D6.
-                store.save_live(
-                    &session.app_id,
-                    &session.device,
-                    &session.layout,
-                    actor_kind,
-                    &intent,
-                )?;
-                Ok((intent, applied))
-            },
-        );
-        match flatten(outcome) {
-            Ok((intent, applied)) => LayoutVerbResult::applied(intent, &applied),
-            Err(message) => LayoutVerbResult::failed(message),
+                match session.save(&store, actor_kind, &intent) {
+                    Ok(()) => Ok(Some((intent, applied))),
+                    // Lost the race: the session is stale and reloads on
+                    // the next touch — the retry below.
+                    Err(_) if session.is_stale() => Ok(None),
+                    Err(e) => Err(e),
+                }
+            });
+            match flatten(outcome) {
+                Ok(Some((intent, applied))) => {
+                    return with_notices(LayoutVerbResult::applied(intent, &applied), &notices)
+                }
+                Ok(None) => continue,
+                Err(message) => return with_notices(LayoutVerbResult::failed(message), &notices),
+            }
         }
+        LayoutVerbResult::failed(crate::session::STALE)
     }
 
     /// Run `f` against the session without applying a verb — the reads, and
@@ -671,8 +700,122 @@ impl DefaultLayoutService {
     }
 }
 
+/// One pane, resolved and compiled: what `get_pane` answers, and what the
+/// FFI renders from without a JSON round trip (review RL-L14).
+#[derive(Debug, Clone)]
+pub struct CompiledPane {
+    pub tile: TileId,
+    pub spec: PaneSpec,
+    pub bindings: Bindings,
+    /// The channel the pane publishes on, resolved against its window.
+    pub channel: Option<u8>,
+    /// The focused leaf of the window the reference resolved in.
+    pub focused: Option<TileId>,
+    /// The compiled query, or the typed refusal — never an empty query that
+    /// reads as "no data yet".
+    pub compiled: Result<CompiledQuery, PaneQueryError>,
+}
+
+impl DefaultLayoutService {
+    /// The whole tree, read as `actor` — the GUI passes `Human`, because a
+    /// read that finds no live row cold-starts one, and that row is the
+    /// user's workspace (review RL-L15). The trait method, which MCP and the
+    /// CLI call, keeps its `Agent` default.
+    pub fn get_layout_as(
+        &self,
+        app_id: &str,
+        device: Option<String>,
+        actor: ActorKind,
+    ) -> LayoutResult {
+        let outcome = self.with_session(app_id, device, actor, |session, _| {
+            let notice = session.take_notice();
+            let window = session.layout.current_window().ok();
+            Ok(LayoutResult {
+                ok: true,
+                message: format!(
+                    "{}{} window(s), {} pane(s).",
+                    notice.map(|n| format!("{n} ")).unwrap_or_default(),
+                    session.layout.windows.len(),
+                    session.layout.panes().len()
+                ),
+                focused: window.and_then(|w| session.focused(w)).map(TileId::raw),
+                affected_panes: raw_tiles(&session.layout.panes()),
+                window: window.map(WindowId::raw),
+                item_id: Some(session.item_id.to_string()),
+                device: Some(session.device.clone()),
+                layout: Some(session.layout.clone()),
+            })
+        });
+        outcome.unwrap_or_else(LayoutResult::failed)
+    }
+
+    /// Resolve and compile one pane, as `actor` (see [`Self::get_layout_as`]).
+    ///
+    /// Only the resolution and a clone of the spec happen under the session
+    /// registry's lock; the compile — and the collection-tree read it needs
+    /// only for a `collection-subtree` scope, done lazily — happen outside
+    /// it. Every display pass used to run four collection-tree scans inside
+    /// the process-wide lock every verb and the surface executor also take
+    /// (review RL-L14).
+    pub fn compiled_pane(
+        &self,
+        app_id: &str,
+        device: Option<String>,
+        reference: &impress_layout::PaneRef,
+        actor: ActorKind,
+    ) -> Result<CompiledPane, String> {
+        let (tile, spec, bindings, channel, focused) =
+            self.with_session(app_id, device, actor, |session, _| {
+                let window = session.layout.current_window().map_err(|e| e.to_string())?;
+                let tile = session
+                    .layout
+                    .resolve(window, reference)
+                    .map_err(|e| e.to_string())?;
+                let spec = session
+                    .layout
+                    .pane(tile)
+                    .ok_or_else(|| format!("tile {tile} is a container, not a pane"))?
+                    .clone();
+                Ok((
+                    tile,
+                    spec,
+                    session.layout.bindings_for(tile),
+                    session.channel_of(tile),
+                    session.focused(window),
+                ))
+            })?;
+        let decls: Vec<ParamDecl> = spec.params.iter().map(|b| b.decl.clone()).collect();
+        let resolver = CollectionSubtrees::lazy(self.layout_store().store().clone());
+        let compiled = compile_with(
+            &spec.query,
+            &decls,
+            &bindings,
+            &builtin_manifest(),
+            &resolver,
+        );
+        Ok(CompiledPane {
+            tile,
+            spec,
+            bindings,
+            channel,
+            focused,
+            compiled,
+        })
+    }
+}
+
 fn flatten<T>(outcome: Result<Result<T, String>, String>) -> Result<T, String> {
     outcome.and_then(|inner| inner)
+}
+
+/// Put what the session reported about its own loading (a reload because the
+/// row moved, a quarantined row) in front of a result's message, so the
+/// caller learns that its undo history was dropped or its layout set aside.
+fn with_notices(mut result: LayoutVerbResult, notices: &[String]) -> LayoutVerbResult {
+    if !notices.is_empty() {
+        result.message = format!("{} {}", notices.join(" "), result.message);
+    }
+    result
 }
 
 /// The sentence recorded as the operation's `reason` (ADR-0019 D4: *why* was
@@ -742,13 +885,7 @@ fn apply_tree(
     // role is carried over, and every other session-bearing pane gets its own.
     layout.adopt_sessions_by_role(&session.layout);
     session.replace(layout);
-    store.save_live(
-        &session.app_id,
-        &session.device,
-        &session.layout,
-        actor,
-        &format!("applied the {what} '{label}'"),
-    )?;
+    session.save(store, actor, &format!("applied the {what} '{label}'"))?;
     Ok(LayoutVerbResult::from_layout(
         format!("Applied '{label}'."),
         &session.layout,
@@ -782,13 +919,17 @@ fn apply_preset_row(
         )
     })?;
     let result = apply_tree(session, store, layout, &row.name, actor, "preset")?;
-    presets::record_derived_from(
+    let revision = presets::record_derived_from(
         store.store(),
         session.item_id,
+        session.revision,
         row.id,
         actor,
         &format!("this arrangement came from the preset '{}'", row.name),
     )?;
+    if let Some(revision) = revision {
+        session.advance_revision(revision);
+    }
     Ok(result)
 }
 
@@ -1391,30 +1532,7 @@ impl LayoutService for DefaultLayoutService {
     }
 
     async fn get_layout(&self, app_id: String, device: Option<String>) -> LayoutResult {
-        let device_tag = resolve_device(device.as_deref());
-        let outcome = self.with_session(
-            &app_id,
-            Some(device_tag.clone()),
-            ActorKind::Agent,
-            |session, _| {
-                let window = session.layout.current_window().ok();
-                Ok(LayoutResult {
-                    ok: true,
-                    message: format!(
-                        "{} window(s), {} pane(s).",
-                        session.layout.windows.len(),
-                        session.layout.panes().len()
-                    ),
-                    focused: window.and_then(|w| session.focused(w)).map(TileId::raw),
-                    affected_panes: raw_tiles(&session.layout.panes()),
-                    window: window.map(WindowId::raw),
-                    item_id: Some(session.item_id.to_string()),
-                    device: Some(session.device.clone()),
-                    layout: Some(session.layout.clone()),
-                })
-            },
-        );
-        outcome.unwrap_or_else(LayoutResult::failed)
+        self.get_layout_as(&app_id, device, ActorKind::Agent)
     }
 
     async fn get_pane(
@@ -1423,46 +1541,30 @@ impl LayoutService for DefaultLayoutService {
         device: Option<String>,
         target: PaneRefDto,
     ) -> PaneResult {
-        let outcome = self.with_session(&app_id, device, ActorKind::Agent, |session, store| {
-            let window = session.layout.current_window().map_err(|e| e.to_string())?;
-            let reference = target.to_pane_ref()?;
-            let tile = session
-                .layout
-                .resolve(window, &reference)
-                .map_err(|e| e.to_string())?;
-            let spec = session
-                .layout
-                .pane(tile)
-                .ok_or_else(|| format!("tile {tile} is a container, not a pane"))?
-                .clone();
-
-            let bindings = session.layout.bindings_for(tile);
-            let decls: Vec<ParamDecl> = spec.params.iter().map(|b| b.decl.clone()).collect();
-            let resolver = CollectionSubtrees::read(store.store());
-            let compiled = match compile_with(
-                &spec.query,
-                &decls,
-                &bindings,
-                &builtin_manifest(),
-                &resolver,
-            ) {
-                Ok(compiled) => CompiledQueryDto::compiled(&compiled),
-                Err(e) => CompiledQueryDto::refused(&e),
-            };
-
-            Ok(PaneResult {
-                ok: true,
-                message: format!("pane {tile} renders '{}'", spec.view_kind),
-                tile: Some(tile.raw()),
-                query: Some(compiled),
-                bindings: binding_map(&bindings),
-                channel: session.channel_of(tile),
-                focused: session.focused(window).map(TileId::raw),
-                affected_panes: vec![tile.raw()],
-                spec: Some(spec),
-            })
-        });
-        outcome.unwrap_or_else(PaneResult::failed)
+        let reference = match target.to_pane_ref() {
+            Ok(reference) => reference,
+            Err(e) => return PaneResult::failed(e),
+        };
+        match self.compiled_pane(&app_id, device, &reference, ActorKind::Agent) {
+            Ok(pane) => {
+                let compiled = match &pane.compiled {
+                    Ok(compiled) => CompiledQueryDto::compiled(compiled),
+                    Err(e) => CompiledQueryDto::refused(e),
+                };
+                PaneResult {
+                    ok: true,
+                    message: format!("pane {} renders '{}'", pane.tile, pane.spec.view_kind),
+                    tile: Some(pane.tile.raw()),
+                    query: Some(compiled),
+                    bindings: binding_map(&pane.bindings),
+                    channel: pane.channel,
+                    focused: pane.focused.map(TileId::raw),
+                    affected_panes: vec![pane.tile.raw()],
+                    spec: Some(pane.spec),
+                }
+            }
+            Err(e) => PaneResult::failed(e),
+        }
     }
 
     async fn get_channel(
@@ -1675,13 +1777,16 @@ impl LayoutService for DefaultLayoutService {
             )?;
             // ADR-0031 D7: undo never crosses a commit, and a preset is one.
             session.commit_boundary();
-            presets::record_derived_from(
+            if let Some(revision) = presets::record_derived_from(
                 store.store(),
                 session.item_id,
+                session.revision,
                 row.id,
                 actor_kind,
                 &intent,
-            )?;
+            )? {
+                session.advance_revision(revision);
+            }
             let ordinal = ordinal_of(&presets, store, &session.app_id, row.id)?;
             Ok(PresetResult {
                 ok: true,
@@ -1757,7 +1862,15 @@ impl DefaultLayoutService {
         undo: bool,
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
+        let mut notice = None;
         let outcome = self.with_session(app_id, device, actor_kind, |session, store| {
+            notice = session.take_notice();
+            if notice.is_some() {
+                // Reloaded on this very touch: the rings this ⌘Z was aimed at
+                // are gone with the tree they described. Say so rather than
+                // answer "nothing to undo" as if nothing had happened.
+                return Err("nothing was undone or redone".to_string());
+            }
             let arrangement = parse_stack(stack)?;
             let ring = if arrangement {
                 UndoTarget::Arrangement
@@ -1781,13 +1894,7 @@ impl DefaultLayoutService {
                 ));
             };
             let intent = format!("{word}: {}", intent_text(&patch.verb));
-            store.save_live(
-                &session.app_id,
-                &session.device,
-                &session.layout,
-                actor_kind,
-                &intent,
-            )?;
+            session.save(store, actor_kind, &intent)?;
             let named = match &ring {
                 UndoTarget::Arrangement => Stack::Arrangement,
                 UndoTarget::Exploration(_) => session
@@ -1810,7 +1917,8 @@ impl DefaultLayoutService {
                 Some(&named),
             ))
         });
-        outcome.unwrap_or_else(LayoutVerbResult::failed)
+        let notices: Vec<String> = notice.into_iter().collect();
+        with_notices(outcome.unwrap_or_else(LayoutVerbResult::failed), &notices)
     }
 }
 
@@ -1845,12 +1953,42 @@ fn binding_map(bindings: &Bindings) -> BTreeMap<String, String> {
 /// so the union is unambiguous. A binding that fails to read contributes
 /// nothing rather than failing the compile: a pane scoped to a collection in
 /// *another* hierarchy must still resolve.
-struct CollectionSubtrees {
-    children: BTreeMap<ItemId, Vec<ItemId>>,
+///
+/// Public, and the one copy: the FFI's invalidation feed compiles the same
+/// queries and used to keep a verbatim duplicate (review RL-L14).
+pub struct CollectionSubtrees {
+    store: Option<Arc<SqliteItemStore>>,
+    children: std::sync::OnceLock<BTreeMap<ItemId, Vec<ItemId>>>,
 }
 
 impl CollectionSubtrees {
-    fn read(store: &SqliteItemStore) -> Self {
+    /// Read the whole tree now — for compiling many panes at once.
+    pub fn read(store: &SqliteItemStore) -> Self {
+        let children = std::sync::OnceLock::new();
+        let _ = children.set(Self::scan(store));
+        Self {
+            store: None,
+            children,
+        }
+    }
+
+    /// Read the tree only if a query actually asks for a subtree — most
+    /// panes never do, and then this costs nothing.
+    pub fn lazy(store: Arc<SqliteItemStore>) -> Self {
+        Self {
+            store: Some(store),
+            children: std::sync::OnceLock::new(),
+        }
+    }
+
+    fn children(&self) -> &BTreeMap<ItemId, Vec<ItemId>> {
+        self.children.get_or_init(|| match &self.store {
+            Some(store) => Self::scan(store),
+            None => BTreeMap::new(),
+        })
+    }
+
+    fn scan(store: &SqliteItemStore) -> BTreeMap<ItemId, Vec<ItemId>> {
         const BINDINGS: [CollectionSchemaBinding; 4] = [
             GENERIC_COLLECTION,
             IMBIB_COLLECTION,
@@ -1872,7 +2010,7 @@ impl CollectionSubtrees {
                 children.entry(parent).or_default().push(id);
             }
         }
-        Self { children }
+        children
     }
 }
 
@@ -1886,7 +2024,7 @@ impl SubtreeResolver for CollectionSubtrees {
         while cursor < out.len() {
             let node = out[cursor];
             cursor += 1;
-            if let Some(kids) = self.children.get(&node) {
+            if let Some(kids) = self.children().get(&node) {
                 for kid in kids {
                     if !out.contains(kid) {
                         out.push(*kid);
