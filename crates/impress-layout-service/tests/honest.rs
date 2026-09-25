@@ -29,6 +29,7 @@ async fn a_tree_refusal_carries_its_layout_error_tag_and_names_the_verb() {
                 ..Default::default()
             },
             None,
+            None,
         )
         .await;
     assert!(!closed.ok);
@@ -67,6 +68,7 @@ async fn a_channel_out_of_range_is_refused_not_clamped() {
             PaneRefDto::focused(),
             "12".into(),
             None,
+            None,
         )
         .await;
     assert!(
@@ -82,6 +84,7 @@ async fn a_channel_out_of_range_is_refused_not_clamped() {
             device(),
             PaneRefDto::focused(),
             "8".into(),
+            None,
             None,
         )
         .await;
@@ -113,6 +116,7 @@ async fn an_argument_that_does_not_parse_is_invalid_argument() {
             PaneRefDto::focused(),
             "diagonal".into(),
             true,
+            None,
             None,
             None,
         )

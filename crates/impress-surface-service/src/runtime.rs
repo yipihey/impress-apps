@@ -387,6 +387,7 @@ impl Executor for DefaultExecutor {
                 kind.to_string(),
                 id_strings,
                 Some(actor_name(actor).to_string()),
+                None,
             )
             .await;
         if result.ok {
@@ -532,6 +533,7 @@ pub(crate) async fn show_in_pane(
                 pane_ref.clone(),
                 query,
                 actor.clone(),
+                None,
             )
             .await;
         if !r1.ok {
@@ -544,6 +546,7 @@ pub(crate) async fn show_in_pane(
                 pane_ref,
                 view_kind.to_string(),
                 actor,
+                None,
             )
             .await;
         if !r2.ok {
@@ -573,6 +576,7 @@ pub(crate) async fn show_in_pane(
                 pane_ref.clone(),
                 query,
                 actor.clone(),
+                None,
             )
             .await;
         if !r1.ok {
@@ -585,6 +589,7 @@ pub(crate) async fn show_in_pane(
                 pane_ref,
                 view_kind.to_string(),
                 actor,
+                None,
             )
             .await;
         if !r2.ok {
@@ -613,6 +618,7 @@ pub(crate) async fn show_in_pane(
             true,
             Some(new_pane),
             actor,
+            None,
         )
         .await;
     if !split.ok {

@@ -6,9 +6,18 @@
 
 use impress_layout_service::{DefaultLayoutService, LayoutService, PaneRefDto};
 
+/// The store path is process-global and set once; both tests want the same.
+fn fallback() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        impress_store_service::set_store_path("/nonexistent-dir-for-t5/impress.sqlite").unwrap();
+    });
+}
+
 #[tokio::test]
 async fn a_write_into_the_fallback_store_is_refused() {
-    impress_store_service::set_store_path("/nonexistent-dir-for-t5/impress.sqlite").unwrap();
+    fallback();
     let svc = DefaultLayoutService::new();
     let split = svc
         .split(
@@ -17,6 +26,7 @@ async fn a_write_into_the_fallback_store_is_refused() {
             PaneRefDto::focused(),
             "horizontal".into(),
             true,
+            None,
             None,
             None,
         )
@@ -48,5 +58,29 @@ async fn a_write_into_the_fallback_store_is_refused() {
         Some("store-unavailable"),
         "{}",
         saved.message
+    );
+}
+
+/// Review AC-F20's read half: a read answered from the stand-in says so, in
+/// a field and at the front of its message.
+#[tokio::test]
+async fn a_read_from_the_fallback_store_says_so() {
+    fallback();
+    let svc = DefaultLayoutService::new();
+    let read = svc
+        .get_layout("fallback-test".into(), Some("fallback-device".into()))
+        .await;
+    assert_eq!(read.store.as_deref(), Some("fallback"), "{}", read.message);
+    assert!(
+        read.message.starts_with("FALLBACK STORE"),
+        "{}",
+        read.message
+    );
+    let listed = svc.list_layouts("fallback-test".into()).await;
+    assert_eq!(
+        listed.store.as_deref(),
+        Some("fallback"),
+        "{}",
+        listed.message
     );
 }
