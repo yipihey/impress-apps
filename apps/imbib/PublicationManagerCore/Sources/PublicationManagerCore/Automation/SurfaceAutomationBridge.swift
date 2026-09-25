@@ -21,6 +21,9 @@
 
 import Foundation
 import ImpressAutomation
+#if os(macOS)
+import ImpressLayout
+#endif
 import ImpressLogging
 import ImpressRustCore
 
@@ -49,9 +52,15 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
                 category: "surface")
             return (
                 409,
-                #"{"error": "the shared store is not open"}"#
+                #"{"error": "the shared store is not open", "code": "store-unavailable"}"#
             )
         }
+        // imbib's own window renders no layout tree, so this is where its
+        // process first touches the store FFI: bridge Rust's `surface` and
+        // `layout` lines into the Console here too (wave 7 T5).
+        #if os(macOS)
+        RustLogBridge.installOnce()
+        #endif
         // `host: ""` is the process-wide host, the same one `surface_show`
         // binds a pane under: a surface created by an agent and a surface
         // rendered in this window are one row, not two.

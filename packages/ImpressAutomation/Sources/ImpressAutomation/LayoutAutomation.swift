@@ -65,8 +65,33 @@ public protocol LayoutAutomationHost: AnyObject {
     /// is the request's JSON object.
     func applyLayoutOperation(_ operation: String, body: [String: Any]) throws -> [String: Any]
 
-    /// The saved layouts, in ⌃⌘1–9 order.
-    func savedLayoutsJSON() -> [[String: Any]]
+    /// The saved layouts, in ⌃⌘1–9 order. Throws when they could not be
+    /// read — an empty list is "none saved", never "the read failed".
+    func savedLayoutsJSON() throws -> [[String: Any]]
+}
+
+/// A refusal a host reports to these routes: Rust's machine-readable `code`,
+/// its prose, and the HTTP status the code maps to (Rust's one table,
+/// `refusal_http_status`). The host converts its own error type into this —
+/// the package must not learn `SharedLayoutError` (see the file header).
+public struct AutomationRefusal: Error, CustomStringConvertible, Equatable {
+    public let code: String
+    public let message: String
+    public let status: Int
+
+    public init(code: String, message: String, status: Int) {
+        self.code = code
+        self.message = message
+        self.status = status
+    }
+
+    public var description: String { "[\(code)] \(message)" }
+}
+
+/// An error a host throws that knows which refusal it is — so a host's own
+/// argument errors reach the wire with a code and a 400, not as a 500.
+public protocol AutomationRefusalConvertible: Error {
+    var automationRefusal: AutomationRefusal { get }
 }
 
 /// Where the live tree announces itself.
@@ -115,15 +140,27 @@ public enum LayoutAutomationRoutes {
         case ("/api/layout/tree", "GET"):
             return await withHost { host in
                 var payload = host.layoutTreeJSON()
-                payload["status"] = "ok"
                 payload["app"] = host.layoutAppID
+                // A snapshot that failed is a 500 with the reason, never a
+                // 200 whose `layout` is null (reviews SK-K24, PH-L8).
+                if payload["snapshotError"] != nil {
+                    payload["status"] = "error"
+                    payload["error"] = payload["snapshotError"]
+                    payload["code"] = payload["snapshotCode"] ?? "internal"
+                    return .json(payload, status: 500)
+                }
+                payload["status"] = "ok"
                 return .json(payload)
             }
 
         case ("/api/layout/layouts", "GET"):
             return await withHost { host in
-                let rows = host.savedLayoutsJSON()
-                return .json(["status": "ok", "app": host.layoutAppID, "layouts": rows])
+                do {
+                    let rows = try host.savedLayoutsJSON()
+                    return .json(["status": "ok", "app": host.layoutAppID, "layouts": rows])
+                } catch {
+                    return refused(error)
+                }
             }
 
         case ("/api/layout/verb", "POST"):
@@ -197,12 +234,23 @@ public enum LayoutAutomationRoutes {
         }
     }
 
-    /// A verb Rust refused is a 422, not a 500: the request was well-formed
-    /// and the tree said no (last pane of a window, unknown role, …).
-    private static func refused(_ error: Error) -> HTTPResponse {
-        .json(
-            ["status": "error", "error": String(describing: error)],
-            status: 422)
+    /// A refusal, with its `code` and the status the code maps to: a tree
+    /// refusal (last pane of a window, unknown tile) is 422, a lookup that
+    /// found nothing 404, a store failure 500 — never every error as 422
+    /// with `String(describing:)` of a Swift enum (review SK-K24).
+    static func refused(_ error: Error) -> HTTPResponse {
+        switch error {
+        case let refusal as AutomationRefusal:
+            return .json(
+                ["status": "error", "error": refusal.message, "code": refusal.code],
+                status: refusal.status)
+        case let convertible as AutomationRefusalConvertible:
+            return refused(convertible.automationRefusal)
+        default:
+            return .json(
+                ["status": "error", "error": String(describing: error), "code": "internal"],
+                status: 500)
+        }
     }
 
     private static func jsonBody(_ request: HTTPRequest) -> [String: Any]? {

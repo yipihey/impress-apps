@@ -350,13 +350,17 @@ final class SurfacePaneModel {
         lastDispatch = Task { [weak self] in
             await previous?.value
             do {
+                // A click or edit in this pane is the person's, and Rust
+                // records the state write, the events and every layout verb
+                // an effect runs as theirs (review SK-K5, AC-F5).
                 let replyJSON = try await surface.dispatch(
-                    surfaceId: surfaceID, pane: pane, eventJson: eventJSON)
+                    surfaceId: surfaceID, pane: pane, eventJson: eventJSON,
+                    actor: LayoutController.guiActor)
                 let reply = try SurfaceDispatchReply.decode(replyJSON)
                 let failed = reply.effects.filter { !$0.ok }
                 logInfo(
                     "surface pane \(pane): \(kind) \(widget) → "
-                        + "\(reply.ok ? "ok" : "refused: \(reply.message)"), "
+                        + "\(reply.ok ? "ok" : "not ok [\(reply.code ?? "?")]: \(reply.message)"), "
                         + "\(reply.effects.count) effect(s), \(failed.count) failed",
                     category: "surface")
                 // Rust has run every effect already (none is left for the
@@ -365,7 +369,8 @@ final class SurfacePaneModel {
                 // overtook the reply's tree.
                 for effect in failed {
                     logWarning(
-                        "surface pane \(pane): \(effect.kind) effect failed — \(effect.message)",
+                        "surface pane \(pane): \(effect.kind) effect failed "
+                            + "[\(effect.code ?? "?")] — \(effect.message)",
                         category: "surface")
                 }
                 guard let self else { return }
@@ -419,31 +424,50 @@ private final class SurfaceInvalidationBridge: SharedSurfaceListener, @unchecked
 }
 
 /// `impress_surface_service::dto::SurfaceDispatchResult`'s wire shape:
-/// `{"ok", "message", "tree", "effects"}`. Rust has already RUN every effect
-/// by the time this arrives — `call`, `publish`, `emit`, `open`, `refresh`;
-/// none is a to-do for the host — and `effects` says how each one went. A
-/// dispatch can be `ok` with a failed effect (a publish that found no pane,
-/// an `open` Rust refused), which is why the pane reads them (SK-K16).
+/// `{"ok", "code", "message", "tree", "effects", "effects_failed"}`. Rust
+/// has already RUN every effect by the time this arrives — `call`,
+/// `publish`, `emit`, `open`, `refresh`; none is a to-do for the host — and
+/// `effects` says how each one went (SK-K16).
+///
+/// `ok` is Rust's rule, not the pane's: true only when the event was reduced
+/// AND every effect happened. A reply with a failed effect is `ok: false`,
+/// `code: "effect-failed"`, and still carries the re-rendered `tree` — the
+/// state change stands — so the pane adopts the tree and shows the failure.
+/// A reply that could not be reduced has its own `code` and no tree.
 struct SurfaceDispatchReply: Decodable {
     let ok: Bool
+    /// The refusal's stable name, when `ok` is false (`effect-failed`,
+    /// `unknown-widget`, `not-found`, …).
+    let code: String?
     let message: String
     let tree: RenderTree?
     let effects: [Effect]
+    let effectsFailed: Int
 
     struct Effect: Decodable, Equatable {
         let kind: String
         let ok: Bool
         let message: String
+        /// Why this effect failed (`no-pane`, `verb-failed`, a layout
+        /// refusal's code, …); nil when it succeeded.
+        let code: String?
     }
 
-    private enum CodingKeys: String, CodingKey { case ok, message, tree, effects }
+    private enum CodingKeys: String, CodingKey {
+        case ok, code, message, tree, effects
+        case effectsFailed = "effects_failed"
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ok = try container.decode(Bool.self, forKey: .ok)
+        code = try container.decodeIfPresent(String.self, forKey: .code)
         message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
         tree = try container.decodeIfPresent(RenderTree.self, forKey: .tree)
         effects = try container.decodeIfPresent([Effect].self, forKey: .effects) ?? []
+        effectsFailed =
+            try container.decodeIfPresent(Int.self, forKey: .effectsFailed)
+            ?? effects.filter { !$0.ok }.count
     }
 
     static func decode(_ json: String) throws -> SurfaceDispatchReply {

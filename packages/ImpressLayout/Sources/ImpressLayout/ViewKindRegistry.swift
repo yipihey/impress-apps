@@ -122,14 +122,28 @@ public struct PaneContext {
         self.tile = tile
         self.pane = pane
         self.controller = controller
-        self.spec =
-            spec
-            ?? (try? JSONDecoder().decode(LayoutPaneSpec.self, from: Data(pane.specJson.utf8)))
-        var bindings: [String: String] = [:]
-        if let object = try? LayoutJSONValue.decode(pane.bindingsJson).objectValue {
-            for (name, value) in object {
-                if let id = value.stringValue { bindings[name] = id }
+        // A spec or bindings that do not decode are said, not swallowed: a
+        // silent failure here reads as an unbound parameter (review SK-K24).
+        if let spec {
+            self.spec = spec
+        } else {
+            do {
+                self.spec = try JSONDecoder().decode(
+                    LayoutPaneSpec.self, from: Data(pane.specJson.utf8))
+            } catch {
+                self.spec = nil
+                logWarning("pane \(tile): spec does not decode — \(error)", category: "layout")
             }
+        }
+        var bindings: [String: String] = [:]
+        do {
+            if let object = try LayoutJSONValue.decode(pane.bindingsJson).objectValue {
+                for (name, value) in object {
+                    if let id = value.stringValue { bindings[name] = id }
+                }
+            }
+        } catch {
+            logWarning("pane \(tile): bindings do not decode — \(error)", category: "layout")
         }
         self.bindings = bindings
     }
