@@ -36,8 +36,10 @@ import SwiftUI
 public enum ChassisViewKinds {
 
     /// Every kind this package registers, in the order `factories` lists
-    /// them. With the kit's own three, the whole vocabulary of
-    /// `impress_layout::ViewKindId`.
+    /// them. With the kit's own three, every kind a chassis window renders —
+    /// NOT the whole of `impress_layout::ViewKindId`: `notes`, `bibtex` and
+    /// `surface` exist only as Swift spellings until Rust owns the list
+    /// (review PH-M7, plan wave 7 T6).
     public static let kinds: [ViewKindID] = factories.map(\.kind)
 
     /// The chassis' factories. `surface` replaces the kit's plain one with
@@ -46,10 +48,9 @@ public enum ChassisViewKinds {
         // ---- rendered ----
         // The navigator IS the chassis sidebar (plan wave 6, W3):
         // `LayoutOutlinePaneView` hosts `ImbibSidebarColumn` and turns a
-        // selected row into Rust's verbs. `LayoutRowsPaneView`'s `.outline`
-        // style stays for a host that registers it explicitly.
+        // selected row into Rust's verbs.
         ViewKindFactory(kind: .outline) { AnyView(LayoutOutlinePaneView(context: $0)) },
-        ViewKindFactory(kind: .list) { AnyView(LayoutRowsPaneView(context: $0, style: .list)) },
+        ViewKindFactory(kind: .list) { AnyView(LayoutRowsPaneView(context: $0)) },
         ViewKindFactory(kind: .info) { AnyView(LayoutInfoPaneView(context: $0)) },
         ViewKindFactory(kind: .surface) {
             AnyView(LayoutSurfacePaneView(context: $0, hooks: .chassis))
@@ -117,29 +118,46 @@ public enum ChassisViewKinds {
 ///   "node", "reason"}`, written by the outline for a row the algebra cannot
 ///   express yet (`outline.rs`, `OutlineTarget::Legacy`): ONE section's route,
 ///   `LayoutScopedLegacyPaneView`, not the chassis.
-/// * **Whole** — no such `view_state`: today's chassis, `TabContentView`,
-///   exactly what the flagged-off build renders, for a layout written before
-///   the outline existed. It reads the same view models and
-///   `AppShellConfiguration` from the environment `ChassisRootView` supplies.
+/// * **Unscoped** — no such `view_state`: only a layout saved before W3, or
+///   an agent's bare `set-view-kind legacy`, reaches it (no preset writes
+///   one). It used to mount a whole `TabContentView` — a second chassis with
+///   its own sidebar and lifecycle inside the pane (review PH-L2). It now
+///   says what it is and how to leave it.
+///
+/// The `view_state` keys are Rust's `LEGACY_SECTION_KEY` / `LEGACY_NODE_KEY`
+/// / `LEGACY_REASON_KEY`; `LayoutLegacyScopeTests` decodes a Rust-produced
+/// `set-pane` through `scope(of:)` so the two spellings cannot drift apart.
 @MainActor
 struct LayoutLegacyPaneView: View {
 
     let context: PaneContext
 
-    private var scope: (section: String?, node: LayoutJSONValue, reason: String?)? {
-        guard let state = context.spec?.viewState.objectValue,
+    /// The scoped route a legacy pane's `view_state` names, or nil.
+    static func scope(of viewState: LayoutJSONValue?) -> (section: String?, node: LayoutJSONValue, reason: String?)? {
+        guard let state = viewState?.objectValue,
               let node = state["node"], node.objectValue != nil
         else { return nil }
         return (state["section"]?.stringValue, node, state["reason"]?.stringValue)
     }
 
     var body: some View {
-        if let scope {
+        if let scope = Self.scope(of: context.spec?.viewState) {
             LayoutScopedLegacyPaneView(
                 context: context, section: scope.section, node: scope.node, reason: scope.reason)
         } else {
-            TabContentView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ChassisEmptyState(
+                id: "legacy-unscoped",
+                title: "Unscoped Legacy Pane",
+                systemImage: "shippingbox",
+                message: "This pane names no route. Choose a row in the outline to show it here."
+            )
+            .view
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear {
+                logInfo(
+                    "pane \(context.tile) legacy: unscoped (no view_state route) — named state, "
+                        + "not a second chassis", category: "layout")
+            }
         }
     }
 }
@@ -162,8 +180,7 @@ struct LayoutPaneRow: Identifiable, Hashable {
     /// This is what a `list` pane RENDERS (`RecordViewerRegistry.makeListRow`
     /// → `MailStyleRow`): read state, flag, star, tags, date column, the
     /// author/title/venue/abstract stack — imbib's list, not a second one.
-    /// The plain fields above stay for the `outline` style, which wants one
-    /// compact line and no chrome, and as the fallback for a row whose id the
+    /// The plain fields above are the fallback for a row whose id the
     /// chassis cannot parse.
     let mailStyleRow: KindTaggedRow?
 
@@ -186,8 +203,8 @@ struct LayoutPaneRow: Identifiable, Hashable {
     }
 }
 
-/// The `list` and `outline` view kinds: the pane's compiled query, run, with
-/// selection published on the pane's channel.
+/// The `list` view kind: the pane's compiled query, run, with selection
+/// published on the pane's channel.
 ///
 /// Selection is NOT `@State`. It is read from the channel state in the tree
 /// and written with the `select` verb, which is the whole of what "selecting
@@ -197,13 +214,7 @@ struct LayoutPaneRow: Identifiable, Hashable {
 @MainActor
 struct LayoutRowsPaneView: View {
 
-    enum Style {
-        case list
-        case outline
-    }
-
     let context: PaneContext
-    let style: Style
 
     @State private var rows: [LayoutPaneRow] = []
     @State private var loadFailed = false
@@ -248,7 +259,8 @@ struct LayoutRowsPaneView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        styledList
+        rowList
+            .listStyle(.inset)
             .manuscriptRenameAlert($manuscriptRename, draft: $manuscriptRenameDraft) { id, title in
                 manuscriptActions.onRename(id, title)
             }
@@ -268,9 +280,9 @@ struct LayoutRowsPaneView: View {
             .overlay { emptyOverlay.padding(.top, toolbarBand) }
             // The rows are query RESULTS, so they re-run when the
             // invalidation feed marks this pane stale — `refreshToken` is one
-            // Equatable value to watch instead of a Set's identity. NOT
-            // `.task(id:)`: that closure is `@Sendable` and nonisolated, and
-            // everything below it is main-actor work.
+            // Equatable value to watch instead of a Set's identity. (Today the
+            // counter moves on EVERY verb, so this reloads more than it must;
+            // per-pane staleness is the kit's fix, review PH-H1.)
             .onChange(of: context.controller.refreshToken) { _, _ in load() }
             .onAppear { load() }
             .task {
@@ -297,18 +309,6 @@ struct LayoutRowsPaneView: View {
             .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
                 Task { listSettings = await ListViewSettingsStore.shared.settings }
             }
-    }
-
-    /// `listStyle` takes a CONCRETE style type, so the two styles have to be
-    /// two branches; a ternary between `.sidebar` and `.inset` does not type
-    /// check.
-    @ViewBuilder
-    private var styledList: some View {
-        if style == .outline {
-            rowList.listStyle(.sidebar)
-        } else {
-            rowList.listStyle(.inset)
-        }
     }
 
     private var rowList: some View {
@@ -338,7 +338,7 @@ struct LayoutRowsPaneView: View {
         }
     }
 
-    /// A `list` pane shows the chassis' row; an `outline` pane shows one line.
+    /// A `list` pane shows the chassis' row.
     ///
     /// The list branch goes through `RecordViewerRegistry`, the SAME factory
     /// the heterogeneous list and the store-search results use, so a pane and
@@ -347,7 +347,7 @@ struct LayoutRowsPaneView: View {
     /// ended up with a list that shared nothing with imbib's.
     @ViewBuilder
     private func rowView(_ row: LayoutPaneRow) -> some View {
-        if style == .list, let mailStyle = row.mailStyleRow {
+        if let mailStyle = row.mailStyleRow {
             // The kind's own row when it has one; otherwise the shared chrome
             // with the user's settings, which is what the registry's default
             // builds too.
@@ -358,7 +358,10 @@ struct LayoutRowsPaneView: View {
                     item: mailStyle, configuration: listSettings.mailStyleConfiguration)
             }
         } else {
-            compactRow(row)
+            // A row whose id is not a UUID: the chassis cannot identify it,
+            // so it gets its title and nothing that acts on it.
+            Text(row.title)
+                .lineLimit(1)
         }
     }
 
@@ -380,7 +383,7 @@ struct LayoutRowsPaneView: View {
     /// All act on the selection when the row is part of it, else the row.
     @ViewBuilder
     private func rowChrome(_ content: some View, _ row: LayoutPaneRow) -> some View {
-        if style == .list, let id = UUID(uuidString: row.id),
+        if let id = UUID(uuidString: row.id),
             row.mailStyleRow?.kind == .publication
         {
             let context = context
@@ -397,7 +400,7 @@ struct LayoutRowsPaneView: View {
                         context: context, targets: targets(for: id), order: rowOrder,
                         revision: rowsRevision)
                 }
-        } else if style == .list, let id = UUID(uuidString: row.id),
+        } else if let id = UUID(uuidString: row.id),
             row.mailStyleRow?.kind == .manuscript
         {
             content
@@ -416,7 +419,7 @@ struct LayoutRowsPaneView: View {
                             manuscriptRename = request
                         })
                 }
-        } else if style == .list, let id = UUID(uuidString: row.id),
+        } else if let id = UUID(uuidString: row.id),
             row.mailStyleRow?.kind == .figure
         {
             content
@@ -432,7 +435,7 @@ struct LayoutRowsPaneView: View {
                         isFolderScoped: figureFolderID != nil,
                         actions: figureActions)
                 }
-        } else if style == .list, let id = UUID(uuidString: row.id),
+        } else if let id = UUID(uuidString: row.id),
             let kind = row.mailStyleRow?.kind,
             [RecordKindID.message, .task, .agentRun].contains(kind),
             let descriptor = BuiltinRecordKinds.registry[kind]
@@ -526,40 +529,6 @@ struct LayoutRowsPaneView: View {
         context.select(Array(kept), kind: context.primaryKind)
     }
 
-    /// The `outline` row: a navigator line, not a message row.
-    @ViewBuilder
-    private func compactRow(_ row: LayoutPaneRow) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbolName(for: row))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 14)
-            Text(row.title)
-                .font(.body)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 1)
-    }
-
-    /// The record kind's own symbol, so the navigator reads like the sidebar
-    /// rather than like an undifferentiated list of strings.
-    private func symbolName(for row: LayoutPaneRow) -> String {
-        if let kind = row.mailStyleRow?.kind,
-            let descriptor = BuiltinRecordKinds.registry[kind]
-        {
-            return descriptor.symbolName
-        }
-        // The sidebar kinds have no chassis DESCRIPTOR — they are containers,
-        // not record kinds with detail panes — so the descriptor fallback drew
-        // `questionmark.square.dashed` next to every library. These are the
-        // symbols imbib's own sidebar uses for them.
-        switch row.layoutKind {
-        case "library": return "books.vertical"
-        case "collection": return "folder"
-        default: return RecordKindDescriptor.unknownSymbolName
-        }
-    }
-
     /// The channel's current selection, written back as a `select` verb.
     private var selection: Binding<Set<String>> {
         let context = context
@@ -567,8 +536,8 @@ struct LayoutRowsPaneView: View {
             get: { context.currentSelection },
             set: { ids in
                 // The kind of what was actually selected, not of the query:
-                // the navigator lists collections AND libraries, and the two
-                // bind different parameters downstream.
+                // a query may name several kinds, and each binds different
+                // parameters downstream.
                 context.select(Array(ids), kind: kindOfSelection(ids))
             })
     }
@@ -603,15 +572,13 @@ struct LayoutRowsPaneView: View {
 /// The `info` view kind: the record kind's EXISTING detail pane, for whatever
 /// the pane's `item` parameter currently resolves to.
 ///
-/// Five kinds route here today and every one of them is a view the chassis
-/// already ships: `DetailView` is the same failable entry point
-/// `SectionContentView` uses for a publication, and `FigureDetailPane`,
-/// `MessageDetailPane` and `AgentRecordDetailPane` are the same id-based
-/// panes `FigureSectionView` / `MessageSectionView` / `AgentSectionView`
-/// build for their own detail half. Nothing was extracted to get here: all
-/// four already took an id and a tab binding, because a section's detail
-/// pane and a tree's detail pane want exactly the same two things (ADR-0031
-/// D11 — map, do not rewrite).
+/// Six kinds route here and every one of them is a view the chassis already
+/// ships: `DetailView` is the same failable entry point `SectionContentView`
+/// uses for a publication; `ManuscriptDetailPane` is the Manuscripts
+/// section's detail; `FigureDetailPane`, `MessageDetailPane` and
+/// `AgentRecordDetailPane` are the id-based panes their sections build for
+/// their own detail half. Nothing was extracted to get here (ADR-0031 D11 —
+/// map, do not rewrite).
 ///
 /// `topInset` is the toolbar band the tree measured for this pane
 /// (`layoutToolbarBand`), not the section views' fixed 40 pt. A layout pane
@@ -621,9 +588,12 @@ struct LayoutRowsPaneView: View {
 /// toolbar, invisible and unclickable. A pane that is not under the toolbar
 /// is told 0 and gets no gap.
 ///
-/// The detail TAB is view state of this view kind, not layout state — in L8
-/// it becomes `PaneSpec.view_state`, which is where a per-pane tab belongs
-/// (ADR-0031 D1).
+/// The detail TAB is `PaneSpec.view_state["tab"]` (review PH-M6), written
+/// with `set-pane` like any other pane state — not view `@State`, which a
+/// split rebuilt by structure (back to Info) and no agent could read or set.
+/// A manuscript's editor session is resolved HERE, by the host, and passed
+/// in (apps/imbib/CLAUDE.md: the session is owned by the host view, never by
+/// `ManuscriptDetailPane`).
 @MainActor
 struct LayoutInfoPaneView: View {
 
@@ -632,36 +602,48 @@ struct LayoutInfoPaneView: View {
     /// shape does not propagate `nil` through `if let` and silently renders
     /// the wrong branch for every case (impress-swiftui-pitfalls rule 3, a
     /// bug this file is the exact shape of).
-    private enum DetailKind {
+    enum DetailKind: Equatable {
         case publication
+        case manuscript
         case figure
         case message
         case task
         case agentRun
-        /// A kind this build has no detail pane for — the honest fallback,
-        /// unchanged from before the other four existed.
+        /// A kind this build has no detail pane for — the honest fallback.
         case unsupported
 
         /// From the pane's own layout kind — the manifest's short id
-        /// (`figure`), which is what a pane query and a `select` verb spell.
-        /// NOT the chassis' namespaced `RecordKindID`; see
-        /// `LayoutPaneRowMapper.kindBySchemaRef` for why the two are one
-        /// string apart on purpose.
+        /// (`figure`), which is what a pane query and a `select` verb spell —
+        /// through `LayoutKindID`, the join onto the chassis' `RecordKindID`.
+        @MainActor
         init(layoutKind: String?) {
-            switch layoutKind {
-            case RecordKindID.publication.rawValue: self = .publication
-            case RecordKindID.figure.rawValue: self = .figure
-            case RecordKindID.message.rawValue: self = .message
-            case RecordKindID.task.rawValue: self = .task
-            case RecordKindID.agentRun.rawValue: self = .agentRun
+            guard let kind = LayoutKindID.recordKind(forLayoutKind: layoutKind) else {
+                self = .unsupported
+                return
+            }
+            switch kind {
+            case .publication: self = .publication
+            case .manuscript: self = .manuscript
+            case .figure: self = .figure
+            case .message: self = .message
+            case .task: self = .task
+            case .agentRun: self = .agentRun
             default: self = .unsupported
             }
         }
     }
 
+    /// The tab a pane's `view_state` names; Info when it names none.
+    static func tab(in viewState: LayoutJSONValue?) -> DetailTab {
+        viewState?["tab"]?.stringValue.flatMap(DetailTab.init(rawValue:)) ?? .info
+    }
+
     let context: PaneContext
 
-    @State private var selectedTab: DetailTab = .info
+    /// The manuscript's editor session, resolved by this host (debounced like
+    /// `ManuscriptSectionView`'s, so arrowing through a list does not open an
+    /// editor per row).
+    @State private var manuscriptSession: ManuscriptEditorSession?
 
     @Environment(\.layoutToolbarBand) private var toolbarBand
 
@@ -679,6 +661,24 @@ struct LayoutInfoPaneView: View {
     /// is the kind of the thing the parameter resolved to, not a guess.
     private var detailKind: DetailKind {
         DetailKind(layoutKind: context.primaryKind)
+    }
+
+    /// The pane's detail tab, read from and written to its `view_state`.
+    private var selectedTab: Binding<DetailTab> {
+        let context = context
+        return Binding(
+            get: { Self.tab(in: context.spec?.viewState) },
+            set: { tab in
+                guard tab != Self.tab(in: context.spec?.viewState) else { return }
+                LayoutPaneViewState.merge(
+                    ["tab": .string(tab.rawValue)], into: context.tile, controller: context.controller,
+                    why: "info tab → \(tab.rawValue)")
+            })
+    }
+
+    /// The manuscript whose session this pane should hold, or nil.
+    private var manuscriptKey: UUID? {
+        detailKind == .manuscript ? itemID : nil
     }
 
     var body: some View {
@@ -700,16 +700,45 @@ struct LayoutInfoPaneView: View {
                 // error (ADR-0031 D3) — this is what a detail pane looks like
                 // before the first selection.
                 ChassisEmptyState.noRowSelection(
-                    kind: RecordKindID(context.primaryKind ?? "")
+                    kind: LayoutKindID.recordKind(forLayoutKind: context.primaryKind)
+                        ?? RecordKindID(context.primaryKind ?? "")
                 ).view
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: manuscriptKey) { await resolveManuscriptSession() }
     }
 
     private func logDispatch(_ id: UUID) {
         logInfo(
-            "pane \(context.tile) info: \(detailKind) detail for \(id.uuidString)",
+            "pane \(context.tile) info: \(detailKind) detail for \(id.uuidString), "
+                + "tab \(Self.tab(in: context.spec?.viewState).rawValue)",
+            category: "layout")
+    }
+
+    /// Resolve the manuscript session for the selected manuscript: drop a
+    /// stale one at once, wait out a short quiet window, then ask the
+    /// registry — never for a manuscript that indexes an external file
+    /// (ADR-0023 D4: no session, so no late save can reach the file).
+    private func resolveManuscriptSession() async {
+        let tile = context.tile
+        guard let id = manuscriptKey else {
+            manuscriptSession = nil
+            return
+        }
+        if manuscriptSession?.manuscriptID != id { manuscriptSession = nil }
+        try? await Task.sleep(for: .milliseconds(90))
+        guard !Task.isCancelled else { return }
+        guard RustStoreAdapter.shared.manuscriptAllowsEditorSession(id: id) else {
+            logInfo(
+                "pane \(tile) info: manuscript \(id.uuidString) has external_source — no editor session",
+                category: "layout")
+            return
+        }
+        manuscriptSession = ManuscriptSessionRegistry.shared.session(for: id)
+        logInfo(
+            "pane \(tile) info: manuscript \(id.uuidString) session "
+                + (manuscriptSession == nil ? "unavailable — not in the store" : "resolved"),
             category: "layout")
     }
 
@@ -718,21 +747,25 @@ struct LayoutInfoPaneView: View {
         switch detailKind {
         case .publication:
             // Failable: the id may name a row that has since gone.
-            if let view = DetailView(publicationID: id, selectedTab: $selectedTab) {
+            if let view = DetailView(publicationID: id, selectedTab: selectedTab) {
                 view
             } else {
                 unavailable(id.uuidString)
             }
+        case .manuscript:
+            ManuscriptDetailPane(
+                manuscriptID: id, session: manuscriptSession, selectedTab: selectedTab,
+                topInset: toolbarBand)
         case .figure:
-            FigureDetailPane(figureID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+            FigureDetailPane(figureID: id, selectedTab: selectedTab, topInset: toolbarBand)
         case .message:
-            MessageDetailPane(messageID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+            MessageDetailPane(messageID: id, selectedTab: selectedTab, topInset: toolbarBand)
         case .task:
             AgentRecordDetailPane(
-                kind: .task, recordID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+                kind: .task, recordID: id, selectedTab: selectedTab, topInset: toolbarBand)
         case .agentRun:
             AgentRecordDetailPane(
-                kind: .run, recordID: id, selectedTab: $selectedTab, topInset: toolbarBand)
+                kind: .run, recordID: id, selectedTab: selectedTab, topInset: toolbarBand)
         case .unsupported:
             unavailable(id.uuidString)
         }

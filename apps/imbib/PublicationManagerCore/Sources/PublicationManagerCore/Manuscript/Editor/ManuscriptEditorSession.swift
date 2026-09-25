@@ -290,10 +290,30 @@ public final class ManuscriptEditorSession {
     }
 
     /// Synchronous flush for eviction / window close / app resign-active.
+    ///
+    /// Refused, and logged, when the manuscript's row is gone: a delete from
+    /// another process (an agent, the CLI, the kernel `delete`) reaches this
+    /// session only as a cross-process signal, and committing the buffer
+    /// after it would write the body back to a deleted item — the
+    /// "discard before delete" invariant, from the side that cannot see the
+    /// delete coming (review PH-M9).
     public func flush() {
         saveTask?.cancel()
+        guard rowExists else {
+            Logger.library.warningCapture(
+                "manuscript \(manuscriptID): flush refused — its row is gone (deleted elsewhere); "
+                    + "the buffer is dropped, nothing written",
+                category: "manuscripts")
+            return
+        }
         // Best-effort synchronous-ish save: fire and let it complete.
         Task { @MainActor [weak self] in await self?.saveCAS() }
+    }
+
+    /// Does the manuscript this session edits still have a row? For a
+    /// session over one file of a project, the manuscript is the project's.
+    public var rowExists: Bool {
+        RustStoreAdapter.shared.getManuscriptDetail(id: projectContext?.manuscriptID ?? manuscriptID) != nil
     }
 
     /// Cancel any pending debounced save WITHOUT persisting. Used when the
@@ -307,10 +327,22 @@ public final class ManuscriptEditorSession {
     /// React to a store mutation from ANOTHER writer: fast-forward the buffer
     /// when the user hasn't diverged, else commit — which merges their edits
     /// with ours (there is no longer a case that needs the user's decision).
-    public func absorbExternalChange() {
+    ///
+    /// Returns `false` when the manuscript's row is GONE — deleted by another
+    /// writer. The caller must then discard the session without flushing
+    /// (`ManuscriptSessionRegistry.manuscriptDeletedElsewhere`); nothing is
+    /// saved here either way.
+    @discardableResult
+    public func absorbExternalChange() -> Bool {
         // Ignore our own echo.
-        guard !isSaving else { return }
-        guard let stored = storedText() else { return }
+        guard !isSaving else { return true }
+        guard let stored = storedText() else {
+            if !rowExists {
+                abandonPendingSave()
+                return false
+            }
+            return true
+        }
         // Already in sync with the store — re-pin and return.
         if stored.hash == savedHash || source == stored.text {
             savedHash = stored.hash
@@ -321,7 +353,7 @@ public final class ManuscriptEditorSession {
             // saved, and the next external change would then fast-forward
             // over it instead of merging it.
             lastPersistedSource = stored.text
-            return
+            return true
         }
         if source == lastPersistedSource {
             // No local unsaved edits — safe to fast-forward to the store body.
@@ -334,6 +366,7 @@ public final class ManuscriptEditorSession {
             saveTask?.cancel()
             Task { @MainActor [weak self] in await self?.saveCAS() }
         }
+        return true
     }
 
     /// The text the store holds for this session's document: the manuscript
@@ -438,8 +471,28 @@ public final class ManuscriptSessionRegistry {
 
     /// Re-check every live session against the store (cross-process refresh).
     public func refreshAllLiveSessions() {
-        for session in sessions.values { session.absorbExternalChange() }
+        let gone = sessions.filter { !$0.value.absorbExternalChange() }.map(\.key)
+        for id in gone { manuscriptDeletedElsewhere(id: id) }
     }
+
+    /// A manuscript whose row went away under a live session — deleted by
+    /// another process, which could not discard the session first. Discard
+    /// it now, WITHOUT flushing, and drop it from every layout-tree `source`
+    /// pane's editor too, so no debounced save or LRU eviction writes the
+    /// body back (review PH-M9; apps/imbib/CLAUDE.md "Deleting a manuscript
+    /// must discard its live editor session first").
+    public func manuscriptDeletedElsewhere(id: UUID) {
+        Logger.library.infoCapture(
+            "manuscript \(id) deleted outside this window — discarding its editor session(s), no flush",
+            category: "manuscripts")
+        discard(id: id)
+        #if os(macOS)
+        SourcePaneSession.abandonEverywhere(manuscriptID: id)
+        #endif
+    }
+
+    /// Is there a live session for `id`? (Tests; the log says the rest.)
+    func hasLiveSession(for id: UUID) -> Bool { sessions[id] != nil }
 
     /// A session over ONE FILE of a project (ADR-0030): the file row's text
     /// is the buffer, its own Automerge document takes the saves (the collab
@@ -599,7 +652,9 @@ public final class ManuscriptSessionRegistry {
     /// Notify all live sessions of a store mutation (cross-process wake-up).
     public func broadcastExternalChange(to ids: Set<UUID>) {
         for id in ids {
-            sessions[id]?.absorbExternalChange()
+            if let session = sessions[id], !session.absorbExternalChange() {
+                manuscriptDeletedElsewhere(id: id)
+            }
         }
     }
 

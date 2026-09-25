@@ -240,6 +240,25 @@ impl Default for StoreConfig {
     }
 }
 
+/// What [`SqliteItemStore::apply_operation_if_clock`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuardedWrite {
+    /// The clock matched; the operation is written. `clock` is the row's
+    /// new `logical_clock` — the revision the writer now holds.
+    Applied { operation_id: ItemId, clock: u64 },
+    /// The row moved (or is gone, `None`) since the caller read it. Nothing
+    /// was written.
+    Moved { clock: Option<u64> },
+}
+
+/// One applied operation, between the write and its announcement.
+struct AppliedOperation {
+    operation_id: ItemId,
+    clock: u64,
+    target_schema: Option<String>,
+    mutation_kind: crate::event::MutationKind,
+}
+
 /// SQLite-backed implementation of the ItemStore trait.
 ///
 /// Supports operation-based mutations with materialized state for O(1) reads.
@@ -1963,7 +1982,90 @@ impl SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let applied = self.apply_operation_on(&conn, &spec)?;
+        drop(conn);
+        self.announce_operation(&spec, applied)
+    }
 
+    /// Apply an operation **only if** the target row's `logical_clock` is
+    /// still `expected_clock` — compare-and-swap for a writer that caches a
+    /// row and must not write a stale copy back over someone else's change
+    /// (review RL-L1: the layout session).
+    ///
+    /// The check, the operation row and the materialized change are one
+    /// `BEGIN IMMEDIATE` transaction, so no other connection — in this
+    /// process or another — can commit between them, and a reader never sees
+    /// the row's new clock without its new value. Every operation and insert
+    /// stamps the target's clock (ADR-0007 Phase 3), including writes from
+    /// builds that know nothing about this method, so a clock that still
+    /// matches means nothing has written the row since it was read.
+    pub fn apply_operation_if_clock(
+        &self,
+        spec: OperationSpec,
+        expected_clock: u64,
+    ) -> Result<GuardedWrite, StoreError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| StoreError::Storage(format!("begin guarded write: {e}")))?;
+        let current: Option<i64> = tx
+            .query_row(
+                "SELECT logical_clock FROM items WHERE id = ?1",
+                params![spec.target_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("read clock: {e}")))?;
+        match current {
+            Some(clock) if clock as u64 == expected_clock => {}
+            other => {
+                // Dropping the transaction rolls it back; nothing was written.
+                return Ok(GuardedWrite::Moved {
+                    clock: other.map(|c| c as u64),
+                });
+            }
+        }
+        let applied = self.apply_operation_on(&tx, &spec)?;
+        tx.commit()
+            .map_err(|e| StoreError::Storage(format!("commit guarded write: {e}")))?;
+        drop(conn);
+        let clock = applied.clock;
+        let operation_id = self.announce_operation(&spec, applied)?;
+        Ok(GuardedWrite::Applied {
+            operation_id,
+            clock,
+        })
+    }
+
+    /// A row's `logical_clock` — the revision [`Self::apply_operation_if_clock`]
+    /// compares against. `None` when the row does not exist. One indexed
+    /// lookup on the writer connection, so it sees this connection's own
+    /// writes at once.
+    pub fn logical_clock_of(&self, id: ItemId) -> Result<Option<u64>, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        conn.query_row(
+            "SELECT logical_clock FROM items WHERE id = ?1",
+            params![id.to_string()],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|clock| clock.map(|c| c as u64))
+        .map_err(|e| StoreError::Storage(format!("read clock: {e}")))
+    }
+
+    /// The body of [`Self::apply_operation`], on a connection (or an open
+    /// transaction) the caller holds.
+    fn apply_operation_on(
+        &self,
+        conn: &Connection,
+        spec: &OperationSpec,
+    ) -> Result<AppliedOperation, StoreError> {
         let target_str = spec.target_id.to_string();
 
         // Verify target exists
@@ -2011,7 +2113,7 @@ impl SqliteItemStore {
         }
 
         // Capture previous value before materializing change
-        let prev = Self::capture_previous_value(&conn, &target_str, &spec.op_type)?;
+        let prev = Self::capture_previous_value(conn, &target_str, &spec.op_type)?;
 
         // The fine description of this mutation (ADR-0031 D9), taken HERE
         // because `prev` is about to be moved into the operation payload and
@@ -2019,7 +2121,7 @@ impl SqliteItemStore {
         let mutation_kind = Self::mutation_kind_for(spec.target_id, &spec.op_type, prev.as_ref());
 
         // Get next logical clock
-        let clock = Self::next_clock(&conn)?;
+        let clock = Self::next_clock(conn)?;
 
         // Build operation item (with prev for undo)
         let op_id = Uuid::new_v4();
@@ -2066,34 +2168,41 @@ impl SqliteItemStore {
         } else {
             spec.retention
         };
-        Self::insert_operation_item(&conn, &op_item, spec.target_id, &self.origin_id, retention)?;
+        Self::insert_operation_item(conn, &op_item, spec.target_id, &self.origin_id, retention)?;
 
         // Materialize the change on the target
         let now = Utc::now().timestamp_millis();
-        Self::materialize_operation(
-            &conn,
-            &spec.target_id.to_string(),
-            &spec.op_type,
-            now,
-            clock,
-        )?;
+        Self::materialize_operation(conn, &spec.target_id.to_string(), &spec.op_type, now, clock)?;
 
-        let target_schema = Self::schema_of(&conn, &spec.target_id.to_string());
-        drop(conn);
+        let target_schema = Self::schema_of(conn, &spec.target_id.to_string());
+        Ok(AppliedOperation {
+            operation_id: op_id,
+            clock,
+            target_schema,
+            mutation_kind,
+        })
+    }
+
+    /// Tell the in-process subscribers about an applied operation, after the
+    /// connection lock is released.
+    fn announce_operation(
+        &self,
+        spec: &OperationSpec,
+        applied: AppliedOperation,
+    ) -> Result<ItemId, StoreError> {
         self.emit_mutation(StoreMutation::new(
             spec.target_id,
-            target_schema.clone(),
-            mutation_kind,
+            applied.target_schema.clone(),
+            applied.mutation_kind,
         ));
         self.emit(
-            target_schema.as_deref(),
+            applied.target_schema.as_deref(),
             ItemEvent::OperationApplied {
-                operation_id: op_id,
+                operation_id: applied.operation_id,
                 target_id: spec.target_id,
             },
         );
-
-        Ok(op_id)
+        Ok(applied.operation_id)
     }
 
     /// Apply a batch of operations sharing a batch_id.
@@ -7159,6 +7268,61 @@ mod tests {
         // Target should have the tag materialized
         let target = store.get(id).unwrap().unwrap();
         assert!(target.tags.contains(&"methods/sims".to_string()));
+    }
+
+    #[test]
+    fn a_guarded_write_applies_only_on_the_clock_it_was_read_at() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let id = store.insert(make_item("test", "Target")).unwrap();
+        let set = |value: &str| OperationSpec {
+            target_id: id,
+            op_type: OperationType::SetPayload("title".into(), Value::String(value.into())),
+            intent: OperationIntent::Routine,
+            reason: None,
+            batch_id: None,
+            author: "test-user".into(),
+            author_kind: ActorKind::Human,
+            retention: RetentionTier::Ephemeral,
+        };
+
+        let read = store
+            .logical_clock_of(id)
+            .unwrap()
+            .expect("the row has a clock");
+        let first = store.apply_operation_if_clock(set("mine"), read).unwrap();
+        let GuardedWrite::Applied { clock, .. } = first else {
+            panic!("a matching clock writes: {first:?}");
+        };
+        assert!(clock > read, "the write moves the clock");
+        assert_eq!(store.logical_clock_of(id).unwrap(), Some(clock));
+
+        // Someone else writes; a writer still holding `clock` is refused.
+        store.apply_operation(set("theirs")).unwrap();
+        let stale = store.apply_operation_if_clock(set("stale"), clock).unwrap();
+        assert!(
+            matches!(stale, GuardedWrite::Moved { clock: Some(now) } if now != clock),
+            "{stale:?}"
+        );
+        let target = store.get(id).unwrap().unwrap();
+        assert_eq!(
+            target.payload.get("title"),
+            Some(&Value::String("theirs".into())),
+            "the refused write left the row alone"
+        );
+
+        // A row that is gone is reported as moved, with no clock.
+        assert_eq!(
+            store
+                .apply_operation_if_clock(
+                    OperationSpec {
+                        target_id: uuid::Uuid::new_v4(),
+                        ..set("nobody")
+                    },
+                    clock
+                )
+                .unwrap(),
+            GuardedWrite::Moved { clock: None }
+        );
     }
 
     #[test]

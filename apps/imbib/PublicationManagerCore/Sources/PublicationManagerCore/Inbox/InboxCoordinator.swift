@@ -87,6 +87,16 @@ public final class InboxCoordinator {
         await unifiedScheduler.start()
         Logger.inbox.infoCapture("FeedScheduler started (unified: handles all auto-refresh feeds)", category: "coordinator")
 
+        #if os(macOS)
+        // Inbox / feed / exploration retention, ONCE per launch and behind the
+        // 90 s startup gate. It lives here, in imbib's own lifecycle, because
+        // imbib is the only app that calls `start()`: the chassis sidebar's
+        // lifecycle ran it before, and the layout tree's outline pane applies
+        // that lifecycle in every chassis app on every mount (review PH-H2).
+        // macOS only, as before — the iOS root never ran it.
+        RetentionCleanupService.shared.scheduleLaunchCleanup()
+        #endif
+
         isStarted = true
         Logger.inbox.infoCapture("InboxCoordinator started successfully", category: "coordinator")
     }

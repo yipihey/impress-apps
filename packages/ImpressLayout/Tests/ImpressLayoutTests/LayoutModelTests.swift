@@ -160,6 +160,41 @@ final class LayoutModelTests: XCTestCase {
         XCTAssertNil(tree.paneWithRole("console"))
     }
 
+    /// SK-K19 / RL-L19: one rule for roles, Rust's — the first pane in tree
+    /// order among the KEY window's leaves. Not the lowest tile id anywhere:
+    /// here that is an orphan (tile 1) and then a pane in another window
+    /// (tile 2), and neither is what ⌃⌘S acts on.
+    func testRoleLookupIsTheKeyWindowsFirstLeafInTreeOrder() throws {
+        let json = """
+        {
+          "windows": [
+            {"id": 1, "root": 10, "focused": 11, "default_channel": {"number": 1}},
+            {"id": 2, "root": 2, "focused": 2, "default_channel": {"number": 1}}
+          ],
+          "tiles": {
+            "1": {"pane": {"query": {"kinds": ["publication"]}, "view_kind": "list", "role": "detail", "channel": {"number": 1}}},
+            "2": {"pane": {"query": {"kinds": ["publication"]}, "view_kind": "pdf", "role": "detail", "channel": {"number": 1}}},
+            "10": {"container": {"linear": {"dir": "horizontal", "children": [12, 11], "shares": [1, 1]}}},
+            "11": {"pane": {"query": {"kinds": ["publication"]}, "view_kind": "info", "role": "detail", "channel": {"number": 1}}},
+            "12": {"pane": {"query": {"kinds": ["publication"]}, "view_kind": "list", "role": "list", "channel": {"number": 1}}}
+          },
+          "next_tile": 12,
+          "next_window": 3
+        }
+        """
+        let tree = try LayoutTree.decode(json)
+        XCTAssertEqual(tree.currentWindow?.id, 1, "no key window recorded: the first focused one")
+        XCTAssertEqual(tree.paneWithRole("detail"), 11, "the key window's own pane, not tile 1 or 2")
+        XCTAssertEqual(tree.paneWithRole("list"), 12)
+
+        let detached = json.replacingOccurrences(
+            of: "\"next_window\": 3", with: "\"next_window\": 3, \"current\": 2")
+        let keyed = try LayoutTree.decode(detached)
+        XCTAssertEqual(keyed.currentWindow?.id, 2)
+        XCTAssertEqual(keyed.paneWithRole("detail"), 2, "the detached window's own detail")
+        XCTAssertNil(keyed.paneWithRole("list"), "the main window's list is not this window's")
+    }
+
     func testWindowContainmentAndSubtree() throws {
         let tree = try LayoutTree.decode(goldenJSON())
         XCTAssertEqual(tree.window(containing: 3)?.id, 1)

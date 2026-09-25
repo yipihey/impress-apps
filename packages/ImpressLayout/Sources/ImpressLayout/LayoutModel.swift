@@ -377,9 +377,13 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
     public var channels: [String: [String: [String]]]
     public var nextTile: UInt64
     public var nextWindow: UInt64
+    /// The key window (`Layout::current`): where a verb with no explicit
+    /// window acts, and where roles resolve. Absent for a layout that never
+    /// had two windows.
+    public var current: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case windows, tiles, channels
+        case windows, tiles, channels, current
         case nextTile = "next_tile"
         case nextWindow = "next_window"
     }
@@ -403,6 +407,7 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
             try container.decodeIfPresent([String: [String: [String]]].self, forKey: .channels) ?? [:]
         nextTile = try container.decodeIfPresent(UInt64.self, forKey: .nextTile) ?? 0
         nextWindow = try container.decodeIfPresent(UInt64.self, forKey: .nextWindow) ?? 1
+        current = try container.decodeIfPresent(UInt64.self, forKey: .current)
     }
 
     /// Decode a `layoutJson` from `SharedLayoutSnapshot` / `SharedAppliedVerb`.
@@ -425,6 +430,15 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
     public func container(_ id: UInt64) -> LayoutContainer? { tiles[id]?.containerValue }
 
     public var firstWindow: LayoutWindow? { windows.first }
+
+    /// `Layout::current_window`: the key window when it names one that
+    /// exists, else the first window with a focused leaf, else the first.
+    public var currentWindow: LayoutWindow? {
+        if let current, let window = windows.first(where: { $0.id == current }) {
+            return window
+        }
+        return windows.first(where: { $0.focused != nil }) ?? windows.first
+    }
 
     /// The parent container of `id`, or nil for a window root.
     public func parent(of id: UInt64) -> UInt64? {
@@ -515,16 +529,15 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
     /// Which pane carries `role` — the Swift mirror of
     /// `Layout::pane_with_role`, used only for read-side rendering (the
     /// authoritative lookup for a chord is `SharedLayout.paneWithRole`).
+    ///
+    /// The same rule, not an approximation of it (review SK-K19, RL-L19): the
+    /// first pane in tree order among the KEY window's leaves. It used to take
+    /// the lowest tile id anywhere in the arena — another window's pane, or an
+    /// orphan — so the menu's check mark could describe a different pane from
+    /// the one ⌃⌘S resized.
     public func paneWithRole(_ role: String) -> UInt64? {
-        // Lowest tile id wins, so the answer is stable across the arena's
-        // (unordered) dictionary iteration.
-        var found: UInt64?
-        for (id, tile) in tiles {
-            guard let spec = tile.paneSpec, spec.role == role else { continue }
-            if let current = found, current <= id { continue }
-            found = id
-        }
-        return found
+        guard let window = currentWindow else { return nil }
+        return leaves(of: window.root).first { pane($0)?.role == role }
     }
 
     /// The current selection of `kind` on the channel `pane` publishes on.

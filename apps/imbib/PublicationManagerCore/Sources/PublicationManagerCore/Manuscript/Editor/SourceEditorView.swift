@@ -335,9 +335,16 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        // First, before any early return (impress-swiftui-pitfalls rule 2) —
-        // and for a host's editor this is also how the ONE coordinator learns
-        // which pane's bindings it now serves.
+        // A host's editor has ONE coordinator, shared by every representable
+        // that mounts it. SwiftUI may build the new pane before it dismantles
+        // the old one, and an update pass on the OLD representable would then
+        // repoint the shared delegate at the stale pane's bindings and
+        // re-register the old pane's citation target (review PH-L1). Only
+        // the representable whose container holds the editor may touch it.
+        if let host, !host.holdsEditor(in: view) { return }
+        // Then first, before any other early return (impress-swiftui-pitfalls
+        // rule 2) — for a host's editor this is also how the ONE coordinator
+        // learns which pane's bindings it now serves.
         context.coordinator.parent = self
         guard let scrollView = host?.scrollView ?? (view as? NSScrollView) else { return }
         scrollView.appearance = Self.appearanceOverride(editorAppearance)

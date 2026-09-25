@@ -76,14 +76,19 @@ struct LayoutManuscriptPreviewPaneView: View {
     }
 
     /// Focus the pane that edits this manuscript: a `source` pane on the same
-    /// channel, the detail role first.
+    /// channel — the one that follows the same selection — the detail role
+    /// first. (It ignored channels, so with two channels it could focus an
+    /// editor showing another manuscript; review PH-L3.)
     private func showSource() {
         guard let tree = context.controller.tree else { return }
-        let sources = tree.tiles.keys.sorted().filter { tile in
-            tree.pane(tile)?.viewKind == ViewKindID.source.rawValue
-        }
+        let sources = LayoutPaneViewState.panes(showing: .source, onChannelOf: context.tile, in: tree)
         let detail = sources.first { tree.pane($0)?.role == "detail" }
-        guard let target = detail ?? sources.first else { return }
+        guard let target = detail ?? sources.first else {
+            logInfo(
+                "pane \(context.tile) pdf: Show Source — no source pane on this pane's channel",
+                category: "layout")
+            return
+        }
         context.controller.apply(.focus(target: .id(target)))
     }
 }

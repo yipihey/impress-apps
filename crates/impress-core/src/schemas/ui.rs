@@ -213,6 +213,15 @@ pub fn layout_schema() -> Schema {
                         .into(),
                 ),
             },
+            FieldDef {
+                name: "quarantined_reason".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "Set on a row that WAS a live arrangement and no longer decoded                      (a hand edit, a sync merge, a newer build's shape): the decoder's                      error. Such a row is set aside, never deleted — `is_live` false,                      renamed \"Unreadable layout <time>\" so it lists among the saved                      layouts — and a fresh preset takes its place (layout-service                      `LayoutStore::load_live`, review RL-L17)."
+                        .into(),
+                ),
+            },
         ],
         expected_edges: vec![EdgeType::DerivedFrom, EdgeType::RelatesTo],
         inherits: None,

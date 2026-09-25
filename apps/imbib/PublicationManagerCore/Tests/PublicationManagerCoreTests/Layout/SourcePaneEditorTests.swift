@@ -55,6 +55,10 @@ final class SourcePaneEditorTests: XCTestCase {
         // A split: SwiftUI builds the new pane host BEFORE it dismantles the
         // old one. The editor moves; the late teardown must leave it alone.
         host.mount(in: second)
+        // Only the container holding the editor may act on it: the old
+        // pane's late update must not repoint the shared coordinator (PH-L1).
+        XCTAssertTrue(host.holdsEditor(in: second))
+        XCTAssertFalse(host.holdsEditor(in: first), "the old pane's update may still repoint the editor")
         host.detach(from: first)
         XCTAssertTrue(host.scrollView?.superview === second, "the old host's teardown took it away")
         XCTAssertTrue(host.textView === textView, "it is the same text view, not a new one")

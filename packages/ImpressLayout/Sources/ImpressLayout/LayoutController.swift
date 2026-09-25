@@ -237,13 +237,16 @@ final class LayoutInvalidationBridge: SharedLayoutListener, @unchecked Sendable 
 
     private let onPanesInvalidated: @MainActor @Sendable ([UInt64]) -> Void
     private let onLayoutChanged: @MainActor @Sendable (UInt64) -> Void
+    private let onLayoutsChanged: @MainActor @Sendable () -> Void
 
     init(
         onPanesInvalidated: @escaping @MainActor @Sendable ([UInt64]) -> Void,
-        onLayoutChanged: @escaping @MainActor @Sendable (UInt64) -> Void
+        onLayoutChanged: @escaping @MainActor @Sendable (UInt64) -> Void,
+        onLayoutsChanged: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.onPanesInvalidated = onPanesInvalidated
         self.onLayoutChanged = onLayoutChanged
+        self.onLayoutsChanged = onLayoutsChanged
     }
 
     func panesInvalidated(panes: [UInt64]) {
@@ -254,6 +257,11 @@ final class LayoutInvalidationBridge: SharedLayoutListener, @unchecked Sendable 
     func layoutChanged(version: UInt64) {
         let hop = onLayoutChanged
         Task { @MainActor in hop(version) }
+    }
+
+    func layoutsChanged() {
+        let hop = onLayoutsChanged
+        Task { @MainActor in hop() }
     }
 }
 
@@ -309,6 +317,12 @@ public final class LayoutController {
     /// Per-tile token and error, each in its own observable slot so a view
     /// that reads tile 3's token is not invalidated when tile 5's moves.
     @ObservationIgnored private var slots: [UInt64: PaneSlot] = [:]
+
+    /// Bumped when a saved layout or preset of this app was written or
+    /// deleted elsewhere (`SharedLayoutListener.layoutsChanged`). The tree
+    /// did not change; `savedLayouts()` reads this so a view listing them
+    /// re-reads.
+    public private(set) var layoutsVersion: UInt64 = 0
 
     private let layout: SharedLayout
     public let appID: String
@@ -457,6 +471,9 @@ public final class LayoutController {
     }
 
     public func savedLayouts() -> [SharedLayoutRow] {
+        // Read so a view listing the layouts re-reads when they change
+        // elsewhere (T1's `layoutsChanged`).
+        _ = layoutsVersion
         do {
             return try layout.listLayouts()
         } catch {
@@ -894,6 +911,11 @@ public final class LayoutController {
                 guard let self, Self.isNewer(version, than: self.version) else { return }
                 logInfo("layout changed elsewhere → version \(version)", category: "layout")
                 self.reload()
+            },
+            onLayoutsChanged: { [weak self] in
+                guard let self else { return }
+                self.layoutsVersion &+= 1
+                logInfo("saved layouts changed elsewhere", category: "layout")
             })
         do {
             try layout.subscribeInvalidations(listener: bridge)

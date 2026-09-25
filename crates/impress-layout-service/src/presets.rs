@@ -59,7 +59,7 @@ use impress_core::pane_query::{
 use impress_core::query::ItemQuery;
 use impress_core::reference::{EdgeType, TypedReference};
 use impress_core::schemas::PRESET_SCHEMA_REF;
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
 use impress_core::store::ItemStore;
 use impress_layout::preset::{detail_query, navigator_query, DETAIL_PARAM};
 use impress_layout::{
@@ -1438,10 +1438,11 @@ pub fn ordinal_targets(
 pub fn record_derived_from(
     store: &Arc<SqliteItemStore>,
     layout_row: ItemId,
+    revision: Option<u64>,
     preset_row: ItemId,
     actor: ActorKind,
     intent: &str,
-) -> Result<()> {
+) -> Result<Option<u64>> {
     let item = store
         .get(layout_row)
         .map_err(|e| format!("read layout {layout_row}: {e}"))?
@@ -1463,21 +1464,38 @@ pub fn record_derived_from(
         metadata: None,
     }));
 
+    // Guarded on the live session's revision when there is one, like every
+    // other write to the live row (store.rs, "Revisions"): these edges land
+    // on the same row the tree does, and each one moves its clock.
+    let mut revision = revision;
     for op_type in ops {
-        store
-            .apply_operation(OperationSpec {
-                target_id: layout_row,
-                op_type,
-                intent: OperationIntent::Editorial,
-                reason: Some(intent.to_string()),
-                batch_id: None,
-                author: author_for(actor),
-                author_kind: actor,
-                retention: RetentionTier::Durable,
-            })
-            .map_err(|e| format!("record the preset this layout came from: {e}"))?;
+        let spec = OperationSpec {
+            target_id: layout_row,
+            op_type,
+            intent: OperationIntent::Editorial,
+            reason: Some(intent.to_string()),
+            batch_id: None,
+            author: author_for(actor),
+            author_kind: actor,
+            retention: RetentionTier::Durable,
+        };
+        let fail = |e: impress_core::store::StoreError| {
+            format!("record the preset this layout came from: {e}")
+        };
+        match revision {
+            Some(expected) => match store
+                .apply_operation_if_clock(spec, expected)
+                .map_err(fail)?
+            {
+                GuardedWrite::Applied { clock, .. } => revision = Some(clock),
+                GuardedWrite::Moved { .. } => return Err(crate::session::STALE.to_string()),
+            },
+            None => {
+                store.apply_operation(spec).map_err(fail)?;
+            }
+        }
     }
-    Ok(())
+    Ok(revision)
 }
 
 /// The preset a layout row derives from, if any — the graph walk the edge
