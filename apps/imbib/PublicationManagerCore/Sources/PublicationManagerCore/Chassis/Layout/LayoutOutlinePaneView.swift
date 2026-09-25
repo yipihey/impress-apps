@@ -109,10 +109,15 @@ struct LayoutOutlinePaneView: View {
                     },
                     remounted: { _ in router.reconcile(because: "remount") }))
             .onChange(of: viewModel.selectedTab) { _, tab in
-                // A change the outline made itself to follow the list.
-                if let echo = state.echo {
+                // A change the outline made itself to follow the list: never
+                // routed back. Consumed whatever tab the sidebar landed on —
+                // `navigateToTab(.collection(id))` may select the node whose
+                // tab is spelled `.inboxCollection(id)`, and routing THAT would
+                // send human verbs in the middle of an agent's change.
+                if state.echo != nil {
                     state.echo = nil
-                    if echo == tab { return }
+                    state.routedTab = tab
+                    return
                 }
                 router.route(tab, initial: false)
             }

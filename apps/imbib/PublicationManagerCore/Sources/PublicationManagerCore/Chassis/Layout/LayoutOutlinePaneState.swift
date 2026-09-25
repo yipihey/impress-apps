@@ -40,9 +40,10 @@ final class LayoutOutlinePaneState {
     /// (PH-H5).
     var lastListSpec: LayoutPaneSpec?
 
-    /// A selection change the OUTLINE made to follow the list, so the
-    /// `onChange(of: selectedTab)` it causes must not route it back.
-    /// `.some(nil)` is "deselected to follow the list".
+    /// A selection change the OUTLINE made to follow the list, so the next
+    /// `onChange(of: selectedTab)` it causes must not route it back. Set
+    /// only when the selection will change; `.some(nil)` is "deselected to
+    /// follow the list".
     var echo: ImbibTab??
 
     // MARK: Registry
