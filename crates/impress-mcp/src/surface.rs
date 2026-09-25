@@ -56,6 +56,18 @@ pub const PRIMARY: &[&str] = &[
     // Suite-wide memory (ADR-0028): the two calls used every session.
     "memory-service_remember",
     "memory-service_recall",
+    // Agent surfaces (ADR-0033): the loop an agent runs to put a GUI in front
+    // of the person and read back what they did — flat, because an agent
+    // cannot find them inside the `impress` domain's "shared plumbing"
+    // (review AC-F4). The rest of the surface verbs are `impress` actions
+    // (`surface.surface-get`, …); docs/agent-surfaces.md lists both.
+    "impress-surface-service_surface-schema",
+    "impress-surface-service_surface-validate",
+    "impress-surface-service_surface-create",
+    "impress-surface-service_surface-update",
+    "impress-surface-service_surface-show",
+    "impress-surface-service_surface-render",
+    "impress-surface-service_surface-wait",
     // Expert-system entry points: semantic state and deterministic diagnosis.
     "vw-diagnostic-service_get-capabilities",
     "vw-diagnostic-service_create-session",
@@ -118,7 +130,9 @@ const DOMAIN_DOC: &[(&str, &str)] = &[
     ),
     (
         "impress",
-        "Suite-level bridges, parsers and shared plumbing.",
+        "Suite-level bridges, parsers and shared plumbing, and agent surfaces \
+         (surface.*: a declarative GUI an agent shows in a pane and reads back; \
+         the loop's own verbs are flat impress-surface-service_surface-* tools).",
     ),
 ];
 
@@ -590,6 +604,54 @@ mod tests {
             assert!(
                 all.contains(name),
                 "PRIMARY names {name}, which is not in the inventory",
+            );
+        }
+    }
+
+    /// AC-F4: every surface tool name docs/agent-surfaces.md tells an agent
+    /// to call resolves — a flat name in the flat projection AND in the
+    /// grouped one (as a primary tool), a grouped `impress` action through
+    /// `resolve`. The how-to is what agents copy from.
+    #[test]
+    fn every_surface_tool_the_how_to_names_resolves_in_both_projections() {
+        let doc = include_str!("../../../docs/agent-surfaces.md");
+        let flat: Vec<&str> = McpToolDescriptor::iter().map(|d| d.name).collect();
+        let grouped: Vec<String> = grouped_definitions(vec![])
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_string))
+            .collect();
+        let mut names = 0;
+        for word in
+            doc.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'))
+        {
+            if let Some(verb) = word.strip_prefix("impress-surface-service_") {
+                names += 1;
+                assert!(
+                    flat.contains(&word),
+                    "the how-to names {word}, which is not a tool"
+                );
+                let reachable = grouped.iter().any(|g| g == word)
+                    || resolve("impress", &format!("surface.{verb}")).is_some();
+                assert!(reachable, "{word} is unreachable in the grouped projection");
+            }
+            if let Some(action) = word.strip_prefix("impress.") {
+                assert!(
+                    resolve("impress", action).is_some(),
+                    "the how-to names the grouped action impress/{action}, which does not resolve"
+                );
+            }
+        }
+        assert!(
+            names >= 15,
+            "the how-to should name every surface verb ({names} found)"
+        );
+        for primary in PRIMARY
+            .iter()
+            .filter(|p| p.starts_with("impress-surface-service_"))
+        {
+            assert!(
+                grouped.iter().any(|g| g == primary),
+                "{primary} is not flat in grouped"
             );
         }
     }
