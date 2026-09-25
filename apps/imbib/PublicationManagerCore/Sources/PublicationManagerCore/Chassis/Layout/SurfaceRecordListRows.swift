@@ -24,6 +24,7 @@
 //  ids, sorted — so `on_select` actions see one shape either way.
 //
 
+import ImpressLogging
 import ImpressMailStyle
 import ImpressRustCore
 import ImpressSurface
@@ -36,8 +37,27 @@ struct SurfaceRecordListRows: View {
 
     @Environment(\.recordViewerRegistry) private var viewerRegistry
     @State private var selection = Set<String>()
+    /// The mapping, memoized by the JSON it came from (PH-L5): it decoded the
+    /// rows, re-encoded every payload and decoded it again on every render.
+    @State private var mapped: (json: String, rows: [KindTaggedRow]?)?
+
+    private var mappedRows: [KindTaggedRow]? {
+        mapped?.json == rowsJSON ? mapped?.rows : Self.map(rowsJSON)
+    }
 
     var body: some View {
+        content
+            .onAppear { remap() }
+            .onChange(of: rowsJSON) { _, _ in remap() }
+    }
+
+    private func remap() {
+        guard mapped?.json != rowsJSON else { return }
+        mapped = (rowsJSON, Self.map(rowsJSON))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let rows = mappedRows, !rows.isEmpty {
             // A stack, not a `List`: the column the surface lays this in is
             // already a ScrollView, and a List inside it either collapses to
@@ -79,19 +99,29 @@ struct SurfaceRecordListRows: View {
 
     /// Every row as the chassis' row, or nil when any row cannot be — see
     /// the file header for why a list does not mix.
-    private var mappedRows: [KindTaggedRow]? {
+    @MainActor
+    static func map(_ rowsJSON: String) -> [KindTaggedRow]? {
         guard let array = (try? LayoutJSONValue.decode(rowsJSON))?.arrayValue else {
             return nil
         }
         var rows: [KindTaggedRow] = []
+        var undated = 0
         for item in array {
             guard let object = item.objectValue,
                 let schema = object["schema"]?.stringValue,
                 LayoutPaneRowMapper.layoutKind(forSchemaRef: schema) != nil,
-                let shared = Self.sharedItemRow(object, schema: schema),
+                let shared = sharedItemRow(object, schema: schema, undated: &undated),
                 let mapped = LayoutPaneRowMapper.kindTaggedRow(shared)
             else { return nil }
             rows.append(mapped)
+        }
+        if undated > 0 {
+            // The mail-style row has no "no date" (its date is not optional),
+            // so an undated row still shows one — say which, once per list.
+            logInfo(
+                "surface list: \(undated) of \(rows.count) row(s) carry no modified or created date — "
+                    + "their date column shows when they were read, not a date of theirs",
+                category: "surface")
         }
         return rows
     }
@@ -99,19 +129,23 @@ struct SurfaceRecordListRows: View {
     /// The envelope columns `LayoutPaneRowMapper` reads, recovered from the
     /// flattened row. Anything absent takes the value a fresh item has.
     private static func sharedItemRow(
-        _ object: [String: LayoutJSONValue], schema: String
+        _ object: [String: LayoutJSONValue], schema: String, undated: inout Int
     ) -> SharedItemRow? {
         guard let id = object["id"]?.stringValue else { return nil }
         let payload = LayoutJSONValue.object(object)
         guard let payloadJSON = try? payload.jsonString() else { return nil }
         let flag = object["flag"]?.objectValue?["color"]?.stringValue
             ?? object["flag"]?.stringValue
+        let created = millis(object["created"])
+        let modified = millis(object["modified"])
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        if created == nil && modified == nil { undated += 1 }
         return SharedItemRow(
             id: id,
             schemaRef: schema,
             payloadJson: payloadJSON,
-            createdMs: millis(object["created"]),
-            modifiedMs: millis(object["modified"]),
+            createdMs: created ?? modified ?? now,
+            modifiedMs: modified ?? created ?? now,
             parentId: object["parent"]?.stringValue,
             isRead: object["is_read"]?.boolValue ?? true,
             isStarred: object["is_starred"]?.boolValue ?? false,
@@ -119,20 +153,24 @@ struct SurfaceRecordListRows: View {
             flagColor: flag)
     }
 
-    private static func millis(_ value: LayoutJSONValue?) -> Int64 {
+    /// A row's ISO-8601 date in milliseconds, or nil when it has none —
+    /// never "now", which dated every such row today (PH-L5).
+    private static func millis(_ value: LayoutJSONValue?) -> Int64? {
         guard let text = value?.stringValue,
             let date = ISO8601DateFormatter.withFractionalSeconds.date(from: text)
-                ?? ISO8601DateFormatter().date(from: text)
-        else { return Int64(Date().timeIntervalSince1970 * 1000) }
+                ?? ISO8601DateFormatter.plain.date(from: text)
+        else { return nil }
         return Int64(date.timeIntervalSince1970 * 1000)
     }
 }
 
 extension ISO8601DateFormatter {
+    /// Allocated once each, not twice per row per render.
     fileprivate static let withFractionalSeconds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+    fileprivate static let plain = ISO8601DateFormatter()
 }
 #endif

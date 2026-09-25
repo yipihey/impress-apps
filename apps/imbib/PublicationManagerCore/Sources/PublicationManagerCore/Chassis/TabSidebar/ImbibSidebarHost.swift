@@ -18,6 +18,7 @@
 
 import ImpressFTUI
 import ImpressKit
+import ImpressLogging
 import ImpressSidebar
 import ImpressStoreKit
 import OSLog
@@ -99,12 +100,27 @@ struct ImbibSidebarColumn: View {
 ///
 /// `prepare` runs once, before `configure()`, for a host that has to set
 /// something on the view model before its first tree is built (the layout
-/// outline's section filter). `configured` runs after every `configure()`.
+/// outline's section filter). `configured` runs after `configure()`.
+///
+/// A view model is configured ONCE. The layout tree's outline keeps its view
+/// model across a re-layout (`LayoutOutlinePaneState`, review PH-M6), and a
+/// second `configure()` would select the default leaf again — under a user
+/// who had chosen another row. A mount over a configured model calls
+/// `remounted` instead.
 struct ImbibSidebarLifecycle: ViewModifier {
 
     let viewModel: ImbibSidebarViewModel
     var prepare: (ImbibSidebarViewModel) -> Void = { _ in }
     var configured: (ImbibSidebarViewModel) -> Void = { _ in }
+    var remounted: (ImbibSidebarViewModel) -> Void = { _ in }
+
+    /// The SciX library pull is per PROCESS: it refreshes one shared
+    /// repository, and a split that remounted the outline used to start
+    /// another one (PH-M6).
+    @MainActor private static var didStartSciXPull = false
+
+    /// A refused delete, for the alert that says so (PH-L8: it was `try?`).
+    @State private var deleteFailure: String?
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
@@ -131,6 +147,13 @@ struct ImbibSidebarLifecycle: ViewModifier {
         @Bindable var viewModel = viewModel
         return content
             .task {
+                if viewModel.isConfigured {
+                    // A kept view model mounting again (a split, a swap): its
+                    // selection, expansion and SciX state are all still there.
+                    remounted(viewModel)
+                    viewModel.refreshFlagCounts()
+                    return
+                }
                 // Thin-twin: apply the app-shell identity BEFORE configure() so the
                 // default section + section visibility reflect this app (imbib vs
                 // imprint). Idempotent across .task re-runs.
@@ -172,6 +195,8 @@ struct ImbibSidebarLifecycle: ViewModifier {
                 if adsKey != nil || scixKey != nil {
                     viewModel.hasSciXAPIKey = true
                     scixRepository.loadLibraries()
+                    guard !Self.didStartSciXPull else { return }
+                    Self.didStartSciXPull = true
                     viewModel.scixSyncing = true
                     viewModel.scixSyncError = nil
                     viewModel.bumpDataVersion()
@@ -326,7 +351,15 @@ struct ImbibSidebarLifecycle: ViewModifier {
             ])
             .alert("Delete Library", isPresented: $viewModel.showDeleteConfirmation, presenting: viewModel.libraryToDelete) { library in
                 Button("Delete", role: .destructive) {
-                    try? libraryManager.deleteLibrary(id: library.id)
+                    do {
+                        try libraryManager.deleteLibrary(id: library.id)
+                    } catch {
+                        logError(
+                            "delete library '\(library.name)' (\(library.id)) refused: \(error)",
+                            category: "library")
+                        deleteFailure = "\u{201C}\(library.name)\u{201D} was not deleted: "
+                            + error.localizedDescription
+                    }
                     viewModel.bumpDataVersion()
                 }
                 Button("Cancel", role: .cancel) {}
@@ -364,11 +397,29 @@ struct ImbibSidebarLifecycle: ViewModifier {
             }
             .alert("Delete SciX Library", isPresented: $viewModel.showSciXDeleteConfirmation, presenting: viewModel.scixLibraryToDelete) { library in
                 Button("Delete", role: .destructive) {
-                    Task { try? await scixViewModel.deleteLibrary(library, deleteRemote: false) }
+                    Task {
+                        do {
+                            try await scixViewModel.deleteLibrary(library, deleteRemote: false)
+                        } catch {
+                            logError(
+                                "delete SciX library '\(library.name)' refused: \(error)", category: "scix")
+                            deleteFailure = "\u{201C}\(library.name)\u{201D} was not removed: "
+                                + error.localizedDescription
+                        }
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { library in
                 Text("Are you sure you want to remove \"\(library.name)\" from imbib? This removes the local copy; the ADS library is not deleted.")
+            }
+            .alert(
+                "Could Not Delete",
+                isPresented: Binding(
+                    get: { deleteFailure != nil }, set: { if !$0 { deleteFailure = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deleteFailure ?? "")
             }
             .sheet(item: $viewModel.scixLibraryToShowInfo) { library in
                 SciXLibraryInfoSheet(library: library, viewModel: scixViewModel)
@@ -386,10 +437,11 @@ struct ImbibSidebarLifecycle: ViewModifier {
                     },
                     onDismiss: { viewModel.attachmentReviewRequest = nil })
             }
-            .task {
-                // Run retention cleanup on launch
-                RetentionCleanupService.shared.performCleanup()
-            }
+            // NO retention cleanup here. This modifier is applied by every
+            // host of the sidebar — the layout tree's `outline` pane in all
+            // six chassis apps, remounted on every split — and a view's
+            // lifecycle is not the app's. imbib schedules it once per launch
+            // from `InboxCoordinator.start` (review PH-H2).
     }
 }
 

@@ -79,6 +79,14 @@ enum LayoutPaneRowMapper {
         return table
     }()
 
+    /// Layout kind id → the schema refs the manifest gives it, read once.
+    @MainActor
+    fileprivate static let refsByKind: [String: [String]] = {
+        guard let kinds = (try? LayoutJSONValue.decode(kindManifestJson()))?["kinds"]?.objectValue
+        else { return [:] }
+        return kinds.mapValues(\.stringArrayValue)
+    }()
+
     /// The layout kind id for a store row's schema ref, or nil when the
     /// manifest does not claim it (the caller then keeps the pane's default).
     @MainActor
@@ -159,6 +167,36 @@ enum LayoutPaneRowMapper {
     @MainActor
     private static func displayName(for kind: RecordKindID) -> String {
         BuiltinRecordKinds.registry[kind]?.displayName ?? kind.rawValue.capitalized
+    }
+}
+
+// MARK: - The two kind vocabularies, joined
+
+/// The layout's kind ids (`impress_core::pane_query::KindManifest`, the short
+/// names a pane query and a `select` verb spell) and how each one maps onto
+/// the chassis' `RecordKindID`.
+///
+/// The two are DIFFERENT vocabularies (see `kindBySchemaRef`): comparing a
+/// layout kind to a `RecordKindID` raw value worked for five kinds by
+/// coincidence and fails for `library` (`imbib/library`). The join is the
+/// schema refs, which both sides already declare — the manifest's for a
+/// layout kind, `storeSchemaRef` for a descriptor — so there is no third
+/// table (review PH-L7).
+enum LayoutKindID {
+
+    /// Every kind id the manifest declares.
+    @MainActor
+    static var known: Set<String> { Set(LayoutPaneRowMapper.refsByKind.keys) }
+
+    /// The chassis kind a layout kind id names, or nil when no descriptor
+    /// claims any of its schema refs.
+    @MainActor
+    static func recordKind(forLayoutKind kind: String?) -> RecordKindID? {
+        guard let kind else { return nil }
+        for ref in LayoutPaneRowMapper.refsByKind[kind] ?? [] {
+            if let id = BuiltinRecordKinds.registry.kind(forStoreSchemaRef: ref) { return id }
+        }
+        return nil
     }
 }
 

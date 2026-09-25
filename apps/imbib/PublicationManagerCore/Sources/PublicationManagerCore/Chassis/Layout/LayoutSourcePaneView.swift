@@ -38,6 +38,10 @@ struct LayoutSourcePaneView: View {
     @State private var editorSession: ManuscriptEditorSession?
     /// Set instead of `editorSession` for an external-source manuscript.
     @State private var readOnlySnapshot: String?
+    /// The last resolve found no row for the manuscript — deleted, not yet
+    /// synced, or created by another process a moment from now. Distinct
+    /// from "still resolving", which is the brief first pass (PH-M4).
+    @State private var notInStore = false
 
     private var sessionID: String? { context.spec?.session }
 
@@ -59,7 +63,10 @@ struct LayoutSourcePaneView: View {
             .onAppear { resolve() }
             .onChange(of: manuscriptID) { _, _ in resolve() }
             .onChange(of: sessionID) { _, _ in resolve() }
-            .manuscriptLiveness(editorSession, manuscriptID: manuscriptID)
+            // With no live session (not in the store yet, or a read-only
+            // snapshot), an event naming the manuscript re-resolves: a late
+            // row appears and a snapshot is re-read (PH-M4).
+            .manuscriptLiveness(editorSession, manuscriptID: manuscriptID) { resolve() }
     }
 
     @ViewBuilder
@@ -99,8 +106,20 @@ struct LayoutSourcePaneView: View {
                 message: "No manuscript \u{201C}\(raw)\u{201D}."
             )
             .view
+        } else if let id = manuscriptID, notInStore {
+            // Said, not blank (PH-M4): the pane followed a selection whose
+            // row the store does not have — and it re-resolves on its own
+            // when the row arrives.
+            ChassisEmptyState(
+                id: "manuscript-not-in-store",
+                title: "Manuscript Not Found",
+                systemImage: "doc.questionmark",
+                message: "No manuscript \u{201C}\(id.uuidString)\u{201D} in the store. "
+                    + "This pane will show it if it arrives."
+            )
+            .view
         } else if manuscriptID != nil {
-            // Resolving (the first pass after a mount) or not in the store.
+            // Resolving: the first pass after a mount.
             Color.clear
         } else {
             ChassisEmptyState.noRowSelection(kind: .manuscript).view
@@ -142,6 +161,7 @@ struct LayoutSourcePaneView: View {
             paneSession.show(nil)
             editorSession = nil
             readOnlySnapshot = nil
+            notInStore = false
             if let raw = rawItem {
                 // The same kind of line `info` writes for an item it cannot
                 // show: the pane followed the selection, and said why there
@@ -155,10 +175,25 @@ struct LayoutSourcePaneView: View {
         }
         // ADR-0023 D4, at session CREATION: a file-backed manuscript never
         // gets a session, so there is no debounced save to land late.
+        let detail = RustStoreAdapter.shared.getManuscriptDetail(id: id)
+        guard detail != nil else {
+            paneSession.show(nil)
+            editorSession = nil
+            readOnlySnapshot = nil
+            if !notInStore {
+                logInfo(
+                    "pane \(context.tile) source: no manuscript \(id.uuidString) in the store — "
+                        + "named state; re-resolves on a store event naming it",
+                    category: "layout")
+            }
+            notInStore = true
+            return
+        }
+        notInStore = false
         guard RustStoreAdapter.shared.manuscriptAllowsEditorSession(id: id) else {
             paneSession.show(nil)
             editorSession = nil
-            readOnlySnapshot = RustStoreAdapter.shared.getManuscriptDetail(id: id)?.bodyContent ?? ""
+            readOnlySnapshot = detail?.bodyContent ?? ""
             logInfo(
                 "pane \(context.tile) source: manuscript \(id.uuidString) has external_source — "
                     + "read-only, no editor session",
@@ -182,13 +217,20 @@ struct LayoutSourcePaneView: View {
 /// Two shapes arrive: an in-process write names the manuscript; a write from
 /// ANOTHER process (the CLI, an agent) reaches this one only as the store's
 /// cross-process signal, which names nothing (`noteExternalMutation` →
-/// `.structural`). The detail pane's Source tab hears only the first.
-/// `absorbExternalChange` compares hashes and returns at once when this
-/// manuscript did not move, so answering every structural event costs one row
-/// read.
+/// `.structural`, held for the first 90 s after launch). The detail pane's
+/// Source tab hears only the first. `absorbExternalChange` compares hashes
+/// and returns at once when this manuscript did not move, so answering every
+/// structural event costs one row read.
+///
+/// When the row is GONE — deleted by another writer, which could not discard
+/// this session first — the session is discarded without a flush and dropped
+/// from every `source` pane's editor (review PH-M9). With no live session,
+/// `reresolve` is called instead, so a pane waiting for a row or showing a
+/// read-only snapshot picks up the change (PH-M4).
 private struct ManuscriptLiveness: ViewModifier {
     let session: ManuscriptEditorSession?
     let manuscriptID: UUID?
+    let reresolve: (@MainActor () -> Void)?
 
     /// Keyed on the SESSION too: the task captures `session` when it starts,
     /// and on a pane's first pass that is still nil.
@@ -203,11 +245,19 @@ private struct ManuscriptLiveness: ViewModifier {
             for await event in ImbibImpressStore.shared.events.subscribe() {
                 switch event {
                 case .itemsMutated(_, let ids) where ids.contains(id):
-                    session?.absorbExternalChange()
-                case .structural:
-                    session?.absorbExternalChange()
-                default:
                     break
+                case .structural:
+                    break
+                default:
+                    continue
+                }
+                if let session {
+                    if !session.absorbExternalChange() {
+                        ManuscriptSessionRegistry.shared.manuscriptDeletedElsewhere(id: id)
+                        reresolve?()
+                    }
+                } else {
+                    reresolve?()
                 }
             }
         }
@@ -215,8 +265,11 @@ private struct ManuscriptLiveness: ViewModifier {
 }
 
 extension View {
-    func manuscriptLiveness(_ session: ManuscriptEditorSession?, manuscriptID: UUID?) -> some View {
-        modifier(ManuscriptLiveness(session: session, manuscriptID: manuscriptID))
+    func manuscriptLiveness(
+        _ session: ManuscriptEditorSession?, manuscriptID: UUID?,
+        reresolve: (@MainActor () -> Void)? = nil
+    ) -> some View {
+        modifier(ManuscriptLiveness(session: session, manuscriptID: manuscriptID, reresolve: reresolve))
     }
 }
 #endif
