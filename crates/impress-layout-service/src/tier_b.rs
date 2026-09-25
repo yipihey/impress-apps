@@ -9,10 +9,10 @@
 //! reported back.
 //!
 //! **Auto-skip.** One `GET /api/status` probe gates the tier. No app → every
-//! capability reports `skipped`, and the report passes: a headless CI box with
-//! no GUI must stay green, and a skip that says why is not a pass that lies
-//! (ADR-0032). This mirrors `imprint_selftest::tier_b::run`'s structure
-//! exactly.
+//! capability reports `skipped` with `pass: false`, nothing counts as failed,
+//! and the report is NOT `ok`: green after zero checks would be a pass that
+//! lies (ADR-0032, review RL-L18). A caller that wants a headless box to stay
+//! green reads `all_skipped()`, not `ok`.
 //!
 //! **Restore what you change.** The catalogue mutates the live tree of an app
 //! someone may be using. So it opens by saving the current arrangement as a
@@ -1661,7 +1661,7 @@ mod tests {
 
     /// The skip path is the one a headless box takes, so it is the one that
     /// must be tested without an app: an unreachable port skips every
-    /// capability, fails none, and the report still passes.
+    /// capability, fails none, passes none, and the report is not `ok`.
     #[tokio::test]
     async fn an_unreachable_app_skips_the_whole_tier() {
         // Port 1 is reserved and nothing in the suite listens there.
@@ -1676,14 +1676,26 @@ mod tests {
                 .map(|r| r.id.as_str())
                 .collect::<Vec<_>>()
         );
+        assert!(
+            results.iter().all(|r| !r.pass),
+            "a skipped capability is not a pass"
+        );
         let report = crate::SelfTestReport::from_results(results);
         assert!(
-            report.ok(),
-            "a skipped tier must not fail: {}",
+            !report.ok(),
+            "a tier that ran nothing is not ok: {}",
             report.summary()
         );
+        assert!(report.all_skipped());
         assert_eq!(report.failed, 0);
         assert_eq!(report.passed, 0);
+        assert!(
+            report.summary().starts_with("SKIPPED: ") && report.summary().contains("127.0.0.1:1"),
+            "the summary says it skipped, and where it looked: {}",
+            report.summary()
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["ok"], false, "the wire carries ok");
     }
 
     /// The skip branch names the reachability capability specifically, so the

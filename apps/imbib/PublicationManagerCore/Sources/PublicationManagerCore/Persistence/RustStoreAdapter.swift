@@ -3161,9 +3161,34 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         updateComment(id: id, text: newText)
     }
 
-    /// Delete a comment.
-    public func deleteComment(_ id: UUID) {
-        deleteItem(id: id)
+    /// Delete a comment — and nothing that is not one. Rust checks the
+    /// record's kind (`ImbibStore.deleteCommentUndoable`): a paper or library
+    /// id is refused and kept, a missing id is not-found. It used to go
+    /// through `deleteItem`, which deletes any record kind (found by #62).
+    /// Undoable, like every delete.
+    public func deleteComment(_ id: UUID) throws {
+        let snapshot = try store.deleteCommentUndoable(id: id.uuidString)
+        didMutate()
+        let capturedStore = store
+        UndoCoordinator.shared.registerUndoClosure(
+            actionName: "Delete Comment",
+            undo: { [weak self] in
+                do {
+                    try capturedStore.restoreSnapshots(snapshots: [snapshot])
+                    self?.didMutate()
+                } catch {
+                    Logger.library.error("Undo deleteComment failed: \(error)")
+                }
+            },
+            redo: { [weak self] in
+                do {
+                    _ = try capturedStore.deleteCommentUndoable(id: id.uuidString)
+                    self?.didMutate()
+                } catch {
+                    Logger.library.error("Redo deleteComment failed: \(error)")
+                }
+            }
+        )
     }
 
     // MARK: - Sync Support (CloudKit)

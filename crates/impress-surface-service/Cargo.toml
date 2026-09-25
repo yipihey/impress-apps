@@ -37,6 +37,9 @@ thiserror = { workspace = true }
 # `surface_wait` long-polls the event ring every 250ms (ADR-0033 D6) —
 # `tokio::time::sleep`, so this is a real dependency, not dev-only.
 tokio = { workspace = true }
+# Lines under target `surface`; the store FFI bridges them into the app's
+# Console as `?category=surface` (wave 7 T5, review RS-S11).
+log = "0.4"
 
 [dev-dependencies]
 # The `cli` feature builds the clap tree from the same inventory

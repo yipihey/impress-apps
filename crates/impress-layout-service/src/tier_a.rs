@@ -118,7 +118,7 @@ impl World {
     }
 
     fn rows(&self) -> Result<Vec<LayoutRow>> {
-        self.layouts().all_rows(APP)
+        Ok(self.layouts().all_rows(APP)?)
     }
 
     /// The whole live tree, from the service.

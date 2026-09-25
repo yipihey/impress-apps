@@ -1235,12 +1235,38 @@ public actor AutomationService: AutomationOperations {
     public func deleteComment(commentID: UUID) async throws {
         try await checkAuthorization()
 
-        // Delete comment via generic deleteItem
-        await withStore { store in
-            store.deleteItem(id: commentID)
+        // Rust refuses anything that is not a comment, and an id that names
+        // nothing (#62: this used to be the store's generic delete, which
+        // removed any record kind and answered `deleted: true` for a missing
+        // id too).
+        let outcome: CommentDeletion = await withStore { store in
+            do {
+                try store.deleteComment(commentID)
+                return .deleted
+            } catch StoreApiError.NotFound {
+                return .notFound
+            } catch StoreApiError.InvalidInput(let why) {
+                return .notAComment(why)
+            } catch {
+                return .failed(String(describing: error))
+            }
         }
+        switch outcome {
+        case .deleted:
+            logger.info("Deleted comment \(commentID)")
+        case .notFound:
+            logger.warning("Delete comment \(commentID): not found")
+            throw AutomationOperationError.commentNotFound(commentID)
+        case .notAComment(let why):
+            logger.warning("Delete comment \(commentID) refused: \(why)")
+            throw AutomationOperationError.notAComment(commentID, why)
+        case .failed(let why):
+            throw AutomationOperationError.operationFailed(why)
+        }
+    }
 
-        logger.info("Deleted comment \(commentID)")
+    private enum CommentDeletion: Sendable {
+        case deleted, notFound, notAComment(String), failed(String)
     }
 
     // MARK: - Assignment Operations

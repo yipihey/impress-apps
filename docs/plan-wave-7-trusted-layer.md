@@ -261,3 +261,85 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     revisions are on the spec row (`expected_revision`), but neither the dispatch reply nor the
     feed's `surfaces_changed(ids)` carries one, so the pane still cannot tell its own write's
     echo from an agent's. The echo render now runs off the main actor, so it no longer blocks.
+- 2026-09-25 — **T5 (honest results)**, branch `claude/wave7-t5-honest`.
+  - **Codes (RL-L11 + AC-F19, closed).** `impress_service_core::Refusal` is `{code, message}`;
+    every layout and surface result envelope has `code` beside `message` when `ok` is false,
+    over MCP, the CLI, the FFI and HTTP. Domain codes are the refusing type's serde tags
+    (`LayoutError::code()`, pinned to the tag by a test; `ReduceError::code()`); the generic set
+    is `invalid-argument` 400, `not-found` 404, `conflict` 409, `store-unavailable` 503,
+    `store-error` 500, `host-unavailable` 503, `verb-failed` 502, `effect-failed` 422,
+    `internal` 500, and every domain code 422 (`undo-conflict` 409) — one table,
+    `refusal::http_status`, exported to Swift as `refusal_http_status`. Surface effects add
+    `unknown-verb`, `no-pane`, `query-refused`; the FFI's resize-share `not-in-a-split`; the
+    layout service `preset-not-deletable`, `preset-without-tree`; imbib `not-a-comment`.
+    `SharedLayoutError.Layout` and `SharedSurfaceError.Surface` carry `code`. A refused verb's
+    message names the verb and its target; detach of a whole window and move of the only
+    window's root have their own variants. The surface HTTP routes no longer infer status from
+    message text, and a store read error is never reported as "no surface".
+  - **Dispatch (RS-S12 = AC-F11, closed).** `ok` only when the event was reduced AND every effect
+    succeeded. A reduced event with a failed effect is `ok: false`, `code: "effect-failed"`,
+    `effects_failed`, a message naming each failure, the tree, and each effect's `{kind, ok,
+    code, message}`; HTTP 422 with that body. `source_errors` is on the dispatch result too.
+    Written on `SurfaceDispatchResult` and in `docs/agent-surfaces.md`.
+  - **CLI (AC-F12, closed).** `impress` exits 3 on `ok: false`, 1 when the verb could not be
+    dispatched, 2 for a bad invocation; in `--help`. Merged with #73's main.rs cleanly.
+  - **Tier B (RL-L18, closed).** A skip has `pass: false`; the report serializes `ok` (every
+    capability ran and passed) and `all_skipped()`; the summary starts `SKIPPED:` with the URL.
+  - **Actor (SK-K5 = AC-F5 = RS-S17, closed).** `SharedSurface.dispatch(…, actor:)`; the pane
+    passes `human`, HTTP dispatches as `agent`, MCP verbs stay `agent` (no `actor` argument was
+    added to them: an agent cannot claim to be the person). The actor reaches the state write,
+    the event row (`SurfaceEventDto.actor`, from the row's `author_kind`, no schema change) and
+    the layout verbs `publish`/`open` run.
+  - **Fallback store (AC-F20, narrowed).** Layout and surface writes refuse `store-unavailable`
+    when the store service handed out its in-memory stand-in (`is_fallback_store(&handle)`, a
+    pointer compare, so no race with the global flag). Reads still proceed without saying so.
+  - **Logging (RL-L6 = RS-S11 = AC-F18, closed).** `install_log_sink(sink, level)` with the
+    `SharedLogSink` callback forwards `log` records of targets `layout` and `surface`;
+    ImpressLayout's `RustLogBridge` appends them to ImpressLogging, installed by the first tree
+    host and by imbib's surface bridge. Lines: every applied/refused verb (actor, verb, target,
+    revision), cold start, external writes and deletes the feed picks up, every read the feed used
+    to swallow, a subscription rebuild that could not read the tree, each failed source, each
+    effect outcome, each dispatch, verb-host refusals, HTTP refusals.
+  - **Also closed:** RL-L21 (snapshot is a `Result`; static manifests log and debug-assert;
+    channel > 8 refused), SK-K24 (layout routes: code + status from Rust, 500 with reason for a
+    failed snapshot, `version` from the same snapshot, `savedLayouts()` throws, PaneContext
+    decode failures logged), PH-L8 (the kit half: `savedLayouts`, the tree route). PMC
+    `LayoutRowsPaneView` watches `context.refreshToken` and shows `context.error` (the PMC halves
+    of PH-H1 and PH-M3). `DELETE /api/comments/{id}` goes through imbib-core's
+    `delete_comment_undoable`, which refuses any non-comment (422 `not-a-comment`) and a missing
+    id (404), nothing deleted (#62's finding).
+  - **Bindings.** ImpressStoreFfi gained `installLogSink`, `refusalHttpStatus`, `SharedLogSink`,
+    `dispatch(…, actor:)`, `code:` on the two error cases; ImbibCore gained
+    `deleteCommentUndoable(id:)`; nothing lost. After #63's toolchain move, the copied
+    imprint-core, scix, implore, impel-tools and helix frameworks had to be rebuilt in the
+    worktree (duplicate `_rust_eh_personality` against the rebuilt imbib-core).
+  - **Live** (impress from this branch on 23191, `IMPRESS_DEVICE_ID=w7-t5-proof`, own
+    DerivedData; imbib on 23192 over its `--ui-testing` scratch store with the port given as a
+    launch argument). HTTP `close` of tile 4242 → 422 `unknown-tile`, prose naming the verb; op
+    `delete-layout` of a missing name → 404 `not-found`; MCP `layout-service_close` → `code:
+    "unknown-tile"`, `isError: true`; CLI `close` → the same JSON and exit 3. HTTP dispatch on a
+    throwaway surface whose `publish` had no pane → 422 `effect-failed`, `effects_failed: 1`,
+    emit ok / publish `no-pane`, tree present; its event `actor: agent`. `/api/logs?category=
+    layout` carried Rust's `agent close {…} refused [unknown-tile]` and the cold start;
+    `?category=surface` carried `publish effect failed [no-pane]` and `agent dispatch applied,
+    but not ok [effect-failed]`. Tier B on 23191 13/13, `ok: true`, exit 0 (twice); against
+    23199 12 skipped, `pass: false`, `ok: false`, exit 3. imbib: `DELETE /api/comments/<a
+    library>` → 422 `not-a-comment`, the library still listed; an unknown id → 404; a real
+    comment → 200. The human click: kit-demo's `--prove` sends a real in-process click to a
+    surface button (osascript has no assistive access here); its event is `actor: human` and
+    Rust's `human dispatch ok` line is in the Console — 16/16 claims. Throwaways removed (surface,
+    the `w7-t5-proof` live row via `SqliteItemStore::delete`); launchers restored.
+  - **Found.** (1) Three of T3's kit-demo claims (typing, and Undo from the Edit menu) failed three
+    runs in a row on this branch AND on main (`h`/`l` of "hello" were taken as pane chords), then
+    passed on a later run: they depend on nothing else on the desktop taking key focus. (2) The
+    first Tier B command of the session ran without the base-URL override and drove the app on
+    23125 (another session's build); its restore ran and left no saved layout behind. (3) Rust
+    does not log `save_layout`/`apply_layout`/`delete_layout`/preset refusals (they do not go
+    through the verb path); Swift logs them. (4) `/api/status` of impress reports the table
+    port, not the bound one (the implore half of that was #73's).
+  - **Gates.** `rust-gate.sh fmt`, `clippy auto` (imprint + rest), `cargo test` for
+    impress-service-core, -layout, -layout-service, -surface, -surface-service, -store-service,
+    -store-ffi, -cli, imbib-core (the new test); `check-uniffi-bindings` (7 match),
+    `check-schema-refs`, `check-kit-deps --strict`, `check-kit-packages`, `check-chassis-deps`;
+    ImpressLayout `swift test` 76/0; ImpressAutomation 14 XCTest + 63 swift-testing, 0 failures;
+    PublicationManagerCore 2152 XCTest / 0 failures (2 skipped) + 112 swift-testing.

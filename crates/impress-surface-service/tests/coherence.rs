@@ -14,6 +14,7 @@
 //! * RS-S15 — a failing source is not asked again on every render.
 //! * RS-S25 — a remembered pane is re-checked against the layout.
 
+use impress_service_core::Refusal;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -200,7 +201,9 @@ async fn two_registries_on_one_store_render_one_spec() {
     let gone = pane
         .with(&surfaces, row.id, HOST, |_| Box::pin(async { Ok(()) }))
         .await;
-    assert!(gone.unwrap_err().starts_with("no surface"));
+    let gone = gone.unwrap_err();
+    assert!(gone.message.starts_with("no surface"));
+    assert_eq!(gone.code, "not-found");
     assert!(pane.is_empty());
 }
 
@@ -250,7 +253,7 @@ struct Counting {
 
 #[async_trait::async_trait]
 impl Executor for Counting {
-    async fn call_verb(&self, _name: &str, _args: Value) -> Result<Value, String> {
+    async fn call_verb(&self, _name: &str, _args: Value) -> Result<Value, Refusal> {
         self.verbs.fetch_add(1, Ordering::SeqCst);
         if self.fail_verbs {
             Err("the app that owns this verb is not running".into())
@@ -258,11 +261,17 @@ impl Executor for Counting {
             Ok(json!({ "answer": 42 }))
         }
     }
-    async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value, String> {
+    async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value, Refusal> {
         self.queries.fetch_add(1, Ordering::SeqCst);
         self.inner.run_query(query, bindings).await
     }
-    async fn publish(&self, _: &PaneHandle, _: &str, _: Value) -> Result<(), String> {
+    async fn publish(
+        &self,
+        _: &PaneHandle,
+        _: &str,
+        _: Value,
+        _: ActorKind,
+    ) -> Result<(), Refusal> {
         Ok(())
     }
     async fn open(
@@ -271,10 +280,18 @@ impl Executor for Counting {
         _: Value,
         _: &str,
         _: Option<&str>,
-    ) -> Result<(), String> {
+        _: ActorKind,
+    ) -> Result<(), Refusal> {
         Ok(())
     }
-    async fn emit(&self, _: ItemId, _: &str, _: &str, _: Value) -> Result<u64, String> {
+    async fn emit(
+        &self,
+        _: ItemId,
+        _: &str,
+        _: &str,
+        _: Value,
+        _: ActorKind,
+    ) -> Result<u64, Refusal> {
         Ok(0)
     }
 }

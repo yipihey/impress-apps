@@ -41,10 +41,17 @@ use serde_json::Value;
 
 use crate::dto::{EffectOutcomeDto, ShowTargetDto, SplitTargetDto};
 use crate::store::{SurfaceRow, SurfaceStore};
+use impress_service_core::refusal::codes;
+use impress_service_core::Refusal;
 
-/// What went wrong, as a sentence — the shape every store-generic
-/// `#[impress_service]` crate in the suite uses.
-pub type Result<T> = std::result::Result<T, String>;
+/// See [`crate::Result`]: a stable `code` and a sentence.
+pub type Result<T> = crate::Result<T>;
+
+/// A layout verb's refusal, carried into a surface's own result with the
+/// code the layout service gave it.
+fn layout_refused(code: Option<String>, message: String) -> Refusal {
+    Refusal::new(code.unwrap_or_else(|| "refused".to_string()), message)
+}
 
 // ---------------------------------------------------------------------------
 // The linked inventory
@@ -56,10 +63,10 @@ pub type Result<T> = std::result::Result<T, String>;
 pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
     let descriptor = McpToolDescriptor::iter()
         .find(|d| d.name == name)
-        .ok_or_else(|| format!("Unknown tool: {name}"))?;
+        .ok_or_else(|| Refusal::new("unknown-verb", format!("Unknown tool: {name}")))?;
     (descriptor.handler)(args)
         .await
-        .map_err(|e| format!("{}: {}", descriptor.name, e))
+        .map_err(|e| Refusal::new(codes::VERB_FAILED, format!("{}: {}", descriptor.name, e)))
 }
 
 /// Whether a verb name is in the linked inventory — what `surface_validate`
@@ -133,20 +140,38 @@ pub trait Executor: Send + Sync {
     /// domain-specific projection.
     async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value>;
     /// Publish a selection on `pane`'s channel — `layout-service_select`.
-    async fn publish(&self, pane: &PaneHandle, kind: &str, ids: Value) -> Result<()>;
+    async fn publish(
+        &self,
+        pane: &PaneHandle,
+        kind: &str,
+        ids: Value,
+        actor: ActorKind,
+    ) -> Result<()>;
     /// Open a query in a pane — composes `layout-service` verbs exactly as
     /// `surface_show` does (see [`show_in_pane`]), so "a surface can drive
     /// the layout tree, not just itself" (`docs/agent-surfaces.md`) is the
     /// same code path either way.
+    ///
+    /// `actor` is whoever caused the dispatch — the human clicking in the
+    /// pane, or an agent — and is the actor the layout verbs record, so a
+    /// person's click lands on the person's undo ring (review AC-F5).
     async fn open(
         &self,
         pane: Option<&PaneHandle>,
         query: Value,
         view_kind: &str,
         target: Option<&str>,
+        actor: ActorKind,
     ) -> Result<()>;
-    /// Append an event row and return its assigned `seq`.
-    async fn emit(&self, surface: ItemId, host: &str, name: &str, payload: Value) -> Result<u64>;
+    /// Append an event row, attributed to `actor`, and return its `seq`.
+    async fn emit(
+        &self,
+        surface: ItemId,
+        host: &str,
+        name: &str,
+        payload: Value,
+        actor: ActorKind,
+    ) -> Result<u64>;
     /// Which pane, if any, is showing `surface` right now — recovered from
     /// the LAYOUT rather than remembered. A runtime instance only knows its
     /// pane if `surface_show` (or the FFI's `bind_pane`) ran on THIS
@@ -283,13 +308,21 @@ impl Executor for DefaultExecutor {
             return call_verb(name, args).await;
         }
         let Some(host) = self.verb_host.clone() else {
-            return Err(format!(
-                "Unknown tool: {name} (not in this process's inventory; no verb host installed)"
+            return Err(Refusal::new(
+                "unknown-verb",
+                format!(
+                    "Unknown tool: {name} (not in this process's inventory; no verb host \
+                     installed)"
+                ),
             ));
         };
         if !host.has_verb(name) {
-            return Err(format!(
-                "Unknown tool: {name} (not in this process's inventory; host has no such verb)"
+            return Err(Refusal::new(
+                "unknown-verb",
+                format!(
+                    "Unknown tool: {name} (not in this process's inventory; host has no such \
+                     verb)"
+                ),
             ));
         }
         // Synchronous by design (see `VerbHost`'s docs): run it off this
@@ -298,7 +331,9 @@ impl Executor for DefaultExecutor {
         let owned_name = name.to_string();
         tokio::task::spawn_blocking(move || host.call_verb(&owned_name, args))
             .await
-            .map_err(|e| format!("verb host call to {name}: task panicked: {e}"))?
+            .map_err(|e| {
+                Refusal::internal(format!("verb host call to {name}: task panicked: {e}"))
+            })?
     }
 
     async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value> {
@@ -314,16 +349,23 @@ impl Executor for DefaultExecutor {
             bindings,
             &impress_core::pane_query::builtin_manifest(),
         )
-        .map_err(|e: PaneQueryError| e.to_string())?;
+        .map_err(|e: PaneQueryError| Refusal::new("query-refused", e.to_string()))?;
         let items = self
             .store
             .query(&compiled.item_query)
-            .map_err(|e| format!("run query: {e}"))?;
-        let rows = serde_json::to_value(items).map_err(|e| format!("encode query result: {e}"))?;
+            .map_err(|e| Refusal::store(format!("run query: {e}")))?;
+        let rows = serde_json::to_value(items)
+            .map_err(|e| Refusal::internal(format!("encode query result: {e}")))?;
         Ok(flatten_payloads(rows))
     }
 
-    async fn publish(&self, pane: &PaneHandle, kind: &str, ids: Value) -> Result<()> {
+    async fn publish(
+        &self,
+        pane: &PaneHandle,
+        kind: &str,
+        ids: Value,
+        actor: ActorKind,
+    ) -> Result<()> {
         let id_strings: Vec<String> = match ids {
             Value::Array(items) => items
                 .into_iter()
@@ -344,13 +386,13 @@ impl Executor for DefaultExecutor {
                 LayoutPaneRefDto::tile(impress_layout::TileId::new(pane.tile)),
                 kind.to_string(),
                 id_strings,
-                Some("agent".to_string()),
+                Some(actor_name(actor).to_string()),
             )
             .await;
         if result.ok {
             Ok(())
         } else {
-            Err(result.message)
+            Err(layout_refused(result.code, result.message))
         }
     }
 
@@ -360,16 +402,17 @@ impl Executor for DefaultExecutor {
         query: Value,
         view_kind: &str,
         target: Option<&str>,
+        actor: ActorKind,
     ) -> Result<()> {
         let Some(pane) = pane else {
-            return Err(
+            return Err(Refusal::new(
+                "no-pane",
                 "this surface instance has no pane yet (surface_show has not run) — nothing to \
-                 open a query beside"
-                    .to_string(),
-            );
+                 open a query beside",
+            ));
         };
-        let query: PaneQuery =
-            serde_json::from_value(query).map_err(|e| format!("open: query: {e}"))?;
+        let query: PaneQuery = serde_json::from_value(query)
+            .map_err(|e| Refusal::invalid_argument(format!("open: query: {e}")))?;
         let show_target = match target {
             Some(role) => ShowTargetDto {
                 role: Some(role.to_string()),
@@ -392,15 +435,22 @@ impl Executor for DefaultExecutor {
             query,
             view_kind,
             &show_target,
-            Some("agent".to_string()),
+            Some(actor_name(actor).to_string()),
         )
         .await
         .map(|_| ())
     }
 
-    async fn emit(&self, surface: ItemId, host: &str, name: &str, payload: Value) -> Result<u64> {
+    async fn emit(
+        &self,
+        surface: ItemId,
+        host: &str,
+        name: &str,
+        payload: Value,
+        actor: ActorKind,
+    ) -> Result<u64> {
         self.surfaces
-            .append_event(surface, host, name, &payload, ActorKind::Agent)
+            .append_event(surface, host, name, &payload, actor)
     }
 
     async fn pane_showing(&self, surface: ItemId) -> Option<PaneHandle> {
@@ -485,7 +535,7 @@ pub(crate) async fn show_in_pane(
             )
             .await;
         if !r1.ok {
-            return Err(r1.message);
+            return Err(layout_refused(r1.code, r1.message));
         }
         let r2 = layout
             .set_view_kind(
@@ -497,7 +547,7 @@ pub(crate) async fn show_in_pane(
             )
             .await;
         if !r2.ok {
-            return Err(r2.message);
+            return Err(layout_refused(r2.code, r2.message));
         }
         return Ok((tile, r2.focused == Some(tile), r2.affected_panes));
     }
@@ -508,11 +558,14 @@ pub(crate) async fn show_in_pane(
             .resolve_reference(app_id.to_string(), device.clone(), pane_ref.clone())
             .await;
         if !resolved.ok {
-            return Err(resolved.message);
+            return Err(layout_refused(resolved.code, resolved.message));
         }
-        let tile = resolved
-            .tile
-            .ok_or_else(|| format!("role '{role}' does not resolve to a pane"))?;
+        let tile = resolved.tile.ok_or_else(|| {
+            Refusal::new(
+                "no-pane-with-role",
+                format!("role '{role}' does not resolve to a pane"),
+            )
+        })?;
         let r1 = layout
             .set_query(
                 app_id.to_string(),
@@ -523,7 +576,7 @@ pub(crate) async fn show_in_pane(
             )
             .await;
         if !r1.ok {
-            return Err(r1.message);
+            return Err(layout_refused(r1.code, r1.message));
         }
         let r2 = layout
             .set_view_kind(
@@ -535,7 +588,7 @@ pub(crate) async fn show_in_pane(
             )
             .await;
         if !r2.ok {
-            return Err(r2.message);
+            return Err(layout_refused(r2.code, r2.message));
         }
         return Ok((tile, r2.focused == Some(tile), r2.affected_panes));
     }
@@ -563,11 +616,11 @@ pub(crate) async fn show_in_pane(
         )
         .await;
     if !split.ok {
-        return Err(split.message);
+        return Err(layout_refused(split.code, split.message));
     }
     let tile = split
         .focused
-        .ok_or_else(|| "split produced no focused tile".to_string())?;
+        .ok_or_else(|| Refusal::internal("split produced no focused tile"))?;
     Ok((tile, true, split.affected_panes))
 }
 
@@ -783,7 +836,16 @@ impl SurfaceRuntime {
                         progressed = true;
                     }
                     Err(why) => {
-                        self.source_errors.insert(request.name.clone(), why);
+                        log::warn!(
+                            target: "surface",
+                            "surface {} ({}): source '{}' failed [{}]: {}",
+                            self.surface_id,
+                            self.host,
+                            request.name,
+                            why.code,
+                            why.message
+                        );
+                        self.source_errors.insert(request.name.clone(), why.message);
                         self.failed.insert(
                             request.name.clone(),
                             FailedFetch {
@@ -825,6 +887,17 @@ impl SurfaceRuntime {
         )
     }
 
+    /// Every source that failed on the last render, in the wire's shape.
+    pub fn source_error_list(&self) -> Vec<crate::dto::SourceError> {
+        self.source_errors
+            .iter()
+            .map(|(name, message)| crate::dto::SourceError {
+                name: name.clone(),
+                message: message.clone(),
+            })
+            .collect()
+    }
+
     /// Reduce an event, persist the resulting state, run every effect, and
     /// re-render. Persistence happens here (not in the caller) so a
     /// dispatch that runs zero effects still leaves the state row in sync
@@ -841,14 +914,35 @@ impl SurfaceRuntime {
         event: &Event,
         actor: ActorKind,
     ) -> Result<(RenderTree, Vec<EffectOutcomeDto>)> {
-        let (new_state, effects) =
-            reduce(&self.spec, &self.state, &self.params, event).map_err(|e| e.to_string())?;
+        let (new_state, effects) = reduce(&self.spec, &self.state, &self.params, event)
+            .map_err(|e| Refusal::new(e.code(), e.to_string()))?;
         self.state = new_state;
         self.persist_state(surfaces, actor)?;
 
         let mut outcomes = Vec::with_capacity(effects.len());
         for effect in effects {
-            outcomes.push(self.run_effect(executor, effect).await);
+            let outcome = self.run_effect(executor, effect, actor).await;
+            if outcome.ok {
+                log::debug!(
+                    target: "surface",
+                    "surface {} ({}): {} effect ok: {}",
+                    self.surface_id,
+                    self.host,
+                    outcome.kind,
+                    outcome.message
+                );
+            } else {
+                log::warn!(
+                    target: "surface",
+                    "surface {} ({}): {} effect failed [{}]: {}",
+                    self.surface_id,
+                    self.host,
+                    outcome.kind,
+                    outcome.code.as_deref().unwrap_or("?"),
+                    outcome.message
+                );
+            }
+            outcomes.push(outcome);
         }
         self.persist_state(surfaces, actor)?;
 
@@ -860,8 +954,8 @@ impl SurfaceRuntime {
     /// no state row yet, from the spec's initial state). Returns whether it
     /// wrote.
     fn persist_state(&mut self, surfaces: &SurfaceStore, actor: ActorKind) -> Result<bool> {
-        let text =
-            serde_json::to_string(&self.state).map_err(|e| format!("encode surface state: {e}"))?;
+        let text = serde_json::to_string(&self.state)
+            .map_err(|e| Refusal::internal(format!("encode surface state: {e}")))?;
         let unchanged = match &self.state_text {
             Some(stored) => *stored == text,
             None => serde_json::to_string(&self.spec.state).ok().as_deref() == Some(&text),
@@ -882,8 +976,8 @@ impl SurfaceRuntime {
         state: Value,
         actor: ActorKind,
     ) -> Result<()> {
-        let text =
-            serde_json::to_string(&state).map_err(|e| format!("encode surface state: {e}"))?;
+        let text = serde_json::to_string(&state)
+            .map_err(|e| Refusal::internal(format!("encode surface state: {e}")))?;
         surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
         self.state = state;
         self.state_text = Some(text);
@@ -905,68 +999,51 @@ impl SurfaceRuntime {
         self.pane.clone()
     }
 
-    async fn run_effect(&mut self, executor: &dyn Executor, effect: Effect) -> EffectOutcomeDto {
+    async fn run_effect(
+        &mut self,
+        executor: &dyn Executor,
+        effect: Effect,
+        actor: ActorKind,
+    ) -> EffectOutcomeDto {
         match effect {
             Effect::Call { verb, args, into } => match executor.call_verb(&verb, args).await {
                 Ok(value) => {
                     if let Some(path) = &into {
                         if let Err(e) = set_state_path(&mut self.state, path, value) {
-                            return EffectOutcomeDto {
-                                kind: "call".into(),
-                                ok: false,
-                                message: e,
-                            };
+                            return EffectOutcomeDto::failed("call", e);
                         }
                     }
-                    EffectOutcomeDto {
-                        kind: "call".into(),
-                        ok: true,
-                        message: format!("called {verb}"),
-                    }
+                    EffectOutcomeDto::done("call", format!("called {verb}"))
                 }
-                Err(e) => EffectOutcomeDto {
-                    kind: "call".into(),
-                    ok: false,
-                    message: e,
-                },
+                Err(e) => EffectOutcomeDto::failed("call", e),
             },
             Effect::Publish { ids } => {
                 let Some(pane) = self.pane_or_lookup(executor).await else {
-                    return EffectOutcomeDto {
-                        kind: "publish".into(),
-                        ok: false,
-                        message: "no pane shows this surface yet (surface_show has not run)".into(),
-                    };
+                    return EffectOutcomeDto::failed(
+                        "publish",
+                        Refusal::new(
+                            "no-pane",
+                            "no pane shows this surface yet (surface_show has not run)",
+                        ),
+                    );
                 };
                 let (kind, ids) = publish_kind_and_ids(&self.spec, ids);
-                match executor.publish(&pane, &kind, ids).await {
-                    Ok(()) => EffectOutcomeDto {
-                        kind: "publish".into(),
-                        ok: true,
-                        message: format!("published on kind '{kind}'"),
-                    },
-                    Err(e) => EffectOutcomeDto {
-                        kind: "publish".into(),
-                        ok: false,
-                        message: e,
-                    },
+                match executor.publish(&pane, &kind, ids, actor).await {
+                    Ok(()) => {
+                        EffectOutcomeDto::done("publish", format!("published on kind '{kind}'"))
+                    }
+                    Err(e) => EffectOutcomeDto::failed("publish", e),
                 }
             }
             Effect::Emit { name, payload } => {
                 match executor
-                    .emit(self.surface_id, &self.host, &name, payload)
+                    .emit(self.surface_id, &self.host, &name, payload, actor)
                     .await
                 {
-                    Ok(seq) => EffectOutcomeDto {
-                        kind: "emit".into(),
-                        ok: true,
-                        message: format!("emitted '{name}' (seq {seq})"),
-                    },
-                    Err(e) => EffectOutcomeDto {
-                        kind: "emit".into(),
-                        ok: false,
-                        message: e,
-                    },
+                    Ok(seq) => {
+                        EffectOutcomeDto::done("emit", format!("emitted '{name}' (seq {seq})"))
+                    }
+                    Err(e) => EffectOutcomeDto::failed("emit", e),
                 }
             }
             Effect::Open {
@@ -976,31 +1053,33 @@ impl SurfaceRuntime {
             } => {
                 let pane = self.pane_or_lookup(executor).await;
                 match executor
-                    .open(pane.as_ref(), query, &view_kind, target.as_deref())
+                    .open(pane.as_ref(), query, &view_kind, target.as_deref(), actor)
                     .await
                 {
-                    Ok(()) => EffectOutcomeDto {
-                        kind: "open".into(),
-                        ok: true,
-                        message: format!("opened a '{view_kind}' pane"),
-                    },
-                    Err(e) => EffectOutcomeDto {
-                        kind: "open".into(),
-                        ok: false,
-                        message: e,
-                    },
+                    Ok(()) => {
+                        EffectOutcomeDto::done("open", format!("opened a '{view_kind}' pane"))
+                    }
+                    Err(e) => EffectOutcomeDto::failed("open", e),
                 }
             }
             Effect::Refresh { source } => {
                 self.cache.remove(&source);
                 self.failed.remove(&source);
-                EffectOutcomeDto {
-                    kind: "refresh".into(),
-                    ok: true,
-                    message: format!("'{source}' will re-fetch on next render"),
-                }
+                EffectOutcomeDto::done(
+                    "refresh",
+                    format!("'{source}' will re-fetch on next render"),
+                )
             }
         }
+    }
+}
+
+/// `human` | `agent` | `system` — the spelling layout verbs take as `actor`.
+pub fn actor_name(actor: ActorKind) -> &'static str {
+    match actor {
+        ActorKind::Human => "human",
+        ActorKind::Agent => "agent",
+        ActorKind::System => "system",
     }
 }
 
@@ -1102,11 +1181,17 @@ fn bindings_from_params(decls: &[ParamDecl], params: &Value) -> Bindings {
 fn set_state_path(state: &mut Value, path: &str, value: Value) -> Result<()> {
     let mut parts = path.split('.');
     if parts.next() != Some("state") {
-        return Err(format!("`into` path '{path}' must start with 'state.'"));
+        return Err(Refusal::new(
+            "invalid-path",
+            format!("`into` path '{path}' must start with 'state.'"),
+        ));
     }
     let segments: Vec<&str> = parts.collect();
     if segments.is_empty() {
-        return Err(format!("`into` path '{path}' must start with 'state.'"));
+        return Err(Refusal::new(
+            "invalid-path",
+            format!("`into` path '{path}' must start with 'state.'"),
+        ));
     }
     if !state.is_object() {
         *state = Value::Object(serde_json::Map::new());
@@ -1219,7 +1304,7 @@ impl SessionRegistry {
             *guard = None;
             drop(guard);
             self.forget(surface_id, host);
-            return Err(format!("no surface {surface_id}"));
+            return Err(Refusal::not_found(format!("no surface {surface_id}")));
         };
         let state_text = surfaces.get_state_text(surface_id, host)?;
         let runtime = match guard.as_mut() {

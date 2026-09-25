@@ -24,6 +24,9 @@ mod ai;
 mod ai_registry;
 /// The ADR-0031 layout tree as Swift drives it (work package L5).
 mod layout;
+/// The layout and surface crates' `log` lines, forwarded to the host's
+/// Console (wave 7 T5).
+mod log_bridge;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
@@ -81,6 +84,7 @@ pub use layout::{
     SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
     SharedLayoutSnapshot, SharedPane, SharedWindow,
 };
+pub use log_bridge::{install_log_sink, refusal_http_status, SharedLogSink};
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
     SharedSurfaceListener, SharedSurfaceRow, SharedVerbHost,

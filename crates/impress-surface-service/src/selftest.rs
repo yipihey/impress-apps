@@ -26,9 +26,9 @@ pub trait SurfaceSelftestService: Send + Sync + 'static {
     ///
     /// `tier` accepts `"a"` (pure Rust over a private in-memory store —
     /// every S4 verb plus the create → show → dispatch → render → emit →
-    /// events loop) or `"all"`/`""`, which is the same thing today: the
-    /// live-app tier arrives with the Swift host (S6/S7). Nothing here
-    /// touches the user's store.
+    /// events loop) or `"all"`/`""`, which is the same thing. `"b"` is one
+    /// skipped entry pointing at the live surface checks, which are the
+    /// layout self-test's Tier B. Nothing here touches the user's store.
     #[impress_method]
     async fn run_selftest(&self, tier: String) -> SelfTestReport;
 }
@@ -45,7 +45,8 @@ impl SurfaceSelftestService for DefaultSurfaceSelftestService {
                 "tier-b",
                 "drive a running app over HTTP",
                 crate::report::Tier::B,
-                "surfaces have no live-app surface yet — it arrives with the Swift host (S6/S7)",
+                "the live surface checks are Tier B of the layout self-test \
+                 (`layout-selftest-service_run-selftest --tier b`, the `surface.*` capabilities)",
             )]),
             _ => crate::run_tier_a().await,
         }

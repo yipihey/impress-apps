@@ -51,9 +51,11 @@ pub use selftest::{DefaultSurfaceSelftestService, SurfaceSelftestService};
 pub use service::{DefaultImpressSurfaceService, ImpressSurfaceService};
 pub use store::{EventRow, SurfaceRow, SurfaceStore};
 
-/// What went wrong, as a sentence — the shape every store-generic
-/// `#[impress_service]` crate in the suite uses.
-pub type Result<T> = std::result::Result<T, String>;
+/// What went wrong: a stable `code` and a sentence (see
+/// `impress_service_core::refusal`). A bare `String` error converts into an
+/// `invalid-argument` refusal through `?`, so argument parsers stay plain;
+/// store, lookup and conflict failures are built with their own code.
+pub type Result<T> = std::result::Result<T, impress_service_core::Refusal>;
 
 /// Run one capability check, timing it and packaging the outcome. Copied
 /// from `impress-layout-service`'s function of the same name/shape (see
@@ -82,13 +84,14 @@ where
     }
 }
 
-/// A capability that could not run. A skip is not a pass: it says so.
+/// A capability that could not run. A skip is not a pass: `pass` is false,
+/// `skipped` says why, and the report is not `ok` (review RL-L18).
 pub fn skipped(id: &str, description: &str, tier: Tier, reason: &str) -> CapabilityResult {
     CapabilityResult {
         id: id.to_string(),
         description: description.to_string(),
         tier,
-        pass: true,
+        pass: false,
         detail: reason.to_string(),
         duration_ms: 0,
         skipped: true,

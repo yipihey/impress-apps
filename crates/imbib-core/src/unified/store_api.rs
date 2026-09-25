@@ -1762,6 +1762,34 @@ impl ImbibStore {
         Ok(snapshots)
     }
 
+    /// Delete ONE comment, with a snapshot for undo — and nothing that is
+    /// not a comment. `DELETE /api/comments/{id}` used to reach the store's
+    /// generic delete, so any record id (a paper, a library) was deleted and
+    /// the route answered `deleted: true`; an id that named nothing answered
+    /// the same. Now a missing id is `NotFound` and a record of another kind
+    /// is `InvalidInput`, naming its kind; neither deletes anything.
+    pub fn delete_comment_undoable(&self, id: String) -> Result<ItemSnapshot, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        let item = self
+            .store
+            .get(uuid)?
+            .ok_or_else(|| StoreApiError::NotFound(format!("comment {id}")))?;
+        if item.schema != "imbib/comment" {
+            return Err(StoreApiError::InvalidInput(format!(
+                "{id} is a record of kind {}, not a comment; nothing was deleted",
+                item.schema
+            )));
+        }
+        let children = self.snapshot_children(uuid)?;
+        let item_json = serde_json::to_string(&item)
+            .map_err(|e| StoreApiError::Storage(format!("serialize item: {}", e)))?;
+        self.store.delete(uuid)?;
+        Ok(ItemSnapshot {
+            item_json,
+            child_jsons: children,
+        })
+    }
+
     /// Delete a library with snapshot for undo.
     ///
     /// The child-collection half of the snapshot is the KERNEL's read
@@ -7639,6 +7667,45 @@ mod tests {
             .query_publications(lib.id.clone(), "title".into(), true, None, None)
             .unwrap();
         assert_eq!(pubs.len(), 2);
+    }
+
+    /// `DELETE /api/comments/{id}` reaches this: a comment is deleted, a
+    /// paper id is refused and kept, a missing id is not-found (found by
+    /// #62: it used to delete any record kind).
+    #[test]
+    fn delete_comment_undoable_refuses_anything_but_a_comment() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let ids = store
+            .import_bibtex("@article{c1, title={Commented}}".into(), lib.id.clone())
+            .unwrap();
+        let paper = ids[0].clone();
+        let comment = store
+            .create_comment(paper.clone(), "note".into(), None, None, None)
+            .unwrap();
+
+        let refused = store.delete_comment_undoable(paper.clone()).unwrap_err();
+        assert!(
+            matches!(&refused, StoreApiError::InvalidInput(m) if m.contains("not a comment")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            store
+                .query_publications(lib.id.clone(), "title".into(), true, None, None)
+                .unwrap()
+                .len(),
+            1,
+            "the paper is still there"
+        );
+
+        let missing = store
+            .delete_comment_undoable("00000000-0000-4000-8000-000000000000".into())
+            .unwrap_err();
+        assert!(matches!(missing, StoreApiError::NotFound(_)), "{missing:?}");
+
+        let snapshot = store.delete_comment_undoable(comment.id.clone()).unwrap();
+        assert!(snapshot.item_json.contains("note"));
+        assert!(store.list_comments(paper).unwrap().is_empty());
     }
 
     #[test]

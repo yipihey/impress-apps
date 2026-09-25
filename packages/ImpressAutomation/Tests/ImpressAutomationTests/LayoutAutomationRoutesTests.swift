@@ -24,33 +24,41 @@ private final class FakeLayoutHost: LayoutAutomationHost {
     let layoutAppID = "imbib"
     var lastVerb: [String: Any]?
     var lastOperation: (String, [String: Any])?
-    var refusal: String?
+    var refusal: AutomationRefusal?
+    var snapshotFails = false
+    var layoutsFail = false
 
     func layoutTreeJSON() -> [String: Any] {
-        ["version": 7, "focused": 2, "layout": ["tiles": ["1": ["pane": [:]]]]]
+        if snapshotFails {
+            return [
+                "version": 7, "layout": NSNull(), "snapshotError": "store: disk I/O error",
+                "snapshotCode": "store-error",
+            ]
+        }
+        return ["version": 7, "focused": 2, "layout": ["tiles": ["1": ["pane": [:]]]]]
     }
 
-    func savedLayoutsJSON() -> [[String: Any]] {
-        [["id": "abc", "ordinal": 1, "name": "Reading", "created": "t", "modified": "t"]]
+    func savedLayoutsJSON() throws -> [[String: Any]] {
+        if layoutsFail {
+            throw AutomationRefusal(code: "store-error", message: "read layouts: locked", status: 500)
+        }
+        return [["id": "abc", "ordinal": 1, "name": "Reading", "created": "t", "modified": "t"]]
     }
 
     func applyLayoutVerb(_ verb: [String: Any]) throws -> [String: Any] {
         lastVerb = verb
-        if let refusal { throw LayoutHostRefusal(message: refusal) }
+        if let refusal { throw refusal }
         return ["version": 8, "affectedPanes": [2]]
     }
 
     func applyLayoutOperation(_ operation: String, body: [String: Any]) throws -> [String: Any] {
         lastOperation = (operation, body)
-        if let refusal { throw LayoutHostRefusal(message: refusal) }
+        if let refusal { throw refusal }
         return ["version": 9, "affectedPanes": []]
     }
 }
 
-private struct LayoutHostRefusal: Error, CustomStringConvertible {
-    let message: String
-    var description: String { message }
-}
+private struct SomethingElse: Error {}
 
 @Suite("LayoutAutomationRoutes", .serialized)
 @MainActor
@@ -160,18 +168,69 @@ struct LayoutAutomationRoutesTests {
         }
     }
 
-    @Test("a verb the tree refuses is 422, carrying Rust's own message")
-    func refusedVerbIs422() async throws {
+    @Test("a verb the tree refuses carries Rust's code, message and status")
+    func refusedVerbCarriesItsCode() async throws {
         let host = FakeLayoutHost()
-        host.refusal = "cannot close the last pane of a window"
+        host.refusal = AutomationRefusal(
+            code: "cannot-close-last-pane", message: "close: a window must keep at least one pane",
+            status: 422)
         try await withHost(host) {
             let response = try #require(
                 await SharedAutomationRoutes.route(
                     post("/api/layout/verb", ["verb": "close"])))
             #expect(response.status == 422)
             let payload = try json(response)
-            #expect(
-                (payload["error"] as? String ?? "").contains("last pane"))
+            #expect(payload["code"] as? String == "cannot-close-last-pane")
+            #expect((payload["error"] as? String ?? "").contains("at least one pane"))
+            // The prose, not `String(describing:)` of an error type.
+            #expect(!(payload["error"] as? String ?? "").contains("AutomationRefusal"))
+        }
+    }
+
+    @Test("a refusal's status is the one Rust gave its code, not always 422")
+    func refusalStatusFollowsTheCode() async throws {
+        let host = FakeLayoutHost()
+        host.refusal = AutomationRefusal(
+            code: "not-found", message: "no saved layout named 'x'", status: 404)
+        try await withHost(host) {
+            let response = try #require(
+                await SharedAutomationRoutes.route(
+                    post("/api/layout/op", ["op": "delete-layout", "name": "x"])))
+            #expect(response.status == 404)
+            #expect(try json(response)["code"] as? String == "not-found")
+        }
+    }
+
+    @Test("an error that is not a refusal is a 500 with code internal")
+    func unknownErrorIs500() async throws {
+        let response = LayoutAutomationRoutes.refused(SomethingElse())
+        #expect(response.status == 500)
+        #expect(try json(response)["code"] as? String == "internal")
+    }
+
+    @Test("a snapshot that failed is a 500 that says why, not a 200 with a null tree")
+    func failedSnapshotIs500() async throws {
+        let host = FakeLayoutHost()
+        host.snapshotFails = true
+        try await withHost(host) {
+            let response = try #require(await SharedAutomationRoutes.route(get("/api/layout/tree")))
+            #expect(response.status == 500)
+            let payload = try json(response)
+            #expect(payload["status"] as? String == "error")
+            #expect(payload["code"] as? String == "store-error")
+            #expect((payload["error"] as? String ?? "").contains("disk I/O"))
+        }
+    }
+
+    @Test("saved layouts that could not be read are an error, not an empty list")
+    func failedLayoutsReadIsAnError() async throws {
+        let host = FakeLayoutHost()
+        host.layoutsFail = true
+        try await withHost(host) {
+            let response = try #require(
+                await SharedAutomationRoutes.route(get("/api/layout/layouts")))
+            #expect(response.status == 500)
+            #expect(try json(response)["code"] as? String == "store-error")
         }
     }
 

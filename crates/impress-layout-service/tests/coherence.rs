@@ -259,7 +259,10 @@ fn a_save_that_loses_the_race_writes_nothing() {
             (saved, session.is_stale())
         })
         .unwrap();
-    assert_eq!(outcome, (Err(STALE.to_string()), true));
+    assert_eq!(
+        outcome,
+        (Err(impress_service_core::Refusal::conflict(STALE)), true)
+    );
 
     let stored = runtime.block_on(tree(&other));
     assert!(

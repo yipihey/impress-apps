@@ -19,7 +19,10 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
+pub mod refusal;
 pub mod runtime;
+
+pub use refusal::Refusal;
 
 #[cfg(feature = "cli")]
 pub mod cli;

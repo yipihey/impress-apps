@@ -7,6 +7,8 @@
 //! is only the shapes those crates do not have: how a caller names a pane to
 //! show a surface in, and the result envelopes.
 
+use impress_service_core::refusal::codes;
+use impress_service_core::Refusal;
 use impress_surface::{Problem, SurfaceSpec};
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +84,12 @@ impl SurfaceValidateResult {
 pub struct SurfaceResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -103,10 +111,12 @@ pub struct SurfaceResult {
 }
 
 impl SurfaceResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             id: None,
             name: None,
             version: None,
@@ -121,6 +131,7 @@ impl SurfaceResult {
     pub fn from_row(row: &crate::store::SurfaceRow) -> Self {
         Self {
             ok: true,
+            code: None,
             message: format!("surface '{}' ({})", row.name, row.id),
             id: Some(row.id.to_string()),
             name: Some(row.name.clone()),
@@ -170,6 +181,12 @@ impl From<&crate::store::SurfaceRow> for SurfaceSummaryDto {
 pub struct SurfaceListResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     pub surfaces: Vec<SurfaceSummaryDto>,
 }
 
@@ -177,6 +194,12 @@ pub struct SurfaceListResult {
 pub struct SurfaceDeleteResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// `surface_show`'s answer: which pane now shows the surface.
@@ -184,6 +207,12 @@ pub struct SurfaceDeleteResult {
 pub struct SurfaceShowResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tile: Option<u64>,
     #[serde(default)]
@@ -193,10 +222,12 @@ pub struct SurfaceShowResult {
 }
 
 impl SurfaceShowResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             tile: None,
             focused: false,
             affected_panes: Vec::new(),
@@ -212,6 +243,12 @@ impl SurfaceShowResult {
 pub struct SurfaceRenderResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<impress_surface::RenderTree>,
     /// Every source whose fetch failed on this render, with the reason. The
@@ -225,10 +262,12 @@ pub struct SurfaceRenderResult {
 }
 
 impl SurfaceRenderResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             tree: None,
             source_errors: Vec::new(),
         }
@@ -251,15 +290,23 @@ pub struct SourceError {
 pub struct SurfaceStateResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<serde_json::Value>,
 }
 
 impl SurfaceStateResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             state: None,
         }
     }
@@ -275,27 +322,130 @@ pub struct EffectOutcomeDto {
     pub kind: String,
     pub ok: bool,
     pub message: String,
+    /// Why this effect failed, machine-readable: `unknown-verb`,
+    /// `verb-failed`, `no-pane`, a layout refusal's own code (`unknown-tile`,
+    /// …), `store-error`. Absent when it succeeded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+impl EffectOutcomeDto {
+    pub fn done(kind: &str, message: impl Into<String>) -> Self {
+        Self {
+            kind: kind.to_string(),
+            ok: true,
+            message: message.into(),
+            code: None,
+        }
+    }
+
+    pub fn failed(kind: &str, refusal: Refusal) -> Self {
+        Self {
+            kind: kind.to_string(),
+            ok: false,
+            message: refusal.message,
+            code: Some(refusal.code),
+        }
+    }
 }
 
 /// `surface_dispatch`'s answer: the re-rendered tree plus what each effect
 /// did.
+///
+/// **When `ok` is true.** A dispatch is `ok` only when the event was reduced
+/// AND every effect it produced succeeded. Three outcomes:
+///
+/// * the event could not be reduced (no such widget, a template that does not
+///   resolve, no such surface): `ok: false`, the refusal's own `code`, no
+///   `tree`, no `effects`, and nothing was written;
+/// * the event was reduced and its state saved, but at least one effect
+///   failed (a `call` the verb refused, a `publish` with no pane to publish
+///   from): `ok: false`, `code: "effect-failed"`, `effects_failed` > 0, the
+///   message naming each failure, and the re-rendered `tree` and every
+///   per-effect outcome in `effects` — the state change stands, and the
+///   caller can see exactly which effect did not happen (review RS-S12,
+///   AC-F11);
+/// * everything happened: `ok: true`.
+///
+/// A source that fails while re-rendering does not make a dispatch fail — the
+/// event was handled — but it is listed in `source_errors`.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SurfaceDispatchResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<impress_surface::RenderTree>,
+    /// What each effect did, in the order the reducer produced them.
     #[serde(default)]
     pub effects: Vec<EffectOutcomeDto>,
+    /// How many of `effects` failed. Non-zero means `ok` is false.
+    #[serde(default)]
+    pub effects_failed: u32,
+    /// Sources that failed while re-rendering after the dispatch. See
+    /// [`SurfaceRenderResult::source_errors`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_errors: Vec<SourceError>,
 }
 
 impl SurfaceDispatchResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             tree: None,
             effects: Vec::new(),
+            effects_failed: 0,
+            source_errors: Vec::new(),
+        }
+    }
+
+    /// The answer for a dispatch that was reduced: `ok` only when every
+    /// effect succeeded (see the type's docs).
+    pub fn dispatched(
+        tree: impress_surface::RenderTree,
+        effects: Vec<EffectOutcomeDto>,
+        source_errors: Vec<SourceError>,
+    ) -> Self {
+        let failed: Vec<&EffectOutcomeDto> = effects.iter().filter(|e| !e.ok).collect();
+        let (ok, code, message) = if failed.is_empty() {
+            (
+                true,
+                None,
+                format!("dispatched; {} effect(s)", effects.len()),
+            )
+        } else {
+            let reasons: Vec<String> = failed
+                .iter()
+                .map(|e| format!("{}: {}", e.kind, e.message))
+                .collect();
+            (
+                false,
+                Some(codes::EFFECT_FAILED.to_string()),
+                format!(
+                    "dispatched; {} effect(s), {} failed — {}",
+                    effects.len(),
+                    failed.len(),
+                    reasons.join("; ")
+                ),
+            )
+        };
+        let effects_failed = failed.len() as u32;
+        Self {
+            ok,
+            message,
+            code,
+            tree: Some(tree),
+            effects,
+            effects_failed,
+            source_errors,
         }
     }
 }
@@ -309,6 +459,10 @@ pub struct SurfaceEventDto {
     pub name: String,
     pub payload: serde_json::Value,
     pub at: String,
+    /// Who caused it: `human` for a click or edit in the pane, `agent` for a
+    /// dispatch over MCP or HTTP (review SK-K5, AC-F5). An agent waiting on
+    /// `surface_wait` tells the person's action from its own by this.
+    pub actor: String,
 }
 
 impl From<&crate::store::EventRow> for SurfaceEventDto {
@@ -320,6 +474,7 @@ impl From<&crate::store::EventRow> for SurfaceEventDto {
             name: row.name.clone(),
             payload: row.payload.clone(),
             at: row.at.to_rfc3339(),
+            actor: crate::runtime::actor_name(row.actor).to_string(),
         }
     }
 }
@@ -328,6 +483,12 @@ impl From<&crate::store::EventRow> for SurfaceEventDto {
 pub struct SurfaceEventsResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default)]
     pub events: Vec<SurfaceEventDto>,
     /// The cursor to pass as `after_seq` on the next call — the `seq` of the
@@ -340,10 +501,12 @@ pub struct SurfaceEventsResult {
 }
 
 impl SurfaceEventsResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             events: Vec::new(),
             next_seq: 0,
             gap: false,
@@ -357,6 +520,12 @@ impl SurfaceEventsResult {
 pub struct SurfaceWaitResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable (`not-found`, `conflict`,
+    /// `invalid-argument`, `store-error`, `effect-failed`, a reduce error's
+    /// own code, …). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default)]
     pub events: Vec<SurfaceEventDto>,
     pub next_seq: u64,
@@ -367,10 +536,12 @@ pub struct SurfaceWaitResult {
 }
 
 impl SurfaceWaitResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             events: Vec::new(),
             next_seq: 0,
             timed_out: false,

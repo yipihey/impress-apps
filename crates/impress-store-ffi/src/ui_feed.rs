@@ -168,15 +168,26 @@ impl ExternalPoll {
     /// change for good); a failure leaves it where it was, and the next
     /// poll reads again.
     pub(crate) fn check_rows(&mut self, store: &SqliteItemStore, prefix: &str) -> ExternalBatch {
-        let Ok(dv) = store.data_version() else {
-            return ExternalBatch::default();
+        let dv = match store.data_version() {
+            Ok(dv) => dv,
+            Err(e) => {
+                log::warn!(target: "layout", "external poll: data_version failed: {e}");
+                return ExternalBatch::default();
+            }
         };
         if self.last_data_version == Some(dv) {
             return ExternalBatch::default();
         }
         let since = self.high_water_mark - OVERLAP_MS;
-        let Ok(items) = store.items_modified_since(prefix, since) else {
-            return ExternalBatch::default();
+        let items = match store.items_modified_since(prefix, since) {
+            Ok(items) => items,
+            Err(e) => {
+                log::warn!(
+                    target: "layout",
+                    "external poll: reading {prefix}* rows failed ({e}); retried next poll"
+                );
+                return ExternalBatch::default();
+            }
         };
         let deleted = match &self.tracked {
             Some((schema, before)) => match ids_of(store, schema) {
@@ -185,7 +196,13 @@ impl ExternalPoll {
                     self.tracked = Some((schema.clone(), now));
                     gone
                 }
-                Err(_) => return ExternalBatch::default(),
+                Err(e) => {
+                    log::warn!(
+                        target: "layout",
+                        "external poll: listing {schema} ids failed ({e}); retried next poll"
+                    );
+                    return ExternalBatch::default();
+                }
             },
             None => Vec::new(),
         };

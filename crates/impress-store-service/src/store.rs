@@ -67,6 +67,18 @@ pub fn store_is_fallback() -> bool {
     GLOBAL.handed_fallback.load(Ordering::Relaxed)
 }
 
+/// Whether `store` IS the in-memory fallback — asked of the handle a caller
+/// holds, so it cannot race another thread's acquire the way
+/// [`store_is_fallback`] (which describes the most recent hand-out) can. A
+/// verb that writes checks this and refuses rather than answering `ok` into a
+/// store that vanishes with the process (review AC-F20).
+pub fn is_fallback_store(store: &Arc<SqliteItemStore>) -> bool {
+    GLOBAL
+        .fallback
+        .get()
+        .is_some_and(|fallback| Arc::ptr_eq(fallback, store))
+}
+
 /// How long [`store_instance`] lets `SqliteItemStore::open` run before
 /// substituting the fallback for this call.
 ///

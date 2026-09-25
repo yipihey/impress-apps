@@ -876,6 +876,16 @@ public protocol ImbibStoreProtocol : AnyObject {
     func deleteCollection(id: String) throws 
     
     /**
+     * Delete ONE comment, with a snapshot for undo — and nothing that is
+     * not a comment. `DELETE /api/comments/{id}` used to reach the store's
+     * generic delete, so any record id (a paper, a library) was deleted and
+     * the route answered `deleted: true`; an id that named nothing answered
+     * the same. Now a missing id is `NotFound` and a record of another kind
+     * is `InvalidInput`, naming its kind; neither deletes anything.
+     */
+    func deleteCommentUndoable(id: String) throws  -> ItemSnapshot
+    
+    /**
      * Delete any item by ID.
      */
     func deleteItem(id: String) throws 
@@ -2516,6 +2526,22 @@ open func deleteCollection(id: String)throws  {try rustCallWithError(FfiConverte
         FfiConverterString.lower(id),$0
     )
 }
+}
+    
+    /**
+     * Delete ONE comment, with a snapshot for undo — and nothing that is
+     * not a comment. `DELETE /api/comments/{id}` used to reach the store's
+     * generic delete, so any record id (a paper, a library) was deleted and
+     * the route answered `deleted: true`; an id that named nothing answered
+     * the same. Now a missing id is `NotFound` and a record of another kind
+     * is `InvalidInput`, naming its kind; neither deletes anything.
+     */
+open func deleteCommentUndoable(id: String)throws  -> ItemSnapshot {
+    return try  FfiConverterTypeItemSnapshot.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_comment_undoable(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
 }
     
     /**
@@ -35714,6 +35740,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_collection() != 9910) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_comment_undoable() != 13705) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_item() != 44423) {

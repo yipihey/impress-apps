@@ -71,6 +71,7 @@ use impress_core::schemas::LAYOUT_SCHEMA_REF;
 use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
 use impress_core::store::ItemStore;
 use impress_layout::{preset, Layout, ViewKindId};
+use impress_service_core::Refusal;
 
 /// Payload field names. Spelled once, here, for the same reason the schema ref
 /// is: a reader that spells a field differently from its writer reads `None`
@@ -96,7 +97,9 @@ pub const DEFAULT_LIST_KIND: &str = "publication";
 /// What went wrong, as a sentence. The services turn this into `ok: false` +
 /// `message`, which is the shape every other `#[impress_service]` result in
 /// the suite has.
-pub type Result<T> = std::result::Result<T, String>;
+/// A store failure is a `store-error` [`Refusal`]; an argument the store
+/// cannot use (a nameless named layout) is `invalid-argument`.
+pub type Result<T> = std::result::Result<T, Refusal>;
 
 /// What [`LayoutStore::load_live`] found.
 #[derive(Debug, Clone)]
@@ -179,7 +182,7 @@ impl LayoutStore {
                     });
                 }
                 Err(error) => {
-                    let name = self.quarantine(&item, &error, actor)?;
+                    let name = self.quarantine(&item, &error.message, actor)?;
                     log::error!(
                         target: "layout",
                         "live layout row {} ({app_id}/{device}) does not decode: {error} — \
@@ -207,8 +210,12 @@ impl LayoutStore {
         let revision = self
             .store
             .logical_clock_of(id)
-            .map_err(|e| format!("read layout {id}: {e}"))?
-            .ok_or("the cold-started layout vanished")?;
+            .map_err(|e| Refusal::store(format!("read layout {id}: {e}")))?
+            .ok_or_else(|| Refusal::store("the cold-started layout vanished"))?;
+        log::info!(
+            target: "layout",
+            "{app_id}/{device}: no live layout row; cold-started one ({id}) as {actor:?}"
+        );
         Ok(LiveLoad {
             item_id: id,
             revision,
@@ -260,7 +267,7 @@ impl LayoutStore {
         match self
             .store
             .apply_operation_if_clock(spec, revision)
-            .map_err(|e| format!("write layout: {e}"))?
+            .map_err(|e| Refusal::store(format!("write layout: {e}")))?
         {
             GuardedWrite::Applied { clock, .. } => Ok(LiveWrite::Written { revision: clock }),
             GuardedWrite::Moved { clock } => Ok(LiveWrite::Moved { revision: clock }),
@@ -272,7 +279,7 @@ impl LayoutStore {
     pub fn revision_of(&self, item_id: ItemId) -> Result<Option<u64>> {
         self.store
             .logical_clock_of(item_id)
-            .map_err(|e| format!("read layout {item_id}: {e}"))
+            .map_err(|e| Refusal::store(format!("read layout {item_id}: {e}")))
     }
 
     /// Persist the live arrangement. Ephemeral retention; see the module docs.
@@ -393,7 +400,7 @@ impl LayoutStore {
     ) -> Result<LayoutRow> {
         let name = name.trim();
         if name.is_empty() {
-            return Err("a named layout needs a name".to_string());
+            return Err(Refusal::invalid_argument("a named layout needs a name"));
         }
         match self.named_row(app_id, name)? {
             Some((row, _)) => {
@@ -446,7 +453,7 @@ impl LayoutStore {
         };
         self.store
             .delete(row.id)
-            .map_err(|e| format!("delete layout: {e}"))?;
+            .map_err(|e| Refusal::store(format!("delete layout: {e}")))?;
         Ok(true)
     }
 
@@ -476,7 +483,7 @@ impl LayoutStore {
     fn item(&self, id: ItemId) -> Result<Option<Item>> {
         self.store
             .get(id)
-            .map_err(|e| format!("read layout {id}: {e}"))
+            .map_err(|e| Refusal::store(format!("read layout {id}: {e}")))
             .map(|item| item.filter(|i| i.schema == LAYOUT_SCHEMA_REF))
     }
 
@@ -497,7 +504,7 @@ impl LayoutStore {
         Ok(self
             .store
             .query(&query)
-            .map_err(|e| format!("read layouts: {e}"))?
+            .map_err(|e| Refusal::store(format!("read layouts: {e}")))?
             .into_iter()
             .filter(|item| match string_field(item, field::APP_ID) {
                 Some(id) => id == app_id,
@@ -565,7 +572,7 @@ impl LayoutStore {
         let _ = intent;
         self.store
             .insert(item)
-            .map_err(|e| format!("write layout: {e}"))
+            .map_err(|e| Refusal::store(format!("write layout: {e}")))
     }
 
     fn patch_layout(
@@ -601,7 +608,7 @@ impl LayoutStore {
                 retention: kind.retention(),
             })
             .map(|_| ())
-            .map_err(|e| format!("write layout: {e}"))
+            .map_err(|e| Refusal::store(format!("write layout: {e}")))
     }
 }
 
@@ -703,13 +710,18 @@ fn row_of(item: &Item) -> LayoutRow {
 /// The tree out of a row's `layout` field.
 pub fn layout_of(item: &Item) -> Result<Layout> {
     let Some(value) = item.payload.get(field::LAYOUT) else {
-        return Err(format!("layout row {} has no `layout` field", item.id));
+        return Err(Refusal::store(format!(
+            "layout row {} has no `layout` field",
+            item.id
+        )));
     };
-    let json = serde_json::to_value(value).map_err(|e| format!("read layout tree: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("read layout tree: {e}"))
+    let json = serde_json::to_value(value)
+        .map_err(|e| Refusal::store(format!("read layout tree: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("read layout tree: {e}")))
 }
 
 fn layout_value(layout: &Layout) -> Result<Value> {
-    let json = serde_json::to_value(layout).map_err(|e| format!("encode layout tree: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("encode layout tree: {e}"))
+    let json = serde_json::to_value(layout)
+        .map_err(|e| Refusal::store(format!("encode layout tree: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("encode layout tree: {e}")))
 }

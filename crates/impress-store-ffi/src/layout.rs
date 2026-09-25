@@ -128,6 +128,7 @@ use impress_layout_service::{
 };
 
 use crate::{item_to_row, SharedItemRow, SharedStore};
+use impress_service_core::Refusal;
 
 // ─── Runtime ─────────────────────────────────────────────────────────────
 
@@ -160,9 +161,13 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SharedLayoutError {
     /// A verb was refused by the tree or the service: no such pane, the last
-    /// pane of a window, a detach of a whole window.
+    /// pane of a window, a detach of a whole window. `code` is the refusal's
+    /// stable name — a `LayoutError` tag (`unknown-tile`,
+    /// `cannot-close-last-pane`, …) or a generic code (`invalid-argument`,
+    /// `not-found`, `conflict`, `store-error`, `store-unavailable`) — so a
+    /// caller branches on it, never on the prose (review RL-L11).
     #[error("{message}")]
-    Layout { message: String },
+    Layout { code: String, message: String },
     /// A pane query did not compile — a typed refusal, never an empty list
     /// that reads as "no data yet".
     #[error("{message}")]
@@ -176,9 +181,18 @@ pub enum SharedLayoutError {
 }
 
 impl SharedLayoutError {
-    fn layout(message: impl Into<String>) -> Self {
+    fn layout(refusal: Refusal) -> Self {
         SharedLayoutError::Layout {
-            message: message.into(),
+            code: refusal.code,
+            message: refusal.message,
+        }
+    }
+
+    /// A service result's refusal, code and all.
+    fn refused(code: Option<String>, message: String) -> Self {
+        SharedLayoutError::Layout {
+            code: code.unwrap_or_else(|| "refused".to_string()),
+            message,
         }
     }
 
@@ -414,7 +428,7 @@ impl SharedLayout {
         let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
         let layout = self.read_layout()?;
         *told = self.session_revision().or(*told);
-        Ok(self.snapshot_of(&layout))
+        self.snapshot_of(&layout)
     }
 
     /// One pane's spec, its compiled query and its resolved bindings.
@@ -579,23 +593,35 @@ impl SharedLayout {
     pub fn resize_share(&self, pane: u64, share: f32, actor: String) -> Result<SharedAppliedVerb> {
         let layout = self.read_layout()?;
         let tile = TileId::new(pane);
-        let parent = layout
-            .parent_of(tile)
-            .ok_or_else(|| SharedLayoutError::layout(format!("tile {pane} has no parent split")))?;
+        let parent = layout.parent_of(tile).ok_or_else(|| {
+            SharedLayoutError::layout(Refusal::new(
+                "not-in-a-split",
+                format!("tile {pane} has no parent split"),
+            ))
+        })?;
         let container = layout
             .tile(parent)
             .and_then(Tile::as_container)
             .ok_or_else(|| {
-                SharedLayoutError::layout(format!("tile {parent} is not a container"))
+                SharedLayoutError::layout(Refusal::new(
+                    "not-a-container",
+                    format!("tile {parent} is not a container"),
+                ))
             })?;
         if !matches!(container, Container::Linear { .. }) {
-            return Err(SharedLayoutError::layout(format!(
-                "tile {parent} is a {:?}, and only a split has shares",
-                container.kind()
+            return Err(SharedLayoutError::layout(Refusal::new(
+                "not-in-a-split",
+                format!(
+                    "tile {parent} is a {:?}, and only a split has shares",
+                    container.kind()
+                ),
             )));
         }
         let index = container.index_of(tile).ok_or_else(|| {
-            SharedLayoutError::layout(format!("tile {pane} is not a child of {parent}"))
+            SharedLayoutError::layout(Refusal::new(
+                "unknown-tile",
+                format!("tile {pane} is not a child of {parent}"),
+            ))
         })?;
         let existing = container.shares().unwrap_or(&[]);
         let mut shares: Vec<f32> = (0..container.len())
@@ -781,7 +807,7 @@ impl SharedLayout {
         read_layout(&self.service, &self.app_id, self.device.clone())
     }
 
-    fn snapshot_of(&self, layout: &Layout) -> SharedLayoutSnapshot {
+    fn snapshot_of(&self, layout: &Layout) -> Result<SharedLayoutSnapshot> {
         snapshot_of(layout, self.version.load(Ordering::SeqCst))
     }
 
@@ -796,7 +822,7 @@ impl SharedLayout {
         let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
         let result = call();
         if !result.ok {
-            return Err(SharedLayoutError::layout(result.message));
+            return Err(SharedLayoutError::refused(result.code, result.message));
         }
         let revision = self.session_revision();
         let moved = revision.is_some() && revision != *told;
@@ -978,14 +1004,16 @@ fn read_layout(
     // row is the user's workspace (review RL-L15).
     let result = service.get_layout_as(app_id, device, ActorKind::Human);
     if !result.ok {
-        return Err(SharedLayoutError::layout(result.message));
+        return Err(SharedLayoutError::refused(result.code, result.message));
     }
-    result
-        .layout
-        .ok_or_else(|| SharedLayoutError::layout("the layout service returned no tree"))
+    result.layout.ok_or_else(|| {
+        SharedLayoutError::layout(Refusal::internal("the layout service returned no tree"))
+    })
 }
 
-fn snapshot_of(layout: &Layout, version: u64) -> SharedLayoutSnapshot {
+/// The FFI snapshot of `layout`. A tree that does not serialize is an error,
+/// never `"{}"`, which reads as an empty tree (review RL-L21).
+fn snapshot_of(layout: &Layout, version: u64) -> Result<SharedLayoutSnapshot> {
     let current = layout.current_window().ok();
     let windows: Vec<SharedWindow> = layout
         .windows
@@ -996,18 +1024,21 @@ fn snapshot_of(layout: &Layout, version: u64) -> SharedLayoutSnapshot {
             focused: w.focused.map(TileId::raw),
             default_channel: w.default_channel.resolve(ChannelId::ONE),
             maximized: w.maximized.map(TileId::raw),
-            geometry_json: w
-                .geometry
-                .as_ref()
-                .and_then(|g| serde_json::to_string(g).ok()),
+            geometry_json: w.geometry.as_ref().and_then(|g| {
+                serde_json::to_string(g)
+                    .map_err(|e| {
+                        log::warn!(target: "layout", "window {} geometry does not encode: {e}", w.id)
+                    })
+                    .ok()
+            }),
             leaves: layout.leaves(w.id).iter().map(|t| t.raw()).collect(),
         })
         .collect();
     let leaves = current
         .map(|w| layout.leaves(w).iter().map(|t| t.raw()).collect())
         .unwrap_or_default();
-    SharedLayoutSnapshot {
-        layout_json: serde_json::to_string(layout).unwrap_or_else(|_| "{}".into()),
+    Ok(SharedLayoutSnapshot {
+        layout_json: serde_json::to_string(layout).map_err(SharedLayoutError::json)?,
         focused: current
             .and_then(|w| layout.window(w))
             .and_then(|w| w.focused)
@@ -1015,7 +1046,7 @@ fn snapshot_of(layout: &Layout, version: u64) -> SharedLayoutSnapshot {
         windows,
         leaves,
         version,
-    }
+    })
 }
 
 /// A bare `{"verb":"split", "target":…, "dir":…}` with no `new` pane.
@@ -1197,6 +1228,13 @@ impl InvalidationFeed {
                     // A saved layout deleted elsewhere (`impress-cli
                     // delete-layout`). The row is gone, so whose it was is
                     // unknowable; the list is cheap to re-read.
+                    log::info!(
+                        target: "layout",
+                        "{}/{}: {} layout row(s) deleted elsewhere; the saved-layout list reloads",
+                        self.app_id,
+                        self.device_tag,
+                        batch.deleted.len()
+                    );
                     layouts_held = true;
                 }
                 let mut mutations = Vec::with_capacity(batch.rows.len());
@@ -1210,11 +1248,29 @@ impl InvalidationFeed {
                             // made itself is not an external change.
                             let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
                             if *told != Some(item.logical_clock) {
+                                log::info!(
+                                    target: "layout",
+                                    "{}/{}: live row {} changed elsewhere (revision {:?} → {}); \
+                                     the window reloads",
+                                    self.app_id,
+                                    self.device_tag,
+                                    item.id,
+                                    *told,
+                                    item.logical_clock
+                                );
                                 *told = Some(item.logical_clock);
                                 self.version.fetch_add(1, Ordering::SeqCst);
                             }
                         }
-                        RowOwner::ThisAppsLayouts => layouts_held = true,
+                        RowOwner::ThisAppsLayouts => {
+                            log::debug!(
+                                target: "layout",
+                                "{}: saved layout or preset {} changed elsewhere",
+                                self.app_id,
+                                item.id
+                            );
+                            layouts_held = true
+                        }
                         RowOwner::Elsewhere => {}
                     }
                     mutations.push(impress_core::event::StoreMutation::new(
@@ -1247,6 +1303,13 @@ impl InvalidationFeed {
                         // First sight: whatever the host read, it read this.
                         (None, Some(now)) => *told = Some(now),
                         (Some(previous), Some(now)) if previous != now => {
+                            log::debug!(
+                                target: "layout",
+                                "{}/{}: another object in this process moved the tree \
+                                 ({previous} → {now})",
+                                self.app_id,
+                                self.device_tag
+                            );
                             *told = Some(now);
                             self.version.fetch_add(1, Ordering::SeqCst);
                         }
@@ -1344,8 +1407,20 @@ impl InvalidationFeed {
     /// selection binds it, because publishing one bumps the version.
     fn build_subscriptions(&self) -> QuerySubscriptions<u64> {
         let mut subscriptions = QuerySubscriptions::new();
-        let Ok(layout) = read_layout(&self.service, &self.app_id, self.device.clone()) else {
-            return subscriptions;
+        let layout = match read_layout(&self.service, &self.app_id, self.device.clone()) {
+            Ok(layout) => layout,
+            Err(e) => {
+                // No pane is invalidated until the next version bump rebuilds
+                // this: say so, rather than go quiet (review RL-L6).
+                log::warn!(
+                    target: "layout",
+                    "{}/{}: could not read the tree to rebuild pane subscriptions ({e}); \
+                     no pane is refreshed by store writes until the tree changes again",
+                    self.app_id,
+                    self.device_tag
+                );
+                return subscriptions;
+            }
         };
         let resolver = CollectionSubtrees::read(&self.store);
         let manifest = builtin_manifest();
@@ -1422,15 +1497,32 @@ pub fn compile_pane_query(
 /// matches by exact equality. The one place that mapping lives.
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn kind_manifest_json() -> String {
-    serde_json::to_string(&builtin_manifest()).unwrap_or_else(|_| "{}".into())
+    encode_static(&builtin_manifest(), "the kind manifest")
+}
+
+/// Encode a value built into this binary (a manifest, a shipped preset). It
+/// cannot fail short of a bug, and the export's signature has no error arm,
+/// so a failure is logged at error level and asserted in debug builds rather
+/// than answered as a silent `"{}"` that reads as "empty" (review RL-L21).
+fn encode_static(value: &impl serde::Serialize, what: &str) -> String {
+    match serde_json::to_string(value) {
+        Ok(json) => json,
+        Err(e) => {
+            log::error!(target: "layout", "{what} does not encode: {e}");
+            debug_assert!(false, "{what} does not encode: {e}");
+            "{}".into()
+        }
+    }
 }
 
 /// The cold-start three-column preset as layout JSON, for a host that wants to
 /// render before it has opened a store. Nothing persists it.
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn cold_start_layout_json() -> String {
-    serde_json::to_string(&impress_layout_service::cold_start_layout())
-        .unwrap_or_else(|_| "{}".into())
+    encode_static(
+        &impress_layout_service::cold_start_layout(),
+        "the cold-start layout",
+    )
 }
 
 /// A pane spec's JSON, for a host building a `Split` verb's `new` pane without
@@ -1460,8 +1552,10 @@ pub fn outline_sections_json(app_id: String) -> String {
 /// definition, beside the named queries it must agree with.
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn section_bindings_json(app_id: String) -> String {
-    serde_json::to_string(&impress_layout_service::section_bindings(&app_id))
-        .unwrap_or_else(|_| "{}".into())
+    encode_static(
+        &impress_layout_service::section_bindings(&app_id),
+        "the section bindings",
+    )
 }
 
 /// What selecting an outline row does, decided in Rust
@@ -2378,5 +2472,46 @@ mod tests {
             "the reloaded tree must contain the pane the other object opened"
         );
         layout.unsubscribe_invalidations();
+    }
+
+    /// A refused verb reaches Swift with its `LayoutError` tag as `code`,
+    /// names the verb, and leaves a `layout` line in the Console (reviews
+    /// RL-L11, RL-L6).
+    #[test]
+    fn a_refused_verb_carries_its_code_and_is_logged() {
+        let sink = crate::log_bridge::tests::captured();
+        let store = SharedStore::open_in_memory().expect("open");
+        let layout = SharedLayout::open(store, "t5-refusal".into(), Some("t5".into()));
+        let err = layout
+            .apply(
+                r#"{"verb":"close","target":{"ref":"id","tile":4242}}"#.into(),
+                "agent".into(),
+            )
+            .unwrap_err();
+        match &err {
+            SharedLayoutError::Layout { code, message } => {
+                assert_eq!(code, "unknown-tile");
+                assert!(message.starts_with("close "), "{message}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let lines = sink.0.lock().unwrap().clone();
+        assert!(
+            lines
+                .iter()
+                .any(|(level, category, message)| level == "warning"
+                    && category == "layout"
+                    && message.contains("t5-refusal")
+                    && message.contains("refused [unknown-tile]")),
+            "{lines:#?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|(_, category, message)| category == "layout"
+                    && message.contains("t5-refusal")
+                    && message.contains("cold-started")),
+            "the cold start is logged too: {lines:#?}"
+        );
     }
 }

@@ -20,6 +20,7 @@
 //
 
 import Foundation
+import ImpressLogging
 import PublicationManagerCore
 
 enum ManuscriptCommentStore {
@@ -125,7 +126,11 @@ enum ManuscriptCommentStore {
     /// handled by the caller which deletes them explicitly).
     @MainActor
     static func delete(id: UUID) {
-        RustStoreAdapter.shared.deleteComment(id)
+        do {
+            try RustStoreAdapter.shared.deleteComment(id)
+        } catch {
+            logError("delete comment \(id) failed: \(error)", category: "comments")
+        }
     }
 
     // MARK: - Re-anchoring (pure)

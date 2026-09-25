@@ -91,7 +91,10 @@ pub use source_service::{
     FigureRegionStatusInput, NormalizedRectInput, PageImageMetadata, PageImageResult, PixelRect,
     SourceCitationInput, SourceLocatorInput, SourceRecordResult, SourceService,
 };
-pub use store::{default_store_path, install_store, set_store_path, store_instance, store_path};
+pub use store::{
+    default_store_path, install_store, is_fallback_store, set_store_path, store_instance,
+    store_path,
+};
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
 pub use watched_folder::{
     watched_file_id, watched_file_key, watched_folder_id, watched_folder_key, DiscoveredFileInput,

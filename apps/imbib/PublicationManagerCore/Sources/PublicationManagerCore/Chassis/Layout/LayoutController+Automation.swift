@@ -45,25 +45,34 @@ extension LayoutController: @retroactive LayoutAutomationHost {
     // MARK: Reads
 
     public func layoutTreeJSON() -> [String: Any] {
-        var payload: [String: Any] = ["version": version]
+        var payload: [String: Any] = [:]
         if let focused { payload["focused"] = focused }
-        if let error = lastError { payload["lastError"] = error }
+        if let error = lastRefusal {
+            payload["lastRefusal"] = error
+            if let code = lastRefusalCode { payload["lastRefusalCode"] = code }
+        }
         // The tree itself is Rust's JSON, decoded here only so the response is
-        // one object rather than an object with a string of JSON inside it.
-        // A failed snapshot says WHY (PH-L8): `"layout": null` alone reads
-        // exactly like "no tree", and an agent cannot tell the two apart.
+        // one object rather than an object with a string of JSON inside it,
+        // and `version` is THAT snapshot's, never the controller's adopted
+        // one paired with a fresher tree (SK-K24). A failed snapshot says
+        // WHY, with a code, and the route answers 500 (PH-L8): `"layout":
+        // null` alone reads exactly like "no tree".
         do {
-            payload["layout"] = try liveSnapshot()
+            let snapshot = try liveSnapshotWithVersion()
+            payload["layout"] = snapshot.tree
+            payload["version"] = snapshot.version
         } catch {
             payload["layout"] = NSNull()
-            payload["snapshotError"] = String(describing: error)
+            payload["version"] = version
+            payload["snapshotError"] = LayoutController.describe(error)
+            payload["snapshotCode"] = LayoutController.refusalCode(of: error)
             logError("layout tree for automation: snapshot failed — \(error)", category: "layout")
         }
         return payload
     }
 
-    public func savedLayoutsJSON() -> [[String: Any]] {
-        savedLayouts().map { row in
+    public func savedLayoutsJSON() throws -> [[String: Any]] {
+        try Self.automationRefusal { try savedLayouts() }.map { row in
             var dict: [String: Any] = [
                 "id": row.id,
                 "ordinal": row.ordinal,
@@ -83,9 +92,10 @@ extension LayoutController: @retroactive LayoutAutomationHost {
         guard let json = String(data: data, encoding: .utf8) else {
             throw LayoutAutomationError.badVerb("verb body is not UTF-8")
         }
-        return try applied(
-            applyVerbJSON(json, actor: LayoutAutomationRoutes.actor),
-            describing: "verb \(verb["verb"] as? String ?? "?")")
+        let result = try Self.automationRefusal {
+            try applyVerbJSON(json, actor: LayoutAutomationRoutes.actor)
+        }
+        return try applied(result, describing: "verb \(verb["verb"] as? String ?? "?")")
     }
 
     public func applyLayoutOperation(
@@ -147,9 +157,28 @@ extension LayoutController: @retroactive LayoutAutomationHost {
             throw LayoutAutomationError.badVerb("unknown layout operation '\(operation)'")
         }
 
-        return try applied(
-            performForAutomation(verb, actor: LayoutAutomationRoutes.actor),
-            describing: verb.traceDescription)
+        let result = try Self.automationRefusal {
+            try performForAutomation(verb, actor: LayoutAutomationRoutes.actor)
+        }
+        return try applied(result, describing: verb.traceDescription)
+    }
+
+    /// Run `work`, turning what it throws into the `AutomationRefusal` the
+    /// shared routes report: Rust's `code`, its prose, and the status Rust
+    /// maps that code to (`refusalHttpStatus`, the one table) — a 404 for a
+    /// layout that is not there, 422 for a tree refusal, 500 for a store
+    /// failure, never every error as 422 (review SK-K24).
+    static func automationRefusal<T>(_ work: () throws -> T) throws -> T {
+        do {
+            return try work()
+        } catch let bad as LayoutAutomationError {
+            throw bad.automationRefusal
+        } catch {
+            let code = LayoutController.refusalCode(of: error)
+            throw AutomationRefusal(
+                code: code, message: LayoutController.describe(error),
+                status: Int(refusalHttpStatus(code: code)))
+        }
     }
 
     // MARK: Shared shaping
@@ -189,13 +218,19 @@ extension LayoutController: @retroactive LayoutAutomationHost {
 /// What this surface refuses before Rust ever sees it: a body that is not a
 /// verb. Rust's own refusals come back as `SharedLayoutError` and are
 /// reported with their own message.
-public enum LayoutAutomationError: Error, CustomStringConvertible {
+public enum LayoutAutomationError: Error, CustomStringConvertible, AutomationRefusalConvertible {
     case badVerb(String)
 
     public var description: String {
         switch self {
         case .badVerb(let message): return message
         }
+    }
+
+    /// A body that is not a verb is the caller's mistake: 400,
+    /// `invalid-argument`.
+    public var automationRefusal: AutomationRefusal {
+        AutomationRefusal(code: "invalid-argument", message: description, status: 400)
     }
 }
 #endif

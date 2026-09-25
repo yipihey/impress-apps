@@ -17,6 +17,7 @@
 import AppKit
 import Foundation
 import ImpressLayout
+import ImpressLogging
 import ImpressRustCore
 import SwiftUI
 
@@ -327,6 +328,21 @@ enum Proof {
         check("typed value reaches the button", note == "hello",
             "bins-chosen payload note = \(note.map { "\"\($0)\"" } ?? "none") "
                 + "(\(events.count) event(s)); still editing: \(window.firstResponder is NSText)")
+
+        // Wave 7 T5 (SK-K5 = AC-F5): the click was the person's, and Rust
+        // recorded it so — the event an agent waits on says `human`.
+        let actor = events.last(where: { $0["name"] as? String == "bins-chosen" })?["actor"] as? String
+        check("the click's event is recorded as the human", actor == "human",
+            "bins-chosen actor = \(actor ?? "none")")
+
+        // Wave 7 T5 (RS-S11 = AC-F18): Rust's own line for that dispatch
+        // reached the Console under `surface`, through the log bridge.
+        let rustLines = LogStore.shared.entries.filter {
+            $0.category == "surface" && $0.message.contains("human dispatch")
+                && $0.message.contains(id)
+        }
+        check("Rust's dispatch line reached the Console under surface", !rustLines.isEmpty,
+            rustLines.last.map { "\"\($0.message.prefix(120))\"" } ?? "no line")
 
         let after = await fields(renderedBy: store, id)
         Demo.say("state after the click: note = \(String(describing: after["note"]))")

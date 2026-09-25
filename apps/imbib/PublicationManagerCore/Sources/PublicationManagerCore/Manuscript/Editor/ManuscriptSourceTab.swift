@@ -15,6 +15,7 @@
 
 import SwiftUI
 import PDFKit
+import ImpressLogging
 import ImpressSyntaxHighlight
 import ImprintCore  // SourceMapEntry / SourceMapUtils — source↔preview sync
 
@@ -470,7 +471,11 @@ struct ManuscriptCommentsColumn: View {
                 Text(comment.dateCreated, format: .dateTime.month().day().hour().minute())
                     .font(.caption2).foregroundStyle(.tertiary)
                 Button {
-                    RustStoreAdapter.shared.deleteComment(comment.id)
+                    do {
+                        try RustStoreAdapter.shared.deleteComment(comment.id)
+                    } catch {
+                        logError("delete comment \(comment.id) failed: \(error)", category: "comments")
+                    }
                     reload()
                 } label: {
                     Image(systemName: "trash").font(.caption2)

@@ -302,6 +302,8 @@ public final class LayoutController {
     /// verb that applies. A refused verb is a typed refusal, never a silently
     /// empty tree.
     public private(set) var lastRefusal: String?
+    /// The code of `lastRefusal` — Rust's `code` for the refused verb.
+    public private(set) var lastRefusalCode: String?
 
     /// A tree Rust handed back that Swift could not decode, or a snapshot
     /// that failed. Sticky until a tree decodes again: while it is set, the
@@ -470,7 +472,10 @@ public final class LayoutController {
         }
     }
 
-    public func savedLayouts() -> [SharedLayoutRow] {
+    /// The saved layouts, in ⌃⌘1–9 order. Throws when they could not be
+    /// read: an empty list means "none saved", never "the read failed"
+    /// (reviews SK-K24, PH-L8).
+    public func savedLayouts() throws -> [SharedLayoutRow] {
         // Read so a view listing the layouts re-reads when they change
         // elsewhere (T1's `layoutsChanged`).
         _ = layoutsVersion
@@ -478,7 +483,7 @@ public final class LayoutController {
             return try layout.listLayouts()
         } catch {
             logWarning("layout listLayouts failed: \(Self.describe(error))", category: "layout")
-            return []
+            throw error
         }
     }
 
@@ -551,7 +556,8 @@ public final class LayoutController {
             return try layout.deleteLayout(nameOrId: nameOrId, actor: actor)
         default:
             // Unreachable: every case without a `verbJSON` is handled above.
-            throw SharedLayoutError.Layout(message: "unroutable verb \(verb.traceDescription)")
+            throw SharedLayoutError.Layout(
+                code: "internal", message: "unroutable verb \(verb.traceDescription)")
         }
     }
 
@@ -600,14 +606,21 @@ public final class LayoutController {
     /// The live tree as a decoded JSON object, for a caller that wants to ship
     /// it over the wire rather than render it.
     public func liveSnapshot() throws -> [String: Any] {
+        try liveSnapshotWithVersion().tree
+    }
+
+    /// The live tree and the version of THAT snapshot, read together — a
+    /// payload that paired a fresh tree with the controller's adopted
+    /// version could claim a version whose tree it is not (review SK-K24).
+    public func liveSnapshotWithVersion() throws -> (tree: [String: Any], version: UInt64) {
         let snapshot = try layout.snapshot()
         guard
             let object = try JSONSerialization.jsonObject(
                 with: Data(snapshot.layoutJson.utf8)) as? [String: Any]
         else {
-            throw SharedLayoutError.Layout(message: "layout JSON is not an object")
+            throw SharedLayoutError.Layout(code: "internal", message: "layout JSON is not an object")
         }
-        return object
+        return (object, snapshot.version)
     }
 
     /// Adopt what one verb returned: the tree, the version, the focus, the
@@ -620,6 +633,7 @@ public final class LayoutController {
     /// being taken for one already on screen (SK-K8).
     private func adoptApplied(_ applied: SharedAppliedVerb) {
         lastRefusal = nil
+        lastRefusalCode = nil
         lastError = nil
         let previous = tree
         guard adopt(layoutJSON: applied.layoutJson, version: applied.version, focused: applied.focused)
@@ -688,19 +702,34 @@ public final class LayoutController {
     private func refused(_ what: String, _ error: Error) {
         let text = "\(what) refused: \(Self.describe(error))"
         lastRefusal = text
+        lastRefusalCode = Self.refusalCode(of: error)
         lastError = text
-        logWarning("layout verb \(text)", category: "layout")
+        logWarning("layout verb \(text) [\(lastRefusalCode ?? "?")]", category: "layout")
     }
 
     /// The message a `SharedLayoutError` carries, rather than
-    /// `String(describing:)`'s `Layout(message: "…")`.
-    nonisolated static func describe(_ error: Error) -> String {
+    /// `String(describing:)`'s `Layout(code: …, message: "…")`.
+    nonisolated public static func describe(_ error: Error) -> String {
         guard let layoutError = error as? SharedLayoutError else { return String(describing: error) }
         switch layoutError {
-        case .Layout(let message): return message
+        case .Layout(_, let message): return message
         case .Query(let message): return "query: \(message)"
         case .Store(let message): return "store: \(message)"
         case .Json(let message): return "json: \(message)"
+        }
+    }
+
+    /// The machine-readable code of a refusal: Rust's own `code` for a
+    /// refused verb (`unknown-tile`, `cannot-close-last-pane`, `not-found`,
+    /// …), and the generic code of the other families — what an HTTP route
+    /// or an agent branches on (review RL-L11).
+    nonisolated public static func refusalCode(of error: Error) -> String {
+        guard let layoutError = error as? SharedLayoutError else { return "internal" }
+        switch layoutError {
+        case .Layout(let code, _): return code
+        case .Query: return "query-refused"
+        case .Store: return "store-error"
+        case .Json: return "invalid-argument"
         }
     }
 

@@ -3333,11 +3333,24 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
     // MARK: - Collaboration DELETE Handlers
 
-    /// DELETE /api/comments/{id}
+    /// DELETE /api/comments/{id} — deletes a comment and nothing else: an
+    /// id of another record kind is a 422 `not-a-comment`, a missing id a
+    /// 404 `not-found`, both with nothing deleted.
     private func handleDeleteComment(commentID: UUID) async -> HTTPResponse {
         do {
             try await automationService.deleteComment(commentID: commentID)
             return .json(["status": "ok", "deleted": true])
+        } catch AutomationOperationError.notAComment(_, let why) {
+            return .json(
+                ["status": "error", "error": why, "code": "not-a-comment", "deleted": false],
+                status: 422)
+        } catch AutomationOperationError.commentNotFound(let id) {
+            return .json(
+                [
+                    "status": "error", "error": "Comment not found: \(id.uuidString)",
+                    "code": "not-found", "deleted": false,
+                ],
+                status: 404)
         } catch {
             return mapError(error)
         }

@@ -149,6 +149,9 @@ public struct LayoutTreeHost: View {
                         "layout host: no SharedStore handle — tree not rendered", category: "layout")
                     return
                 }
+                // Rust's own layout/surface lines into the Console, before
+                // the first verb or render can log one (wave 7 T5).
+                RustLogBridge.installOnce()
                 // `device: nil` = this machine. Window geometry is
                 // device-scoped (ADR-0019 D2); the logical tree is not.
                 let layout = SharedLayout.open(store: store, appId: appID, device: nil)
