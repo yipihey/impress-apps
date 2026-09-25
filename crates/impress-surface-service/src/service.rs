@@ -1190,6 +1190,29 @@ pub async fn call_verb_on(
     } else {
         args
     };
+    // Top-level keys against the tool's published input schema, before
+    // parsing: strict whatever the args struct itself does with an extra
+    // key, so this router never depends on how the macro enforces it.
+    let tool = format!("impress-surface-service_{}", method.replace('_', "-"));
+    if let (Some(descriptor), Value::Object(map)) =
+        (McpToolDescriptor::iter().find(|d| d.name == tool), &args)
+    {
+        let schema = (descriptor.input_schema)();
+        let known: Vec<&str> = schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .map(|p| p.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        if let Some(extra) = map.keys().find(|k| !known.contains(&k.as_str())) {
+            return Some(impress_service_core::refusal::argument_refusal(
+                &tool,
+                &format!(
+                    "unknown field `{extra}`, expected one of {}",
+                    known.join(", ")
+                ),
+            ));
+        }
+    }
     macro_rules! verb {
         ($tool:literal, $args:ident, |$a:ident| $call:expr) => {{
             let $a: $args = match serde_json::from_value(args) {
