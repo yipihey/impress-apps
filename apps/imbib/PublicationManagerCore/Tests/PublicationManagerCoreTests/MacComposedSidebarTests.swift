@@ -708,7 +708,9 @@ final class MacComposedSidebarTests: XCTestCase {
             loadCollapsedSections: { box.collapsedSections },
             saveCollapsedSections: { box.collapsedSections = $0 },
             loadComposedCollapse: { box.composedCollapse },
-            saveComposedCollapse: { box.composedCollapse = $0 })
+            saveComposedCollapse: { box.composedCollapse = $0 },
+            loadLastSearchForm: { box.lastSearchForm },
+            saveLastSearchForm: { box.lastSearchForm = $0 })
     }
 }
 #endif

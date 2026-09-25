@@ -54,6 +54,11 @@ struct SidebarPersistenceScope {
     var loadComposedCollapse: () -> Set<SidebarCompositionKey>
     var saveComposedCollapse: (Set<SidebarCompositionKey>) -> Void
 
+    /// The search form the user opened last — View ▸ Show Search (⌘2) goes
+    /// back to it (`SearchFormStore`'s `searchFormLastUsed`).
+    var loadLastSearchForm: () -> SearchFormType?
+    var saveLastSearchForm: (SearchFormType) -> Void
+
     // MARK: - Production
 
     /// The shipping value: the same three stores, with the same keys, that the
@@ -71,7 +76,9 @@ struct SidebarPersistenceScope {
         loadComposedCollapse: { SidebarCompositionCollapsedStore.loadCollapsedSync() },
         saveComposedCollapse: { collapsed in
             Task { await SidebarCompositionCollapsedStore.shared.save(collapsed) }
-        })
+        },
+        loadLastSearchForm: { SearchFormStore.loadLastUsedSync() },
+        saveLastSearchForm: { SearchFormStore.saveLastUsedSync($0) })
 
     // MARK: - Scratch
 
@@ -85,19 +92,23 @@ struct SidebarPersistenceScope {
     static func inMemory(
         sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.defaultOrder,
         collapsedSections: Set<SidebarSectionType> = [],
-        composedCollapse: Set<SidebarCompositionKey> = []
+        composedCollapse: Set<SidebarCompositionKey> = [],
+        lastSearchForm: SearchFormType? = nil
     ) -> SidebarPersistenceScope {
         let box = ScratchBox(
             sectionOrder: sectionOrder,
             collapsedSections: collapsedSections,
             composedCollapse: composedCollapse)
+        box.lastSearchForm = lastSearchForm
         return SidebarPersistenceScope(
             loadSectionOrder: { box.sectionOrder },
             saveSectionOrder: { box.sectionOrder = $0 },
             loadCollapsedSections: { box.collapsedSections },
             saveCollapsedSections: { box.collapsedSections = $0 },
             loadComposedCollapse: { box.composedCollapse },
-            saveComposedCollapse: { box.composedCollapse = $0 })
+            saveComposedCollapse: { box.composedCollapse = $0 },
+            loadLastSearchForm: { box.lastSearchForm },
+            saveLastSearchForm: { box.lastSearchForm = $0 })
     }
 
     /// Storage for `inMemory()`. A class so the load and save closures share it.
@@ -106,6 +117,7 @@ struct SidebarPersistenceScope {
         var sectionOrder: [SidebarSectionType]
         var collapsedSections: Set<SidebarSectionType>
         var composedCollapse: Set<SidebarCompositionKey>
+        var lastSearchForm: SearchFormType?
 
         init(
             sectionOrder: [SidebarSectionType],

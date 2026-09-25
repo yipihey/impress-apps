@@ -508,6 +508,9 @@ struct UnifiedPublicationListWrapper: View {
                     isListFocused = false
                     DispatchQueue.main.async { isListFocused = true }
                 },
+                onTogglePDFFilter: togglePDFFilter,
+                onCopyAsCitation: copySelectionAsCitation,
+                onSharePapers: shareSelection,
                 onToggleEInkMirror: toggleEinkForSelected,
                 onCopyPublications: { Task { await copySelectedPublications() } },
                 onCutPublications: { Task { await cutSelectedPublications() } },
@@ -997,7 +1000,8 @@ struct UnifiedPublicationListWrapper: View {
                 yearFilter: filter.yearFilter,
                 flagQuery: filter.flagQuery,
                 tagQueries: filter.tagQueries,
-                readState: filter.readState
+                readState: filter.readState,
+                pdfState: filter.pdfState
             )
             if !nonTextFilter.isEmpty {
                 publications = LocalFilterService.shared.apply(nonTextFilter, to: publications)
@@ -1197,6 +1201,56 @@ struct UnifiedPublicationListWrapper: View {
     private func copySelectedPublications() async {
         guard !selectedPublicationIDs.isEmpty else { return }
         await libraryViewModel.copyToClipboard(selectedPublicationIDs)
+    }
+
+    /// The selection in list order (a `Set` has none).
+    private var orderedSelectedRows: [PublicationRowData] {
+        publications.filter { selectedPublicationIDs.contains($0.id) }
+    }
+
+    /// Window ▸ Toggle PDF Filter (⇧⌘\): adds or removes `has:pdf` in the
+    /// list's filter text — a `LocalFilterService` post-filter on the row's
+    /// has-PDF data, shown in the filter bar like any other term. There was
+    /// no PDF filter until 2026-09-25; the menu item posted to nobody.
+    private func togglePDFFilter() {
+        filterText = LocalFilterService.togglingHasPDF(in: filterText)
+        applyFilterText(filterText)
+        // `publications` is the list after every filter, so it is the count
+        // the user now sees.
+        logInfo(
+            "Window ▸ Toggle PDF Filter: filter '\(filterText)' → \(publications.count) rows shown",
+            category: "filter")
+    }
+
+    /// Edit ▸ Copy as Citation (⇧⌘C): a formatted reference for each selected
+    /// paper (`PublicationCitationFormatter` — imprint's Typst bibliography,
+    /// else imbib's plain-text template), one per line.
+    private func copySelectionAsCitation() {
+        let ids = orderedSelectedRows.map(\.id)
+        guard !ids.isEmpty else { return }
+        Task {
+            guard let formatted = await PublicationCitationFormatter.format(ids: ids) else {
+                logWarning("Edit ▸ Copy as Citation: nothing to format for \(ids.count) paper(s)", category: "clipboard")
+                return
+            }
+            Clipboard.shared.setString(formatted.text)
+            logInfo(
+                "Edit ▸ Copy as Citation: \(ids.count) paper(s) via \(formatted.source.rawValue): \(formatted.text.prefix(300))",
+                category: "clipboard")
+        }
+    }
+
+    /// Paper ▸ Share… (⇧⌘F): the system share picker for the selection — its
+    /// BibTeX as text plus each paper's DOI / arXiv / ADS URL.
+    private func shareSelection() {
+        let rows = orderedSelectedRows
+        guard !rows.isEmpty else { return }
+        let bibtex = RustStoreAdapter.shared.exportBibTeX(ids: rows.map(\.id))
+        let items = PublicationShareItems.items(bibtex: bibtex, rows: rows)
+        let shown = PublicationSharePicker.present(items)
+        logInfo(
+            "Paper ▸ Share…: \(rows.count) paper(s), \(items.count) item(s) (\(items.filter { $0 is URL }.count) URL) — picker \(shown ? "shown" : "not shown: no key window")",
+            category: "share")
     }
 
     private func cutSelectedPublications() async {
@@ -1958,6 +2012,9 @@ private struct NotificationModifiers: ViewModifier {
     let onRemoveFromCollection: (Notification) -> Void
     let onRefresh: () -> Void
     let onFocusList: () -> Void
+    let onTogglePDFFilter: () -> Void
+    let onCopyAsCitation: () -> Void
+    let onSharePapers: () -> Void
     let onToggleEInkMirror: () -> Void
     let onCopyPublications: () -> Void
     let onCutPublications: () -> Void
@@ -2002,6 +2059,18 @@ private struct NotificationModifiers: ViewModifier {
             // View ▸ Focus List (⌥⌘2).
             .onReceive(NotificationCenter.default.publisher(for: .focusList)) { _ in
                 onFocusList()
+            }
+            // Window ▸ Toggle PDF Filter (⇧⌘\): `has:pdf` in the filter text.
+            .onReceive(NotificationCenter.default.publisher(for: .togglePDFFilter)) { _ in
+                onTogglePDFFilter()
+            }
+            // Edit ▸ Copy as Citation (⇧⌘C) and the command palette.
+            .onReceive(NotificationCenter.default.publisher(for: .copyAsCitation)) { _ in
+                onCopyAsCitation()
+            }
+            // Paper ▸ Share… (⇧⌘F).
+            .onReceive(NotificationCenter.default.publisher(for: .sharePapers)) { _ in
+                onSharePapers()
             }
             // Paper ▸ Mirror to reMarkable (⌃⌘E) and the command palette.
             .onReceive(NotificationCenter.default.publisher(for: .toggleEInkMirror)) { _ in

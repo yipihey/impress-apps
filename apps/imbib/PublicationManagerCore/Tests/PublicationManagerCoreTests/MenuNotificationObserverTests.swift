@@ -35,17 +35,10 @@ final class MenuNotificationObserverTests: XCTestCase {
     /// action they name does not exist yet or needs a product decision. Each
     /// entry is a known dead menu item, not an exemption: when one is wired,
     /// this test fails until it leaves the list.
-    static let unwired: [String: String] = [
-        "showSearch": "View ▸ Show Search (⌘2): macOS has no single Search tab — the section's children are nine search forms; which one ⌘2 opens is a decision",
-        "navigateBack": "Go ▸ Back (⌘[): NavigationHistoryStore exists but nothing pushes to it since b748151d",
-        "navigateForward": "Go ▸ Forward (⌘]): as Back",
-        "copyAsCitation": "Edit ▸ Copy as Citation (⇧⌘C): no formatted-citation function exists (CSL formatting is 'Not Yet')",
-        "focusSidebar": "View ▸ Focus Sidebar (⌥⌘1): needs first-responder plumbing into the sidebar's NSOutlineView",
-        "focusDetail": "View ▸ Focus Detail (⌥⌘3): needs a detail-pane focus target",
-        "sharePapers": "Paper ▸ Share… (⇧⌘F): the toolbar's ShareLink cannot be triggered from code; which payload the chord shares is a decision",
-        "togglePDFFilter": "Window ▸ Toggle PDF Filter (⇧⌘\\): there is no PDF filter state to toggle",
-        "showHelpSearchPalette": "Help ▸ Search Help… (⇧⌘?): the palette lives in the Help window, which may not be open when the post arrives",
-    ]
+    ///
+    /// Empty since 2026-09-25: the nine listed here after #62 (⌘2, ⌘[ / ⌘],
+    /// ⇧⌘C, ⌥⌘1 / ⌥⌘3, ⇧⌘F, ⇧⌘\, ⇧⌘?) are wired and pinned by name below.
+    static let unwired: [String: String] = [:]
 
     func testEveryMenuNotificationHasAnObserver() throws {
         let posted = try Self.menuPostedNames()
@@ -81,6 +74,19 @@ final class MenuNotificationObserverTests: XCTestCase {
         ] {
             XCTAssertTrue(Self.isObserved(name, in: corpus), "\(name) has no observer")
         }
+    }
+
+    /// The nine that were `unwired` until 2026-09-25 stay wired.
+    func testTheCommandsFixedOn20260925AreObserved() throws {
+        let corpus = try Self.observerCorpus()
+        for name in [
+            "showSearch", "navigateBack", "navigateForward", "copyAsCitation",
+            "focusSidebar", "focusDetail", "sharePapers", "togglePDFFilter",
+            "showHelpSearchPalette",
+        ] {
+            XCTAssertTrue(Self.isObserved(name, in: corpus), "\(name) has no observer")
+        }
+        XCTAssertTrue(Self.unwired.isEmpty, "a menu command is known dead again: \(Self.unwired.keys.sorted())")
     }
 
     /// The chassis commands imbib mounts post no notifications — if one

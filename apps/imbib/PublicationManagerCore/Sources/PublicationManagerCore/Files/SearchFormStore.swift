@@ -192,6 +192,19 @@ public actor SearchFormStore {
         return order().filter { !hidden.contains($0) }
     }
 
+    // MARK: - Last Used
+
+    /// Record the form the user opened (View ▸ Show Search, ⌘2, returns to
+    /// it). One small string, written synchronously like the loaders read.
+    public nonisolated static func saveLastUsedSync(_ form: SearchFormType) {
+        UserDefaults.standard.set(form.rawValue, forKey: "searchFormLastUsed")
+    }
+
+    /// The form the user opened last, if any (and if it still exists).
+    public nonisolated static func loadLastUsedSync() -> SearchFormType? {
+        UserDefaults.standard.string(forKey: "searchFormLastUsed").flatMap(SearchFormType.init(rawValue:))
+    }
+
     // MARK: - Synchronous Load (for SwiftUI @State init)
 
     /// Load order synchronously (for initial SwiftUI state)
