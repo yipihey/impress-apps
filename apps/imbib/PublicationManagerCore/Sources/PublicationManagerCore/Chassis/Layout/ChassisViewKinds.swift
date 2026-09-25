@@ -278,12 +278,11 @@ struct LayoutRowsPaneView: View {
             }
             .padding(.top, toolbarBand)
             .overlay { emptyOverlay.padding(.top, toolbarBand) }
-            // The rows are query RESULTS, so they re-run when the
-            // invalidation feed marks this pane stale — `refreshToken` is one
-            // Equatable value to watch instead of a Set's identity. (Today the
-            // counter moves on EVERY verb, so this reloads more than it must;
-            // per-pane staleness is the kit's fix, review PH-H1.)
-            .onChange(of: context.controller.refreshToken) { _, _ in load() }
+            // The rows are query RESULTS, so they re-run when Rust says THIS
+            // pane is stale — the tile's own token, not the controller's
+            // global one, which moves when any pane goes stale (PH-H1: a
+            // set-query on another pane used to re-run this pane's query).
+            .onChange(of: context.refreshToken) { _, _ in load() }
             .onAppear { load() }
             .task {
                 // The invalidation feed sees writes made through the layout's
@@ -330,7 +329,7 @@ struct LayoutRowsPaneView: View {
                     title: loadFailed ? "Query Refused" : "Nothing Here",
                     systemImage: loadFailed ? "exclamationmark.triangle" : "tray",
                     message: loadFailed
-                        ? (context.controller.lastError ?? "The pane's query did not run.")
+                        ? (context.error ?? "The pane's query did not run.")
                         : "This pane's query matched no items."
                 )
                 .view
@@ -554,10 +553,19 @@ struct LayoutRowsPaneView: View {
 
     private func load() {
         let tile = context.tile
-        let fetched = context.rows()
+        // THIS pane's failure, never another pane's or a verb's refusal
+        // (PH-M3): `loadRows` throws what Rust refused, and the tile's own
+        // error slot says why.
+        let fetched: [SharedItemRow]
+        do {
+            fetched = try context.loadRows()
+            loadFailed = false
+        } catch {
+            fetched = []
+            loadFailed = true
+        }
         rows = fetched.map(LayoutPaneRow.init)
         rowsRevision &+= 1
-        loadFailed = fetched.isEmpty && context.controller.lastError != nil
         context.controller.didRefresh(tile)
         logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
         PublicationTagRemoval.reportDisplay(
