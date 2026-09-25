@@ -22,16 +22,27 @@ const _IMBIB_SERVICE_FORCE_LINK: fn() -> imbib_service::DefaultImbibTextService 
     imbib_service::DefaultImbibTextService::default;
 
 fn main() {
-    let app = cli::build_cli_from_inventory("imbib").about(
-        "imbib service CLI — auto-generated from #[impress_service] traits in imbib-service.",
-    );
+    let app = cli::build_cli_from_inventory("imbib")
+        .about(
+            "imbib service CLI — auto-generated from #[impress_service] traits in imbib-service.",
+        )
+        .after_help(
+            "Exit status: 0 when the verb did what it was asked; 3 when it answered \
+             `\"ok\": false` (the JSON on stdout says why); 1 when the verb could not be \
+             dispatched; 2 for a bad invocation.",
+        );
     let matches = app.get_matches();
 
     match cli::dispatch_matches(&matches) {
         Ok(value) => {
             // Pretty-print so library users / tests can grep the output.
             match serde_json::to_string_pretty(&value) {
-                Ok(s) => println!("{s}"),
+                Ok(s) => {
+                    println!("{s}");
+                    // A refusal is not a success (review AC-F12): the verb's own
+                    // `ok: false` sets the status a script tests, as in `impress`.
+                    std::process::exit(impress_service_core::refusal::exit_status(&value));
+                }
                 Err(e) => {
                     eprintln!("error: failed to serialize result: {e}");
                     std::process::exit(2);
