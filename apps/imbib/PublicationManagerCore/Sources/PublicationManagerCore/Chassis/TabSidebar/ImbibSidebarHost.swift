@@ -18,6 +18,7 @@
 
 import ImpressFTUI
 import ImpressKit
+import ImpressLogging
 import ImpressSidebar
 import ImpressStoreKit
 import OSLog
@@ -116,6 +117,9 @@ struct ImbibSidebarLifecycle: ViewModifier {
     /// repository, and a split that remounted the outline used to start
     /// another one (PH-M6).
     @MainActor private static var didStartSciXPull = false
+
+    /// A refused delete, for the alert that says so (PH-L8: it was `try?`).
+    @State private var deleteFailure: String?
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
@@ -316,7 +320,15 @@ struct ImbibSidebarLifecycle: ViewModifier {
             ])
             .alert("Delete Library", isPresented: $viewModel.showDeleteConfirmation, presenting: viewModel.libraryToDelete) { library in
                 Button("Delete", role: .destructive) {
-                    try? libraryManager.deleteLibrary(id: library.id)
+                    do {
+                        try libraryManager.deleteLibrary(id: library.id)
+                    } catch {
+                        logError(
+                            "delete library '\(library.name)' (\(library.id)) refused: \(error)",
+                            category: "library")
+                        deleteFailure = "\u{201C}\(library.name)\u{201D} was not deleted: "
+                            + error.localizedDescription
+                    }
                     viewModel.bumpDataVersion()
                 }
                 Button("Cancel", role: .cancel) {}
@@ -354,11 +366,29 @@ struct ImbibSidebarLifecycle: ViewModifier {
             }
             .alert("Delete SciX Library", isPresented: $viewModel.showSciXDeleteConfirmation, presenting: viewModel.scixLibraryToDelete) { library in
                 Button("Delete", role: .destructive) {
-                    Task { try? await scixViewModel.deleteLibrary(library, deleteRemote: false) }
+                    Task {
+                        do {
+                            try await scixViewModel.deleteLibrary(library, deleteRemote: false)
+                        } catch {
+                            logError(
+                                "delete SciX library '\(library.name)' refused: \(error)", category: "scix")
+                            deleteFailure = "\u{201C}\(library.name)\u{201D} was not removed: "
+                                + error.localizedDescription
+                        }
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { library in
                 Text("Are you sure you want to remove \"\(library.name)\" from imbib? This removes the local copy; the ADS library is not deleted.")
+            }
+            .alert(
+                "Could Not Delete",
+                isPresented: Binding(
+                    get: { deleteFailure != nil }, set: { if !$0 { deleteFailure = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deleteFailure ?? "")
             }
             .sheet(item: $viewModel.scixLibraryToShowInfo) { library in
                 SciXLibraryInfoSheet(library: library, viewModel: scixViewModel)
