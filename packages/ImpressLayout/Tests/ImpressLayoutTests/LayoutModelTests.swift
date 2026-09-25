@@ -144,14 +144,6 @@ final class LayoutModelTests: XCTestCase {
         XCTAssertEqual(tree.share(of: 3), 3)
     }
 
-    /// Un-collapsing restores to the SIBLING AVERAGE — the remembered width
-    /// lives in the tree, never in a Swift value (ADR-0031 invariant 1).
-    func testSiblingAverageIsWhatAnUncollapseRestoresTo() throws {
-        let tree = try LayoutTree.decode(goldenJSON())
-        XCTAssertEqual(try XCTUnwrap(tree.siblingAverageShare(of: 1)), 2.5, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(tree.siblingAverageShare(of: 2)), 2.0, accuracy: 1e-9)
-    }
-
     func testRoleLookupFindsThePaneTheChordsActOn() throws {
         let tree = try LayoutTree.decode(goldenJSON())
         XCTAssertEqual(tree.paneWithRole("navigator"), 1)

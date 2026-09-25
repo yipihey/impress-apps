@@ -460,26 +460,6 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
         return container.shares(count: container.children.count)[index]
     }
 
-    /// The average of `id`'s SIBLINGS' shares — what an un-collapse restores
-    /// to. The remembered width lives in the tree (ADR-0031 invariant 1): no
-    /// Swift value is kept across the collapse, so the average of what is
-    /// actually on screen is the honest answer.
-    public func siblingAverageShare(of id: UInt64) -> Double? {
-        guard let parentID = parent(of: id),
-              let container = container(parentID),
-              case .linear = container
-        else { return nil }
-        let children = container.children
-        let shares = container.shares(count: children.count)
-        // `map { $0.1 }`, not `map(\.1)`: a key path cannot name a tuple
-        // element.
-        let siblings = zip(children, shares)
-            .filter { $0.0 != id && !LayoutShare.isCollapsed($0.1) }
-            .map { $0.1 }
-        guard !siblings.isEmpty else { return nil }
-        return siblings.reduce(0, +) / Double(siblings.count)
-    }
-
     /// The leaves under `id`, in tree order — the order h / l walks.
     public func leaves(of id: UInt64) -> [UInt64] {
         var result: [UInt64] = []
