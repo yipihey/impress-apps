@@ -2298,6 +2298,121 @@ public func FfiConverterTypeDatasetMetadata_lower(_ value: DatasetMetadata) -> R
 
 
 /**
+ * An exported file.
+ */
+public struct ExportedFigure {
+    public var path: String
+    public var format: String
+    public var mimeType: String
+    /**
+     * sha256 hex of the file's bytes.
+     */
+    public var sha256: String
+    public var byteCount: UInt64
+    public var width: UInt32
+    public var height: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, format: String, mimeType: String, 
+        /**
+         * sha256 hex of the file's bytes.
+         */sha256: String, byteCount: UInt64, width: UInt32, height: UInt32) {
+        self.path = path
+        self.format = format
+        self.mimeType = mimeType
+        self.sha256 = sha256
+        self.byteCount = byteCount
+        self.width = width
+        self.height = height
+    }
+}
+
+
+
+extension ExportedFigure: Equatable, Hashable {
+    public static func ==(lhs: ExportedFigure, rhs: ExportedFigure) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.mimeType != rhs.mimeType {
+            return false
+        }
+        if lhs.sha256 != rhs.sha256 {
+            return false
+        }
+        if lhs.byteCount != rhs.byteCount {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(format)
+        hasher.combine(mimeType)
+        hasher.combine(sha256)
+        hasher.combine(byteCount)
+        hasher.combine(width)
+        hasher.combine(height)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExportedFigure: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExportedFigure {
+        return
+            try ExportedFigure(
+                path: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                mimeType: FfiConverterString.read(from: &buf), 
+                sha256: FfiConverterString.read(from: &buf), 
+                byteCount: FfiConverterUInt64.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ExportedFigure, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterString.write(value.mimeType, into: &buf)
+        FfiConverterString.write(value.sha256, into: &buf)
+        FfiConverterUInt64.write(value.byteCount, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExportedFigure_lift(_ buf: RustBuffer) throws -> ExportedFigure {
+    return try FfiConverterTypeExportedFigure.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExportedFigure_lower(_ value: ExportedFigure) -> RustBuffer {
+    return FfiConverterTypeExportedFigure.lower(value)
+}
+
+
+/**
  * Descriptor for a single field in the dataset
  */
 public struct FieldDescriptor {
@@ -5375,6 +5490,109 @@ public func FfiConverterTypeSliceData_lower(_ value: SliceData) -> RustBuffer {
 
 
 /**
+ * What a figure row records about its stored artifact.
+ */
+public struct StoredFigureArtifact {
+    /**
+     * sha256 hex of the PNG: the row's `data_hash`.
+     */
+    public var dataHash: String
+    /**
+     * Always `"png"`: the row's `format`.
+     */
+    public var format: String
+    /**
+     * Logical size in points: the row's `width`/`height`.
+     */
+    public var width: UInt32
+    public var height: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * sha256 hex of the PNG: the row's `data_hash`.
+         */dataHash: String, 
+        /**
+         * Always `"png"`: the row's `format`.
+         */format: String, 
+        /**
+         * Logical size in points: the row's `width`/`height`.
+         */width: UInt32, height: UInt32) {
+        self.dataHash = dataHash
+        self.format = format
+        self.width = width
+        self.height = height
+    }
+}
+
+
+
+extension StoredFigureArtifact: Equatable, Hashable {
+    public static func ==(lhs: StoredFigureArtifact, rhs: StoredFigureArtifact) -> Bool {
+        if lhs.dataHash != rhs.dataHash {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(dataHash)
+        hasher.combine(format)
+        hasher.combine(width)
+        hasher.combine(height)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStoredFigureArtifact: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StoredFigureArtifact {
+        return
+            try StoredFigureArtifact(
+                dataHash: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StoredFigureArtifact, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.dataHash, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStoredFigureArtifact_lift(_ buf: RustBuffer) throws -> StoredFigureArtifact {
+    return try FfiConverterTypeStoredFigureArtifact.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStoredFigureArtifact_lower(_ value: StoredFigureArtifact) -> RustBuffer {
+    return FfiConverterTypeStoredFigureArtifact.lower(value)
+}
+
+
+/**
  * A 2D vector of f32 values
  */
 public struct Vec2f {
@@ -6208,6 +6426,84 @@ public func FfiConverterTypeDatasetSource_lower(_ value: DatasetSource) -> RustB
 extension DatasetSource: Equatable, Hashable {}
 
 
+
+
+/**
+ * Why an artifact could not be produced.
+ */
+public enum FigureArtifactError {
+
+    
+    
+    case InvalidViewState(message: String
+    )
+    case Render(message: String
+    )
+    case Io(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFigureArtifactError: FfiConverterRustBuffer {
+    typealias SwiftType = FigureArtifactError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FigureArtifactError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .InvalidViewState(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Render(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Io(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FigureArtifactError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .InvalidViewState(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Render(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Io(message):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension FigureArtifactError: Equatable, Hashable {}
+
+extension FigureArtifactError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -8138,12 +8434,39 @@ public func createLinePlot(title: String, x: [Double], y: [Double], xLabel: Stri
 })
 }
 /**
+ * Export a figure to `<workspace>/exports/figures/<id>.<png|svg>`.
+ */
+public func exportFigureArtifact(workspaceDir: String, figureId: String, viewStateJson: String, format: String, width: Double?, height: Double?, scale: Double?)throws  -> ExportedFigure {
+    return try  FfiConverterTypeExportedFigure.lift(try rustCallWithError(FfiConverterTypeFigureArtifactError.lift) {
+    uniffi_implore_core_fn_func_export_figure_artifact(
+        FfiConverterString.lower(workspaceDir),
+        FfiConverterString.lower(figureId),
+        FfiConverterString.lower(viewStateJson),
+        FfiConverterString.lower(format),
+        FfiConverterOptionDouble.lower(width),
+        FfiConverterOptionDouble.lower(height),
+        FfiConverterOptionDouble.lower(scale),$0
+    )
+})
+}
+/**
  * Load a `FigureLibrary` from a JSON file at the given path.
  */
 public func loadLibraryJson(path: String)throws  -> FigureLibrary {
     return try  FfiConverterTypeFigureLibrary.lift(try rustCallWithError(FfiConverterTypeLibraryError.lift) {
     uniffi_implore_core_fn_func_load_library_json(
         FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
+ * Remove a deleted figure's exported files.
+ */
+public func removeFigureExports(workspaceDir: String, figureId: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeFigureArtifactError.lift) {
+    uniffi_implore_core_fn_func_remove_figure_exports(
+        FfiConverterString.lower(workspaceDir),
+        FfiConverterString.lower(figureId),$0
     )
 })
 }
@@ -8210,6 +8533,17 @@ public func saveLibraryJson(library: FigureLibrary, path: String)throws  {try ru
     )
 }
 }
+/**
+ * Render a figure's view state and store its PNG in the workspace CAS.
+ */
+public func storeFigureArtifact(workspaceDir: String, viewStateJson: String)throws  -> StoredFigureArtifact {
+    return try  FfiConverterTypeStoredFigureArtifact.lift(try rustCallWithError(FfiConverterTypeFigureArtifactError.lift) {
+    uniffi_implore_core_fn_func_store_figure_artifact(
+        FfiConverterString.lower(workspaceDir),
+        FfiConverterString.lower(viewStateJson),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -8235,7 +8569,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_implore_core_checksum_func_create_line_plot() != 58984) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_implore_core_checksum_func_export_figure_artifact() != 36467) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_implore_core_checksum_func_load_library_json() != 22992) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_remove_figure_exports() != 24330) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_func_render_grid_svg() != 7724) {
@@ -8251,6 +8591,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_func_save_library_json() != 56400) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_implore_core_checksum_func_store_figure_artifact() != 33194) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_core_checksum_method_generatorregistryhandle_categories() != 41569) {

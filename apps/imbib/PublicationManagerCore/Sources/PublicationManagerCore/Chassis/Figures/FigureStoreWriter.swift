@@ -29,9 +29,10 @@ public enum FigureStoreWriter {
     ///
     /// `dataHash` is the sha256 of the CAS artifact under
     /// `FigureStoreReader.contentStoreDirectory` — the View tab decodes
-    /// whatever is filed there. A figure with no raster preview (SVG, a script
-    /// that has not run) legitimately omits it, which is why it is optional and
-    /// why omitting it must not write a `null`.
+    /// whatever is filed there. implore always writes one (a PNG, through
+    /// `implore_core::figure_artifact`); a seed or a script that has not run
+    /// may omit it, which is why it is optional and why omitting it must not
+    /// write a `null`.
     nonisolated public static func figureRow(
         id: String,
         folderID: String? = nil,

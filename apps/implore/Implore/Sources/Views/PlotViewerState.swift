@@ -113,6 +113,19 @@ final class PlotViewerState {
         }
     }
 
+    /// A title for the plot on screen when it is saved as a figure.
+    var figureTitle: String {
+        switch plotMode {
+        case .series:
+            let names = selectedSeriesNames.sorted()
+            return names.isEmpty ? "Plot" : names.joined(separator: ", ")
+        case .cascade:
+            return "Cascade statistics"
+        case .histogram:
+            return "Histogram of \(histogramField)"
+        }
+    }
+
     /// Toggle a series on/off and re-render.
     func toggleSeries(_ name: String) {
         if selectedSeriesNames.contains(name) {

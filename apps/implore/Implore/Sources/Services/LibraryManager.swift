@@ -2,6 +2,7 @@ import Foundation
 import ImploreCore
 import ImploreRustCore
 import ImpressLogging
+import PublicationManagerCore
 import SwiftUI
 
 /// Manages the figure library persistence and operations.
@@ -107,22 +108,46 @@ public final class LibraryManager {
     // MARK: - Figure Operations
 
     /// Add a new figure to the library
-    public func addFigure(_ figure: LibraryFigure) {
+    @discardableResult
+    public func addFigure(_ figure: LibraryFigure) -> ImploreStoreAdapter.FigureWrite {
         var newLibrary = library
         newLibrary.figures.append(figure)
         newLibrary.modifiedAt = ISO8601DateFormatter().string(from: Date())
         library = newLibrary
         saveLibrary()
 
-        // Mirror into the shared impress-core store so other apps can discover figures.
-        ImploreStoreAdapter.shared.storeFigure(
+        // Mirror into the shared store WITH its rendered artifact, so other
+        // apps' plot panes and View tabs have an image to draw.
+        return writeFigureToStore(figure, reason: "create")
+    }
+
+    /// The one path from a library figure to its store row + artifact
+    /// (`ImploreStoreAdapter.storeFigure`), with the three-point trace.
+    @discardableResult
+    func writeFigureToStore(_ figure: LibraryFigure, reason: String) -> ImploreStoreAdapter.FigureWrite {
+        logInfo(
+            "figure \(reason) \(figure.id): rendering artifact (\(figure.viewStateSnapshot.utf8.count) B view state)",
+            category: "figures")
+        let write = ImploreStoreAdapter.shared.storeFigure(
             figureID: figure.id,
-            format: "png",  // default; refined during actual export
             title: figure.title,
             caption: nil,
-            assetData: figure.thumbnail,
-            scriptHash: nil
+            viewStateJSON: figure.viewStateSnapshot
         )
+        announceStoreWrite(figureID: figure.id, structural: reason == "create")
+        if let artifact = write.artifact {
+            logInfo(
+                "figure \(reason) \(figure.id): saved=\(write.saved) data_hash=\(artifact.dataHash.prefix(12)) \(artifact.width)x\(artifact.height) \(artifact.format)",
+                category: "figures")
+            if let released = write.releasedHash {
+                logInfo("figure \(reason) \(figure.id): released superseded artifact \(released.prefix(12))", category: "figures")
+            }
+        } else {
+            logError(
+                "figure \(reason) \(figure.id): saved=\(write.saved) with NO artifact: \(write.renderError ?? "unknown")",
+                category: "figures")
+        }
+        return write
     }
 
     /// Remove a figure from the library
@@ -136,6 +161,27 @@ public final class LibraryManager {
         if selectedFigureId == id {
             selectedFigureId = nil
         }
+
+        // The store row (and its artifact, unless another row names the same
+        // bytes) goes too; deleting only the JSON entry orphaned the row.
+        let deletion = ImploreStoreAdapter.shared.deleteFigure(figureID: id)
+        if deletion.rowDeleted { announceStoreWrite(figureID: id, structural: true) }
+        logInfo(
+            "figure delete \(id): row=\(deletion.rowDeleted) data_hash=\(deletion.dataHash.map { String($0.prefix(12)) } ?? "none") blobReleased=\(deletion.blobReleased) exports=\(deletion.exportsRemoved)",
+            category: "figures")
+    }
+
+    /// The adapter writes through its own store handle, so the chassis in
+    /// THIS process (implore's View tab, a `plot` pane) would otherwise hear
+    /// of it only through the cross-process Darwin note, after its coalesce
+    /// window. Tell the chassis bus directly: a new or deleted row is
+    /// structural, an edit names the figure.
+    private func announceStoreWrite(figureID: String, structural: Bool) {
+        let uuid = UUID(uuidString: figureID)
+        RustStoreAdapter.shared.noteExternalMutation(
+            structural: structural || uuid == nil,
+            affectedIDs: uuid.map { [$0] },
+            kind: .otherField)
     }
 
     /// Get a figure by ID
@@ -144,7 +190,8 @@ public final class LibraryManager {
     }
 
     /// Update a figure
-    public func updateFigure(_ figure: LibraryFigure) {
+    @discardableResult
+    public func updateFigure(_ figure: LibraryFigure) -> ImploreStoreAdapter.FigureWrite? {
         var newLibrary = library
         if let index = newLibrary.figures.firstIndex(where: { $0.id == figure.id }) {
             newLibrary.figures[index] = figure
@@ -152,16 +199,10 @@ public final class LibraryManager {
             library = newLibrary
             saveLibrary()
 
-            // Sync updated metadata to shared impress-core store.
-            ImploreStoreAdapter.shared.storeFigure(
-                figureID: figure.id,
-                format: "png",
-                title: figure.title,
-                caption: nil,
-                assetData: figure.thumbnail,
-                scriptHash: nil
-            )
+            // Re-render: an edit is a new artifact (a new data_hash).
+            return writeFigureToStore(figure, reason: "update")
         }
+        return nil
     }
 
     // MARK: - Folder Operations

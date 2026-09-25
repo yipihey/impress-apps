@@ -5221,6 +5221,43 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(format!("data_version: {}", e)))
     }
 
+    /// Whether any live record's payload contains `needle` verbatim.
+    ///
+    /// Built to answer "is this blob still referenced?" before removing a
+    /// content-addressed file: a sha256 hex digest is 64 characters, so it
+    /// appears in a payload only because a field names it — a figure's
+    /// `data_hash`, a `blob:sha256:<hex>` ref, anything else. Checking every
+    /// kind (not just the caller's) is what keeps one app's delete from
+    /// taking a blob another app's row still points at. Deleted rows are
+    /// gone from `items` (tombstones live elsewhere), so they never count.
+    ///
+    /// Operation rows (`op_target_id` set) do not count either: they are the
+    /// edit history `update` mints for every field change, so the op that
+    /// replaced a figure's `data_hash` names the OLD hash forever (until
+    /// compaction). History is not a reference; the record it edited is, and
+    /// its ops cascade away with it.
+    ///
+    /// A needle shorter than 16 characters is refused: this is a reference
+    /// test, not a search, and a short needle would match by accident.
+    pub fn payload_mentions(&self, needle: &str) -> Result<bool, StoreError> {
+        if needle.len() < 16 {
+            return Err(StoreError::Storage(format!(
+                "payload_mentions: needle '{needle}' is too short to be a reference"
+            )));
+        }
+        let needle = needle.to_string();
+        self.with_read(move |conn| {
+            conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM items
+                               WHERE op_target_id IS NULL AND instr(payload, ?1) > 0)",
+                params![needle],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|v| v != 0)
+            .map_err(|e| StoreError::Storage(format!("payload_mentions: {e}")))
+        })
+    }
+
     /// Items whose `schema_ref` starts with `schema_ref_prefix` and whose
     /// `modified` timestamp (store epoch milliseconds) is strictly greater
     /// than `since_ms`, oldest-modified first.
@@ -8584,6 +8621,67 @@ mod tests {
     /// `data_version` moves on handle B when handle A writes, but never moves
     /// on A's own connection for A's own writes. `:memory:` cannot show this
     /// (private to one connection), so both handles open the SAME temp file.
+    #[test]
+    fn payload_mentions_sees_any_kinds_reference_and_forgets_deleted_rows() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let digest = "ab".repeat(32);
+        assert!(!store.payload_mentions(&digest).unwrap());
+
+        let mut figure = make_item("figure", "f");
+        figure
+            .payload
+            .insert("data_hash".into(), Value::String(digest.clone()));
+        let figure_id = figure.id;
+        store.insert(figure).unwrap();
+        assert!(store.payload_mentions(&digest).unwrap());
+
+        // An edit replaces the hash; the op row it mints still names the
+        // old one, and must not keep the old blob alive.
+        let newer = "ef".repeat(32);
+        store
+            .update(
+                figure_id,
+                vec![FieldMutation::SetPayload(
+                    "data_hash".into(),
+                    Value::String(newer.clone()),
+                )],
+            )
+            .unwrap();
+        assert!(
+            !store.payload_mentions(&digest).unwrap(),
+            "only history names it"
+        );
+        assert!(store.payload_mentions(&newer).unwrap());
+        store
+            .update(
+                figure_id,
+                vec![FieldMutation::SetPayload(
+                    "data_hash".into(),
+                    Value::String(digest.clone()),
+                )],
+            )
+            .unwrap();
+
+        // A different kind naming the same blob as a `blob:sha256:` ref.
+        let mut file = make_item("manuscript-file", "m");
+        file.payload.insert(
+            "blob_ref".into(),
+            Value::String(crate::blobs::blob_ref(&digest)),
+        );
+        store.insert(file).unwrap();
+
+        store.delete(figure_id).unwrap();
+        assert!(
+            store.payload_mentions(&digest).unwrap(),
+            "the manuscript file still references the blob"
+        );
+        assert!(!store.payload_mentions(&"cd".repeat(32)).unwrap());
+        assert!(
+            store.payload_mentions("ab").is_err(),
+            "a short needle is not a reference"
+        );
+    }
+
     #[test]
     fn data_version_moves_for_other_connections_writes_only() {
         let dir = tempfile::tempdir().unwrap();
