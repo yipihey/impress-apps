@@ -18,9 +18,10 @@ pub enum Tier {
     /// Pure Rust against the `LayoutService` trait over an in-memory store —
     /// fast, headless, no UI, no app.
     A,
-    /// Drives a running app. The layout tree has no live-app surface yet (that
-    /// is L5/L6); the variant exists so the report shape does not change when
-    /// it does.
+    /// Drives a running app over its HTTP automation surface
+    /// (`impress-layout-service`'s `tier_b`, which covers `/api/layout/*` and
+    /// `/api/surface/*`). Every capability is skipped, and the report is not
+    /// `ok`, when no app answers.
     B,
 }
 
@@ -34,8 +35,9 @@ pub struct CapabilityResult {
     /// Human-readable evidence: what was observed. On failure, why.
     pub detail: String,
     pub duration_ms: u64,
-    /// True when the check could not run and was skipped rather than failed.
-    /// Skips do not count against `passed`.
+    /// True when the check could not run. A skipped capability has `pass:
+    /// false` — nothing was shown to work — and counts as neither passed nor
+    /// failed; it makes the report not `ok` (review RL-L18).
     #[serde(default)]
     pub skipped: bool,
 }
@@ -43,6 +45,11 @@ pub struct CapabilityResult {
 /// The full self-test outcome.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SelfTestReport {
+    /// True only when every capability ran and passed. A run that skipped
+    /// anything — above all a Tier B run whose app was not reachable — is
+    /// not `ok`: green after zero checks would be a pass that lies. The CLI
+    /// exits non-zero when this is false.
+    pub ok: bool,
     pub results: Vec<CapabilityResult>,
     pub total: usize,
     pub passed: usize,
@@ -59,6 +66,7 @@ impl SelfTestReport {
         let failed = results.iter().filter(|r| !r.pass && !r.skipped).count();
         let duration_ms = results.iter().map(|r| r.duration_ms).sum();
         Self {
+            ok: failed == 0 && skipped == 0 && total > 0,
             results,
             total,
             passed,
@@ -68,13 +76,31 @@ impl SelfTestReport {
         }
     }
 
-    /// True when no capability failed (skips are tolerated).
+    /// See the `ok` field: every capability ran and passed.
     pub fn ok(&self) -> bool {
-        self.failed == 0
+        self.ok
+    }
+
+    /// True when capabilities were skipped and none ran — the app was not
+    /// there. What a caller prints as SKIPPED rather than as a pass or a
+    /// failure.
+    pub fn all_skipped(&self) -> bool {
+        self.total > 0 && self.skipped == self.total
     }
 
     /// One-line summary, e.g. "33 passed, 0 failed, 0 skipped (48ms)".
+    ///
+    /// A run where nothing ran says so first — `SKIPPED: …` with the first
+    /// skip's reason, which names the URL it tried.
     pub fn summary(&self) -> String {
+        if self.all_skipped() {
+            let why = self
+                .results
+                .first()
+                .map(|r| r.detail.as_str())
+                .unwrap_or("nothing ran");
+            return format!("SKIPPED: {why} ({} capabilities not run)", self.total);
+        }
         format!(
             "{} passed, {} failed, {} skipped ({}ms)",
             self.passed, self.failed, self.skipped, self.duration_ms

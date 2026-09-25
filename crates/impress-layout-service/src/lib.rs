@@ -109,13 +109,14 @@ where
     }
 }
 
-/// A capability that could not run. A skip is not a pass: it says so.
+/// A capability that could not run. A skip is not a pass: `pass` is false,
+/// `skipped` says why, and the report is not `ok` (review RL-L18).
 pub fn skipped(id: &str, description: &str, tier: Tier, reason: &str) -> CapabilityResult {
     CapabilityResult {
         id: id.to_string(),
         description: description.to_string(),
         tier,
-        pass: true,
+        pass: false,
         detail: reason.to_string(),
         duration_ms: 0,
         skipped: true,
@@ -128,8 +129,9 @@ pub async fn run_tier_a() -> SelfTestReport {
     SelfTestReport::from_results(tier_a::run().await)
 }
 
-/// Run the Tier B catalogue against the running impress app. Skips cleanly,
-/// rather than failing, when nothing is listening on 23125.
+/// Run the Tier B catalogue against the running impress app. When nothing is
+/// listening, every capability is skipped — reported as skipped, not failed,
+/// and the report is not `ok`.
 pub async fn run_tier_b() -> SelfTestReport {
     SelfTestReport::from_results(tier_b::run(&tier_b::configured_base_url()).await)
 }

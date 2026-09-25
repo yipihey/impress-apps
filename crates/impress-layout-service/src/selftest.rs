@@ -27,8 +27,9 @@ pub trait LayoutSelftestService: Send + Sync + 'static {
     ///   both undo rings, the cold start and the one-live-row invariant.
     ///   Nothing here touches the user's store.
     /// * `"b"` — drives the RUNNING impress app over `/api/layout/*` and
-    ///   `/api/surface/*` (port 23125). Skips cleanly when no app answers, so
-    ///   a headless box stays green. It restores the arrangement it found.
+    ///   `/api/surface/*` (port 23125). When no app answers, every capability
+    ///   is `skipped` and the report's `ok` is false: a skip is not a pass.
+    ///   It restores the arrangement it found.
     ///   Set `IMPRESS_LAYOUT_SELFTEST_BASE_URL` to drive a DIFFERENT chassis
     ///   app instead (implore 23123, impart 23122, impel 23124) — the
     ///   catalogue asserts nothing impress-specific, and ordinal 1 is each
