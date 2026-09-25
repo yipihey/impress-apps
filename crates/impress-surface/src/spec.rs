@@ -163,6 +163,14 @@ pub enum Action {
     /// `bind`), not a template; absent, it defaults to `event.value` at reduce
     /// time — the plan's own example (`{"on_select": [{"publish": {}}]}`) relies
     /// on exactly that default.
+    ///
+    /// The record kind the selection is published under is decided in this
+    /// order: when the value at `ids` is an object `{"kind": K, "ids": [...]}`,
+    /// kind `K`; otherwise the kind of the surface's FIRST declared `params`
+    /// entry; otherwise `item`. A schema ref (`imbib/bibliography-entry`) is
+    /// published as its pane-query kind (`publication`), so a pane bound to
+    /// that kind sees it. The pane is the one showing this surface in the
+    /// layout at the time of the action; with none, the action fails.
     Publish {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ids: Option<String>,

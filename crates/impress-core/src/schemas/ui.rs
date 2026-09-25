@@ -390,6 +390,22 @@ pub fn surface_schema() -> Schema {
                 ),
             },
             FieldDef {
+                name: "revision".into(),
+                field_type: FieldType::Int,
+                required: false,
+                description: Some(
+                    "The row's own revision (wave 7, AC-F22): 1 when \
+                     `surface_create` writes it, +1 on every `surface_update`, \
+                     in the same transaction as the new `spec`. \
+                     `surface_update`'s `expected_revision` is compared with it \
+                     to refuse a lost update. Not the vocabulary version (the \
+                     spec's own `surface: \"1.0\"`) and not `version` above. \
+                     Absent on a row written before revisions existed, which \
+                     reads as 1."
+                        .into(),
+                ),
+            },
+            FieldDef {
                 name: "spec".into(),
                 field_type: FieldType::String,
                 required: true,

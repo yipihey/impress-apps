@@ -4,7 +4,10 @@
 # this version wherever it's missing, and dtolnay/rust-toolchain respects it.
 # Bump DELIBERATELY: expect new clippy lints to fire when you do, fix them in
 # the same commit.
+# 1.97.1 → 1.98.1 (2026-09-25): one new lint, clippy::chunks_exact_to_as_chunks;
+# and 1.97.1 could not read back stripped proc-macro dylibs on macOS 27, which
+# had impart-apps.yml building with release stripping off.
 [toolchain]
-channel = "1.97.1"
+channel = "1.98.1"
 components = ["rustfmt", "clippy"]
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

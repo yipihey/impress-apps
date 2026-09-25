@@ -67,16 +67,28 @@ public final class FigureStoreReader {
 
     private var store: SharedStore?
 
-    /// Content-addressed storage directory for figure binaries
-    /// (`~/.local/share/impress/content/{sha256}`, keyed by payload data_hash).
+    /// Content-addressed storage directory for figure artifacts, keyed by
+    /// the payload's `data_hash`: the STORE's own blob root,
+    /// `<workspace>/content` (ADR-0030 D3), which implore writes through
+    /// `implore_core::figure_artifact`.
     ///
-    /// Delegated to `BlobStore.defaultRootURL()` rather than re-deriving the
-    /// path: `homeDirectoryForCurrentUser` is unavailable on iOS, and BlobStore
-    /// already owns the one per-platform answer for this exact directory
-    /// (macOS `~/.local/share/impress/content`, byte-identical to what this
-    /// property returned before; iOS `<AppSupport>/impress/content`). Two
-    /// derivations of one path is the drift, not the fix.
+    /// Asked of the store rather than derived: it is the directory next to
+    /// the database this reader opened, in the app-group container every
+    /// facet shares. The old answer, `~/.local/share/impress/content`, is
+    /// the SANDBOX home — a different directory in each app — so an
+    /// artifact implore wrote there could never be drawn by impress.
     public var contentStoreDirectory: URL {
+        if let root = store?.manuscriptProjectBlobRoot() {
+            return URL(fileURLWithPath: root, isDirectory: true)
+        }
+        return legacyContentStoreDirectory
+    }
+
+    /// Where figure artifacts went before they moved to the workspace
+    /// (`BlobStore.defaultRootURL()`: the per-app home on macOS,
+    /// `<AppSupport>/impress/content` on iOS). Read as a fallback, so
+    /// artifacts written there by earlier builds still draw in that app.
+    public var legacyContentStoreDirectory: URL {
         BlobStore.defaultRootURL()
     }
 
@@ -141,8 +153,12 @@ public final class FigureStoreReader {
 
     /// Raw bytes of a CAS artifact by its sha256 data_hash, if present.
     public func contentData(hash: String) -> Data? {
-        let url = contentStoreDirectory.appendingPathComponent(hash)
-        return try? Data(contentsOf: url)
+        for dir in [contentStoreDirectory, legacyContentStoreDirectory] {
+            if let data = try? Data(contentsOf: dir.appendingPathComponent(hash)) {
+                return data
+            }
+        }
+        return nil
     }
 
     // MARK: - Envelope mutations (figures + folders nest via envelope `parent`)

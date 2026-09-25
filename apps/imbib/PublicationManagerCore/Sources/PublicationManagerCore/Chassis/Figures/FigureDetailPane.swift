@@ -15,9 +15,10 @@
 //  The tabbed figure detail (Stage 2-B): the standard chassis detail
 //  experience for a figure item, mirroring ManuscriptDetailPane's tab host —
 //  Info / View. Tabs come from FigureRecordKind.descriptor; the View tab
-//  (DetailTab.pdf relabeled) renders the CAS artifact via NSImage, which
-//  handles PNG/JPEG/PDF. SVG (no WebKit in PMC) and other formats fall back
-//  to an "Open in Canvas" hint — kept minimal and honest.
+//  (DetailTab.pdf relabeled) renders the CAS artifact via NSImage/UIImage:
+//  PNG (what implore stores), JPEG, TIFF, PDF, and on macOS SVG too
+//  (NSImage's SVG rep). An artifact that cannot be drawn gets a hint naming
+//  why — kept minimal and honest.
 //
 
 import SwiftUI
@@ -29,6 +30,7 @@ import UIKit
 #endif
 import ImpressFTUI
 import ImpressRustCore
+import ImpressStoreKit
 
 public struct FigureDetailPane: View {
 
@@ -78,11 +80,16 @@ public struct FigureDetailPane: View {
             if coerced != selectedTab { selectedTab = coerced }
         }
         .task(id: figureID) {
-            // Refresh the snapshot when this figure mutates elsewhere.
+            // Refresh the snapshot when this figure mutates elsewhere. A
+            // write from ANOTHER process (implore storing a new artifact
+            // while impress shows this tab) arrives as `.structural` with no
+            // ids — the Darwin note carries none — so that re-reads too, and
+            // assigns only when the row actually changed.
             for await event in ImbibImpressStore.shared.events.subscribe() {
-                if case .itemsMutated(_, let ids) = event, ids.contains(figureID) {
-                    row = FigureStoreReader.shared.fetchFigure(id: figureID.uuidString)
+                if FigureArtifactRefresh.shouldReread(event, figureID: figureID) {
+                    let fresh = FigureStoreReader.shared.fetchFigure(id: figureID.uuidString)
                         .flatMap { FigureRowData(from: $0) }
+                    if fresh != row { row = fresh }
                 }
             }
         }
@@ -225,11 +232,12 @@ public struct FigureArtifactView: View {
     }
 
     public var body: some View {
-        if let hash = dataHash,
-           let data = FigureStoreReader.shared.contentData(hash: hash),
-           let artifact = PlatformArtifactImage(data: data) {
-            // NSImage/UIImage decode PNG/JPEG/TIFF and PDF data. SVG (and
-            // anything else they can't decode) falls through to the hint below.
+        switch FigureArtifactState.resolve(
+            dataHash: dataHash, bytes: { FigureStoreReader.shared.contentData(hash: $0) })
+        {
+        case .image(let artifact):
+            // NSImage/UIImage decode PNG (implore's stored artifact),
+            // JPEG/TIFF and PDF data; NSImage also decodes SVG.
             //
             // Fitted to the space it is given, never enlarged past its
             // natural size. It sat in a two-axis ScrollView, which proposes
@@ -244,16 +252,79 @@ public struct FigureArtifactView: View {
                     maxHeight: max(artifact.size.height, 100))
                 .padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            VStack(spacing: 8) {
-                Image(systemName: "photo").font(.system(size: 32))
-                    .foregroundStyle(.tertiary)
-                Text("No renderable artifact")
-                    .foregroundStyle(.secondary)
-                Text("This format can't be previewed here — open the figure in the canvas.")
-                    .font(.caption).foregroundStyle(.tertiary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .noArtifact:
+            hint("No renderable artifact",
+                 "This figure has no stored image yet — save or export it from implore.")
+        case .missingBytes(let hash):
+            hint("Artifact not found",
+                 "No file \(hash.prefix(12))… in this workspace's content store.")
+        case .undecodableSVG:
+            hint("SVG artifact",
+                 "This device can't draw SVG — open the figure in implore on a Mac.")
+        case .undecodable:
+            hint("No renderable artifact",
+                 "This format can't be previewed here — open the figure in the canvas.")
+        }
+    }
+
+    private func hint(_ title: String, _ detail: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "photo").font(.system(size: 32))
+                .foregroundStyle(.tertiary)
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(detail)
+                .font(.caption).foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// What `FigureArtifactView` can draw for a `data_hash`: decided apart from
+/// the view so it is testable without a store (the bytes come from a
+/// closure), and so each reason it cannot draw has its own name.
+enum FigureArtifactState {
+    case image(PlatformArtifactImage)
+    /// The row names no artifact.
+    case noArtifact
+    /// The row names bytes this workspace does not have.
+    case missingBytes(String)
+    /// SVG bytes the platform cannot decode (UIImage has no SVG decoder).
+    case undecodableSVG
+    /// Bytes nothing here decodes.
+    case undecodable
+
+    static func resolve(dataHash: String?, bytes: (String) -> Data?) -> FigureArtifactState {
+        guard let hash = dataHash, !hash.isEmpty else { return .noArtifact }
+        guard let data = bytes(hash) else { return .missingBytes(hash) }
+        if let artifact = PlatformArtifactImage(data: data) { return .image(artifact) }
+        return looksLikeSVG(data) ? .undecodableSVG : .undecodable
+    }
+
+    /// An `<svg` root within the first KB (after any XML prolog/comments).
+    static func looksLikeSVG(_ data: Data) -> Bool {
+        guard let head = String(data: data.prefix(1024), encoding: .utf8) else { return false }
+        return head.range(of: "<svg", options: .caseInsensitive) != nil
+    }
+
+    var isImage: Bool {
+        if case .image = self { return true }
+        return false
+    }
+}
+
+/// When a figure surface re-reads its row: an id-scoped mutation naming it,
+/// or a `.structural` event — which is how a write from another process
+/// (implore storing a figure's artifact) reaches this one, since the
+/// cross-process Darwin note carries no ids.
+enum FigureArtifactRefresh {
+    static func shouldReread(_ event: StoreEvent, figureID: UUID) -> Bool {
+        switch event {
+        case .itemsMutated(_, let ids): return ids.contains(figureID)
+        case .structural: return true
+        case .collectionMembershipChanged: return false
         }
     }
 }

@@ -49,3 +49,6 @@ impress-service-core = { workspace = true, features = ["cli"] }
 # they exist. See `tier_a.rs`'s module docs for what happens when they do not
 # exist yet.
 surface-demo-service = { workspace = true }
+# `tests/coherence.rs` opens two connections on one file — the app and
+# `impress-mcp` as the store sees them.
+tempfile = "3"

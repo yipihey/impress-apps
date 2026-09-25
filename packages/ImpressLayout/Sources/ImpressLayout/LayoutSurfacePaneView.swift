@@ -192,6 +192,13 @@ final class SurfacePaneModel {
     private(set) var tree: RenderTree?
     private(set) var lastError: String?
     private var subscribed = false
+    /// Bumped by every render and dispatch; a reply is shown only if no
+    /// newer call started after it, so a slow render cannot overwrite the
+    /// tree a later dispatch already showed.
+    private var generation = 0
+    /// The dispatch in flight, if any: the next one waits for it, so the
+    /// events reach Rust in the order the person made them.
+    private var lastDispatch: Task<Void, Never>?
 
     init(surface: SharedSurface, surfaceID: String, pane: UInt64) {
         self.surface = surface
@@ -225,21 +232,32 @@ final class SurfacePaneModel {
     }
 
     /// The DISPLAY leg of the trace: re-read the resolved tree from Rust.
+    ///
+    /// `SharedSurface.render` is async and runs its sources on Rust's own
+    /// runtime (wave 7, SK-K2): the main actor is suspended, not blocked,
+    /// while a slow verb runs.
     func render() {
         logInfo(
             "surface pane \(pane): render requested for \(surfaceID)", category: "surface")
-        do {
-            let json = try surface.render(surfaceId: surfaceID, pane: pane)
-            let decoded = try RenderTree.decode(json)
-            lastError = nil
-            tree = decoded
-            logInfo(
-                "surface pane \(pane) display: \(decoded.focusOrder.count) focusable widgets",
-                category: "surface")
-        } catch {
-            lastError = String(describing: error)
-            logWarning(
-                "surface pane \(pane): render failed — \(error)", category: "surface")
+        generation += 1
+        let ticket = generation
+        let (surface, surfaceID, pane) = (self.surface, self.surfaceID, self.pane)
+        Task { [weak self] in
+            do {
+                let json = try await surface.render(surfaceId: surfaceID, pane: pane)
+                let decoded = try RenderTree.decode(json)
+                guard let self, ticket == self.generation else { return }
+                self.lastError = nil
+                self.tree = decoded
+                logInfo(
+                    "surface pane \(pane) display: \(decoded.focusOrder.count) focusable widgets",
+                    category: "surface")
+            } catch {
+                guard let self, ticket == self.generation else { return }
+                self.lastError = String(describing: error)
+                logWarning(
+                    "surface pane \(pane): render failed — \(error)", category: "surface")
+            }
         }
     }
 
@@ -250,30 +268,55 @@ final class SurfacePaneModel {
         logInfo(
             "surface pane \(pane): dispatch \(event.kind.rawValue) on \(event.widget)",
             category: "surface")
+        let eventJSON: String
         do {
-            let eventJSON = try event.jsonString()
-            let replyJSON = try surface.dispatch(
-                surfaceId: surfaceID, pane: pane, eventJson: eventJSON)
-            let reply = try SurfaceDispatchReply.decode(replyJSON)
-            logInfo(
-                "surface pane \(pane) applied: ok=\(reply.ok) message=\(reply.message)",
-                category: "surface")
-            if let newTree = reply.tree {
-                lastError = nil
-                tree = newTree
-                logInfo(
-                    "surface pane \(pane) display: \(newTree.focusOrder.count) focusable widgets",
-                    category: "surface")
-            } else if !reply.ok {
-                lastError = reply.message
-            }
+            eventJSON = try event.jsonString()
         } catch {
             lastError = String(describing: error)
             logWarning(
                 "surface pane \(pane): dispatch failed — \(error)", category: "surface")
+            return
+        }
+        generation += 1
+        let ticket = generation
+        let previous = lastDispatch
+        let (surface, surfaceID, pane) = (self.surface, self.surfaceID, self.pane)
+        lastDispatch = Task { [weak self] in
+            await previous?.value
+            do {
+                let replyJSON = try await surface.dispatch(
+                    surfaceId: surfaceID, pane: pane, eventJson: eventJSON)
+                let reply = try SurfaceDispatchReply.decode(replyJSON)
+                logInfo(
+                    "surface pane \(pane) applied: ok=\(reply.ok) message=\(reply.message)",
+                    category: "surface")
+                guard let self, ticket == self.generation else { return }
+                if let newTree = reply.tree {
+                    self.lastError = nil
+                    self.tree = newTree
+                    logInfo(
+                        "surface pane \(pane) display: \(newTree.focusOrder.count) focusable widgets",
+                        category: "surface")
+                } else if !reply.ok {
+                    self.lastError = reply.message
+                }
+            } catch {
+                guard let self, ticket == self.generation else { return }
+                self.lastError = String(describing: error)
+                logWarning(
+                    "surface pane \(pane): dispatch failed — \(error)", category: "surface")
+            }
         }
     }
 }
+
+/// `SharedSurface` is an `Arc` over a Rust object that is `Send + Sync`
+/// (its registry and store are locked inside Rust), and its `render`,
+/// `dispatch` and `surfaceHttp` are async exports that run on Rust's own
+/// runtime — so a handle may be awaited from any task. UniFFI does not
+/// mark generated classes `Sendable`; this says what the Rust side
+/// guarantees.
+extension SharedSurface: @retroactive @unchecked Sendable {}
 
 /// `SharedSurfaceListener`'s callback arrives on the feed's own thread, never
 /// the caller's (mirrors `SharedLayoutListener`'s doc comment) — this class

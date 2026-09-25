@@ -125,6 +125,32 @@ impl BlobStore {
     pub fn contains(&self, hex_digest: &str) -> bool {
         self.path_for(hex_digest).exists()
     }
+
+    /// Remove a blob. `Ok(true)` if a file went, `Ok(false)` if there was
+    /// none. Refuses anything that is not a 64-char sha256 hex digest, so a
+    /// caller's string can never name a path outside the store.
+    ///
+    /// The store never decides on its own that a blob is garbage: callers
+    /// check that no row references it first (`SqliteItemStore::
+    /// payload_mentions`) — see `SharedStore::release_blob`.
+    pub fn remove(&self, hex_digest: &str) -> io::Result<bool> {
+        if !is_sha256_hex(hex_digest) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("'{hex_digest}' is not a sha256 hex digest"),
+            ));
+        }
+        match fs::remove_file(self.path_for(hex_digest)) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// A 64-character hex string: the shape of every digest this store names.
+pub fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn nonce() -> u64 {
@@ -158,6 +184,20 @@ mod tests {
             1,
             "no temp files left"
         );
+    }
+
+    #[test]
+    fn remove_takes_only_digests() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BlobStore::new(dir.path().join("content"));
+        let a = store.put(b"bytes").unwrap();
+        assert!(store.remove(&a).unwrap());
+        assert!(!store.contains(&a));
+        assert!(!store.remove(&a).unwrap(), "already gone is not an error");
+        fs::write(dir.path().join("keep"), b"x").unwrap();
+        assert!(store.remove("../keep").is_err());
+        assert!(store.remove("abc").is_err());
+        assert!(dir.path().join("keep").exists());
     }
 
     #[test]

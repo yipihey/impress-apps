@@ -88,6 +88,10 @@ pub struct SurfaceResult {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// The row's revision: 1 on create, +1 on every update. Pass it back as
+    /// `surface_update`'s `expected_revision` to refuse a lost update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spec: Option<SurfaceSpec>,
     #[serde(default)]
@@ -106,6 +110,7 @@ impl SurfaceResult {
             id: None,
             name: None,
             version: None,
+            revision: None,
             spec: None,
             tags: Vec::new(),
             created: None,
@@ -120,6 +125,7 @@ impl SurfaceResult {
             id: Some(row.id.to_string()),
             name: Some(row.name.clone()),
             version: row.version.clone(),
+            revision: Some(row.revision),
             spec: Some(row.spec.clone()),
             tags: row.tags.clone(),
             created: Some(row.created.to_rfc3339()),
@@ -137,6 +143,9 @@ pub struct SurfaceSummaryDto {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// See [`SurfaceResult::revision`].
+    #[serde(default)]
+    pub revision: u64,
     #[serde(default)]
     pub tags: Vec<String>,
     pub created: String,
@@ -149,6 +158,7 @@ impl From<&crate::store::SurfaceRow> for SurfaceSummaryDto {
             id: row.id.to_string(),
             name: row.name.clone(),
             version: row.version.clone(),
+            revision: row.revision,
             tags: row.tags.clone(),
             created: row.created.to_rfc3339(),
             modified: row.modified.to_rfc3339(),
@@ -320,8 +330,13 @@ pub struct SurfaceEventsResult {
     pub message: String,
     #[serde(default)]
     pub events: Vec<SurfaceEventDto>,
-    /// The cursor to pass as `after_seq` on the next call.
+    /// The cursor to pass as `after_seq` on the next call — the `seq` of the
+    /// last event returned, or `after_seq` itself when none were.
     pub next_seq: u64,
+    /// True when the ring (the last 200 events) was pruned past `after_seq`:
+    /// events between it and the first one returned are gone.
+    #[serde(default)]
+    pub gap: bool,
 }
 
 impl SurfaceEventsResult {
@@ -331,6 +346,7 @@ impl SurfaceEventsResult {
             message: message.into(),
             events: Vec::new(),
             next_seq: 0,
+            gap: false,
         }
     }
 }
@@ -345,6 +361,9 @@ pub struct SurfaceWaitResult {
     pub events: Vec<SurfaceEventDto>,
     pub next_seq: u64,
     pub timed_out: bool,
+    /// See [`SurfaceEventsResult::gap`].
+    #[serde(default)]
+    pub gap: bool,
 }
 
 impl SurfaceWaitResult {
@@ -355,6 +374,7 @@ impl SurfaceWaitResult {
             events: Vec::new(),
             next_seq: 0,
             timed_out: false,
+            gap: false,
         }
     }
 }

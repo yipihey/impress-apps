@@ -43,12 +43,13 @@ use chrono::{DateTime, Utc};
 use impress_core::item::Value as ItemValue;
 use impress_core::item::{ActorKind, Item, ItemId, Priority, Visibility};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
-use impress_core::query::ItemQuery;
+use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_core::schemas::{
     SURFACE_EVENT_SCHEMA_REF, SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF,
 };
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
+use impress_core::store::StoreError;
 use impress_surface::SurfaceSpec;
 use serde_json::Value;
 
@@ -63,6 +64,11 @@ pub mod field {
     pub mod surface {
         pub const NAME: &str = "name";
         pub const VERSION: &str = "version";
+        /// The row's integer revision: 1 on create, +1 on every update
+        /// (AC-F22). What `surface_update`'s `expected_revision` is compared
+        /// with. Distinct from the spec's own `surface: "1.0"`, which is the
+        /// VOCABULARY version, and from `version`, which nothing writes.
+        pub const REVISION: &str = "revision";
         pub const SPEC: &str = "spec";
         pub const TAGS: &str = "tags";
     }
@@ -93,7 +99,14 @@ pub struct SurfaceRow {
     pub id: ItemId,
     pub name: String,
     pub version: Option<String>,
+    /// See [`field::surface::REVISION`]. A row written before revisions
+    /// existed reads as 1.
+    pub revision: u64,
     pub spec: SurfaceSpec,
+    /// The spec exactly as stored — what a cached runtime compares to decide
+    /// whether the row moved under it (RS-S1): equal text is an unchanged
+    /// spec whoever wrote it, so there is no stamp to race on.
+    pub spec_text: String,
     pub tags: Vec<String>,
     pub created: DateTime<Utc>,
     pub modified: DateTime<Utc>,
@@ -148,6 +161,7 @@ impl SurfaceStore {
         }
         let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
         payload.insert(field::surface::NAME.into(), ItemValue::String(name.into()));
+        payload.insert(field::surface::REVISION.into(), ItemValue::Int(1));
         payload.insert(
             field::surface::SPEC.into(),
             ItemValue::String(spec_json(spec)?),
@@ -191,31 +205,73 @@ impl SurfaceStore {
             .ok_or_else(|| "surface vanished immediately after creation".to_string())
     }
 
-    /// Replace a surface's spec (and re-derive the row's `name` from the
-    /// new spec, since `surface_update` takes no separate name argument —
-    /// the only remaining source of truth for it is the spec itself).
-    /// `Durable` + `Editorial`: this is a commit, like `save_named` on a
-    /// layout.
-    pub fn update(&self, id: ItemId, spec: &SurfaceSpec, actor: ActorKind) -> Result<SurfaceRow> {
-        let _existing = self
+    /// Replace a surface's spec and bump its revision, in one store
+    /// transaction (`apply_operation_batch`), so a reader never sees the new
+    /// spec under the old revision. `Durable` + `Editorial`: this is a
+    /// commit, like `save_named` on a layout.
+    ///
+    /// The row's `name` is KEPT unless `name` is given (RS-S25): it may be a
+    /// create-time override, which re-deriving it from `spec.name` silently
+    /// threw away.
+    ///
+    /// `expected_revision` is optimistic concurrency (AC-F22): when given and
+    /// the row has moved past it, nothing is written and the error starts
+    /// with `conflict:`. The check and the write are serialised within this
+    /// process; across processes the window between them is one store read,
+    /// because the store has no conditional write to close it with.
+    pub fn update(
+        &self,
+        id: ItemId,
+        spec: &SurfaceSpec,
+        name: Option<&str>,
+        expected_revision: Option<u64>,
+        actor: ActorKind,
+    ) -> Result<SurfaceRow> {
+        static UPDATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _serialised = UPDATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let existing = self
             .row_item(id)?
             .ok_or_else(|| format!("no surface {id}"))?;
-        self.patch(
-            id,
-            field::surface::NAME,
-            ItemValue::String(spec.name.trim().to_string()),
-            actor,
-            "renamed to match the updated spec",
-            Ephemerality::Commit,
-        )?;
-        self.patch(
-            id,
-            field::surface::SPEC,
-            ItemValue::String(spec_json(spec)?),
-            actor,
-            "updated the spec",
-            Ephemerality::Commit,
-        )?;
+        let current = revision_of(&existing);
+        if let Some(expected) = expected_revision {
+            if expected != current {
+                return Err(format!(
+                    "conflict: surface {id} is at revision {current}, not {expected} — someone \
+                     else updated it; read it again (surface_get) and apply your change to that"
+                ));
+            }
+        }
+        let mut ops = vec![
+            self.op(
+                id,
+                field::surface::SPEC,
+                ItemValue::String(spec_json(spec)?),
+                actor,
+                "updated the spec",
+                Ephemerality::Commit,
+            ),
+            self.op(
+                id,
+                field::surface::REVISION,
+                ItemValue::Int((current + 1) as i64),
+                actor,
+                "bumped the revision",
+                Ephemerality::Commit,
+            ),
+        ];
+        if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
+            ops.push(self.op(
+                id,
+                field::surface::NAME,
+                ItemValue::String(name.to_string()),
+                actor,
+                "renamed",
+                Ephemerality::Commit,
+            ));
+        }
+        self.store
+            .apply_operation_batch(ops)
+            .map_err(|e| format!("write surface: {e}"))?;
         self.get(id)?
             .ok_or_else(|| "surface vanished mid-update".to_string())
     }
@@ -277,6 +333,27 @@ impl SurfaceStore {
             .map(|item| item.filter(|i| i.schema == SURFACE_SCHEMA_REF))
     }
 
+    fn op(
+        &self,
+        id: ItemId,
+        field: &str,
+        value: ItemValue,
+        actor: ActorKind,
+        reason: &str,
+        kind: Ephemerality,
+    ) -> OperationSpec {
+        OperationSpec {
+            target_id: id,
+            op_type: OperationType::SetPayload(field.to_string(), value),
+            intent: kind.intent(),
+            reason: Some(reason.to_string()),
+            batch_id: None,
+            author: author_for(actor),
+            author_kind: actor,
+            retention: kind.retention(),
+        }
+    }
+
     fn patch(
         &self,
         id: ItemId,
@@ -287,16 +364,7 @@ impl SurfaceStore {
         kind: Ephemerality,
     ) -> Result<()> {
         self.store
-            .apply_operation(OperationSpec {
-                target_id: id,
-                op_type: OperationType::SetPayload(field.to_string(), value),
-                intent: kind.intent(),
-                reason: Some(reason.to_string()),
-                batch_id: None,
-                author: author_for(actor),
-                author_kind: actor,
-                retention: kind.retention(),
-            })
+            .apply_operation(self.op(id, field, value, actor, reason, kind))
             .map(|_| ())
             .map_err(|e| format!("write surface: {e}"))
     }
@@ -308,10 +376,17 @@ impl SurfaceStore {
     /// means "run with the spec's own initial `state` block" (the same
     /// absent-means-cold-start reading the layout store gives its live row).
     pub fn get_state(&self, surface: ItemId, host: &str) -> Result<Option<Value>> {
-        self.state_item(surface, host)?
-            .and_then(|item| string_field(&item, field::state::STATE))
+        self.get_state_text(surface, host)?
             .map(|text| parse_json(&text))
             .transpose()
+    }
+
+    /// The state row's `state` field exactly as stored — what a cached
+    /// runtime compares with the text it last loaded or wrote (RS-S1).
+    pub fn get_state_text(&self, surface: ItemId, host: &str) -> Result<Option<String>> {
+        Ok(self
+            .state_item(surface, host)?
+            .and_then(|item| string_field(&item, field::state::STATE)))
     }
 
     /// Upsert the state row for `(surface, host)`. `Ephemeral` + `Routine`:
@@ -326,56 +401,75 @@ impl SurfaceStore {
     ) -> Result<()> {
         let text =
             serde_json::to_string(state).map_err(|e| format!("encode surface state: {e}"))?;
-        match self.state_item(surface, host)? {
-            Some(item) => self.patch(
+        self.set_state_text(surface, host, text, actor)
+    }
+
+    /// [`Self::set_state`] with the JSON already encoded — the runtime
+    /// encodes once to compare and write. The FIRST write of an instance's
+    /// row uses a deterministic id ([`state_row_id`]), so two writers racing
+    /// to create it cannot leave two rows for one `(surface, host)`: the
+    /// loser's insert is refused and it patches the winner's row instead.
+    pub fn set_state_text(
+        &self,
+        surface: ItemId,
+        host: &str,
+        text: String,
+        actor: ActorKind,
+    ) -> Result<()> {
+        if let Some(item) = self.state_item(surface, host)? {
+            return self.patch(
                 item.id,
                 field::state::STATE,
                 ItemValue::String(text),
                 actor,
                 "surface state changed",
                 Ephemerality::Exploration,
+            );
+        }
+        let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
+        payload.insert(
+            field::state::SURFACE.into(),
+            ItemValue::String(surface.to_string()),
+        );
+        payload.insert(
+            field::state::HOST.into(),
+            ItemValue::String(host.to_string()),
+        );
+        payload.insert(field::state::STATE.into(), ItemValue::String(text.clone()));
+        match self.try_insert_ephemeral(
+            state_row_id(surface, host),
+            SURFACE_STATE_SCHEMA_REF,
+            payload,
+            actor,
+        ) {
+            Ok(_) => Ok(()),
+            Err(StoreError::AlreadyExists(id)) => self.patch(
+                id,
+                field::state::STATE,
+                ItemValue::String(text),
+                actor,
+                "surface state changed",
+                Ephemerality::Exploration,
             ),
-            None => {
-                let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
-                payload.insert(
-                    field::state::SURFACE.into(),
-                    ItemValue::String(surface.to_string()),
-                );
-                payload.insert(
-                    field::state::HOST.into(),
-                    ItemValue::String(host.to_string()),
-                );
-                payload.insert(field::state::STATE.into(), ItemValue::String(text));
-                self.insert_ephemeral(SURFACE_STATE_SCHEMA_REF, payload, actor)?;
-                Ok(())
-            }
+            Err(e) => Err(format!("write {SURFACE_STATE_SCHEMA_REF}: {e}")),
         }
     }
 
     fn state_item(&self, surface: ItemId, host: &str) -> Result<Option<Item>> {
-        Ok(self
-            .all_state_rows(surface)?
-            .into_iter()
-            .find(|i| string_field(i, field::state::HOST).as_deref() == Some(host)))
-    }
-
-    fn all_state_rows(&self, surface: ItemId) -> Result<Vec<Item>> {
-        let query = ItemQuery {
-            schema: Some(SURFACE_STATE_SCHEMA_REF.into()),
-            include_tags: false,
-            include_references: false,
-            ..Default::default()
-        };
-        let surface_id = surface.to_string();
+        let mut query = rare_rows(SURFACE_STATE_SCHEMA_REF, surface, Some(host));
+        query.limit = Some(1);
         Ok(self
             .store
             .query(&query)
             .map_err(|e| format!("read surface state: {e}"))?
             .into_iter()
-            .filter(|item| {
-                string_field(item, field::state::SURFACE).as_deref() == Some(&surface_id)
-            })
-            .collect())
+            .next())
+    }
+
+    fn all_state_rows(&self, surface: ItemId) -> Result<Vec<Item>> {
+        self.store
+            .query(&rare_rows(SURFACE_STATE_SCHEMA_REF, surface, None))
+            .map_err(|e| format!("read surface state: {e}"))
     }
 
     // --------------------------------------------------------------- events
@@ -383,6 +477,15 @@ impl SurfaceStore {
     /// Append one event, assigning the next `seq` for `(surface, host)`, and
     /// prune the ring to [`EVENT_RING_CAPACITY`] afterward. Returns the
     /// assigned `seq`.
+    ///
+    /// # Why two writers cannot share a `seq` (AC-F2, RS-S23)
+    ///
+    /// The row's id is DERIVED from `(surface, host, seq)` ([`event_row_id`]),
+    /// and the store's primary key refuses a second row with the same id —
+    /// in this process or any other on the same file. A writer that read
+    /// the same maximum as another therefore fails its insert, reads the
+    /// maximum again and takes the next number. `seq` stays unique and
+    /// gap-free, which is what lets a reader treat a jump in it as pruning.
     pub fn append_event(
         &self,
         surface: ItemId,
@@ -391,46 +494,59 @@ impl SurfaceStore {
         payload: &Value,
         actor: ActorKind,
     ) -> Result<u64> {
-        let mut existing = self.event_items_for(surface, host)?;
-        existing.sort_by_key(|i| int_field(i, field::event::SEQ).unwrap_or(0));
-        let next_seq = existing
-            .last()
-            .and_then(|i| int_field(i, field::event::SEQ))
-            .unwrap_or(0)
-            + 1;
-
         let payload_text =
             serde_json::to_string(payload).map_err(|e| format!("encode event payload: {e}"))?;
-        let mut fields: BTreeMap<String, ItemValue> = BTreeMap::new();
-        fields.insert(
-            field::event::SURFACE.into(),
-            ItemValue::String(surface.to_string()),
-        );
-        fields.insert(
-            field::event::HOST.into(),
-            ItemValue::String(host.to_string()),
-        );
-        fields.insert(field::event::SEQ.into(), ItemValue::Int(next_seq as i64));
-        fields.insert(
-            field::event::NAME.into(),
-            ItemValue::String(name.to_string()),
-        );
-        fields.insert(
-            field::event::PAYLOAD.into(),
-            ItemValue::String(payload_text),
-        );
-        fields.insert(
-            field::event::AT.into(),
-            ItemValue::String(Utc::now().to_rfc3339()),
-        );
-        self.insert_ephemeral(SURFACE_EVENT_SCHEMA_REF, fields, actor)?;
-        let _ = existing; // superseded by the insert above; pruning re-queries fresh
-        self.prune(surface, host)?;
-        Ok(next_seq)
+        // Each retry means another writer took the number in between, so
+        // this bound is the number of writers that can race one append, not
+        // a timeout. Hitting it is a bug worth reporting, not retrying.
+        const MAX_ATTEMPTS: usize = 64;
+        for _ in 0..MAX_ATTEMPTS {
+            let seq = self.max_seq(surface, host)? + 1;
+            let mut fields: BTreeMap<String, ItemValue> = BTreeMap::new();
+            fields.insert(
+                field::event::SURFACE.into(),
+                ItemValue::String(surface.to_string()),
+            );
+            fields.insert(
+                field::event::HOST.into(),
+                ItemValue::String(host.to_string()),
+            );
+            fields.insert(field::event::SEQ.into(), ItemValue::Int(seq as i64));
+            fields.insert(
+                field::event::NAME.into(),
+                ItemValue::String(name.to_string()),
+            );
+            fields.insert(
+                field::event::PAYLOAD.into(),
+                ItemValue::String(payload_text.clone()),
+            );
+            fields.insert(
+                field::event::AT.into(),
+                ItemValue::String(Utc::now().to_rfc3339()),
+            );
+            match self.try_insert_ephemeral(
+                event_row_id(surface, host, seq),
+                SURFACE_EVENT_SCHEMA_REF,
+                fields,
+                actor,
+            ) {
+                Ok(_) => {
+                    self.prune(surface, host, seq)?;
+                    return Ok(seq);
+                }
+                Err(StoreError::AlreadyExists(_)) => continue,
+                Err(e) => return Err(format!("write {SURFACE_EVENT_SCHEMA_REF}: {e}")),
+            }
+        }
+        Err(format!(
+            "append event '{name}': {MAX_ATTEMPTS} writers took the next seq first"
+        ))
     }
 
     /// Events for `(surface, host)` with `seq > after`, oldest first, capped
-    /// at `limit` (0 means unbounded).
+    /// at `limit` (0 means unbounded). ONE store read, filtered and ordered
+    /// by the store (RS-S14) — the cursor a caller hands back comes from
+    /// these rows, never from a second read (AC-F2).
     pub fn events_after(
         &self,
         surface: ItemId,
@@ -438,69 +554,74 @@ impl SurfaceStore {
         after: u64,
         limit: usize,
     ) -> Result<Vec<EventRow>> {
-        let mut rows: Vec<EventRow> = self
-            .event_items_for(surface, host)?
-            .iter()
-            .filter_map(|item| event_row_of(item).ok())
-            .filter(|row| row.seq > after)
-            .collect();
-        rows.sort_by_key(|r| r.seq);
-        if limit > 0 && rows.len() > limit {
-            rows.truncate(limit);
+        let mut query = rare_rows(SURFACE_EVENT_SCHEMA_REF, surface, Some(host));
+        query.predicates.push(Predicate::Gt(
+            field::event::SEQ.into(),
+            ItemValue::Int(after.min(i64::MAX as u64) as i64),
+        ));
+        query.sort = vec![SortDescriptor {
+            field: format!("payload.{}", field::event::SEQ),
+            ascending: true,
+        }];
+        if limit > 0 {
+            query.limit = Some(limit);
         }
+        let rows = self
+            .store
+            .query(&query)
+            .map_err(|e| format!("read surface events: {e}"))?
+            .iter()
+            .map(event_row_of)
+            .collect::<Result<Vec<_>>>()?;
         Ok(rows)
     }
 
-    /// The highest `seq` this `(surface, host)` has ever emitted, 0 if none
-    /// — what `surface_events`/`surface_wait` echo back as `next_seq`.
+    /// The highest `seq` this `(surface, host)` has ever emitted, 0 if none.
+    /// Used to allocate the next one; a reader's cursor comes from the rows
+    /// it read instead (see [`Self::events_after`]).
     pub fn max_seq(&self, surface: ItemId, host: &str) -> Result<u64> {
-        Ok(self
-            .event_items_for(surface, host)?
-            .iter()
-            .filter_map(|i| int_field(i, field::event::SEQ))
-            .max()
-            .unwrap_or(0))
-    }
-
-    fn event_items_for(&self, surface: ItemId, host: &str) -> Result<Vec<Item>> {
-        let items = self.all_event_items(surface)?;
-        Ok(items
-            .into_iter()
-            .filter(|item| string_field(item, field::event::HOST).as_deref() == Some(host))
-            .collect())
-    }
-
-    fn all_event_items(&self, surface: ItemId) -> Result<Vec<Item>> {
-        let query = ItemQuery {
-            schema: Some(SURFACE_EVENT_SCHEMA_REF.into()),
-            include_tags: false,
-            include_references: false,
-            ..Default::default()
-        };
-        let surface_id = surface.to_string();
+        let mut query = rare_rows(SURFACE_EVENT_SCHEMA_REF, surface, Some(host));
+        query.sort = vec![SortDescriptor {
+            field: format!("payload.{}", field::event::SEQ),
+            ascending: false,
+        }];
+        query.limit = Some(1);
         Ok(self
             .store
             .query(&query)
             .map_err(|e| format!("read surface events: {e}"))?
-            .into_iter()
-            .filter(|item| {
-                string_field(item, field::event::SURFACE).as_deref() == Some(&surface_id)
-            })
-            .collect())
+            .first()
+            .and_then(|i| int_field(i, field::event::SEQ))
+            .unwrap_or(0))
     }
 
-    /// Drop the oldest rows of `(surface, host)` past [`EVENT_RING_CAPACITY`]
-    /// (ADR-0033 D5). Hard deletes, not a tombstone: this ring exists only
-    /// so a live agent can read back what just happened, not to be an
-    /// auditable log.
-    fn prune(&self, surface: ItemId, host: &str) -> Result<()> {
-        let mut items = self.event_items_for(surface, host)?;
-        if items.len() <= EVENT_RING_CAPACITY {
+    fn all_event_items(&self, surface: ItemId) -> Result<Vec<Item>> {
+        self.store
+            .query(&rare_rows(SURFACE_EVENT_SCHEMA_REF, surface, None))
+            .map_err(|e| format!("read surface events: {e}"))
+    }
+
+    /// Drop every row of `(surface, host)` that fell out of the last
+    /// [`EVENT_RING_CAPACITY`] once `newest` was written (ADR-0033 D5). `seq`
+    /// is gap-free (see [`Self::append_event`]), so "outside the ring" is a
+    /// bound on `seq`, not a count of rows. Hard deletes, not a tombstone:
+    /// this ring exists only so a live agent can read back what just
+    /// happened, not to be an auditable log.
+    fn prune(&self, surface: ItemId, host: &str, newest: u64) -> Result<()> {
+        let capacity = EVENT_RING_CAPACITY as u64;
+        if newest <= capacity {
             return Ok(());
         }
-        items.sort_by_key(|i| int_field(i, field::event::SEQ).unwrap_or(0));
-        let overflow = items.len() - EVENT_RING_CAPACITY;
-        for item in items.into_iter().take(overflow) {
+        let mut query = rare_rows(SURFACE_EVENT_SCHEMA_REF, surface, Some(host));
+        query.predicates.push(Predicate::Lte(
+            field::event::SEQ.into(),
+            ItemValue::Int((newest - capacity) as i64),
+        ));
+        let stale = self
+            .store
+            .query(&query)
+            .map_err(|e| format!("read surface events: {e}"))?;
+        for item in stale {
             self.store
                 .delete(item.id)
                 .map_err(|e| format!("prune surface event: {e}"))?;
@@ -510,19 +631,24 @@ impl SurfaceStore {
 
     // ------------------------------------------------------------ internals
 
-    /// A plain insert at `Private` visibility — the creation path every
-    /// state/event row shares. Not an operation (there is nothing to
-    /// revert: it is the row coming into being), matching the reasoning the
-    /// layout store's module docs give for `insert_row`.
-    fn insert_ephemeral(
+    /// A plain insert at `Private` visibility, under a caller-chosen id —
+    /// the creation path every state/event row shares. Not an operation
+    /// (there is nothing to revert: it is the row coming into being),
+    /// matching the reasoning the layout store's module docs give for
+    /// `insert_row`. The id is deterministic for both kinds (see
+    /// [`state_row_id`], [`event_row_id`]) and the store error comes back
+    /// typed, so a caller can tell "someone else already wrote this row"
+    /// ([`StoreError::AlreadyExists`]) from a failure.
+    fn try_insert_ephemeral(
         &self,
+        id: ItemId,
         schema: &str,
         payload: BTreeMap<String, ItemValue>,
         actor: ActorKind,
-    ) -> Result<ItemId> {
+    ) -> std::result::Result<ItemId, StoreError> {
         let now = Utc::now();
         let item = Item {
-            id: uuid::Uuid::new_v4(),
+            id,
             schema: schema.into(),
             payload,
             created: now,
@@ -545,10 +671,61 @@ impl SurfaceStore {
             references: vec![],
             parent: None,
         };
-        self.store
-            .insert(item)
-            .map_err(|e| format!("write {schema}: {e}"))
+        self.store.insert(item)
     }
+}
+
+/// Namespace for the derived row ids below. Fixed forever: changing it would
+/// let a new build allocate an id an older build already used.
+const ROW_ID_NAMESPACE: uuid::Uuid =
+    uuid::Uuid::from_u128(0x6a1f_33c2_8d0e_4b5e_9c71_2f0d_5e8a_3b17);
+
+/// The one id an `(surface, host)` state row can be created under.
+pub fn state_row_id(surface: ItemId, host: &str) -> ItemId {
+    uuid::Uuid::new_v5(
+        &ROW_ID_NAMESPACE,
+        format!("surface-state|{surface}|{host}").as_bytes(),
+    )
+}
+
+/// The one id event `seq` of `(surface, host)` can be stored under — what
+/// makes `seq` unique across writers (see `SurfaceStore::append_event`).
+pub fn event_row_id(surface: ItemId, host: &str, seq: u64) -> ItemId {
+    uuid::Uuid::new_v5(
+        &ROW_ID_NAMESPACE,
+        format!("surface-event|{surface}|{host}|{seq}").as_bytes(),
+    )
+}
+
+/// A read of one surface's state or event rows, filtered BY THE STORE on the
+/// payload's `surface` (and `host`) fields, with the rare-kind planner hint
+/// (RS-S14). These kinds are a few hundred rows in a table of millions of
+/// operation rows — exactly the shape `ItemQuery::assume_schema_rare`
+/// exists for; without it, and with the filter done in Rust, every read was a
+/// scan of every such row on the device.
+fn rare_rows(schema: &str, surface: ItemId, host: Option<&str>) -> ItemQuery {
+    let mut predicates = vec![Predicate::Eq(
+        field::event::SURFACE.into(),
+        ItemValue::String(surface.to_string()),
+    )];
+    if let Some(host) = host {
+        predicates.push(Predicate::Eq(
+            field::event::HOST.into(),
+            ItemValue::String(host.to_string()),
+        ));
+    }
+    ItemQuery {
+        schema: Some(schema.into()),
+        predicates,
+        include_tags: false,
+        include_references: false,
+        assume_schema_rare: true,
+        ..Default::default()
+    }
+}
+
+fn revision_of(item: &Item) -> u64 {
+    int_field(item, field::surface::REVISION).unwrap_or(1)
 }
 
 /// Which side of the ADR-0031 D7 line a write is on — the same distinction
@@ -657,7 +834,9 @@ fn surface_row_of(item: &Item) -> Result<SurfaceRow> {
         id: item.id,
         name,
         version,
+        revision: revision_of(item),
         spec,
+        spec_text,
         tags,
         created: item.created,
         modified: item.modified,

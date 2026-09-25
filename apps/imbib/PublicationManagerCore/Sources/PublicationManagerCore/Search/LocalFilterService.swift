@@ -41,6 +41,12 @@ public enum YearFilter: Equatable, Sendable {
 /// ```
 /// flag:red tags:methods/hydro unread "exact phrase" title:galaxy year:2020-2024 -excluded
 /// ```
+///
+/// `has:pdf` / `-has:pdf` (a downloaded PDF, or none — the row's paperclip)
+/// is Swift-only: nothing calls the Rust parser (`parse_reference_filter`),
+/// and adding the term there would change an FFI record for no reader.
+/// Window ▸ Toggle PDF Filter (⇧⌘\) toggles the token in the list's filter
+/// text (`togglingHasPDF(in:)`).
 public struct LocalFilter: Equatable, Sendable {
     public var textTerms: [String] = []
     public var negatedTextTerms: [String] = []
@@ -49,6 +55,7 @@ public struct LocalFilter: Equatable, Sendable {
     public var flagQuery: FlagFilterQuery?
     public var tagQueries: [TagFilterQuery] = []
     public var readState: ReadStateFilter?
+    public var pdfState: PDFStateFilter?
 
     public init(
         textTerms: [String] = [],
@@ -57,7 +64,8 @@ public struct LocalFilter: Equatable, Sendable {
         yearFilter: YearFilter? = nil,
         flagQuery: FlagFilterQuery? = nil,
         tagQueries: [TagFilterQuery] = [],
-        readState: ReadStateFilter? = nil
+        readState: ReadStateFilter? = nil,
+        pdfState: PDFStateFilter? = nil
     ) {
         self.textTerms = textTerms
         self.negatedTextTerms = negatedTextTerms
@@ -66,11 +74,13 @@ public struct LocalFilter: Equatable, Sendable {
         self.flagQuery = flagQuery
         self.tagQueries = tagQueries
         self.readState = readState
+        self.pdfState = pdfState
     }
 
     public var isEmpty: Bool {
         textTerms.isEmpty && negatedTextTerms.isEmpty && fieldTerms.isEmpty
             && yearFilter == nil && flagQuery == nil && tagQueries.isEmpty && readState == nil
+            && pdfState == nil
     }
 }
 
@@ -94,6 +104,12 @@ public enum TagFilterQuery: Equatable, Sendable {
 public enum ReadStateFilter: Equatable, Sendable {
     case read
     case unread
+}
+
+/// `has:pdf` (a downloaded PDF) / `-has:pdf` (none).
+public enum PDFStateFilter: Equatable, Sendable {
+    case has
+    case missing
 }
 
 /// Service for parsing and applying local filter expressions against publications.
@@ -159,8 +175,14 @@ public final class LocalFilterService {
                 }
             }
 
-            // Read state
+            // Read state, PDF state
             switch token.lowercased() {
+            case Self.hasPDFToken:
+                filter.pdfState = .has
+                continue
+            case "-" + Self.hasPDFToken:
+                filter.pdfState = .missing
+                continue
             case "unread":
                 filter.readState = .unread
                 continue
@@ -182,6 +204,23 @@ public final class LocalFilterService {
         }
 
         return filter
+    }
+
+    /// The filter token Window ▸ Toggle PDF Filter adds and removes.
+    public nonisolated static let hasPDFToken = "has:pdf"
+
+    /// `text` with `has:pdf` toggled: removed when present, else added (and a
+    /// `-has:pdf` replaced). Every other token is left exactly as typed.
+    public nonisolated static func togglingHasPDF(in text: String) -> String {
+        let words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        let isOn = words.contains { $0.lowercased() == hasPDFToken }
+        let kept = words.filter {
+            let w = $0.lowercased()
+            return w != hasPDFToken && w != "-" + hasPDFToken
+        }
+        var result = kept.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        if !isOn { result = result.isEmpty ? hasPDFToken : result + " " + hasPDFToken }
+        return result
     }
 
     /// Apply a filter to a list of publications, returning only those that match.
@@ -298,6 +337,14 @@ public final class LocalFilterService {
             switch rs {
             case .unread: guard !pub.isRead else { return false }
             case .read: guard pub.isRead else { return false }
+            }
+        }
+
+        // PDF state: the row's has-PDF data (the paperclip marker).
+        if let ps = filter.pdfState {
+            switch ps {
+            case .has: guard pub.hasDownloadedPDF else { return false }
+            case .missing: guard !pub.hasDownloadedPDF else { return false }
             }
         }
 

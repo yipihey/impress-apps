@@ -42,7 +42,8 @@ struct ImbibSidebarColumn: View {
                 dataVersion: viewModel.dataVersion,
                 editingNodeID: Binding(
                     get: { viewModel.editingNodeID },
-                    set: { viewModel.editingNodeID = $0 })
+                    set: { viewModel.editingNodeID = $0 }),
+                focusRequest: viewModel.sidebarFocusRequest
             )
             tagFilterField
         }
@@ -292,6 +293,36 @@ struct ImbibSidebarLifecycle: ViewModifier {
                     guard shellConfiguration.permits(.inbox) else { return }
                     viewModel.navigateToTab(.inbox)
                 }),
+                // View ▸ Show Search (⌘2): the search form the user opened
+                // last, else the first in the Search section's order. macOS
+                // has no single Search tab — the section's children are the
+                // search forms — so ⌘2 posted to nobody until 2026-09-25.
+                (.showSearch, { _ in
+                    guard shellConfiguration.permits(.search),
+                          let form = viewModel.showSearchTarget
+                    else { return }
+                    logInfo("View ▸ Show Search: \(form.rawValue)", category: "navigation")
+                    viewModel.navigateToTab(.searchForm(form))
+                }),
+                // Go ▸ Back / Forward (⌘[ / ⌘]): this sidebar's selection
+                // history. The menu names the key window's history as the
+                // post's object; the command palette names none.
+                (.navigateBack, { notification in
+                    guard Self.isAddressed(notification, to: viewModel) else { return }
+                    let tab = viewModel.navigateBack()
+                    logInfo("Go ▸ Back: \(tab.map { String(describing: $0) } ?? "nothing to go back to")", category: "navigation")
+                }),
+                (.navigateForward, { notification in
+                    guard Self.isAddressed(notification, to: viewModel) else { return }
+                    let tab = viewModel.navigateForward()
+                    logInfo("Go ▸ Forward: \(tab.map { String(describing: $0) } ?? "nothing to go forward to")", category: "navigation")
+                }),
+                // View ▸ Focus Sidebar (⌥⌘1): the outline becomes first
+                // responder in the key window, so ↑/↓ move the selection.
+                (.focusSidebar, { _ in
+                    logInfo("View ▸ Focus Sidebar", category: "focus")
+                    viewModel.sidebarFocusRequest += 1
+                }),
                 (.openStoreSearch, { _ in
                     // WP G4 (ADR-0022 D6): ⌘⇧F in shells with nothing else bound
                     // (implore, impel) selects the chassis's builtin search
@@ -415,6 +446,14 @@ struct ImbibSidebarLifecycle: ViewModifier {
 }
 
 extension ImbibSidebarLifecycle {
+    /// A Go ▸ Back / Forward post is for this sidebar when it names this
+    /// sidebar's history, or names none (the command palette).
+    @MainActor
+    static func isAddressed(_ notification: Notification, to viewModel: ImbibSidebarViewModel) -> Bool {
+        guard let target = notification.object as AnyObject? else { return true }
+        return target === viewModel.navigationHistory
+    }
+
     /// Where ⌘1 / `.showLibrary` goes: the collection or library the poster
     /// named (`userInfo["collectionID"]` / `["libraryID"]`, UUID or string,
     /// or a UUID object), else the active library, else the first library

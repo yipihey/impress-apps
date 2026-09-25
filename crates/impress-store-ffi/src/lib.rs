@@ -746,6 +746,13 @@ pub struct SharedStore {
     /// meant a surface could add a pane to a tree the window never re-read
     /// (2026-09-23).
     layout_sessions: Arc<impress_layout_service::SessionRegistry>,
+    /// The ONE surface session registry for everything opened on this store
+    /// in this process — every `SharedSurface` (each pane, the HTTP bridge)
+    /// renders and dispatches through it (wave 7, RS-S1). For the store this
+    /// process installed as its own, it is also
+    /// `impress_surface_service::SessionRegistry::shared()`, which in-process
+    /// inventory calls of the surface verbs use.
+    surface_sessions: Arc<impress_surface_service::SessionRegistry>,
     /// The host-supplied second verb inventory (ADR-0033 D4, amended
     /// 2026-09-23 for wave 5's V1) — `None` until [`Self::set_verb_host`]
     /// installs one. `Arc<Mutex<..>>` rather than a plain field because
@@ -759,11 +766,27 @@ pub struct SharedStore {
     blob_root: Option<std::path::PathBuf>,
 }
 
+/// The surface registry for a new `SharedStore`: the process-shared one for
+/// the store the process installed as its own, a fresh one for any other.
+fn surface_sessions_for(installed: bool) -> Arc<impress_surface_service::SessionRegistry> {
+    if installed {
+        impress_surface_service::SessionRegistry::shared()
+    } else {
+        Arc::new(impress_surface_service::SessionRegistry::new())
+    }
+}
+
 impl SharedStore {
     /// The layout session registry shared by every object opened on this
     /// store — see the field.
     pub(crate) fn layout_sessions(&self) -> Arc<impress_layout_service::SessionRegistry> {
         self.layout_sessions.clone()
+    }
+
+    /// The surface session registry shared by every object opened on this
+    /// store — see the field.
+    pub(crate) fn surface_sessions(&self) -> Arc<impress_surface_service::SessionRegistry> {
+        self.surface_sessions.clone()
     }
 
     /// The verb-host slot shared by every object opened on this store — see
@@ -818,9 +841,10 @@ impl SharedStore {
         // is the second SharedStore in a process (tests, the review store):
         // the first wins and that is the right answer.
         let store = Arc::new(store);
-        let _ = impress_store_service::install_store(store.clone());
+        let installed = impress_store_service::install_store(store.clone()).is_ok();
         Ok(Arc::new(SharedStore {
             layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
+            surface_sessions: surface_sessions_for(installed),
             verb_host: Arc::new(Mutex::new(None)),
             inner: store,
             blob_root,
@@ -846,9 +870,10 @@ impl SharedStore {
         // is the second SharedStore in a process (tests, the review store):
         // the first wins and that is the right answer.
         let store = Arc::new(store);
-        let _ = impress_store_service::install_store(store.clone());
+        let installed = impress_store_service::install_store(store.clone()).is_ok();
         Ok(Arc::new(SharedStore {
             layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
+            surface_sessions: surface_sessions_for(installed),
             verb_host: Arc::new(Mutex::new(None)),
             inner: store,
             blob_root: None,
@@ -870,6 +895,10 @@ impl SharedStore {
     pub fn set_verb_host(&self, host: Box<dyn SharedVerbHost>) {
         let mut slot = self.verb_host.lock().unwrap_or_else(|e| e.into_inner());
         *slot = Some(Arc::from(host));
+        drop(slot);
+        // A source that failed for want of a host is asked again now, not
+        // after its backoff.
+        self.surface_sessions.retry_failed_sources();
     }
 
     /// Commit text to a manuscript's Automerge document (ADR-0027 D6) — the
@@ -1143,6 +1172,30 @@ impl SharedStore {
         })?;
         self.inner.delete(item_id)?;
         Ok(())
+    }
+
+    /// Remove a content-addressed blob from this store's `<workspace>/content`
+    /// if no live row still references it. Returns whether a file went.
+    ///
+    /// Call after deleting the row that pointed at the blob (a figure's
+    /// `data_hash`). "Referenced" means ANY row of ANY kind whose payload
+    /// names the digest — a second figure with identical bytes, a manuscript
+    /// file's `blob:sha256:` ref — so one app's delete never takes bytes
+    /// another app's row still draws. `hash` must be a sha256 hex digest.
+    pub fn release_blob(&self, hash: String) -> Result<bool, SharedStoreError> {
+        if !impress_core::blobs::is_sha256_hex(&hash) {
+            return Err(SharedStoreError::InvalidArgument {
+                message: format!("'{hash}' is not a sha256 hex digest"),
+            });
+        }
+        if self.inner.payload_mentions(&hash)? {
+            return Ok(false);
+        }
+        self.blobs()
+            .remove(&hash)
+            .map_err(|e| SharedStoreError::Storage {
+                message: format!("release_blob {hash}: {e}"),
+            })
     }
 
     /// List items by schema, sorted by creation time (newest first).
@@ -2756,6 +2809,44 @@ pub fn supported_manuscript_formats() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_blob_keeps_bytes_another_row_still_names() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SharedStore::open(dir.path().join("impress.sqlite").display().to_string())
+            .expect("open");
+        let blobs = impress_core::blobs::BlobStore::for_workspace(dir.path());
+        let hash = blobs.put(b"\x89PNG figure bytes").expect("put");
+
+        // Two figures whose artifacts are byte-identical share one blob.
+        let (a, b) = (
+            uuid::Uuid::new_v4().to_string(),
+            uuid::Uuid::new_v4().to_string(),
+        );
+        for id in [&a, &b] {
+            store
+                .upsert_item(
+                    id.clone(),
+                    "figure".into(),
+                    format!(r#"{{"format":"png","data_hash":"{hash}"}}"#),
+                )
+                .expect("figure");
+        }
+
+        store.delete_item(a).expect("delete a");
+        assert!(!store.release_blob(hash.clone()).expect("release"));
+        assert!(blobs.contains(&hash), "b still draws it");
+
+        store.delete_item(b).expect("delete b");
+        assert!(store.release_blob(hash.clone()).expect("release"));
+        assert!(!blobs.contains(&hash), "no row names it any more");
+        assert!(!store.release_blob(hash).expect("idempotent"));
+
+        assert!(matches!(
+            store.release_blob("../impress.sqlite".into()),
+            Err(SharedStoreError::InvalidArgument { .. })
+        ));
+    }
 
     #[test]
     fn sync_excluded_schemas_bypass_and_drain_outbox() {

@@ -998,16 +998,7 @@ struct SectionContentView: View {
     /// Preferred web URL for a publication (DOI > arXiv > ADS bibcode).
     /// Single source of truth for URL resolution — used by copyLink, shareText, shareViaEmail.
     private func webURL(for pub: PublicationRowData) -> URL? {
-        if let doi = pub.doi, !doi.isEmpty {
-            return URL(string: "https://doi.org/\(doi)")
-        }
-        if let arxivID = pub.arxivID, !arxivID.isEmpty {
-            return URL(string: "https://arxiv.org/abs/\(arxivID)")
-        }
-        if let bibcode = pub.bibcode, bibcode.count == 19 {
-            return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-        }
-        return nil
+        pub.webURL
     }
 
     /// Edit ▸ Copy DOI/URL (⌥⌘C): the toolbar's Copy Link, for the paper the
