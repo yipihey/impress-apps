@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ImploreRustCore
 import ImpressKit
 import ImpressStoreKit
 import OSLog
@@ -58,9 +59,11 @@ extension StoreMirrorUpsert {
 
 /// Stores implore figures and datasets in the shared impress-core store.
 ///
-/// Binary assets (SVG, PNG, PDF, CSV) are stored content-addressed at
-/// `~/.local/share/impress/content/{sha256}` with the hash recorded in the
-/// item payload so they can be resolved across apps.
+/// Binary assets are stored content-addressed in the workspace's one blob
+/// store, `<workspace>/content/{sha256}` (ADR-0030 D3), with the hash
+/// recorded in the item payload so every app resolves the same bytes. (They
+/// used to go to `~/.local/share/impress/content`, which inside the sandbox
+/// is implore's CONTAINER home: no other app could ever read them.)
 ///
 /// This adapter is scaffolding for Phase 1 of the unified item protocol
 /// integration. The TODO comments mark where UniFFI calls to impress-core
@@ -95,10 +98,21 @@ public final class ImploreStoreAdapter {
         SharedWorkspace.databasePath
     }
 
-    /// Content-addressed storage directory for binary assets.
+    /// The workspace directory: the database's parent. Rust derives
+    /// `content/` and `exports/figures/` from it, exactly as the store does.
+    public var workspaceDirectory: URL {
+        URL(fileURLWithPath: databasePath).deletingLastPathComponent()
+    }
+
+    /// Content-addressed storage directory for binary assets: the store's
+    /// own blob root, so readers asking the store find the same files.
     public var contentStoreDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/impress/content")
+        #if canImport(ImpressRustCore)
+        if let root = store?.manuscriptProjectBlobRoot() {
+            return URL(fileURLWithPath: root, isDirectory: true)
+        }
+        #endif
+        return workspaceDirectory.appendingPathComponent("content", isDirectory: true)
     }
 
     // MARK: - Shared Store
@@ -127,10 +141,6 @@ public final class ImploreStoreAdapter {
     private func setup() {
         do {
             try SharedWorkspace.ensureDirectoryExists()
-            try FileManager.default.createDirectory(
-                at: contentStoreDirectory,
-                withIntermediateDirectories: true
-            )
             #if canImport(ImpressRustCore)
             // Force the lazy open here: `isReady` promises the store is
             // available, not merely openable.
@@ -152,46 +162,164 @@ public final class ImploreStoreAdapter {
 
     // MARK: - Figure Storage
 
-    /// Store a figure in the shared impress-core store.
+    /// What a figure write did, for the caller's three-point trace.
+    public struct FigureWrite: Sendable {
+        /// The rendered artifact, or nil when rendering failed (the row is
+        /// still written, keeping whatever `data_hash` it had).
+        public let artifact: StoredFigureArtifact?
+        /// Why rendering failed, if it did.
+        public let renderError: String?
+        /// Whether the row upsert succeeded.
+        public let saved: Bool
+        /// The previous artifact's hash, when an edit replaced it and no
+        /// other row still named it (so its blob was removed).
+        public let releasedHash: String?
+    }
+
+    /// THE figure write: render the figure's artifact, store it, and upsert
+    /// the `figure` row with `data_hash` pointing at it.
     ///
-    /// If `assetData` is provided, writes it to content-addressed storage and
-    /// records the SHA-256 hex hash as `data_hash` in the item payload.
+    /// Every writer goes through here — `POST`/`PATCH /api/figures`, the
+    /// `create-figure` verb (which reaches implore over HTTP), and implore's
+    /// own "Save as Figure" — so a figure is never stored without the image
+    /// other apps draw. What the image IS is decided in Rust
+    /// (`implore_core::figure_artifact`); this maps the answer into the row.
     ///
     /// - Parameters:
-    ///   - figureID:     Stable identifier for this figure (e.g. `LibraryFigure.id`).
-    ///   - format:       File format string — "svg", "png", "pdf", "typst".
-    ///   - title:        Human-readable title for the figure.
-    ///   - caption:      Optional figure caption / description.
-    ///   - assetData:    Raw bytes of the rendered figure asset.
-    ///   - scriptHash:   SHA-256 of the generator script, for reproducibility tracking.
+    ///   - figureID:      Stable identifier (`LibraryFigure.id`).
+    ///   - title:         Human-readable title for the figure.
+    ///   - caption:       Optional caption.
+    ///   - viewStateJSON: The figure's `viewStateSnapshot`: type, columns,
+    ///                    size, and optional `series`/`spec`/`svg` data.
+    ///   - scriptHash:    SHA-256 of the generator script, if any.
+    @discardableResult
     public func storeFigure(
         figureID: String,
-        format: String,
         title: String?,
         caption: String?,
-        assetData: Data?,
-        scriptHash: String?
-    ) {
-        guard isReady else { return }
+        viewStateJSON: String,
+        scriptHash: String? = nil
+    ) -> FigureWrite {
+        guard isReady else {
+            return FigureWrite(
+                artifact: nil, renderError: "store not ready", saved: false, releasedHash: nil)
+        }
 
-        let dataHash: String? = assetData.map { storeContentAddressed(data: $0) }
+        var artifact: StoredFigureArtifact?
+        var renderError: String?
+        do {
+            artifact = try storeFigureArtifact(
+                workspaceDir: workspaceDirectory.path,
+                viewStateJson: viewStateJSON
+            )
+        } catch {
+            renderError = "\(error)"
+        }
 
         // `StoreMirrorPayload` drops the nil entries and sorts the keys —
         // sorted keys keep a re-upsert of an unchanged figure byte-identical,
-        // so it does not churn the row's `modified` timestamp.
+        // so it does not churn the row's `modified` timestamp. The upsert is
+        // additive per field, so a failed render leaves the old artifact.
+        let previousHash = figureDataHash(figureID: figureID)
+        var saved = false
         if let payloadString = StoreMirrorPayload.encodeJSONIfValid([
-            "format": format,
+            "format": artifact?.format ?? "png",
             "title": title,
             "caption": caption,
-            "data_hash": dataHash,
+            "data_hash": artifact?.dataHash,
+            "width": artifact.map { Int($0.width) },
+            "height": artifact.map { Int($0.height) },
             "script_hash": scriptHash
         ] as [String: Any?]) {
             #if canImport(ImpressRustCore)
-            try? store?.upsertItem(id: figureID, schemaRef: "figure", payloadJson: payloadString)
+            saved = (try? store?.upsertItem(
+                id: figureID, schemaRef: "figure", payloadJson: payloadString)) != nil
             #endif
         }
 
+        // An edit is a new artifact: let the old bytes go unless another row
+        // (another figure, a manuscript) still names them.
+        var releasedHash: String?
+        #if canImport(ImpressRustCore)
+        if saved, let old = previousHash, let new = artifact?.dataHash, old != new,
+           (try? store?.releaseBlob(hash: old)) == true {
+            releasedHash = old
+        }
+        #endif
+
         didMutate()
+        return FigureWrite(
+            artifact: artifact, renderError: renderError, saved: saved, releasedHash: releasedHash)
+    }
+
+    /// The `data_hash` a figure row carries now, if any.
+    public func figureDataHash(figureID: String) -> String? {
+        #if canImport(ImpressRustCore)
+        guard isReady, let store,
+              let row = try? store.getItem(id: figureID.lowercased()),
+              let payload = try? JSONSerialization.jsonObject(
+                  with: Data(row.payloadJson.utf8)) as? [String: Any]
+        else { return nil }
+        return payload["data_hash"] as? String
+        #else
+        return nil
+        #endif
+    }
+
+    /// Export a figure to `<workspace>/exports/figures/<id>.<png|svg>`,
+    /// rendered by the same Rust path as the stored artifact (a default PNG
+    /// export is byte-for-byte the blob under `data_hash`).
+    public func exportFigure(
+        figureID: String,
+        viewStateJSON: String,
+        format: String,
+        width: Double? = nil,
+        height: Double? = nil,
+        scale: Double? = nil
+    ) throws -> ExportedFigure {
+        try exportFigureArtifact(
+            workspaceDir: workspaceDirectory.path,
+            figureId: figureID,
+            viewStateJson: viewStateJSON,
+            format: format,
+            width: width,
+            height: height,
+            scale: scale
+        )
+    }
+
+    /// What deleting a figure removed, for the caller's trace.
+    public struct FigureDeletion: Sendable {
+        public let rowDeleted: Bool
+        /// The artifact's hash, if the row had one.
+        public let dataHash: String?
+        /// Whether the blob went (false when another row still names it).
+        public let blobReleased: Bool
+        public let exportsRemoved: Int
+    }
+
+    /// Delete a figure's store row, then its artifact blob unless another
+    /// row still references it, then its exported files.
+    @discardableResult
+    public func deleteFigure(figureID: String) -> FigureDeletion {
+        let dataHash = figureDataHash(figureID: figureID)
+        var rowDeleted = false
+        var blobReleased = false
+        #if canImport(ImpressRustCore)
+        if isReady, let store {
+            let id = figureID.lowercased()
+            rowDeleted = (try? store.deleteItem(id: id)) != nil
+            if rowDeleted, let hash = dataHash {
+                blobReleased = (try? store.releaseBlob(hash: hash)) ?? false
+            }
+        }
+        #endif
+        let exportsRemoved = (try? removeFigureExports(
+            workspaceDir: workspaceDirectory.path, figureId: figureID)).map(Int.init) ?? 0
+        if rowDeleted { didMutate() }
+        return FigureDeletion(
+            rowDeleted: rowDeleted, dataHash: dataHash,
+            blobReleased: blobReleased, exportsRemoved: exportsRemoved)
     }
 
     // MARK: - Dataset Storage

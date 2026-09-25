@@ -24,14 +24,15 @@ import ImpressLogging
 /// - `GET /api/datasets/{id}` - Get dataset details
 /// - `GET /api/figures` - List all figures
 /// - `GET /api/figures/{id}` - Get figure details
-/// - `GET /api/figures/{id}/export` - Export figure (params: format, width, height, scale)
+/// - `GET /api/figures/{id}/export` - Export figure to a file (params: format png|svg, width, height, scale)
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/logs/stream` - Cursor-based incremental log feed
 /// - `GET /api/performance` - PerfMetrics snapshot (+ `POST /api/performance/reset`)
 /// - `GET /api/store-timings` - StoreTimings snapshot (+ `POST /api/store-timings/reset`)
 ///
 /// API Endpoints (POST):
-/// - `POST /api/figures` - Create a new figure
+/// - `POST /api/figures` - Create a new figure (stores its rendered artifact)
+/// - `POST /api/figures/{id}/export` - Same as GET; params in the JSON body
 ///
 /// API Endpoints (PATCH):
 /// - `PATCH /api/figures/{id}` - Update a figure
@@ -159,6 +160,12 @@ public actor ImploreHTTPRouter: HTTPRouter {
     private func routePOST(path: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/figures" {
             return await handleCreateFigure(request)
+        }
+
+        // POST /api/figures/{id}/export: the `export-figure` verb's spelling
+        if path.hasPrefix("/api/figures/") && path.hasSuffix("/export") {
+            let id = String(request.path.dropFirst("/api/figures/".count).dropLast("/export".count))
+            return await handleExportFigure(id: id, request: request)
         }
 
         // RG viewer POST endpoints
@@ -303,14 +310,18 @@ public actor ImploreHTTPRouter: HTTPRouter {
             return .badRequest("Missing required field: datasetId")
         }
 
-        guard let typeString = json["type"] as? String else {
+        // `plotType`/`x`/`y` are the `create-figure` verb's spellings
+        // (implore-service-http posts them); the router's own are
+        // `type`/`xColumn`/`yColumn`. Before both were read, the verb always
+        // got "Missing required field: type".
+        guard let typeString = (json["type"] ?? json["plotType"]) as? String else {
             return .badRequest("Missing required field: type")
         }
 
         let name = json["name"] as? String ?? "Untitled Figure"
         let title = json["title"] as? String
-        let xColumn = json["xColumn"] as? String
-        let yColumn = json["yColumn"] as? String
+        let xColumn = (json["xColumn"] ?? json["x"]) as? String
+        let yColumn = (json["yColumn"] ?? json["y"]) as? String
         let colorColumn = json["colorColumn"] as? String
         let width = json["width"] as? Int ?? 800
         let height = json["height"] as? Int ?? 600
@@ -325,6 +336,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         if let y = yColumn { viewState["yColumn"] = y }
         if let color = colorColumn { viewState["colorColumn"] = color }
         if let t = title { viewState["title"] = t }
+        Self.copyArtifactData(from: json, into: &viewState)
 
         guard let viewStateData = try? JSONSerialization.data(withJSONObject: viewState),
               let viewStateJson = String(data: viewStateData, encoding: .utf8) else {
@@ -348,14 +360,22 @@ public actor ImploreHTTPRouter: HTTPRouter {
             modifiedAt: now
         )
 
-        LibraryManager.shared.addFigure(figure)
+        let write = LibraryManager.shared.addFigure(figure)
+
+        // A figure is its image to every other app: one that cannot be
+        // rendered is refused, not created blank.
+        if write.artifact == nil {
+            LibraryManager.shared.removeFigure(id: figure.id)
+            return .badRequest("Figure not created: \(write.renderError ?? "its artifact could not be stored")")
+        }
 
         logInfo("Created figure: \(figure.id)", category: "figure-api")
 
-        let response: [String: Any] = [
+        var response: [String: Any] = [
             "status": "ok",
             "figure": figureToDict(figure)
         ]
+        response["artifact"] = Self.artifactDict(write)
 
         return .json(response, status: 201)
     }
@@ -380,16 +400,19 @@ public actor ImploreHTTPRouter: HTTPRouter {
         if var viewState = try? JSONSerialization.jsonObject(with: Data(figure.viewStateSnapshot.utf8)) as? [String: Any] {
             var updated = false
 
-            if let type = json["type"] as? String {
+            if let type = (json["type"] ?? json["plotType"]) as? String {
                 viewState["type"] = type
                 updated = true
             }
-            if let xColumn = json["xColumn"] as? String {
+            if let xColumn = (json["xColumn"] ?? json["x"]) as? String {
                 viewState["xColumn"] = xColumn
                 updated = true
             }
-            if let yColumn = json["yColumn"] as? String {
+            if let yColumn = (json["yColumn"] ?? json["y"]) as? String {
                 viewState["yColumn"] = yColumn
+                updated = true
+            }
+            if Self.copyArtifactData(from: json, into: &viewState) {
                 updated = true
             }
             if let colorColumn = json["colorColumn"] as? String {
@@ -419,12 +442,21 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
         figure.modifiedAt = ISO8601DateFormatter().string(from: Date())
 
-        LibraryManager.shared.updateFigure(figure)
+        let original = LibraryManager.shared.figure(id: id)
+        let write = LibraryManager.shared.updateFigure(figure)
 
-        let response: [String: Any] = [
+        // An edit that cannot be rendered is rolled back, so the library and
+        // the stored artifact never disagree about what the figure is.
+        if let write, write.artifact == nil {
+            if let original { LibraryManager.shared.updateFigure(original) }
+            return .badRequest("Figure not updated: \(write.renderError ?? "its artifact could not be stored")")
+        }
+
+        var response: [String: Any] = [
             "status": "ok",
             "figure": figureToDict(figure)
         ]
+        if let write { response["artifact"] = Self.artifactDict(write) }
 
         return .json(response)
     }
@@ -450,36 +482,95 @@ public actor ImploreHTTPRouter: HTTPRouter {
         return .json(response)
     }
 
-    /// GET /api/figures/{id}/export
+    /// GET|POST /api/figures/{id}/export
+    ///
+    /// Renders the figure through the same Rust path as its stored artifact
+    /// and writes `<workspace>/exports/figures/<id>.<png|svg>`. The response
+    /// carries that `path` (what `export-figure` returns to an agent), the
+    /// file's `sha256`, and the bytes base64-encoded under `data`. A figure
+    /// that never got a stored artifact gets one first.
     @MainActor
     private func handleExportFigure(id: String, request: HTTPRequest) async -> HTTPResponse {
-        guard let _ = LibraryManager.shared.figure(id: id) else {
+        guard let figure = LibraryManager.shared.figure(id: id) else {
             return .notFound("Figure not found: \(id)")
         }
 
-        let format = request.queryParams["format"] ?? "png"
-        let width = request.queryParams["width"].flatMap { Int($0) } ?? 800
-        let height = request.queryParams["height"].flatMap { Int($0) } ?? 600
-        let scale = request.queryParams["scale"].flatMap { Double($0) } ?? 1.0
-
-        guard ["png", "svg", "pdf"].contains(format) else {
-            return .badRequest("Unsupported format: \(format). Use 'png', 'svg', or 'pdf'.")
+        let body = parseJSONBody(request) ?? [:]
+        func number(_ key: String) -> Double? {
+            if let q = request.queryParams[key] { return Double(q) }
+            return (body[key] as? NSNumber)?.doubleValue
+        }
+        let format = (request.queryParams["format"] ?? body["format"] as? String ?? "png").lowercased()
+        guard ["png", "svg"].contains(format) else {
+            return .badRequest("Unsupported format: \(format). Use 'png' or 'svg' (pdf is not implemented).")
         }
 
-        // For now, return a placeholder response indicating export capability
-        // Full implementation would render the figure using Metal/Core Graphics
-        let response: [String: Any] = [
-            "status": "ok",
-            "id": id,
-            "format": format,
-            "width": Int(Double(width) * scale),
-            "height": Int(Double(height) * scale),
-            "data": "" // TODO: Generate actual export data
+        if ImploreStoreAdapter.shared.figureDataHash(figureID: figure.id) == nil {
+            LibraryManager.shared.writeFigureToStore(figure, reason: "export")
+        }
+
+        do {
+            let out = try ImploreStoreAdapter.shared.exportFigure(
+                figureID: figure.id,
+                viewStateJSON: figure.viewStateSnapshot,
+                format: format,
+                width: number("width"),
+                height: number("height"),
+                scale: number("scale")
+            )
+            let data = try Data(contentsOf: URL(fileURLWithPath: out.path))
+            logInfo(
+                "figure export \(figure.id): \(out.format) \(out.width)x\(out.height) → \(out.path) (\(out.byteCount) B)",
+                category: "figure-api")
+            var response: [String: Any] = [
+                "status": "ok",
+                "id": figure.id,
+                "format": out.format,
+                "mimeType": out.mimeType,
+                "path": out.path,
+                "sha256": out.sha256,
+                "byteCount": Int(out.byteCount),
+                "width": Int(out.width),
+                "height": Int(out.height),
+                "data": data.base64EncodedString()
+            ]
+            response["dataHash"] = ImploreStoreAdapter.shared.figureDataHash(figureID: figure.id)
+            return .json(response)
+        } catch {
+            logError("figure export \(figure.id) failed: \(error)", category: "figure-api")
+            return .serverError("Export failed: \(error)")
+        }
+    }
+
+    /// Copy the keys a figure's artifact is drawn from — inline `series`, a
+    /// whole implore `spec`, or ready `svg` — from a request body into its
+    /// view state. What they mean is Rust's (`figure_artifact`); this only
+    /// carries them. Returns whether any were present.
+    @discardableResult
+    nonisolated private static func copyArtifactData(
+        from json: [String: Any], into viewState: inout [String: Any]
+    ) -> Bool {
+        var copied = false
+        for key in ["series", "spec", "svg"] {
+            if let value = json[key], !(value is NSNull) {
+                viewState[key] = value
+                copied = true
+            }
+        }
+        return copied
+    }
+
+    /// The stored artifact as the create/update responses report it.
+    nonisolated private static func artifactDict(_ write: ImploreStoreAdapter.FigureWrite) -> [String: Any]? {
+        guard let artifact = write.artifact else { return nil }
+        var dict: [String: Any] = [
+            "dataHash": artifact.dataHash,
+            "format": artifact.format,
+            "width": Int(artifact.width),
+            "height": Int(artifact.height)
         ]
-
-        logInfo("Export requested for figure \(id) as \(format)", category: "figure-api")
-
-        return .json(response)
+        if let released = write.releasedHash { dict["releasedHash"] = released }
+        return dict
     }
 
     // MARK: - RG Viewer Handlers
@@ -982,7 +1073,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 "GET /api/datasets/{id}": "Get dataset details with columns",
                 "GET /api/figures": "List all figures (params: dataset)",
                 "GET /api/figures/{id}": "Get figure configuration",
-                "GET /api/figures/{id}/export": "Export figure (params: format, width, height, scale)",
+                "GET /api/figures/{id}/export": "Export to <workspace>/exports/figures/<id>.<png|svg>; returns path, sha256, base64 data (params: format, width, height, scale)",
                 "GET /api/rg/state": "Current RG viewer state + dataset info",
                 "GET /api/rg/slice/png": "Export current slice as PNG (?format=base64 for JSON)",
                 "GET /api/rg/slice/raw": "Raw f32 values (?quantity, ?axis, ?position, ?downsample)",
@@ -998,15 +1089,16 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 "GET /api/store-timings": "StoreTimings snapshot (params: top)",
                 "POST /api/store-timings/reset": "Reset StoreTimings counters",
                 // POST endpoints
-                "POST /api/figures": "Create a figure (body: datasetId, type, xColumn?, yColumn?, ...)",
+                "POST /api/figures": "Create a figure and store its rendered PNG as data_hash (body: datasetId, type|plotType, xColumn|x?, yColumn|y?, title?, width?, height?, and data as series [{label?, x, y}] | spec (implore PlotSpec) | svg)",
+                "POST /api/figures/{id}/export": "Same as GET /api/figures/{id}/export, params in the body",
                 "POST /api/rg/load": "Load .npz file (body: {path})",
                 "POST /api/rg/control": "Change viewer params (body: {quantity?, axis?, position?, colormap?})",
                 "POST /api/rg/slice/save": "Save current slice PNG to disk (body: {path})",
                 "POST /api/rg/batch": "Capture multiple positions (body: {positions, quantity?, axis?, colormap?})",
                 // PATCH endpoints
-                "PATCH /api/figures/{id}": "Update a figure",
+                "PATCH /api/figures/{id}": "Update a figure (same fields as POST); re-renders its artifact",
                 // DELETE endpoints
-                "DELETE /api/figures/{id}": "Delete a figure"
+                "DELETE /api/figures/{id}": "Delete a figure, its store row, its exports, and its artifact blob unless another row references it"
             ],
             "documentation": "https://github.com/yipihey/impress-apps/wiki/implore-HTTP-API"
         ]
