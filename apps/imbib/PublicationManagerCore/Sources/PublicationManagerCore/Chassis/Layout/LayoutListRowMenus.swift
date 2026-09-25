@@ -13,6 +13,8 @@
 //  themselves when the invalidation feed says the pane is stale.
 //
 
+import ImpressLayout
+import ImpressLogging
 import SwiftUI
 
 // MARK: - The pane's scope, as the legacy list names it
@@ -173,9 +175,13 @@ struct LayoutPublicationRowMenu: View {
                 guard let path = RecordTriageNewTagPrompt.run() else { return }
                 RustStoreAdapter.shared.addTag(ids: Array(ids), tagPath: path)
             },
+            // Through the TREE, not the global `.showPDFTab` (review PH-M10):
+            // that switched every `info` pane in every window — including one
+            // beside a `pdf` pane, which then showed the PDF twice — and no
+            // agent could see or replay it.
             openPDF: { id in
                 context.select([id.uuidString.lowercased()], kind: RecordKindID.publication.rawValue)
-                NotificationCenter.default.post(name: .showPDFTab, object: nil)
+                LayoutOpenPDF.open(from: context.tile, controller: context.controller)
             },
             // No list-background drop and no batch-download sheet in a pane:
             // both are presented by the legacy content view, which a tree
@@ -185,6 +191,49 @@ struct LayoutPublicationRowMenu: View {
             onRefresh: nil)
     }
 }
+// MARK: - Open PDF
+
+/// "Open PDF" from a list pane's row, as ordinary verbs.
+@MainActor
+enum LayoutOpenPDF {
+
+    /// What happened, for the log and the tests.
+    enum Outcome: Equatable {
+        /// A `pdf` pane follows this list's channel: it was focused.
+        case focusedPDFPane(UInt64)
+        /// No `pdf` pane, but an `info` pane does: its tab was set to PDF.
+        case infoPaneTab(UInt64)
+        /// Neither follows this list: nothing on screen can show the PDF.
+        case nowhere
+    }
+
+    /// Show the selected paper's PDF in the pane that follows `listTile`'s
+    /// channel: focus a `pdf` pane if there is one, else set the `info`
+    /// pane's tab to PDF through its `view_state` (a `set-pane`, attributed
+    /// and undoable) and focus it.
+    @discardableResult
+    static func open(from listTile: UInt64, controller: LayoutController) -> Outcome {
+        guard let tree = controller.tree else { return .nowhere }
+        if let pdf = LayoutPaneViewState.pane(showing: .pdf, onChannelOf: listTile, in: tree) {
+            logInfo("Open PDF from pane \(listTile): focus pdf pane \(pdf)", category: "layout")
+            controller.apply(.focus(target: .id(pdf)))
+            return .focusedPDFPane(pdf)
+        }
+        if let info = LayoutPaneViewState.pane(showing: .info, onChannelOf: listTile, in: tree) {
+            logInfo("Open PDF from pane \(listTile): info pane \(info) → PDF tab", category: "layout")
+            LayoutPaneViewState.merge(
+                ["tab": .string(DetailTab.pdf.rawValue)], into: info, controller: controller,
+                why: "Open PDF from pane \(listTile)")
+            controller.apply(.focus(target: .id(info)))
+            return .infoPaneTab(info)
+        }
+        logInfo(
+            "Open PDF from pane \(listTile): no pdf or info pane follows its channel — nothing to show it in",
+            category: "layout")
+        return .nowhere
+    }
+}
+
 // MARK: - Manuscript rows
 
 /// A manuscript row's menu in a `list` pane: `ManuscriptRowMenu`, over the
