@@ -149,6 +149,15 @@ fn build_arg(name: &str, prop: &Value, required: bool) -> Arg {
 
     let mut arg = Arg::new(name.to_string()).long(long).required(required);
 
+    // An argument documented in `impress_service_impl!` (`/// …` before it)
+    // carries a schema `description`; it is the flag's help, so `--help`
+    // tells a CLI caller what the MCP `inputSchema` tells a model. `-h` shows
+    // the first paragraph, `--help` all of it.
+    if let Some(desc) = prop.get("description").and_then(|d| d.as_str()) {
+        let short = desc.split("\n\n").next().unwrap_or(desc).to_string();
+        arg = arg.help(short).long_help(desc.to_string());
+    }
+
     match kind {
         PropertyKind::Boolean => {
             arg = arg.action(ArgAction::SetTrue).required(false);
@@ -402,6 +411,28 @@ mod tests {
             .arg(build_arg(name, &prop, required));
         let matches = cmd.try_get_matches_from(argv).map_err(|e| e.to_string())?;
         matches_to_json(&matches, &schema).map_err(|e| e.to_string())
+    }
+
+    /// A documented argument's schema `description` is its `--help` text:
+    /// the first paragraph for `-h`, the whole of it for `--help`.
+    #[test]
+    fn a_described_argument_carries_its_description_as_help() {
+        let prop = json!({
+            "description": "Inline data.\n\nExample: --series '{\"x\":[1],\"y\":[2]}'",
+            "type": ["string", "null"],
+        });
+        let arg = build_arg("series", &prop, false);
+        assert_eq!(
+            arg.get_help().map(|h| h.to_string()),
+            Some("Inline data.".into())
+        );
+        assert!(arg
+            .get_long_help()
+            .map(|h| h.to_string())
+            .unwrap_or_default()
+            .contains("Example: --series"));
+        let bare = build_arg("x", &json!({"type": "string"}), false);
+        assert!(bare.get_help().is_none());
     }
 
     /// A `Command` with one repeatable `--items` argument built from `schema`,
