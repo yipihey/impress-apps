@@ -135,9 +135,9 @@ struct LayoutLegacyPaneView: View {
     /// The scoped route a legacy pane's `view_state` names, or nil.
     static func scope(of viewState: LayoutJSONValue?) -> (section: String?, node: LayoutJSONValue, reason: String?)? {
         guard let state = viewState?.objectValue,
-              let node = state["node"], node.objectValue != nil
+              let node = state[LayoutViewStateKey.node], node.objectValue != nil
         else { return nil }
-        return (state["section"]?.stringValue, node, state["reason"]?.stringValue)
+        return (state[LayoutViewStateKey.section]?.stringValue, node, state[LayoutViewStateKey.reason]?.stringValue)
     }
 
     var body: some View {
@@ -218,6 +218,16 @@ struct LayoutRowsPaneView: View {
 
     @State private var rows: [LayoutPaneRow] = []
     @State private var loadFailed = false
+    /// How many rows the pane's query has in all, and whether the rows shown
+    /// are fewer — a page is never presented as the whole result (review
+    /// PH-H4, SK-K9: a 2,657-paper library used to show its first 500 and
+    /// nothing said the rest existed).
+    @State private var total: UInt64 = 0
+    @State private var truncated = false
+    /// Pages of `LayoutController.pageSize` the person asked to see; reset
+    /// when the pane's query changes.
+    @State private var pages: UInt32 = 1
+    @State private var shownQuery = ""
     /// Bumped by every `load()`. The row menus take it as an input: a menu
     /// reads its labels (Star / Unstar, Mark as Read / Unread) from the store
     /// when it is built, and SwiftUI rebuilds it only when an input changes —
@@ -315,7 +325,29 @@ struct LayoutRowsPaneView: View {
             ForEach(rows) { row in
                 rowChrome(rowView(row), row).tag(row.id)
             }
+            if truncated {
+                pageFooter
+            }
         }
+    }
+
+    /// "Showing 500 of 2,657" and the way to the next page. Not a row of the
+    /// selection (no tag), and a plain button, so it is reachable from the
+    /// keyboard like every other control.
+    private var pageFooter: some View {
+        HStack(spacing: 12) {
+            Text("Showing \(rows.count.formatted()) of \(Int(total).formatted())")
+                .foregroundStyle(.secondary)
+            Button("Show \(min(Int(LayoutController.pageSize), Int(total) - rows.count).formatted()) More") {
+                pages &+= 1
+                load()
+            }
+            .buttonStyle(.link)
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 6)
+        .accessibilityIdentifier("pane-page-footer")
     }
 
     @ViewBuilder
@@ -553,21 +585,39 @@ struct LayoutRowsPaneView: View {
 
     private func load() {
         let tile = context.tile
+        // A new query starts at its first page again.
+        let query = context.pane.compiledQueryJson
+        if query != shownQuery {
+            shownQuery = query
+            pages = 1
+        }
         // THIS pane's failure, never another pane's or a verb's refusal
-        // (PH-M3): `loadRows` throws what Rust refused, and the tile's own
-        // error slot says why.
+        // (PH-M3): `loadPage` throws what Rust refused, and the tile's own
+        // error slot says why. The page is the kit's page size times the
+        // pages asked for; the query's own limit is honoured by Rust.
         let fetched: [SharedItemRow]
         do {
-            fetched = try context.loadRows()
+            let page = try context.loadPage(limit: LayoutController.pageSize &* pages)
+            fetched = page.rows
+            total = page.total
+            truncated = page.truncated
             loadFailed = false
         } catch {
             fetched = []
+            total = 0
+            truncated = false
             loadFailed = true
         }
         rows = fetched.map(LayoutPaneRow.init)
         rowsRevision &+= 1
         context.controller.didRefresh(tile)
-        logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
+        if truncated {
+            logInfo(
+                "pane \(tile) display: \(rows.count) of \(total) rows (truncated; \(pages) page(s))",
+                category: "layout")
+        } else {
+            logInfo("pane \(tile) display: \(rows.count) rows", category: "layout")
+        }
         PublicationTagRemoval.reportDisplay(
             surface: "pane \(tile)",
             rows: rows.compactMap { row in
@@ -643,7 +693,7 @@ struct LayoutInfoPaneView: View {
 
     /// The tab a pane's `view_state` names; Info when it names none.
     static func tab(in viewState: LayoutJSONValue?) -> DetailTab {
-        viewState?["tab"]?.stringValue.flatMap(DetailTab.init(rawValue:)) ?? .info
+        viewState?[LayoutViewStateKey.tab]?.stringValue.flatMap(DetailTab.init(rawValue:)) ?? .info
     }
 
     let context: PaneContext
@@ -679,7 +729,7 @@ struct LayoutInfoPaneView: View {
             set: { tab in
                 guard tab != Self.tab(in: context.spec?.viewState) else { return }
                 LayoutPaneViewState.merge(
-                    ["tab": .string(tab.rawValue)], into: context.tile, controller: context.controller,
+                    [LayoutViewStateKey.tab: .string(tab.rawValue)], into: context.tile, controller: context.controller,
                     why: "info tab → \(tab.rawValue)")
             })
     }

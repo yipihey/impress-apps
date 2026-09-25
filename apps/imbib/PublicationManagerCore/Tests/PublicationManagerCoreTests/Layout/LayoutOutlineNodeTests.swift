@@ -42,6 +42,9 @@ final class LayoutOutlineNodeTests: XCTestCase {
             // Not values in the algebra: hosted, scoped, with a reason.
             (.searchForm(.adsModern), "legacy"),
             (.addFeed, "legacy"),
+            // PH-M1: the node carries the feed / library, so these round-trip.
+            (.editFeed(UUID()), "legacy"),
+            (.addLibraryFeed(UUID()), "legacy"),
             (.scixLibrary(library), "legacy"),
             (.sharedLibrary(library), "legacy"),
             (.reviewQueue, "legacy"),
@@ -82,12 +85,7 @@ final class LayoutOutlineNodeTests: XCTestCase {
     func testLegacyNodesRoundTripToTheSameRoute() throws {
         for (tab, expected) in cases where expected == "legacy" {
             let (node, _) = LayoutOutlineNode.node(for: tab, shell: .impress, dismissedLibraryID: nil)
-            switch tab {
-            case .addFeed:
-                XCTAssertEqual(LayoutOutlineNode.tab(from: node), .addFeed)
-            default:
-                XCTAssertEqual(LayoutOutlineNode.tab(from: node), tab, "\(tab)")
-            }
+            XCTAssertEqual(LayoutOutlineNode.tab(from: node), tab, "\(tab)")
         }
     }
 

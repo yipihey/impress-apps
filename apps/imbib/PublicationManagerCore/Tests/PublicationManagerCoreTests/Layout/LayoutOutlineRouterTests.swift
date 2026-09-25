@@ -186,27 +186,20 @@ final class LayoutOutlineRouterTests: XCTestCase {
 
     // MARK: PH-M1 — Edit Feed… opens the feed's form
 
-    func testTheFeedFormNodeIsLossyAndTheRecordedRouteIsNot() throws {
-        let feed = UUID()
-        let (node, _) = LayoutOutlineNode.node(for: .editFeed(feed), shell: .imbib, dismissedLibraryID: nil)
-        // The wire loss the review found; it stays until Rust's node carries
-        // the ids.
-        XCTAssertEqual(LayoutOutlineNode.tab(from: node), .addFeed)
-
-        let routes = LayoutFeedFormRoutes.shared
-        let list = try XCTUnwrap(controller.paneWithRole("list"))
-        routes.record(.editFeed(feed), into: list, of: controller)
-        XCTAssertEqual(routes.resolved(.addFeed, tile: list, controller: controller), .editFeed(feed))
-
-        let library = UUID()
-        routes.record(.addLibraryFeed(library), into: list, of: controller)
-        XCTAssertEqual(routes.resolved(.addFeed, tile: list, controller: controller), .addLibraryFeed(library))
-
-        // Any other route clears it; a node that is not the feed form is
-        // never rewritten.
-        routes.record(.inbox, into: list, of: controller)
-        XCTAssertEqual(routes.resolved(.addFeed, tile: list, controller: controller), .addFeed)
-        XCTAssertEqual(routes.resolved(.inbox, tile: list, controller: controller), .inbox)
+    /// The node carries the feed or the library (review PH-M1), through
+    /// Rust's legacy pane and back: Edit Feed… opens THAT feed's form.
+    func testTheFeedFormNodeCarriesItsFeedOrLibrary() throws {
+        for tab in [ImbibTab.editFeed(UUID()), .addLibraryFeed(UUID()), .addFeed] {
+            let (node, _) = LayoutOutlineNode.node(for: tab, shell: .imbib, dismissedLibraryID: nil)
+            XCTAssertEqual(LayoutOutlineNode.tab(from: node), tab)
+            let raw = try outlineRowVerbsJson(
+                appId: "imbib", nodeJson: node.jsonString(), bindingsJson: "",
+                listSpecJson: router.specJSON(role: "list"), detailSpecJson: "", initial: false)
+            let verbs = try XCTUnwrap(LayoutJSONValue.decode(raw)["verbs"]?.arrayValue)
+            let viewState = try XCTUnwrap(verbs.compactMap { $0["spec"]?["view_state"] }.first)
+            let carried = try XCTUnwrap(viewState["node"])
+            XCTAssertEqual(LayoutOutlineNode.tab(from: carried), tab, "the pane gets the node, ids and all")
+        }
     }
 }
 #endif

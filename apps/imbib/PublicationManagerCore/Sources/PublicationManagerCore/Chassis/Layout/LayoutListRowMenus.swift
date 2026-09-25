@@ -222,7 +222,7 @@ enum LayoutOpenPDF {
         if let info = LayoutPaneViewState.pane(showing: .info, onChannelOf: listTile, in: tree) {
             logInfo("Open PDF from pane \(listTile): info pane \(info) → PDF tab", category: "layout")
             LayoutPaneViewState.merge(
-                ["tab": .string(DetailTab.pdf.rawValue)], into: info, controller: controller,
+                [LayoutViewStateKey.tab: .string(DetailTab.pdf.rawValue)], into: info, controller: controller,
                 why: "Open PDF from pane \(listTile)")
             controller.apply(.focus(target: .id(info)))
             return .infoPaneTab(info)
