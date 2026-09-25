@@ -20,6 +20,7 @@ use impress_layout::{
     ChannelId, ContainerKind, Direction, Layout, LinearDir, PaneRef, PaneSpec, Patch, Placement,
     Role, TileId, ViewKindId, WindowId,
 };
+use impress_service_core::Refusal;
 use serde::{Deserialize, Serialize};
 
 use crate::session::{AppliedVerb, Stack};
@@ -159,13 +160,13 @@ pub fn parse_channel(raw: &str) -> Result<ChannelId, String> {
         return Ok(ChannelId::Follow);
     }
     match raw.parse::<u8>() {
-        // `ChannelId::number` clamps rather than rejects (a channel is a
-        // coordination convenience, and no gesture should fail because a
-        // caller said "channel 9"), so the clamp is the documented behaviour
-        // here too.
-        Ok(n) if n >= 1 => Ok(ChannelId::number(n)),
+        // Refused, not clamped: an agent asking for channel 12 used to land
+        // on channel 8 and be told `ok` (review RL-L21). A gesture never
+        // names a channel out of range, so only a typo reaches this.
+        Ok(n) if (1..=ChannelId::MAX).contains(&n) => Ok(ChannelId::number(n)),
         _ => Err(format!(
-            "unknown channel '{raw}'. Use 1-8, or 'follow' for the window's default."
+            "unknown channel '{raw}'. Use 1-{}, or 'follow' for the window's default.",
+            ChannelId::MAX
         )),
     }
 }
@@ -235,6 +236,13 @@ impl From<&Patch> for PatchSummary {
 pub struct LayoutVerbResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     /// The focused leaf afterwards — half of what a renderer needs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused: Option<u64>,
@@ -258,10 +266,12 @@ pub struct LayoutVerbResult {
 }
 
 impl LayoutVerbResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             focused: None,
             affected_panes: Vec::new(),
             window: None,
@@ -275,6 +285,7 @@ impl LayoutVerbResult {
         Self {
             ok: true,
             message: message.into(),
+            code: None,
             focused: applied.focused.map(TileId::raw),
             affected_panes: raw_tiles(&applied.affected),
             window: Some(applied.window.raw()),
@@ -310,6 +321,7 @@ impl LayoutVerbResult {
         Self {
             ok: true,
             message: message.into(),
+            code: None,
             focused: focused.map(TileId::raw),
             affected_panes: raw_tiles(&affected),
             window: window.map(WindowId::raw),
@@ -326,6 +338,13 @@ impl LayoutVerbResult {
 pub struct LayoutResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<Layout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -343,10 +362,12 @@ pub struct LayoutResult {
 }
 
 impl LayoutResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             layout: None,
             focused: None,
             affected_panes: Vec::new(),
@@ -403,6 +424,13 @@ impl CompiledQueryDto {
 pub struct PaneResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tile: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -422,10 +450,12 @@ pub struct PaneResult {
 }
 
 impl PaneResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             tile: None,
             spec: None,
             query: None,
@@ -442,6 +472,13 @@ impl PaneResult {
 pub struct ChannelResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     /// The resolved channel number (`follow` already collapsed).
     pub channel: u8,
     /// Record kind → the ids currently selected on this channel. An empty
@@ -455,10 +492,12 @@ pub struct ChannelResult {
 }
 
 impl ChannelResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             channel: 0,
             selections: BTreeMap::new(),
             affected_panes: Vec::new(),
@@ -473,6 +512,13 @@ impl ChannelResult {
 pub struct ReferenceResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tile: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -488,10 +534,12 @@ pub struct ReferenceResult {
 }
 
 impl ReferenceResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             tile: None,
             role: None,
             view_kind: None,
@@ -529,14 +577,23 @@ pub struct SavedLayoutDto {
 pub struct LayoutListResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     pub layouts: Vec<SavedLayoutDto>,
 }
 
 impl LayoutListResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             layouts: Vec::new(),
         }
     }
@@ -603,6 +660,13 @@ pub struct PresetDto {
 pub struct PresetListResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     pub presets: Vec<PresetDto>,
     /// The sections this app permits that are NOT queries, with the reason —
     /// ADR-0031 D2's "materialize it first" list, so a caller asking what a
@@ -611,10 +675,12 @@ pub struct PresetListResult {
 }
 
 impl PresetListResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             presets: Vec::new(),
             materialize_first: Vec::new(),
         }
@@ -633,15 +699,24 @@ pub struct MaterializeFirstDto {
 pub struct PresetResult {
     pub ok: bool,
     pub message: String,
+    /// Why it was refused, machine-readable: a `LayoutError` tag
+    /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
+    /// (`invalid-argument`, `not-found`, `conflict`, `store-error`,
+    /// `store-unavailable`). Absent when `ok` is true. See
+    /// `impress_service_core::refusal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<PresetDto>,
 }
 
 impl PresetResult {
-    pub fn failed(message: impl Into<String>) -> Self {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
-            message: message.into(),
+            message: refusal.message,
+            code: Some(refusal.code),
             preset: None,
         }
     }

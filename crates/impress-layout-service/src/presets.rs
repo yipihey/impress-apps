@@ -70,6 +70,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::store::{author_for, LayoutRow, Result};
+use impress_service_core::Refusal;
 
 // ---------------------------------------------------------------------------
 // Payload fields and constants
@@ -1221,11 +1222,13 @@ impl PresetStore {
     ) -> Result<PresetRow> {
         let name = name.trim();
         if name.is_empty() {
-            return Err("a preset needs a name".to_string());
+            return Err(Refusal::invalid_argument("a preset needs a name"));
         }
         let app_id = app_id.trim();
         if app_id.is_empty() {
-            return Err("a preset belongs to an app: `app_id` is required".to_string());
+            return Err(Refusal::invalid_argument(
+                "a preset belongs to an app: `app_id` is required",
+            ));
         }
         let id = preset_id(app_id, name);
         let exists = self.item(id)?.is_some();
@@ -1235,10 +1238,10 @@ impl PresetStore {
             )?;
             self.store
                 .insert(item)
-                .map_err(|e| format!("write preset: {e}"))?;
+                .map_err(|e| Refusal::store(format!("write preset: {e}")))?;
             return self
                 .row(id)?
-                .ok_or_else(|| "the preset vanished mid-save".to_string());
+                .ok_or_else(|| Refusal::store("the preset vanished mid-save"));
         }
 
         let mut fields: Vec<(&str, Value)> = vec![
@@ -1256,7 +1259,7 @@ impl PresetStore {
             self.patch(id, name, value, actor, intent)?;
         }
         self.row(id)?
-            .ok_or_else(|| "the preset vanished mid-save".to_string())
+            .ok_or_else(|| Refusal::store("the preset vanished mid-save"))
     }
 
     /// Restore the shipped revision of `(app_id, name)` over a user-edited
@@ -1264,11 +1267,11 @@ impl PresetStore {
     /// nothing to restore, and inventing one would be worse than saying so.
     pub fn reset(&self, app_id: &str, name: &str, actor: ActorKind) -> Result<PresetRow> {
         let Some(shipped) = shipped_preset(app_id, name) else {
-            return Err(format!(
+            return Err(Refusal::not_found(format!(
                 "'{name}' is not a preset {app_id} ships, so there is no shipped revision to \
                  reset it to. Shipped: {}",
                 shipped_names(app_id)
-            ));
+            )));
         };
         self.save(
             shipped.app_id,
@@ -1302,7 +1305,7 @@ impl PresetStore {
     fn item(&self, id: ItemId) -> Result<Option<Item>> {
         self.store
             .get(id)
-            .map_err(|e| format!("read preset {id}: {e}"))
+            .map_err(|e| Refusal::store(format!("read preset {id}: {e}")))
             .map(|item| item.filter(|i| i.schema == PRESET_SCHEMA_REF))
     }
 
@@ -1323,7 +1326,7 @@ impl PresetStore {
         Ok(self
             .store
             .query(&query)
-            .map_err(|e| format!("read presets: {e}"))?
+            .map_err(|e| Refusal::store(format!("read presets: {e}")))?
             .into_iter()
             .filter(|item| string_field(item, field::APP_ID).as_deref() == Some(app_id))
             .collect())
@@ -1344,7 +1347,7 @@ impl PresetStore {
         )?;
         self.store
             .insert(item)
-            .map_err(|e| format!("seed preset '{}': {e}", shipped.name))
+            .map_err(|e| Refusal::store(format!("seed preset '{}': {e}", shipped.name)))
     }
 
     fn patch(
@@ -1367,7 +1370,7 @@ impl PresetStore {
                 retention: RetentionTier::Durable,
             })
             .map(|_| ())
-            .map_err(|e| format!("write preset: {e}"))
+            .map_err(|e| Refusal::store(format!("write preset: {e}")))
     }
 }
 
@@ -1445,7 +1448,7 @@ pub fn record_derived_from(
 ) -> Result<Option<u64>> {
     let item = store
         .get(layout_row)
-        .map_err(|e| format!("read layout {layout_row}: {e}"))?
+        .map_err(|e| Refusal::store(format!("read layout {layout_row}: {e}")))?
         .ok_or_else(|| format!("layout row {layout_row} is gone"))?;
     let stale: Vec<ItemId> = item
         .references
@@ -1480,7 +1483,7 @@ pub fn record_derived_from(
             retention: RetentionTier::Durable,
         };
         let fail = |e: impress_core::store::StoreError| {
-            format!("record the preset this layout came from: {e}")
+            Refusal::store(format!("record the preset this layout came from: {e}"))
         };
         match revision {
             Some(expected) => match store
@@ -1488,7 +1491,7 @@ pub fn record_derived_from(
                 .map_err(fail)?
             {
                 GuardedWrite::Applied { clock, .. } => revision = Some(clock),
-                GuardedWrite::Moved { .. } => return Err(crate::session::STALE.to_string()),
+                GuardedWrite::Moved { .. } => return Err(Refusal::conflict(crate::session::STALE)),
             },
             None => {
                 store.apply_operation(spec).map_err(fail)?;
@@ -1503,7 +1506,7 @@ pub fn record_derived_from(
 pub fn derived_from(store: &Arc<SqliteItemStore>, layout_row: ItemId) -> Result<Option<ItemId>> {
     let item = store
         .get(layout_row)
-        .map_err(|e| format!("read layout {layout_row}: {e}"))?;
+        .map_err(|e| Refusal::store(format!("read layout {layout_row}: {e}")))?;
     Ok(item.and_then(|item| {
         item.references
             .iter()
@@ -1603,13 +1606,15 @@ fn roles_value(roles: &BTreeMap<Role, TileId>) -> Value {
 }
 
 fn queries_value(queries: &BTreeMap<String, PaneQuery>) -> Result<Value> {
-    let json = serde_json::to_value(queries).map_err(|e| format!("encode preset queries: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("encode preset queries: {e}"))
+    let json = serde_json::to_value(queries)
+        .map_err(|e| Refusal::store(format!("encode preset queries: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("encode preset queries: {e}")))
 }
 
 fn layout_value(layout: &Layout) -> Result<Value> {
-    let json = serde_json::to_value(layout).map_err(|e| format!("encode preset tree: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("encode preset tree: {e}"))
+    let json = serde_json::to_value(layout)
+        .map_err(|e| Refusal::store(format!("encode preset tree: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("encode preset tree: {e}")))
 }
 
 fn string_field(item: &Item, field: &str) -> Option<String> {
@@ -1621,9 +1626,9 @@ fn string_field(item: &Item, field: &str) -> Option<String> {
 
 fn row_of(item: &Item) -> Result<PresetRow> {
     let name = string_field(item, field::NAME)
-        .ok_or_else(|| format!("preset row {} has no `name`", item.id))?;
+        .ok_or_else(|| Refusal::store(format!("preset row {} has no `name`", item.id)))?;
     let app_id = string_field(item, field::APP_ID)
-        .ok_or_else(|| format!("preset row {} has no `app_id`", item.id))?;
+        .ok_or_else(|| Refusal::store(format!("preset row {} has no `app_id`", item.id)))?;
     let version = match item.payload.get(field::VERSION) {
         Some(Value::Int(v)) if *v >= 0 => u32::try_from(*v).ok(),
         _ => None,
@@ -1666,8 +1671,9 @@ fn stored_of(item: &Item) -> Result<StoredPreset> {
 }
 
 fn from_value<T: serde::de::DeserializeOwned>(value: &Value, what: &str) -> Result<T> {
-    let json = serde_json::to_value(value).map_err(|e| format!("read preset {what}: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("read preset {what}: {e}"))
+    let json = serde_json::to_value(value)
+        .map_err(|e| Refusal::store(format!("read preset {what}: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("read preset {what}: {e}")))
 }
 
 #[cfg(test)]
@@ -2205,9 +2211,10 @@ mod tests {
             .reset("imbib", "Mine", ActorKind::Human)
             .expect_err("nothing to reset to");
         assert!(
-            err.contains("Triage"),
+            err.message.contains("Triage"),
             "the refusal should name what IS shipped: {err}"
         );
+        assert_eq!(err.code, "not-found");
     }
 
     #[test]

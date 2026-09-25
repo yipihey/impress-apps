@@ -40,6 +40,7 @@ use impress_layout::{
 };
 
 use crate::store::{LayoutStore, LiveWrite};
+use impress_service_core::Refusal;
 
 /// Which ring a verb's patch landed on — what a caller needs to know to route
 /// the right ⌘Z back to it.
@@ -140,9 +141,9 @@ impl LayoutSession {
         store: &LayoutStore,
         actor: ActorKind,
         intent: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), Refusal> {
         let Some(revision) = self.revision else {
-            return Err(STALE.to_string());
+            return Err(Refusal::conflict(STALE));
         };
         match store.save_live_if(self.item_id, revision, &self.layout, actor, intent)? {
             LiveWrite::Written { revision } => {
@@ -159,7 +160,7 @@ impl LayoutSession {
                     self.item_id
                 );
                 self.revision = None;
-                Err(STALE.to_string())
+                Err(Refusal::conflict(STALE))
             }
         }
     }
@@ -416,7 +417,7 @@ impl SessionRegistry {
         device: &str,
         actor: ActorKind,
         f: impl FnOnce(&mut LayoutSession) -> R,
-    ) -> Result<R, String> {
+    ) -> Result<R, Refusal> {
         let mut sessions = self.lock();
         let key = (app_id.to_string(), device.to_string());
         let mut notice = None;

@@ -33,8 +33,11 @@ use impress_core::pane_query::{
     SubtreeResolver,
 };
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_layout::{ChannelId, Geometry, PaneSpec, ParamSource, Role, TileId, Verb, WindowId};
+use impress_layout::{
+    ChannelId, Geometry, LayoutError, PaneSpec, ParamSource, Role, TileId, Verb, WindowId,
+};
 use impress_service_core::async_trait;
+use impress_service_core::Refusal;
 use impress_service_macros::{impress_service, impress_service_impl};
 
 #[allow(unused_imports)]
@@ -601,6 +604,25 @@ impl DefaultLayoutService {
         )
     }
 
+    /// The store for a call that writes, acquired once: refused with
+    /// `store-unavailable` when it is the in-memory stand-in the store
+    /// service substitutes for a store it could not open, because a write
+    /// there answers `ok` and vanishes (review AC-F20).
+    fn layout_store_for_write(&self) -> Result<LayoutStore, Refusal> {
+        let store = self
+            .store
+            .clone()
+            .unwrap_or_else(impress_store_service::store_instance);
+        if impress_store_service::is_fallback_store(&store) {
+            return Err(Refusal::store_unavailable(format!(
+                "the store at {} could not be opened, so this write would land in a temporary \
+                 in-memory stand-in and vanish; nothing was written",
+                impress_store_service::store_path().display()
+            )));
+        }
+        Ok(LayoutStore::new(store))
+    }
+
     fn registry(&self) -> Arc<SessionRegistry> {
         self.sessions
             .clone()
@@ -624,7 +646,7 @@ impl DefaultLayoutService {
         app_id: &str,
         device: Option<String>,
         actor: Option<String>,
-        build: impl FnOnce(&LayoutSession) -> Result<Verb, String>,
+        build: impl FnOnce(&LayoutSession) -> Result<Verb, Refusal>,
     ) -> LayoutVerbResult {
         self.apply_verb_as(app_id, device, actor_from(actor.as_deref()), build)
     }
@@ -634,10 +656,13 @@ impl DefaultLayoutService {
         app_id: &str,
         device: Option<String>,
         actor_kind: ActorKind,
-        build: impl FnOnce(&LayoutSession) -> Result<Verb, String>,
+        build: impl FnOnce(&LayoutSession) -> Result<Verb, Refusal>,
     ) -> LayoutVerbResult {
         let device = resolve_device(device.as_deref());
-        let store = self.layout_store();
+        let store = match self.layout_store_for_write() {
+            Ok(store) => store,
+            Err(refusal) => return refused_verb(app_id, &device, actor_kind, None, refusal),
+        };
         let registry = self.registry();
         let mut build = Some(build);
         let mut built: Option<Verb> = None;
@@ -654,10 +679,12 @@ impl DefaultLayoutService {
                         built = Some(verb.clone());
                         verb
                     }
-                    (None, None) => return Err("the verb could not be rebuilt".to_string()),
+                    (None, None) => return Err(Refusal::internal("the verb could not be rebuilt")),
                 };
                 let intent = intent_text(&verb);
-                let applied = session.apply(verb).map_err(|e| e.to_string())?;
+                let applied = session
+                    .apply(verb.clone())
+                    .map_err(|e| layout_refusal(e).context(verb_label(&verb)))?;
                 if applied.patch.is_empty() {
                     // Nothing changed (focus on the focused pane, restore
                     // with nothing maximized): nothing to write, and no
@@ -674,13 +701,32 @@ impl DefaultLayoutService {
             });
             match flatten(outcome) {
                 Ok(Some((intent, applied))) => {
-                    return with_notices(LayoutVerbResult::applied(intent, &applied), &notices)
+                    log::info!(
+                        target: "layout",
+                        "{app_id}/{device}: {} {intent} (revision {:?}, {} pane(s) affected{})",
+                        actor_name(actor_kind),
+                        registry.revision_of(app_id, &device),
+                        applied.affected.len(),
+                        if applied.patch.is_empty() { ", nothing changed" } else { "" }
+                    );
+                    return with_notices(LayoutVerbResult::applied(intent, &applied), &notices);
                 }
                 Ok(None) => continue,
-                Err(message) => return with_notices(LayoutVerbResult::failed(message), &notices),
+                Err(refusal) => {
+                    return with_notices(
+                        refused_verb(app_id, &device, actor_kind, built.as_ref(), refusal),
+                        &notices,
+                    )
+                }
             }
         }
-        LayoutVerbResult::failed(crate::session::STALE)
+        refused_verb(
+            app_id,
+            &device,
+            actor_kind,
+            built.as_ref(),
+            Refusal::conflict(crate::session::STALE),
+        )
     }
 
     /// Run `f` against the session without applying a verb — the reads, and
@@ -695,10 +741,28 @@ impl DefaultLayoutService {
         app_id: &str,
         device: Option<String>,
         actor: ActorKind,
-        f: impl FnOnce(&mut LayoutSession, &LayoutStore) -> Result<R, String>,
-    ) -> Result<R, String> {
+        f: impl FnOnce(&mut LayoutSession, &LayoutStore) -> Result<R, Refusal>,
+    ) -> Result<R, Refusal> {
         let device = resolve_device(device.as_deref());
         let store = self.layout_store();
+        flatten(
+            self.registry()
+                .with(&store, app_id, &device, actor, |session| f(session, &store)),
+        )
+    }
+
+    /// [`Self::with_session`] for a call that writes (a save, a preset, a
+    /// reset): refused with `store-unavailable` when this process is on the
+    /// in-memory stand-in for the real store (review AC-F20).
+    fn with_session_for_write<R>(
+        &self,
+        app_id: &str,
+        device: Option<String>,
+        actor: ActorKind,
+        f: impl FnOnce(&mut LayoutSession, &LayoutStore) -> Result<R, Refusal>,
+    ) -> Result<R, Refusal> {
+        let device = resolve_device(device.as_deref());
+        let store = self.layout_store_for_write()?;
         flatten(
             self.registry()
                 .with(&store, app_id, &device, actor, |session| f(session, &store)),
@@ -737,6 +801,7 @@ impl DefaultLayoutService {
             let window = session.layout.current_window().ok();
             Ok(LayoutResult {
                 ok: true,
+                code: None,
                 message: format!(
                     "{} window(s), {} pane(s).",
                     session.layout.windows.len(),
@@ -750,7 +815,7 @@ impl DefaultLayoutService {
                 layout: Some(session.layout.clone()),
             })
         });
-        outcome.unwrap_or_else(LayoutResult::failed)
+        outcome.unwrap_or_else(LayoutResult::refused)
     }
 
     /// Resolve and compile one pane, as `actor` (see [`Self::get_layout_as`]).
@@ -767,18 +832,18 @@ impl DefaultLayoutService {
         device: Option<String>,
         reference: &impress_layout::PaneRef,
         actor: ActorKind,
-    ) -> Result<CompiledPane, String> {
+    ) -> Result<CompiledPane, Refusal> {
         let (tile, spec, bindings, channel, focused) =
             self.with_session(app_id, device, actor, |session, _| {
-                let window = session.layout.current_window().map_err(|e| e.to_string())?;
+                let window = session.layout.current_window().map_err(layout_refusal)?;
                 let tile = session
                     .layout
                     .resolve(window, reference)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(layout_refusal)?;
                 let spec = session
                     .layout
                     .pane(tile)
-                    .ok_or_else(|| format!("tile {tile} is a container, not a pane"))?
+                    .ok_or_else(|| layout_refusal(LayoutError::NotAPane { tile }))?
                     .clone();
                 Ok((
                     tile,
@@ -808,8 +873,61 @@ impl DefaultLayoutService {
     }
 }
 
-fn flatten<T>(outcome: Result<Result<T, String>, String>) -> Result<T, String> {
+fn flatten<T>(outcome: Result<Result<T, Refusal>, Refusal>) -> Result<T, Refusal> {
     outcome.and_then(|inner| inner)
+}
+
+/// A refusal by the tree, as the `Refusal` every result carries: its serde
+/// tag is the code (review RL-L11).
+pub(crate) fn layout_refusal(error: LayoutError) -> Refusal {
+    Refusal::new(error.code(), error.to_string())
+}
+
+/// The verb and what it named, for the front of a refusal's message —
+/// `close {"ref":"role","role":"detail"}` — so the caller learns which verb
+/// and which argument the tree refused (review RL-L11).
+fn verb_label(verb: &Verb) -> String {
+    let value = serde_json::to_value(verb).unwrap_or(serde_json::Value::Null);
+    let name = value
+        .get("verb")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("verb")
+        .to_string();
+    let named = ["target", "tile", "container", "window", "a"]
+        .iter()
+        .find_map(|key| value.get(*key));
+    match named {
+        Some(target) => format!("{name} {target}"),
+        None => name,
+    }
+}
+
+fn actor_name(actor: ActorKind) -> &'static str {
+    match actor {
+        ActorKind::Human => "human",
+        ActorKind::Agent => "agent",
+        ActorKind::System => "system",
+    }
+}
+
+/// A refused verb's result, logged once under `layout` with who asked, what
+/// was refused and why (review RL-L6).
+fn refused_verb(
+    app_id: &str,
+    device: &str,
+    actor: ActorKind,
+    verb: Option<&Verb>,
+    refusal: Refusal,
+) -> LayoutVerbResult {
+    log::warn!(
+        target: "layout",
+        "{app_id}/{device}: {} {} refused [{}]: {}",
+        actor_name(actor),
+        verb.map(verb_label).unwrap_or_else(|| "verb".to_string()),
+        refusal.code,
+        refusal.message
+    );
+    LayoutVerbResult::refused(refusal)
 }
 
 /// Put what the session reported about its own loading (a reload because the
@@ -880,7 +998,7 @@ fn apply_tree(
     label: &str,
     actor: ActorKind,
     what: &str,
-) -> Result<LayoutVerbResult, String> {
+) -> Result<LayoutVerbResult, Refusal> {
     for window in &mut layout.windows {
         window.geometry = None;
     }
@@ -911,15 +1029,18 @@ fn apply_preset_row(
     presets: &PresetStore,
     name: &str,
     actor: ActorKind,
-) -> Result<LayoutVerbResult, String> {
-    let (row, stored) = presets
-        .load(&session.app_id, name)?
-        .ok_or_else(|| format!("no preset named '{name}' for {}", session.app_id))?;
+) -> Result<LayoutVerbResult, Refusal> {
+    let (row, stored) = presets.load(&session.app_id, name)?.ok_or_else(|| {
+        Refusal::not_found(format!("no preset named '{name}' for {}", session.app_id))
+    })?;
     let layout = stored.layout.ok_or_else(|| {
-        format!(
-            "the preset '{}' carries no tree of its own (it inherits one), which nothing \
-             composes yet",
-            row.name
+        Refusal::new(
+            "preset-without-tree",
+            format!(
+                "the preset '{}' carries no tree of its own (it inherits one), which nothing \
+                 composes yet",
+                row.name
+            ),
         )
     })?;
     let result = apply_tree(session, store, layout, &row.name, actor, "preset")?;
@@ -938,10 +1059,10 @@ fn apply_preset_row(
 }
 
 /// One preset row, as the wire shows it.
-fn preset_dto(presets: &PresetStore, row: &PresetRow, ordinal: u32) -> Result<PresetDto, String> {
+fn preset_dto(presets: &PresetStore, row: &PresetRow, ordinal: u32) -> Result<PresetDto, Refusal> {
     let (_, stored) = presets
         .load(&row.app_id, &row.id.to_string())?
-        .ok_or_else(|| format!("preset {} vanished", row.id))?;
+        .ok_or_else(|| Refusal::not_found(format!("preset {} vanished", row.id)))?;
     let edited = presets.matches_shipped(row, &stored).map(|same| !same);
     let panes = stored
         .layout
@@ -986,15 +1107,15 @@ impl LayoutService for DefaultLayoutService {
                     // A bare "split this" duplicates the pane being split: it
                     // is the only spec that is certainly renderable here, and
                     // the user re-points one half immediately.
-                    let window = session.layout.current_window().map_err(|e| e.to_string())?;
+                    let window = session.layout.current_window().map_err(layout_refusal)?;
                     let tile = session
                         .layout
                         .resolve(window, &reference)
-                        .map_err(|e| e.to_string())?;
+                        .map_err(layout_refusal)?;
                     let mut spec = session
                         .layout
                         .pane(tile)
-                        .ok_or_else(|| format!("tile {tile} is a container, not a pane"))?
+                        .ok_or_else(|| layout_refusal(LayoutError::NotAPane { tile }))?
                         .clone();
                     // Two panes cannot hold one role (D5) and two panes must
                     // not share one session (D6) — the copy gets neither.
@@ -1330,6 +1451,7 @@ impl LayoutService for DefaultLayoutService {
                 if saved.ok {
                     LayoutVerbResult {
                         ok: true,
+                        code: None,
                         message: saved.message,
                         focused: None,
                         affected_panes: Vec::new(),
@@ -1339,14 +1461,17 @@ impl LayoutService for DefaultLayoutService {
                         patch: None,
                     }
                 } else {
-                    LayoutVerbResult::failed(saved.message)
+                    LayoutVerbResult::refused(Refusal::new(
+                        saved.code.unwrap_or_else(|| "refused".to_string()),
+                        saved.message,
+                    ))
                 }
             }
-            other => LayoutVerbResult::failed(format!(
+            other => LayoutVerbResult::refused(Refusal::invalid_argument(format!(
                 "cannot commit the current bindings as a '{other}' yet — only 'layout' and \
                  'preset' are materializable today. Committing a figure or a collection is the \
                  same verb with a different `as_kind` and arrives with the implore work."
-            )),
+            ))),
         }
     }
 
@@ -1359,7 +1484,7 @@ impl LayoutService for DefaultLayoutService {
         actor: Option<String>,
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
-        let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
             let intent = format!("committed the arrangement as '{}'", name.trim());
             let row = store.save_named(
                 &session.app_id,
@@ -1378,7 +1503,7 @@ impl LayoutService for DefaultLayoutService {
                 None,
             ))
         });
-        outcome.unwrap_or_else(LayoutVerbResult::failed)
+        outcome.unwrap_or_else(LayoutVerbResult::refused)
     }
 
     async fn apply_layout(
@@ -1390,7 +1515,7 @@ impl LayoutService for DefaultLayoutService {
         actor: Option<String>,
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
-        let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
             // An ordinal spans the SAME union `list_presets` numbers: this
             // app's presets, then its named layouts (`presets::ordinal_targets`).
             // So ⌃⌘1 is the app's default preset on a machine that has never
@@ -1400,15 +1525,17 @@ impl LayoutService for DefaultLayoutService {
                 ordinal,
             ) {
                 if ordinal == 0 {
-                    return Err("layout ordinals are 1-based (⌃⌘1–9)".to_string());
+                    return Err(Refusal::invalid_argument(
+                        "layout ordinals are 1-based (⌃⌘1–9)",
+                    ));
                 }
                 let presets = PresetStore::new(store.store().clone());
                 let targets = presets::ordinal_targets(&presets, store, &session.app_id)?;
                 let target = targets.get(ordinal as usize - 1).ok_or_else(|| {
-                    format!(
+                    Refusal::not_found(format!(
                         "no preset or saved layout at ordinal {ordinal}; this app has {}",
                         targets.len()
-                    )
+                    ))
                 })?;
                 return match target {
                     presets::OrdinalTarget::Preset(row) => {
@@ -1416,9 +1543,10 @@ impl LayoutService for DefaultLayoutService {
                     }
                     presets::OrdinalTarget::Layout(row) => {
                         let id = row.id.to_string();
-                        let (row, layout) = store
-                            .load_named(&session.app_id, &id)?
-                            .ok_or_else(|| format!("saved layout {id} vanished"))?;
+                        let (row, layout) =
+                            store.load_named(&session.app_id, &id)?.ok_or_else(|| {
+                                Refusal::not_found(format!("saved layout {id} vanished"))
+                            })?;
                         apply_tree(
                             session,
                             store,
@@ -1432,7 +1560,9 @@ impl LayoutService for DefaultLayoutService {
             }
 
             let Some(name) = name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else {
-                return Err("apply_layout needs a name or an ordinal".to_string());
+                return Err(Refusal::invalid_argument(
+                    "apply_layout needs a name or an ordinal",
+                ));
             };
             let (row, layout) = match store.load_named(&session.app_id, name)? {
                 Some(found) => found,
@@ -1447,7 +1577,9 @@ impl LayoutService for DefaultLayoutService {
                     if presets.load(&session.app_id, name)?.is_some() {
                         return apply_preset_row(session, store, &presets, name, actor_kind);
                     }
-                    return Err(format!("no saved layout or preset named '{name}'"));
+                    return Err(Refusal::not_found(format!(
+                        "no saved layout or preset named '{name}'"
+                    )));
                 }
             };
             apply_tree(
@@ -1459,7 +1591,7 @@ impl LayoutService for DefaultLayoutService {
                 "saved layout",
             )
         });
-        outcome.unwrap_or_else(LayoutVerbResult::failed)
+        outcome.unwrap_or_else(LayoutVerbResult::refused)
     }
 
     async fn delete_layout(
@@ -1473,7 +1605,10 @@ impl LayoutService for DefaultLayoutService {
         // it on — `LayoutStore::delete_named` takes none, unlike the
         // Durable-tier writes `save_layout` and `reset_preset` make.
         let _ = actor;
-        let store = self.layout_store();
+        let store = match self.layout_store_for_write() {
+            Ok(store) => store,
+            Err(refusal) => return LayoutVerbResult::refused(refusal),
+        };
         let key = name_or_id.trim();
         // A preset shares the ⌃⌘1–9 union's name space with saved layouts
         // (see `apply_layout`), so "delete Triage" must be refused by NAME,
@@ -1485,13 +1620,16 @@ impl LayoutService for DefaultLayoutService {
             .and_then(|_| presets.load(&app_id, key))
         {
             Ok(Some(_)) => {
-                return LayoutVerbResult::failed(format!(
-                    "'{key}' is a preset, not a saved layout — presets are never deleted; use \
-                     reset-preset to restore the shipped revision."
+                return LayoutVerbResult::refused(Refusal::new(
+                    "preset-not-deletable",
+                    format!(
+                        "'{key}' is a preset, not a saved layout — presets are never deleted; use \
+                         reset-preset to restore the shipped revision."
+                    ),
                 ));
             }
             Ok(None) => {}
-            Err(e) => return LayoutVerbResult::failed(e),
+            Err(e) => return LayoutVerbResult::refused(e),
         }
         match store.delete_named(&app_id, key) {
             // `delete_named` already refuses the live row: it resolves by
@@ -1500,6 +1638,7 @@ impl LayoutService for DefaultLayoutService {
             // here — exactly the `ok: false` this verb promises for it.
             Ok(true) => LayoutVerbResult {
                 ok: true,
+                code: None,
                 message: format!("Deleted '{key}'."),
                 focused: None,
                 affected_panes: Vec::new(),
@@ -1508,8 +1647,10 @@ impl LayoutService for DefaultLayoutService {
                 stack_pane: None,
                 patch: None,
             },
-            Ok(false) => LayoutVerbResult::failed(format!("no saved layout named or id'd '{key}'")),
-            Err(e) => LayoutVerbResult::failed(e),
+            Ok(false) => LayoutVerbResult::refused(Refusal::not_found(format!(
+                "no saved layout named or id'd '{key}'"
+            ))),
+            Err(e) => LayoutVerbResult::refused(e),
         }
     }
 
@@ -1547,7 +1688,7 @@ impl LayoutService for DefaultLayoutService {
     ) -> PaneResult {
         let reference = match target.to_pane_ref() {
             Ok(reference) => reference,
-            Err(e) => return PaneResult::failed(e),
+            Err(e) => return PaneResult::refused(Refusal::invalid_argument(e)),
         };
         match self.compiled_pane(&app_id, device, &reference, ActorKind::Agent) {
             Ok(pane) => {
@@ -1557,6 +1698,7 @@ impl LayoutService for DefaultLayoutService {
                 };
                 PaneResult {
                     ok: true,
+                    code: None,
                     message: format!("pane {} renders '{}'", pane.tile, pane.spec.view_kind),
                     tile: Some(pane.tile.raw()),
                     query: Some(compiled),
@@ -1567,7 +1709,7 @@ impl LayoutService for DefaultLayoutService {
                     spec: Some(pane.spec),
                 }
             }
-            Err(e) => PaneResult::failed(e),
+            Err(e) => PaneResult::refused(e),
         }
     }
 
@@ -1619,6 +1761,7 @@ impl LayoutService for DefaultLayoutService {
 
             Ok(ChannelResult {
                 ok: true,
+                code: None,
                 message: format!("channel {number} carries {} kind(s)", selections.len()),
                 channel: number,
                 selections,
@@ -1626,7 +1769,7 @@ impl LayoutService for DefaultLayoutService {
                 focused: window.and_then(|w| session.focused(w)).map(TileId::raw),
             })
         });
-        outcome.unwrap_or_else(ChannelResult::failed)
+        outcome.unwrap_or_else(ChannelResult::refused)
     }
 
     async fn resolve_reference(
@@ -1636,15 +1779,16 @@ impl LayoutService for DefaultLayoutService {
         target: PaneRefDto,
     ) -> ReferenceResult {
         let outcome = self.with_session(&app_id, device, ActorKind::Agent, |session, _| {
-            let window = session.layout.current_window().map_err(|e| e.to_string())?;
+            let window = session.layout.current_window().map_err(layout_refusal)?;
             let reference = target.to_pane_ref()?;
             let tile = session
                 .layout
                 .resolve(window, &reference)
-                .map_err(|e| e.to_string())?;
+                .map_err(layout_refusal)?;
             let spec = session.layout.pane(tile);
             Ok(ReferenceResult {
                 ok: true,
+                code: None,
                 message: format!("{reference:?} is tile {tile}"),
                 tile: Some(tile.raw()),
                 role: spec.and_then(|s| s.role.as_ref()).map(|r| r.to_string()),
@@ -1654,7 +1798,7 @@ impl LayoutService for DefaultLayoutService {
                 affected_panes: vec![tile.raw()],
             })
         });
-        outcome.unwrap_or_else(ReferenceResult::failed)
+        outcome.unwrap_or_else(ReferenceResult::refused)
     }
 
     async fn list_layouts(&self, app_id: String) -> LayoutListResult {
@@ -1666,7 +1810,7 @@ impl LayoutService for DefaultLayoutService {
         let presets = PresetStore::new(store.store().clone());
         let offset = match presets.ensure_shipped(&app_id) {
             Ok(rows) => rows.len() as u32,
-            Err(e) => return LayoutListResult::failed(e),
+            Err(e) => return LayoutListResult::refused(e),
         };
         match store.list_named(&app_id) {
             Ok(rows) => {
@@ -1686,11 +1830,12 @@ impl LayoutService for DefaultLayoutService {
                     .collect();
                 LayoutListResult {
                     ok: true,
+                    code: None,
                     message: format!("{} saved layout(s).", layouts.len()),
                     layouts,
                 }
             }
-            Err(e) => LayoutListResult::failed(e),
+            Err(e) => LayoutListResult::refused(e),
         }
     }
 
@@ -1701,18 +1846,19 @@ impl LayoutService for DefaultLayoutService {
         let presets = PresetStore::new(store.store().clone());
         let rows = match presets.ensure_shipped(&app_id) {
             Ok(rows) => rows,
-            Err(e) => return PresetListResult::failed(e),
+            Err(e) => return PresetListResult::refused(e),
         };
         let mut dtos: Vec<PresetDto> = Vec::with_capacity(rows.len());
         for (index, row) in rows.iter().enumerate() {
             match preset_dto(&presets, row, index as u32 + 1) {
                 Ok(dto) => dtos.push(dto),
-                Err(e) => return PresetListResult::failed(e),
+                Err(e) => return PresetListResult::refused(e),
             }
         }
         let known = presets::named_queries(&app_id);
         PresetListResult {
             ok: true,
+            code: None,
             message: format!("{} preset(s), {} named quer(ies).", dtos.len(), known.len()),
             presets: dtos,
             materialize_first: presets::MATERIALIZE_FIRST
@@ -1733,12 +1879,12 @@ impl LayoutService for DefaultLayoutService {
         actor: Option<String>,
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
-        let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
             let presets = PresetStore::new(store.store().clone());
             presets.ensure_shipped(&session.app_id)?;
             apply_preset_row(session, store, &presets, &name, actor_kind)
         });
-        outcome.unwrap_or_else(LayoutVerbResult::failed)
+        outcome.unwrap_or_else(LayoutVerbResult::refused)
     }
 
     async fn save_preset(
@@ -1751,14 +1897,14 @@ impl LayoutService for DefaultLayoutService {
         actor: Option<String>,
     ) -> PresetResult {
         if !from_live {
-            return PresetResult::failed(
+            return PresetResult::refused(Refusal::invalid_argument(
                 "save_preset builds a preset from the LIVE arrangement, so `from_live` must be \
                  true. Building one from a saved layout or from another preset is a different \
                  verb and does not exist yet.",
-            );
+            ));
         }
         let actor_kind = actor_from(actor.as_deref());
-        let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
             let presets = PresetStore::new(store.store().clone());
             presets.ensure_shipped(&session.app_id)?;
             let roles = presets::roles_of(&session.layout);
@@ -1794,11 +1940,12 @@ impl LayoutService for DefaultLayoutService {
             let ordinal = ordinal_of(&presets, store, &session.app_id, row.id)?;
             Ok(PresetResult {
                 ok: true,
+                code: None,
                 message: format!("Saved the preset '{}' ({}).", row.name, row.id),
                 preset: Some(preset_dto(&presets, &row, ordinal)?),
             })
         });
-        outcome.unwrap_or_else(PresetResult::failed)
+        outcome.unwrap_or_else(PresetResult::refused)
     }
 
     async fn reset_preset(
@@ -1808,22 +1955,26 @@ impl LayoutService for DefaultLayoutService {
         actor: Option<String>,
     ) -> PresetResult {
         let actor_kind = actor_from(actor.as_deref());
-        let store = self.layout_store();
+        let store = match self.layout_store_for_write() {
+            Ok(store) => store,
+            Err(refusal) => return PresetResult::refused(refusal),
+        };
         let presets = PresetStore::new(store.store().clone());
         if let Err(e) = presets.ensure_shipped(&app_id) {
-            return PresetResult::failed(e);
+            return PresetResult::refused(e);
         }
         let row = match presets.reset(&app_id, &name, actor_kind) {
             Ok(row) => row,
-            Err(e) => return PresetResult::failed(e),
+            Err(e) => return PresetResult::refused(e),
         };
         let ordinal = match ordinal_of(&presets, &store, &app_id, row.id) {
             Ok(ordinal) => ordinal,
-            Err(e) => return PresetResult::failed(e),
+            Err(e) => return PresetResult::refused(e),
         };
         match preset_dto(&presets, &row, ordinal) {
             Ok(dto) => PresetResult {
                 ok: true,
+                code: None,
                 message: format!(
                     "Reset '{}' to the revision the suite ships (v{}).",
                     row.name,
@@ -1831,7 +1982,7 @@ impl LayoutService for DefaultLayoutService {
                 ),
                 preset: Some(dto),
             },
-            Err(e) => PresetResult::failed(e),
+            Err(e) => PresetResult::refused(e),
         }
     }
 }
@@ -1844,7 +1995,7 @@ fn ordinal_of(
     layouts: &LayoutStore,
     app_id: &str,
     id: ItemId,
-) -> Result<u32, String> {
+) -> Result<u32, Refusal> {
     Ok(presets::ordinal_targets(presets, layouts, app_id)?
         .iter()
         .position(|target| match target {
@@ -1867,13 +2018,13 @@ impl DefaultLayoutService {
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
         let mut notice = None;
-        let outcome = self.with_session(app_id, device, actor_kind, |session, store| {
+        let outcome = self.with_session_for_write(app_id, device, actor_kind, |session, store| {
             notice = session.take_notice();
             if notice.is_some() {
                 // Reloaded on this very touch: the rings this ⌘Z was aimed at
                 // are gone with the tree they described. Say so rather than
                 // answer "nothing to undo" as if nothing had happened.
-                return Err("nothing was undone or redone".to_string());
+                return Err(Refusal::conflict("nothing was undone or redone"));
             }
             let arrangement = parse_stack(stack)?;
             let ring = if arrangement {
@@ -1882,15 +2033,15 @@ impl DefaultLayoutService {
                 UndoTarget::Exploration(target.to_pane_ref()?)
             };
             let stepped = if undo {
-                session.undo(&ring).map_err(|e| e.to_string())?
+                session.undo(&ring).map_err(layout_refusal)?
             } else {
-                session.redo(&ring).map_err(|e| e.to_string())?
+                session.redo(&ring).map_err(layout_refusal)?
             };
             let word = if undo { "undo" } else { "redo" };
             if let (None, Some(dropped)) = (&stepped, session.dropped_history()) {
                 // The ring is empty because a reload emptied it, not because
                 // there was never anything to undo.
-                return Err(format!("nothing to {word}: {dropped}"));
+                return Err(Refusal::conflict(format!("nothing to {word}: {dropped}")));
             }
             let Some(patch) = stepped else {
                 // An empty ring is a no-op, not a failure: ⌘Z with nothing to
@@ -1927,7 +2078,7 @@ impl DefaultLayoutService {
             ))
         });
         let notices: Vec<String> = notice.into_iter().collect();
-        with_notices(outcome.unwrap_or_else(LayoutVerbResult::failed), &notices)
+        with_notices(outcome.unwrap_or_else(LayoutVerbResult::refused), &notices)
     }
 }
 
@@ -1938,10 +2089,10 @@ fn ring_name(target: &UndoTarget) -> &'static str {
     }
 }
 
-fn window_or_current(session: &LayoutSession, window: Option<u64>) -> Result<WindowId, String> {
+fn window_or_current(session: &LayoutSession, window: Option<u64>) -> Result<WindowId, Refusal> {
     match window {
         Some(raw) => Ok(WindowId::new(raw)),
-        None => session.layout.current_window().map_err(|e| e.to_string()),
+        None => session.layout.current_window().map_err(layout_refusal),
     }
 }
 
