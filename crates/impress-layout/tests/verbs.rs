@@ -29,7 +29,7 @@ fn split_inserts_beside_the_target_and_focuses_the_new_pane() {
             target: PaneRef::role(Role::DETAIL),
             dir: impress_layout::LinearDir::Vertical,
             after: true,
-            new: scratch_pane(),
+            new: Some(scratch_pane()),
         })
         .unwrap();
 
@@ -58,7 +58,7 @@ fn split_along_the_parents_direction_extends_it_rather_than_nesting() {
             target: PaneRef::id(parts.list),
             dir: impress_layout::LinearDir::Horizontal,
             after: true,
-            new: scratch_pane(),
+            new: Some(scratch_pane()),
         })
         .unwrap();
     let root = layout.tile(parts.root).unwrap().as_container().unwrap();
@@ -830,7 +830,7 @@ fn direction_steps_into_a_tab_strips_visible_tab() {
             target: PaneRef::id(parts.detail),
             dir: impress_layout::LinearDir::Vertical,
             after: true,
-            new: scratch_pane(),
+            new: Some(scratch_pane()),
         })
         .unwrap();
     let pdf = layout.window(window).unwrap().focused.unwrap();
@@ -1172,7 +1172,7 @@ fn a_move_across_windows_that_would_hold_a_role_twice_is_refused() {
             target: PaneRef::id(parts.detail),
             dir: impress_layout::LinearDir::Vertical,
             after: true,
-            new: spec,
+            new: Some(spec),
         })
         .unwrap();
     let second_list = layout
@@ -1192,4 +1192,210 @@ fn a_move_across_windows_that_would_hold_a_role_twice_is_refused() {
         .unwrap_err();
     assert!(matches!(err, LayoutError::RoleHeldTwice { .. }), "{err:?}");
     assert_eq!(layout, before);
+}
+
+// ------------------------------------------------- the written contract (T6)
+
+/// One pane-reference spelling on every path (review RL-L3, AC-F3): exactly
+/// one of `id`, `role`, `direction`, `focused: true`. The retired tagged
+/// spelling, an empty reference and two selectors at once are refused.
+#[test]
+fn a_pane_reference_has_one_spelling_and_names_exactly_one_pane() {
+    for (json, expected) in [
+        (r#"{"id":7}"#, PaneRef::id(impress_layout::TileId::new(7))),
+        (r#"{"role":"detail"}"#, PaneRef::role(Role::DETAIL)),
+        (
+            r#"{"direction":"left"}"#,
+            PaneRef::direction(Direction::Left),
+        ),
+        (r#"{"direction":"l"}"#, PaneRef::direction(Direction::Right)),
+        (r#"{"focused":true}"#, PaneRef::Focused),
+    ] {
+        let parsed: PaneRef = serde_json::from_str(json).expect(json);
+        assert_eq!(parsed, expected, "{json}");
+    }
+    assert_eq!(
+        serde_json::to_string(&PaneRef::id(impress_layout::TileId::new(7))).unwrap(),
+        r#"{"id":7}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&PaneRef::Focused).unwrap(),
+        r#"{"focused":true}"#
+    );
+    for bad in [
+        r#"{"ref":"id","tile":7}"#,
+        r#"{}"#,
+        r#"{"focused":false}"#,
+        r#"{"id":7,"role":"detail"}"#,
+        r#"{"role":"  "}"#,
+        r#"{"direction":"sideways"}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<PaneRef>(bad).is_err(),
+            "{bad} must be refused"
+        );
+    }
+    let err = serde_json::from_str::<PaneRef>(r#"{"ref":"id","tile":7}"#).unwrap_err();
+    assert!(err.to_string().contains("unknown field `ref`"), "{err}");
+}
+
+/// A split with no `new` duplicates the target, minus its role and session —
+/// the one shape every path sends (review RL-L20).
+#[test]
+fn a_bare_split_duplicates_the_target_without_its_role() {
+    let (mut layout, parts) = three_column();
+    let verb: Verb = serde_json::from_str(
+        r#"{"verb":"split","target":{"role":"detail"},"dir":"vertical","after":true}"#,
+    )
+    .expect("a split without `new` parses");
+    layout.apply(verb).unwrap();
+    let focused = layout.window(parts.window).unwrap().focused.unwrap();
+    let copy = layout.pane(focused).unwrap();
+    let original = layout.pane(parts.detail).unwrap();
+    assert_eq!(copy.view_kind, original.view_kind);
+    assert_eq!(copy.query, original.query);
+    assert_eq!(copy.role, None, "two panes cannot hold one role");
+    assert_eq!(original.role, Some(Role::DETAIL));
+}
+
+/// A verb never writes a view kind no host renders (review RL-L12, PH-M7).
+#[test]
+fn a_verb_naming_an_unknown_view_kind_is_refused_and_changes_nothing() {
+    let (mut layout, parts) = three_column();
+    let before = layout.clone();
+    let holodeck = ViewKindId::from("holodeck".to_string());
+    let mut spec = scratch_pane();
+    spec.view_kind = holodeck.clone();
+    for verb in [
+        Verb::SetViewKind {
+            target: PaneRef::id(parts.detail),
+            view_kind: holodeck.clone(),
+        },
+        Verb::SetViewKind {
+            target: PaneRef::id(parts.detail),
+            view_kind: ViewKindId::from("editor".to_string()),
+        },
+        Verb::SetPane {
+            target: PaneRef::id(parts.detail),
+            spec: spec.clone(),
+        },
+        Verb::Split {
+            target: PaneRef::id(parts.detail),
+            dir: impress_layout::LinearDir::Vertical,
+            after: true,
+            new: Some(spec.clone()),
+        },
+    ] {
+        let err = layout.apply(verb).unwrap_err();
+        assert_eq!(err.code(), "unknown-view-kind");
+        assert!(
+            err.to_string().contains("notes"),
+            "names the vocabulary: {err}"
+        );
+    }
+    assert_eq!(layout, before);
+    // Every kind in the vocabulary is accepted.
+    for kind in ViewKindId::KNOWN {
+        layout
+            .apply(Verb::SetViewKind {
+                target: PaneRef::id(parts.detail),
+                view_kind: kind.clone(),
+            })
+            .unwrap_or_else(|e| panic!("{kind}: {e}"));
+    }
+}
+
+/// ⌃⌘S as a verb (review RL-L13): hiding remembers the share, showing puts
+/// it back exactly — not the siblings' average — and the decision is taken
+/// against the tree under the verb's own lock.
+#[test]
+fn set_collapsed_hides_and_restores_the_exact_share() {
+    let (mut layout, parts) = three_column();
+    let share_of = |layout: &Layout, tile| {
+        let parent = layout.parent_of(tile).unwrap();
+        let c = layout.tile(parent).unwrap().as_container().unwrap();
+        c.shares().unwrap()[c.index_of(tile).unwrap()]
+    };
+    // A narrow navigator, unlike its siblings.
+    let parent = layout.parent_of(parts.navigator).unwrap();
+    let n = layout.tile(parent).unwrap().as_container().unwrap().len();
+    let mut shares = vec![3.0; n];
+    shares[0] = 0.7;
+    layout
+        .apply(Verb::Resize {
+            container: parent,
+            shares,
+        })
+        .unwrap();
+    let before = share_of(&layout, parts.navigator);
+
+    let toggle = || Verb::SetCollapsed {
+        target: PaneRef::role(Role::NAVIGATOR),
+        collapsed: None,
+    };
+    let hidden = layout.apply(toggle()).unwrap();
+    assert!(impress_layout::is_hidden(share_of(
+        &layout,
+        parts.navigator
+    )));
+    assert_eq!(
+        layout.pane(parts.navigator).unwrap().collapsed_share,
+        Some(before)
+    );
+    assert!(!hidden.is_empty());
+
+    // Asking for what already is costs nothing.
+    let again = layout
+        .apply(Verb::SetCollapsed {
+            target: PaneRef::role(Role::NAVIGATOR),
+            collapsed: Some(true),
+        })
+        .unwrap();
+    assert!(again.is_empty());
+
+    layout.apply(toggle()).unwrap();
+    assert!(
+        (share_of(&layout, parts.navigator) - before).abs() < 1e-6,
+        "exact, not the average"
+    );
+    assert_eq!(layout.pane(parts.navigator).unwrap().collapsed_share, None);
+
+    // Undo of the show hides it again, memory and all (the patch carries the
+    // pane's spec).
+    let mut stacks = impress_layout::UndoStacks::default();
+    stacks.apply(&mut layout, toggle()).unwrap();
+    stacks.undo_arrangement(&mut layout).unwrap();
+    assert!((share_of(&layout, parts.navigator) - before).abs() < 1e-6);
+    stacks.redo_arrangement(&mut layout).unwrap();
+    assert!(impress_layout::is_hidden(share_of(
+        &layout,
+        parts.navigator
+    )));
+    assert_eq!(
+        layout.pane(parts.navigator).unwrap().collapsed_share,
+        Some(before)
+    );
+
+    // Dragged open some other way: the memory goes, so the next collapse
+    // remembers the new width.
+    let n = layout.tile(parent).unwrap().as_container().unwrap().len();
+    layout
+        .apply(Verb::Resize {
+            container: parent,
+            shares: vec![2.0; n],
+        })
+        .unwrap();
+    assert_eq!(layout.pane(parts.navigator).unwrap().collapsed_share, None);
+}
+
+#[test]
+fn set_collapsed_outside_a_split_is_refused() {
+    let mut layout = Layout::new_single_pane(scratch_pane());
+    let err = layout
+        .apply(Verb::SetCollapsed {
+            target: PaneRef::Focused,
+            collapsed: None,
+        })
+        .unwrap_err();
+    assert_eq!(err.code(), "not-in-a-split");
 }

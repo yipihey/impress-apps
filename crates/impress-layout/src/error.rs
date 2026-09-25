@@ -5,7 +5,7 @@
 //! verb can never leave a half-mutated tree (which, in a tree whose whole point
 //! is legibility, would be worse than the failure).
 
-use crate::ids::{ChannelId, Role, TileId, WindowId};
+use crate::ids::{ChannelId, Role, TileId, ViewKindId, WindowId};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -74,9 +74,37 @@ pub enum LayoutError {
     /// silently undo that later change too (review RL-L4).
     #[error("{what} changed since this step was recorded, so the step was dropped and nothing was changed")]
     UndoConflict { what: String },
+
+    /// `set-collapsed` of a pane whose parent is not a split: only a split
+    /// has shares to collapse to.
+    #[error("tile {tile} is not the child of a split, so it has no share to collapse")]
+    NotInASplit { tile: TileId },
+
+    /// A verb named a view kind no host renders (`set-view-kind`,
+    /// `set-pane`, a split's new pane). The vocabulary is
+    /// [`ViewKindId::KNOWN`]; a stored tree naming an unknown kind still
+    /// loads and renders a placeholder, but a verb never writes one (review
+    /// RL-L12, PH-M7).
+    #[error("'{view_kind}' is not a view kind; use one of {known}")]
+    UnknownViewKind {
+        view_kind: ViewKindId,
+        known: String,
+    },
 }
 
 impl LayoutError {
+    /// Refuse `view_kind` unless it is in the vocabulary.
+    pub fn check_view_kind(view_kind: &ViewKindId) -> Result<(), LayoutError> {
+        if view_kind.is_known() {
+            Ok(())
+        } else {
+            Err(LayoutError::UnknownViewKind {
+                view_kind: view_kind.clone(),
+                known: ViewKindId::known_list(),
+            })
+        }
+    }
+
     /// The stable, machine-readable name of this refusal — its serde tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …). This is the `code`
     /// every layout result carries next to its prose `message` (review
@@ -98,6 +126,8 @@ impl LayoutError {
             LayoutError::UnknownParam { .. } => "unknown-param",
             LayoutError::RoleHeldTwice { .. } => "role-held-twice",
             LayoutError::UndoConflict { .. } => "undo-conflict",
+            LayoutError::NotInASplit { .. } => "not-in-a-split",
+            LayoutError::UnknownViewKind { .. } => "unknown-view-kind",
         }
     }
 }
@@ -136,6 +166,11 @@ mod tests {
                 window,
             },
             LayoutError::UndoConflict { what: "x".into() },
+            LayoutError::NotInASplit { tile },
+            LayoutError::UnknownViewKind {
+                view_kind: ViewKindId::from("holodeck".to_string()),
+                known: ViewKindId::known_list(),
+            },
         ];
         for error in all {
             let json = serde_json::to_value(&error).unwrap();

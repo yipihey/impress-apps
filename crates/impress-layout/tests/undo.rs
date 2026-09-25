@@ -81,7 +81,7 @@ fn arrangement_undo_and_redo_restore_the_tree_exactly() {
                 target: PaneRef::id(parts.detail),
                 dir: LinearDir::Vertical,
                 after: true,
-                new: scratch_pane(),
+                new: Some(scratch_pane()),
             },
         )
         .unwrap();
@@ -495,7 +495,7 @@ fn a_new_split_never_inherits_the_ring_of_a_split_that_was_undone() {
                     target: PaneRef::id(parts.detail),
                     dir: LinearDir::Vertical,
                     after: true,
-                    new: scratch_pane(),
+                    new: Some(scratch_pane()),
                 },
             )
             .unwrap();
@@ -561,4 +561,72 @@ fn the_ring_of_a_pane_nothing_can_bring_back_is_pruned() {
         )
         .unwrap();
     assert!(!stacks.exploration.contains_key(&parts.detail));
+}
+
+/// Several verbs as one gesture (review PH-M2): all or nothing, one ⌘Z.
+#[test]
+fn a_batch_is_one_undo_step_and_a_refusal_applies_none_of_it() {
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::default();
+    let before = layout.clone();
+    let publication = impress_layout::RecordKindId::from("publication".to_string());
+    let batch = vec![
+        Verb::Focus {
+            target: PaneRef::id(parts.list),
+        },
+        Verb::Select {
+            target: PaneRef::id(parts.list),
+            kind: publication.clone(),
+            ids: vec![uuid::Uuid::new_v4()],
+        },
+        Verb::SetViewKind {
+            target: PaneRef::id(parts.detail),
+            view_kind: ViewKindId::NOTES,
+        },
+    ];
+    let patch = stacks
+        .apply_all(&mut layout, batch)
+        .unwrap()
+        .expect("a step");
+    assert!(
+        matches!(patch.verb, Verb::Select { .. }),
+        "the first recorded verb labels it"
+    );
+    assert_eq!(
+        layout.pane(parts.detail).unwrap().view_kind,
+        ViewKindId::NOTES
+    );
+    // One step on the list's exploration ring takes back all three.
+    let ring = stacks
+        .exploration
+        .get(&parts.list)
+        .expect("the list's ring");
+    assert_eq!(ring.done.len(), 1);
+    stacks
+        .undo_exploration(&mut layout, parts.list)
+        .unwrap()
+        .expect("undone");
+    assert_eq!(
+        layout.pane(parts.detail).unwrap().view_kind,
+        before.pane(parts.detail).unwrap().view_kind
+    );
+    assert_eq!(layout.channels, before.channels);
+
+    // A refusal in the middle applies nothing and records nothing.
+    let snapshot = layout.clone();
+    let refused = stacks.apply_all(
+        &mut layout,
+        vec![
+            Verb::SetViewKind {
+                target: PaneRef::id(parts.detail),
+                view_kind: ViewKindId::BIBTEX,
+            },
+            Verb::Close {
+                target: PaneRef::id(impress_layout::TileId::new(4242)),
+            },
+        ],
+    );
+    assert!(refused.is_err());
+    assert_eq!(layout, snapshot);
+    assert!(stacks.apply_all(&mut layout, Vec::new()).unwrap().is_none());
 }

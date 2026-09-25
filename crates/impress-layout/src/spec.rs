@@ -106,6 +106,14 @@ pub struct PaneSpec {
     /// For session-bearing view kinds (ADR-0031 D6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionId>,
+    /// The share this pane had in its split before `set-collapsed` hid it —
+    /// what showing it again restores, exactly (review RL-L13: restoring to
+    /// the siblings' average turned a 240 pt sidebar into a column as wide
+    /// as the list). Present only while the pane is collapsed; `normalize`
+    /// drops it once the pane's share is no longer hidden, however that
+    /// happened (a drag, a resize, an undo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapsed_share: Option<f32>,
 }
 
 impl PaneSpec {
@@ -120,6 +128,7 @@ impl PaneSpec {
             channel: ChannelId::ONE,
             role: None,
             session: None,
+            collapsed_share: None,
         }
     }
 

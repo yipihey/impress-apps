@@ -15,9 +15,22 @@ use crate::tree::{ContainerKind, Geometry, LinearDir};
 
 /// How a verb names a pane. Resolution happens once, in Rust
 /// ([`crate::Layout::resolve`]).
+///
+/// **One spelling everywhere** (review RL-L3, AC-F3): MCP, the CLI, HTTP's
+/// `/api/layout/verb`, the FFI, the outline's verbs and every message that
+/// echoes a verb write a reference as an object with exactly ONE of
+///
+/// ```json
+/// {"id": 7}   {"role": "detail"}   {"direction": "left"}   {"focused": true}
+/// ```
+///
+/// ([`PaneRefWire`]). The internally tagged `{"ref": "id", "tile": 7}` this
+/// type used to serialize as was retired with wire version 1: nothing
+/// persisted it (undo rings live in memory), so no transition reads it, and
+/// a caller still sending it is told `unknown field 'ref'`. An empty `{}`
+/// no longer means the focused pane — `{"focused": true}` says so.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(tag = "ref", rename_all = "kebab-case")]
+#[serde(try_from = "PaneRefWire", into = "PaneRefWire")]
 pub enum PaneRef {
     /// Canonical: what the operation log and the tests use.
     Id { tile: TileId },
@@ -43,6 +56,144 @@ impl PaneRef {
     }
 }
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for PaneRef {
+    fn schema_name() -> String {
+        "PaneRef".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        <PaneRefWire as schemars::JsonSchema>::json_schema(gen)
+    }
+}
+
+/// A pane reference as it is written: exactly one of `id`, `role`,
+/// `direction` or `focused: true` (see [`PaneRef`]). Unknown fields are
+/// refused — a reference is only ever an argument, never a stored value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct PaneRefWire {
+    /// Canonical: the tile id. What the log and the tests use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+    /// `navigator` | `list` | `detail` | `preview` | `console` | any role a
+    /// preset assigned. What chords and agents say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// `left` | `right` | `up` | `down` | `next` | `prev` (also `h` `l` `k`
+    /// `j`) — a step from the focused leaf. What h / l produce.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<Direction>,
+    /// `true`: the focused leaf itself. Must be said; `{}` names nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused: Option<bool>,
+}
+
+impl PaneRefWire {
+    pub fn tile(id: TileId) -> Self {
+        Self {
+            id: Some(id.raw()),
+            ..Default::default()
+        }
+    }
+
+    pub fn role(role: &str) -> Self {
+        Self {
+            role: Some(role.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn direction(direction: Direction) -> Self {
+        Self {
+            direction: Some(direction),
+            ..Default::default()
+        }
+    }
+
+    pub fn focused() -> Self {
+        Self {
+            focused: Some(true),
+            ..Default::default()
+        }
+    }
+
+    /// The reference this names. Exactly one selector, or a refusal saying
+    /// what was wrong — never a guess (an empty reference used to mean the
+    /// focused pane, so a reference in the wrong spelling closed it).
+    pub fn to_pane_ref(&self) -> Result<PaneRef, String> {
+        let role = self.role.as_deref().map(str::trim);
+        let mut named: Vec<&str> = Vec::new();
+        if self.id.is_some() {
+            named.push("id");
+        }
+        if role.is_some() {
+            named.push("role");
+        }
+        if self.direction.is_some() {
+            named.push("direction");
+        }
+        match self.focused {
+            Some(true) => named.push("focused"),
+            Some(false) => {
+                return Err(
+                    "a pane reference with `\"focused\": false` names no pane; give \
+                            {\"id\": N}, {\"role\": …} or {\"direction\": …} instead"
+                        .to_string(),
+                )
+            }
+            None => {}
+        }
+        match named.as_slice() {
+            [] => Err(
+                "a pane reference must name a pane: give exactly one of {\"id\": N}, \
+                       {\"role\": \"detail\"}, {\"direction\": \"left\"} or \
+                       {\"focused\": true}"
+                    .to_string(),
+            ),
+            ["id"] => Ok(PaneRef::id(TileId::new(self.id.unwrap_or_default()))),
+            ["role"] => match role {
+                Some(role) if !role.is_empty() => Ok(PaneRef::role(Role::from(role.to_string()))),
+                _ => Err("a pane reference's `role` is empty".to_string()),
+            },
+            ["direction"] => Ok(PaneRef::direction(
+                self.direction.unwrap_or(Direction::Next),
+            )),
+            ["focused"] => Ok(PaneRef::Focused),
+            several => Err(format!(
+                "a pane reference names one pane, but this one sets {}; keep exactly one",
+                several.join(" and ")
+            )),
+        }
+    }
+}
+
+impl TryFrom<PaneRefWire> for PaneRef {
+    type Error = String;
+
+    fn try_from(wire: PaneRefWire) -> Result<Self, Self::Error> {
+        wire.to_pane_ref()
+    }
+}
+
+impl From<PaneRef> for PaneRefWire {
+    fn from(reference: PaneRef) -> Self {
+        PaneRefWire::from(&reference)
+    }
+}
+
+impl From<&PaneRef> for PaneRefWire {
+    fn from(reference: &PaneRef) -> Self {
+        match reference {
+            PaneRef::Id { tile } => PaneRefWire::tile(*tile),
+            PaneRef::Role { role } => PaneRefWire::role(role.as_str()),
+            PaneRef::Direction { direction } => PaneRefWire::direction(*direction),
+            PaneRef::Focused => PaneRefWire::focused(),
+        }
+    }
+}
+
 /// A step from the focused leaf.
 ///
 /// `Next` / `Prev` walk the window's leaves in tree order and wrap, which is
@@ -53,11 +204,17 @@ impl PaneRef {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Direction {
+    #[serde(alias = "h")]
     Left,
+    #[serde(alias = "l")]
     Right,
+    #[serde(alias = "k")]
     Up,
+    #[serde(alias = "j")]
     Down,
+    #[serde(alias = "forward")]
     Next,
+    #[serde(alias = "previous", alias = "back")]
     Prev,
 }
 
@@ -111,12 +268,18 @@ pub enum Verb {
     // ---- arrangement ----
     /// Split `target` along `dir`, putting `new` after it (or before, when
     /// `after` is false). Focus follows the new pane.
+    ///
+    /// `new` omitted duplicates the pane being split — minus its role (D5)
+    /// and its session (D6) — which is what a bare "split this" gesture
+    /// means. One shape on every path (review RL-L20): MCP, the CLI, the FFI
+    /// and HTTP all send this verb, and the rule lives in `apply`.
     Split {
         target: PaneRef,
         dir: LinearDir,
         #[serde(default)]
         after: bool,
-        new: PaneSpec,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new: Option<PaneSpec>,
     },
     /// Move `tile` next to (or into the tabs of) `target`.
     MoveTile {
@@ -142,6 +305,16 @@ pub enum Verb {
     SetContainerKind {
         container: TileId,
         kind: ContainerKind,
+    },
+    /// Collapse a pane to no width in its split, or show it again at the
+    /// share it had — what ⌃⌘S does to the navigator (review RL-L13).
+    /// `collapsed` omitted toggles, decided here against the tree as it is,
+    /// under the same lock as every other verb. Refused (`not-in-a-split`)
+    /// for a pane that is not the child of a split.
+    SetCollapsed {
+        target: PaneRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        collapsed: Option<bool>,
     },
     /// Show `target` alone in its window. Does not mutate the tree.
     Maximize {

@@ -140,7 +140,7 @@ fn every_verb_leaves_the_tree_normalized() {
             target: PaneRef::id(parts.detail),
             dir: LinearDir::Vertical,
             after: true,
-            new: scratch_pane(),
+            new: Some(scratch_pane()),
         })
         .unwrap();
     let extra = layout.window(parts.window).unwrap().focused.unwrap();
