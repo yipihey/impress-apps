@@ -520,3 +520,18 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
   - **Found.** The copied imbib-core/implore-core frameworks predated T5 and the toolchain pin
     (missing checksums, duplicate `_rust_eh_personality`); rebuilt in the worktree. impress's
     `/api/status` still reports 23125 on 23201 (T5's finding 4).
+- 2026-09-25 — **Wave 7 closed.** T1–T6 merged (#71, #67, #68, #69, #74, #75, #76), each verified by the
+  orchestrator on main merged in (full Rust gate ~3,950–3,994 tests and every Swift suite, 0 failures).
+  End to end on main itself: every xcframework rebuilt on the 1.98.1 pin (every committed binding regenerated
+  byte-identical), all six apps built from main (launchers repointed to `DerivedData/impress-suite`), the five
+  chassis apps relaunched from those builds, and **Tier B 14/14, 0 skipped, `ok: true` on impress, imprint,
+  implore, impel and impart**; the surface self-test 18/18. Review findings still open, all narrowed with a
+  stated reason in their PRs: RL-L14 (focus-only saves still written), RL-L24 (a durable delete author needs a
+  store decision), AC-F22 (surface revision check not atomic across processes: the store has no conditional
+  write for that path), RS-S21 (`call_verb` and the self-test report types still duplicated), PH-L5, and the
+  cross-process hard delete reaching a query source only on its next re-run. Process lessons, now in the repo:
+  the pre-push hook scrubs a worktree's `GIT_DIR` (#53) and writes per-run logs (#70); `push.default = simple`
+  in this repository, so a bare `git push` in one worktree cannot push another's branch; parallel Xcode builds
+  can prune each other's `DerivedData/SDKExplicitPrecompiledModules` (retry, never skip the hook); build agent
+  apps with `IMPRESS_SKIP_INSTALL=1` and their own `IMPRESS_DERIVED`, and give each its own automation port by
+  launch argument.
