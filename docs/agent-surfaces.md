@@ -351,6 +351,36 @@ rest of itself on an older host.
 each an `#[impress_method]` on `impress-surface-service`'s trait, so MCP, the
 CLI and impel's agent loop get all fifteen together.
 
+### Results: `ok`, `code`, and who acted
+
+Every result carries `ok` and a prose `message`, and a refusal also carries a
+machine-readable `code`: branch on `code`, never on the message. The generic
+codes are `invalid-argument`, `not-found`, `conflict` (a stale
+`expected_revision`), `store-error`, `store-unavailable` (the real store could
+not be opened; writes are refused rather than landing in a throwaway),
+`unknown-verb`, `verb-failed`, `no-pane`, `effect-failed` and `internal`;
+a reduce refusal carries its own (`unknown-widget`, `not-bindable`,
+`invalid-path`, `each-not-array`, `unknown-template-root`,
+`missing-template-path`), and a layout refusal its `LayoutError` tag
+(`unknown-tile`, `cannot-close-last-pane`, …). Over HTTP the error body is
+`{"error", "code"}` and the status follows the code (400, 404, 409, 422 for a
+refusal by the tree or the reducer, 500, 503).
+
+**`surface_dispatch` is `ok` only when everything happened**: the event was
+reduced and every effect it produced succeeded. When the event was reduced
+(its state saved) but an effect failed, the answer is `ok: false`, `code:
+"effect-failed"`, `effects_failed: N`, the message naming each failure, and
+the re-rendered `tree` plus every effect's own `{kind, ok, code, message}` in
+`effects` — over HTTP a 422 with that same body. A source that fails while
+re-rendering does not fail the dispatch; it is listed in `source_errors`.
+
+Every event row says who caused it: `actor` is `human` for a click or edit in
+the app's pane and `agent` for a dispatch over MCP or HTTP, so a
+`surface_wait` loop tells the person's action from its own.
+
+The `impress` CLI exits 3 when a verb answers `"ok": false` (1 when it could
+not be dispatched, 2 for a bad invocation), so a script can test the status.
+
 ## How to add a Rust capability
 
 A surface can only compute by calling a verb (ADR-0033 D3/D4) — there are no
