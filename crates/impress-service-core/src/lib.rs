@@ -24,6 +24,17 @@ pub mod runtime;
 
 pub use refusal::Refusal;
 
+/// The version of the agent-facing wire the layout and surface services
+/// speak: every verb result and HTTP body carries `"wire_version": 1`, is
+/// snake_case, and refuses as `{"ok": false, "code", "message"}` (wave 7 T6).
+/// A change a client that read version 1 would misread bumps it.
+pub const WIRE_VERSION: u32 = 1;
+
+/// [`WIRE_VERSION`], for `#[serde(default = "impress_service_core::wire_version")]`.
+pub fn wire_version() -> u32 {
+    WIRE_VERSION
+}
+
 #[cfg(feature = "cli")]
 pub mod cli;
 

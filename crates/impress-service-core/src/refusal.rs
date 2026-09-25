@@ -169,6 +169,21 @@ pub fn exit_status(result: &serde_json::Value) -> i32 {
     }
 }
 
+/// The answer a strict verb (`impress_service_impl!`'s `strict_args`) gives
+/// when its arguments do not parse — an unknown field, a missing or mistyped
+/// one: `ok: false`, `invalid-argument`, serde's own message (which names the
+/// field) prefixed with the tool. A result like any other refusal, so MCP
+/// marks it `isError` and the CLI exits [`EXIT_REFUSED`], instead of the
+/// transport error an argument failure used to be.
+pub fn argument_refusal(tool: &str, error: &dyn fmt::Display) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "code": codes::INVALID_ARGUMENT,
+        "message": format!("{tool}: {error}"),
+        "wire_version": crate::WIRE_VERSION,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
