@@ -9,9 +9,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use implore_core::figure_artifact::FigureData;
 use implore_service::{
-    register_backend, AppStatus, DatasetRecord, FigureRecord, ImploreBackend, ImploreService,
-    LogEntry,
+    register_backend, validate_figure_data, AppStatus, CreateFigureOutcome, DatasetRecord,
+    FigureArtifactInfo, FigureRecord, FigureSeriesArg, ImploreBackend, ImploreService, LogEntry,
+    PlotSpecArg,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -122,6 +124,56 @@ fn object_field<T: for<'de> Deserialize<'de>>(v: &Value, keys: &[&str]) -> Optio
     None
 }
 
+/// The `POST /api/figures` body for `create-figure`. `plotType`/`x`/`y` are
+/// the spellings the router reads besides its own `type`/`xColumn`/`yColumn`;
+/// the one data key (`series`, `spec` or `svg`) is the name the router's
+/// `copyArtifactData` copies into the view state `figure_artifact` renders.
+fn create_figure_body(
+    dataset_id: String,
+    plot_type: String,
+    x: String,
+    y: Option<String>,
+    name: Option<String>,
+    data: Option<FigureData>,
+) -> Value {
+    let mut body = json!({
+        "datasetId": dataset_id,
+        "plotType": plot_type,
+        "x": x,
+        "y": y,
+        "name": name,
+    });
+    if let Some(d) = data {
+        let key = d.key();
+        body[key] = d.into_json();
+    }
+    body
+}
+
+/// Read implore's answer: `{status: "ok", figure, artifact}` on 201, or
+/// `{status: "error", error}` (a 400 names why the figure could not be
+/// rendered, and nothing was stored).
+fn create_figure_outcome(v: &Value, drawn_from: &str) -> CreateFigureOutcome {
+    match object_field::<FigureRecord>(v, &["figure"]) {
+        Some(figure) => CreateFigureOutcome {
+            ok: true,
+            error: None,
+            figure: Some(figure),
+            artifact: object_field::<FigureArtifactInfo>(v, &["artifact"]),
+            drawn_from: Some(drawn_from.to_string()),
+        },
+        None => {
+            let why = v
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("implore answered without a figure: {v}"));
+            log_err("create_figure", &why);
+            CreateFigureOutcome::refused(why)
+        }
+    }
+}
+
 pub struct HttpImploreService {
     client: Arc<ImploreClient>,
 }
@@ -224,19 +276,27 @@ impl ImploreService for HttpImploreService {
         x: String,
         y: Option<String>,
         name: Option<String>,
-    ) -> Option<FigureRecord> {
-        let body = json!({
-            "datasetId": dataset_id,
-            "plotType": plot_type,
-            "x": x,
-            "y": y,
-            "name": name,
-        });
-        match self.client.post_json("/api/figures", body).await {
-            Ok(v) => object_field(&v, &["figure"]).or_else(|| serde_json::from_value(v).ok()),
+        series: Option<FigureSeriesArg>,
+        spec: Option<PlotSpecArg>,
+        svg: Option<String>,
+    ) -> CreateFigureOutcome {
+        let data = match validate_figure_data(series.as_ref(), spec.as_ref(), svg.as_deref()) {
+            Ok(d) => d,
             Err(e) => {
-                log_err("create_figure", e);
-                None
+                log_err("create_figure", &e);
+                return CreateFigureOutcome::refused(e);
+            }
+        };
+        let body = create_figure_body(dataset_id, plot_type, x, y, name, data);
+        let drawn_from = ["series", "spec", "svg"]
+            .into_iter()
+            .find(|k| body.get(*k).is_some())
+            .unwrap_or("none");
+        match self.client.post_json("/api/figures", body).await {
+            Ok(v) => create_figure_outcome(&v, drawn_from),
+            Err(e) => {
+                log_err("create_figure", &e);
+                CreateFigureOutcome::refused(format!("implore did not answer: {e}"))
             }
         }
     }
@@ -408,4 +468,256 @@ fn impress_service_runtime_block_on<F: std::future::Future>(fut: F) -> F::Output
         .build()
         .expect("current-thread runtime builds")
         .block_on(fut)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Pass-through: what `create-figure` sends is what implore's router
+    //! reads, and what the router builds from it renders to the real plot.
+    //! A one-request mock stands in for implore; the render is
+    //! `implore_core::figure_artifact` itself, the one renderer.
+
+    use super::*;
+    use implore_core::figure_artifact::{render_figure, FigureViewState, RASTER_SCALE};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Serve one request with `status`/`reply`; return the base URL and a
+    /// handle yielding the request body (None if no request arrived).
+    async fn mock_implore(
+        status: u16,
+        reply: Value,
+    ) -> (Url, tokio::task::JoinHandle<Option<Value>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let handle = tokio::spawn(async move {
+            let accept = tokio::time::timeout(Duration::from_millis(1500), listener.accept()).await;
+            let (mut sock, _) = accept.ok()?.ok()?;
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 65536];
+            let body_start;
+            let content_length;
+            loop {
+                let n = sock.read(&mut chunk).await.ok()?;
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    body_start = i + 4;
+                    let head = String::from_utf8_lossy(&buf[..i]).to_ascii_lowercase();
+                    content_length = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .map(|v| v.trim().parse::<usize>().unwrap())
+                        .unwrap_or(0);
+                    break;
+                }
+            }
+            while buf.len() < body_start + content_length {
+                let n = sock.read(&mut chunk).await.ok()?;
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            let body: Value = serde_json::from_slice(&buf[body_start..]).ok()?;
+            let text = reply.to_string();
+            let resp = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                text.len()
+            );
+            sock.write_all(resp.as_bytes()).await.ok()?;
+            Some(body)
+        });
+        (url, handle)
+    }
+
+    fn created(drawn: &str) -> Value {
+        json!({"status": "ok",
+               "figure": {"id": "C563336D-1111-4222-8333-444455556666", "name": "Decay",
+                          "datasetId": "inline", "createdAt": "2026-09-25T00:00:00Z"},
+               "artifact": {"dataHash": format!("{drawn}-hash"), "format": "png",
+                            "width": 800, "height": 600}})
+    }
+
+    /// The view state `ImploreHTTPRouter.handleCreateFigure` builds from a
+    /// body: `type`←`plotType`, `xColumn`←`x`, `yColumn`←`y`, default
+    /// 800×600, and `copyArtifactData`'s three keys copied verbatim.
+    fn router_view_state(body: &Value) -> FigureViewState {
+        let mut vs = json!({
+            "type": body["plotType"], "width": 800, "height": 600,
+            "xColumn": body["x"], "yColumn": body["y"],
+        });
+        for key in ["series", "spec", "svg"] {
+            if let Some(v) = body.get(key).filter(|v| !v.is_null()) {
+                vs[key] = v.clone();
+            }
+        }
+        FigureViewState::parse(&vs.to_string()).unwrap()
+    }
+
+    fn png_size(png: &[u8]) -> (u32, u32) {
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        (
+            u32::from_be_bytes(png[16..20].try_into().unwrap()),
+            u32::from_be_bytes(png[20..24].try_into().unwrap()),
+        )
+    }
+
+    async fn create(
+        url: Url,
+        series: Option<Value>,
+        spec: Option<Value>,
+        svg: Option<&str>,
+    ) -> CreateFigureOutcome {
+        let svc = HttpImploreService::new(Arc::new(ImploreClient::with_base_url(url)));
+        svc.create_figure(
+            "inline".into(),
+            "scatter".into(),
+            "time (s)".into(),
+            Some("flux".into()),
+            Some("Decay".into()),
+            series.map(FigureSeriesArg),
+            spec.map(PlotSpecArg),
+            svg.map(str::to_string),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn series_pass_through_and_render_the_data() {
+        let series = json!([{"label": "run 1", "x": [0, 1, 2, 3], "y": [1.0, 0.61, 0.37, 0.22]}]);
+        let (url, seen) = mock_implore(201, created("series")).await;
+        let out = create(url, Some(series.clone()), None, None).await;
+        let body = seen.await.unwrap().expect("implore got the request");
+
+        assert_eq!(
+            body["series"], series,
+            "sent verbatim under the router's key"
+        );
+        assert!(body.get("spec").is_none() && body.get("svg").is_none());
+        assert_eq!(
+            (
+                &body["datasetId"],
+                &body["plotType"],
+                &body["x"],
+                &body["y"],
+                &body["name"]
+            ),
+            (
+                &json!("inline"),
+                &json!("scatter"),
+                &json!("time (s)"),
+                &json!("flux"),
+                &json!("Decay")
+            )
+        );
+        assert!(out.ok);
+        assert_eq!(out.drawn_from.as_deref(), Some("series"));
+        assert_eq!(
+            out.figure.as_ref().unwrap().dataset_id.as_deref(),
+            Some("inline")
+        );
+        assert_eq!(out.artifact.as_ref().unwrap().data_hash, "series-hash");
+
+        let vs = router_view_state(&body);
+        let r = render_figure(&vs, None, RASTER_SCALE).unwrap();
+        assert_eq!(png_size(&r.png), (1600, 1200));
+        assert!(r.png.len() > 10_000, "a real plot, {} B", r.png.len());
+        let empty = render_figure(
+            &router_view_state(&json!({"plotType": "scatter",
+            "x": "time (s)", "y": "flux"})),
+            None,
+            RASTER_SCALE,
+        )
+        .unwrap();
+        assert_ne!(r.png, empty.png, "the points are drawn, not only the axes");
+    }
+
+    #[tokio::test]
+    async fn a_spec_passes_through_and_renders_at_its_size() {
+        let spec = json!({"title": "decay", "width": 480, "height": 320,
+            "series": [{"x": [0, 1, 2], "y": [1, 0.5, 0.25], "style": "LineScatter"}]});
+        let (url, seen) = mock_implore(201, created("spec")).await;
+        let out = create(url, None, Some(spec.clone()), None).await;
+        let body = seen.await.unwrap().unwrap();
+        assert_eq!(body["spec"], spec);
+        assert!(body.get("series").is_none() && body.get("svg").is_none());
+        assert_eq!(out.drawn_from.as_deref(), Some("spec"));
+        let r = render_figure(&router_view_state(&body), None, RASTER_SCALE).unwrap();
+        assert_eq!(png_size(&r.png), (960, 640));
+    }
+
+    #[tokio::test]
+    async fn an_svg_passes_through_and_is_rasterised() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="250" height="100"><rect x="10" y="10" width="200" height="60" fill="green"/></svg>"#;
+        let (url, seen) = mock_implore(201, created("svg")).await;
+        let out = create(url, None, None, Some(svg)).await;
+        let body = seen.await.unwrap().unwrap();
+        assert_eq!(body["svg"], json!(svg));
+        assert_eq!(out.drawn_from.as_deref(), Some("svg"));
+        let r = render_figure(&router_view_state(&body), None, RASTER_SCALE).unwrap();
+        assert_eq!(png_size(&r.png), (500, 200));
+    }
+
+    #[tokio::test]
+    async fn no_data_still_creates_empty_axes() {
+        let (url, seen) = mock_implore(201, created("none")).await;
+        let out = create(url, None, None, None).await;
+        let body = seen.await.unwrap().unwrap();
+        assert!(["series", "spec", "svg"]
+            .iter()
+            .all(|k| body.get(*k).is_none()));
+        assert!(out.ok);
+        assert_eq!(out.drawn_from.as_deref(), Some("none"));
+    }
+
+    #[tokio::test]
+    async fn a_bad_call_is_refused_without_reaching_implore() {
+        let (url, seen) = mock_implore(201, created("x")).await;
+        let out = create(
+            url,
+            Some(json!([{"x": [1, 2, 3], "y": [1, 2]}])),
+            None,
+            None,
+        )
+        .await;
+        assert!(!out.ok);
+        assert_eq!(
+            out.error.as_deref(),
+            Some("create-figure refused: series[0]: x has 3 values but y has 2")
+        );
+        assert!(seen.await.unwrap().is_none(), "nothing was sent");
+
+        let (url, seen) = mock_implore(201, created("x")).await;
+        let out = create(
+            url,
+            Some(json!([{"x": [1], "y": [1]}])),
+            Some(json!({})),
+            None,
+        )
+        .await;
+        assert_eq!(
+            out.error.as_deref(),
+            Some("create-figure refused: give at most one of series, spec and svg; got series and spec")
+        );
+        assert!(seen.await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn implores_own_refusal_is_relayed() {
+        let (url, seen) = mock_implore(
+            400,
+            json!({"status": "error",
+                   "error": "Figure not created: figure render failed: svg parse: bad"}),
+        )
+        .await;
+        let out = create(
+            url,
+            None,
+            None,
+            Some(r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#),
+        )
+        .await;
+        seen.await.unwrap();
+        assert!(!out.ok);
+        assert_eq!(
+            out.error.as_deref(),
+            Some("Figure not created: figure render failed: svg parse: bad")
+        );
+    }
 }

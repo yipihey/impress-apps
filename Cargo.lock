@@ -4258,6 +4258,7 @@ name = "implore-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "implore-core",
  "impress-service-core",
  "impress-service-macros",
  "schemars 0.8.22",
@@ -4270,6 +4271,7 @@ name = "implore-service-http"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "implore-core",
  "implore-service",
  "impress-app-client",
  "reqwest",
@@ -4465,6 +4467,8 @@ dependencies = [
 name = "impress-cli"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "implore-service-http",
  "impress-capabilities",
  "impress-memory-service",
  "impress-service-core",
