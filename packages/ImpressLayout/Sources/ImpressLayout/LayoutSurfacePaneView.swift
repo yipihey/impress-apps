@@ -15,8 +15,10 @@
 //
 //  `ImpressSurface` is kit-grade (ADR-0033 D7): it maps a `RenderTree` to
 //  SwiftUI and holds no logic. This file opens `SharedSurface` on the store
-//  the layout was opened on, decodes a `SurfaceDispatchResult` and publishes
-//  a `select` event on the pane's own channel. What needs the SUITE —
+//  the layout was opened on, decodes a `SurfaceDispatchResult` (the effects'
+//  outcomes included — Rust has already run them), forwards the window
+//  root's j / k / ⏎ / ⎋ to the surface, and publishes a `select` event on
+//  the pane's own channel. What needs the SUITE —
 //  `text` through MarkdownUI, a `plot-spec@1.0.0` through imprint-core's
 //  `renderPlotSvg`, a `list` through the chassis' row registry — is the
 //  host's, handed in as `SurfaceHooks` (plan wave 6, W6):
