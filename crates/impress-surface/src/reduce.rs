@@ -1,6 +1,12 @@
-//! `reduce(&spec, &state, &params, &Event) -> Result<(Value, Vec<Effect>)>`: what
-//! the human did, turned into a new state plus the side effects the runtime
-//! still needs to carry out.
+//! `reduce(&spec, &state, &params, &sources, &Event) -> Result<(Value, Vec<Effect>)>`:
+//! what the human did, turned into a new state plus the side effects the
+//! runtime still needs to carry out.
+//!
+//! `sources` is the value of every source as the last render saw it (the
+//! runtime's cache), so an action may reference `{{source.papers.0.id}}` in
+//! its `args` or `payload` exactly as a node may (review RS-S8: before, reduce
+//! saw an empty source map and every such reference failed at dispatch
+//! although `validate` passed it).
 //!
 //! This function is pure: a [`Action::Call`] is never invoked here, only
 //! template-resolved into an [`Effect::Call`] for `impress-surface-service`'s
@@ -35,9 +41,10 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::spec::{walk_with_ids, Action, Event, EventKind, Node, NodeKind, SurfaceSpec};
+use crate::state_path::{self, StatePathError};
 use crate::template::{resolve_value, Context, Template, TemplateError};
 
 /// A side effect `reduce` decided should happen but does not perform itself —
@@ -89,6 +96,10 @@ pub enum ReduceError {
     /// statically (it only knows the path's root, never its value).
     #[error("`each` path '{path}' did not resolve to an array")]
     EachNotArray { path: String },
+    /// A `bind`, `set.path` or `publish.ids` path that could not be read or
+    /// written — see [`crate::state_path`].
+    #[error(transparent)]
+    StatePath(#[from] StatePathError),
     #[error(transparent)]
     Template(#[from] TemplateError),
 }
@@ -102,6 +113,7 @@ impl ReduceError {
             ReduceError::NotBindable { .. } => "not-bindable",
             ReduceError::InvalidPath { .. } => "invalid-path",
             ReduceError::EachNotArray { .. } => "each-not-array",
+            ReduceError::StatePath(e) => e.code(),
             ReduceError::Template(TemplateError::UnknownRoot { .. }) => "unknown-template-root",
             ReduceError::Template(TemplateError::MissingPath { .. }) => "missing-template-path",
         }
@@ -113,6 +125,7 @@ pub fn reduce(
     spec: &SurfaceSpec,
     state: &Value,
     params: &Value,
+    sources: &Value,
     event: &Event,
 ) -> Result<(Value, Vec<Effect>), ReduceError> {
     let index: BTreeMap<String, &Node> = walk_with_ids(&spec.root).into_iter().collect();
@@ -135,11 +148,11 @@ pub fn reduce(
             let bind = node.bind.clone().ok_or_else(|| ReduceError::NotBindable {
                 widget: event.widget.clone(),
             })?;
-            set_path(&mut new_state, &bind, event.value.clone())?;
+            state_path::write(&mut new_state, &bind, event.value.clone())?;
             run_actions(
                 &node.on_change,
                 &mut new_state,
-                params,
+                (params, sources),
                 &event_value,
                 &mut effects,
             )?;
@@ -149,7 +162,7 @@ pub fn reduce(
                 run_actions(
                     &b.on_click,
                     &mut new_state,
-                    params,
+                    (params, sources),
                     &event_value,
                     &mut effects,
                 )?;
@@ -162,7 +175,7 @@ pub fn reduce(
                 run_actions(
                     &t.on_select,
                     &mut new_state,
-                    params,
+                    (params, sources),
                     &event_value,
                     &mut effects,
                 )?;
@@ -171,7 +184,7 @@ pub fn reduce(
                 run_actions(
                     &l.on_select,
                     &mut new_state,
-                    params,
+                    (params, sources),
                     &event_value,
                     &mut effects,
                 )?;
@@ -184,7 +197,7 @@ pub fn reduce(
             run_actions(
                 &node.on_submit,
                 &mut new_state,
-                params,
+                (params, sources),
                 &event_value,
                 &mut effects,
             )?;
@@ -203,15 +216,18 @@ fn event_kind_str(kind: EventKind) -> &'static str {
     }
 }
 
+/// `(params, sources)`: the two read-only roots every action sees.
+type Roots<'a> = (&'a Value, &'a Value);
+
 fn run_actions(
     actions: &[Action],
     state: &mut Value,
-    params: &Value,
+    roots: Roots<'_>,
     event_value: &Value,
     effects: &mut Vec<Effect>,
 ) -> Result<(), ReduceError> {
     for action in actions {
-        run_action(action, state, params, event_value, effects)?;
+        run_action(action, state, roots, event_value, effects)?;
     }
     Ok(())
 }
@@ -219,21 +235,21 @@ fn run_actions(
 fn run_action(
     action: &Action,
     state: &mut Value,
-    params: &Value,
+    (params, sources): Roots<'_>,
     event_value: &Value,
     effects: &mut Vec<Effect>,
 ) -> Result<(), ReduceError> {
     // Rebuilt before every action (rather than held across the loop) so a `set`
     // earlier in the same handler is visible to a `{{state.…}}` reference in a
-    // later action, without holding a borrow of `state` across the `set_path`
-    // call that follows it.
-    let source = Value::Object(Map::new()); // sources are not re-run mid-reduce
-    let ctx = Context::new(state, params, &source, event_value);
+    // later action, without holding a borrow of `state` across the write that
+    // follows it. Sources are as the last render left them: they are not
+    // re-run mid-reduce.
+    let ctx = Context::new(state, params, sources, event_value);
 
     match action {
         Action::Set { path, value } => {
             let resolved = resolve_value(value, &ctx)?;
-            set_path(state, path, resolved)?;
+            state_path::write(state, path, resolved)?;
         }
         Action::Call {
             verb,
@@ -263,7 +279,9 @@ fn run_action(
         },
         Action::Publish { ids } => {
             let resolved = match ids {
-                Some(path) => read_state_path(path, state)?,
+                // A path that is not there fails the dispatch (review RS-S8)
+                // — it used to publish `null`, i.e. clear the selection.
+                Some(path) => state_path::read(state, path)?,
                 None => event_value.get("value").cloned().unwrap_or(Value::Null),
             };
             effects.push(Effect::Publish { ids: resolved });
@@ -312,48 +330,6 @@ fn run_action(
     Ok(())
 }
 
-/// Write `value` at `path` (`state.a.b.c`), creating intermediate objects as
-/// needed. Never removes a key it did not touch: every write is an insert or an
-/// overwrite of exactly the named path, nothing else in `state` is visited.
-fn set_path(state: &mut Value, path: &str, value: Value) -> Result<(), ReduceError> {
-    let mut parts = path.split('.');
-    if parts.next() != Some("state") {
-        return Err(ReduceError::InvalidPath {
-            path: path.to_string(),
-        });
-    }
-    let segments: Vec<&str> = parts.collect();
-    if segments.is_empty() {
-        return Err(ReduceError::InvalidPath {
-            path: path.to_string(),
-        });
-    }
-    if !state.is_object() {
-        *state = Value::Object(Map::new());
-    }
-    let mut cur = state;
-    for (i, seg) in segments.iter().enumerate() {
-        let map = match cur {
-            Value::Object(m) => m,
-            _ => {
-                *cur = Value::Object(Map::new());
-                match cur {
-                    Value::Object(m) => m,
-                    _ => unreachable!("just assigned an object"),
-                }
-            }
-        };
-        if i + 1 == segments.len() {
-            map.insert((*seg).to_string(), value);
-            return Ok(());
-        }
-        cur = map
-            .entry((*seg).to_string())
-            .or_insert_with(|| Value::Object(Map::new()));
-    }
-    Ok(())
-}
-
 /// Resolve an `each` literal path (any of the four `Context` roots — not
 /// `state.` only, unlike `bind`/`set`/`publish.ids`: `validate::validate`
 /// checks this) against `ctx` and require the result to be a JSON array. Reuses
@@ -370,22 +346,6 @@ fn resolve_each(each_path: &str, ctx: &Context) -> Result<Vec<Value>, ReduceErro
             path: each_path.to_string(),
         }),
     }
-}
-
-fn read_state_path(path: &str, state: &Value) -> Result<Value, ReduceError> {
-    if !path.starts_with("state.") && path != "state" {
-        return Err(ReduceError::InvalidPath {
-            path: path.to_string(),
-        });
-    }
-    let mut cur = state;
-    for seg in path.split('.').skip(1) {
-        cur = match cur.as_object().and_then(|m| m.get(seg)) {
-            Some(v) => v,
-            None => return Ok(Value::Null),
-        };
-    }
-    Ok(cur.clone())
 }
 
 #[cfg(test)]
@@ -426,7 +386,7 @@ mod tests {
     fn each_fans_out_one_call_effect_per_element_with_item_bound() {
         let spec = star_button_spec(serde_json::json!({"selected": ["a", "b"]}));
         let params = Value::Null;
-        let (_, effects) = reduce(&spec, &spec.state, &params, &click()).unwrap();
+        let (_, effects) = reduce(&spec, &spec.state, &params, &Value::Null, &click()).unwrap();
         assert_eq!(
             effects,
             vec![
@@ -448,7 +408,7 @@ mod tests {
     fn an_empty_each_array_produces_no_effects_and_is_not_an_error() {
         let spec = star_button_spec(serde_json::json!({"selected": []}));
         let params = Value::Null;
-        let (_, effects) = reduce(&spec, &spec.state, &params, &click()).unwrap();
+        let (_, effects) = reduce(&spec, &spec.state, &params, &Value::Null, &click()).unwrap();
         assert_eq!(effects, Vec::new());
     }
 
@@ -456,7 +416,7 @@ mod tests {
     fn a_non_array_each_is_a_reduce_error_naming_the_path() {
         let spec = star_button_spec(serde_json::json!({"selected": "not-an-array"}));
         let params = Value::Null;
-        let err = reduce(&spec, &spec.state, &params, &click()).unwrap_err();
+        let err = reduce(&spec, &spec.state, &params, &Value::Null, &click()).unwrap_err();
         assert_eq!(
             err,
             ReduceError::EachNotArray {
@@ -485,7 +445,7 @@ mod tests {
             root,
         };
         let params = Value::Null;
-        let (_, effects) = reduce(&spec, &spec.state, &params, &click()).unwrap();
+        let (_, effects) = reduce(&spec, &spec.state, &params, &Value::Null, &click()).unwrap();
         assert_eq!(
             effects,
             vec![

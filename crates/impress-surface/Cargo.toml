@@ -26,3 +26,10 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 schemars = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Validates the shipped examples (and a set of known-bad specs) against the
+# emitted `surface_schema`, so the schema is proven machine-checkable rather
+# than asserted (review AC-F8, RS-S24). Test-only: no kit crate links it.
+jsonschema = { version = "0.33", default-features = false }
+schemars = { workspace = true }
