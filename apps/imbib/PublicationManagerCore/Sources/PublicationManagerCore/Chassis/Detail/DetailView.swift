@@ -60,6 +60,9 @@ struct DetailView: View {
     // MARK: - File Drop State
 
     @State private var dropHandler = FileDropHandler()
+    /// View ▸ Focus Detail (⌥⌘3) — the pane's one focus target (the
+    /// `.focusable()` container below), as View ▸ Focus List is the list's.
+    @FocusState private var isDetailFocused: Bool
     @State private var isDropTargeted = false
     @State private var dropRefreshID = UUID()
 
@@ -210,6 +213,21 @@ struct DetailView: View {
         // Vim-style h/l for global pane focus cycling — routed through the one
         // shared single-key catalog (TriageKeyGrammar) rather than hardcoded here.
         .focusable()
+        .focused($isDetailFocused)
+        // View ▸ Focus Detail (⌥⌘3). false → true, as Focus List does: AppKit
+        // may hold first responder elsewhere while the binding still says
+        // true. Posted and observed by nothing until 2026-09-25.
+        .onReceive(NotificationCenter.default.publisher(for: .focusDetail)) { _ in
+            logInfo("View ▸ Focus Detail", category: "focus")
+            isDetailFocused = false
+            DispatchQueue.main.async {
+                isDetailFocused = true
+                // SwiftUI reports the focus that actually landed, a runloop on.
+                DispatchQueue.main.async {
+                    logInfo("View ▸ Focus Detail: detail pane focused = \(isDetailFocused)", category: "focus")
+                }
+            }
+        }
         .keyboardGuarded { press in
             switch TriageKeyGrammar.command(forCharacters: press.characters) {
             case .focusPaneLeft:

@@ -1145,6 +1145,30 @@ impl SharedStore {
         Ok(())
     }
 
+    /// Remove a content-addressed blob from this store's `<workspace>/content`
+    /// if no live row still references it. Returns whether a file went.
+    ///
+    /// Call after deleting the row that pointed at the blob (a figure's
+    /// `data_hash`). "Referenced" means ANY row of ANY kind whose payload
+    /// names the digest — a second figure with identical bytes, a manuscript
+    /// file's `blob:sha256:` ref — so one app's delete never takes bytes
+    /// another app's row still draws. `hash` must be a sha256 hex digest.
+    pub fn release_blob(&self, hash: String) -> Result<bool, SharedStoreError> {
+        if !impress_core::blobs::is_sha256_hex(&hash) {
+            return Err(SharedStoreError::InvalidArgument {
+                message: format!("'{hash}' is not a sha256 hex digest"),
+            });
+        }
+        if self.inner.payload_mentions(&hash)? {
+            return Ok(false);
+        }
+        self.blobs()
+            .remove(&hash)
+            .map_err(|e| SharedStoreError::Storage {
+                message: format!("release_blob {hash}: {e}"),
+            })
+    }
+
     /// List items by schema, sorted by creation time (newest first).
     ///
     /// - `schema_ref`: e.g. `"bibliography-entry"`.
@@ -2756,6 +2780,44 @@ pub fn supported_manuscript_formats() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_blob_keeps_bytes_another_row_still_names() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SharedStore::open(dir.path().join("impress.sqlite").display().to_string())
+            .expect("open");
+        let blobs = impress_core::blobs::BlobStore::for_workspace(dir.path());
+        let hash = blobs.put(b"\x89PNG figure bytes").expect("put");
+
+        // Two figures whose artifacts are byte-identical share one blob.
+        let (a, b) = (
+            uuid::Uuid::new_v4().to_string(),
+            uuid::Uuid::new_v4().to_string(),
+        );
+        for id in [&a, &b] {
+            store
+                .upsert_item(
+                    id.clone(),
+                    "figure".into(),
+                    format!(r#"{{"format":"png","data_hash":"{hash}"}}"#),
+                )
+                .expect("figure");
+        }
+
+        store.delete_item(a).expect("delete a");
+        assert!(!store.release_blob(hash.clone()).expect("release"));
+        assert!(blobs.contains(&hash), "b still draws it");
+
+        store.delete_item(b).expect("delete b");
+        assert!(store.release_blob(hash.clone()).expect("release"));
+        assert!(!blobs.contains(&hash), "no row names it any more");
+        assert!(!store.release_blob(hash).expect("idempotent"));
+
+        assert!(matches!(
+            store.release_blob("../impress.sqlite".into()),
+            Err(SharedStoreError::InvalidArgument { .. })
+        ));
+    }
 
     #[test]
     fn sync_excluded_schemas_bypass_and_drain_outbox() {

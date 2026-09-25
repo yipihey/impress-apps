@@ -255,6 +255,10 @@ rayon = "1.10"
 
 # Plotting (for implore)
 kuva = "0.1"
+# SVG → PNG for a figure's stored artifact (implore-core figure_artifact).
+# Already in the tree through typst-pdf → krilla-svg; no raster-image
+# decoders, because implore's SVG embeds none.
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 
 # Typst rendering (for implore lilaq backend + imprint)
 typst = "0.14"

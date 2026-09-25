@@ -90,13 +90,21 @@ struct LayoutPlotPaneView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onChange(of: target, initial: true) { _, target in load(target) }
             .task(id: loadedID) {
-                // Refresh when this figure mutates elsewhere (implore
-                // re-exporting its artifact), as `FigureDetailPane` does.
+                // Refresh when this figure mutates elsewhere, by the same
+                // rule as `FigureDetailPane`: its id, or `.structural` — how
+                // implore storing a new artifact from its own process
+                // arrives. A structural event for something else is common,
+                // so the row is compared first and only a change reloads
+                // (and logs).
                 guard let id = loadedID else { return }
                 for await event in ImbibImpressStore.shared.events.subscribe() {
-                    if case .itemsMutated(_, let ids) = event, ids.contains(id) {
-                        load(target)
+                    guard FigureArtifactRefresh.shouldReread(event, figureID: id) else { continue }
+                    if case .structural = event {
+                        let fresh = FigureStoreReader.shared.fetchFigure(id: id.uuidString)
+                            .flatMap { FigureRowData(from: $0) }
+                        guard fresh != row else { continue }
                     }
+                    load(target)
                 }
             }
     }
@@ -149,7 +157,7 @@ struct LayoutPlotPaneView: View {
         if let figure {
             logInfo(
                 "pane \(context.tile) plot: figure \(id.uuidString)"
-                    + (figure.dataHash == nil ? " (no rendered artifact)" : ""),
+                    + (figure.dataHash.map { " artifact \($0.prefix(12))" } ?? " (no rendered artifact)"),
                 category: "layout")
         } else if let schema = otherSchemaRef {
             logInfo(

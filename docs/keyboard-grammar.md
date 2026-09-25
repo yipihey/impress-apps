@@ -10,7 +10,7 @@ them.
 
 | Chord | Semantic | imbib | imprint |
 |-------|----------|-------|---------|
-| ⌘1 ⌘2 ⌘3 | Switch primary view | Library / Search / Inbox | Text Only / Split View / Direct PDF |
+| ⌘1 ⌘2 ⌘3 | Switch primary view | Library / Search (the search form opened last, else the Search section's first) / Inbox | Text Only / Split View / Direct PDF |
 | ⌃⌘S | Toggle leading sidebar — and nothing else, in every app (Paper ▸ Save to Library held it too until 2026-09-24; see below) | Sidebar | Outline sidebar |
 | ⌘0 | Toggle secondary pane | Detail pane | Preview pane |
 | ⌥⌘0 | Toggle list (middle) pane | List pane | Manuscript list |
@@ -81,9 +81,29 @@ References, ⇧⌘N Refresh, ⌥⌘2 Focus List, ⌃N Add Note, and ⌘1 / ⌘3
 that already existed (the list's Delete-key dismiss, the sidebar drop's
 move, the toolbar's Copy Link, Explore ▸ References, …).
 `MenuNotificationObserverTests` scans every post in `AppCommands` and fails
-on a name with no observer anywhere the Mac app links; the commands still
-unwired (⌘2, ⌘[ / ⌘], ⇧⌘C, ⌥⌘1 / ⌥⌘3, ⇧⌘F, ⇧⌘\, ⇧⌘?) are listed there by
-name with the reason, and leave the list when they are wired.
+on a name with no observer anywhere the Mac app links. Its `unwired` list —
+the nine commands #62 left dead, each with its reason — is empty since
+2026-09-25, and the test stays: a new dead menu item fails it.
+
+**The last nine (2026-09-25)**, each checked in the running app:
+
+| Chord | Command | What it does now |
+|---|---|---|
+| ⌘2 | View ▸ Show Search | Opens the search form the user opened last (`searchFormLastUsed`, beside the section's order and hidden set in `SearchFormStore`), else the first visible form in the Search section's order. macOS has no single Search tab — the section's children ARE the forms |
+| ⌘[ / ⌘] | Go ▸ Back / Forward | Walks this window's sidebar selection history (`NavigationHistory<ImbibTab>`, one per sidebar; recorded where every selection route ends, `selectedTab`). Paper selection is not recorded — the store never held one. An entry whose node is gone (a deleted collection) is skipped. Both items are disabled when there is nothing to go to: the Go menu reads the key window's history through `FocusedValues.imbibNavigationHistory` |
+| ⇧⌘C | Edit ▸ Copy as Citation | A formatted reference per selected paper, one per line: imprint's Typst renderer (hayagriva) typesets the store BibTeX in imprint's own default style — Typst's, IEEE — and PDFKit reads the text back; imbib's "Plain Text (APA-like)" export template is the fallback. No CSL engine was written |
+| ⌥⌘1 / ⌥⌘3 | View ▸ Focus Sidebar / Focus Detail | ⌥⌘3 is Focus List's mechanism (a `@FocusState` flipped false → true) on `DetailView`'s one focusable container. ⌥⌘1 cannot be: SwiftUI focus does not reach an `NSOutlineView` inside a representable, so `SidebarOutlineView.focusRequest` (a counter, like `dataVersion`) makes the outline first responder in the key window |
+| ⇧⌘F | Paper ▸ Share… | `NSSharingServicePicker` for the selection — its BibTeX as text plus each paper's DOI / arXiv / ADS URL — at the top of the key window. The toolbar's `ShareLink` cannot be triggered from code |
+| ⇧⌘\ | Window ▸ Toggle PDF Filter | Toggles `has:pdf` in the list's filter text: a `LocalFilterService` post-filter on the row's has-PDF data (`-has:pdf` = none), shown in the filter bar with its count like `flag:` / `tags:` |
+| ⇧⌘? | Help ▸ Search Help… | Opens the Help window if it is closed, then raises its search palette with the field focused (a request the window takes when it appears, or the post when it is already open) |
+
+Two more #62 found, not in the list because something observed them:
+**⌘G Go ▸ Go to Page…** posted no page and the observer returned — it now
+asks for one in a small sheet, in the key window's PDF view only. And
+**Annotate ▸ Highlight / Underline / Strikethrough** posted no file id, so the
+PDF view drew the markup and never stored it (an `imbib/annotation` row's
+parent IS its linked file); the view now supplies the id it is showing
+(`AnnotationCommandTarget`), as its own toolbar button always did.
 `PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord` scans
 `imbibApp.swift` (plus the chassis's pane chords and View ▸ Layouts' ⌃⌘1–9)
 and fails if any chord is registered twice. Its first run found two more:

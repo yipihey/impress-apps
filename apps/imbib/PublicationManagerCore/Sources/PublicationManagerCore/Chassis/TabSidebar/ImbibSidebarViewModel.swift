@@ -35,7 +35,30 @@ final class ImbibSidebarViewModel {
     var selectedNodeID: UUID? {
         didSet { resolveSelectedTab() }
     }
-    var selectedTab: ImbibTab? = .inbox
+    /// Every route to a selection ends here (a click, `navigateToTab`, the
+    /// feed editors' direct assignments), so this is where Go ▸ Back /
+    /// Forward's history is recorded and View ▸ Show Search's "last used"
+    /// form is noted.
+    var selectedTab: ImbibTab? = .inbox {
+        didSet { selectionDidChange(from: oldValue) }
+    }
+
+    // MARK: - Go ▸ Back / Forward (⌘[ / ⌘])
+
+    /// This sidebar's selection history. One per sidebar, so two windows do
+    /// not share a back stack; the Go menu reaches the key window's through
+    /// `FocusedValues.imbibNavigationHistory`.
+    let navigationHistory = NavigationHistory<ImbibTab>()
+
+    /// True while Back / Forward applies an entry, so the resulting selection
+    /// change is not recorded as a new navigation.
+    @ObservationIgnored private var isApplyingHistory = false
+
+    // MARK: - View ▸ Focus Sidebar (⌥⌘1)
+
+    /// Bumped to make the outline first responder (`SidebarOutlineView
+    /// .focusRequest`).
+    var sidebarFocusRequest = 0
 
     /// The sections a layout-tree `outline` pane may show, from Rust
     /// (`outline_sections_json`, plan wave 6 W3). nil — every host but that
@@ -631,6 +654,72 @@ final class ImbibSidebarViewModel {
                 tabToNodeID[.tag(path: path)] = ImbibSidebarNodeID.tag(path)
             }
         }
+    }
+
+    // MARK: - Selection side effects
+
+    private func selectionDidChange(from old: ImbibTab?) {
+        guard let tab = selectedTab, tab != old else { return }
+        if case .searchForm(let form) = tab {
+            persistence.saveLastSearchForm(form)
+        }
+        recordNavigation(to: tab, from: old)
+    }
+
+    /// Pushes a selection the sidebar can show (a node exists for it). The
+    /// first recorded move also records where it started, so ⌘[ can return
+    /// to the launch selection.
+    private func recordNavigation(to tab: ImbibTab, from old: ImbibTab?) {
+        guard !isApplyingHistory, leadsSomewhere(tab) else { return }
+        if navigationHistory.isEmpty, let old, leadsSomewhere(old) {
+            navigationHistory.push(old)
+        }
+        navigationHistory.push(tab)
+    }
+
+    /// Go ▸ Back (⌘[): the previous selection that still exists.
+    @discardableResult
+    func navigateBack() -> ImbibTab? {
+        applyHistory { $0.goBack() }
+    }
+
+    /// Go ▸ Forward (⌘]): the next selection that still exists.
+    @discardableResult
+    func navigateForward() -> ImbibTab? {
+        applyHistory { $0.goForward() }
+    }
+
+    /// Steps until an entry whose node still exists (a deleted collection is
+    /// skipped, as the Core Data sidebar's back did), selects it without
+    /// recording it, and prunes the entries that lead nowhere.
+    private func applyHistory(_ step: (NavigationHistory<ImbibTab>) -> ImbibTab?) -> ImbibTab? {
+        while let tab = step(navigationHistory) {
+            guard leadsSomewhere(tab) else { continue }
+            isApplyingHistory = true
+            defer { isApplyingHistory = false }
+            navigateToTab(tab)
+            navigationHistory.removeAll { !leadsSomewhere($0) }
+            return tab
+        }
+        return nil
+    }
+
+    /// A place the sidebar can select: a node exists for it, or it is the
+    /// Inbox — the section header itself, which `resolveSelectedTab` maps
+    /// to `.inbox` and which therefore has no entry in `tabToNodeID`.
+    private func leadsSomewhere(_ tab: ImbibTab) -> Bool {
+        tab == .inbox || tabToNodeID[tab] != nil
+    }
+
+    // MARK: - View ▸ Show Search (⌘2)
+
+    /// The search form ⌘2 opens: the one the user opened last, else the first
+    /// form in the Search section's order. `nil` when every form is hidden.
+    var showSearchTarget: SearchFormType? {
+        if let last = persistence.loadLastSearchForm(), searchForms.contains(last) {
+            return last
+        }
+        return searchForms.first
     }
 
     /// Navigate to a specific tab, updating selection.
