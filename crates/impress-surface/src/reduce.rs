@@ -93,6 +93,21 @@ pub enum ReduceError {
     Template(#[from] TemplateError),
 }
 
+impl ReduceError {
+    /// The stable, machine-readable name of this refusal — the `code` a
+    /// dispatch result carries next to its message (review AC-F19).
+    pub fn code(&self) -> &'static str {
+        match self {
+            ReduceError::UnknownWidget { .. } => "unknown-widget",
+            ReduceError::NotBindable { .. } => "not-bindable",
+            ReduceError::InvalidPath { .. } => "invalid-path",
+            ReduceError::EachNotArray { .. } => "each-not-array",
+            ReduceError::Template(TemplateError::UnknownRoot { .. }) => "unknown-template-root",
+            ReduceError::Template(TemplateError::MissingPath { .. }) => "missing-template-path",
+        }
+    }
+}
+
 /// See the module docs.
 pub fn reduce(
     spec: &SurfaceSpec,

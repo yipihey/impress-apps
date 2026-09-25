@@ -50,6 +50,7 @@ use impress_core::schemas::{
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_core::store::StoreError;
+use impress_service_core::Refusal;
 use impress_surface::SurfaceSpec;
 use serde_json::Value;
 
@@ -88,10 +89,8 @@ pub mod field {
     }
 }
 
-/// What went wrong, as a sentence — the same `Result<T> = Result<T, String>`
-/// shape every other store-generic `#[impress_service]` crate in the suite
-/// uses.
-pub type Result<T> = std::result::Result<T, String>;
+/// See [`crate::Result`]: a stable `code` and a sentence.
+pub type Result<T> = crate::Result<T>;
 
 /// One `impress/ui/surface@1.0.0` row, spec included.
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +120,10 @@ pub struct EventRow {
     pub name: String,
     pub payload: Value,
     pub at: DateTime<Utc>,
+    /// Who caused the event: the human clicking in the pane, or an agent
+    /// dispatching over MCP/HTTP — the row's own `author_kind` (review
+    /// SK-K5, AC-F5).
+    pub actor: ActorKind,
 }
 
 /// Store-backed access to a surface's three record kinds.
@@ -157,7 +160,9 @@ impl SurfaceStore {
             .filter(|n| !n.is_empty())
             .unwrap_or(spec.name.trim());
         if name.is_empty() {
-            return Err("a surface needs a name (its own `name` field, or an override)".into());
+            return Err(Refusal::invalid_argument(
+                "a surface needs a name (its own `name` field, or an override)",
+            ));
         }
         let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
         payload.insert(field::surface::NAME.into(), ItemValue::String(name.into()));
@@ -200,9 +205,9 @@ impl SurfaceStore {
         let id = self
             .store
             .insert(item)
-            .map_err(|e| format!("write surface: {e}"))?;
+            .map_err(|e| Refusal::store(format!("write surface: {e}")))?;
         self.get(id)?
-            .ok_or_else(|| "surface vanished immediately after creation".to_string())
+            .ok_or_else(|| Refusal::store("surface vanished immediately after creation"))
     }
 
     /// Replace a surface's spec and bump its revision, in one store
@@ -231,14 +236,14 @@ impl SurfaceStore {
         let _serialised = UPDATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let existing = self
             .row_item(id)?
-            .ok_or_else(|| format!("no surface {id}"))?;
+            .ok_or_else(|| Refusal::not_found(format!("no surface {id}")))?;
         let current = revision_of(&existing);
         if let Some(expected) = expected_revision {
             if expected != current {
-                return Err(format!(
+                return Err(Refusal::conflict(format!(
                     "conflict: surface {id} is at revision {current}, not {expected} — someone \
                      else updated it; read it again (surface_get) and apply your change to that"
-                ));
+                )));
             }
         }
         let mut ops = vec![
@@ -271,9 +276,9 @@ impl SurfaceStore {
         }
         self.store
             .apply_operation_batch(ops)
-            .map_err(|e| format!("write surface: {e}"))?;
+            .map_err(|e| Refusal::store(format!("write surface: {e}")))?;
         self.get(id)?
-            .ok_or_else(|| "surface vanished mid-update".to_string())
+            .ok_or_else(|| Refusal::store("surface vanished mid-update"))
     }
 
     pub fn get(&self, id: ItemId) -> Result<Option<SurfaceRow>> {
@@ -293,7 +298,7 @@ impl SurfaceStore {
         let mut rows: Vec<SurfaceRow> = self
             .store
             .query(&query)
-            .map_err(|e| format!("read surfaces: {e}"))?
+            .map_err(|e| Refusal::store(format!("read surfaces: {e}")))?
             .iter()
             .map(surface_row_of)
             .collect::<Result<Vec<_>>>()?;
@@ -313,23 +318,23 @@ impl SurfaceStore {
         for state in self.all_state_rows(id)? {
             self.store
                 .delete(state.id)
-                .map_err(|e| format!("delete surface state: {e}"))?;
+                .map_err(|e| Refusal::store(format!("delete surface state: {e}")))?;
         }
         for event in self.all_event_items(id)? {
             self.store
                 .delete(event.id)
-                .map_err(|e| format!("delete surface event: {e}"))?;
+                .map_err(|e| Refusal::store(format!("delete surface event: {e}")))?;
         }
         self.store
             .delete(id)
-            .map_err(|e| format!("delete surface: {e}"))?;
+            .map_err(|e| Refusal::store(format!("delete surface: {e}")))?;
         Ok(true)
     }
 
     fn row_item(&self, id: ItemId) -> Result<Option<Item>> {
         self.store
             .get(id)
-            .map_err(|e| format!("read surface {id}: {e}"))
+            .map_err(|e| Refusal::store(format!("read surface {id}: {e}")))
             .map(|item| item.filter(|i| i.schema == SURFACE_SCHEMA_REF))
     }
 
@@ -366,7 +371,7 @@ impl SurfaceStore {
         self.store
             .apply_operation(self.op(id, field, value, actor, reason, kind))
             .map(|_| ())
-            .map_err(|e| format!("write surface: {e}"))
+            .map_err(|e| Refusal::store(format!("write surface: {e}")))
     }
 
     // --------------------------------------------------------------- state
@@ -399,8 +404,8 @@ impl SurfaceStore {
         state: &Value,
         actor: ActorKind,
     ) -> Result<()> {
-        let text =
-            serde_json::to_string(state).map_err(|e| format!("encode surface state: {e}"))?;
+        let text = serde_json::to_string(state)
+            .map_err(|e| Refusal::store(format!("encode surface state: {e}")))?;
         self.set_state_text(surface, host, text, actor)
     }
 
@@ -451,7 +456,9 @@ impl SurfaceStore {
                 "surface state changed",
                 Ephemerality::Exploration,
             ),
-            Err(e) => Err(format!("write {SURFACE_STATE_SCHEMA_REF}: {e}")),
+            Err(e) => Err(Refusal::store(format!(
+                "write {SURFACE_STATE_SCHEMA_REF}: {e}"
+            ))),
         }
     }
 
@@ -461,7 +468,7 @@ impl SurfaceStore {
         Ok(self
             .store
             .query(&query)
-            .map_err(|e| format!("read surface state: {e}"))?
+            .map_err(|e| Refusal::store(format!("read surface state: {e}")))?
             .into_iter()
             .next())
     }
@@ -469,7 +476,7 @@ impl SurfaceStore {
     fn all_state_rows(&self, surface: ItemId) -> Result<Vec<Item>> {
         self.store
             .query(&rare_rows(SURFACE_STATE_SCHEMA_REF, surface, None))
-            .map_err(|e| format!("read surface state: {e}"))
+            .map_err(|e| Refusal::store(format!("read surface state: {e}")))
     }
 
     // --------------------------------------------------------------- events
@@ -494,8 +501,8 @@ impl SurfaceStore {
         payload: &Value,
         actor: ActorKind,
     ) -> Result<u64> {
-        let payload_text =
-            serde_json::to_string(payload).map_err(|e| format!("encode event payload: {e}"))?;
+        let payload_text = serde_json::to_string(payload)
+            .map_err(|e| Refusal::store(format!("encode event payload: {e}")))?;
         // Each retry means another writer took the number in between, so
         // this bound is the number of writers that can race one append, not
         // a timeout. Hitting it is a bug worth reporting, not retrying.
@@ -535,12 +542,16 @@ impl SurfaceStore {
                     return Ok(seq);
                 }
                 Err(StoreError::AlreadyExists(_)) => continue,
-                Err(e) => return Err(format!("write {SURFACE_EVENT_SCHEMA_REF}: {e}")),
+                Err(e) => {
+                    return Err(Refusal::store(format!(
+                        "write {SURFACE_EVENT_SCHEMA_REF}: {e}"
+                    )))
+                }
             }
         }
-        Err(format!(
+        Err(Refusal::internal(format!(
             "append event '{name}': {MAX_ATTEMPTS} writers took the next seq first"
-        ))
+        )))
     }
 
     /// Events for `(surface, host)` with `seq > after`, oldest first, capped
@@ -569,7 +580,7 @@ impl SurfaceStore {
         let rows = self
             .store
             .query(&query)
-            .map_err(|e| format!("read surface events: {e}"))?
+            .map_err(|e| Refusal::store(format!("read surface events: {e}")))?
             .iter()
             .map(event_row_of)
             .collect::<Result<Vec<_>>>()?;
@@ -589,7 +600,7 @@ impl SurfaceStore {
         Ok(self
             .store
             .query(&query)
-            .map_err(|e| format!("read surface events: {e}"))?
+            .map_err(|e| Refusal::store(format!("read surface events: {e}")))?
             .first()
             .and_then(|i| int_field(i, field::event::SEQ))
             .unwrap_or(0))
@@ -598,7 +609,7 @@ impl SurfaceStore {
     fn all_event_items(&self, surface: ItemId) -> Result<Vec<Item>> {
         self.store
             .query(&rare_rows(SURFACE_EVENT_SCHEMA_REF, surface, None))
-            .map_err(|e| format!("read surface events: {e}"))
+            .map_err(|e| Refusal::store(format!("read surface events: {e}")))
     }
 
     /// Drop every row of `(surface, host)` that fell out of the last
@@ -620,11 +631,11 @@ impl SurfaceStore {
         let stale = self
             .store
             .query(&query)
-            .map_err(|e| format!("read surface events: {e}"))?;
+            .map_err(|e| Refusal::store(format!("read surface events: {e}")))?;
         for item in stale {
             self.store
                 .delete(item.id)
-                .map_err(|e| format!("prune surface event: {e}"))?;
+                .map_err(|e| Refusal::store(format!("prune surface event: {e}")))?;
         }
         Ok(())
     }
@@ -798,13 +809,13 @@ fn int_field(item: &Item, field: &str) -> Option<u64> {
 }
 
 fn spec_json(spec: &SurfaceSpec) -> Result<String> {
-    serde_json::to_string(spec).map_err(|e| format!("encode surface spec: {e}"))
+    serde_json::to_string(spec).map_err(|e| Refusal::store(format!("encode surface spec: {e}")))
 }
 
 fn parse_json(text: &str) -> Result<Value> {
-    let json: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| format!("parse surface JSON: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("parse surface JSON: {e}"))
+    let json: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| Refusal::store(format!("parse surface JSON: {e}")))?;
+    serde_json::from_value(json).map_err(|e| Refusal::store(format!("parse surface JSON: {e}")))
 }
 
 fn surface_row_of(item: &Item) -> Result<SurfaceRow> {
@@ -817,9 +828,9 @@ fn surface_row_of(item: &Item) -> Result<SurfaceRow> {
             ItemValue::String(s) => Some(s.clone()),
             _ => None,
         })
-        .ok_or_else(|| format!("surface {} has no `spec` field", item.id))?;
-    let spec: SurfaceSpec =
-        serde_json::from_str(&spec_text).map_err(|e| format!("surface {} spec: {e}", item.id))?;
+        .ok_or_else(|| Refusal::store(format!("surface {} has no `spec` field", item.id)))?;
+    let spec: SurfaceSpec = serde_json::from_str(&spec_text)
+        .map_err(|e| Refusal::store(format!("surface {} spec: {e}", item.id)))?;
     let tags = match item.payload.get(field::surface::TAGS) {
         Some(ItemValue::Array(items)) => items
             .iter()
@@ -845,10 +856,10 @@ fn surface_row_of(item: &Item) -> Result<SurfaceRow> {
 
 fn event_row_of(item: &Item) -> Result<EventRow> {
     let surface_text = string_field(item, field::event::SURFACE)
-        .ok_or_else(|| format!("event {} has no `surface` field", item.id))?;
+        .ok_or_else(|| Refusal::store(format!("event {} has no `surface` field", item.id)))?;
     let surface: ItemId = surface_text
         .parse()
-        .map_err(|e| format!("event {} surface id: {e}", item.id))?;
+        .map_err(|e| Refusal::store(format!("event {} surface id: {e}", item.id)))?;
     let host = string_field(item, field::event::HOST).unwrap_or_default();
     let seq = int_field(item, field::event::SEQ).unwrap_or(0);
     let name = string_field(item, field::event::NAME).unwrap_or_default();
@@ -867,5 +878,6 @@ fn event_row_of(item: &Item) -> Result<EventRow> {
         name,
         payload,
         at,
+        actor: item.author_kind,
     })
 }

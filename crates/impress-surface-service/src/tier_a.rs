@@ -57,7 +57,7 @@ fn want(condition: bool, message: impl Into<String>) -> Result<()> {
     if condition {
         Ok(())
     } else {
-        Err(message.into())
+        Err(message.into().into())
     }
 }
 

@@ -50,9 +50,9 @@ impl VerbHost for FakeHost {
         name == FAKE_VERB || name == LINKED_VERB
     }
 
-    fn call_verb(&self, name: &str, args: Value) -> Result<Value, String> {
+    fn call_verb(&self, name: &str, args: Value) -> Result<Value, impress_service_core::Refusal> {
         if let Some(message) = &self.fail_with {
-            return Err(message.clone());
+            return Err(message.clone().into());
         }
         if name == LINKED_VERB {
             // A poisoned answer for the name the real inventory also

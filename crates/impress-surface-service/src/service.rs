@@ -15,6 +15,7 @@ use impress_core::item::{ActorKind, ItemId};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::{resolve_device, DefaultLayoutService};
 use impress_service_core::async_trait;
+use impress_service_core::Refusal;
 use impress_service_macros::{impress_service, impress_service_impl};
 
 #[allow(unused_imports)]
@@ -27,7 +28,7 @@ use impress_surface::{
 use serde_json::Value;
 
 use crate::dto::{
-    ShowTargetDto, SourceError, SurfaceDeleteResult, SurfaceDispatchResult, SurfaceEventDto,
+    ShowTargetDto, SurfaceDeleteResult, SurfaceDispatchResult, SurfaceEventDto,
     SurfaceEventsResult, SurfaceExamplesResult, SurfaceListResult, SurfaceRenderResult,
     SurfaceResult, SurfaceSchemaResult, SurfaceShowResult, SurfaceStateResult, SurfaceSummaryDto,
     SurfaceValidateResult, SurfaceWaitResult,
@@ -249,6 +250,22 @@ impl DefaultImpressSurfaceService {
         SurfaceStore::new(self.store_arc())
     }
 
+    /// The surface store for a verb that writes: refused with
+    /// `store-unavailable` when the store service handed out its in-memory
+    /// stand-in, because a write there answers `ok` and vanishes (review
+    /// AC-F20).
+    fn surfaces_for_write(&self) -> std::result::Result<SurfaceStore, Refusal> {
+        let store = self.store_arc();
+        if impress_store_service::is_fallback_store(&store) {
+            return Err(Refusal::store_unavailable(format!(
+                "the store at {} could not be opened, so this write would land in a temporary \
+                 in-memory stand-in and vanish; nothing was written",
+                impress_store_service::store_path().display()
+            )));
+        }
+        Ok(SurfaceStore::new(store))
+    }
+
     fn registry(&self) -> Arc<SessionRegistry> {
         self.sessions
             .clone()
@@ -274,10 +291,14 @@ impl DefaultImpressSurfaceService {
     }
 }
 
-fn parse_id(id: &str) -> std::result::Result<ItemId, String> {
+fn parse_id(id: &str) -> std::result::Result<ItemId, Refusal> {
     id.trim()
         .parse::<ItemId>()
-        .map_err(|_| format!("'{id}' is not a surface id"))
+        .map_err(|_| Refusal::invalid_argument(format!("'{id}' is not a surface id")))
+}
+
+fn no_surface(id: &str) -> Refusal {
+    Refusal::not_found(format!("no surface {id}"))
 }
 
 /// Every `verb` a spec's sources or actions name, paired with the JSON
@@ -381,12 +402,13 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         tags: Option<Vec<String>>,
     ) -> SurfaceResult {
         let tags = tags.unwrap_or_default();
-        match self
-            .surfaces()
-            .create(&spec, name.as_deref(), &tags, ActorKind::Agent)
-        {
+        let surfaces = match self.surfaces_for_write() {
+            Ok(surfaces) => surfaces,
+            Err(e) => return SurfaceResult::refused(e),
+        };
+        match surfaces.create(&spec, name.as_deref(), &tags, ActorKind::Agent) {
             Ok(row) => SurfaceResult::from_row(&row),
-            Err(e) => SurfaceResult::failed(e),
+            Err(e) => SurfaceResult::refused(e),
         }
     }
 
@@ -399,11 +421,15 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     ) -> SurfaceResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceResult::failed(e),
+            Err(e) => return SurfaceResult::refused(e),
+        };
+        let surfaces = match self.surfaces_for_write() {
+            Ok(surfaces) => surfaces,
+            Err(e) => return SurfaceResult::refused(e),
         };
         // No registry forget: every runtime, in this process or another,
         // compares the stored spec on its next call and reloads it (RS-S1).
-        match self.surfaces().update(
+        match surfaces.update(
             surface_id,
             &spec,
             name.as_deref(),
@@ -411,19 +437,19 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
             ActorKind::Agent,
         ) {
             Ok(row) => SurfaceResult::from_row(&row),
-            Err(e) => SurfaceResult::failed(e),
+            Err(e) => SurfaceResult::refused(e),
         }
     }
 
     async fn surface_get(&self, id: String) -> SurfaceResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceResult::failed(e),
+            Err(e) => return SurfaceResult::refused(e),
         };
         match self.surfaces().get(surface_id) {
             Ok(Some(row)) => SurfaceResult::from_row(&row),
-            Ok(None) => SurfaceResult::failed(format!("no surface {id}")),
-            Err(e) => SurfaceResult::failed(e),
+            Ok(None) => SurfaceResult::refused(no_surface(&id)),
+            Err(e) => SurfaceResult::refused(e),
         }
     }
 
@@ -431,43 +457,44 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         match self.surfaces().list() {
             Ok(rows) => SurfaceListResult {
                 ok: true,
+                code: None,
                 message: format!("{} surface(s)", rows.len()),
                 surfaces: rows.iter().map(SurfaceSummaryDto::from).collect(),
             },
             Err(e) => SurfaceListResult {
                 ok: false,
-                message: e,
+                message: e.message,
+                code: Some(e.code),
                 surfaces: Vec::new(),
             },
         }
     }
 
     async fn surface_delete(&self, id: String) -> SurfaceDeleteResult {
+        let refused = |e: Refusal| SurfaceDeleteResult {
+            ok: false,
+            message: e.message,
+            code: Some(e.code),
+        };
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => {
-                return SurfaceDeleteResult {
-                    ok: false,
-                    message: e,
-                }
-            }
+            Err(e) => return refused(e),
         };
-        match self.surfaces().delete(surface_id) {
+        let surfaces = match self.surfaces_for_write() {
+            Ok(surfaces) => surfaces,
+            Err(e) => return refused(e),
+        };
+        match surfaces.delete(surface_id) {
             Ok(true) => {
                 self.registry().forget_surface(surface_id);
                 SurfaceDeleteResult {
                     ok: true,
                     message: format!("deleted surface {id}"),
+                    code: None,
                 }
             }
-            Ok(false) => SurfaceDeleteResult {
-                ok: false,
-                message: format!("no surface {id}"),
-            },
-            Err(e) => SurfaceDeleteResult {
-                ok: false,
-                message: e,
-            },
+            Ok(false) => refused(no_surface(&id)),
+            Err(e) => refused(e),
         }
     }
 
@@ -480,10 +507,14 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     ) -> SurfaceShowResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceShowResult::failed(e),
+            Err(e) => return SurfaceShowResult::refused(e),
         };
-        if let Ok(None) | Err(_) = self.surfaces().get(surface_id) {
-            return SurfaceShowResult::failed(format!("no surface {id}"));
+        // A store read error is reported as what it is, never as "no
+        // surface" (review AC-F19).
+        match self.surfaces_for_write().and_then(|s| s.get(surface_id)) {
+            Ok(Some(_)) => {}
+            Ok(None) => return SurfaceShowResult::refused(no_surface(&id)),
+            Err(e) => return SurfaceShowResult::refused(e),
         }
         // ADR-0033 leaves which app a surface belongs to unspecified (a
         // surface has no app of its own the way a layout preset does) — see
@@ -522,25 +553,26 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                 let _ = registry
                     .with(&surfaces, surface_id, &device, move |runtime| {
                         runtime.pane = Some(pane.clone());
-                        Box::pin(async move { Ok::<(), String>(()) })
+                        Box::pin(async move { Ok::<(), Refusal>(()) })
                     })
                     .await;
                 SurfaceShowResult {
                     ok: true,
+                    code: None,
                     message: format!("surface shown in tile {tile}"),
                     tile: Some(tile),
                     focused,
                     affected_panes: affected,
                 }
             }
-            Err(e) => SurfaceShowResult::failed(e),
+            Err(e) => SurfaceShowResult::refused(e),
         }
     }
 
     async fn surface_render(&self, id: String, host: Option<String>) -> SurfaceRenderResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceRenderResult::failed(e),
+            Err(e) => return SurfaceRenderResult::refused(e),
         };
         let host = resolve_device(host.as_deref());
         let surfaces = self.surfaces();
@@ -552,52 +584,47 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                 Box::pin(async move {
                     let executor = me.executor();
                     let tree = runtime.render(&executor).await;
-                    let errors: Vec<SourceError> = runtime
-                        .source_errors
-                        .iter()
-                        .map(|(name, message)| SourceError {
-                            name: name.clone(),
-                            message: message.clone(),
-                        })
-                        .collect();
-                    Ok((tree, errors))
+                    Ok((tree, runtime.source_error_list()))
                 })
             })
             .await;
         match outcome {
             Ok((tree, source_errors)) => SurfaceRenderResult {
                 ok: true,
+                code: None,
                 message: "rendered".to_string(),
                 tree: Some(tree),
                 source_errors,
             },
-            Err(e) => SurfaceRenderResult::failed(e),
+            Err(e) => SurfaceRenderResult::refused(e),
         }
     }
 
     async fn surface_state_get(&self, id: String, host: Option<String>) -> SurfaceStateResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceStateResult::failed(e),
+            Err(e) => return SurfaceStateResult::refused(e),
         };
         let host = resolve_device(host.as_deref());
         let surfaces = self.surfaces();
         match surfaces.get_state(surface_id, &host) {
             Ok(Some(state)) => SurfaceStateResult {
                 ok: true,
+                code: None,
                 message: "state".to_string(),
                 state: Some(state),
             },
             Ok(None) => match surfaces.get(surface_id) {
                 Ok(Some(row)) => SurfaceStateResult {
                     ok: true,
+                    code: None,
                     message: "no dispatch yet — the spec's own initial state".to_string(),
                     state: Some(row.spec.state),
                 },
-                Ok(None) => SurfaceStateResult::failed(format!("no surface {id}")),
-                Err(e) => SurfaceStateResult::failed(e),
+                Ok(None) => SurfaceStateResult::refused(no_surface(&id)),
+                Err(e) => SurfaceStateResult::refused(e),
             },
-            Err(e) => SurfaceStateResult::failed(e),
+            Err(e) => SurfaceStateResult::refused(e),
         }
     }
 
@@ -609,10 +636,13 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     ) -> SurfaceStateResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceStateResult::failed(e),
+            Err(e) => return SurfaceStateResult::refused(e),
         };
         let host = resolve_device(host.as_deref());
-        let surfaces = self.surfaces();
+        let surfaces = match self.surfaces_for_write() {
+            Ok(surfaces) => surfaces,
+            Err(e) => return SurfaceStateResult::refused(e),
+        };
         let written = state.clone();
         let writer = surfaces.clone();
         // Through the registry, so a dispatch already running on this
@@ -627,13 +657,11 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         match outcome {
             Ok(()) => SurfaceStateResult {
                 ok: true,
+                code: None,
                 message: "state set".to_string(),
                 state: Some(state),
             },
-            Err(e) if e.starts_with("no surface") => {
-                SurfaceStateResult::failed(format!("no surface {id}"))
-            }
-            Err(e) => SurfaceStateResult::failed(e),
+            Err(e) => SurfaceStateResult::refused(e),
         }
     }
 
@@ -645,10 +673,13 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     ) -> SurfaceDispatchResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceDispatchResult::failed(e),
+            Err(e) => return SurfaceDispatchResult::refused(e),
         };
         let host = resolve_device(host.as_deref());
-        let surfaces = self.surfaces();
+        let surfaces = match self.surfaces_for_write() {
+            Ok(surfaces) => surfaces,
+            Err(e) => return SurfaceDispatchResult::refused(e),
+        };
         let registry = self.registry();
         let me = self.clone();
         let outcome = registry
@@ -658,20 +689,18 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                 Box::pin(async move {
                     let executor = me.executor();
                     let surfaces = me.surfaces();
-                    runtime
+                    let (tree, effects) = runtime
                         .dispatch(&executor, &surfaces, &event, ActorKind::Agent)
-                        .await
+                        .await?;
+                    Ok((tree, effects, runtime.source_error_list()))
                 })
             })
             .await;
         match outcome {
-            Ok((tree, effects)) => SurfaceDispatchResult {
-                ok: true,
-                message: format!("dispatched; {} effect(s)", effects.len()),
-                tree: Some(tree),
-                effects,
-            },
-            Err(e) => SurfaceDispatchResult::failed(e),
+            Ok((tree, effects, source_errors)) => {
+                SurfaceDispatchResult::dispatched(tree, effects, source_errors)
+            }
+            Err(e) => SurfaceDispatchResult::refused(e),
         }
     }
 
@@ -683,25 +712,28 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     ) -> SurfaceEventsResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceEventsResult::failed(e),
+            Err(e) => return SurfaceEventsResult::refused(e),
         };
         let host = resolve_device(host.as_deref());
         let surfaces = self.surfaces();
-        if !matches!(surfaces.get(surface_id), Ok(Some(_))) {
-            return SurfaceEventsResult::failed(format!("no surface {id}"));
+        match surfaces.get(surface_id) {
+            Ok(Some(_)) => {}
+            Ok(None) => return SurfaceEventsResult::refused(no_surface(&id)),
+            Err(e) => return SurfaceEventsResult::refused(e),
         }
         match surfaces.events_after(surface_id, &host, after_seq, 0) {
             Ok(rows) => {
                 let (next_seq, gap) = cursor_after(&rows, after_seq);
                 SurfaceEventsResult {
                     ok: true,
+                    code: None,
                     message: events_message(rows.len(), gap),
                     events: rows.iter().map(SurfaceEventDto::from).collect(),
                     next_seq,
                     gap,
                 }
             }
-            Err(e) => SurfaceEventsResult::failed(e),
+            Err(e) => SurfaceEventsResult::refused(e),
         }
     }
 
@@ -714,12 +746,14 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     ) -> SurfaceWaitResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
-            Err(e) => return SurfaceWaitResult::failed(e),
+            Err(e) => return SurfaceWaitResult::refused(e),
         };
         let host = resolve_device(host.as_deref());
         let surfaces = self.surfaces();
-        if !matches!(surfaces.get(surface_id), Ok(Some(_))) {
-            return SurfaceWaitResult::failed(format!("no surface {id}"));
+        match surfaces.get(surface_id) {
+            Ok(Some(_)) => {}
+            Ok(None) => return SurfaceWaitResult::refused(no_surface(&id)),
+            Err(e) => return SurfaceWaitResult::refused(e),
         }
 
         let deadline = std::time::Instant::now()
@@ -730,6 +764,7 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                     let (next_seq, gap) = cursor_after(&rows, after_seq);
                     return SurfaceWaitResult {
                         ok: true,
+                        code: None,
                         message: events_message(rows.len(), gap),
                         events: rows.iter().map(SurfaceEventDto::from).collect(),
                         next_seq,
@@ -738,7 +773,7 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                     };
                 }
                 Ok(_) => {}
-                Err(e) => return SurfaceWaitResult::failed(e),
+                Err(e) => return SurfaceWaitResult::refused(e),
             }
             if std::time::Instant::now() >= deadline {
                 // Nothing past the cursor: the cursor stands. Never a second
@@ -746,6 +781,7 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                 // counted and never returned (AC-F2).
                 return SurfaceWaitResult {
                     ok: true,
+                    code: None,
                     message: "timed out; nothing new".to_string(),
                     events: Vec::new(),
                     next_seq: after_seq,
