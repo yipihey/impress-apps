@@ -68,6 +68,9 @@ enum Demo {
              "state": {"bins": 12, "note": "", "mode": null, "day": "2026-09-25"},
              "root": {"column": [
                {"text": "Rendered by ImpressLayout alone — no PublicationManagerCore."},
+               {"id": "picks", "table": {"columns": ["title"],
+                 "rows": [{"id": "5b0a6c2e-7d1f-4c8a-9e3b-2f6d8a1c4e70", "title": "Pick me"}],
+                 "on_select": [{"publish": {}}]}},
                {"id": "bins", "field": {"slider": {"min": 1, "max": 64, "step": 1}},
                 "label": "Bins", "bind": "state.bins"},
                {"id": "note", "field": {"text": {}}, "label": "Note", "bind": "state.note"},
@@ -195,6 +198,7 @@ enum Proof {
         snapshot(window, name: "kit-demo-window.png")
         await redrawCounter(controller)
         await typedValueReachesTheButton(window)
+        await oneSelectIsOnePublish(window)
         await undoFromTheEditMenu(controller, window)
         await twoWindows(controller)
         Demo.say("PROOF summary: \(failures == 0 ? "ALL PASS" : "\(failures) FAILED")")
@@ -236,6 +240,47 @@ enum Proof {
         let afterQuery = runtime.paneResolveCount
         check("set-query redraws exactly one pane", afterQuery == afterResize + 1,
             "pane resolves \(afterResize) → \(afterQuery)")
+    }
+
+    // Wave 7 T6a. SK-K4: a real click on a surface table's row is ONE
+    // publish — the spec's `publish`, in Rust — and no Swift-side focus +
+    // select besides. SK-K15: the typing above wrote the state, and the feed's
+    // notification of that write was the pane's own echo, not rendered again.
+    static func oneSelectIsOnePublish(_ window: NSWindow) async {
+        let echoes = LogStore.shared.entries.filter {
+            $0.category == "surface" && $0.message.contains("echo of its own write")
+        }
+        check("the pane's own write is not rendered again", !echoes.isEmpty,
+            echoes.last.map { "\"\($0.message.prefix(110))\"" } ?? "no echo line")
+
+        guard let table = views(of: NSTableView.self, in: window.contentView).first,
+            table.numberOfRows > 0
+        else {
+            check("one select is one publish", false, "no surface table on screen")
+            return
+        }
+        let mark = LogStore.shared.entries.count
+        let row = table.convert(table.rect(ofRow: 0), to: nil)
+        let point = NSPoint(x: row.midX, y: row.midY)
+        func mouse(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        // A table's mouse-down runs a tracking loop that takes the mouse-up
+        // from the queue: queue it first, then deliver the mouse-down.
+        if let down = mouse(.leftMouseDown), let up = mouse(.leftMouseUp) {
+            NSApp.postEvent(up, atStart: false)
+            window.sendEvent(down)
+        }
+        await settle(1.5)
+        let lines = LogStore.shared.entries.dropFirst(mark).filter { $0.category == "layout" }
+        let selects = lines.filter { $0.message.contains(": human select") }
+        let focuses = lines.filter { $0.message.contains(": human focus") }
+        check("one select is one publish", selects.count == 1 && focuses.isEmpty,
+            "\(selects.count) select, \(focuses.count) focus verb(s): "
+                + (selects.first.map { "\"\($0.message.prefix(110))\"" } ?? "none"))
     }
 
     // SK-K3: type into the surface's text field, press the button WITHOUT
