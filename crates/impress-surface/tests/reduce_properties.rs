@@ -61,7 +61,7 @@ fn every_original_state_key_survives_a_change_event() {
             kind: EventKind::Change,
             value: new_value,
         };
-        let (new_state, _effects) = reduce(&spec, &spec.state, &Value::Null, &event)
+        let (new_state, _effects) = reduce(&spec, &spec.state, &Value::Null, &Value::Null, &event)
             .unwrap_or_else(|e| panic!("reduce failed for bind {bind}: {e}"));
 
         let new_obj = new_state.as_object().expect("state stays an object");
@@ -87,7 +87,7 @@ fn a_nested_set_keeps_sibling_keys_at_every_level() {
         kind: EventKind::Change,
         value: json!("new"),
     };
-    let (new_state, _) = reduce(&spec, &spec.state, &Value::Null, &event).unwrap();
+    let (new_state, _) = reduce(&spec, &spec.state, &Value::Null, &Value::Null, &event).unwrap();
     assert_eq!(new_state["a"]["b"]["c"], json!("new"));
     assert_eq!(new_state["a"]["b"]["d"], json!("kept"));
     assert_eq!(new_state["a"]["e"], json!("also-kept"));
@@ -124,7 +124,7 @@ fn a_multi_action_handler_keeps_every_key_each_action_did_not_touch() {
         kind: EventKind::Click,
         value: Value::Null,
     };
-    let (new_state, _) = reduce(&spec, &spec.state, &Value::Null, &event).unwrap();
+    let (new_state, _) = reduce(&spec, &spec.state, &Value::Null, &Value::Null, &event).unwrap();
     assert_eq!(new_state["x"], json!(100));
     // The second `set`'s value is exactly one reference (`{{state.x}}`), so it
     // resolves to the raw JSON value the first `set` just wrote, not a string —

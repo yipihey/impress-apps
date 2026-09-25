@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Tier B (`src/tier_b.rs`) drives a running app's `/api/surface/*` over
+# loopback HTTP — the client `impress-layout-service`'s Tier B already uses,
+# so no new crate enters the kit's tree.
+reqwest = { workspace = true }
 # `sqlite`: this crate owns the store side of a surface (the
 # `impress/ui/surface@1.0.0` / `-state` / `-event` rows). `schema`: the DTOs
 # that cross the `#[impress_method]` boundary need `schemars::JsonSchema`.
@@ -52,6 +56,9 @@ impress-service-core = { workspace = true, features = ["cli"] }
 # they exist. See `tier_a.rs`'s module docs for what happens when they do not
 # exist yet.
 surface-demo-service = { workspace = true }
+# `tests/doc_wire.rs` checks docs/agent-surfaces.md's argument examples
+# against each verb's own input schema.
+jsonschema = { version = "0.33", default-features = false }
 # `tests/coherence.rs` opens two connections on one file — the app and
 # `impress-mcp` as the store sees them.
 tempfile = "3"

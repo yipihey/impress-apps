@@ -42,6 +42,7 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
     /// request was how the bridge and the panes came to disagree.
     private var surface: SharedSurface?
     private var surfaceStore: SharedStore?
+    private var surfaceAppID: String?
 
     func routeSurfaceRequest(method: String, path: String, body: String) async -> (
         status: Int, body: String
@@ -51,8 +52,8 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
                 "surface automation: no SharedStore handle — \(method) \(path) refused",
                 category: "surface")
             return (
-                409,
-                #"{"error": "the shared store is not open", "code": "store-unavailable"}"#
+                503,
+                #"{"ok": false, "code": "store-unavailable", "message": "the shared store is not open", "wire_version": 1}"#
             )
         }
         // imbib's own window renders no layout tree, so this is where its
@@ -63,14 +64,20 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
         #endif
         // `host: ""` is the process-wide host, the same one `surface_show`
         // binds a pane under: a surface created by an agent and a surface
-        // rendered in this window are one row, not two.
+        // rendered in this window are one row, not two. `appId`: the app
+        // whose layout tree this process draws, so `POST …/show` with no
+        // `app_id` shows the surface HERE; empty in a process with no tree
+        // (imbib's own window), where Rust looks in every app's layout for
+        // the pane that shows a surface (review RS-S4, AC-F6).
+        let appID = LayoutAutomation.shared.host?.layoutAppID ?? ""
         let surface: SharedSurface
-        if let cached = self.surface, surfaceStore === store {
+        if let cached = self.surface, surfaceStore === store, surfaceAppID == appID {
             surface = cached
         } else {
-            surface = SharedSurface.open(store: store, host: "")
+            surface = SharedSurface.open(store: store, host: "", appId: appID)
             self.surface = surface
             surfaceStore = store
+            surfaceAppID = appID
         }
         // Awaited, not blocked on: Rust runs the request on its own runtime
         // and the main actor is free meanwhile (wave 7, SK-K2).

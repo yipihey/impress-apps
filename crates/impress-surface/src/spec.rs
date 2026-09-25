@@ -49,11 +49,13 @@ pub const SURFACE_VERSION: &str = "1.0";
 /// agent authors and what `impress-surface-service` renders and reduces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct SurfaceSpec {
-    /// Always [`SURFACE_VERSION`] for a spec this crate accepts; carried as a
-    /// plain string (not an enum) so a newer or older version is a *validation*
-    /// finding, not a parse failure — the same choice `PaneQuery` and the layout
-    /// tree make about their own version fields.
+    /// Always "1.0" for a spec this build accepts; carried as a plain string
+    /// (not an enum) so a newer or older version is a *validation* finding,
+    /// not a parse failure — the same choice `PaneQuery` and the layout tree
+    /// make about their own version fields.
+    #[cfg_attr(feature = "schema", schemars(schema_with = "surface_version_schema"))]
     pub surface: String,
     pub name: String,
     #[serde(default)]
@@ -76,9 +78,12 @@ fn default_state() -> Value {
 // Sources
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Where a value a node can reference comes from. See the module docs for why
-/// this is `#[serde(untagged)]` rather than externally tagged like [`Action`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Where a value a node can reference comes from. The variant is chosen by
+/// which of its three keys is present (`value`, `verb`, `query`) — never by an
+/// explicit tag — so [`Source`] hand-writes `Deserialize` to name the problem
+/// precisely ("a source is exactly one of …; found [verb, query]") where
+/// `#[serde(untagged)]` could only say "did not match any variant".
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum Source {
     Value {
@@ -94,6 +99,102 @@ pub enum Source {
     },
 }
 
+impl Source {
+    /// Parse one `sources` entry. Keys other than the variant's own are
+    /// ignored here (a stored row stays readable); `validate_json` reports
+    /// them as unknown fields.
+    pub fn from_value(value: Value) -> Result<Source, String> {
+        let Value::Object(mut obj) = value else {
+            return Err(format!(
+                "a source must be a JSON object, got {}",
+                json_type(&value)
+            ));
+        };
+        let present: Vec<&str> = ["value", "verb", "query"]
+            .into_iter()
+            .filter(|k| obj.contains_key(*k))
+            .collect();
+        match present.as_slice() {
+            ["value"] => Ok(Source::Value {
+                value: obj.remove("value").unwrap_or(Value::Null),
+            }),
+            ["verb"] => {
+                let verb = match obj.remove("verb") {
+                    Some(Value::String(s)) => s,
+                    Some(other) => {
+                        return Err(format!(
+                            "`verb` must be a string, got {}",
+                            json_type(&other)
+                        ))
+                    }
+                    None => unreachable!("present"),
+                };
+                let args = obj.remove("args").unwrap_or(Value::Null);
+                Ok(Source::Verb { verb, args })
+            }
+            ["query"] => {
+                let raw = obj.remove("query").unwrap_or(Value::Null);
+                serde_json::from_value::<PaneQuery>(raw)
+                    .map(|query| Source::Query { query })
+                    .map_err(|e| format!("`query`: {e}"))
+            }
+            [] => Err(format!(
+                "a source is exactly one of {{\"value\"}}, {{\"verb\", \"args\"}} or \
+                 {{\"query\"}}; found keys [{}]",
+                obj.keys().cloned().collect::<Vec<_>>().join(", ")
+            )),
+            several => Err(format!(
+                "a source is exactly one of {{\"value\"}}, {{\"verb\", \"args\"}} or \
+                 {{\"query\"}}; found [{}]",
+                several.join(", ")
+            )),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Source {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        Source::from_value(value).map_err(DeError::custom)
+    }
+}
+
+/// `object`, `array`, `string`, … — for a message that names what was found.
+pub(crate) fn json_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
+}
+
+#[cfg(feature = "schema")]
+fn surface_version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    schema_from_json(serde_json::json!({
+        "type": "string",
+        "const": SURFACE_VERSION,
+        "description": "The surface vocabulary version; this build understands \"1.0\"."
+    }))
+}
+
+/// A hand-written schema, as JSON. Every schema here is a literal the
+/// `schema_is_machine_checkable` tests validate the shipped examples against.
+#[cfg(feature = "schema")]
+fn schema_from_json(value: Value) -> schemars::schema::Schema {
+    serde_json::from_value(value).expect("a hand-written schema literal is a valid Schema")
+}
+
+#[cfg(feature = "schema")]
+fn schema_json(schema: schemars::schema::Schema) -> Value {
+    serde_json::to_value(schema).unwrap_or(Value::Null)
+}
+
 #[cfg(feature = "schema")]
 impl schemars::JsonSchema for Source {
     fn schema_name() -> String {
@@ -101,24 +202,60 @@ impl schemars::JsonSchema for Source {
     }
 
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        // `#[serde(untagged)]` has no single canonical JSON Schema shape schemars
-        // can derive without picking a representation for us, so this schema is
-        // documentation rather than a machine-checkable `oneOf`: an object shaped
-        // like exactly one of the three variants below. `surface_schema` (S4)
-        // pairs this with a worked example, which is where an authoring agent
-        // actually learns the shape.
-        let mut schema = schemars::schema::SchemaObject {
-            instance_type: Some(schemars::schema::InstanceType::Object.into()),
-            ..Default::default()
-        };
-        schema.metadata().description = Some(
-            "One of: {\"value\": <json>} | {\"verb\": <name>, \"args\": <object>} | \
-             {\"query\": <PaneQuery>}. Untagged: the variant is chosen by which keys \
-             are present, never by an explicit tag."
-                .to_string(),
-        );
-        let _ = gen; // no sub-schemas to register; kept for signature parity
-        schemars::schema::Schema::Object(schema)
+        // Exactly one of three shapes, chosen by which key is present (see
+        // the type's docs) — a real `oneOf` a validator checks (review
+        // AC-F8, RS-S24), not a description.
+        // `PaneQuery`'s own schema admits any extra key; a misspelt one
+        // (`kind` for `kinds`) silently widens the query, so the keys it has
+        // are the only names allowed here.
+        let query_keys: Vec<String> = schemars::schema_for!(PaneQuery)
+            .schema
+            .object
+            .map(|o| o.properties.keys().cloned().collect())
+            .unwrap_or_default();
+        let query = serde_json::json!({
+            "allOf": [schema_json(gen.subschema_for::<PaneQuery>())],
+            "propertyNames": { "enum": query_keys }
+        });
+        schema_from_json(serde_json::json!({
+            "description": "Where a value a node can reference comes from: exactly one of a \
+                            fixed value, a verb call, or a pane query.",
+            "oneOf": [
+                {
+                    "title": "value",
+                    "type": "object",
+                    "required": ["value"],
+                    "properties": { "value": { "description": "Any JSON value." } },
+                    "additionalProperties": false
+                },
+                {
+                    "title": "verb",
+                    "type": "object",
+                    "required": ["verb"],
+                    "properties": {
+                        "verb": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9-]+_[a-z0-9-]+$",
+                            "description": "An #[impress_service] tool name, e.g. \
+                                            surface-demo-service_series."
+                        },
+                        "args": {
+                            "type": "object",
+                            "description": "The verb's arguments; strings may hold {{…}} \
+                                            references (state, param, source)."
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "title": "query",
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": { "query": query },
+                    "additionalProperties": false
+                }
+            ]
+        }))
     }
 }
 
@@ -130,6 +267,7 @@ impl schemars::JsonSchema for Source {
 /// default enum representation already matches the plan's `{"set": {…}}` shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     /// Write `value` (template-resolved) to `path` (a literal `state.…` path,
@@ -209,8 +347,12 @@ pub enum Action {
 
 /// What the renderer reports happened. `widget` is a node id — author-given or
 /// auto-derived, [`node_id`] computes both the same way `resolve` and `reduce` do.
+///
+/// An argument an agent sends (`surface_dispatch`'s `event`): an unknown key
+/// is refused, never ignored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct Event {
     pub widget: String,
     pub kind: EventKind,
@@ -232,6 +374,7 @@ pub enum EventKind {
 /// exactly `equals` when it is present.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct When {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -244,6 +387,7 @@ pub struct When {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Grid {
     pub columns: u32,
     #[serde(default)]
@@ -252,6 +396,7 @@ pub struct Grid {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Section {
     pub title: String,
     #[serde(default)]
@@ -261,6 +406,7 @@ pub struct Section {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Tab {
     pub title: String,
     pub body: Node,
@@ -268,6 +414,7 @@ pub struct Tab {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Table {
     pub rows: Value,
     pub columns: Vec<String>,
@@ -277,6 +424,7 @@ pub struct Table {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct ListWidget {
     pub rows: Value,
     #[serde(default)]
@@ -285,6 +433,7 @@ pub struct ListWidget {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Plot {
     /// A `plot-spec@1.0.0` payload (ADR-0033 "Defaults"), opaque here — this
     /// crate never renders pixels.
@@ -293,6 +442,7 @@ pub struct Plot {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Image {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blob: Option<Value>,
@@ -321,6 +471,7 @@ pub enum FieldKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Button {
     pub label: String,
     #[serde(default)]
@@ -329,6 +480,7 @@ pub struct Button {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Status {
     pub level: String,
     pub message: Value,
@@ -369,6 +521,19 @@ pub enum NodeKind {
     Unknown {
         kind: String,
         node: Value,
+    },
+    /// A node this build could not read: a KNOWN kind whose body does not
+    /// parse (`{"table": {"rows": []}}` — no `columns`), a node with zero or
+    /// several kind keys, a common key of the wrong type, or not an object at
+    /// all. `kind` is the kind key when there was exactly one (else empty),
+    /// `node` the node's whole original JSON, `error` what was wrong — kept,
+    /// never replaced by "unrecognized kind" (review RS-S7). `validate`
+    /// reports it as an error at the node's path; `resolve` draws a
+    /// placeholder carrying `error` as its reason and `node` as its content.
+    Invalid {
+        kind: String,
+        node: Value,
+        error: String,
     },
 }
 
@@ -492,11 +657,16 @@ impl Node {
             NodeKind::Kv(_) => "kv",
             NodeKind::Divider => "divider",
             NodeKind::Spacer => "spacer",
-            NodeKind::Unknown { kind, .. } => kind.as_str(),
+            NodeKind::Unknown { kind, .. } | NodeKind::Invalid { kind, .. } => kind.as_str(),
         }
     }
 
-    fn to_value(&self) -> Value {
+    /// The node as JSON, exactly as an author would write it (an
+    /// [`NodeKind::Invalid`] node is its original JSON, verbatim).
+    pub fn to_value(&self) -> Value {
+        if let NodeKind::Invalid { node, .. } = &self.kind {
+            return node.clone();
+        }
         let mut map = Map::new();
         if let Some(id) = &self.id {
             map.insert("id".to_string(), Value::String(id.clone()));
@@ -533,36 +703,75 @@ impl Node {
         Value::Object(map)
     }
 
-    fn from_value(value: Value) -> Result<Node, String> {
+    /// Read a node. Never fails: whatever cannot be read becomes a
+    /// [`NodeKind::Invalid`] node carrying the reason, so one bad node
+    /// degrades alone (the rest of the surface still renders) and `validate`
+    /// can say exactly what is wrong and where.
+    pub fn from_value(value: Value) -> Node {
+        let original = value.clone();
         let mut obj = match value {
             Value::Object(m) => m,
-            other => return Err(format!("a surface node must be a JSON object, got {other}")),
-        };
-        let id = take_string(&mut obj, "id")?;
-        let label = take_string(&mut obj, "label")?;
-        let help = take_string(&mut obj, "help")?;
-        let when = take_field::<When>(&mut obj, "when")?;
-        let bind = take_string(&mut obj, "bind")?;
-        let on_change = take_actions(&mut obj, "on_change")?;
-        let on_submit = take_actions(&mut obj, "on_submit")?;
-
-        let keys: Vec<String> = obj.keys().cloned().collect();
-        let kind = if keys.len() == 1 {
-            let key = keys.into_iter().next().expect("len checked above");
-            let raw = obj.remove(&key).expect("key just listed from this map");
-            parse_kind(&key, raw)
-        } else {
-            // Zero or several remaining keys is not a shape any kind recognizes
-            // (every real kind is exactly one key by construction); kept as
-            // `Unknown` with an empty tag rather than rejected outright, for the
-            // same forward-compatibility reason a single unrecognized key is.
-            NodeKind::Unknown {
-                kind: String::new(),
-                node: Value::Object(obj),
+            other => {
+                return Node::leaf(NodeKind::Invalid {
+                    kind: String::new(),
+                    error: format!(
+                        "a surface node must be a JSON object, got {}",
+                        json_type(&other)
+                    ),
+                    node: original,
+                })
             }
         };
+        let mut errors: Vec<String> = Vec::new();
+        let id = noted(take_string(&mut obj, "id"), &mut errors);
+        let label = noted(take_string(&mut obj, "label"), &mut errors);
+        let help = noted(take_string(&mut obj, "help"), &mut errors);
+        let bind = noted(take_string(&mut obj, "bind"), &mut errors);
+        let when = noted(take_field::<When>(&mut obj, "when"), &mut errors);
+        let on_change = noted(take_actions(&mut obj, "on_change"), &mut errors);
+        let on_submit = noted(take_actions(&mut obj, "on_submit"), &mut errors);
 
-        Ok(Node {
+        let keys: Vec<String> = obj.keys().cloned().collect();
+        let mut kind = match keys.len() {
+            1 => {
+                let key = keys.into_iter().next().expect("len checked above");
+                let raw = obj.remove(&key).expect("key just listed from this map");
+                parse_kind(&key, raw, &original)
+            }
+            0 => NodeKind::Invalid {
+                kind: String::new(),
+                node: original.clone(),
+                error: format!(
+                    "a node needs exactly one kind key ({}); found none",
+                    NODE_KIND_NAMES.join(", ")
+                ),
+            },
+            _ => NodeKind::Invalid {
+                kind: keys
+                    .iter()
+                    .find(|k| NODE_KIND_NAMES.contains(&k.as_str()))
+                    .cloned()
+                    .unwrap_or_default(),
+                node: original.clone(),
+                error: format!(
+                    "a node needs exactly one kind key; found [{}] (the common keys are id, \
+                     label, help, when, bind, on_change, on_submit)",
+                    keys.join(", ")
+                ),
+            },
+        };
+        if !errors.is_empty() {
+            kind = NodeKind::Invalid {
+                kind: match &kind {
+                    NodeKind::Invalid { kind, .. } | NodeKind::Unknown { kind, .. } => kind.clone(),
+                    other => Node::leaf(other.clone()).kind_name().to_string(),
+                },
+                node: original,
+                error: errors.join("; "),
+            };
+        }
+
+        Node {
             id,
             label,
             help,
@@ -571,7 +780,7 @@ impl Node {
             on_change,
             on_submit,
             kind,
-        })
+        }
     }
 }
 
@@ -632,60 +841,59 @@ impl NodeKind {
             NodeKind::Divider => ("divider".to_string(), Value::Object(Map::new())),
             NodeKind::Spacer => ("spacer".to_string(), Value::Object(Map::new())),
             NodeKind::Unknown { kind, node } => (kind.clone(), node.clone()),
+            // `Node::to_value` returns an invalid node's original JSON before
+            // it gets here; this arm only keeps the match exhaustive.
+            NodeKind::Invalid { kind, node, .. } => (kind.clone(), node.clone()),
         }
     }
 }
 
-fn parse_kind(key: &str, raw: Value) -> NodeKind {
-    let parsed: Option<NodeKind> = match key {
-        "column" => serde_json::from_value::<Vec<Node>>(raw.clone())
-            .ok()
-            .map(NodeKind::Column),
-        "row" => serde_json::from_value::<Vec<Node>>(raw.clone())
-            .ok()
-            .map(NodeKind::Row),
-        "grid" => serde_json::from_value::<Grid>(raw.clone())
-            .ok()
-            .map(NodeKind::Grid),
-        "section" => serde_json::from_value::<Section>(raw.clone())
-            .ok()
-            .map(NodeKind::Section),
-        "tabs" => serde_json::from_value::<Vec<Tab>>(raw.clone())
-            .ok()
-            .map(NodeKind::Tabs),
-        "text" => serde_json::from_value::<String>(raw.clone())
-            .ok()
-            .map(NodeKind::Text),
-        "table" => serde_json::from_value::<Table>(raw.clone())
-            .ok()
-            .map(NodeKind::Table),
-        "list" => serde_json::from_value::<ListWidget>(raw.clone())
-            .ok()
-            .map(NodeKind::List),
-        "plot" => serde_json::from_value::<Plot>(raw.clone())
-            .ok()
-            .map(NodeKind::Plot),
-        "image" => serde_json::from_value::<Image>(raw.clone())
-            .ok()
-            .map(NodeKind::Image),
-        "field" => serde_json::from_value::<FieldKind>(raw.clone())
-            .ok()
-            .map(NodeKind::Field),
-        "button" => serde_json::from_value::<Button>(raw.clone())
-            .ok()
-            .map(NodeKind::Button),
-        "status" => serde_json::from_value::<Status>(raw.clone())
-            .ok()
-            .map(NodeKind::Status),
-        "log" => Some(NodeKind::Log(raw.clone())),
-        "kv" => Some(NodeKind::Kv(raw.clone())),
-        "divider" => Some(NodeKind::Divider),
-        "spacer" => Some(NodeKind::Spacer),
-        _ => None,
-    };
-    parsed.unwrap_or(NodeKind::Unknown {
-        kind: key.to_string(),
-        node: raw,
+fn parse_kind(key: &str, raw: Value, original: &Value) -> NodeKind {
+    fn body<T: serde::de::DeserializeOwned>(
+        key: &str,
+        raw: Value,
+        original: &Value,
+        wrap: impl FnOnce(T) -> NodeKind,
+    ) -> NodeKind {
+        match serde_json::from_value::<T>(raw) {
+            Ok(body) => wrap(body),
+            Err(e) => NodeKind::Invalid {
+                kind: key.to_string(),
+                node: original.clone(),
+                error: format!("`{key}`: {e}"),
+            },
+        }
+    }
+    match key {
+        "column" => body(key, raw, original, NodeKind::Column),
+        "row" => body(key, raw, original, NodeKind::Row),
+        "grid" => body(key, raw, original, NodeKind::Grid),
+        "section" => body(key, raw, original, NodeKind::Section),
+        "tabs" => body(key, raw, original, NodeKind::Tabs),
+        "text" => body(key, raw, original, NodeKind::Text),
+        "table" => body(key, raw, original, NodeKind::Table),
+        "list" => body(key, raw, original, NodeKind::List),
+        "plot" => body(key, raw, original, NodeKind::Plot),
+        "image" => body(key, raw, original, NodeKind::Image),
+        "field" => body(key, raw, original, NodeKind::Field),
+        "button" => body(key, raw, original, NodeKind::Button),
+        "status" => body(key, raw, original, NodeKind::Status),
+        "log" => NodeKind::Log(raw),
+        "kv" => NodeKind::Kv(raw),
+        "divider" => NodeKind::Divider,
+        "spacer" => NodeKind::Spacer,
+        _ => NodeKind::Unknown {
+            kind: key.to_string(),
+            node: raw,
+        },
+    }
+}
+
+/// The value, or its default with the error noted.
+fn noted<T: Default>(result: Result<T, String>, errors: &mut Vec<String>) -> T {
+    result.unwrap_or_else(|e| {
+        errors.push(e);
+        T::default()
     })
 }
 
@@ -731,7 +939,7 @@ impl<'de> Deserialize<'de> for Node {
         D: Deserializer<'de>,
     {
         let value = Value::deserialize(deserializer)?;
-        Node::from_value(value).map_err(DeError::custom)
+        Ok(Node::from_value(value))
     }
 }
 
@@ -742,44 +950,107 @@ impl schemars::JsonSchema for Node {
     }
 
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        // See the module docs: no combination of `#[serde(tag/flatten)]` models
-        // "one required tag key from a closed set, plus per-kind sibling keys,
-        // with an unrecognized tag key kept rather than rejected", so this is
-        // documentation (mirroring `Source`'s manual impl) rather than a
-        // machine-checked `oneOf`. `schema_tests` asserts every kind name below
-        // appears in the generated text.
-        let mut schema = schemars::schema::SchemaObject {
-            instance_type: Some(schemars::schema::InstanceType::Object.into()),
-            ..Default::default()
-        };
-        schema.metadata().description = Some(format!(
-            "A surface node: the common keys id/label/help/when, the field-only \
-             keys bind/on_change/on_submit, and exactly one node-kind key — one \
-             of: {}. A key this build does not recognize is kept as \
-             `{{kind}}: {{node}}` rather than rejected (ADR-0033 default).",
-            NODE_KIND_NAMES.join(", ")
-        ));
-        // The returned schema is deliberately loose (see above), but every
-        // per-kind body type is still a real, derived `JsonSchema` — this
-        // registers each one into `gen`'s definitions (the side effect
-        // `subschema_for` exists for) so an agent reading the generated
-        // document, or `schema_tests::the_schema_mentions_every_action_kind`,
-        // finds `Action`'s real shape rather than nothing at all. The `$ref`s
-        // returned here are discarded on purpose; `Node`'s own shape stays the
-        // textual description above.
-        let _ = gen.subschema_for::<Grid>();
-        let _ = gen.subschema_for::<Section>();
-        let _ = gen.subschema_for::<Tab>();
-        let _ = gen.subschema_for::<Table>();
-        let _ = gen.subschema_for::<ListWidget>();
-        let _ = gen.subschema_for::<Plot>();
-        let _ = gen.subschema_for::<Image>();
-        let _ = gen.subschema_for::<FieldKind>();
-        let _ = gen.subschema_for::<Button>();
-        let _ = gen.subschema_for::<Status>();
-        let _ = gen.subschema_for::<Action>();
-        let _ = gen.subschema_for::<When>();
-        schemars::schema::Schema::Object(schema)
+        // One branch per closed kind — the kind key required, its body's own
+        // schema, the common keys, and nothing else — plus one branch for a
+        // kind this build does not know (kept, and drawn as a placeholder:
+        // ADR-0033's forward compatibility). A real `oneOf`, so a JSON Schema
+        // validator rejects a node with two kind keys, a misspelt key or a
+        // malformed body (review AC-F8, RS-S24).
+        let node = schema_json(gen.subschema_for::<Node>());
+        let action = schema_json(gen.subschema_for::<Action>());
+        let actions = serde_json::json!({ "type": "array", "items": action });
+        let common = serde_json::json!({
+            "id": {
+                "type": "string",
+                "description": "The widget id events name. Give every interactive widget one; \
+                                an unnamed node gets a positional id (n0.2.1) that changes \
+                                when the spec does."
+            },
+            "label": { "type": "string" },
+            "help": { "type": "string" },
+            "when": schema_json(gen.subschema_for::<When>()),
+            "bind": {
+                "type": "string",
+                "pattern": "^state(\\.[A-Za-z0-9_-]+)+$",
+                "description": "field only: the state path the field edits."
+            },
+            "on_change": actions.clone(),
+            "on_submit": actions,
+        });
+        let bodies: Vec<(&str, Value)> = vec![
+            (
+                "column",
+                serde_json::json!({ "type": "array", "items": node }),
+            ),
+            ("row", serde_json::json!({ "type": "array", "items": node })),
+            ("grid", schema_json(gen.subschema_for::<Grid>())),
+            ("section", schema_json(gen.subschema_for::<Section>())),
+            (
+                "tabs",
+                serde_json::json!({ "type": "array", "items": schema_json(gen.subschema_for::<Tab>()) }),
+            ),
+            (
+                "text",
+                serde_json::json!({ "type": "string", "description": "Markdown; {{…}} references are filled in." }),
+            ),
+            ("table", schema_json(gen.subschema_for::<Table>())),
+            ("list", schema_json(gen.subschema_for::<ListWidget>())),
+            ("plot", schema_json(gen.subschema_for::<Plot>())),
+            ("image", schema_json(gen.subschema_for::<Image>())),
+            ("field", schema_json(gen.subschema_for::<FieldKind>())),
+            ("button", schema_json(gen.subschema_for::<Button>())),
+            ("status", schema_json(gen.subschema_for::<Status>())),
+            (
+                "log",
+                serde_json::json!({ "description": "Lines: an array, or a {{…}} reference to one." }),
+            ),
+            (
+                "kv",
+                serde_json::json!({ "description": "Pairs: an object, or a {{…}} reference to one." }),
+            ),
+            (
+                "divider",
+                serde_json::json!({ "type": "object", "maxProperties": 0 }),
+            ),
+            (
+                "spacer",
+                serde_json::json!({ "type": "object", "maxProperties": 0 }),
+            ),
+        ];
+        let mut branches: Vec<Value> = bodies
+            .into_iter()
+            .map(|(kind, body)| {
+                let mut properties = common.clone();
+                properties[kind] = body;
+                serde_json::json!({
+                    "title": kind,
+                    "type": "object",
+                    "required": [kind],
+                    "properties": properties,
+                    "additionalProperties": false
+                })
+            })
+            .collect();
+        let known: Vec<Value> = NODE_KIND_NAMES
+            .iter()
+            .map(|k| serde_json::json!({ "required": [k] }))
+            .collect();
+        branches.push(serde_json::json!({
+            "title": "a kind this build does not know",
+            "description": "Kept, and rendered as a placeholder that carries the node — a \
+                            spec written for a newer kit still renders the rest of itself. \
+                            surface_validate reports it as a warning.",
+            "type": "object",
+            "not": { "anyOf": known }
+        }));
+        schema_from_json(serde_json::json!({
+            "description": format!(
+                "A surface node: exactly one node-kind key ({}) beside the common keys id, \
+                 label, help, when, and (field only) bind, on_change, on_submit.",
+                NODE_KIND_NAMES.join(", ")
+            ),
+            "oneOf": branches
+        }))
     }
 }
 
@@ -822,5 +1093,90 @@ pub fn walk_with_ids(root: &Node) -> Vec<(String, &Node)> {
     }
     let mut out = Vec::new();
     go(root, vec![0], &mut out);
+    out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Walking the tree by JSON pointer
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The ONE definition of which keys of a node hold child nodes and which hold
+// action lists (review RS-S21). `validate`, `surface_validate`'s verb check
+// and the verb-argument check all walk through these, so a container or a
+// handler added here is seen by every check at once — before, a kind added to
+// `validate`'s walker but not the service's silently skipped the verb check.
+
+/// Each direct child of `node`, with the JSON-pointer suffix that reaches it
+/// from the node (`/column/2`, `/section/body`, `/tabs/0/body`).
+pub fn child_pointers(node: &Node) -> Vec<(String, &Node)> {
+    match &node.kind {
+        NodeKind::Column(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (format!("/column/{i}"), n))
+            .collect(),
+        NodeKind::Row(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (format!("/row/{i}"), n))
+            .collect(),
+        NodeKind::Grid(g) => g
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (format!("/grid/items/{i}"), n))
+            .collect(),
+        NodeKind::Section(s) => vec![("/section/body".to_string(), s.body.as_ref())],
+        NodeKind::Tabs(tabs) => tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (format!("/tabs/{i}/body"), &t.body))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Each action list `node` declares, with its JSON-pointer suffix
+/// (`/on_change`, `/table/on_select`, `/button/on_click`, …).
+pub fn handler_pointers(node: &Node) -> Vec<(String, &[Action])> {
+    let mut out: Vec<(String, &[Action])> = vec![
+        ("/on_change".to_string(), node.on_change.as_slice()),
+        ("/on_submit".to_string(), node.on_submit.as_slice()),
+    ];
+    match &node.kind {
+        NodeKind::Table(t) => out.push(("/table/on_select".to_string(), t.on_select.as_slice())),
+        NodeKind::List(l) => out.push(("/list/on_select".to_string(), l.on_select.as_slice())),
+        NodeKind::Button(b) => out.push(("/button/on_click".to_string(), b.on_click.as_slice())),
+        _ => {}
+    }
+    out
+}
+
+/// Every node, depth-first, with its JSON pointer from the spec root
+/// (`/root`, `/root/column/1`, `/root/column/1/row/0`).
+pub fn walk_with_pointers(root: &Node) -> Vec<(String, &Node)> {
+    fn go<'a>(node: &'a Node, at: String, out: &mut Vec<(String, &'a Node)>) {
+        let children = child_pointers(node);
+        out.push((at.clone(), node));
+        for (suffix, child) in children {
+            go(child, format!("{at}{suffix}"), out);
+        }
+    }
+    let mut out = Vec::new();
+    go(root, "/root".to_string(), &mut out);
+    out
+}
+
+/// Every action in the tree, with its JSON pointer
+/// (`/root/column/4/button/on_click/0`).
+pub fn walk_actions(root: &Node) -> Vec<(String, &Action)> {
+    let mut out = Vec::new();
+    for (at, node) in walk_with_pointers(root) {
+        for (suffix, actions) in handler_pointers(node) {
+            for (i, action) in actions.iter().enumerate() {
+                out.push((format!("{at}{suffix}/{i}"), action));
+            }
+        }
+    }
     out
 }

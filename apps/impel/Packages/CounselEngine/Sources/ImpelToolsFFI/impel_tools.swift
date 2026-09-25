@@ -889,6 +889,19 @@ public func listTools() -> [ToolDescriptor] {
     )
 })
 }
+/**
+ * The sibling app a tool belongs to (`imbib`, `imprint`), from its
+ * namespace prefix — `None` for a tool no app owns (it runs against the
+ * shared store and is never unavailable). Exported so a host (impress's
+ * verb host) asks rather than keeps a copy of this rule (review RS-S19).
+ */
+public func toolApp(name: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_tool_app(
+        FfiConverterString.lower(name),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -915,6 +928,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impel_tools_checksum_func_list_tools() != 52882) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_tool_app() != 31972) {
         return InitializationResult.apiChecksumMismatch
     }
 

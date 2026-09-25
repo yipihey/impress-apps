@@ -426,3 +426,97 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     ImpressAutomation 63/0; PublicationManagerCore 2154 XCTest / 0 failures (2 skipped) + 112
     swift-testing. After #63's toolchain move the copied imbib-core, imprint-core, scix,
     implore, impel-tools, helix and impart frameworks had to be rebuilt in the worktree.
+- 2026-09-25 — **T6a (the written contract, surface half)**, branch `claude/wave7-t6a-surface`.
+  - **Strict agent inputs (AC-F3, RS-S6 = AC-F7, AC-F13, AC-F14; RL-L3's surface half).** Every
+    surface verb is `strict_args`: an unknown field anywhere in its arguments — `target`,
+    `event`, the top level — is `ok: false`, `invalid-argument`, serde's message naming the field,
+    over MCP (`isError`), the CLI (exit 3) and HTTP (400); `{"id": 7}` as a target no longer opens
+    a split. A target is exactly one of tile/role/split; `from_focused: false` is refused. The spec
+    is an argument read by the verb (`SpecArg`), so `validate_json` locates a structural mistake
+    and a key nothing reads; problems carry `severity` (an unknown kind is a warning).
+    create/update run the same check as validate — pure problems, verb existence, each verb's
+    literal arguments against its own input schema — and refuse `invalid-spec` with every problem;
+    warnings are stored and listed.
+  - **Machine-checkable schema (AC-F8 + RS-S24).** Node and Source are hand-written `oneOf`s (one
+    branch per kind with `additionalProperties: false`, the unknown-kind branch last), body types
+    carry schema-only `deny_unknown_fields`, `surface` is `const "1.0"`, PaneQuery's keys are
+    closed, rustdoc links are stripped, and `rules` says what a schema cannot. `jsonschema`
+    validates both shipped examples and rejects ten known-bad specs.
+  - **HTTP mirrors the verbs (AC-F9 + RS-S13).** Every `/api/surface` route runs the verb through
+    `call_verb_on` — the macro's own args struct, plus a top-level check against the published
+    schema — and answers its result unchanged; show, state get/put, wait and examples are new;
+    render answers the envelope with `source_errors`. The table is in docs/agent-surfaces.md.
+  - **Wire (with T6b).** Every result carries `wire_version: 1`; refusals are `{ok: false, code,
+    message}`; `invalid-spec` is 422. `after_seq` is optional on events/wait.
+  - **Params bound (RS-S3 = AC-F15).** Explicit `params` win; else each declared param takes the
+    showing pane's binding of the same name; else unbound (a `required` one refuses the query
+    rather than meaning "no filter"). `surface_show` gives the pane one param per declared param,
+    following the window's channel; schema refs compile as their pane-query kind.
+  - **App id (RS-S4 = AC-F6).** `surface_show` requires `app_id`; `SharedSurface.open(store, host,
+    appId)` records the pane in that app; the pane lookup tries the handle's app, then every app
+    with a live layout on the device. No `"impress"` default remains.
+  - **Also closed:** RS-S7 (Invalid node kind with serde's message), RS-S8 (actions read sources;
+    `into`, `open`, `publish.ids` checked or refused), RS-S9 (one `state_path` walker), RS-S10
+    (only known-root plain-segment `{{…}}` is a reference; LaTeX is text), RS-S20 (placeholder
+    keeps `node`), AC-F21 (`host` is the state instance, default the device; schema-refs.json
+    fixed), SK-K4 (the pane publishes nothing itself), SK-K15 (render/dispatch carry `revision`
+    and `state_revision`; the feed's `SharedSurfaceChange` carries the same, and the pane skips its
+    own echo; events no longer notify), RS-S19 (impel-tools per-app probe times, a failed call
+    re-probes and flips to unavailable, `tool_app` exported; `SharedVerbHostError` → Rust-worded
+    `host-unavailable`), RS-S22 + AC-F25 (surface self-test has a live Tier B; unknown tiers
+    refused; CLI list args take a JSON array), AC-F23 + RS-S18 + AC-F4 (the how-to rewritten from
+    the DTOs, its JSON parsed against the real types by `tests/doc_wire.rs`; the loop's seven verbs
+    are flat primary MCP tools and a test resolves every name the how-to uses in both projections).
+  - **Narrowed:** RS-S21 — the tree walkers (validate, the verb check, the args check) and the four
+    state-path walkers are one each; `runtime::call_verb` and the self-test report types are still
+    copies (the other copies are in `impress-capabilities` and T6b's layout-service). RS-S8's "view
+    kind registered" check landed after the merge (above).
+  - **Merged with #75 (T6b), not rebased.** Adopted its shared pieces and dropped mine:
+    `impress_service_core::strict` (the macro's `strict_args`; `call_verb_on` parses through
+    `strict::args` against the tool's published schema), `wire::{WIRE_VERSION, wire_version}`, and
+    the one pane-reference spelling — `surface_show`'s `target` is exactly one of `{"id"}`,
+    `{"role"}`, `{"direction"}`, `{"focused": true}` (the layout's `PaneRefWire`) or `{"split":
+    {"direction"}}`; `{"tile": N}` and the tagged `{"ref", "tile"}` are refused. One change to
+    `strict::args`: a method whose schema names no properties takes no arguments, so a key there
+    is refused (it read the empty schema as free-form, so `surface_list {"zzz": 1}` — and any
+    zero-argument layout verb — accepted anything). `ViewKindId::KNOWN` now backs RS-S8's last
+    check: an `open` of an unknown view kind is an error. **RL-L12's surface side:** the layout
+    leaves a select's kind unchecked (#75); a surface publishes under an explicit `{kind, ids}`,
+    else its first param's kind, else `item`, and a spec that publishes with no declared param is
+    a validation warning, since no pane follows `item`. T6b's `None` for `expected_revision` is
+    kept on every layout call the runtime still makes (`split`, `set_pane`, `select`).
+    Outside my files, on purpose: layout Tier B's surface check reads the render envelope (or a
+    bare tree) and `?after_seq=`; kit-demo, PMC's `SurfaceAutomationBridge`, impress's
+    `ImpressVerbHost`.
+  - **Bindings.** ImpressStoreFfi gained `SharedSurfaceChange`, `SharedVerbHostError`,
+    `SharedSurface.appId()`; `open(store:host:appId:)` and `surfacesChanged(changes:)` changed; the
+    verb-host callback's error type changed; nothing else lost. ImpelTools gained `toolApp(name:)`.
+  - **Live** (impress on 23201, implore on 23202, both from this branch's own DerivedData,
+    `IMPRESS_DEVICE_ID=w7-t6a-proof`, port by launch argument; before the merge with #75).
+    `surface-show` with the then-unknown `target: {"id": 7}`: CLI exit 3, HTTP 400, MCP
+    `isError`, each `invalid-argument` naming `id`. An invalid spec at
+    create: CLI exit 3 and HTTP 422 `invalid-spec` with both problems, nothing stored.
+    `surface-selftest --tier b` 3/3 on 23201 and on 23202 (14 routes 200 with `wire_version: 1`,
+    strictness, invalid spec). Layout Tier B 13/13 on 23201. A surface with a required `paper`
+    param shown in impress: before a selection the query refused ("required but unbound"); after
+    selecting a paper on the list pane the render's `params.paper` was it and the query returned
+    its title, and the window's pane re-rendered (0 → 1 focusable widget). A picker shown in
+    implore published a distinct id: implore's channel 1 moved, impress's did not. kit-demo
+    `--prove` 18/18, including a real in-process table-row click that made 1 select and 0 focus
+    verbs, and the pane's "echo of its own write — not re-rendered" line. Throwaways (four
+    surfaces, the two `w7-t6a-proof` live rows via `SqliteItemStore::delete`) removed; no launcher
+    touched (xcodebuild direct).
+  - **After the merge with #75** (same ports and device, rebuilt from the merged tree): the retired
+    `target: {"ref": "id", "tile": 7}` is refused naming `ref` and `tile` — CLI exit 3, HTTP 400,
+    MCP `isError` — while `{"id": 7}` reaches the verb (404, no such surface); surface Tier B 3/3
+    on 23201 and 23202; layout Tier B 14/14 on 23201; the param proof and the implore publish
+    reproduced; kit-demo `--prove` 18/18; throwaways removed again.
+  - **Gates.** `rust-gate.sh fmt`, `clippy auto` (imprint + rest), `test auto` (imprint + rest;
+    one run's imbib-core doctest could not load a `impress_smart_search` rlib a stopped build
+    had truncated — cleaned and rerun green), `check-uniffi-bindings` (7 match; the regenerated
+    store binding is byte-identical to the merge), `check-schema-refs`, `check-kit-deps
+    --strict`, `check-kit-packages`, `check-chassis-deps`; ImpressLayout 79/0, ImpressSurface
+    18/18, ImpressAutomation 14 + 63, PublicationManagerCore full (see the PR).
+  - **Found.** The copied imbib-core/implore-core frameworks predated T5 and the toolchain pin
+    (missing checksums, duplicate `_rust_eh_personality`); rebuilt in the worktree. impress's
+    `/api/status` still reports 23125 on 23201 (T5's finding 4).

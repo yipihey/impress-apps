@@ -141,9 +141,9 @@ async fn cap_validate_clean() -> CapabilityResult {
         Tier::A,
         || async {
             let world = World::open();
-            let result = world.service.surface_validate(fixture_spec()).await;
+            let result = world.service.surface_validate(fixture_spec().into()).await;
             want(
-                result.ok(),
+                result.ok,
                 format!("unexpected problems: {:?}", result.problems),
             )?;
             Ok("fixture spec validates clean".to_string())
@@ -167,7 +167,7 @@ async fn cap_validate_catches_missing_verb() -> CapabilityResult {
                     args: json!({}),
                 },
             );
-            let result = world.service.surface_validate(spec).await;
+            let result = world.service.surface_validate(spec.into()).await;
             want(
                 result
                     .problems
@@ -192,7 +192,7 @@ async fn cap_create_get_list_delete() -> CapabilityResult {
             let created = world
                 .service
                 .surface_create(
-                    spec.clone(),
+                    spec.clone().into(),
                     Some("Fixture".to_string()),
                     Some(vec!["demo".to_string()]),
                 )
@@ -241,7 +241,7 @@ async fn cap_update() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), Some("Chosen name".into()), None)
+                .surface_create(fixture_spec().into(), Some("Chosen name".into()), None)
                 .await;
             want(
                 created.revision == Some(1),
@@ -252,7 +252,7 @@ async fn cap_update() -> CapabilityResult {
             spec2.name = "Renamed in the spec".to_string();
             let updated = world
                 .service
-                .surface_update(id.clone(), spec2.clone(), None, Some(1))
+                .surface_update(id.clone(), spec2.clone().into(), None, Some(1))
                 .await;
             want(updated.ok, format!("update failed: {}", updated.message))?;
             want(
@@ -275,7 +275,7 @@ async fn cap_update() -> CapabilityResult {
             stale.name = "Lost update".to_string();
             let refused = world
                 .service
-                .surface_update(id.clone(), stale, Some("Lost".into()), Some(1))
+                .surface_update(id.clone(), stale.into(), Some("Lost".into()), Some(1))
                 .await;
             want(!refused.ok, "a stale expected_revision was accepted")?;
             want(
@@ -290,7 +290,7 @@ async fn cap_update() -> CapabilityResult {
 
             let renamed = world
                 .service
-                .surface_update(id, spec2, Some("New name".into()), None)
+                .surface_update(id, spec2.into(), Some("New name".into()), None)
                 .await;
             want(
                 renamed.ok && renamed.name.as_deref() == Some("New name"),
@@ -312,7 +312,7 @@ async fn cap_show_composes_layout() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -321,14 +321,13 @@ async fn cap_show_composes_layout() -> CapabilityResult {
                 .surface_show(
                     id,
                     ShowTargetDto {
-                        role: None,
-                        tile: None,
                         split: Some(SplitTargetDto {
                             direction: "vertical".to_string(),
                             from_focused: true,
                         }),
+                        ..ShowTargetDto::default()
                     },
-                    Some(APP.to_string()),
+                    APP.to_string(),
                     Some(DEVICE.to_string()),
                 )
                 .await;
@@ -368,11 +367,11 @@ async fn cap_render_resolves_value_and_verb_sources() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
-            let rendered = world.service.surface_render(id, None).await;
+            let rendered = world.service.surface_render(id, None, None).await;
             want(rendered.ok, format!("render failed: {}", rendered.message))?;
             let tree = rendered.tree.ok_or("render returned no tree")?;
             let text = serde_json::to_string(&tree).map_err(|e| e.to_string())?;
@@ -400,7 +399,7 @@ async fn cap_state_get_set() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -446,7 +445,7 @@ async fn cap_dispatch_change_sets_bound_state() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -457,7 +456,7 @@ async fn cap_dispatch_change_sets_bound_state() -> CapabilityResult {
             };
             let dispatched = world
                 .service
-                .surface_dispatch(id.clone(), event, None)
+                .surface_dispatch(id.clone(), event, None, None)
                 .await;
             want(
                 dispatched.ok,
@@ -494,7 +493,7 @@ async fn cap_dispatch_click_runs_set_and_emit() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -505,7 +504,7 @@ async fn cap_dispatch_click_runs_set_and_emit() -> CapabilityResult {
             };
             let dispatched = world
                 .service
-                .surface_dispatch(id.clone(), click, None)
+                .surface_dispatch(id.clone(), click, None, None)
                 .await;
             want(
                 dispatched.ok,
@@ -519,7 +518,7 @@ async fn cap_dispatch_click_runs_set_and_emit() -> CapabilityResult {
                 ),
             )?;
 
-            let events = world.service.surface_events(id, 0, None).await;
+            let events = world.service.surface_events(id, Some(0), None).await;
             want(
                 events.ok,
                 format!("surface_events failed: {}", events.message),
@@ -543,7 +542,7 @@ async fn cap_events_after_cursor() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -555,15 +554,18 @@ async fn cap_events_after_cursor() -> CapabilityResult {
                 };
                 world
                     .service
-                    .surface_dispatch(id.clone(), click, None)
+                    .surface_dispatch(id.clone(), click, None, None)
                     .await;
             }
-            let all = world.service.surface_events(id.clone(), 0, None).await;
+            let all = world
+                .service
+                .surface_events(id.clone(), Some(0), None)
+                .await;
             want(
                 all.events.len() == 3,
                 format!("expected 3 events, got {}", all.events.len()),
             )?;
-            let after_one = world.service.surface_events(id, 1, None).await;
+            let after_one = world.service.surface_events(id, Some(1), None).await;
             want(
                 after_one.events.len() == 2,
                 format!(
@@ -586,7 +588,7 @@ async fn cap_wait_returns_an_existing_event_immediately() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -597,11 +599,11 @@ async fn cap_wait_returns_an_existing_event_immediately() -> CapabilityResult {
             };
             world
                 .service
-                .surface_dispatch(id.clone(), click, None)
+                .surface_dispatch(id.clone(), click, None, None)
                 .await;
 
             let started = std::time::Instant::now();
-            let waited = world.service.surface_wait(id, 0, 5_000, None).await;
+            let waited = world.service.surface_wait(id, Some(0), 5_000, None).await;
             want(
                 waited.ok && !waited.timed_out,
                 format!("{waited:?}", waited = waited.message),
@@ -629,11 +631,11 @@ async fn cap_wait_times_out_with_nothing_new() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
-            let waited = world.service.surface_wait(id, 0, 300, None).await;
+            let waited = world.service.surface_wait(id, Some(0), 300, None).await;
             want(
                 waited.ok && waited.timed_out && waited.events.is_empty(),
                 format!(
@@ -677,7 +679,7 @@ async fn cap_event_ring_is_pruned() -> CapabilityResult {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec().into(), None, None)
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
@@ -690,10 +692,10 @@ async fn cap_event_ring_is_pruned() -> CapabilityResult {
                 };
                 world
                     .service
-                    .surface_dispatch(id.clone(), click, None)
+                    .surface_dispatch(id.clone(), click, None, None)
                     .await;
             }
-            let all = world.service.surface_events(id, 0, None).await;
+            let all = world.service.surface_events(id, Some(0), None).await;
             want(
                 all.events.len() == EVENT_RING_CAPACITY,
                 format!(
@@ -756,9 +758,12 @@ mod real_verb_loop {
         // now that `series`/`histogram` are force-linked above — this is
         // the one assertion that would fail loudly if the force-link were
         // ever removed by accident.
-        let validated = world.service.surface_validate(signal_explorer()).await;
+        let validated = world
+            .service
+            .surface_validate(signal_explorer().into())
+            .await;
         assert!(
-            validated.ok(),
+            validated.ok,
             "unexpected problems: {:?}",
             validated.problems
         );
@@ -766,7 +771,7 @@ mod real_verb_loop {
         // 1. create
         let created = world
             .service
-            .surface_create(signal_explorer(), None, None)
+            .surface_create(signal_explorer().into(), None, None)
             .await;
         assert!(created.ok, "{}", created.message);
         let id = created.id.expect("created surface has an id");
@@ -777,14 +782,13 @@ mod real_verb_loop {
             .surface_show(
                 id.clone(),
                 ShowTargetDto {
-                    role: None,
-                    tile: None,
                     split: Some(SplitTargetDto {
                         direction: "vertical".to_string(),
                         from_focused: true,
                     }),
+                    ..ShowTargetDto::default()
                 },
-                Some(APP.to_string()),
+                APP.to_string(),
                 Some(DEVICE.to_string()),
             )
             .await;
@@ -792,7 +796,7 @@ mod real_verb_loop {
 
         // First render: the sliders' default state (freq 1.0, bins 20)
         // drives `series`/`histogram` through the REAL verbs.
-        let first_render = world.service.surface_render(id.clone(), None).await;
+        let first_render = world.service.surface_render(id.clone(), None, None).await;
         assert!(first_render.ok, "{}", first_render.message);
         let first_tree = serde_json::to_string(&first_render.tree.unwrap()).unwrap();
         assert!(
@@ -802,13 +806,13 @@ mod real_verb_loop {
 
         // 3. dispatch a `change` on the bins slider
         let change = Event {
-            widget: "n0.1.1".to_string(), // root/column -> row(idx1) -> bins field (idx1)
+            widget: "bins-slider".to_string(),
             kind: EventKind::Change,
             value: json!(40),
         };
         let dispatched = world
             .service
-            .surface_dispatch(id.clone(), change, None)
+            .surface_dispatch(id.clone(), change, None, None)
             .await;
         assert!(dispatched.ok, "{}", dispatched.message);
 
@@ -824,7 +828,7 @@ mod real_verb_loop {
             "state.bins did not change: {:?}",
             state.state
         );
-        let rendered = world.service.surface_render(id.clone(), None).await;
+        let rendered = world.service.surface_render(id.clone(), None, None).await;
         assert!(rendered.ok, "{}", rendered.message);
         let tree_json = serde_json::to_string(&rendered.tree.unwrap()).unwrap();
         assert!(
@@ -834,13 +838,13 @@ mod real_verb_loop {
 
         // 5. click "Use these bins"
         let click = Event {
-            widget: "n0.4".to_string(), // root/column -> button (idx4)
+            widget: "use-bins-btn".to_string(),
             kind: EventKind::Click,
             value: Value::Null,
         };
         let clicked = world
             .service
-            .surface_dispatch(id.clone(), click, None)
+            .surface_dispatch(id.clone(), click, None, None)
             .await;
         assert!(clicked.ok, "{}", clicked.message);
         assert!(
@@ -850,7 +854,7 @@ mod real_verb_loop {
         );
 
         // 6. surface_events returns bins-chosen with the payload
-        let events = world.service.surface_events(id, 0, None).await;
+        let events = world.service.surface_events(id, Some(0), None).await;
         assert!(events.ok, "{}", events.message);
         let bins_chosen = events
             .events
@@ -1014,9 +1018,9 @@ mod paper_triage_loop {
         // now that `triage-service` is force-linked above — this is the one
         // assertion that would fail loudly if the force-link were ever
         // removed by accident.
-        let validated = world.service.surface_validate(paper_triage()).await;
+        let validated = world.service.surface_validate(paper_triage().into()).await;
         assert!(
-            validated.ok(),
+            validated.ok,
             "unexpected problems: {:?}",
             validated.problems
         );
@@ -1024,7 +1028,7 @@ mod paper_triage_loop {
         // 1. create
         let created = world
             .service
-            .surface_create(paper_triage(), None, None)
+            .surface_create(paper_triage().into(), None, None)
             .await;
         assert!(created.ok, "{}", created.message);
         let id = created.id.expect("created surface has an id");
@@ -1035,14 +1039,13 @@ mod paper_triage_loop {
             .surface_show(
                 id.clone(),
                 ShowTargetDto {
-                    role: None,
-                    tile: None,
                     split: Some(SplitTargetDto {
                         direction: "vertical".to_string(),
                         from_focused: true,
                     }),
+                    ..ShowTargetDto::default()
                 },
-                Some(APP.to_string()),
+                APP.to_string(),
                 Some(DEVICE.to_string()),
             )
             .await;
@@ -1050,7 +1053,7 @@ mod paper_triage_loop {
 
         // Render: the table shows the seeded titles, through the REAL
         // `papers` query against the REAL store.
-        let first_render = world.service.surface_render(id.clone(), None).await;
+        let first_render = world.service.surface_render(id.clone(), None, None).await;
         assert!(first_render.ok, "{}", first_render.message);
         let first_tree = serde_json::to_value(first_render.tree.unwrap()).unwrap();
         let rows = table_rows(&first_tree, "papers-table").expect("papers-table in render tree");
@@ -1088,7 +1091,7 @@ mod paper_triage_loop {
         };
         let selected = world
             .service
-            .surface_dispatch(id.clone(), select, None)
+            .surface_dispatch(id.clone(), select, None, None)
             .await;
         assert!(selected.ok, "{}", selected.message);
         let state_after_select = world.service.surface_state_get(id.clone(), None).await;
@@ -1121,7 +1124,7 @@ mod paper_triage_loop {
         };
         let clicked = world
             .service
-            .surface_dispatch(id.clone(), click, None)
+            .surface_dispatch(id.clone(), click, None, None)
             .await;
         assert!(clicked.ok, "{}", clicked.message);
         let call_outcomes: Vec<_> = clicked
@@ -1166,7 +1169,7 @@ mod paper_triage_loop {
         // 5. re-render: `is_starred: true` on BOTH selected rows, and still
         // `false` on the untouched third row — the fan-out really reached
         // the store once per id, not just the dispatch response.
-        let rendered = world.service.surface_render(id.clone(), None).await;
+        let rendered = world.service.surface_render(id.clone(), None, None).await;
         assert!(rendered.ok, "{}", rendered.message);
         let tree = serde_json::to_value(rendered.tree.unwrap()).unwrap();
         let rows = table_rows(&tree, "papers-table").expect("papers-table in render tree");
@@ -1192,7 +1195,7 @@ mod paper_triage_loop {
         );
 
         // 6. surface_events carries a 'triaged' event for each selected id.
-        let events = world.service.surface_events(id, 0, None).await;
+        let events = world.service.surface_events(id, Some(0), None).await;
         assert!(events.ok, "{}", events.message);
         let mut triaged_ids: Vec<&str> = events
             .events

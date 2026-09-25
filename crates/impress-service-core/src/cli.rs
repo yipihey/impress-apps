@@ -322,7 +322,19 @@ fn matches_to_json(matches: &ArgMatches, schema: &Value) -> Result<Value, BoxErr
                 let mut arr: Vec<Value> = Vec::new();
                 if let Some(values) = matches.get_many::<String>(name) {
                     for v in values {
-                        if items_are_strings {
+                        // `--tags '["a","b"]'`: one value that IS a JSON
+                        // array of strings is taken as that array, the way
+                        // every other structured argument takes JSON (review
+                        // AC-F25: it was stored as the one literal tag
+                        // `["a","b"]`). Repeating the flag still works.
+                        let as_array = v
+                            .trim_start()
+                            .starts_with('[')
+                            .then(|| serde_json::from_str::<Vec<String>>(v).ok())
+                            .flatten();
+                        if let (true, Some(items)) = (items_are_strings, as_array) {
+                            arr.extend(items.into_iter().map(Value::String));
+                        } else if items_are_strings {
                             arr.push(Value::String(v.clone()));
                         } else {
                             arr.push(serde_json::from_str(v).map_err(|e| -> BoxError {
@@ -462,6 +474,17 @@ mod tests {
         )
         .expect("string arrays never parse their values");
         assert_eq!(out["items"], json!(["alpha", "{not json"]));
+    }
+
+    /// AC-F25: one value that is a JSON array of strings is that array; a
+    /// value that merely starts with `[` but is not one stays verbatim.
+    #[test]
+    fn a_string_array_accepts_one_json_array() {
+        let out = round_trip(array_schema("string"), &["--items", r#"["a", "b"]"#])
+            .expect("a JSON array of strings");
+        assert_eq!(out["items"], json!(["a", "b"]));
+        let out = round_trip(array_schema("string"), &["--items", "[draft"]).unwrap();
+        assert_eq!(out["items"], json!(["[draft"]));
     }
 
     /// `Vec<SomeDto>`: each repetition is a JSON literal. Without this the

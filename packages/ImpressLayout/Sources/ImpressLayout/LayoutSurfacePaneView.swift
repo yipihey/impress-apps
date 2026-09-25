@@ -15,10 +15,11 @@
 //
 //  `ImpressSurface` is kit-grade (ADR-0033 D7): it maps a `RenderTree` to
 //  SwiftUI and holds no logic. This file opens `SharedSurface` on the store
-//  the layout was opened on, decodes a `SurfaceDispatchResult` (the effects'
-//  outcomes included — Rust has already run them), forwards the window
-//  root's j / k / ⏎ / ⎋ to the surface, and publishes a `select` event on
-//  the pane's own channel. What needs the SUITE —
+//  the layout was opened on, for this window's app, decodes the render and
+//  dispatch envelopes (the effects' outcomes included — Rust has already run
+//  them), and forwards the window root's j / k / ⏎ / ⎋ to the surface. It
+//  publishes nothing itself: a selection reaches a channel only through the
+//  spec's own `publish` action, in Rust (review SK-K4). What needs the SUITE —
 //  `text` through MarkdownUI, a `plot-spec@1.0.0` through imprint-core's
 //  `renderPlotSvg`, a `list` through the chassis' row registry — is the
 //  host's, handed in as `SurfaceHooks` (plan wave 6, W6):
@@ -104,6 +105,12 @@ public struct LayoutSurfacePaneView: View {
         .task(id: surfaceID) {
             await attend(surfaceID: surfaceID)
         }
+        // The pane's own bindings moved (a paper selected on its channel):
+        // the surface's params are bound from them, so render again
+        // (review RS-S3, AC-F15). Rust re-reads the bindings itself.
+        .onChange(of: context.refreshToken) {
+            model?.render()
+        }
     }
 
     @ViewBuilder
@@ -176,8 +183,10 @@ public struct LayoutSurfacePaneView: View {
                 return
             }
             // `host: ""` — SharedSurface resolves the layout device id itself
-            // (see `SharedSurface.open`'s doc comment).
-            let surface = SharedSurface.open(store: store, host: "")
+            // (see `SharedSurface.open`'s doc comment). `appId`: this window's
+            // app, so a `publish`/`open` from the surface lands in this
+            // window's layout, not impress's (review RS-S4, AC-F6).
+            let surface = SharedSurface.open(store: store, host: "", appId: controller.appID)
             active = SurfacePaneModel(surface: surface, surfaceID: surfaceID, pane: tile)
             model = active
         }
@@ -201,15 +210,12 @@ public struct LayoutSurfacePaneView: View {
     // MARK: Events
 
     /// Every `SurfaceEvent` the renderer sends, forwarded to Rust via
-    /// `model.dispatch` — and, for a `select` event, ALSO published on this
-    /// pane's own channel via `context.select(_:)`, exactly the way
-    /// `LayoutRowsPaneView` publishes a row click. (Whether the renderer
-    /// should publish at all, or leave it to the spec's own `publish`
-    /// effect, is review SK-K4 — wave 7's T6.)
+    /// `model.dispatch` — and nothing else. A `select` used to be published
+    /// on the pane's channel here as well, so a spec with `on_select:
+    /// [{publish}]` published twice (once with the pane query's kind, once
+    /// with the record's), and a spec that only `set` state published anyway
+    /// (review SK-K4). The spec says what a selection does; Rust does it.
     private func handle(_ event: SurfaceEvent, model: SurfacePaneModel) {
-        if event.kind == .select, let ids = event.value.arrayValue?.compactMap(\.stringValue) {
-            context.select(ids)
-        }
         model.dispatch(event)
     }
 }
@@ -233,6 +239,11 @@ final class SurfacePaneModel {
 
     private(set) var tree: RenderTree?
     private(set) var lastError: String?
+    /// The spec and state revisions of the last reply this pane adopted —
+    /// what a feed notification is compared with to tell this pane's own
+    /// write's echo from anyone else's (review SK-K15).
+    private var seenRevision: UInt64 = 0
+    private var seenStateRevision: UInt64 = 0
     /// The most recent dispatch's failed effects, until dismissed.
     private(set) var effectFailure: String?
     private var subscribed = false
@@ -258,8 +269,8 @@ final class SurfacePaneModel {
         guard !subscribed else { return }
         do {
             try surface.subscribe(
-                listener: SurfaceInvalidationBridge(surfaceID: surfaceID) { [weak self] in
-                    self?.render()
+                listener: SurfaceInvalidationBridge(surfaceID: surfaceID) { [weak self] change in
+                    self?.changed(change)
                 })
             subscribed = true
             logInfo(
@@ -284,17 +295,38 @@ final class SurfacePaneModel {
         effectFailure = nil
     }
 
+    /// A feed notification for this surface. The echo of this pane's own
+    /// dispatch — no source invalidated, and no revision newer than the ones
+    /// its reply carried — is not rendered again: the reply already drew it.
+    /// Anything newer (an agent's update or state write, another pane's
+    /// dispatch) is.
+    func changed(_ change: SharedSurfaceChange) {
+        let newerSpec = (change.revision ?? 0) > seenRevision
+        let newerState = (change.stateRevision ?? 0) > seenStateRevision
+        guard change.sourcesChanged || change.deleted || newerSpec || newerState else {
+            logDebug(
+                "surface pane \(pane): echo of its own write (revision \(seenRevision), "
+                    + "state \(seenStateRevision)) — not re-rendered",
+                category: "surface")
+            return
+        }
+        render()
+    }
+
+    /// Adopt the revisions a reply was built from.
+    private func saw(revision: UInt64?, stateRevision: UInt64?) {
+        if let revision { seenRevision = max(seenRevision, revision) }
+        if let stateRevision { seenStateRevision = max(seenStateRevision, stateRevision) }
+    }
+
     /// The DISPLAY leg of the trace: re-read the resolved tree from Rust.
     ///
     /// `SharedSurface.render` is async and runs its sources on Rust's own
     /// runtime (wave 7, SK-K2): the main actor is suspended, not blocked,
     /// while a slow verb runs.
     ///
-    /// A tree equal to the one on screen is not adopted, so the feed's echo
-    /// of this pane's own dispatch — which the dispatch reply already
-    /// rendered — redraws nothing (SK-K15). The FFI call itself still runs:
-    /// the feed carries no way to tell our write from an agent's, and
-    /// skipping it could hide the agent's.
+    /// The feed's echo of this pane's own dispatch never gets here (see
+    /// `changed`), and a tree equal to the one on screen is not adopted.
     func render() {
         logDebug("surface pane \(pane): render requested for \(surfaceID)", category: "surface")
         generation += 1
@@ -303,9 +335,17 @@ final class SurfacePaneModel {
         Task { [weak self] in
             do {
                 let json = try await surface.render(surfaceId: surfaceID, pane: pane)
-                let decoded = try RenderTree.decode(json)
+                let reply = try SurfaceRenderReply.decode(json)
                 guard let self, ticket == self.generation else { return }
+                guard reply.ok, let decoded = reply.tree else {
+                    self.lastError = reply.message
+                    logWarning(
+                        "surface pane \(pane): render refused [\(reply.code ?? "?")] — \(reply.message)",
+                        category: "surface")
+                    return
+                }
                 self.lastError = nil
+                self.saw(revision: reply.revision, stateRevision: reply.stateRevision)
                 guard decoded != self.tree else {
                     logDebug("surface pane \(pane): render unchanged", category: "surface")
                     return
@@ -374,6 +414,7 @@ final class SurfacePaneModel {
                         category: "surface")
                 }
                 guard let self else { return }
+                self.saw(revision: reply.revision, stateRevision: reply.stateRevision)
                 self.effectFailure =
                     failed.isEmpty
                     ? nil : failed.map { "\($0.kind) failed: \($0.message)" }.joined(separator: "; ")
@@ -405,26 +446,64 @@ extension SharedSurface: @retroactive @unchecked Sendable {}
 
 /// `SharedSurfaceListener`'s callback arrives on the feed's own thread, never
 /// the caller's (mirrors `SharedLayoutListener`'s doc comment) — this class
-/// does nothing but hop to the main actor, the same shape
-/// `LayoutInvalidationBridge` uses in `LayoutController.swift`.
+/// does nothing but pick this surface's change and hop to the main actor,
+/// the same shape `LayoutInvalidationBridge` uses in `LayoutController.swift`.
 private final class SurfaceInvalidationBridge: SharedSurfaceListener, @unchecked Sendable {
     private let surfaceID: String
-    private let onChanged: @MainActor @Sendable () -> Void
+    private let onChanged: @MainActor @Sendable (SharedSurfaceChange) -> Void
 
-    init(surfaceID: String, onChanged: @escaping @MainActor @Sendable () -> Void) {
+    init(
+        surfaceID: String,
+        onChanged: @escaping @MainActor @Sendable (SharedSurfaceChange) -> Void
+    ) {
         self.surfaceID = surfaceID
         self.onChanged = onChanged
     }
 
-    func surfacesChanged(ids: [String]) {
-        guard ids.contains(surfaceID) else { return }
+    func surfacesChanged(changes: [SharedSurfaceChange]) {
+        guard let change = changes.first(where: { $0.id == surfaceID }) else { return }
         let hop = onChanged
-        Task { @MainActor in hop() }
+        Task { @MainActor in hop(change) }
+    }
+}
+
+extension SharedSurfaceChange: @retroactive @unchecked Sendable {}
+
+/// `impress_surface_service::dto::SurfaceRenderResult`'s wire shape: `{"ok",
+/// "code", "message", "tree", "source_errors", "revision", "state_revision",
+/// "params", "wire_version"}` — the document `surface_render` answers over
+/// MCP and HTTP too.
+struct SurfaceRenderReply: Decodable {
+    let ok: Bool
+    let code: String?
+    let message: String
+    let tree: RenderTree?
+    let revision: UInt64?
+    let stateRevision: UInt64?
+
+    private enum CodingKeys: String, CodingKey {
+        case ok, code, message, tree, revision
+        case stateRevision = "state_revision"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decode(Bool.self, forKey: .ok)
+        code = try container.decodeIfPresent(String.self, forKey: .code)
+        message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+        tree = try container.decodeIfPresent(RenderTree.self, forKey: .tree)
+        revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
+        stateRevision = try container.decodeIfPresent(UInt64.self, forKey: .stateRevision)
+    }
+
+    static func decode(_ json: String) throws -> SurfaceRenderReply {
+        try JSONDecoder().decode(SurfaceRenderReply.self, from: Data(json.utf8))
     }
 }
 
 /// `impress_surface_service::dto::SurfaceDispatchResult`'s wire shape:
-/// `{"ok", "code", "message", "tree", "effects", "effects_failed"}`. Rust
+/// `{"ok", "code", "message", "tree", "effects", "effects_failed",
+/// "revision", "state_revision", …}`. Rust
 /// has already RUN every effect by the time this arrives — `call`,
 /// `publish`, `emit`, `open`, `refresh`; none is a to-do for the host — and
 /// `effects` says how each one went (SK-K16).
@@ -443,6 +522,9 @@ struct SurfaceDispatchReply: Decodable {
     let tree: RenderTree?
     let effects: [Effect]
     let effectsFailed: Int
+    /// The spec and state revisions the reply's tree was built from.
+    let revision: UInt64?
+    let stateRevision: UInt64?
 
     struct Effect: Decodable, Equatable {
         let kind: String
@@ -454,8 +536,9 @@ struct SurfaceDispatchReply: Decodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case ok, code, message, tree, effects
+        case ok, code, message, tree, effects, revision
         case effectsFailed = "effects_failed"
+        case stateRevision = "state_revision"
     }
 
     init(from decoder: Decoder) throws {
@@ -468,6 +551,8 @@ struct SurfaceDispatchReply: Decodable {
         effectsFailed =
             try container.decodeIfPresent(Int.self, forKey: .effectsFailed)
             ?? effects.filter { !$0.ok }.count
+        revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
+        stateRevision = try container.decodeIfPresent(UInt64.self, forKey: .stateRevision)
     }
 
     static func decode(_ json: String) throws -> SurfaceDispatchReply {

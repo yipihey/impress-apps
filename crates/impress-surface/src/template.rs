@@ -22,13 +22,23 @@
 //! richer template; fanning an action out over an array is a structural
 //! declaration (`each`, `reduce.rs`), not a loop the spec itself computes with.
 //!
-//! [`Template::parse`] never fails: an unrecognized or malformed `{{…}}` is simply
-//! not treated as a reference (kept as literal text), so a garbled template shows
-//! the human garbled text rather than crashing the surface. What *does* fail —
-//! at resolve time, not parse time — is a reference to an unknown root or a path
-//! that is not present in its context; both raise [`TemplateError`]. `item` is an
-//! unknown root like any other when no `each` fan-out has bound one — see
-//! [`Context::with_item`].
+//! # What is a reference, and what is text
+//!
+//! A `{{…}}` is a reference only when its first segment is one of the five
+//! roots above AND every segment is a plain name (`[A-Za-z0-9_-]+`):
+//! `{{state.bins}}`, `{{source.papers.0.title}}`, `{{item}}`. Anything else
+//! between double braces is kept as literal text, braces included — so a
+//! text node may hold LaTeX or Typst (`$\frac{{a}}{b}$`), a literal `{{`, or
+//! a `{{` with no closing `}}`, and the human sees exactly what was written
+//! (review RS-S10: before, every `{{…}}` was taken as a reference and a
+//! formula became a whole-node placeholder). There is therefore no escape
+//! syntax to learn; `validate` warns about a `{{a.b}}` whose root is not a
+//! template root, since that is more likely a typo than text.
+//!
+//! [`Template::parse`] never fails. What *does* fail — at resolve time, not
+//! parse time — is a path that is not present in its context
+//! ([`TemplateError::MissingPath`]), or `{{item}}` outside an `each` fan-out
+//! ([`TemplateError::UnknownRoot`]; see [`Context::with_item`]).
 
 use std::fmt;
 
@@ -91,7 +101,7 @@ impl<'a> Context<'a> {
 /// — only by [`Template::resolve`]/[`resolve_value`], once a `Context` is in hand.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum TemplateError {
-    #[error("unknown template root '{root}' in '{{{{{path}}}}}' (expected state, param, source or event)")]
+    #[error("template root '{root}' is not bound in '{{{{{path}}}}}' (the roots are state, param, source, event, and item inside an action with `each`)")]
     UnknownRoot { root: String, path: String },
     #[error("template path '{{{{{path}}}}}' did not resolve to a value")]
     MissingPath { path: String },
@@ -262,9 +272,52 @@ fn template_segments(s: &str) -> Vec<Segment> {
     split_segments(s)
 }
 
+/// The template roots, in the order the module docs list them.
+pub const ROOTS: &[&str] = &["state", "param", "source", "event", "item"];
+
+/// Whether `segment` is a plain path segment: `[A-Za-z0-9_-]+`.
+pub fn is_plain_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// The path inside a `{{…}}`, when it is a reference (see the module docs).
+fn reference_path(inner: &str) -> Option<Path> {
+    let path: Path = inner.trim().split('.').map(str::to_string).collect();
+    let root_known = path.first().is_some_and(|r| ROOTS.contains(&r.as_str()));
+    (root_known && path.iter().all(|s| is_plain_segment(s))).then_some(path)
+}
+
+/// Every `{{…}}` in `s` that was kept as literal text although it is shaped
+/// like a dotted path (`{{stat.bins}}`) — a likely typo `validate` warns
+/// about. A single word (`{{a}}`, LaTeX's `\frac{{a}}{b}`) is not listed.
+pub fn literal_path_like(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(off) = s[i..].find("{{") {
+        let start = i + off;
+        let Some(end) = find_close(s, start + 2) else {
+            break;
+        };
+        let inner = s[start + 2..end].trim();
+        let segments: Vec<&str> = inner.split('.').collect();
+        if reference_path(inner).is_none()
+            && segments.len() >= 2
+            && segments.iter().all(|seg| is_plain_segment(seg))
+        {
+            out.push(inner.to_string());
+        }
+        i = end + 2;
+    }
+    out
+}
+
 /// The `{{...}}` scanner both `Template::parse` and the ref-collectors share.
-/// A `{{` that never finds a matching `}}` (up to the end of the string) is
-/// emitted as literal text, characters included — see the module docs.
+/// A `{{…}}` that is not a reference (see the module docs), and a `{{` that
+/// never finds a matching `}}`, are emitted as literal text, characters
+/// included.
 fn split_segments(s: &str) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut literal = String::new();
@@ -273,14 +326,14 @@ fn split_segments(s: &str) -> Vec<Segment> {
     while i < bytes.len() {
         if bytes[i] == b'{' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
             if let Some(end) = find_close(s, i + 2) {
-                let inner = s[i + 2..end].trim();
-                if !literal.is_empty() {
-                    out.push(Segment::Literal(std::mem::take(&mut literal)));
+                if let Some(path) = reference_path(&s[i + 2..end]) {
+                    if !literal.is_empty() {
+                        out.push(Segment::Literal(std::mem::take(&mut literal)));
+                    }
+                    out.push(Segment::Ref(path));
+                    i = end + 2;
+                    continue;
                 }
-                let path: Path = inner.split('.').map(str::to_string).collect();
-                out.push(Segment::Ref(path));
-                i = end + 2;
-                continue;
             }
         }
         // Advance by one *character*, not one byte, so multi-byte UTF-8 text
@@ -357,16 +410,44 @@ mod tests {
     }
 
     #[test]
-    fn unknown_root_is_a_resolve_time_error() {
+    fn an_unknown_root_is_literal_text_not_a_reference() {
         let null = Value::Null;
         let ctx = Context::new(&null, &null, &null, &null);
         let t = Template::parse("{{nope.x}}");
+        assert_eq!(t, Template::Literal("{{nope.x}}".into()));
+        assert_eq!(t.resolve(&ctx).unwrap(), Value::String("{{nope.x}}".into()));
+    }
+
+    /// Review RS-S10: a formula in a text node is text.
+    #[test]
+    fn latex_and_typst_braces_are_kept_literal() {
+        let state = serde_json::json!({"n": 3});
+        let null = Value::Null;
+        let ctx = Context::new(&state, &null, &null, &null);
+        for text in [
+            r"$\frac{{a}}{b}$",
+            "{{ }}",
+            "{{a b}}",
+            "set {{x: 1}}",
+            "{{state.n + 1}}",
+        ] {
+            assert_eq!(
+                Template::parse(text).resolve(&ctx).unwrap(),
+                Value::String(text.to_string()),
+                "{text}"
+            );
+        }
         assert_eq!(
-            t.resolve(&ctx),
-            Err(TemplateError::UnknownRoot {
-                root: "nope".into(),
-                path: "nope.x".into()
-            })
+            Template::parse(r"$x^{{state.n}}$").resolve(&ctx).unwrap(),
+            Value::String(r"$x^3$".to_string())
+        );
+    }
+
+    #[test]
+    fn a_dotted_non_reference_is_reported_as_a_likely_typo() {
+        assert_eq!(
+            literal_path_like("{{stat.bins}} {{a}} {{state.x}}"),
+            vec!["stat.bins"]
         );
     }
 

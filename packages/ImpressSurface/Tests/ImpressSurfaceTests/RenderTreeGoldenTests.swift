@@ -65,7 +65,8 @@ struct RenderTreeGoldenTests {
         // `focus_order`: the two sliders, the table, the button — in
         // depth-first reading order (see the golden's own comment on
         // `crates/impress-surface/src/resolve.rs`'s `focus_order` doc).
-        #expect(tree.focusOrder == ["n0.1.0", "n0.1.1", "n0.3", "n0.4"])
+        // The example names its widgets (wave 7 T6a), so the ids are the author's.
+        #expect(tree.focusOrder == ["freq-slider", "bins-slider", "papers-table", "use-bins-btn"])
 
         guard case .column(let items) = tree.root.node else {
             Issue.record("expected the root to decode as .column")

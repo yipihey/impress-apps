@@ -109,11 +109,13 @@ fn store() -> Arc<SqliteItemStore> {
 async fn a_host_verb_renders_through_the_service() {
     let service = DefaultImpressSurfaceService::with_store(store()).with_verb_host(FakeHost::ok());
 
-    let created = service.surface_create(fixture_spec(), None, None).await;
+    let created = service
+        .surface_create(fixture_spec().into(), None, None)
+        .await;
     assert!(created.ok, "{}", created.message);
     let id = created.id.expect("created surface has an id");
 
-    let rendered = service.surface_render(id, None).await;
+    let rendered = service.surface_render(id, None, None).await;
     assert!(rendered.ok, "{}", rendered.message);
     let tree_json = serde_json::to_string(&rendered.tree).expect("encode tree");
     assert!(
@@ -131,9 +133,9 @@ async fn a_host_verb_renders_through_the_service() {
 #[tokio::test]
 async fn validate_accepts_a_host_verb_only_once_a_host_is_installed() {
     let without_host = DefaultImpressSurfaceService::with_store(store());
-    let result = without_host.surface_validate(fixture_spec()).await;
+    let result = without_host.surface_validate(fixture_spec().into()).await;
     assert!(
-        !result.ok(),
+        !result.ok,
         "a host-only verb must be reported missing with no host installed"
     );
     assert!(
@@ -147,8 +149,8 @@ async fn validate_accepts_a_host_verb_only_once_a_host_is_installed() {
 
     let with_host =
         DefaultImpressSurfaceService::with_store(store()).with_verb_host(FakeHost::ok());
-    let result = with_host.surface_validate(fixture_spec()).await;
-    assert!(result.ok(), "{:?}", result.problems);
+    let result = with_host.surface_validate(fixture_spec().into()).await;
+    assert!(result.ok, "{:?}", result.problems);
 }
 
 /// (c) A verb the linked inventory ALSO has is answered by the inventory,
@@ -159,11 +161,13 @@ async fn the_linked_inventory_wins_over_the_host_on_a_shared_name() {
     let poisoned_host = FakeHost::ok();
     let service = DefaultImpressSurfaceService::with_store(store()).with_verb_host(poisoned_host);
 
-    let created = service.surface_create(linked_verb_spec(), None, None).await;
+    let created = service
+        .surface_create(linked_verb_spec().into(), None, None)
+        .await;
     assert!(created.ok, "{}", created.message);
     let id = created.id.expect("created surface has an id");
 
-    let rendered = service.surface_render(id, None).await;
+    let rendered = service.surface_render(id, None, None).await;
     assert!(rendered.ok, "{}", rendered.message);
     let tree_json = serde_json::to_string(&rendered.tree).expect("encode tree");
     assert!(
@@ -188,11 +192,13 @@ async fn a_failing_host_verb_yields_a_placeholder_not_a_panic() {
     let service = DefaultImpressSurfaceService::with_store(store())
         .with_verb_host(FakeHost::failing("the fake host refuses"));
 
-    let created = service.surface_create(fixture_spec(), None, None).await;
+    let created = service
+        .surface_create(fixture_spec().into(), None, None)
+        .await;
     assert!(created.ok, "{}", created.message);
     let id = created.id.expect("created surface has an id");
 
-    let rendered = service.surface_render(id, None).await;
+    let rendered = service.surface_render(id, None, None).await;
     assert!(
         rendered.ok,
         "a failing SOURCE must not fail the whole render: {}",

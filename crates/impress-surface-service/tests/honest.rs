@@ -49,11 +49,11 @@ fn world() -> (Arc<SqliteItemStore>, DefaultImpressSurfaceService) {
 #[tokio::test]
 async fn a_dispatch_whose_effect_failed_is_not_ok_and_names_the_failure() {
     let (_store, svc) = world();
-    let created = svc.surface_create(spec(), None, None).await;
+    let created = svc.surface_create(spec().into(), None, None).await;
     let id = created.id.unwrap();
 
     let d = svc
-        .surface_dispatch(id.clone(), click(), Some(HOST.into()))
+        .surface_dispatch(id.clone(), click(), Some(HOST.into()), None)
         .await;
     assert!(!d.ok, "a failed publish used to answer ok: {}", d.message);
     assert_eq!(d.code.as_deref(), Some("effect-failed"));
@@ -82,7 +82,11 @@ async fn a_dispatch_whose_effect_failed_is_not_ok_and_names_the_failure() {
 #[tokio::test]
 async fn a_dispatch_that_cannot_be_reduced_carries_the_reducers_code() {
     let (_store, svc) = world();
-    let id = svc.surface_create(spec(), None, None).await.id.unwrap();
+    let id = svc
+        .surface_create(spec().into(), None, None)
+        .await
+        .id
+        .unwrap();
     let d = svc
         .surface_dispatch(
             id,
@@ -92,6 +96,7 @@ async fn a_dispatch_that_cannot_be_reduced_carries_the_reducers_code() {
                 value: Value::Null,
             },
             Some(HOST.into()),
+            None,
         )
         .await;
     assert!(!d.ok);
@@ -118,7 +123,7 @@ async fn lookups_say_not_found_and_malformed_ids_say_invalid_argument() {
         .await;
     assert_eq!(deleted.code.as_deref(), Some("not-found"));
     let events = svc
-        .surface_events("00000000-0000-4000-8000-000000000000".into(), 0, None)
+        .surface_events("00000000-0000-4000-8000-000000000000".into(), Some(0), None)
         .await;
     assert_eq!(events.code.as_deref(), Some("not-found"));
 }
@@ -126,8 +131,12 @@ async fn lookups_say_not_found_and_malformed_ids_say_invalid_argument() {
 #[tokio::test]
 async fn a_stale_update_is_a_conflict() {
     let (_store, svc) = world();
-    let id = svc.surface_create(spec(), None, None).await.id.unwrap();
-    let stale = svc.surface_update(id, spec(), None, Some(7)).await;
+    let id = svc
+        .surface_create(spec().into(), None, None)
+        .await
+        .id
+        .unwrap();
+    let stale = svc.surface_update(id, spec().into(), None, Some(7)).await;
     assert!(!stale.ok);
     assert_eq!(stale.code.as_deref(), Some("conflict"), "{}", stale.message);
 }
@@ -137,7 +146,11 @@ async fn a_stale_update_is_a_conflict() {
 #[tokio::test]
 async fn an_event_records_who_caused_it() {
     let (store, svc) = world();
-    let id = svc.surface_create(spec(), None, None).await.id.unwrap();
+    let id = svc
+        .surface_create(spec().into(), None, None)
+        .await
+        .id
+        .unwrap();
     let surface_id = id.parse().unwrap();
 
     // As the pane does it: the runtime, dispatched as the human.
@@ -157,10 +170,10 @@ async fn an_event_records_who_caused_it() {
         .unwrap();
 
     // As an agent does it: the MCP verb.
-    svc.surface_dispatch(id.clone(), click(), Some(HOST.into()))
+    svc.surface_dispatch(id.clone(), click(), Some(HOST.into()), None)
         .await;
 
-    let events = svc.surface_events(id, 0, Some(HOST.into())).await;
+    let events = svc.surface_events(id, Some(0), Some(HOST.into())).await;
     let actors: Vec<&str> = events.events.iter().map(|e| e.actor.as_str()).collect();
     assert_eq!(actors, vec!["human", "agent"], "{:?}", events.events);
 }

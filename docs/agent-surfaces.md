@@ -1,5 +1,14 @@
 # Agent surfaces — how-to
 
+This is the how-to an agent copies from, and it is tested: every tool name
+below resolves in both MCP projections
+(`crates/impress-mcp/src/surface.rs`), and every JSON block preceded by a
+`wire` HTML comment is parsed against the real types by
+`crates/impress-surface-service/tests/doc_wire.rs`. When a shape changes,
+that test fails until this page does. [ADR-0033](ADR-0033-agent-surfaces.md)
+says why surfaces are shaped this way; where this page and the code
+disagree, the code (and the schema `surface_schema` returns) is right.
+
 ## What a surface is
 
 A surface is a stored, declarative UI document — an `impress/ui/surface@1.0.0`
@@ -9,362 +18,425 @@ channels, roles, undo, presets) with no special case. Its behaviour comes
 from a pure Rust function pair (`plan`/`resolve`/`reduce` in `impress-surface`)
 rather than from anything the spec itself computes, so the same document is
 Tier-A testable headlessly, agent-authorable without a sandbox, and rendered
-identically by any host that implements the mapping. See
-[ADR-0033](ADR-0033-agent-surfaces.md) for why it is shaped this way; this
-document is the how-to.
+identically by any host that implements the mapping.
 
-## The five-verb loop
+## The wire (version 1)
 
-An agent builds and drives a surface with five MCP calls plus a reaction step
-that closes the loop. This is the same loop `docs/plan-agent-surfaces.md`
-calls "the prototyping loop is five verbs and one scaffold" (ADR-0033 D8).
+- **Results.** Every surface verb answers a snake_case JSON object with
+  `ok`, a prose `message`, and `"wire_version": 1`. A refusal is `"ok":
+  false` with a machine-readable `code` — branch on `code`, never on the
+  message. Over MCP an `ok: false` answer is `isError`; the `impress` CLI
+  exits 3 on it (1 when the verb could not be dispatched, 2 for a bad
+  invocation); over HTTP its status follows the code.
+- **Strict arguments.** Every argument an agent sends is checked: an
+  unknown field — anywhere, including inside `target` or `event` — is
+  refused with `invalid-argument` and a message naming it, never ignored.
+  A pane is referred to one way across the suite — exactly one of `{"id":
+  N}`, `{"role": "…"}`, `{"direction": "…"}`, `{"focused": true}` — and the
+  retired tagged `{"ref": "id", "tile": N}` is refused naming `ref`; an
+  unknown key in a `target` used to be ignored and open a new split.
+- **Codes.** `invalid-argument` (400), `not-found` (404), `conflict` (409, a
+  stale `expected_revision`), `invalid-spec` (422, a spec with an error),
+  `store-unavailable` (503), `store-error` / `internal` (500),
+  `host-unavailable` (503), `verb-failed` (502), `unknown-verb`, `no-pane`,
+  `query-refused`, `effect-failed` (422); a reduce refusal carries its own
+  (`unknown-widget`, `not-bindable`, `invalid-path`, `missing-state-path`,
+  `state-path-conflict`, `each-not-array`, `unknown-template-root`,
+  `missing-template-path`, all 422), and a layout refusal its tree code
+  (`unknown-tile`, `no-pane-with-role`, …).
 
-1. **`impress-surface-service_surface-schema`** — no arguments. Returns the
-   `SurfaceSpec` JSON Schema plus a worked example, so an agent authoring in a
-   chat never has to read Rust source to learn the vocabulary.
-2. **Author** the spec against the vocabulary below — no tool call, just JSON.
-3. **`impress-surface-service_surface-validate`** — checks the spec and names
-   every problem by path (`{"path": "root.column[2].plot", "message": "..."}`),
-   so a malformed spec is a list of fixes, not a stack trace.
-4. **`impress-surface-service_surface-create`** — stores the spec as an
-   `impress/ui/surface@1.0.0` row and returns its id.
-5. **`impress-surface-service_surface-show`** — puts the surface in a pane.
-   `target` says which pane, with the same precedence a layout-service
-   `PaneRefDto` uses: a tile id (`{"id": 7}`), a role (`{"role": "detail"}`),
-   or `{"split": {"direction": "vertical"}}` to open a new pane beside the
-   focused one. Under the hood this composes ordinary `layout-service` verbs
-   — split (or take the named role), set the pane's query to `item(id)` of
-   the surface, set its view kind to `surface` — so a surface pane is not a
-   special case of the layout tree, just an ordinary pane whose query happens
-   to name a surface.
-6. **`impress-surface-service_surface-wait`** — long-polls
-   `impress/ui/surface-event@1.0.0` for this surface/host past a cursor, up
-   to a timeout. It returns when the human does something, or on timeout with
-   nothing new.
-7. **React**: read what came back and either
-   **`impress-surface-service_surface-update`** the spec/state (change what
-   the human sees) or call a domain verb directly with what the human chose
-   (act on it). Every surface row carries a `revision` (1 on create, +1 per
-   update); pass the one you read as `expected_revision` and an update that
-   would overwrite someone else's change is refused with `conflict:` instead.
-   An open pane shows an update on its next render — no reopening. Then `surface_wait` again — the loop is
-   create → show → wait → update or act → wait.
+## Tool names
+
+Every verb is an `#[impress_method]` on `impress-surface-service`'s trait, so
+MCP, the CLI (`impress surface-show …`) and impel get all fifteen together.
+The flat MCP name of each is the service's kebab name, an underscore, and the
+verb's (`impress-surface-service_surface-show`). In the default **grouped**
+projection (`IMPRESS_MCP_SURFACE` unset) the loop's own
+seven are flat tools with full schemas:
+
+`impress-surface-service_surface-schema`,
+`impress-surface-service_surface-validate`,
+`impress-surface-service_surface-create`,
+`impress-surface-service_surface-update`,
+`impress-surface-service_surface-show`,
+`impress-surface-service_surface-render`,
+`impress-surface-service_surface-wait`
+
+and the other eight are actions of the `impress` domain tool —
+`{"action": "surface.surface-get", "args": {…}}` (`describe: true` returns an
+action's schema): `impress.surface.surface-get`, `impress.surface.surface-list`,
+`impress.surface.surface-delete`, `impress.surface.surface-state-get`,
+`impress.surface.surface-state-set`, `impress.surface.surface-dispatch`,
+`impress.surface.surface-events`, `impress.surface.surface-examples`. With
+`IMPRESS_MCP_SURFACE=flat` every verb is its own flat tool
+(`impress-surface-service_surface-get`, `impress-surface-service_surface-list`,
+`impress-surface-service_surface-delete`,
+`impress-surface-service_surface-state-get`,
+`impress-surface-service_surface-state-set`,
+`impress-surface-service_surface-dispatch`,
+`impress-surface-service_surface-events`,
+`impress-surface-service_surface-examples`).
+
+## The loop
+
+1. **`surface_schema`** — the spec's JSON Schema (a real one: a validator can
+   check a spec against it; every node kind, source and action is a `oneOf`
+   branch), a worked example, and `rules`: the template language, widget
+   ids, problem paths and params in prose.
+2. **Author** the spec — no tool call, just JSON. Start from
+   `surface_examples` if you like.
+3. **`surface_validate`** `{spec}` — every problem, by JSON pointer and
+   severity. `ok` is false (`invalid-spec`) when any problem is an `error`.
+4. **`surface_create`** `{spec, name?, tags?}` — validates exactly as step 3
+   does and refuses a spec with an error, listing every problem; a spec with
+   warnings is stored and the warnings come back in `problems`.
+5. **`surface_show`** `{id, target, app_id, device?}` — puts the surface in a
+   pane of `app_id`'s window: `target` is exactly one of the suite's pane
+   references — `{"id": N}`, `{"role": "detail"}`, `{"direction": "right"}`,
+   `{"focused": true}` — or `{"split": {"direction": "horizontal"|"vertical"}}`
+   (a new pane beside the focused one; `horizontal` is side by side,
+   `vertical` stacked). It composes ordinary `layout-service` verbs — a
+   surface pane is an ordinary pane whose query names a surface — and gives
+   the pane one parameter per param the surface declares (see **Params**).
+6. **`surface_wait`** `{id, after_seq?, timeout_ms}` — long-polls the event
+   ring past `after_seq` (at most 55 s). It returns when the person does
+   something that emits, or on timeout with `timed_out: true`.
+7. **React**: `surface_update` `{id, spec, expected_revision}` to change what
+   the person sees (validated like create; pass the `revision` you last read,
+   and a write someone else made since is refused with `conflict`), or call a
+   domain verb with what they chose. An open pane shows an update on its next
+   render. Then `surface_wait` again from `next_seq`.
 
 ### A full round, transcript-shaped
 
-This is the signal-explorer example from `docs/plan-agent-surfaces.md`,
-run start to finish. Tool names and JSON shapes for `surface-schema` and
-`surface-validate` responses are illustrative (they render exactly what S1
-computes, which is normative; the JSON here is not); the spec JSON itself,
-the store records and the verb list are the normative parts, copied from the
-plan.
+**1. Schema.** `surface_schema {}` answers `{"ok": true, "schema": {…},
+"example": {…}, "rules": {"templates", "widget_ids", "problems", "params"},
+"wire_version": 1}`.
 
-**1. Schema.**
+**2. Author** — the signal explorer (`crates/impress-surface/examples/signal-explorer.surface.json`):
 
-```
-→ impress-surface-service_surface-schema {}
-← { "schema": { "...": "the SurfaceSpec JSON Schema" },
-    "example": { "...": "a worked example, e.g. the one below" } }
-```
-
-**2. Author** (this is the spec verbatim from `docs/plan-agent-surfaces.md`):
-
+<!-- wire: spec -->
 ```json
 {
   "surface": "1.0",
   "name": "Signal explorer",
   "params": [ { "name": "selected", "kind": "imbib/bibliography-entry", "required": false } ],
-  "state":  { "freq": 1.0, "bins": 20 },
+  "state": { "freq": 1.0, "bins": 20 },
   "sources": {
     "series": { "verb": "surface-demo-service_series",
                 "args": { "freq": "{{state.freq}}", "n": 512 } },
     "hist":   { "verb": "surface-demo-service_histogram",
                 "args": { "values": "{{source.series.values}}", "bins": "{{state.bins}}" } },
-    "papers": { "query": { "...": "PaneQuery JSON" } }
+    "papers": { "query": { "kinds": ["publication"], "sort": [ { "field": "modified", "descending": true } ], "limit": 20 } }
   },
   "root": { "column": [
     { "text": "# Signal explorer" },
     { "row": [
-      { "field": { "slider": { "min": 0.5, "max": 8, "step": 0.5 } },
+      { "id": "freq-slider", "field": { "slider": { "min": 0.5, "max": 8, "step": 0.5 } },
         "label": "Frequency", "bind": "state.freq" },
-      { "field": { "slider": { "min": 4, "max": 64, "step": 1 } },
+      { "id": "bins-slider", "field": { "slider": { "min": 4, "max": 64, "step": 1 } },
         "label": "Bins", "bind": "state.bins" }
     ]},
     { "plot": { "spec": "{{source.hist.plot}}" } },
-    { "table": { "rows": "{{source.papers}}", "columns": ["title", "year"],
+    { "id": "papers-table",
+      "table": { "rows": "{{source.papers}}", "columns": ["title", "year"],
                  "on_select": [ { "publish": {} } ] } },
-    { "button": { "label": "Use these bins",
+    { "id": "use-bins-btn",
+      "button": { "label": "Use these bins",
                   "on_click": [ { "emit": { "name": "bins-chosen",
                                             "payload": { "bins": "{{state.bins}}" } } } ] } }
   ]}
 }
 ```
 
-**3. Validate.**
+**3. Validate.** `surface_validate {"spec": …}`:
 
-```
-→ impress-surface-service_surface-validate { "spec": { "...": "the JSON above" } }
-← { "problems": [] }
-```
-
-An invalid spec (say, `on_click` pointing at a verb that does not exist)
-comes back as `{"problems": [{"path": "root.column[4].button.on_click[0].call.verb",
-"message": "no such verb: surface-demo-service_frobnicate"}]}` — one entry per
-error, named by path, never a bare parse failure.
-
-**4. Create.**
-
-```
-→ impress-surface-service_surface-create { "name": "Signal explorer", "spec": { "...": "the JSON above" } }
-← { "id": "3fae1c9e-...", "name": "Signal explorer", "version": 1 }
+<!-- wire: result SurfaceValidateResult -->
+```json
+{ "ok": true, "message": "0 error(s), 0 warning(s)", "problems": [], "wire_version": 1 }
 ```
 
-This writes the `impress/ui/surface@1.0.0` row (`name`, `version`, `spec`,
-`tags`).
+A spec whose button calls a verb that does not exist, and whose table forgot
+its columns, comes back:
 
-**5. Show.**
-
+<!-- wire: result SurfaceValidateResult -->
+```json
+{ "ok": false, "code": "invalid-spec", "message": "2 error(s), 0 warning(s)",
+  "problems": [
+    { "path": "/root/column/3", "message": "`table`: missing field `columns`", "severity": "error" },
+    { "path": "/root/column/4/button/on_click/0/call/verb",
+      "message": "no such verb: surface-demo-service_frobnicate", "severity": "error" }
+  ],
+  "wire_version": 1 }
 ```
-→ impress-surface-service_surface-show { "id": "3fae1c9e-...", "target": { "split": { "direction": "vertical" } } }
-← { "pane": 12, "focused": true, "affected_panes": [12] }
+
+`path` is a JSON pointer into the spec as written (`""` is the spec itself).
+A node's problem points at the node; an argument's at the argument
+(`/sources/hist/args/bins`). An `error` is refused by create and update; a
+`warning` — an unknown widget kind (it renders as a placeholder), a widget
+with no `id`, a `{{stat.x}}` kept as text, an argument a lenient verb would
+ignore — is stored.
+
+**4. Create.** `surface_create {"spec": …, "name": "Signal explorer"}`:
+
+<!-- wire: result SurfaceResult -->
+```json
+{ "ok": true, "message": "surface 'Signal explorer' (3fae1c9e-5b0e-4b8a-9d51-1c1f3d6a2b70)",
+  "id": "3fae1c9e-5b0e-4b8a-9d51-1c1f3d6a2b70", "name": "Signal explorer", "revision": 1,
+  "spec": { "surface": "1.0", "name": "Signal explorer", "root": { "spacer": {} } },
+  "tags": [], "created": "2026-09-25T18:04:01+00:00", "modified": "2026-09-25T18:04:01+00:00",
+  "wire_version": 1 }
 ```
 
-The human now sees the surface: a title, two sliders, a histogram plot, a
-paper table and a button.
+**5. Show.** The arguments:
+
+<!-- wire: args impress-surface-service_surface-show -->
+```json
+{ "id": "3fae1c9e-5b0e-4b8a-9d51-1c1f3d6a2b70",
+  "target": { "split": { "direction": "horizontal" } },
+  "app_id": "impress" }
+```
+
+and the answer:
+
+<!-- wire: result SurfaceShowResult -->
+```json
+{ "ok": true, "message": "surface shown in impress's tile 12", "tile": 12, "focused": true,
+  "affected_panes": [12], "app_id": "impress", "device": "Toms-MacBook", "wire_version": 1 }
+```
+
+The person now sees a title, two sliders, a histogram, a paper table and a
+button.
 
 **6. Wait.**
 
-```
-→ impress-surface-service_surface-wait { "id": "3fae1c9e-...", "after": 0, "timeout_ms": 30000 }
-```
-
-The human drags the Bins slider to 40 and clicks "Use these bins". The field
-change sets `state.bins` (no `on_change` here, so nothing further runs on the
-change itself); the click runs its `on_click`, which emits a named event.
-`surface_wait` then returns:
-
+<!-- wire: args impress-surface-service_surface-wait -->
 ```json
-{ "events": [
-    { "surface": "3fae1c9e-...", "seq": 41, "name": "bins-chosen",
-      "payload": { "bins": 40 }, "at": "2026-09-22T18:04:11Z" }
-  ],
-  "cursor": 41 }
+{ "id": "3fae1c9e-5b0e-4b8a-9d51-1c1f3d6a2b70", "after_seq": 0, "timeout_ms": 30000 }
 ```
 
-**7. React.** The agent reads `bins-chosen`, decides the human is happy with
-the binning, and acts on it directly — e.g. it calls the same
-`surface-demo-service_histogram` verb the surface's `hist` source calls, with
-`bins: 40`, to fold the choice into a report it is writing — rather than
-mutating the surface further. Had it wanted to change what the human sees
-instead (add a caption, disable the button, swap in a different plot), it
-would call `impress-surface-service_surface-update` with a patched spec and
-loop back to `surface_wait`.
+The person drags Bins to 40 (a `change`: it sets `state.bins`, and nothing
+else runs) and clicks "Use these bins" (its `on_click` emits):
+
+<!-- wire: result SurfaceWaitResult -->
+```json
+{ "ok": true, "message": "1 event(s)",
+  "events": [
+    { "surface": "3fae1c9e-5b0e-4b8a-9d51-1c1f3d6a2b70", "host": "Toms-MacBook", "seq": 1,
+      "name": "bins-chosen", "payload": { "bins": 40 }, "at": "2026-09-25T18:04:11+00:00",
+      "actor": "human" }
+  ],
+  "next_seq": 1, "timed_out": false, "gap": false, "wire_version": 1 }
+```
+
+`actor` is `human` for the person's click and `agent` for a dispatch over
+MCP or HTTP, so a wait loop tells the person's action from its own. `gap` is
+true when the ring (the last 200 events) was pruned past your cursor.
+
+**7. React.** The agent reads `bins-chosen` and acts on it — e.g. calls
+`surface-demo-service_histogram` with `bins: 40` for a report — or changes
+what the person sees with `surface_update`, then waits from `next_seq`.
 
 ### A second worked example: paper triage
 
-The signal explorer above is synthetic data driving a slider and a plot.
-`example_paper_triage` (`crates/impress-surface/examples/paper-triage.surface.json`,
-wave 5 V3) is the other shape of surface: a `query` source over the user's
-own data — unread papers, `publication` / `imbib/bibliography-entry` — a
-table, and a row of buttons that act on whichever row is selected through
-kit verbs the whole suite already has. It exists so an agent's first surface
-over a domain the user actually works in looks like this, not like a demo.
+`crates/impress-surface/examples/paper-triage.surface.json` is the other shape
+of surface: a `query` source over the person's own unread papers
+(`publication`), a table, and buttons that act on whichever rows are selected
+through kit verbs the whole suite already has — `triage-service_set-starred`,
+`triage-service_set-flag` (`color: "red"`), `triage-service_add-tag` (`tag:
+"to-read"`) — each taking one id of any record kind.
 
-**The verbs.** All four are `#[impress_service]` verbs already linked
-everywhere — the app, the CLI and MCP alike, never a second definition for
-surfaces (root `CLAUDE.md`, "Agent surfaces live in Rust and in store
-records"):
+A table's `select` event carries an array of ids (the uniform shape every
+widget's event has); the table's `on_select` stores it with `{"set": {"path":
+"state.selected", "value": "{{event.value}}"}}`. A button's `call` names
+`each: "state.selected"` and reads `{{item}}` in its `args`, so `reduce` runs
+that one call once per selected id — a fan-out declaration, not a loop the
+spec computes with (ADR-0033 D3). The click then `refresh`es the `papers`
+source and `emit`s one `triaged` event per id, which `surface_wait` returns.
+A spec that only ever wants the first selected id reads
+`{{state.selected.0}}`: a numeric segment indexes an array.
 
-- `triage-service_set-starred` (`crates/impress-store-service/src/triage_service.rs`)
-  — the "Star" button.
-- `triage-service_set-flag` — the "Flag red" button, `color: "red"`.
-- `triage-service_add-tag` — the "Tag to-read" button, `tag: "to-read"`.
+## Params
 
-`TriageService` takes an item id of ANY kind (publication, manuscript,
-figure, message, task, agent run) — the same verbs a triage menu on any
-other record kind would call, not something built for this surface.
+A surface declares `params` (`{"name", "kind", "required"}`); `{{param.x}}`
+and a query source's `{"ref": "param", "name": "x"}` read them. They are
+bound per render and per dispatch, by one rule:
 
-**The loop an agent runs with it** is the same five-verb loop as the signal
-explorer's, with a table row standing in for the slider as "the thing the
-human does between waits":
+1. When the call passes `params` — `surface_render`/`surface_dispatch`'s
+   `params` argument, `{"x": "<record id>"}` — those are the whole binding,
+   and a name the spec does not declare is refused.
+2. Else, when a pane shows the surface, each declared name takes that
+   pane's binding of the same name. `surface_show` gives the pane one
+   parameter per declared param, of the param's kind (a schema ref such as
+   `imbib/bibliography-entry` is its pane-query kind, `publication`), that
+   follows the window's default channel — so a paper selected in another
+   pane on that channel is the surface's `param`. Re-point one with
+   `layout-service_bind-param` (`{"source": "fixed", "item": "<id>"}`, or
+   `{"source": "channel", "channel": {"number": 2}}`). The pane's own `item`
+   binding names the surface itself and is never a param.
+3. Else it is unbound: `{{param.x}}` is a placeholder, and a query source
+   whose param is `required` is refused (its error is in `source_errors`),
+   never run as "no filter".
 
-1. `surface-schema` / author / `surface-validate` — as above; the spec
-   itself is short enough to read in full in
-   `crates/impress-surface/examples/paper-triage.surface.json`.
-2. `surface-create`, then `surface-show` (a split, or a named pane role) —
-   the human now sees a table of their own unread papers, newest first, and
-   three buttons.
-3. `surface-wait`. The human selects a row (a `select` event on the table
-   sets `state.selected`, and nothing else — there is no `on_select` verb
-   call, just the plain `state.selected = event.value` this vocabulary's
-   `set` action already does), then clicks "Tag to-read". The click's
-   `on_click` runs three actions in order: `call` the verb once per selected
-   id (`each: "state.selected"`, `args: {"id": "{{item}}", "tag": "to-read"}`),
-   `refresh` the `papers` source once (so the very next render already
-   reflects the tag), and `emit` a `triaged` event once per id, carrying
-   `{"id": "{{item}}", "action": "tag-to-read"}`. `surface-wait` returns
-   with those `triaged` events, one per id.
-4. **React.** The agent reads each `triaged` event's `id` and acts on it
-   directly — e.g. queues the paper for a summarisation pass — the same
-   "read what the human did, then act" shape the signal explorer's step 7
-   uses, just with a triage verb instead of a plot verb on the far end.
-   `surface-wait` again.
+A render or dispatch answers the params it used in `params`.
 
-**How the selection reaches the verbs.** A table's `select` event carries an
-array of ids — the uniform shape every widget's event has, never a
-widget-specific one — while `triage-service_*` keeps its own one-id
-signature, the same verb a triage menu anywhere else in the suite calls.
-`each`/`{{item}}` (V5, `docs/plan-agent-surfaces.md`'s vocabulary reference
-below) is the bridge: a button's `call`/`emit` names `each: "state.selected"`
-and reads `{{item}}` in its `args`/`payload`, and `reduce` runs that one
-action once per selected id, with `item` bound to it each time — no
-expression, conditional or loop added to the spec, just a fan-out
-declaration `validate` checks statically (`each`'s root, `item`'s scope) and
-`reduce` executes structurally. A spec that only ever wants a single
-selected id reads `{{state.selected.0}}` instead — `template.rs`'s numeric
-path segments index an array the same way a JSON Pointer would, so this is
-still a path, not an operator.
+## `host`: which instance
+
+A surface's working state and event ring are kept per `(surface, host)`.
+`host` defaults to this device's id — the instance every pane on this device
+uses (they share one state row and one runtime) — so leave it out to drive
+what the person sees. Pass a `host` only for a private instance no pane shows
+(a headless test, a dry run). The layout verbs call the same value `device`.
 
 ## Vocabulary reference
 
-This is the normative vocabulary from `docs/plan-agent-surfaces.md`, copied
-here as a reference table — that file is the source of truth if the two ever
-disagree. Every node is a JSON object with exactly one node-kind key plus the
-optional common keys `id`, `label`, `help`, `when` (see **`when`** below).
-Paths are dotted; a string that is exactly one `{{path}}` resolves to the
-JSON value at that path, mixed text stringifies. Path roots: `state`,
-`param`, `source`, `event`, and, only inside an action that carries `each`,
-`item` (V5, below). A numeric path segment indexes an array the way a JSON
-Pointer would (`{{state.selected.0}}` is the first selected id); against an
-object, the same segment is an ordinary key lookup — a spelled-out `"0"` key
-is unaffected.
+Every node is a JSON object with exactly one node-kind key plus the optional
+common keys `id`, `label`, `help`, `when`, and — on a `field` — `bind`,
+`on_change`, `on_submit`. Any other key is an error at its path. Give every
+`field`, `button`, `table` and `list` an `id`: events name widgets by id, and
+an unnamed node gets a positional one (`n0.2.1`: the root's third child's
+second child) that changes when the spec does.
+
+**Templates.** A string may hold references written `{{root.path}}`. The
+roots are `state`, `param`, `source`, `event` (inside an action) and `item`
+(inside an action with `each`). A path is dotted names; a number indexes an
+array (`{{state.selected.0}}`). A string that is exactly one reference
+becomes that JSON value (`"{{state.bins}}"` is the number `20`); mixed text
+stringifies each reference. Anything else between double braces is text —
+LaTeX and Typst are safe (`$\\frac{{a}}{b}$` renders as written) — and a
+dotted one with an unknown root (`{{stat.bins}}`) is a validation warning,
+since it is more likely a typo. There are no operators, conditionals or
+loops.
 
 ### Containers
 
 | Kind | Keys | Meaning |
 |---|---|---|
 | `column` | `[node]` | Children stacked vertically. |
-| `row` | `[node]` | Children laid out horizontally. |
+| `row` | `[node]` | Children side by side. |
 | `grid` | `{ columns: n, items: [node] }` | Fixed column count, items flow. |
-| `section` | `{ title, collapsed?, body: node }` | A titled, optionally-collapsible group. |
+| `section` | `{ title, collapsed?, body: node }` | A titled, optionally collapsible group. |
 | `tabs` | `[ { title, body: node } ]` | One child visible at a time. |
 
 ### Widgets
 
-| Kind | Keys | Meaning | Renderer event kind |
+| Kind | Keys | Meaning | Renderer event |
 |---|---|---|---|
-| `text` | `string \| {{path}}` | Markdown. | — |
-| `table` | `{ rows, columns, on_select? }` | Tabular data; `rows` through the host's row-style registry. | `select` (runs `on_select`) |
-| `list` | `{ rows, on_select? }` | Same, non-tabular rows. | `select` (runs `on_select`) |
+| `text` | `string` | Markdown, templates filled. | — |
+| `table` | `{ rows, columns, on_select? }` | Tabular data. | `select` (runs `on_select`) |
+| `list` | `{ rows, on_select? }` | The same, non-tabular. | `select` (runs `on_select`) |
 | `plot` | `{ spec }` | A `plot-spec@1.0.0` payload, never pixels. | — |
-| `image` | `{ blob \| url }` | — | — |
-| `field` | `{ text\|number\|slider\|select\|toggle\|date: options }`, `bind: state.path` | An editable value bound to state. | `change` — sets `bind`, then runs `on_change` if the field declares one |
+| `image` | `{ blob? , url? }` | — | — |
+| `field` | `{ text\|number\|slider\|select\|toggle\|date: options }` + `bind: "state.path"` | An editable value bound to state. | `change` — sets `bind`, then runs `on_change` |
 | `button` | `{ label, on_click: [action] }` | — | `click` (runs `on_click`) |
 | `status` | `{ level, message }` | — | — |
-| `log` | `{ lines }` | — | — |
-| `kv` | `{ pairs }` | Key/value display. | — |
-| `divider` | `{}` | — | — |
-| `spacer` | `{}` | — | — |
+| `log` | lines | — | — |
+| `kv` | pairs | Key/value display. | — |
+| `divider` / `spacer` | `{}` | — | — |
 
-The renderer's event-kind enum is `"change" \| "click" \| "select" \| "submit"`
-(`{"widget": id, "kind": ..., "value": json}`); `submit` is part of that
-enum but the normative vocabulary above does not assign it to a specific
-widget kind — treat it as reserved rather than inferring which widget raises
-it.
+A renderer event is `{"widget": id, "kind": "change"|"click"|"select"|"submit",
+"value": json}` — exactly those keys:
+
+<!-- wire: event -->
+```json
+{ "widget": "bins-slider", "kind": "change", "value": 40 }
+```
 
 ### Sources
-
-A source is one of:
 
 | Shape | Meaning |
 |---|---|
 | `{ "value": json }` | A fixed value. |
-| `{ "verb": name, "args": object }` | A `#[impress_service]` verb call. `args` may reference other sources by `{{source.name.field}}`; a cycle between sources is a validation error, not a runtime one. |
-| `{ "query": PaneQuery }` | An ADR-0031 pane query, run the same way a pane's own query runs. |
+| `{ "verb": name, "args": object }` | A verb call; `args` may reference state, params and other sources (a cycle is a validation error). Literal arguments are checked against the verb's own input schema. |
+| `{ "query": PaneQuery }` | An ADR-0031 pane query, run the way a pane's query runs; its rows are flattened (a record's payload fields beside its envelope). |
 
-Sources are cached by their resolved arguments and re-run only when an
-argument changes, a store invalidation names the query, or an action
-`refresh`es them explicitly (ADR-0033, "Defaults accepted without further
-discussion").
-A store write names a query when it touches a record kind the query reads
-(its `kinds`, or every kind when it names none) — in this process or, through
-the app's 250 ms poll, in another one such as `impress-mcp`. A `verb` source
-declares nothing it reads, so it re-runs only on an argument change or a
-`refresh`. A source that failed is not asked again with the same arguments
-for 5 seconds; its error stays on the placeholder meanwhile.
+A source is exactly one of the three. Sources are cached by their resolved
+arguments and re-run when an argument changes, when a store write touches a
+record kind a query source reads (in this process or, through the app's
+250 ms poll, another one such as `impress-mcp`), or when an action
+`refresh`es them. A `verb` source declares nothing it reads, so it re-runs
+only on an argument change or a `refresh`. A source that failed is not asked
+again with the same arguments for 5 seconds.
 
 ### Actions
 
 | Shape | Meaning |
 |---|---|
-| `{ "set": { path, value } }` | Write a value at a state path. |
-| `{ "call": { verb, args, into?: state.path, each?: path } }` | Run a verb; optionally store its result. |
-| `{ "publish": { ids?: path } }` | Publish a selection on the pane's channel — how a surface's table feeds another pane, the same channel mechanism ADR-0031 gives every pane. |
-| `{ "emit": { name, payload, each?: path } }` | Emit a named event the agent reads back via `surface_events`/`surface_wait`. |
-| `{ "open": { query, view_kind, target? } }` | Open a query in a pane — a surface can drive the layout tree, not just itself. |
-| `{ "refresh": { source } }` | Re-run a source now, bypassing its cache. |
+| `{ "set": { path, value } }` | Write a value at a `state.…` path. |
+| `{ "call": { verb, args, into?, each? } }` | Run a verb; `into` stores its result at a `state.…` path. |
+| `{ "publish": { ids? } }` | Publish a selection on the pane's channel — `ids` a `state.…` path, else the event's value. |
+| `{ "emit": { name, payload, each? } }` | Emit a named event the agent reads with `surface_events`/`surface_wait`. |
+| `{ "open": { query, view_kind, target? } }` | Open a query in a pane: `target` a role, else a new split. |
+| `{ "refresh": { source } }` | Re-run a source now. |
 
-`each` (V5) fans a `call`/`emit` out over an array: it is a literal path
-(like `publish.ids`/`set.path`, never a `{{…}}` template) whose root is
-`state`, `param`, `source` or `event`, resolved at reduce time and required
-to name an array — an empty array runs the action zero times and is not an
-error; a non-array is a reduce-time error naming the path. With `each` set,
-`args`/`payload` may reference `{{item}}`/`{{item.field}}`, bound to one
-element for the duration of that one run; without `each`, an `item`
-reference is a validation problem, since nothing ever binds it. This exists
-because a widget's event shape stays uniform (a `select` is always an array
-of ids) while a verb keeps its own natural signature — `each` is the
-declared fan-out that reconciles the two without adding an expression,
-conditional or loop to the spec itself (ADR-0033 D3 still holds).
+An action's `args`/`payload` may reference `{{source.…}}` (the sources as the
+last render left them), `{{state.…}}`, `{{param.…}}`, `{{event.…}}`, and
+`{{item…}}` under `each`. A state path — `bind`, `set.path`, `publish.ids`,
+`call.into` — reads and writes by one rule: a number indexes an array, an
+index out of range is refused, an array is never turned into an object, and a
+missing path read is refused (it is never read as `null`). `publish` puts the
+ids under the kind of `{"kind": K, "ids": [...]}` when the value at `ids` is
+that object, else the surface's first declared param's kind (a schema ref
+as its pane-query kind), else the generic `item`. The layout takes a
+selection of any kind — a channel is keyed by kind — but a pane follows only
+the kind its param declares, so a spec that publishes and declares no param is
+a validation warning. An `open`'s `view_kind` must be one the layout knows
+(`layout_vocabulary_json`), or validation says which it does.
+
+`each` fans a `call`/`emit` out over an array: a literal path (never a
+`{{…}}` template) whose root is `state`, `param`, `source` or `event`, which
+must name an array at reduce time; an empty array runs the action zero times.
 
 ### `when`
 
-`{ "path": "state.x" }` is truthy-gated; `{ "path": ..., "equals": json }`
-gates on an exact match. Any node may carry `when`; a node whose `when` does
-not hold is omitted from the `RenderTree`.
+`{ "path": "state.x" }` is truthy-gated; `{ "path": …, "equals": json }`
+gates on an exact match. A node whose `when` does not hold is left out of the
+render tree.
 
-### `RenderTree`
+### The render tree
 
-What `surface_render` returns: the same node shapes as the spec, but with
-every `{{path}}` reference resolved to its current value, a `focusable`
-widget ordering computed (j/k walk this order — see "keyboard" in
-ADR-0033's defaults), and any node whose kind this host does not recognise
-replaced by `{"placeholder": {"kind": "...", "node": {...}}}` rather than
-dropped — the same forward-compatibility rule ADR-0031 uses for an
-unrenderable view kind, so a spec authored for a newer kit still renders the
-rest of itself on an older host.
+`surface_render` answers `{"ok", "tree", "source_errors", "revision",
+"state_revision", "params", "wire_version"}`. The `tree` is
+`{"root": node, "focus_order": [id…]}` — `focus_order` is the reading-order
+list of field, button, table, list and tabs ids that j/k walk. A render node
+is `{"id", "label"?, "help"?, "node": {"kind": …, …}}`: not the spec's shape
+— the kind is a `kind` tag, every reference is resolved, and handlers are
+gone (the renderer forwards raw events; `reduce` decides what they do).
+
+<!-- wire: render -->
+```json
+{ "root": { "id": "n0", "node": { "kind": "column", "items": [
+    { "id": "n0.0", "node": { "kind": "text", "text": "# Signal explorer" } },
+    { "id": "bins-slider", "label": "Bins", "node": { "kind": "field",
+      "field": { "slider": { "min": 4, "max": 64, "step": 1 } }, "bind": "state.bins", "value": 20 } },
+    { "id": "n0.2", "node": { "kind": "placeholder", "unknown_kind": "sparkline",
+      "reason": "this build has no 'sparkline' widget", "node": { "sparkline": { "values": [1, 2] } } } }
+  ] } },
+  "focus_order": ["bins-slider"] }
+```
+
+A node degrades to `{"kind": "placeholder", …}` — keeping its slot, the rest
+of the tree rendering normally — when its kind is unknown to this build
+(`unknown_kind` and `node`, the node's own JSON), when it could not be read
+(`reason` and `node`), or when a reference in it did not resolve (`reason`
+naming the source that failed and why).
 
 ### Store records
 
 | Record | Fields |
 |---|---|
-| `impress/ui/surface@1.0.0` | `name`, `version`, `spec`, `tags` |
-| `impress/ui/surface-state@1.0.0` | `surface`, `host`, `state`, `cursor` — one row per (surface, host instance) |
-| `impress/ui/surface-event@1.0.0` | `surface`, `host`, `seq`, `name`, `payload`, `at` |
+| `impress/ui/surface@1.0.0` | `name`, `spec`, `tags`, `revision` |
+| `impress/ui/surface-state@1.0.0` | `surface`, `host`, `state` — one row per `(surface, host)` |
+| `impress/ui/surface-event@1.0.0` | `surface`, `host`, `seq`, `name`, `payload`, `at` (the author is the actor) |
 
 ### Every verb
 
 `surface_schema`, `surface_validate`, `surface_create`, `surface_update`,
 `surface_get`, `surface_list`, `surface_delete`, `surface_show`,
 `surface_render`, `surface_state_get`, `surface_state_set`,
-`surface_dispatch`, `surface_events`, `surface_wait`, `surface_examples` —
-each an `#[impress_method]` on `impress-surface-service`'s trait, so MCP, the
-CLI and impel's agent loop get all fifteen together.
+`surface_dispatch`, `surface_events`, `surface_wait`, `surface_examples`.
 
-### Results: `ok`, `code`, and who acted
-
-Every result carries `ok` and a prose `message`, and a refusal also carries a
-machine-readable `code`: branch on `code`, never on the message. The generic
-codes are `invalid-argument`, `not-found`, `conflict` (a stale
-`expected_revision`), `store-error`, `store-unavailable` (the real store could
-not be opened; writes are refused rather than landing in a throwaway),
-`unknown-verb`, `verb-failed`, `no-pane`, `effect-failed` and `internal`;
-a reduce refusal carries its own (`unknown-widget`, `not-bindable`,
-`invalid-path`, `each-not-array`, `unknown-template-root`,
-`missing-template-path`), and a layout refusal its `LayoutError` tag
-(`unknown-tile`, `cannot-close-last-pane`, …). Over HTTP the error body is
-`{"error", "code"}` and the status follows the code (400, 404, 409, 422 for a
-refusal by the tree or the reducer, 500, 503).
+## Results: `ok`, `code`, and who acted
 
 **`surface_dispatch` is `ok` only when everything happened**: the event was
 reduced and every effect it produced succeeded. When the event was reduced
@@ -374,12 +446,53 @@ the re-rendered `tree` plus every effect's own `{kind, ok, code, message}` in
 `effects` — over HTTP a 422 with that same body. A source that fails while
 re-rendering does not fail the dispatch; it is listed in `source_errors`.
 
-Every event row says who caused it: `actor` is `human` for a click or edit in
-the app's pane and `agent` for a dispatch over MCP or HTTP, so a
-`surface_wait` loop tells the person's action from its own.
+<!-- wire: result SurfaceDispatchResult -->
+```json
+{ "ok": false, "code": "effect-failed",
+  "message": "dispatched; 2 effect(s), 1 failed — publish: no pane shows this surface yet (surface_show has not run)",
+  "tree": { "root": { "id": "go", "node": { "kind": "button", "label": "Go" } }, "focus_order": ["go"] },
+  "effects": [
+    { "kind": "emit", "ok": true, "message": "emitted 'went' (seq 3)" },
+    { "kind": "publish", "ok": false, "code": "no-pane",
+      "message": "no pane shows this surface yet (surface_show has not run)" }
+  ],
+  "effects_failed": 1, "revision": 1, "state_revision": 42, "wire_version": 1 }
+```
 
-The `impress` CLI exits 3 when a verb answers `"ok": false` (1 when it could
-not be dispatched, 2 for a bad invocation), so a script can test the status.
+`revision` is the spec's and `state_revision` the state row's, as the answer
+was built. A pane compares them with the feed's notifications and does not
+render its own write's echo again.
+
+## HTTP
+
+Each app that renders surfaces serves `/api/surface` on its automation port.
+Every route runs the verb of the same name, through the same argument parser
+MCP and the CLI use, and answers that verb's result unchanged, with status
+200 when `ok` and otherwise the status its `code` maps to. Arguments come
+from the path's id, the query string and the JSON body; one the verb does not
+take is a 400 naming it. `host` defaults to the app's own instance, and
+`show`'s `app_id` and `device` to the app's own window.
+
+| Method and path | Verb | Query / body |
+|---|---|---|
+| `GET /api/surface` | `surface_list` | — |
+| `POST /api/surface` | `surface_create` | `{spec, name?, tags?}`, or the spec itself |
+| `GET /api/surface/schema` | `surface_schema` | — |
+| `GET /api/surface/examples` | `surface_examples` | — |
+| `POST /api/surface/validate` | `surface_validate` | `{spec}`, or the spec itself |
+| `GET /api/surface/<id>` | `surface_get` | — |
+| `PUT /api/surface/<id>` | `surface_update` | `{spec, name?, expected_revision?}`, or the spec with `?expected_revision=` |
+| `DELETE /api/surface/<id>` | `surface_delete` | — |
+| `POST /api/surface/<id>/show` | `surface_show` | `{target, app_id?, device?}` |
+| `GET /api/surface/<id>/render` | `surface_render` | `?host=`, `?params=<JSON object>` |
+| `POST /api/surface/<id>/dispatch` | `surface_dispatch` | `{event, host?, params?}`, or the event itself |
+| `GET /api/surface/<id>/state` | `surface_state_get` | `?host=` |
+| `PUT /api/surface/<id>/state` | `surface_state_set` | `{state, host?}` |
+| `GET /api/surface/<id>/events` | `surface_events` | `?after_seq=`, `?host=` |
+| `GET /api/surface/<id>/wait` | `surface_wait` | `?after_seq=`, `?timeout_ms=`, `?host=` |
+
+A dispatch over HTTP is the agent's; only the app's own pane dispatches as
+the person.
 
 ## How to add a Rust capability
 
@@ -480,21 +593,21 @@ Mac.
 
 To inspect a surface's *behaviour* without the GUI, call
 `impress-surface-service_surface-render` (or the equivalent Tier-A helper)
-and read the `RenderTree` JSON it returns — the exact node tree, with every
-reference resolved and the `focusable` order computed, that the Swift
-renderer would otherwise turn into a window. Driving `surface_dispatch` with
-a synthetic event (`{"widget": "bins-slider", "kind": "change", "value": 40}`)
-and re-rendering is how a Tier-A test proves "moving this slider updates that
-plot" without ever opening the app — the same discipline
-`crates/imprint-selftest` already established for imprint's other
-capabilities.
+and read the `tree` it returns — the exact node tree, with every reference
+resolved and the `focus_order` computed, that the Swift renderer would
+otherwise turn into a window. Driving `surface_dispatch` with a synthetic
+event (`{"widget": "bins-slider", "kind": "change", "value": 40}` — the
+signal explorer names its widgets) and re-rendering is how a Tier-A test
+proves "moving this slider updates that plot" without ever opening the app —
+the same discipline `crates/imprint-selftest` already established for
+imprint's other capabilities.
 
 ## Reading what the human did
 
 `surface_events` returns a page of a surface's `impress/ui/surface-event@1.0.0`
-rows; `surface_wait(id, after, timeout)` long-polls the same rows and returns
-as soon as a new one lands, or on timeout with nothing new — the primitive
-the loop above calls "wait". Both are ordinary store reads: an agent
+rows; `surface_wait(id, after_seq, timeout_ms)` long-polls the same rows and
+returns as soon as a new one lands, or on timeout with nothing new — the
+primitive the loop above calls "wait". Both are ordinary store reads: an agent
 participates by reading what the human did, the same way it reads anything
 else in the store, not through a special channel.
 

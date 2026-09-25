@@ -53,6 +53,7 @@ pub mod plan;
 pub mod reduce;
 pub mod resolve;
 pub mod spec;
+pub mod state_path;
 pub mod template;
 pub mod validate;
 
@@ -63,9 +64,10 @@ pub use plan::{plan, CachedSource, SourceCache, SourceRequest, SourceRequestKind
 pub use reduce::{reduce, Effect, ReduceError};
 pub use resolve::{resolve, resolve_with_source_errors, RenderNode, RenderTree};
 pub use spec::{
-    Action, Button, Event, EventKind, FieldKind, Grid, Image, ListWidget, Node, NodeKind,
-    PaneQuery, ParamDecl, Plot, Section, Source, Status, SurfaceSpec, Tab, Table, When,
-    SURFACE_VERSION,
+    child_pointers, handler_pointers, walk_actions, walk_with_pointers, Action, Button, Event,
+    EventKind, FieldKind, Grid, Image, ListWidget, Node, NodeKind, PaneQuery, ParamDecl, Plot,
+    Section, Source, Status, SurfaceSpec, Tab, Table, When, NODE_KIND_NAMES, SURFACE_VERSION,
 };
+pub use state_path::StatePathError;
 pub use template::{Context, Template, TemplateError};
-pub use validate::{validate, Problem};
+pub use validate::{validate, validate_json, Problem, Severity};

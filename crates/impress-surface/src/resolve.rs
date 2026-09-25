@@ -30,7 +30,12 @@
 //! it):
 //!
 //! - its kind is [`NodeKind::Unknown`] — a tag key this build does not
-//!   recognize, carrying that raw `kind` and the node's original JSON;
+//!   recognize: `unknown_kind` is that key and `node` the node's JSON, so a
+//!   renderer, or an agent reading `surface_render`, can see what the newer
+//!   widget was (ADR-0033 "Defaults": a placeholder "keeps the node"; review
+//!   RS-S20);
+//! - its kind is [`NodeKind::Invalid`] — a node this build could not read:
+//!   `reason` says why, `node` is its JSON;
 //! - a known kind's own content failed to resolve (an unbound `state`/`source`
 //!   reference, a missing dependency) — carrying `reason`, the
 //!   [`crate::template::TemplateError`]'s message.
@@ -148,6 +153,12 @@ pub enum RenderKind {
         unknown_kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+        /// The node's own JSON, for an unknown or unreadable node — what the
+        /// placeholder stands in for. Absent for a known node whose content
+        /// did not resolve (its spec is the author's, and its `reason` says
+        /// which reference failed).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<Value>,
     },
 }
 
@@ -217,6 +228,7 @@ fn resolve_node(
         Err(reason) => RenderKind::Placeholder {
             unknown_kind: None,
             reason: Some(placeholder_reason(&reason, ctx)),
+            node: None,
         },
     };
 
@@ -321,7 +333,7 @@ fn resolve_kind(
             let value = node
                 .bind
                 .as_ref()
-                .and_then(|b| read_bind(b, state))
+                .and_then(|b| crate::state_path::read(state, b).ok())
                 .unwrap_or(Value::Null);
             RenderKind::Field {
                 field: resolve_value(&field_value, ctx)?,
@@ -346,7 +358,15 @@ fn resolve_kind(
         NodeKind::Spacer => RenderKind::Spacer,
         NodeKind::Unknown { kind, .. } => RenderKind::Placeholder {
             unknown_kind: Some(kind.clone()),
-            reason: None,
+            reason: Some(format!("this build has no '{kind}' widget")),
+            node: Some(node.to_value()),
+        },
+        NodeKind::Invalid {
+            error, node: raw, ..
+        } => RenderKind::Placeholder {
+            unknown_kind: None,
+            reason: Some(error.clone()),
+            node: Some(raw.clone()),
         },
     })
 }
@@ -408,21 +428,6 @@ fn field_options(f: &crate::spec::FieldKind) -> Value {
     let mut map = Map::new();
     map.insert(tag.to_string(), options.clone());
     Value::Object(map)
-}
-
-/// Read `bind` (a literal `state.…` path — see `validate.rs`) out of `state`
-/// directly, no template involved: a field's current value is not a reference,
-/// it is *the* value the reference in `bind` names.
-fn read_bind(bind: &str, state: &Value) -> Option<Value> {
-    let mut parts = bind.split('.');
-    if parts.next() != Some("state") {
-        return None;
-    }
-    let mut cur = state;
-    for part in parts {
-        cur = cur.as_object()?.get(part)?;
-    }
-    Some(cur.clone())
 }
 
 /// The same stringification [`Template::resolve`]'s mixed-text branch applies to

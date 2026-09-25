@@ -1,64 +1,107 @@
 //! `validate(&SurfaceSpec) -> Vec<Problem>`: every reason a spec is not
-//! well-formed, named by path, so an authoring agent (or `surface_validate`, S4)
-//! can fix each one without a screenshot. Never panics on a malformed spec — a
-//! spec is data, and the whole point of this function is to describe what is
-//! wrong with it rather than crash on it.
+//! well-formed, named by path, so an authoring agent (or `surface_validate`)
+//! can fix each one without a screenshot. [`validate_json`] does the same for
+//! a spec that is still JSON — a structural mistake (a missing `root`, a
+//! source with two kinds, an unknown key) is a located problem too, never a
+//! bare parse failure (review AC-F13). Never panics on a malformed spec.
 //!
-//! Checks, in the order `docs/plan-agent-surfaces.md` (S1) lists them:
+//! # Paths and severity
 //!
-//! 1. `surface` is exactly [`SURFACE_VERSION`].
-//! 2. `state` is a JSON object.
-//! 3. Every `bind` and `set.path` starts with `state.`.
-//! 4. Every template reference's root is one of `state`/`param`/`source`/`event`,
-//!    and a `state.…` reference's top-level key exists in `state`.
-//! 5. Every `source.<name>` reference names a declared source.
-//! 6. Source `args` form no dependency cycle.
-//! 7. Node ids (given or auto-derived, [`node_id`]) are unique.
-//! 8. A `select` field's `options` are non-empty.
-//! 9. `grid.columns >= 1`.
-//! 10. Every verb name matches `^[a-z0-9-]+_[a-z0-9-]+$`.
-//! 11. A `call`/`emit` action's `each`, if present, is a literal path (not a
-//!     `{{…}}` template) whose root is `state`, `param`, `source` or `event`
-//!     — checked directly against a raw string the same way `when.path` is
-//!     (never through the template scanner, which only finds `{{…}}`
-//!     occurrences and would skip a bare path with none) — and does not
-//!     itself reference `item` (`item` only exists once `each` has bound one,
-//!     so an `each` path naming it could never resolve).
-//! 12. A `{{item…}}` reference inside a `call`'s `args` or an `emit`'s
-//!     `payload` is a problem unless that same action carries `each` — `item`
-//!     is only bound for the duration of one `each` fan-out element
-//!     (`reduce.rs`), so a reference to it anywhere else can never resolve.
+//! `path` is a JSON pointer into the spec as written (`/sources/hist/args`,
+//! `/root/column/1/field/select/options`) — `""` is the spec itself. A
+//! problem is an `error` (the spec would not work: `surface_create` and
+//! `surface_update` refuse it) or a `warning` (it works, but probably not as
+//! meant — a node kind this build does not know, which renders as a
+//! placeholder by design; a widget with no `id`; a `{{stat.x}}` kept as
+//! text).
 //!
-//! What this function does **not** check: whether a verb exists, whether a query
-//! compiles, whether a state path a `bind` names actually has a value yet. Those
-//! need a store or a live inventory; this module is pure, like the rest of the
-//! crate.
+//! # Checks
+//!
+//! 1. `surface` is exactly [`SURFACE_VERSION`]; `state` is an object; param
+//!    names are non-empty and unique.
+//! 2. Every `bind`, `set.path`, `publish.ids` and `call.into` is a
+//!    `state.…` path ([`crate::state_path`]).
+//! 3. Every template reference's root is `state`/`param`/`source`/`event`
+//!    (and `item` inside an action with `each`); a `state.…` reference names
+//!    a declared state key, a `source.…` one a declared source, a `param.…`
+//!    one a declared param. A dotted `{{…}}` that is not a reference is a
+//!    warning (it renders as text).
+//! 4. Source `args` form no dependency cycle; verb names match
+//!    `^[a-z0-9-]+_[a-z0-9-]+$`.
+//! 5. Node ids (given or auto-derived) are unique; an interactive widget
+//!    (`field`, `button`, `table`, `list`) with no `id` is a warning.
+//! 6. Per kind: a `select` field has options, `grid.columns >= 1`, a node
+//!    that could not be read is an error with the reader's own message, an
+//!    unknown kind a warning.
+//! 7. `each` is a literal path with a data root; `open` names a view kind and
+//!    a query that parses when it holds no template; `refresh` names a
+//!    declared source.
+//!
+//! What this function does **not** check: whether a verb exists or accepts
+//! its arguments, whether a view kind is registered — those need the linked
+//! inventory; `impress-surface-service`'s `surface_validate` adds them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use crate::spec::{Action, FieldKind, Node, NodeKind, Source, SurfaceSpec, Table, SURFACE_VERSION};
-use crate::template::{source_refs_in, Template};
+use crate::spec::{
+    walk_actions, walk_with_ids, walk_with_pointers, Action, FieldKind, Node, NodeKind, ParamDecl,
+    Source, SurfaceSpec, SURFACE_VERSION,
+};
+use crate::state_path;
+use crate::template::{literal_path_like, source_refs_in, Template};
 
-/// One thing wrong with a spec: `path` is a JSON-pointer-flavoured location
-/// (`/sources/hist/args`, `/root/column/1/field/select/options`), not a strict
-/// RFC 6901 pointer — good enough to point an agent at the spot, which is the
-/// whole job.
+/// How bad a [`Problem`] is. See the module docs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    /// The spec would not work as written; create and update refuse it.
+    #[default]
+    Error,
+    /// It works, but probably not as meant.
+    Warning,
+}
+
+/// One thing wrong with a spec: `path` is a JSON pointer (see the module
+/// docs), `message` says what and how to fix it.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Problem {
     pub path: String,
     pub message: String,
+    #[serde(default)]
+    pub severity: Severity,
 }
 
 impl Problem {
-    fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(path: impl Into<String>, message: impl Into<String>) -> Self {
         Problem {
             path: path.into(),
             message: message.into(),
+            severity: Severity::Error,
         }
     }
+
+    pub fn warning(path: impl Into<String>, message: impl Into<String>) -> Self {
+        Problem {
+            path: path.into(),
+            message: message.into(),
+            severity: Severity::Warning,
+        }
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.severity == Severity::Error
+    }
+}
+
+/// What a template reference may name, for one spec.
+struct Scope<'a> {
+    state_keys: BTreeSet<&'a str>,
+    sources: BTreeSet<&'a str>,
+    params: BTreeSet<&'a str>,
 }
 
 /// See the module docs for the full list of checks.
@@ -66,7 +109,7 @@ pub fn validate(spec: &SurfaceSpec) -> Vec<Problem> {
     let mut problems = Vec::new();
 
     if spec.surface != SURFACE_VERSION {
-        problems.push(Problem::new(
+        problems.push(Problem::error(
             "/surface",
             format!(
                 "unsupported surface version '{}', this build understands '{SURFACE_VERSION}'",
@@ -74,86 +117,257 @@ pub fn validate(spec: &SurfaceSpec) -> Vec<Problem> {
             ),
         ));
     }
-
     if !spec.state.is_object() {
-        problems.push(Problem::new("/state", "`state` must be a JSON object"));
+        problems.push(Problem::error("/state", "`state` must be a JSON object"));
+    }
+    let mut seen_params = BTreeSet::new();
+    for (i, param) in spec.params.iter().enumerate() {
+        if param.name.trim().is_empty() {
+            problems.push(Problem::error(
+                format!("/params/{i}/name"),
+                "a param needs a name",
+            ));
+        } else if !seen_params.insert(param.name.as_str()) {
+            problems.push(Problem::error(
+                format!("/params/{i}/name"),
+                format!("param '{}' is declared twice", param.name),
+            ));
+        }
     }
 
-    let state_keys: BTreeSet<&str> = spec
-        .state
-        .as_object()
-        .map(|m| m.keys().map(String::as_str).collect())
-        .unwrap_or_default();
+    let scope = Scope {
+        state_keys: spec
+            .state
+            .as_object()
+            .map(|m| m.keys().map(String::as_str).collect())
+            .unwrap_or_default(),
+        sources: spec.sources.keys().map(String::as_str).collect(),
+        params: spec.params.iter().map(|p| p.name.as_str()).collect(),
+    };
 
-    // ── sources: declared names, verb-name shape, dependency cycles ────────
-    let declared_sources: BTreeSet<&str> = spec.sources.keys().map(String::as_str).collect();
+    // ── sources: verb-name shape, references, dependency cycles ────────────
     let mut deps: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for (name, source) in &spec.sources {
         match source {
             Source::Verb { verb, args } => {
-                let path = format!("/sources/{name}/verb");
-                check_verb_name(verb, &path, &mut problems);
+                check_verb_name(verb, &format!("/sources/{name}/verb"), &mut problems);
                 deps.insert(name.as_str(), source_refs_in(args));
                 check_template_refs(
                     args,
                     &format!("/sources/{name}/args"),
-                    &state_keys,
-                    &declared_sources,
+                    &scope,
                     false,
                     &mut problems,
                 );
             }
-            Source::Value { .. } => {
+            Source::Value { .. } | Source::Query { .. } => {
+                // A query's parameters are bound from the surface's params
+                // at run time (`$param` in the query), not by templates.
                 deps.insert(name.as_str(), Vec::new());
-            }
-            Source::Query { .. } => {
-                // `PaneQuery` params are filled from pane channel bindings, not
-                // from this crate's template roots, so there is nothing here to
-                // scan for `source.…`/`state.…` references.
-                deps.insert(name.as_str(), Vec::new());
-            }
-        }
-    }
-    for (name, refs) in &deps {
-        for r in refs {
-            if !declared_sources.contains(r.as_str()) {
-                problems.push(Problem::new(
-                    format!("/sources/{name}/args"),
-                    format!("references undeclared source '{r}'"),
-                ));
             }
         }
     }
     for name in find_cycle(&deps) {
-        problems.push(Problem::new(
+        problems.push(Problem::error(
             format!("/sources/{name}"),
             "participates in a source dependency cycle",
         ));
     }
 
-    // ── the tree: ids, binds, template refs, per-kind invariants ───────────
+    // ── ids ─────────────────────────────────────────────────────────────────
     let mut ids: BTreeMap<String, usize> = BTreeMap::new();
-    for (id, _) in crate::spec::walk_with_ids(&spec.root) {
+    for (id, _) in walk_with_ids(&spec.root) {
         *ids.entry(id).or_insert(0) += 1;
     }
     for (id, count) in &ids {
         if *count > 1 {
-            problems.push(Problem::new(
+            problems.push(Problem::error(
                 "/root",
                 format!("node id '{id}' is used by {count} nodes"),
             ));
         }
     }
 
-    walk_node(
-        &spec.root,
-        "/root".to_string(),
-        &state_keys,
-        &declared_sources,
-        &mut problems,
-    );
+    // ── the tree ────────────────────────────────────────────────────────────
+    for (at, node) in walk_with_pointers(&spec.root) {
+        check_node(node, &at, &scope, &mut problems);
+    }
+    for (at, action) in walk_actions(&spec.root) {
+        check_action(action, &at, &scope, &mut problems);
+    }
 
     problems
+}
+
+/// [`validate`] for a spec that is still JSON: structural problems (not an
+/// object, a missing or mistyped field, a source that is not exactly one
+/// kind, an unknown key anywhere) come back located, like every other
+/// problem. Returns the parsed spec when it parsed.
+pub fn validate_json(raw: &Value) -> (Option<SurfaceSpec>, Vec<Problem>) {
+    let mut problems = Vec::new();
+    let Some(obj) = raw.as_object() else {
+        problems.push(Problem::error(
+            "",
+            format!(
+                "a surface spec must be a JSON object, got {}",
+                crate::spec::json_type(raw)
+            ),
+        ));
+        return (None, problems);
+    };
+    const FIELDS: &[&str] = &["surface", "name", "params", "state", "sources", "root"];
+    for key in obj.keys() {
+        if !FIELDS.contains(&key.as_str()) {
+            problems.push(Problem::error(
+                format!("/{}", escape(key)),
+                format!("unknown field `{key}`; a spec has {}", FIELDS.join(", ")),
+            ));
+        }
+    }
+    let string_field = |key: &str, problems: &mut Vec<Problem>| -> Option<String> {
+        match obj.get(key) {
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(other) => {
+                problems.push(Problem::error(
+                    format!("/{key}"),
+                    format!(
+                        "`{key}` must be a string, got {}",
+                        crate::spec::json_type(other)
+                    ),
+                ));
+                None
+            }
+            None => {
+                problems.push(Problem::error("", format!("missing field `{key}`")));
+                None
+            }
+        }
+    };
+    let surface = string_field("surface", &mut problems);
+    let name = string_field("name", &mut problems);
+
+    let mut params = Vec::new();
+    match obj.get("params") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(items)) => {
+            for (i, item) in items.iter().enumerate() {
+                match serde_json::from_value::<ParamDecl>(item.clone()) {
+                    Ok(p) => params.push(p),
+                    Err(e) => problems.push(Problem::error(format!("/params/{i}"), e.to_string())),
+                }
+            }
+        }
+        Some(other) => problems.push(Problem::error(
+            "/params",
+            format!(
+                "`params` must be an array, got {}",
+                crate::spec::json_type(other)
+            ),
+        )),
+    }
+
+    let mut sources = BTreeMap::new();
+    match obj.get("sources") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(map)) => {
+            for (key, value) in map {
+                match Source::from_value(value.clone()) {
+                    Ok(source) => {
+                        sources.insert(key.clone(), source);
+                    }
+                    Err(e) => problems.push(Problem::error(format!("/sources/{}", escape(key)), e)),
+                }
+            }
+        }
+        Some(other) => problems.push(Problem::error(
+            "/sources",
+            format!(
+                "`sources` must be an object, got {}",
+                crate::spec::json_type(other)
+            ),
+        )),
+    }
+
+    let root = match obj.get("root") {
+        Some(value) => Some(Node::from_value(value.clone())),
+        None => {
+            problems.push(Problem::error("", "missing field `root`"));
+            None
+        }
+    };
+
+    let (Some(surface), Some(name), Some(root)) = (surface, name, root) else {
+        return (None, problems);
+    };
+    if problems.iter().any(Problem::is_error) {
+        return (None, problems);
+    }
+    let spec = SurfaceSpec {
+        surface,
+        name,
+        params,
+        state: obj
+            .get("state")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new())),
+        sources,
+        root,
+    };
+    problems.extend(validate(&spec));
+    // What this build read, written back out: a key the author wrote that is
+    // not in it is a key nothing reads — a typo, or a field of another kind.
+    if let Ok(canonical) = serde_json::to_value(&spec) {
+        unknown_fields(raw, &canonical, "", &mut problems);
+    }
+    (Some(spec), problems)
+}
+
+/// `~` and `/` escaped for a JSON pointer segment.
+fn escape(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
+}
+
+/// Every key of `raw` that `canonical` (the same document as this build read
+/// it) does not have. A key whose value is `null`, `[]` or `{}` is not
+/// reported — an empty value changes nothing, and several optional fields
+/// are left out of the canonical form when empty.
+fn unknown_fields(raw: &Value, canonical: &Value, at: &str, problems: &mut Vec<Problem>) {
+    match (raw, canonical) {
+        (Value::Object(r), Value::Object(c)) => {
+            for (key, value) in r {
+                let here = format!("{at}/{}", escape(key));
+                match c.get(key) {
+                    Some(cv) => unknown_fields(value, cv, &here, problems),
+                    None if is_empty(value) => {}
+                    None => {
+                        let known: Vec<&str> = c.keys().map(String::as_str).collect();
+                        problems.push(Problem::error(
+                            here,
+                            format!(
+                                "unknown field `{key}`; nothing reads it (here: {})",
+                                known.join(", ")
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        (Value::Array(r), Value::Array(c)) => {
+            for (i, (rv, cv)) in r.iter().zip(c.iter()).enumerate() {
+                unknown_fields(rv, cv, &format!("{at}/{i}"), problems);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_empty(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
+        _ => false,
+    }
 }
 
 fn check_verb_name(verb: &str, path: &str, problems: &mut Vec<Problem>) {
@@ -165,73 +379,73 @@ fn check_verb_name(verb: &str, path: &str, problems: &mut Vec<Problem>) {
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         });
     if !ok {
-        problems.push(Problem::new(
+        problems.push(Problem::error(
             path,
             format!("verb name '{verb}' does not match ^[a-z0-9-]+_[a-z0-9-]+$"),
         ));
     }
 }
 
-fn check_bind_or_set_path(path_value: &str, at: &str, problems: &mut Vec<Problem>) {
-    if !path_value.starts_with("state.") {
-        problems.push(Problem::new(
-            at,
-            format!("path '{path_value}' must start with 'state.'"),
-        ));
+fn check_state_path(path_value: &str, at: &str, problems: &mut Vec<Problem>) {
+    if let Err(e) = state_path::segments(path_value) {
+        problems.push(Problem::error(at, e.to_string()));
     }
 }
 
 /// Scan every string inside `value` for template references and check their
-/// roots (and, for `state`, the top-level key). `item_allowed` is true only
-/// while scanning a `call`/`emit` action's `args`/`payload` when that same
-/// action carries `each` — see check 12 in the module docs.
+/// roots. `item_allowed` is true only inside a `call`/`emit` that carries
+/// `each`.
 fn check_template_refs(
     value: &Value,
     at: &str,
-    state_keys: &BTreeSet<&str>,
-    declared_sources: &BTreeSet<&str>,
+    scope: &Scope,
     item_allowed: bool,
     problems: &mut Vec<Problem>,
 ) {
     match value {
         Value::String(s) => {
             for path in reference_paths(s) {
-                check_reference_path(
-                    &path,
+                check_reference_path(&path, at, scope, item_allowed, problems);
+            }
+            for text in literal_path_like(s) {
+                problems.push(Problem::warning(
                     at,
-                    state_keys,
-                    declared_sources,
-                    item_allowed,
-                    problems,
-                );
+                    format!(
+                        "'{{{{{text}}}}}' is shown as text: '{}' is not a template root (state, \
+                         param, source, event, item)",
+                        text.split('.').next().unwrap_or_default()
+                    ),
+                ));
             }
         }
         Value::Array(items) => {
             for item in items {
-                check_template_refs(
-                    item,
-                    at,
-                    state_keys,
-                    declared_sources,
-                    item_allowed,
-                    problems,
-                );
+                check_template_refs(item, at, scope, item_allowed, problems);
             }
         }
         Value::Object(map) => {
             for v in map.values() {
-                check_template_refs(v, at, state_keys, declared_sources, item_allowed, problems);
+                check_template_refs(v, at, scope, item_allowed, problems);
             }
         }
         _ => {}
     }
 }
 
+fn has_template(value: &Value) -> bool {
+    match value {
+        Value::String(s) => !reference_paths(s).is_empty(),
+        Value::Array(items) => items.iter().any(has_template),
+        Value::Object(map) => map.values().any(has_template),
+        _ => false,
+    }
+}
+
 fn reference_paths(s: &str) -> Vec<Vec<String>> {
     match Template::parse(s) {
-        crate::template::Template::Literal(_) => Vec::new(),
-        crate::template::Template::Single(p) => vec![p],
-        crate::template::Template::Mixed(segments) => segments
+        Template::Literal(_) => Vec::new(),
+        Template::Single(p) => vec![p],
+        Template::Mixed(segments) => segments
             .into_iter()
             .filter_map(|seg| match seg {
                 crate::template::Segment::Ref(p) => Some(p),
@@ -244,19 +458,19 @@ fn reference_paths(s: &str) -> Vec<Vec<String>> {
 fn check_reference_path(
     path: &[String],
     at: &str,
-    state_keys: &BTreeSet<&str>,
-    declared_sources: &BTreeSet<&str>,
+    scope: &Scope,
     item_allowed: bool,
     problems: &mut Vec<Problem>,
 ) {
     let Some(root) = path.first() else {
         return;
     };
+    let second = path.get(1).map(String::as_str);
     match root.as_str() {
         "state" => {
-            if let Some(key) = path.get(1) {
-                if !state_keys.contains(key.as_str()) {
-                    problems.push(Problem::new(
+            if let Some(key) = second {
+                if !scope.state_keys.contains(key) {
+                    problems.push(Problem::error(
                         at,
                         format!(
                             "'{}' references state key '{key}', which `state` does not declare",
@@ -267,374 +481,245 @@ fn check_reference_path(
             }
         }
         "source" => {
-            if let Some(name) = path.get(1) {
-                if !declared_sources.contains(name.as_str()) {
-                    problems.push(Problem::new(
+            if let Some(name) = second {
+                if !scope.sources.contains(name) {
+                    problems.push(Problem::error(
                         at,
                         format!("'{}' references undeclared source '{name}'", path.join(".")),
                     ));
                 }
             }
         }
-        "param" | "event" => {}
+        "param" => match second {
+            Some(name) if !scope.params.contains(name) => problems.push(Problem::error(
+                at,
+                format!(
+                    "'{}' references param '{name}', which `params` does not declare",
+                    path.join(".")
+                ),
+            )),
+            None => problems.push(Problem::error(
+                at,
+                "'param' alone names no parameter; write param.<name>",
+            )),
+            _ => {}
+        },
+        "event" => {}
         "item" if item_allowed => {}
-        other => problems.push(Problem::new(
+        other => problems.push(Problem::error(
             at,
             format!(
-                "'{}' has unknown root '{other}'{}",
+                "'{}' has root '{other}'{}",
                 path.join("."),
                 if other == "item" {
-                    " (`item` is only bound inside an action with `each`)"
+                    ", which is only bound inside an action with `each`"
                 } else {
-                    ""
+                    ", which is not a template root"
                 }
             ),
         )),
     }
 }
 
-/// `each`'s own literal path (see check 11): checked directly, exactly the way
-/// [`walk_node`] checks `when.path` just below — never `item_allowed` (check
-/// 11's last clause: `each` cannot itself reference `item`, since `item` does
-/// not exist until `each` has already resolved one).
-fn check_each_path(
-    path_value: &str,
-    at: &str,
-    state_keys: &BTreeSet<&str>,
-    declared_sources: &BTreeSet<&str>,
-    problems: &mut Vec<Problem>,
-) {
+/// A literal path with a data root — `each` and `when.path`.
+fn check_literal_path(path_value: &str, at: &str, scope: &Scope, problems: &mut Vec<Problem>) {
     let segments: Vec<String> = path_value.split('.').map(str::to_string).collect();
-    check_reference_path(&segments, at, state_keys, declared_sources, false, problems);
+    if segments.iter().any(|s| s.is_empty()) {
+        problems.push(Problem::error(
+            at,
+            format!("'{path_value}' is not a dotted path"),
+        ));
+        return;
+    }
+    check_reference_path(&segments, at, scope, false, problems);
 }
 
-fn walk_node(
-    node: &Node,
-    at: String,
-    state_keys: &BTreeSet<&str>,
-    declared_sources: &BTreeSet<&str>,
-    problems: &mut Vec<Problem>,
-) {
+fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>) {
     if let Some(bind) = &node.bind {
-        check_bind_or_set_path(bind, &format!("{at}/bind"), problems);
-    }
-    for (label, actions) in [
-        ("on_change", &node.on_change),
-        ("on_submit", &node.on_submit),
-    ] {
-        check_actions(
-            actions,
-            &format!("{at}/{label}"),
-            state_keys,
-            declared_sources,
-            problems,
-        );
+        check_state_path(bind, &format!("{at}/bind"), problems);
     }
     if let Some(when) = &node.when {
-        // `when.path` is a literal dotted path (`state.x`), not a `{{…}}`
-        // template — `resolve.rs`'s `when_is_true` reads it the same way, by
-        // wrapping it before handing it to `Template::parse`. Checked directly
-        // against the same root/state-key rules a template reference gets
-        // (`check_reference_path`), rather than through `check_template_refs`
-        // (which only finds `{{…}}` occurrences and would silently skip a bare
-        // path with none).
-        let segments: Vec<String> = when.path.split('.').map(str::to_string).collect();
-        check_reference_path(
-            &segments,
-            &format!("{at}/when/path"),
-            state_keys,
-            declared_sources,
-            false,
-            problems,
-        );
+        check_literal_path(&when.path, &format!("{at}/when/path"), scope, problems);
     }
-    if let Some(label) = &node.label {
-        check_template_refs(
-            &Value::String(label.clone()),
-            &format!("{at}/label"),
-            state_keys,
-            declared_sources,
-            false,
-            problems,
-        );
+    for (key, text) in [("label", &node.label), ("help", &node.help)] {
+        if let Some(text) = text {
+            check_template_refs(
+                &Value::String(text.clone()),
+                &format!("{at}/{key}"),
+                scope,
+                false,
+                problems,
+            );
+        }
     }
-
+    if node.id.is_none()
+        && matches!(
+            node.kind,
+            NodeKind::Field(_) | NodeKind::Button(_) | NodeKind::Table(_) | NodeKind::List(_)
+        )
+    {
+        problems.push(Problem::warning(
+            at,
+            format!(
+                "this {} has no `id`: its events name a positional id that changes when the \
+                 spec does, so give it one",
+                node.kind_name()
+            ),
+        ));
+    }
+    let mut refs = |value: &Value, key: &str| {
+        check_template_refs(value, &format!("{at}/{key}"), scope, false, problems)
+    };
     match &node.kind {
-        NodeKind::Column(items) => {
-            for (i, child) in items.iter().enumerate() {
-                walk_node(
-                    child,
-                    format!("{at}/column/{i}"),
-                    state_keys,
-                    declared_sources,
-                    problems,
-                );
-            }
-        }
-        NodeKind::Row(items) => {
-            for (i, child) in items.iter().enumerate() {
-                walk_node(
-                    child,
-                    format!("{at}/row/{i}"),
-                    state_keys,
-                    declared_sources,
-                    problems,
-                );
-            }
-        }
+        NodeKind::Column(_) | NodeKind::Row(_) | NodeKind::Divider | NodeKind::Spacer => {}
         NodeKind::Grid(g) => {
             if g.columns < 1 {
-                problems.push(Problem::new(
+                problems.push(Problem::error(
                     format!("{at}/grid/columns"),
                     "grid.columns must be >= 1",
                 ));
             }
-            for (i, child) in g.items.iter().enumerate() {
-                walk_node(
-                    child,
-                    format!("{at}/grid/items/{i}"),
-                    state_keys,
-                    declared_sources,
-                    problems,
-                );
-            }
         }
-        NodeKind::Section(s) => {
-            walk_node(
-                &s.body,
-                format!("{at}/section/body"),
-                state_keys,
-                declared_sources,
-                problems,
-            );
-        }
+        NodeKind::Section(s) => refs(&Value::String(s.title.clone()), "section/title"),
         NodeKind::Tabs(tabs) => {
             for (i, tab) in tabs.iter().enumerate() {
-                walk_node(
-                    &tab.body,
-                    format!("{at}/tabs/{i}/body"),
-                    state_keys,
-                    declared_sources,
-                    problems,
+                refs(
+                    &Value::String(tab.title.clone()),
+                    &format!("tabs/{i}/title"),
                 );
             }
         }
-        NodeKind::Text(s) => {
-            check_template_refs(
-                &Value::String(s.clone()),
-                &format!("{at}/text"),
-                state_keys,
-                declared_sources,
-                false,
-                problems,
-            );
-        }
-        NodeKind::Table(Table {
-            rows, on_select, ..
-        }) => {
-            check_template_refs(
-                rows,
-                &format!("{at}/table/rows"),
-                state_keys,
-                declared_sources,
-                false,
-                problems,
-            );
-            check_actions(
-                on_select,
-                &format!("{at}/table/on_select"),
-                state_keys,
-                declared_sources,
-                problems,
-            );
-        }
-        NodeKind::List(l) => {
-            check_template_refs(
-                &l.rows,
-                &format!("{at}/list/rows"),
-                state_keys,
-                declared_sources,
-                false,
-                problems,
-            );
-            check_actions(
-                &l.on_select,
-                &format!("{at}/list/on_select"),
-                state_keys,
-                declared_sources,
-                problems,
-            );
-        }
-        NodeKind::Plot(p) => {
-            check_template_refs(
-                &p.spec,
-                &format!("{at}/plot/spec"),
-                state_keys,
-                declared_sources,
-                false,
-                problems,
-            );
-        }
+        NodeKind::Text(s) => refs(&Value::String(s.clone()), "text"),
+        NodeKind::Table(t) => refs(&t.rows, "table/rows"),
+        NodeKind::List(l) => refs(&l.rows, "list/rows"),
+        NodeKind::Plot(p) => refs(&p.spec, "plot/spec"),
         NodeKind::Image(img) => {
             if let Some(v) = &img.blob {
-                check_template_refs(
-                    v,
-                    &format!("{at}/image/blob"),
-                    state_keys,
-                    declared_sources,
-                    false,
-                    problems,
-                );
+                refs(v, "image/blob");
             }
             if let Some(v) = &img.url {
-                check_template_refs(
-                    v,
-                    &format!("{at}/image/url"),
-                    state_keys,
-                    declared_sources,
-                    false,
-                    problems,
-                );
+                refs(v, "image/url");
             }
         }
         NodeKind::Field(f) => {
+            if node.bind.is_none() {
+                problems.push(Problem::error(
+                    format!("{at}/bind"),
+                    "a field needs `bind` (the state path it edits)",
+                ));
+            }
             if let FieldKind::Select(v) = f {
                 let non_empty = v
                     .get("options")
                     .and_then(Value::as_array)
-                    .map(|a| !a.is_empty())
-                    .unwrap_or(false);
+                    .is_some_and(|a| !a.is_empty());
                 if !non_empty {
-                    problems.push(Problem::new(
+                    problems.push(Problem::error(
                         format!("{at}/field/select/options"),
                         "a select field's options must be a non-empty array",
                     ));
                 }
             }
         }
-        NodeKind::Button(b) => {
-            check_actions(
-                &b.on_click,
-                &format!("{at}/button/on_click"),
-                state_keys,
-                declared_sources,
-                problems,
-            );
-        }
-        NodeKind::Status(s) => {
-            check_template_refs(
-                &s.message,
-                &format!("{at}/status/message"),
-                state_keys,
-                declared_sources,
-                false,
-                problems,
-            );
-        }
-        NodeKind::Log(v) | NodeKind::Kv(v) => {
-            check_template_refs(
-                v,
-                &format!("{at}/{}", node.kind_name()),
-                state_keys,
-                declared_sources,
-                false,
-                problems,
-            );
-        }
-        NodeKind::Divider | NodeKind::Spacer => {}
-        NodeKind::Unknown { kind, .. } => {
-            problems.push(Problem::new(
-                at.clone(),
-                format!("unrecognized node kind '{kind}' (kept as a placeholder at render time)"),
-            ));
-        }
+        NodeKind::Button(b) => refs(&Value::String(b.label.clone()), "button/label"),
+        NodeKind::Status(s) => refs(&s.message, "status/message"),
+        NodeKind::Log(v) => refs(v, "log"),
+        NodeKind::Kv(v) => refs(v, "kv"),
+        NodeKind::Unknown { kind, .. } => problems.push(Problem::warning(
+            at,
+            format!("this build has no '{kind}' widget: it renders as a placeholder"),
+        )),
+        NodeKind::Invalid { error, .. } => problems.push(Problem::error(at, error.clone())),
     }
 }
 
-fn check_actions(
-    actions: &[Action],
-    at: &str,
-    state_keys: &BTreeSet<&str>,
-    declared_sources: &BTreeSet<&str>,
-    problems: &mut Vec<Problem>,
-) {
-    for (i, action) in actions.iter().enumerate() {
-        let at = format!("{at}/{i}");
-        match action {
-            Action::Set { path, value } => {
-                check_bind_or_set_path(path, &format!("{at}/set/path"), problems);
-                check_template_refs(
-                    value,
-                    &format!("{at}/set/value"),
-                    state_keys,
-                    declared_sources,
-                    false,
-                    problems,
-                );
+fn check_action(action: &Action, at: &str, scope: &Scope, problems: &mut Vec<Problem>) {
+    match action {
+        Action::Set { path, value } => {
+            check_state_path(path, &format!("{at}/set/path"), problems);
+            check_template_refs(value, &format!("{at}/set/value"), scope, false, problems);
+        }
+        Action::Call {
+            verb,
+            args,
+            into,
+            each,
+        } => {
+            check_verb_name(verb, &format!("{at}/call/verb"), problems);
+            if let Some(each_path) = each {
+                check_literal_path(each_path, &format!("{at}/call/each"), scope, problems);
             }
-            Action::Call {
-                verb, args, each, ..
-            } => {
-                check_verb_name(verb, &format!("{at}/call/verb"), problems);
-                if let Some(each_path) = each {
-                    check_each_path(
-                        each_path,
-                        &format!("{at}/call/each"),
-                        state_keys,
-                        declared_sources,
-                        problems,
-                    );
-                }
-                check_template_refs(
-                    args,
-                    &format!("{at}/call/args"),
-                    state_keys,
-                    declared_sources,
-                    each.is_some(),
-                    problems,
-                );
+            if let Some(into) = into {
+                check_state_path(into, &format!("{at}/call/into"), problems);
             }
-            Action::Publish { ids } => {
-                if let Some(ids) = ids {
-                    check_bind_or_set_path(ids, &format!("{at}/publish/ids"), problems);
-                }
+            check_template_refs(
+                args,
+                &format!("{at}/call/args"),
+                scope,
+                each.is_some(),
+                problems,
+            );
+        }
+        Action::Publish { ids } => {
+            if let Some(ids) = ids {
+                check_state_path(ids, &format!("{at}/publish/ids"), problems);
             }
-            Action::Emit { payload, each, .. } => {
-                if let Some(each_path) = each {
-                    check_each_path(
-                        each_path,
-                        &format!("{at}/emit/each"),
-                        state_keys,
-                        declared_sources,
-                        problems,
-                    );
-                }
-                check_template_refs(
-                    payload,
-                    &format!("{at}/emit/payload"),
-                    state_keys,
-                    declared_sources,
-                    each.is_some(),
-                    problems,
-                );
+        }
+        Action::Emit {
+            name,
+            payload,
+            each,
+        } => {
+            if name.trim().is_empty() {
+                problems.push(Problem::error(
+                    format!("{at}/emit/name"),
+                    "an event needs a name",
+                ));
             }
-            Action::Open { query, .. } => {
-                check_template_refs(
-                    query,
-                    &format!("{at}/open/query"),
-                    state_keys,
-                    declared_sources,
-                    false,
-                    problems,
-                );
+            if let Some(each_path) = each {
+                check_literal_path(each_path, &format!("{at}/emit/each"), scope, problems);
             }
-            Action::Refresh { source } => {
-                if !declared_sources.contains(source.as_str()) {
-                    problems.push(Problem::new(
-                        format!("{at}/refresh/source"),
-                        format!("refreshes undeclared source '{source}'"),
+            check_template_refs(
+                payload,
+                &format!("{at}/emit/payload"),
+                scope,
+                each.is_some(),
+                problems,
+            );
+        }
+        Action::Open {
+            query,
+            view_kind,
+            target,
+        } => {
+            if view_kind.trim().is_empty() {
+                problems.push(Problem::error(
+                    format!("{at}/open/view_kind"),
+                    "`view_kind` is empty",
+                ));
+            }
+            if target.as_deref().is_some_and(|t| t.trim().is_empty()) {
+                problems.push(Problem::error(
+                    format!("{at}/open/target"),
+                    "`target` is a role name; leave it out to open a new pane",
+                ));
+            }
+            check_template_refs(query, &format!("{at}/open/query"), scope, false, problems);
+            if !has_template(query) {
+                if let Err(e) = serde_json::from_value::<crate::spec::PaneQuery>(query.clone()) {
+                    problems.push(Problem::error(
+                        format!("{at}/open/query"),
+                        format!("not a pane query: {e}"),
                     ));
                 }
+            }
+        }
+        Action::Refresh { source } => {
+            if !scope.sources.contains(source.as_str()) {
+                problems.push(Problem::error(
+                    format!("{at}/refresh/source"),
+                    format!("refreshes undeclared source '{source}'"),
+                ));
             }
         }
     }
@@ -704,6 +789,11 @@ mod tests {
     use crate::spec::{Button, FieldKind, Grid, Node, NodeKind, Source, When};
     use std::collections::BTreeMap;
 
+    /// The error-severity problems only.
+    fn errors(problems: Vec<Problem>) -> Vec<Problem> {
+        problems.into_iter().filter(Problem::is_error).collect()
+    }
+
     fn minimal(root: Node) -> SurfaceSpec {
         SurfaceSpec {
             surface: SURFACE_VERSION.to_string(),
@@ -718,7 +808,7 @@ mod tests {
     #[test]
     fn an_empty_spec_has_no_problems() {
         let spec = minimal(Node::leaf(NodeKind::Spacer));
-        assert_eq!(validate(&spec), Vec::new());
+        assert_eq!(errors(validate(&spec)), Vec::new());
     }
 
     #[test]
@@ -840,9 +930,11 @@ mod tests {
     fn non_empty_select_options_are_fine() {
         let node = Node::leaf(NodeKind::Field(FieldKind::Select(serde_json::json!({
             "options": ["a"]
-        }))));
+        }))))
+        .with_id("pick")
+        .with_bind("state.x");
         let problems = validate(&minimal(node));
-        assert!(problems.is_empty());
+        assert!(problems.is_empty(), "{problems:?}");
     }
 
     #[test]
@@ -879,7 +971,7 @@ mod tests {
                 args: serde_json::json!({}),
             },
         );
-        assert_eq!(validate(&spec), Vec::new());
+        assert_eq!(errors(validate(&spec)), Vec::new());
     }
 
     #[test]
@@ -913,7 +1005,7 @@ mod tests {
             serde_json::json!({"id": "{{item}}"}),
         ));
         spec.state = serde_json::json!({"selected": []});
-        assert_eq!(validate(&spec), Vec::new());
+        assert_eq!(errors(validate(&spec)), Vec::new());
     }
 
     #[test]
@@ -961,7 +1053,7 @@ mod tests {
             serde_json::json!({"id": "{{item}}", "label": "star {{item.id}}"}),
         ));
         spec.state = serde_json::json!({"selected": []});
-        assert_eq!(validate(&spec), Vec::new());
+        assert_eq!(errors(validate(&spec)), Vec::new());
     }
 
     #[test]
@@ -976,7 +1068,7 @@ mod tests {
         }));
         let mut spec = minimal(with_each);
         spec.state = serde_json::json!({"selected": []});
-        assert_eq!(validate(&spec), Vec::new());
+        assert_eq!(errors(validate(&spec)), Vec::new());
 
         let without_each = Node::leaf(NodeKind::Button(Button {
             label: "go".to_string(),
