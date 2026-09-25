@@ -111,9 +111,10 @@ often on a phone, where a path means nothing.
 Also inline: `source-service_get-page-image` and
 `source-service_get-figure-image` (stored pages and figures). SVG is
 **not**: `implore-service_plot-series`, `implore-service_plot-histogram` and
-`implore-service_rg-cascade-plot` return SVG source. To show a plot,
-`implore-service_export-figure` to pdf and `render_pdf_page` it — or embed
-and compile.
+`implore-service_rg-cascade-plot` return SVG source. To keep a plot, pass
+that SVG (or the data itself) to `implore-service_create-figure`; its stored
+PNG is what impress's `plot` pane and every figure view draw, and
+`implore-service_export-figure` (png or svg) writes it to a file.
 
 ## Canonical workflows
 
@@ -132,9 +133,14 @@ and compile.
 3. **Draft and review** — `imprint-manuscript-service_put-section` for new
    sections; `imprint-app-service_create-comment` for changes to existing
    prose (see below).
-4. **Make and embed a figure** — `implore-service_create-figure` (column
-   names come from `implore-service_get-dataset` — look, don't guess) →
-   `impress-bridges-service_embed-figure` (pdf or svg format for print) →
+4. **Make and embed a figure** — `implore-service_create-figure` with the
+   data: `series` (inline `[{label?, x, y}]`, the usual case), `spec` (a
+   whole implore plot spec: error bars, log axes, styles) or `svg` (a
+   finished SVG) — at most one. Without any of them the figure is labelled
+   empty axes (axis names from `implore-service_get-dataset` — look, don't
+   guess). It answers `ok`, the figure `id` and the stored `artifact`, or
+   `ok: false` with the argument at fault →
+   `impress-bridges-service_embed-figure` (svg for print) →
    `imbib-manuscripts-service_compile-manuscript` → `render_pdf_page`.
 
 ## Review checkpoints — propose, do not overwrite
