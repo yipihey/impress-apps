@@ -746,15 +746,11 @@ struct LayoutPaneHost: View {
 
     private func resolve(_ reason: String) {
         resolved = controller.pane(tile)
-        LayoutPaneHost.resolveCount &+= 1
+        LayoutTreeRuntime.shared.paneResolveCount &+= 1
         logInfo(
             "layout pane \(tile) resolved (\(reason)) — \(resolved == nil ? "failed" : "ok")",
             category: "layout")
     }
-
-    /// How many pane resolves this process has run — the redraw counter the
-    /// wave-7 proof reads (a focus or a resize must not move it).
-    @MainActor static var resolveCount = 0
 }
 
 /// The focused pane's ring.

@@ -70,6 +70,11 @@ public final class LayoutTreeRuntime {
         let services: LayoutHostServices
     }
 
+    /// How many times a pane host has re-resolved its pane in this process —
+    /// the redraw counter (each resolve is a query compile, and for a rows
+    /// pane a re-run). A focus or a resize must not move it (PH-H1).
+    public internal(set) var paneResolveCount = 0
+
     /// Live controllers, oldest first.
     private var entries: [Entry] = []
     private weak var current: LayoutController?
@@ -243,15 +248,50 @@ final class LayoutWindowResponder: NSResponder {
         }
         responder.controller = controller
         responder.window = window
-        if let content = window.contentView, content.nextResponder !== responder {
-            responder.nextResponder = content.nextResponder
-            content.nextResponder = responder
-            logInfo(
-                "layout: undo routing installed in window \(window.windowNumber) for "
-                    + "\(controller.appID)",
-                category: "layout")
-        }
+        splice(responder, into: window)
         return responder
+    }
+
+    /// Put `responder` directly before the window in the chain that starts at
+    /// the content view. Not simply after the content view: SwiftUI puts its
+    /// hosting view controller there and re-patches that link, so the
+    /// responder goes after whatever currently hands off to the window.
+    private static func splice(_ responder: LayoutWindowResponder, into window: NSWindow) {
+        var current: NSResponder? = window.contentView
+        var hops = 0
+        while let link = current, hops < 32 {
+            if link === responder { return }  // already in place
+            if link.nextResponder === window {
+                responder.nextResponder = window
+                link.nextResponder = responder
+                logInfo(
+                    "layout: undo routing installed in window \(window.windowNumber) after "
+                        + "\(type(of: link)) for \(responder.controller?.appID ?? "?")",
+                    category: "layout")
+                return
+            }
+            current = link.nextResponder
+            hops += 1
+        }
+        logWarning(
+            "layout: undo routing NOT installed in window \(window.windowNumber) — no link "
+                + "to the window from its content view",
+            category: "layout")
+    }
+
+    /// Make sure a chord can reach the responder: re-splice (SwiftUI may
+    /// have re-patched the chain), and when the WINDOW itself is first
+    /// responder — so the chain starts past the responder — hand first
+    /// responder to the content view, which is where a click into the tree
+    /// leaves it anyway.
+    static func ensureReachable(in window: NSWindow) {
+        guard let responder = objc_getAssociatedObject(window, &associationKey)
+            as? LayoutWindowResponder
+        else { return }
+        splice(responder, into: window)
+        if window.firstResponder === window, let content = window.contentView {
+            window.makeFirstResponder(content)
+        }
     }
 
     /// What the chord would do: is a text view taking keystrokes?
@@ -275,18 +315,23 @@ final class LayoutWindowResponder: NSResponder {
         passOn(redo: redo, sender: sender)
     }
 
-    /// Hand the chord to the rest of the chain — the window, whose `undo:`
-    /// answers from its undo manager, exactly as if this responder were not
-    /// here.
+    /// The undo manager the chord belongs to when it is not the tree's: the
+    /// FIRST RESPONDER's. A SwiftUI text field's editor keeps its own, not
+    /// the window's — handing its ⌘Z to the window undid nothing.
+    private var chainUndoManager: UndoManager? {
+        window?.firstResponder?.undoManager ?? window?.undoManager
+    }
+
+    /// Hand the chord to whoever would have had it without this responder:
+    /// the first responder's undo manager (typing, an editor session, an
+    /// app-level undo on the window's manager), else the rest of the chain.
     private func passOn(redo: Bool, sender: Any?) {
-        let selector = redo ? #selector(redo(_:)) : #selector(undo(_:))
-        if nextResponder?.tryToPerform(selector, with: sender) == true { return }
-        guard let manager = window?.undoManager else { return }
-        if redo, manager.canRedo {
-            manager.redo()
-        } else if !redo, manager.canUndo {
-            manager.undo()
+        if let manager = chainUndoManager, redo ? manager.canRedo : manager.canUndo {
+            if redo { manager.redo() } else { manager.undo() }
+            return
         }
+        let selector = redo ? #selector(redo(_:)) : #selector(undo(_:))
+        _ = nextResponder?.tryToPerform(selector, with: sender)
     }
 
     /// Edit ▸ Undo / Redo stay enabled while the tree may have something to
@@ -297,7 +342,7 @@ final class LayoutWindowResponder: NSResponder {
         else { return false }
         guard let controller else { return false }
         if textIsFirstResponder || controller.focusedPaneIsSessionBearing {
-            let manager = window?.undoManager
+            let manager = chainUndoManager
             return action == #selector(undo(_:))
                 ? (manager?.canUndo ?? false) : (manager?.canRedo ?? false)
         }
@@ -371,6 +416,7 @@ struct LayoutWindowAnchor: NSViewRepresentable {
                     // Re-splice: SwiftUI may have rebuilt the content view's
                     // chain since.
                     LayoutWindowResponder.install(in: window, controller: controller)
+                    LayoutWindowResponder.ensureReachable(in: window)
                     LayoutTreeRuntime.shared.makeCurrent(controller)
                 }
             }
