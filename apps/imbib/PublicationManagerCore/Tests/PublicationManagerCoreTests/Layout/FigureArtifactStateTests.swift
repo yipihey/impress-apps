@@ -26,7 +26,7 @@ final class FigureArtifactStateTests: XCTestCase {
         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="5"><rect width="10" height="5"/></svg>
         """.utf8)
 
-    private let hash = String(repeating: "ab", count: 32)
+    private let digest = String(repeating: "ab", count: 32)
 
     func testNoHashIsNoArtifact() {
         XCTAssertTrue(isNoArtifact(FigureArtifactState.resolve(dataHash: nil, bytes: { _ in nil })))
@@ -34,20 +34,20 @@ final class FigureArtifactStateTests: XCTestCase {
     }
 
     func testAHashWithNoBytesIsNamedMissing() {
-        guard case .missingBytes(let h) = FigureArtifactState.resolve(dataHash: hash, bytes: { _ in nil })
+        guard case .missingBytes(let h) = FigureArtifactState.resolve(dataHash: digest, bytes: { _ in nil })
         else { return XCTFail("expected missingBytes") }
-        XCTAssertEqual(h, hash)
+        XCTAssertEqual(h, digest)
     }
 
     func testAStoredPNGDraws() {
         var asked: String?
-        let state = FigureArtifactState.resolve(dataHash: hash, bytes: { asked = $0; return self.png })
-        XCTAssertEqual(asked, hash, "the bytes are looked up by the row's data_hash")
+        let state = FigureArtifactState.resolve(dataHash: digest, bytes: { asked = $0; return self.png })
+        XCTAssertEqual(asked, digest, "the bytes are looked up by the row's data_hash")
         XCTAssertTrue(state.isImage)
     }
 
     func testSVGDrawsOnMacAndIsNamedWhereItCannot() {
-        let state = FigureArtifactState.resolve(dataHash: hash, bytes: { _ in self.svg })
+        let state = FigureArtifactState.resolve(dataHash: digest, bytes: { _ in self.svg })
         #if os(macOS)
         XCTAssertTrue(state.isImage, "NSImage decodes SVG")
         #else
@@ -59,7 +59,7 @@ final class FigureArtifactStateTests: XCTestCase {
 
     func testGarbageIsUndecodableNotSVG() {
         guard case .undecodable = FigureArtifactState.resolve(
-            dataHash: hash, bytes: { _ in Data("not an image".utf8) })
+            dataHash: digest, bytes: { _ in Data("not an image".utf8) })
         else { return XCTFail("expected undecodable") }
     }
 
