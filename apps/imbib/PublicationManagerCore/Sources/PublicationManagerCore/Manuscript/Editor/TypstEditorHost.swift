@@ -105,8 +105,15 @@ final class TypstEditorHost {
     /// The pane host `container` is going away. Take the editor out ONLY if
     /// it is still there — a split builds the new host before it dismantles
     /// the old one, and by then the editor already lives in the new one.
+    /// Is the editor mounted in `container` right now? Only the
+    /// representable whose container holds it may act on it — detach it, or
+    /// repoint the shared coordinator at its bindings (review PH-L1).
+    func holdsEditor(in container: NSView) -> Bool {
+        scrollView?.superview === container
+    }
+
     func detach(from container: NSView) {
-        guard let scrollView, scrollView.superview === container else { return }
+        guard let scrollView, holdsEditor(in: container) else { return }
         scrollView.removeFromSuperview()
         coordinator?.resignCitationInsertion()
         logInfo("\(label): editor \(viewIdentity) detached (kept, not destroyed)", category: "layout")

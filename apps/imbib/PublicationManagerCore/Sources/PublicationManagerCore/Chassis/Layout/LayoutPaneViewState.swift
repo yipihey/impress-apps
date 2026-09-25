@@ -78,9 +78,16 @@ enum LayoutPaneViewState {
     static func pane(
         showing viewKind: ViewKindID, onChannelOf tile: UInt64, in tree: LayoutTree
     ) -> UInt64? {
-        guard let spec = tree.pane(tile) else { return nil }
+        panes(showing: viewKind, onChannelOf: tile, in: tree).first
+    }
+
+    /// Every pane showing `viewKind` on `tile`'s channel, lowest id first.
+    static func panes(
+        showing viewKind: ViewKindID, onChannelOf tile: UInt64, in tree: LayoutTree
+    ) -> [UInt64] {
+        guard let spec = tree.pane(tile) else { return [] }
         let channel = channelNumber(of: tile, spec: spec, in: tree)
-        return tree.tiles.keys.sorted().first { id in
+        return tree.tiles.keys.sorted().filter { id in
             guard id != tile, let other = tree.pane(id), other.viewKind == viewKind.rawValue
             else { return false }
             return channelNumber(of: id, spec: other, in: tree) == channel
