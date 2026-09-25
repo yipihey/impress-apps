@@ -48,6 +48,13 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # The git calls below all pass -C "$REPO_ROOT", so none of them needs it.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX \
     GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_QUARANTINE_PATH
+
+# Every run gets its own log directory. The logs used to be fixed paths
+# (/tmp/imbib-macos-build.log, …), so two pushes from two worktrees at once
+# wrote into the same files and each printed the OTHER's failure: on
+# 2026-09-25 a wave-7 push reported an ImprintCore compile error from a
+# different worktree's build. Kept after the run, so a failure can be read.
+LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/impress-pre-push.XXXXXX")"
 IMBIB_DIR="$REPO_ROOT/apps/imbib/imbib"
 
 # Rust formatting gate: every Rust CI workflow runs `cargo fmt --check`,
@@ -76,8 +83,8 @@ CHANGED_FILES=$(git -C "$REPO_ROOT" diff --name-only "$BASE" 2>/dev/null || echo
 # in the impress-app lane; catch it before it leaves the machine.
 if echo "$CHANGED_FILES" | grep -qE '\.(swift|rs)$|^schema-refs\.json|^scripts/check-schema-refs\.sh'; then
     echo "pre-push: schema-refs lint"
-    if ! (cd "$REPO_ROOT" && ./scripts/check-schema-refs.sh > /tmp/impress-schema-refs.log 2>&1); then
-        cat /tmp/impress-schema-refs.log
+    if ! (cd "$REPO_ROOT" && ./scripts/check-schema-refs.sh > "$LOG_DIR/schema-refs.log" 2>&1); then
+        cat "$LOG_DIR/schema-refs.log"
         echo "pre-push: BLOCKED — schema-refs drift. Fix the ref spelling or"
         echo "update schema-refs.json in the same commit (root CLAUDE.md §"
         echo "Definition of done — schema refs)."
@@ -144,7 +151,7 @@ if [ "${SKIP_INTERLOCK_TESTS:-0}" != "1" ] && \
         app="${spec%%:*}"
         only="${spec##*:}"
         app_dir="$REPO_ROOT/apps/$app"
-        log="/tmp/impress-interlock-$app.log"
+        log="$LOG_DIR/interlock-$app.log"
         echo "pre-push:   $only"
         if ! (cd "$app_dir" && xcodebuild \
             -derivedDataPath "$app_dir/.ci-derived" \
@@ -203,10 +210,10 @@ if ! xcodebuild build \
     CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO \
-    >/tmp/imbib-macos-build.log 2>&1; then
+    >"$LOG_DIR/imbib-macos-build.log" 2>&1; then
     echo ""
-    echo "ERROR: imbib (macOS) build failed. See /tmp/imbib-macos-build.log"
-    tail -30 /tmp/imbib-macos-build.log
+    echo "ERROR: imbib (macOS) build failed. See $LOG_DIR/imbib-macos-build.log"
+    tail -30 "$LOG_DIR/imbib-macos-build.log"
     popd >/dev/null
     exit 1
 fi
@@ -219,9 +226,9 @@ if ! xcodebuild build \
     CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO \
-    >/tmp/imbib-ios-build.log 2>&1; then
+    >"$LOG_DIR/imbib-ios-build.log" 2>&1; then
     echo ""
-    echo "ERROR: imbib-iOS build failed. See /tmp/imbib-ios-build.log"
+    echo "ERROR: imbib-iOS build failed. See $LOG_DIR/imbib-ios-build.log"
     echo ""
     echo "Rule 1 of the iOS/macOS parity protocol (ADR-023):"
     echo "  every commit that touches PublicationManagerCore must also"
@@ -229,7 +236,7 @@ if ! xcodebuild build \
     echo "  files to the 'iOS migration debt' excludes block in"
     echo "  apps/imbib/imbib/project.yml before pushing."
     echo ""
-    tail -30 /tmp/imbib-ios-build.log
+    tail -30 "$LOG_DIR/imbib-ios-build.log"
     popd >/dev/null
     exit 1
 fi
