@@ -54,37 +54,22 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
         logInfo("verb host call: \(name)", category: "surface")
         do {
             let result = try callTool(name: name, argsJson: argsJson)
-            noteReachable(app: Self.app(of: name))
+            // Which app owns a verb is impel-tools' rule, asked, not copied
+            // (review RS-S19).
+            noteReachable(app: toolApp(name: name))
             return result
         } catch {
+            logWarning("verb host call failed: \(name): \(error)", category: "surface")
+            // Structured, so Rust words the refusal and codes it: an app that
+            // is not running is `host-unavailable` ("imbib is not running, so
+            // … — open imbib to use it"), anything else `verb-failed`. Before,
+            // both arrived as a generic storage error (RS-S19).
             if case let ToolError.AppUnavailable(app, _) = error {
                 noteUnavailable(app: app)
+                throw SharedVerbHostError.Unavailable(app: app, verb: name)
             }
-            // The surface runtime turns this into a `SourceError` and a
-            // placeholder `reason`; logging it here is what puts the reason
-            // in `/api/logs?category=surface`. `impress-surface-service` is
-            // a plain library crate with no logging facade of its own, and a
-            // Rust one would not reach this log anyway — `ImpressLogging` is
-            // what `?category=surface` reads.
-            logWarning("verb host call failed: \(name): \(error)", category: "surface")
-            // `SharedStoreError` has no case of its own for "a verb host
-            // refused this" — `.Storage` is the generic failure every other
-            // non-classified store error in this crate already uses
-            // (`impress-store-ffi/src/lib.rs`'s `watched_err`).
-            throw SharedStoreError.Storage(message: "\(name): \(error)")
+            throw SharedVerbHostError.Failed(message: "\(error)")
         }
-    }
-
-    /// The sibling app a verb belongs to, from its namespace prefix — the
-    /// Swift half of `impel-tools`' own `app_of`. A verb no app owns runs
-    /// against the shared store and is never unavailable, hence `nil`.
-    private static func app(of verb: String) -> String? {
-        guard let underscore = verb.firstIndex(of: "_") else { return nil }
-        let namespace = verb[verb.startIndex..<underscore]
-        guard namespace.hasSuffix("-service") else { return nil }
-        if namespace.hasPrefix("imbib-") { return "imbib" }
-        if namespace.hasPrefix("imprint-") { return "imprint" }
-        return nil
     }
 
     private func noteUnavailable(app: String) {

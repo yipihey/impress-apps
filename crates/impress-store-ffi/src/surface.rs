@@ -79,7 +79,7 @@ use impress_surface_service::{
 };
 
 use crate::ui_feed::{self, ExternalPoll, Feed};
-use crate::{SharedStore, SharedStoreError};
+use crate::SharedStore;
 
 /// Schema-ref prefix this object's own feed watches — narrower than
 /// [`crate::ui_feed::EXTERNAL_UI_PREFIX`] (`layout.rs`'s feed also watches
@@ -267,6 +267,22 @@ pub trait SharedSurfaceListener: Send + Sync {
 /// [`Self::dispatch`](SharedSurface::dispatch)'s `event_json` does (module
 /// docs above): the shape is `serde_json::Value`, recursive, and a callback
 /// interface has no way to carry one directly.
+/// Why a [`SharedVerbHost`] did not answer a verb — structured, so Rust
+/// words the refusal and gives it its code (review RS-S19: every host
+/// failure used to arrive as a generic storage error, "Storage error:
+/// imbib-x_y: imbib is not running, …").
+#[cfg_attr(feature = "native", derive(uniffi::Error))]
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum SharedVerbHostError {
+    /// The app that owns the verb is not running (it may have quit since it
+    /// was last reached). Refused as `host-unavailable`.
+    #[error("{app} is not running, so {verb} is unavailable")]
+    Unavailable { app: String, verb: String },
+    /// The verb ran, or was reached, and failed. Refused as `verb-failed`.
+    #[error("{message}")]
+    Failed { message: String },
+}
+
 #[cfg_attr(feature = "native", uniffi::export(callback_interface))]
 pub trait SharedVerbHost: Send + Sync {
     /// Whether the host can answer this verb at all — checked before
@@ -280,7 +296,7 @@ pub trait SharedVerbHost: Send + Sync {
         &self,
         name: String,
         args_json: String,
-    ) -> std::result::Result<String, SharedStoreError>;
+    ) -> std::result::Result<String, SharedVerbHostError>;
 }
 
 /// Adapts whatever [`SharedVerbHost`] is currently installed on a
@@ -326,7 +342,17 @@ impl VerbHost for HostAdapter {
             .map_err(|e| Refusal::internal(format!("encode args for '{name}': {e}")))?;
         let reply_json = host.call_verb(name.to_string(), args_json).map_err(|e| {
             log::warn!(target: "surface", "verb host refused '{name}': {e}");
-            Refusal::new(codes::VERB_FAILED, e.to_string())
+            match e {
+                SharedVerbHostError::Unavailable { app, verb } => Refusal::new(
+                    codes::HOST_UNAVAILABLE,
+                    format!(
+                        "{app} is not running, so {verb} is unavailable — open {app} to use it"
+                    ),
+                ),
+                SharedVerbHostError::Failed { message } => {
+                    Refusal::new(codes::VERB_FAILED, format!("{name}: {message}"))
+                }
+            }
         })?;
         serde_json::from_str(&reply_json).map_err(|e| {
             Refusal::new(
@@ -1303,17 +1329,16 @@ mod tests {
             &self,
             name: String,
             args_json: String,
-        ) -> std::result::Result<String, SharedStoreError> {
+        ) -> std::result::Result<String, SharedVerbHostError> {
             if name != FAKE_VERB {
-                return Err(SharedStoreError::InvalidArgument {
+                return Err(SharedVerbHostError::Failed {
                     message: format!("FakeVerbHost does not know '{name}'"),
                 });
             }
-            let args: serde_json::Value = serde_json::from_str(&args_json).map_err(|e| {
-                SharedStoreError::InvalidArgument {
+            let args: serde_json::Value =
+                serde_json::from_str(&args_json).map_err(|e| SharedVerbHostError::Failed {
                     message: format!("bad args: {e}"),
-                }
-            })?;
+                })?;
             Ok(serde_json::json!({ "echoed": args }).to_string())
         }
     }
@@ -1782,7 +1807,7 @@ mod tests {
             &self,
             _name: String,
             args_json: String,
-        ) -> std::result::Result<String, SharedStoreError> {
+        ) -> std::result::Result<String, SharedVerbHostError> {
             std::thread::sleep(std::time::Duration::from_millis(400));
             Ok(format!("{{\"echoed\": {args_json}}}"))
         }
@@ -2190,5 +2215,34 @@ mod tests {
         let rendered: serde_json::Value =
             serde_json::from_str(&appless.render_now(id, Some(3)).unwrap()).unwrap();
         assert_eq!(rendered["code"], "invalid-argument", "{rendered}");
+    }
+
+    /// RS-S19: a host that says the owning app is not running is refused as
+    /// `host-unavailable`, worded by Rust, in the source's error.
+    #[test]
+    fn an_unavailable_app_is_host_unavailable_not_a_storage_error() {
+        struct ClosedApp;
+        impl SharedVerbHost for ClosedApp {
+            fn has_verb(&self, name: String) -> bool {
+                name == FAKE_VERB
+            }
+            fn call_verb(
+                &self,
+                name: String,
+                _args_json: String,
+            ) -> std::result::Result<String, SharedVerbHostError> {
+                Err(SharedVerbHostError::Unavailable {
+                    app: "imbib".into(),
+                    verb: name,
+                })
+            }
+        }
+        let (store, surface) = open();
+        store.set_verb_host(Box::new(ClosedApp));
+        let id = create_fixture_surface(&store);
+        let rendered: serde_json::Value =
+            serde_json::from_str(&surface.render_now(id, None).unwrap()).unwrap();
+        let why = rendered["source_errors"][0]["message"].as_str().unwrap();
+        assert!(why.starts_with("imbib is not running"), "{rendered}");
     }
 }

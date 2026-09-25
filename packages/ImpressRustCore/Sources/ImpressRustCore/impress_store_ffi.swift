@@ -15088,6 +15088,104 @@ extension SharedSurfaceError: Foundation.LocalizedError {
 }
 
 
+/**
+ * What the host process implements to answer a verb this crate's own
+ * linked inventory (`impress-capabilities-kit`) does not have — imbib's
+ * and imprint's own verbs, which cannot link into this crate a second time
+ * (ADR-0033 D4 forbids a second domain core; `impress-store-ffi`'s
+ * `Cargo.toml` has the cyclic-package details for why they cannot link
+ * through `impress-capabilities` either). In the app this is implemented
+ * over `impel-tools`' `call_tool`, which reaches imbib and imprint through
+ * their own HTTP routers and refuses, by name, when the owning app is not
+ * running.
+ *
+ * `SharedStore::set_verb_host` installs one; [`HostAdapter`] (below) is
+ * what [`SharedSurface::open`] wires it into
+ * [`impress_surface_service::runtime::VerbHost`], the trait the executor
+ * and the service actually consult. `call_verb` takes and returns JSON
+ * STRINGS rather than a UniFFI record, for the same reason
+ * [`Self::dispatch`](SharedSurface::dispatch)'s `event_json` does (module
+ * docs above): the shape is `serde_json::Value`, recursive, and a callback
+ * interface has no way to carry one directly.
+ * Why a [`SharedVerbHost`] did not answer a verb — structured, so Rust
+ * words the refusal and gives it its code (review RS-S19: every host
+ * failure used to arrive as a generic storage error, "Storage error:
+ * imbib-x_y: imbib is not running, …").
+ */
+public enum SharedVerbHostError {
+
+    
+    
+    /**
+     * The app that owns the verb is not running (it may have quit since it
+     * was last reached). Refused as `host-unavailable`.
+     */
+    case Unavailable(app: String, verb: String
+    )
+    /**
+     * The verb ran, or was reached, and failed. Refused as `verb-failed`.
+     */
+    case Failed(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedVerbHostError: FfiConverterRustBuffer {
+    typealias SwiftType = SharedVerbHostError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedVerbHostError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Unavailable(
+            app: try FfiConverterString.read(from: &buf), 
+            verb: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Failed(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SharedVerbHostError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Unavailable(app,verb):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(app, into: &buf)
+            FfiConverterString.write(verb, into: &buf)
+            
+        
+        case let .Failed(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension SharedVerbHostError: Equatable, Hashable {}
+
+extension SharedVerbHostError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
 
 
 /**
@@ -15485,26 +15583,6 @@ extension FfiConverterCallbackInterfaceSharedSurfaceListener : FfiConverter {
 
 
 
-/**
- * What the host process implements to answer a verb this crate's own
- * linked inventory (`impress-capabilities-kit`) does not have — imbib's
- * and imprint's own verbs, which cannot link into this crate a second time
- * (ADR-0033 D4 forbids a second domain core; `impress-store-ffi`'s
- * `Cargo.toml` has the cyclic-package details for why they cannot link
- * through `impress-capabilities` either). In the app this is implemented
- * over `impel-tools`' `call_tool`, which reaches imbib and imprint through
- * their own HTTP routers and refuses, by name, when the owning app is not
- * running.
- *
- * `SharedStore::set_verb_host` installs one; [`HostAdapter`] (below) is
- * what [`SharedSurface::open`] wires it into
- * [`impress_surface_service::runtime::VerbHost`], the trait the executor
- * and the service actually consult. `call_verb` takes and returns JSON
- * STRINGS rather than a UniFFI record, for the same reason
- * [`Self::dispatch`](SharedSurface::dispatch)'s `event_json` does (module
- * docs above): the shape is `serde_json::Value`, recursive, and a callback
- * interface has no way to carry one directly.
- */
 public protocol SharedVerbHost : AnyObject {
     
     /**
@@ -15579,7 +15657,7 @@ fileprivate struct UniffiCallbackInterfaceSharedVerbHost {
                 callStatus: uniffiCallStatus,
                 makeCall: makeCall,
                 writeReturn: writeReturn,
-                lowerError: FfiConverterTypeSharedStoreError.lower
+                lowerError: FfiConverterTypeSharedVerbHostError.lower
             )
         },
         uniffiFree: { (uniffiHandle: UInt64) -> () in
@@ -18178,7 +18256,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_has_verb() != 43567) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 54529) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 5742) {
         return InitializationResult.apiChecksumMismatch
     }
 
