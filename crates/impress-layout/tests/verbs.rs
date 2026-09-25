@@ -898,7 +898,7 @@ fn detach_refuses_a_tile_that_is_already_its_whole_window() {
             target: PaneRef::id(parts.root),
         })
         .unwrap_err();
-    assert_eq!(err, LayoutError::CannotCloseLastPane);
+    assert_eq!(err, LayoutError::AlreadyItsOwnWindow { tile: parts.root });
 
     let mut single = Layout::new_single_pane(scratch_pane());
     let err = single
@@ -906,7 +906,10 @@ fn detach_refuses_a_tile_that_is_already_its_whole_window() {
             target: PaneRef::Focused,
         })
         .unwrap_err();
-    assert_eq!(err, LayoutError::CannotCloseLastPane);
+    assert!(
+        matches!(err, LayoutError::AlreadyItsOwnWindow { .. }),
+        "{err:?}"
+    );
 }
 
 #[test]

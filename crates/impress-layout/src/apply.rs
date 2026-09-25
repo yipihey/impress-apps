@@ -379,7 +379,7 @@ impl Layout {
             // tiles never persists. Unless it is the only one left.
             Some(Slot::Root(index)) => {
                 if self.windows.len() < 2 {
-                    return Err(LayoutError::CannotCloseLastPane);
+                    return Err(LayoutError::CannotMoveWholeWindow { tile });
                 }
                 self.windows.remove(index);
             }
@@ -545,7 +545,7 @@ impl Layout {
         let leaving = self.leaves_of(tile);
         if leaving.len() >= leaves.len() {
             // It is already a window of its own.
-            return Err(LayoutError::CannotCloseLastPane);
+            return Err(LayoutError::AlreadyItsOwnWindow { tile });
         }
         // The pane the source window falls back to, chosen exactly as a close
         // chooses it: the first survivor after the departing subtree, else the
@@ -569,7 +569,7 @@ impl Layout {
                 }
             }
             // Unreachable: the pane count check above covers a window root.
-            Some(Slot::Root(_)) => return Err(LayoutError::CannotCloseLastPane),
+            Some(Slot::Root(_)) => return Err(LayoutError::AlreadyItsOwnWindow { tile }),
             None => return Err(LayoutError::UnknownTile { tile }),
         }
         if let Some(survivor) = survivor {
