@@ -234,24 +234,69 @@ async fn cap_create_get_list_delete() -> CapabilityResult {
 async fn cap_update() -> CapabilityResult {
     check(
         "update",
-        "surface_update replaces the spec and re-derives the row's name from it",
+        "surface_update replaces the spec, bumps the revision, keeps the row's name unless \
+         given one, and refuses a stale expected_revision without writing",
         Tier::A,
         || async {
             let world = World::open();
             let created = world
                 .service
-                .surface_create(fixture_spec(), None, None)
+                .surface_create(fixture_spec(), Some("Chosen name".into()), None)
                 .await;
+            want(
+                created.revision == Some(1),
+                format!("a new surface is revision 1, got {:?}", created.revision),
+            )?;
             let id = created.id.ok_or("create returned no id")?;
             let mut spec2 = fixture_spec();
-            spec2.name = "Renamed".to_string();
-            let updated = world.service.surface_update(id, spec2).await;
+            spec2.name = "Renamed in the spec".to_string();
+            let updated = world
+                .service
+                .surface_update(id.clone(), spec2.clone(), None, Some(1))
+                .await;
             want(updated.ok, format!("update failed: {}", updated.message))?;
             want(
-                updated.name.as_deref() == Some("Renamed"),
-                "the row's name did not follow the updated spec's name",
+                updated.name.as_deref() == Some("Chosen name"),
+                format!(
+                    "the create-time name was replaced by the spec's (RS-S25): {:?}",
+                    updated.name
+                ),
             )?;
-            Ok("update round-trips".to_string())
+            want(
+                updated.revision == Some(2),
+                format!(
+                    "an update bumps the revision to 2, got {:?}",
+                    updated.revision
+                ),
+            )?;
+
+            // A writer that read revision 1 and did not see the update above.
+            let mut stale = fixture_spec();
+            stale.name = "Lost update".to_string();
+            let refused = world
+                .service
+                .surface_update(id.clone(), stale, Some("Lost".into()), Some(1))
+                .await;
+            want(!refused.ok, "a stale expected_revision was accepted")?;
+            want(
+                refused.message.starts_with("conflict:"),
+                format!("the refusal does not say conflict: {}", refused.message),
+            )?;
+            let after = world.service.surface_get(id.clone()).await;
+            want(
+                after.revision == Some(2) && after.spec.as_ref() == Some(&spec2),
+                "a refused update still wrote",
+            )?;
+
+            let renamed = world
+                .service
+                .surface_update(id, spec2, Some("New name".into()), None)
+                .await;
+            want(
+                renamed.ok && renamed.name.as_deref() == Some("New name"),
+                format!("an explicit name was not applied: {}", renamed.message),
+            )?;
+            Ok("update: revision 1 → 2 → 3, name kept, stale write refused".to_string())
         },
     )
     .await

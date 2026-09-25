@@ -21,11 +21,12 @@
 //! rather than shared: it walks the process-wide `McpToolDescriptor`
 //! inventory and runs the matching handler future.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 
 use impress_core::item::{ActorKind, ItemId};
-use impress_core::pane_query::{Bindings, ItemRef, PaneQueryError, Scope};
+use impress_core::pane_query::{Bindings, ItemRef, KindManifest, PaneQueryError, Scope};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout::{PaneSpec, ViewKindId};
@@ -34,12 +35,12 @@ use impress_layout_service::{DefaultLayoutService, LayoutService};
 use impress_service_core::McpToolDescriptor;
 use impress_surface::{
     plan, reduce, resolve_with_source_errors, CachedSource, Effect, Event, PaneQuery, ParamDecl,
-    RenderTree, SourceCache, SourceRequestKind, SurfaceSpec,
+    RenderTree, Source, SourceCache, SourceRequestKind, SurfaceSpec,
 };
 use serde_json::Value;
 
 use crate::dto::{EffectOutcomeDto, ShowTargetDto, SplitTargetDto};
-use crate::store::SurfaceStore;
+use crate::store::{SurfaceRow, SurfaceStore};
 
 /// What went wrong, as a sentence — the shape every store-generic
 /// `#[impress_service]` crate in the suite uses.
@@ -158,6 +159,13 @@ pub trait Executor: Send + Sync {
     /// surface has nothing to find.
     async fn pane_showing(&self, _surface: ItemId) -> Option<PaneHandle> {
         None
+    }
+    /// Whether `pane` still shows `surface` — asked before a remembered
+    /// pane is used for an effect (RS-S25): the pane may have been closed,
+    /// or its tile given another query, since it was recorded. Default
+    /// `true`: a fixture has no layout to disagree with.
+    async fn pane_shows(&self, _pane: &PaneHandle, _surface: ItemId) -> bool {
+        true
     }
 }
 
@@ -419,6 +427,23 @@ impl Executor for DefaultExecutor {
             tile: tile.raw(),
         })
     }
+
+    async fn pane_shows(&self, pane: &PaneHandle, surface: ItemId) -> bool {
+        let result = self
+            .layout
+            .get_layout(pane.app_id.clone(), Some(pane.device.clone()))
+            .await;
+        let Some(layout) = result.layout else {
+            return false;
+        };
+        let wanted = surface_item_query(surface);
+        layout
+            .pane(impress_layout::TileId::new(pane.tile))
+            .is_some_and(|spec| {
+                spec.view_kind == ViewKindId::from(SURFACE_VIEW_KIND.to_string())
+                    && spec.query == wanted
+            })
+    }
 }
 
 /// The app whose layout a surface pane lives in. One chassis shell renders
@@ -563,10 +588,30 @@ pub(crate) fn surface_item_query(id: ItemId) -> PaneQuery {
 // SurfaceRuntime
 // ---------------------------------------------------------------------------
 
+/// How long a source that failed is left alone before a render asks for it
+/// again with the same arguments (RS-S15). A render happens on every
+/// dispatch and every feed notification; without this, a verb whose app is
+/// not running was called again — synchronously, over HTTP — each time, and
+/// up to `sources + 1` times within one render.
+pub const FAILED_SOURCE_BACKOFF: Duration = Duration::from_secs(5);
+
+/// A source fetch that failed, and with which arguments.
+#[derive(Debug, Clone)]
+struct FailedFetch {
+    args_hash: u64,
+    at: Instant,
+}
+
 /// One `(surface, host)` instance, live in memory: its spec, its working
 /// state, the pane parameters bound to it, and the source cache
 /// [`impress_surface::plan`] reads. Also the sole owner of which pane (if
 /// any) `surface_show` last put it in.
+///
+/// A runtime is a CACHE of the store, never a second truth (RS-S1): every
+/// [`SessionRegistry::with`] compares the stored spec and state with what
+/// this runtime last loaded or wrote, and reloads whichever moved — so an
+/// update or state write from another handle, an HTTP request or another
+/// process is what the next render shows, and the next dispatch builds on.
 pub struct SurfaceRuntime {
     pub surface_id: ItemId,
     pub host: String,
@@ -583,28 +628,124 @@ pub struct SurfaceRuntime {
     /// `render` hands it to `resolve_with_source_errors` so the pane says
     /// "source 'libs' failed: imbib is not running" rather than the generic
     /// "did not resolve". Before this the error was dropped on the floor.
-    pub source_errors: std::collections::BTreeMap<String, String>,
+    pub source_errors: BTreeMap<String, String>,
     pub pane: Option<PaneHandle>,
+    /// The spec text this runtime was loaded from (see the struct docs).
+    spec_text: String,
+    /// The state text last read from or written to the store — `None` while
+    /// the instance has no state row (it runs on the spec's initial state).
+    state_text: Option<String>,
+    /// See [`FAILED_SOURCE_BACKOFF`].
+    failed: BTreeMap<String, FailedFetch>,
 }
 
 impl SurfaceRuntime {
-    fn new(surface_id: ItemId, host: String, spec: SurfaceSpec, state: Value) -> Self {
-        Self {
+    fn load(surface_id: ItemId, host: String, row: SurfaceRow, state_text: Option<String>) -> Self {
+        let mut runtime = Self {
             surface_id,
             host,
-            spec,
-            state,
+            state: row.spec.state.clone(),
+            spec: row.spec,
             params: Value::Object(serde_json::Map::new()),
             cache: SourceCache::new(),
-            source_errors: std::collections::BTreeMap::new(),
+            source_errors: BTreeMap::new(),
             pane: None,
+            spec_text: row.spec_text,
+            state_text: None,
+            failed: BTreeMap::new(),
+        };
+        runtime.adopt_state(state_text);
+        runtime
+    }
+
+    /// Bring this runtime up to the store: a new spec replaces the old one
+    /// (and every cached source, which may no longer mean what it did); a
+    /// new state replaces the working state. Unchanged text is left alone,
+    /// so a warm source cache survives every call that changed nothing.
+    fn refresh(&mut self, row: SurfaceRow, state_text: Option<String>) {
+        if row.spec_text != self.spec_text {
+            self.spec = row.spec;
+            self.spec_text = row.spec_text;
+            self.cache.clear();
+            self.source_errors.clear();
+            self.failed.clear();
+            // No state row: the instance runs on the spec's initial state,
+            // which is the NEW spec's now.
+            if state_text.is_none() {
+                self.state = self.spec.state.clone();
+            }
         }
+        if state_text != self.state_text {
+            self.adopt_state(state_text);
+        }
+    }
+
+    fn adopt_state(&mut self, state_text: Option<String>) {
+        self.state = match state_text.as_deref().map(serde_json::from_str::<Value>) {
+            Some(Ok(state)) => state,
+            // An unreadable state row is not a reason to refuse the surface:
+            // it runs on the spec's initial state, and the next dispatch
+            // writes a readable one over it.
+            Some(Err(_)) | None => self.spec.state.clone(),
+        };
+        self.state_text = state_text;
+    }
+
+    /// The schema refs this runtime's `query` sources read — what a store
+    /// invalidation has to name for [`Self::invalidate_sources`] to re-run
+    /// one (RS-S2).
+    pub fn query_refs(&self) -> BTreeSet<String> {
+        let manifest = impress_core::pane_query::builtin_manifest();
+        self.spec
+            .sources
+            .values()
+            .filter_map(|source| match source {
+                Source::Query { query } => Some(refs_read_by(query, &manifest)),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// Drop the cached value of every `query` source that reads one of
+    /// `refs`, so the next render runs it again (ADR-0033 Defaults: sources
+    /// re-run "when a store invalidation names a query"). Returns the names
+    /// dropped. `verb` and `value` sources are untouched: an invalidation
+    /// names record kinds, and what a verb reads is not declared anywhere —
+    /// a verb source re-runs when its arguments change or an action
+    /// refreshes it.
+    pub fn invalidate_sources(&mut self, refs: &BTreeSet<String>) -> Vec<String> {
+        let manifest = impress_core::pane_query::builtin_manifest();
+        let names: Vec<String> = self
+            .spec
+            .sources
+            .iter()
+            .filter_map(|(name, source)| match source {
+                Source::Query { query }
+                    if refs_read_by(query, &manifest)
+                        .iter()
+                        .any(|r| refs.contains(r)) =>
+                {
+                    Some(name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        for name in &names {
+            self.cache.remove(name);
+            self.failed.remove(name);
+        }
+        names
     }
 
     /// Fetch every stale/unfetched source (bounded rounds: a chain of N
     /// dependent sources settles in at most N rounds, and a round that
     /// fetches nothing new stops immediately rather than spinning on a
     /// permanently failing verb) and resolve the tree.
+    ///
+    /// A source that failed with the same arguments within
+    /// [`FAILED_SOURCE_BACKOFF`] is not asked again — in a later round of
+    /// this render or in a later render — and keeps its error (RS-S15).
     pub async fn render(&mut self, executor: &dyn Executor) -> RenderTree {
         let max_rounds = self.spec.sources.len() + 1;
         for _ in 0..max_rounds {
@@ -614,6 +755,11 @@ impl SurfaceRuntime {
             }
             let mut progressed = false;
             for request in requests {
+                if self.failed.get(&request.name).is_some_and(|f| {
+                    f.args_hash == request.args_hash && f.at.elapsed() < FAILED_SOURCE_BACKOFF
+                }) {
+                    continue;
+                }
                 let fetched = match &request.kind {
                     SourceRequestKind::Verb { verb, args } => {
                         executor.call_verb(verb, args.clone()).await
@@ -626,6 +772,7 @@ impl SurfaceRuntime {
                 match fetched {
                     Ok(value) => {
                         self.source_errors.remove(&request.name);
+                        self.failed.remove(&request.name);
                         self.cache.insert(
                             request.name.clone(),
                             CachedSource {
@@ -637,6 +784,13 @@ impl SurfaceRuntime {
                     }
                     Err(why) => {
                         self.source_errors.insert(request.name.clone(), why);
+                        self.failed.insert(
+                            request.name.clone(),
+                            FailedFetch {
+                                args_hash: request.args_hash,
+                                at: Instant::now(),
+                            },
+                        );
                     }
                 }
                 // A failed fetch leaves the previous cache entry (if any) in
@@ -655,7 +809,7 @@ impl SurfaceRuntime {
         // them directly, not only what the fetch loop above cached.
         let mut source_values = serde_json::Map::new();
         for (name, source) in &self.spec.sources {
-            if let impress_surface::Source::Value { value } = source {
+            if let Source::Value { value } = source {
                 source_values.insert(name.clone(), value.clone());
             }
         }
@@ -675,6 +829,11 @@ impl SurfaceRuntime {
     /// re-render. Persistence happens here (not in the caller) so a
     /// dispatch that runs zero effects still leaves the state row in sync
     /// with what `reduce` just decided.
+    ///
+    /// The state is written only when it differs from what is stored
+    /// (RS-S14): once after `reduce`, before any effect runs — so an agent
+    /// woken by an `emit` reads the state that produced it — and again only
+    /// if a `call … into` changed it after that.
     pub async fn dispatch(
         &mut self,
         executor: &dyn Executor,
@@ -685,27 +844,64 @@ impl SurfaceRuntime {
         let (new_state, effects) =
             reduce(&self.spec, &self.state, &self.params, event).map_err(|e| e.to_string())?;
         self.state = new_state;
-        surfaces.set_state(self.surface_id, &self.host, &self.state, actor)?;
+        self.persist_state(surfaces, actor)?;
 
         let mut outcomes = Vec::with_capacity(effects.len());
         for effect in effects {
             outcomes.push(self.run_effect(executor, effect).await);
         }
-        // A `call` with `into` may have written more state; persist again if
-        // anything changed it beyond the reduce step above.
-        surfaces.set_state(self.surface_id, &self.host, &self.state, actor)?;
+        self.persist_state(surfaces, actor)?;
 
         let tree = self.render(executor).await;
         Ok((tree, outcomes))
     }
 
+    /// Write the working state if it differs from the stored one (or, with
+    /// no state row yet, from the spec's initial state). Returns whether it
+    /// wrote.
+    fn persist_state(&mut self, surfaces: &SurfaceStore, actor: ActorKind) -> Result<bool> {
+        let text =
+            serde_json::to_string(&self.state).map_err(|e| format!("encode surface state: {e}"))?;
+        let unchanged = match &self.state_text {
+            Some(stored) => *stored == text,
+            None => serde_json::to_string(&self.spec.state).ok().as_deref() == Some(&text),
+        };
+        if unchanged {
+            return Ok(false);
+        }
+        surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
+        self.state_text = Some(text);
+        Ok(true)
+    }
+
+    /// Set the working state directly (`surface_state_set`), writing it
+    /// through so the runtime and the store agree.
+    pub fn set_state(
+        &mut self,
+        surfaces: &SurfaceStore,
+        state: Value,
+        actor: ActorKind,
+    ) -> Result<()> {
+        let text =
+            serde_json::to_string(&state).map_err(|e| format!("encode surface state: {e}"))?;
+        surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
+        self.state = state;
+        self.state_text = Some(text);
+        Ok(())
+    }
+
     /// The pane this instance is shown in — remembered from `surface_show`
-    /// / `bind_pane`, else recovered from the layout once and cached. See
+    /// / `bind_pane` while the layout still shows it there (RS-S25), else
+    /// recovered from the layout and remembered. See
     /// `Executor::pane_showing` for why the lookup exists.
     async fn pane_or_lookup(&mut self, executor: &dyn Executor) -> Option<PaneHandle> {
-        if self.pane.is_none() {
-            self.pane = executor.pane_showing(self.surface_id).await;
+        if let Some(pane) = self.pane.clone() {
+            if executor.pane_shows(&pane, self.surface_id).await {
+                return Some(pane);
+            }
+            self.pane = None;
         }
+        self.pane = executor.pane_showing(self.surface_id).await;
         self.pane.clone()
     }
 
@@ -797,6 +993,7 @@ impl SurfaceRuntime {
             }
             Effect::Refresh { source } => {
                 self.cache.remove(&source);
+                self.failed.remove(&source);
                 EffectOutcomeDto {
                     kind: "refresh".into(),
                     ok: true,
@@ -863,6 +1060,27 @@ fn as_layout_kind(kind: &str) -> String {
     kind.to_string()
 }
 
+/// The schema refs a pane query reads: those of each kind it names, by the
+/// manifest (a name the manifest does not know is taken to be a ref itself),
+/// or every kind's when it names none — the same "no kinds means all kinds"
+/// the compiler applies.
+fn refs_read_by(query: &PaneQuery, manifest: &KindManifest) -> Vec<String> {
+    if query.kinds.is_empty() {
+        return manifest.kinds.values().flatten().cloned().collect();
+    }
+    query
+        .kinds
+        .iter()
+        .flat_map(|kind| {
+            manifest
+                .kinds
+                .get(kind)
+                .cloned()
+                .unwrap_or_else(|| vec![kind.clone()])
+        })
+        .collect()
+}
+
 fn bindings_from_params(decls: &[ParamDecl], params: &Value) -> Bindings {
     let mut bindings = Bindings::new();
     if let Some(obj) = params.as_object() {
@@ -920,22 +1138,43 @@ fn set_state_path(state: &mut Value, path: &str, value: Value) -> Result<()> {
 // SessionRegistry
 // ---------------------------------------------------------------------------
 
-type SessionMap = HashMap<(ItemId, String), SurfaceRuntime>;
+/// One `(surface, host)` entry: the runtime behind an async lock, plus the
+/// two sets the invalidation feed reads and writes WITHOUT that lock — so a
+/// store write is recorded even while a render holds the runtime for the
+/// length of a slow verb.
+#[derive(Default)]
+struct Slot {
+    runtime: tokio::sync::Mutex<Option<SurfaceRuntime>>,
+    /// The refs the runtime's query sources read (see
+    /// [`SurfaceRuntime::query_refs`]), refreshed on every call.
+    reads: Mutex<BTreeSet<String>>,
+    /// Refs a store invalidation named since the runtime last ran; applied
+    /// with [`SurfaceRuntime::invalidate_sources`] on the next call.
+    dirty: Mutex<BTreeSet<String>>,
+}
 
-/// The process-wide `(surface, host)` runtime table — the same shape
+type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
+
+/// The `(surface, host)` runtime table — the same shape
 /// `impress-layout-service::SessionRegistry` gives the layout tree.
 ///
-/// Unlike that registry, [`with`](Self::with) is async (loading a surface's
-/// spec is a store read, and the caller's closure runs an async executor),
-/// so the entry is TAKEN OUT of the map for the duration of the call rather
-/// than held under the lock across an `.await` (a `MutexGuard` cannot cross
-/// one). Two concurrent calls for the SAME `(surface, host)` therefore do
-/// not interleave into a state neither produced — the second finds the key
-/// missing and reloads from the store instead of racing the first — at the
-/// cost of the second seeing a cold reload rather than the first's
-/// in-progress edit. Acceptable for a Tier A crate with no live-app
-/// concurrency yet; S6/S7 (the FFI and the Swift host) are the point this
-/// gets revisited if it matters there.
+/// # One per store per process (RS-S1, SK-K1, AC-F1)
+///
+/// Every caller that renders or drives a surface on one store in one process
+/// shares one registry: `impress-store-ffi`'s `SharedStore` owns it and
+/// hands it to every `SharedSurface` (each pane, the HTTP bridge), and the
+/// store the process installed as its own (`impress_store_service`) uses
+/// [`SessionRegistry::shared`], which is what `DefaultImpressSurfaceService::new`
+/// reads. Each registry also re-checks the store on every call (see
+/// [`Self::with`]), which is what keeps two PROCESSES — the app and
+/// `impress-mcp` — from serving each other stale specs.
+///
+/// # Concurrency
+///
+/// A call holds its entry's async lock for its whole length, so two calls on
+/// the same `(surface, host)` run one after the other and neither's result
+/// is overwritten by the other's stale copy; calls on different entries run
+/// in parallel.
 #[derive(Default)]
 pub struct SessionRegistry {
     sessions: Mutex<SessionMap>,
@@ -953,9 +1192,11 @@ impl SessionRegistry {
             .clone()
     }
 
-    /// Run `f` against the runtime for `(surface, host)`, loading the spec
-    /// and any persisted state on first touch. See the struct docs for the
-    /// take-out-and-put-back locking shape.
+    /// Run `f` against the runtime for `(surface, host)`, after bringing it
+    /// up to the store: loaded on first touch, and on every later touch the
+    /// stored spec and state are read (two keyed reads) and whichever moved
+    /// since this runtime last loaded or wrote it is reloaded. A surface
+    /// that no longer exists is an error and its entry is dropped.
     pub async fn with<R>(
         &self,
         surfaces: &SurfaceStore,
@@ -968,21 +1209,67 @@ impl SessionRegistry {
         >,
     ) -> Result<R> {
         let key = (surface_id, host.to_string());
-        let mut runtime = match self.lock().remove(&key) {
-            Some(runtime) => runtime,
-            None => {
-                let row = surfaces
-                    .get(surface_id)?
-                    .ok_or_else(|| format!("no surface {surface_id}"))?;
-                let state = surfaces
-                    .get_state(surface_id, host)?
-                    .unwrap_or_else(|| row.spec.state.clone());
-                SurfaceRuntime::new(surface_id, host.to_string(), row.spec, state)
-            }
+        let slot = self.lock().entry(key.clone()).or_default().clone();
+        let mut guard = slot.runtime.lock().await;
+
+        let Some(row) = surfaces.get(surface_id)? else {
+            *guard = None;
+            drop(guard);
+            self.forget(surface_id, host);
+            return Err(format!("no surface {surface_id}"));
         };
-        let result = f(&mut runtime).await;
-        self.lock().insert(key, runtime);
-        result
+        let state_text = surfaces.get_state_text(surface_id, host)?;
+        let runtime = match guard.as_mut() {
+            Some(runtime) => {
+                runtime.refresh(row, state_text);
+                runtime
+            }
+            None => guard.insert(SurfaceRuntime::load(
+                surface_id,
+                host.to_string(),
+                row,
+                state_text,
+            )),
+        };
+        *lock_set(&slot.reads) = runtime.query_refs();
+        let dirty = std::mem::take(&mut *lock_set(&slot.dirty));
+        if !dirty.is_empty() {
+            runtime.invalidate_sources(&dirty);
+        }
+        f(runtime).await
+    }
+
+    /// A store write touched records of these schema refs: mark every
+    /// runtime whose query sources read one of them, so its next call
+    /// re-runs those sources (RS-S2, AC-F16). Returns the surfaces marked —
+    /// the ones a host should re-render. Never waits on a runtime in use.
+    pub fn invalidate_refs(&self, refs: &BTreeSet<String>) -> Vec<ItemId> {
+        if refs.is_empty() {
+            return Vec::new();
+        }
+        let mut marked = Vec::new();
+        for ((surface_id, _host), slot) in self.lock().iter() {
+            let reads = lock_set(&slot.reads);
+            let hit: BTreeSet<String> = reads.intersection(refs).cloned().collect();
+            drop(reads);
+            if hit.is_empty() {
+                continue;
+            }
+            lock_set(&slot.dirty).extend(hit);
+            if !marked.contains(surface_id) {
+                marked.push(*surface_id);
+            }
+        }
+        marked
+    }
+
+    /// Every schema ref some live runtime's query sources read — what a feed
+    /// watching other processes' writes needs to look for.
+    pub fn watched_refs(&self) -> BTreeSet<String> {
+        self.lock()
+            .values()
+            .flat_map(|slot| lock_set(&slot.reads).clone())
+            .collect()
     }
 
     pub fn forget(&self, surface_id: ItemId, host: &str) {
@@ -990,10 +1277,8 @@ impl SessionRegistry {
     }
 
     /// Drop every `(surface_id, *)` runtime, on every host. Called after
-    /// `surface_update`/`surface_delete` so a cached runtime never keeps
-    /// serving a spec the store no longer has — the registry has no other
-    /// index of "every host this surface is currently live on", so this
-    /// scans the (small) live set rather than tracking one.
+    /// `surface_delete`. (An update needs no forget: the next call sees the
+    /// new spec in the store and reloads it.)
     pub fn forget_surface(&self, surface_id: ItemId) {
         self.lock().retain(|(id, _), _| *id != surface_id);
     }
@@ -1011,6 +1296,10 @@ impl SessionRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+fn lock_set(set: &Mutex<BTreeSet<String>>) -> MutexGuard<'_, BTreeSet<String>> {
+    set.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]

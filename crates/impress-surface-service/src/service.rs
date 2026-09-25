@@ -42,6 +42,11 @@ use crate::store::SurfaceStore;
 /// polls the store directly at the same cadence).
 const WAIT_POLL_MS: u64 = 250;
 
+/// The longest `surface_wait` holds a call open (AC-F2). Longer than this
+/// outlives the request timeout of the MCP clients and HTTP callers in use,
+/// which then retry a call that is still running.
+pub const MAX_WAIT_MS: u64 = 55_000;
+
 /// Agent surfaces: create/validate/store a [`SurfaceSpec`], show it in a
 /// pane, render it headlessly, and drive it — `surface_render` is what an
 /// agent calls to inspect its own GUI without a screenshot (ADR-0033 D2).
@@ -72,11 +77,18 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
         tags: Option<Vec<String>>,
     ) -> SurfaceResult;
 
-    /// Replace a surface's spec. The row's `name` is re-derived from the new
-    /// spec's own `name` (there is no separate name argument here — see
-    /// `surface_create` for the one place a name override happens).
+    /// Replace a surface's spec and bump its `revision`. The row's `name` is
+    /// kept unless `name` is given. Pass the `revision` you last read as
+    /// `expected_revision` to refuse (message starting `conflict:`) instead
+    /// of overwriting a change someone else made since.
     #[impress_method]
-    async fn surface_update(&self, id: String, spec: SurfaceSpec) -> SurfaceResult;
+    async fn surface_update(
+        &self,
+        id: String,
+        spec: SurfaceSpec,
+        name: Option<String>,
+        expected_revision: Option<u64>,
+    ) -> SurfaceResult;
 
     /// One surface row, spec included.
     #[impress_method]
@@ -149,10 +161,10 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
         host: Option<String>,
     ) -> SurfaceEventsResult;
 
-    /// Long-poll for the next event past `after_seq`, up to `timeout_ms`.
-    /// Returns as soon as one lands, or on timeout with `timed_out: true`
-    /// and no events — the primitive the five-verb loop calls "wait"
-    /// (ADR-0033 D5/D6).
+    /// Long-poll for the next event past `after_seq`, up to `timeout_ms`
+    /// (at most 55000). Returns as soon as one lands, or on timeout with
+    /// `timed_out: true` and no events — the primitive the five-verb loop
+    /// calls "wait" (ADR-0033 D5/D6).
     #[impress_method]
     async fn surface_wait(
         &self,
@@ -202,6 +214,20 @@ impl DefaultImpressSurfaceService {
         Self {
             store: Some(store),
             sessions: Some(Arc::new(SessionRegistry::new())),
+            verb_host: None,
+        }
+    }
+
+    /// An instance over `store` whose runtimes live in `sessions` — the one
+    /// registry every other caller on that store in this process uses
+    /// (RS-S1). `impress-store-ffi` builds its service this way.
+    pub fn with_store_and_sessions(
+        store: Arc<SqliteItemStore>,
+        sessions: Arc<SessionRegistry>,
+    ) -> Self {
+        Self {
+            store: Some(store),
+            sessions: Some(sessions),
             verb_host: None,
         }
     }
@@ -364,19 +390,27 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         }
     }
 
-    async fn surface_update(&self, id: String, spec: SurfaceSpec) -> SurfaceResult {
+    async fn surface_update(
+        &self,
+        id: String,
+        spec: SurfaceSpec,
+        name: Option<String>,
+        expected_revision: Option<u64>,
+    ) -> SurfaceResult {
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
             Err(e) => return SurfaceResult::failed(e),
         };
-        match self.surfaces().update(surface_id, &spec, ActorKind::Agent) {
-            Ok(row) => {
-                // A re-render after this update must see the NEW spec, not
-                // one cached from before `surface_update` ran, on whichever
-                // host(s) had already touched it.
-                self.registry().forget_surface(surface_id);
-                SurfaceResult::from_row(&row)
-            }
+        // No registry forget: every runtime, in this process or another,
+        // compares the stored spec on its next call and reloads it (RS-S1).
+        match self.surfaces().update(
+            surface_id,
+            &spec,
+            name.as_deref(),
+            expected_revision,
+            ActorKind::Agent,
+        ) {
+            Ok(row) => SurfaceResult::from_row(&row),
             Err(e) => SurfaceResult::failed(e),
         }
     }
@@ -579,25 +613,25 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         };
         let host = resolve_device(host.as_deref());
         let surfaces = self.surfaces();
-        if !matches!(surfaces.get(surface_id), Ok(Some(_))) {
-            return SurfaceStateResult::failed(format!("no surface {id}"));
-        }
-        match surfaces.set_state(surface_id, &host, &state, ActorKind::Agent) {
-            Ok(()) => {
-                let registry = self.registry();
-                let surfaces2 = surfaces.clone();
-                let new_state = state.clone();
-                let _ = registry
-                    .with(&surfaces2, surface_id, &host, move |runtime| {
-                        runtime.state = new_state.clone();
-                        Box::pin(async move { Ok::<(), String>(()) })
-                    })
-                    .await;
-                SurfaceStateResult {
-                    ok: true,
-                    message: "state set".to_string(),
-                    state: Some(state),
-                }
+        let written = state.clone();
+        let writer = surfaces.clone();
+        // Through the registry, so a dispatch already running on this
+        // instance finishes first and this write is not overwritten by its
+        // stale copy of the state.
+        let outcome = self
+            .registry()
+            .with(&surfaces, surface_id, &host, move |runtime| {
+                Box::pin(async move { runtime.set_state(&writer, written, ActorKind::Agent) })
+            })
+            .await;
+        match outcome {
+            Ok(()) => SurfaceStateResult {
+                ok: true,
+                message: "state set".to_string(),
+                state: Some(state),
+            },
+            Err(e) if e.starts_with("no surface") => {
+                SurfaceStateResult::failed(format!("no surface {id}"))
             }
             Err(e) => SurfaceStateResult::failed(e),
         }
@@ -658,12 +692,13 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         }
         match surfaces.events_after(surface_id, &host, after_seq, 0) {
             Ok(rows) => {
-                let next_seq = surfaces.max_seq(surface_id, &host).unwrap_or(after_seq);
+                let (next_seq, gap) = cursor_after(&rows, after_seq);
                 SurfaceEventsResult {
                     ok: true,
-                    message: format!("{} event(s)", rows.len()),
+                    message: events_message(rows.len(), gap),
                     events: rows.iter().map(SurfaceEventDto::from).collect(),
                     next_seq,
+                    gap,
                 }
             }
             Err(e) => SurfaceEventsResult::failed(e),
@@ -687,30 +722,35 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
             return SurfaceWaitResult::failed(format!("no surface {id}"));
         }
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_millis(timeout_ms.min(MAX_WAIT_MS));
         loop {
             match surfaces.events_after(surface_id, &host, after_seq, 0) {
                 Ok(rows) if !rows.is_empty() => {
-                    let next_seq = surfaces.max_seq(surface_id, &host).unwrap_or(after_seq);
+                    let (next_seq, gap) = cursor_after(&rows, after_seq);
                     return SurfaceWaitResult {
                         ok: true,
-                        message: format!("{} event(s)", rows.len()),
+                        message: events_message(rows.len(), gap),
                         events: rows.iter().map(SurfaceEventDto::from).collect(),
                         next_seq,
                         timed_out: false,
+                        gap,
                     };
                 }
                 Ok(_) => {}
                 Err(e) => return SurfaceWaitResult::failed(e),
             }
             if std::time::Instant::now() >= deadline {
-                let next_seq = surfaces.max_seq(surface_id, &host).unwrap_or(after_seq);
+                // Nothing past the cursor: the cursor stands. Never a second
+                // read for it — an event landing between two reads would be
+                // counted and never returned (AC-F2).
                 return SurfaceWaitResult {
                     ok: true,
                     message: "timed out; nothing new".to_string(),
                     events: Vec::new(),
-                    next_seq,
+                    next_seq: after_seq,
                     timed_out: true,
+                    gap: false,
                 };
             }
             tokio::time::sleep(std::time::Duration::from_millis(WAIT_POLL_MS)).await;
@@ -724,6 +764,26 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         SurfaceExamplesResult {
             examples: vec![example_signal_explorer(), example_paper_triage()],
         }
+    }
+}
+
+/// The cursor to hand back after reading `rows` past `after_seq`, and whether
+/// the ring was pruned past the caller's cursor (events between it and the
+/// first row returned are gone). Taken from the rows read — never from a
+/// second read, which could count an event it did not return (AC-F2). `seq`
+/// is gap-free (`SurfaceStore::append_event`), so a jump is pruning.
+pub fn cursor_after(rows: &[crate::store::EventRow], after_seq: u64) -> (u64, bool) {
+    match (rows.first(), rows.last()) {
+        (Some(first), Some(last)) => (last.seq, after_seq > 0 && first.seq > after_seq + 1),
+        _ => (after_seq, false),
+    }
+}
+
+fn events_message(count: usize, gap: bool) -> String {
+    if gap {
+        format!("{count} event(s); older events past your cursor were pruned from the ring")
+    } else {
+        format!("{count} event(s)")
     }
 }
 
@@ -743,7 +803,12 @@ impress_service_impl! {
             name: Option<String>,
             tags: Option<Vec<String>>
         ) -> SurfaceResult,
-        surface_update(id: String, spec: SurfaceSpec) -> SurfaceResult,
+        surface_update(
+            id: String,
+            spec: SurfaceSpec,
+            name: Option<String>,
+            expected_revision: Option<u64>
+        ) -> SurfaceResult,
         surface_get(id: String) -> SurfaceResult,
         surface_list() -> SurfaceListResult,
         surface_delete(id: String) -> SurfaceDeleteResult,
