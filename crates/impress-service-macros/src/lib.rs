@@ -152,6 +152,13 @@ struct ImplMacroInput {
     service: Ident,
     instance: syn::Expr,
     methods: Vec<MethodDecl>,
+    /// `strict_args = true`: an argument object carrying a field the method's
+    /// input schema does not name — or one that does not parse — is answered
+    /// with a refusal envelope (`{"ok": false, "code": "invalid-argument",
+    /// …}`) rather than parsed leniently or failed as a transport error. See
+    /// `impress_service_core::strict`. Opt-in per service, so a service whose
+    /// callers send extra keys is not broken by another's contract.
+    strict_args: bool,
 }
 
 struct MethodDecl {
@@ -185,6 +192,7 @@ impl syn::parse::Parse for ImplMacroInput {
         let mut service: Option<Ident> = None;
         let mut instance: Option<syn::Expr> = None;
         let mut methods: Option<Vec<MethodDecl>> = None;
+        let mut strict_args = false;
 
         while !input.is_empty() {
             // Accept both regular identifiers and keywords-as-identifiers
@@ -204,6 +212,10 @@ impl syn::parse::Parse for ImplMacroInput {
                     let _ty: Type = input.parse()?;
                 }
                 "instance" => instance = Some(input.parse()?),
+                "strict_args" => {
+                    let flag: syn::LitBool = input.parse()?;
+                    strict_args = flag.value;
+                }
                 "methods" => {
                     let content;
                     syn::bracketed!(content in input);
@@ -235,6 +247,7 @@ impl syn::parse::Parse for ImplMacroInput {
                 .ok_or_else(|| syn::Error::new(input.span(), "missing `instance = ...`"))?,
             methods: methods
                 .ok_or_else(|| syn::Error::new(input.span(), "missing `methods = [...]`"))?,
+            strict_args,
         })
     }
 }
@@ -360,7 +373,7 @@ fn expand_impl(input: ImplMacroInput) -> syn::Result<TokenStream2> {
 
     let mut emitted = Vec::new();
     for method in &input.methods {
-        emitted.push(expand_method(service, instance, method)?);
+        emitted.push(expand_method(service, instance, method, input.strict_args)?);
     }
 
     Ok(quote! {
@@ -372,6 +385,7 @@ fn expand_method(
     service: &Ident,
     instance: &syn::Expr,
     method: &MethodDecl,
+    strict_args: bool,
 ) -> syn::Result<TokenStream2> {
     let name = &method.name;
     let kebab_name = kebab(&name.to_string());
@@ -446,6 +460,27 @@ fn expand_method(
         __instance.#name(#( __args.#arg_idents ),*).await
     };
 
+    let parse_args = if strict_args {
+        quote! {
+            let __args: #args_struct = match ::impress_service_core::strict::args(
+                concat!(#service_kebab, "_", #kebab_name),
+                __json,
+                &#schema_fn(),
+            ) {
+                Ok(args) => args,
+                Err(refusal) => {
+                    return Ok(::impress_service_core::strict::refusal_value(&refusal));
+                }
+            };
+        }
+    } else {
+        quote! {
+            let __args: #args_struct =
+                ::impress_service_core::serde_json::from_value(__json)
+                    .map_err(|e| -> ::impress_service_core::BoxError { Box::new(e) })?;
+        }
+    };
+
     Ok(quote! {
         // -- Args struct -----------------------------------------------------
         #[doc(hidden)]
@@ -478,9 +513,7 @@ fn expand_method(
             __json: ::impress_service_core::serde_json::Value,
         ) -> ::impress_service_core::ServiceFuture {
             Box::pin(async move {
-                let __args: #args_struct =
-                    ::impress_service_core::serde_json::from_value(__json)
-                        .map_err(|e| -> ::impress_service_core::BoxError { Box::new(e) })?;
+                #parse_args
                 let __instance = (#instance)();
                 let __out = #call_expr;
                 #serialize_ret
