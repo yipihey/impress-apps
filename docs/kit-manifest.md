@@ -79,11 +79,54 @@ they are listed here so the manifest describes the whole kit:
   `LayoutModel`, `LayoutController`, `LayoutTreeView`, `PaneSessionRegistry`,
   `ViewKindRegistry` (with only the placeholder, surface and console factories built
   in; `console` is ImpressLogging's `ConsoleView`, already a kit-grade dependency),
-  `LayoutSurfacePaneView` and `LayoutConsolePaneView`.
+  `LayoutTreeRuntime` (the process's live windows), `LayoutSurfacePaneView` and
+  `LayoutConsolePaneView`.
 - **ImpressSurface**: the `RenderTree` → SwiftUI renderer, with no logic of its own.
 
 Their allowed dependencies (ImpressKeyboard, ImpressTheme, ImpressLogging and each
 other, nothing else) are pinned by `scripts/check-kit-packages.sh`.
+
+## Building on the kit (Swift)
+
+What a host writes, and what the kit already does for it. `apps/kit-demo` is the
+smallest host: a scratch store, no view kinds of its own, a tree of placeholders plus
+one surface pane.
+
+- **`LayoutTreeHost(appID:services:)`** is the window's content. `LayoutHostServices`
+  hands in the store (`openStore`, awaited off the first render) and two hooks.
+  `didOpen` fires whenever a controller becomes this process's current tree: when it
+  opens, when its window becomes key, and when the window that was current closes.
+  `didClose` fires when a window goes away. While another tree is still open, the
+  current one's `didOpen` follows at once, so a host may keep ONE "current tree"
+  slot (PublicationManagerCore's `LayoutAutomation.shared.host`). Every window gets
+  its own `LayoutController`; `LayoutTreeRuntime.shared.controller` is the key
+  window's, which is what menu commands act on.
+- **View kinds.** `ViewKindRegistry.builtin.register(ViewKindFactory(kind:make:))`
+  once, before the first pane renders. A kind nobody registered renders as the
+  placeholder, which keeps the spec. A factory that owns an editor declares
+  `isSessionBearing: true` and keeps its session in a `PaneSessionRegistry`. The kit
+  releases a session when a verb removes its pane and flushes every registry when the
+  app terminates, and ⌘Z in that pane goes to the editor's own undo manager.
+- **`PaneContext`** is what a factory gets: the tile, the resolved pane, the spec, the
+  controller. A pane that shows query results re-runs them when
+  `context.refreshToken` moves. That token moves only when Rust names this pane (a
+  verb, an invalidation, a reload). `controller.refreshToken` moves when any pane
+  went stale, and watching it reloads every pane for every other pane's change.
+  `context.loadRows()` throws; `context.error` is this pane's own error, never another
+  pane's and never a verb refusal (that is `controller.lastRefusal`). Selection is
+  `context.select(ids)`: a verb, not view state.
+- **Keys.** The window root is the one `.focusable()` in the tree (pitfalls rule 5).
+  A pane never adds its own. It registers
+  `controller.setKeyHandler(for:owner:)` for the root's j / k / ⏎ / ⎋ instead, which
+  is how the surface pane walks its widgets. ⌘Z / ⇧⌘Z reach the tree from the Edit
+  menu through a responder the kit installs per window (ADR-0031 D7); a host mounts
+  no command for it.
+- **`SurfaceHooks`** is how a surface's `text`, `plot` and `list` widgets get suite
+  machinery the kit may not depend on. `.plain` is the kit's default;
+  PublicationManagerCore re-registers `surface` with `LayoutSurfaceHooks.chassis`.
+- **One `SharedSurface` per process** is where review SK-K1 points, and wave 7's
+  surface-coherence package owns it. Today each surface pane opens its own handle on
+  the controller's store.
 
 ## What leaving would mean, mechanically
 

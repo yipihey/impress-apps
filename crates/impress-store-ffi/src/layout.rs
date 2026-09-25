@@ -71,6 +71,28 @@
 //! debounce and startup-grace logic as an in-process mutation — this is an
 //! additional source feeding `pending`, not a second delivery path.
 //!
+//! # Whose change is it?
+//!
+//! Every chassis app opens the same SQLite file, and every verb writes its
+//! app's live row — a focus keystroke included. So "a layout row changed
+//! elsewhere" is not "my tree changed": the feed reacts to a layout row only
+//! when it is THIS scope's live row (`is_live`, this `app_id`, this device)
+//! at a revision this object has not already told its host about. A named
+//! layout or a preset of this app changes the saved-layouts list, not the
+//! tree, and is reported as [`SharedLayoutListener::layouts_changed`]; any
+//! other app's row is none of this window's business (review RL-L2: an h in
+//! impress used to make every other running app drop its undo rings and
+//! reload its whole tree). The service reloads a session whose row moved on
+//! its own (`SessionRegistry::with` checks the revision on every touch), so
+//! the feed no longer forgets sessions at all.
+//!
+//! "Already told" is one number per object: the live row's revision (its
+//! `logical_clock`) the host last received with a tree. A verb records the
+//! revision it produced under the same lock the feed checks under, so the
+//! feed can never mistake this object's own verb for someone else's, nor a
+//! write that lands during a verb for this object's own (review RL-L9); and a
+//! verb that changed nothing moves no revision and bumps no version.
+//!
 //! The `impress/ui/` prefix is deliberate, not a placeholder: it is the
 //! agent-facing surface (layout, and — from work package S4,
 //! `impress-surface-service` — capability surfaces under
@@ -86,16 +108,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use impress_core::collection_ops::{
-    self, CollectionSchemaBinding, FIGURE_COLLECTION, GENERIC_COLLECTION, IMBIB_COLLECTION,
-    MANUSCRIPT_COLLECTION,
-};
-use impress_core::item::ItemId;
+use impress_core::item::ActorKind;
+use impress_core::item::{ItemId, Value};
 use impress_core::pane_query::invalidation::QuerySubscriptions;
 use impress_core::pane_query::{
-    builtin_manifest, compile, compile_with, Bindings, PaneQuery, ParamDecl, SubtreeResolver,
+    builtin_manifest, compile, compile_with, Bindings, PaneQuery, ParamDecl,
 };
-use impress_core::query::ItemQuery;
 use impress_core::schemas;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
@@ -103,8 +121,10 @@ use impress_layout::{
     ChannelId, Container, Direction, Layout, LinearDir, PaneRef, PaneSpec, Placement, Role, Tile,
     TileId, Verb, HIDDEN_SHARE,
 };
+use impress_layout_service::device::resolve_device;
 use impress_layout_service::{
-    DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult, PaneRefDto,
+    CollectionSubtrees, DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult,
+    PaneRefDto,
 };
 
 use crate::{item_to_row, SharedItemRow, SharedStore};
@@ -288,8 +308,12 @@ pub trait SharedLayoutListener: Send + Sync {
     /// the debounce window: a 500-row triage sweep wakes each pane once.
     fn panes_invalidated(&self, panes: Vec<u64>);
     /// The tree itself changed — re-read [`SharedLayout::snapshot`]. The
-    /// number is the same counter the snapshot carries.
+    /// number is the same counter the snapshot carries. Only for THIS
+    /// scope's live row: another app's keystroke is not this window's change.
     fn layout_changed(&self, version: u64);
+    /// A saved layout or preset of this app was written or deleted elsewhere
+    /// — re-read [`SharedLayout::list_layouts`]. The tree did not change.
+    fn layouts_changed(&self);
 }
 
 use crate::ui_feed::{self, ExternalPoll, Feed};
@@ -308,7 +332,14 @@ pub struct SharedLayout {
     service: DefaultLayoutService,
     app_id: String,
     device: Option<String>,
+    /// `device` resolved the way the service resolves it — the key of this
+    /// scope's session and the `device` its live row carries.
+    device_tag: String,
     version: Arc<AtomicU64>,
+    /// The live row revision the host last received a tree at — see the
+    /// module docs ("Whose change is it?"). Held across a whole verb, and by
+    /// the feed while it compares.
+    told: Arc<Mutex<Option<u64>>>,
     debounce_ms: AtomicU64,
     startup_grace_secs: AtomicU64,
     external_poll_ms: AtomicU64,
@@ -331,9 +362,11 @@ impl SharedLayout {
                 store.layout_sessions(),
             ),
             store: core,
+            device_tag: resolve_device(device.as_deref()),
             app_id,
             device,
             version: Arc::new(AtomicU64::new(0)),
+            told: Arc::new(Mutex::new(None)),
             debounce_ms: AtomicU64::new(DEFAULT_DEBOUNCE_MS),
             startup_grace_secs: AtomicU64::new(0),
             external_poll_ms: AtomicU64::new(EXTERNAL_POLL_MS),
@@ -378,41 +411,35 @@ impl SharedLayout {
 
     /// The whole tree.
     pub fn snapshot(&self) -> Result<SharedLayoutSnapshot> {
+        let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
         let layout = self.read_layout()?;
+        *told = self.session_revision().or(*told);
         Ok(self.snapshot_of(&layout))
     }
 
     /// One pane's spec, its compiled query and its resolved bindings.
     pub fn pane(&self, id: u64) -> Result<SharedPane> {
-        let result = runtime().block_on(self.service.get_pane(
-            self.app_id.clone(),
-            self.device.clone(),
-            PaneRefDto::tile(TileId::new(id)),
-        ));
-        if !result.ok {
-            return Err(SharedLayoutError::layout(result.message));
-        }
-        let spec = result
-            .spec
-            .ok_or_else(|| SharedLayoutError::layout(format!("tile {id} is not a pane")))?;
-        let query = result
-            .query
-            .ok_or_else(|| SharedLayoutError::layout(format!("pane {id} has no query")))?;
-        if let Some(error) = query.error {
-            return Err(SharedLayoutError::Query { message: error });
-        }
+        let pane = self.compiled_pane(id)?;
+        let compiled = pane.compiled.map_err(|e| SharedLayoutError::Query {
+            message: e.to_string(),
+        })?;
+        let bindings: BTreeMap<String, String> = pane
+            .bindings
+            .values
+            .iter()
+            .map(|(name, id)| (name.clone(), id.to_string()))
+            .collect();
         Ok(SharedPane {
-            tile: result.tile.unwrap_or(id),
-            spec_json: serde_json::to_string(&spec).map_err(SharedLayoutError::json)?,
-            compiled_query_json: serde_json::to_string(&query.item_query)
+            tile: pane.tile.raw(),
+            spec_json: serde_json::to_string(&pane.spec).map_err(SharedLayoutError::json)?,
+            compiled_query_json: serde_json::to_string(&compiled.item_query)
                 .map_err(SharedLayoutError::json)?,
-            bindings_json: serde_json::to_string(&result.bindings)
-                .map_err(SharedLayoutError::json)?,
-            single_item: query.single_item,
-            schema_refs: query.schema_refs,
-            channel: result.channel,
-            view_kind: spec.view_kind.to_string(),
-            role: spec.role.map(|r| r.to_string()),
+            bindings_json: serde_json::to_string(&bindings).map_err(SharedLayoutError::json)?,
+            single_item: compiled.single_item.map(|id| id.to_string()),
+            schema_refs: compiled.schema_refs,
+            channel: pane.channel,
+            view_kind: pane.spec.view_kind.to_string(),
+            role: pane.spec.role.map(|r| r.to_string()),
         })
     }
 
@@ -420,11 +447,17 @@ impl SharedLayout {
     ///
     /// `limit` of 0 keeps whatever limit the pane's own query carries. Rows
     /// come back as the ordinary [`SharedItemRow`], so Swift reuses the
-    /// payload decoders it already has.
+    /// payload decoders it already has. The compiled query is used as it
+    /// comes back — it used to be serialized to JSON and parsed straight
+    /// back on every display pass (review RL-L14).
     pub fn run_pane(&self, id: u64, offset: u32, limit: u32) -> Result<Vec<SharedItemRow>> {
-        let pane = self.pane(id)?;
-        let mut query: ItemQuery =
-            serde_json::from_str(&pane.compiled_query_json).map_err(SharedLayoutError::json)?;
+        let mut query = self
+            .compiled_pane(id)?
+            .compiled
+            .map_err(|e| SharedLayoutError::Query {
+                message: e.to_string(),
+            })?
+            .item_query;
         if limit > 0 {
             query.limit = Some(limit as usize);
         }
@@ -480,8 +513,8 @@ impl SharedLayout {
             // That is the service's decision, not one taken again here — this
             // arm only recognizes the shape and forwards it.
             Err(e) => match bare_split(&verb_json) {
-                Some(bare) => {
-                    let result = runtime().block_on(self.service.split(
+                Some(bare) => self.verb(|| {
+                    runtime().block_on(self.service.split(
                         self.app_id.clone(),
                         self.device.clone(),
                         ref_dto(&bare.target),
@@ -489,9 +522,8 @@ impl SharedLayout {
                         bare.after,
                         None,
                         Some(actor),
-                    ));
-                    self.finish(result)
-                }
+                    ))
+                }),
                 None => Err(SharedLayoutError::json(e)),
             },
         }
@@ -500,13 +532,14 @@ impl SharedLayout {
     /// Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. The
     /// h / l grammar.
     pub fn focus_direction(&self, dir: String, actor: String) -> Result<SharedAppliedVerb> {
-        let result = runtime().block_on(self.service.focus_direction(
-            self.app_id.clone(),
-            self.device.clone(),
-            dir,
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.focus_direction(
+                self.app_id.clone(),
+                self.device.clone(),
+                dir,
+                Some(actor),
+            ))
+        })
     }
 
     /// Publish a selection of `kind` on a pane's channel — what clicking a row
@@ -519,15 +552,16 @@ impl SharedLayout {
         ids: Vec<String>,
         actor: String,
     ) -> Result<SharedAppliedVerb> {
-        let result = runtime().block_on(self.service.select(
-            self.app_id.clone(),
-            self.device.clone(),
-            PaneRefDto::tile(TileId::new(pane)),
-            kind,
-            ids,
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.select(
+                self.app_id.clone(),
+                self.device.clone(),
+                PaneRefDto::tile(TileId::new(pane)),
+                kind,
+                ids,
+                Some(actor),
+            ))
+        })
     }
 
     /// Give one pane a relative share of its parent split, leaving its
@@ -568,14 +602,15 @@ impl SharedLayout {
             .map(|i| existing.get(i).copied().unwrap_or(1.0))
             .collect();
         shares[index] = share.max(HIDDEN_SHARE);
-        let result = runtime().block_on(self.service.resize(
-            self.app_id.clone(),
-            self.device.clone(),
-            parent.raw(),
-            shares,
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.resize(
+                self.app_id.clone(),
+                self.device.clone(),
+                parent.raw(),
+                shares,
+                Some(actor),
+            ))
+        })
     }
 
     /// Undo on one ring: `arrangement` (the window's shape) or `exploration`
@@ -587,14 +622,15 @@ impl SharedLayout {
         pane: Option<u64>,
         actor: String,
     ) -> Result<SharedAppliedVerb> {
-        let result = runtime().block_on(self.service.undo(
-            self.app_id.clone(),
-            self.device.clone(),
-            stack,
-            pane_ref(pane),
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.undo(
+                self.app_id.clone(),
+                self.device.clone(),
+                stack,
+                pane_ref(pane),
+                Some(actor),
+            ))
+        })
     }
 
     /// Redo on one ring. Same stacks as [`Self::undo`].
@@ -604,14 +640,15 @@ impl SharedLayout {
         pane: Option<u64>,
         actor: String,
     ) -> Result<SharedAppliedVerb> {
-        let result = runtime().block_on(self.service.redo(
-            self.app_id.clone(),
-            self.device.clone(),
-            stack,
-            pane_ref(pane),
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.redo(
+                self.app_id.clone(),
+                self.device.clone(),
+                stack,
+                pane_ref(pane),
+                Some(actor),
+            ))
+        })
     }
 
     /// Save the current arrangement under a name, durably. Re-saving a name
@@ -622,14 +659,15 @@ impl SharedLayout {
         purpose: Option<String>,
         actor: String,
     ) -> Result<SharedAppliedVerb> {
-        let result = runtime().block_on(self.service.save_layout(
-            self.app_id.clone(),
-            self.device.clone(),
-            name,
-            purpose,
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.save_layout(
+                self.app_id.clone(),
+                self.device.clone(),
+                name,
+                purpose,
+                Some(actor),
+            ))
+        })
     }
 
     /// Recall a saved layout by name, by id, or by ⌃⌘1–9 ordinal — a string
@@ -649,14 +687,15 @@ impl SharedLayout {
         } else {
             Some(name_or_ordinal)
         };
-        let result = runtime().block_on(self.service.apply_layout(
-            self.app_id.clone(),
-            self.device.clone(),
-            name,
-            ordinal,
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.apply_layout(
+                self.app_id.clone(),
+                self.device.clone(),
+                name,
+                ordinal,
+                Some(actor),
+            ))
+        })
     }
 
     /// Remove a saved layout by name or id. Refuses the live arrangement and
@@ -664,12 +703,13 @@ impl SharedLayout {
     /// comes back as an error carrying the service's message, same as every
     /// other refusal on this object.
     pub fn delete_layout(&self, name_or_id: String, actor: String) -> Result<SharedAppliedVerb> {
-        let result = runtime().block_on(self.service.delete_layout(
-            self.app_id.clone(),
-            name_or_id,
-            Some(actor),
-        ));
-        self.finish(result)
+        self.verb(|| {
+            runtime().block_on(self.service.delete_layout(
+                self.app_id.clone(),
+                name_or_id,
+                Some(actor),
+            ))
+        })
     }
 
     // ------------------------------------------------------------ the feed
@@ -689,10 +729,12 @@ impl SharedLayout {
             running: running.clone(),
             listener: Arc::from(listener),
             version: self.version.clone(),
+            told: self.told.clone(),
             service: self.service.clone(),
             store: self.store.clone(),
             app_id: self.app_id.clone(),
             device: self.device.clone(),
+            device_tag: self.device_tag.clone(),
             debounce: Duration::from_millis(self.debounce_ms.load(Ordering::SeqCst)),
             grace: Duration::from_secs(self.startup_grace_secs.load(Ordering::SeqCst)),
             external_poll: Duration::from_millis(self.external_poll_ms.load(Ordering::SeqCst)),
@@ -743,13 +785,29 @@ impl SharedLayout {
         snapshot_of(layout, self.version.load(Ordering::SeqCst))
     }
 
-    /// Turn a service result into the FFI one, bumping the version.
-    fn finish(&self, result: LayoutVerbResult) -> Result<SharedAppliedVerb> {
+    /// Run one verb and turn its result into the FFI one.
+    ///
+    /// The version moves only when the live row's revision did — a verb
+    /// that changed nothing (focus on the focused pane, ⌘Z on an empty
+    /// ring, a save) bumps nothing (review RL-L9). The revision it produced
+    /// is recorded under the same lock the feed compares under, so the feed
+    /// never reports this verb back as someone else's change.
+    fn verb(&self, call: impl FnOnce() -> LayoutVerbResult) -> Result<SharedAppliedVerb> {
+        let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
+        let result = call();
         if !result.ok {
             return Err(SharedLayoutError::layout(result.message));
         }
-        let version = self.version.fetch_add(1, Ordering::SeqCst) + 1;
+        let revision = self.session_revision();
+        let moved = revision.is_some() && revision != *told;
+        *told = revision.or(*told);
+        let version = if moved {
+            self.version.fetch_add(1, Ordering::SeqCst) + 1
+        } else {
+            self.version.load(Ordering::SeqCst)
+        };
         let layout = self.read_layout()?;
+        drop(told);
         let changed_tiles = result
             .patch
             .as_ref()
@@ -764,6 +822,26 @@ impl SharedLayout {
         })
     }
 
+    /// The revision this scope's session holds in the shared registry.
+    fn session_revision(&self) -> Option<u64> {
+        self.service
+            .sessions()
+            .revision_of(&self.app_id, &self.device_tag)
+    }
+
+    fn compiled_pane(&self, id: u64) -> Result<impress_layout_service::CompiledPane> {
+        self.service
+            .compiled_pane(
+                &self.app_id,
+                self.device.clone(),
+                &PaneRef::Id {
+                    tile: TileId::new(id),
+                },
+                ActorKind::Human,
+            )
+            .map_err(SharedLayoutError::layout)
+    }
+
     /// Every [`Verb`] variant, routed to the `layout-service` method that owns
     /// it. A translation table rather than a second applier: nothing here
     /// decides anything about the tree.
@@ -774,7 +852,7 @@ impl SharedLayout {
         let service = &self.service;
         let rt = runtime();
 
-        let result = match verb {
+        self.verb(move || match verb {
             Verb::Split {
                 target,
                 dir,
@@ -887,8 +965,7 @@ impl SharedLayout {
                     actor,
                 ))
             }
-        };
-        self.finish(result)
+        })
     }
 }
 
@@ -897,7 +974,9 @@ fn read_layout(
     app_id: &str,
     device: Option<String>,
 ) -> Result<Layout> {
-    let result = runtime().block_on(service.get_layout(app_id.to_string(), device));
+    // As the human: a read that finds no live row cold-starts one, and that
+    // row is the user's workspace (review RL-L15).
+    let result = service.get_layout_as(app_id, device, ActorKind::Human);
     if !result.ok {
         return Err(SharedLayoutError::layout(result.message));
     }
@@ -1051,10 +1130,12 @@ struct InvalidationFeed {
     running: Arc<AtomicBool>,
     listener: Arc<dyn SharedLayoutListener>,
     version: Arc<AtomicU64>,
+    told: Arc<Mutex<Option<u64>>>,
     service: DefaultLayoutService,
     store: Arc<SqliteItemStore>,
     app_id: String,
     device: Option<String>,
+    device_tag: String,
     debounce: Duration,
     grace: Duration,
     external_poll: Duration,
@@ -1081,17 +1162,20 @@ impl InvalidationFeed {
         // time is not replayed — only writes made from here on are external
         // mutations to this feed. `crate::ui_feed::ExternalPoll` is the same
         // mechanism `surface.rs`'s feed uses, narrowed to its own prefix.
-        let mut external = ExternalPoll::baseline(&self.store);
+        let mut external = ExternalPoll::baseline(&self.store)
+            .track_deletes(&self.store, schemas::ui::LAYOUT_SCHEMA_REF);
         let mut last_external_poll = Instant::now();
         // In-process, cross-object liveness: the session registry is shared
-        // with the surface executor (see `SharedStore::layout_sessions`), and
-        // its generation moves on every mutation made through it. One this
-        // handle made comes with a `self.version` bump from `finish`; one it
-        // did NOT make — a surface's `open` or `publish` effect — moves the
-        // generation alone, and that is the tree changing under the window.
+        // with the surface executor and the inventory (see
+        // `SharedStore::layout_sessions`). A write this object did NOT make —
+        // a surface's `open` or `publish` effect — moves the session's
+        // revision past the one this object last told its host about.
         let sessions = self.service.sessions();
-        let mut seen_generation = sessions.generation();
-        let mut seen_version = self.version.load(Ordering::SeqCst);
+        // Baselined on what the host was TOLD, not on the session now: a verb
+        // another object made between `subscribe` and this thread starting
+        // is still news.
+        let mut session_seen = *self.told.lock().unwrap_or_else(|e| e.into_inner());
+        let mut layouts_held = false;
 
         while self.running.load(Ordering::SeqCst) {
             match rx.recv_timeout(POLL) {
@@ -1108,38 +1192,38 @@ impl InvalidationFeed {
 
             if last_external_poll.elapsed() >= self.external_poll {
                 last_external_poll = Instant::now();
-                let mutations = external.check(&self.store, ui_feed::EXTERNAL_UI_PREFIX);
-                if !mutations.is_empty() {
-                    // A row under `impress/ui/` that ANOTHER process wrote can
-                    // be the TREE itself, not just a pane's data — that is the
-                    // whole D6 case: an agent calls `surface_show` (or any
-                    // layout verb) from impress-mcp and the window must grow
-                    // the pane. Only `self.version` drives `layout_changed`
-                    // below, and nothing external bumps it: the verb ran in
-                    // the other process, against its own `SharedLayout`. So
-                    // the panes were invalidated and the tree was never
-                    // re-read — the new pane sat in the store, correct and
-                    // invisible, until something in THIS process happened to
-                    // apply a verb.
-                    //
-                    // Bumping the version here is what a locally applied verb
-                    // does in `finish`, and it is the same claim: "the tree
-                    // you are holding is stale." The host reloads, sees the
-                    // pane, and the number stays monotonic for the snapshot.
-                    if mutations
-                        .iter()
-                        .any(|m| m.schema_ref.as_deref() == Some(schemas::ui::LAYOUT_SCHEMA_REF))
-                    {
-                        // Two things are stale, not one. The service caches a
-                        // `LayoutSession` per (app, device) and only reads the
-                        // row when it has none, so a reload triggered here
-                        // would be answered from the session this process
-                        // built — the window would redraw exactly what it
-                        // already had. Drop the session first, THEN bump.
-                        self.service
-                            .forget_session(&self.app_id, self.device.as_deref());
-                        self.version.fetch_add(1, Ordering::SeqCst);
+                let batch = external.check_rows(&self.store, ui_feed::EXTERNAL_UI_PREFIX);
+                if !batch.deleted.is_empty() {
+                    // A saved layout deleted elsewhere (`impress-cli
+                    // delete-layout`). The row is gone, so whose it was is
+                    // unknowable; the list is cheap to re-read.
+                    layouts_held = true;
+                }
+                let mut mutations = Vec::with_capacity(batch.rows.len());
+                for item in batch.rows {
+                    match self.whose(&item) {
+                        RowOwner::ThisTree => {
+                            // This scope's live row, written by another
+                            // connection. News only at a revision the host
+                            // has not already been given — the overlap
+                            // window re-reads rows, and a write this object
+                            // made itself is not an external change.
+                            let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
+                            if *told != Some(item.logical_clock) {
+                                *told = Some(item.logical_clock);
+                                self.version.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }
+                        RowOwner::ThisAppsLayouts => layouts_held = true,
+                        RowOwner::Elsewhere => {}
                     }
+                    mutations.push(impress_core::event::StoreMutation::new(
+                        item.id,
+                        Some(item.schema),
+                        impress_core::event::MutationKind::Updated,
+                    ));
+                }
+                if !mutations.is_empty() {
                     if burst_started.is_none() {
                         burst_started = Some(Instant::now());
                     }
@@ -1148,17 +1232,27 @@ impl InvalidationFeed {
                 }
             }
 
-            let generation = sessions.generation();
-            if generation != seen_generation {
-                seen_generation = generation;
-                let version_now = self.version.load(Ordering::SeqCst);
-                if version_now == seen_version {
-                    // Nobody bumped the version, so this was not one of our
-                    // verbs: the session is already current (same registry),
-                    // only the host does not know yet.
-                    self.version.fetch_add(1, Ordering::SeqCst);
+            {
+                // News only when the session's revision itself MOVED since the
+                // last look, and to one the host has not been given. A session
+                // still at its old revision after the external branch above
+                // recorded the row's new one is not a change — it is the
+                // reload that has not happened yet — and reporting it cost
+                // every external write two extra reloads.
+                let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
+                let now = sessions.revision_of(&self.app_id, &self.device_tag);
+                if now != session_seen {
+                    session_seen = now;
+                    match (*told, now) {
+                        // First sight: whatever the host read, it read this.
+                        (None, Some(now)) => *told = Some(now),
+                        (Some(previous), Some(now)) if previous != now => {
+                            *told = Some(now);
+                            self.version.fetch_add(1, Ordering::SeqCst);
+                        }
+                        _ => {}
+                    }
                 }
-                seen_version = self.version.load(Ordering::SeqCst);
             }
 
             // The tree changed under us: tell the host, and remember that the
@@ -1199,6 +1293,46 @@ impl InvalidationFeed {
             if grace_over && !held.is_empty() {
                 self.listener.panes_invalidated(std::mem::take(&mut held));
             }
+            if grace_over && layouts_held {
+                layouts_held = false;
+                self.listener.layouts_changed();
+            }
+        }
+    }
+
+    /// Whether an `impress/ui/` row another connection wrote is this
+    /// window's tree, this app's saved layouts, or somebody else's business
+    /// (module docs, "Whose change is it?").
+    fn whose(&self, item: &impress_core::item::Item) -> RowOwner {
+        let text = |field: &str| match item.payload.get(field) {
+            Some(Value::String(s)) => Some(s.trim().to_string()),
+            _ => None,
+        };
+        let app = text("app_id");
+        let this_app = app
+            .as_deref()
+            .map(|a| a == self.app_id.trim())
+            .unwrap_or(true);
+        if item.schema == schemas::ui::LAYOUT_SCHEMA_REF {
+            let live = matches!(item.payload.get("is_live"), Some(Value::Bool(true)));
+            if live {
+                if this_app
+                    && app.is_some()
+                    && text("device").as_deref() == Some(self.device_tag.as_str())
+                {
+                    RowOwner::ThisTree
+                } else {
+                    RowOwner::Elsewhere
+                }
+            } else if this_app {
+                RowOwner::ThisAppsLayouts
+            } else {
+                RowOwner::Elsewhere
+            }
+        } else if item.schema == schemas::ui::PRESET_SCHEMA_REF && this_app {
+            RowOwner::ThisAppsLayouts
+        } else {
+            RowOwner::Elsewhere
         }
     }
 
@@ -1230,64 +1364,14 @@ impl InvalidationFeed {
     }
 }
 
-/// Expands a collection id into that collection and every collection beneath
-/// it, for `Scope::CollectionSubtree`.
-///
-/// A copy of the resolver `impress-layout-service` builds inside `get_pane`,
-/// because that one is private to the service and the feed has to compile the
-/// same queries the service does — a pane scoped to a folder must be woken
-/// when a paper is filed into a *descendant* of it. If the service ever
-/// publishes its resolver, delete this.
-struct CollectionSubtrees {
-    children: BTreeMap<ItemId, Vec<ItemId>>,
-}
-
-impl CollectionSubtrees {
-    fn read(store: &SqliteItemStore) -> Self {
-        const BINDINGS: [CollectionSchemaBinding; 4] = [
-            GENERIC_COLLECTION,
-            IMBIB_COLLECTION,
-            MANUSCRIPT_COLLECTION,
-            FIGURE_COLLECTION,
-        ];
-        let mut children: BTreeMap<ItemId, Vec<ItemId>> = BTreeMap::new();
-        for binding in BINDINGS {
-            let Ok(rows) = collection_ops::list_tree(store, &binding) else {
-                continue;
-            };
-            for row in rows {
-                let (Ok(id), Some(Ok(parent))) = (
-                    row.id.parse::<ItemId>(),
-                    row.parent_id.as_deref().map(str::parse::<ItemId>),
-                ) else {
-                    continue;
-                };
-                children.entry(parent).or_default().push(id);
-            }
-        }
-        Self { children }
-    }
-}
-
-impl SubtreeResolver for CollectionSubtrees {
-    fn subtree(&self, root: ItemId) -> Vec<ItemId> {
-        let mut out = vec![root];
-        let mut frontier = vec![root];
-        // Depth-bounded by construction: a collection tree is finite and the
-        // visited set is `out`, so a cycle in hand-edited data terminates.
-        while let Some(next) = frontier.pop() {
-            let Some(kids) = self.children.get(&next) else {
-                continue;
-            };
-            for kid in kids {
-                if !out.contains(kid) {
-                    out.push(*kid);
-                    frontier.push(*kid);
-                }
-            }
-        }
-        out
-    }
+/// What an externally written `impress/ui/` row is to this feed.
+enum RowOwner {
+    /// This scope's live row: the tree.
+    ThisTree,
+    /// A saved layout or preset of this app: the list, not the tree.
+    ThisAppsLayouts,
+    /// Another app's or device's row, or not a layout at all.
+    Elsewhere,
 }
 
 // ─── Free functions: the query algebra without a pane ────────────────────
@@ -1823,6 +1907,7 @@ mod tests {
     struct Recorder {
         panes: mpsc::Sender<Vec<u64>>,
         versions: mpsc::Sender<u64>,
+        layouts: mpsc::Sender<()>,
     }
 
     impl SharedLayoutListener for Recorder {
@@ -1832,15 +1917,18 @@ mod tests {
         fn layout_changed(&self, version: u64) {
             let _ = self.versions.send(version);
         }
+        fn layouts_changed(&self) {
+            let _ = self.layouts.send(());
+        }
     }
 
     fn recorder() -> (Box<dyn SharedLayoutListener>, mpsc::Receiver<Vec<u64>>) {
-        let (panes, rx) = mpsc::channel();
-        let (versions, _drop) = mpsc::channel();
-        // The version feed is not under test here; keep the receiver alive so
-        // the sender never errors, and let it be dropped with the test.
-        std::mem::forget(_drop);
-        (Box::new(Recorder { panes, versions }), rx)
+        let (listener, panes, versions, layouts) = recorder_with_all();
+        // The version and list feeds are not under test here; keep the
+        // receivers alive so the senders never error.
+        std::mem::forget(versions);
+        std::mem::forget(layouts);
+        (listener, panes)
     }
 
     /// Both channels, for the tests that care which one fired.
@@ -1849,13 +1937,188 @@ mod tests {
         mpsc::Receiver<Vec<u64>>,
         mpsc::Receiver<u64>,
     ) {
+        let (listener, panes, versions, layouts) = recorder_with_all();
+        std::mem::forget(layouts);
+        (listener, panes, versions)
+    }
+
+    /// A listener and the receiving end of each of its three calls.
+    type Recorded = (
+        Box<dyn SharedLayoutListener>,
+        mpsc::Receiver<Vec<u64>>,
+        mpsc::Receiver<u64>,
+        mpsc::Receiver<()>,
+    );
+
+    /// Every channel, the saved-layouts signal included.
+    fn recorder_with_all() -> Recorded {
         let (panes, panes_rx) = mpsc::channel();
         let (versions, versions_rx) = mpsc::channel();
+        let (layouts, layouts_rx) = mpsc::channel();
         (
-            Box::new(Recorder { panes, versions }),
+            Box::new(Recorder {
+                panes,
+                versions,
+                layouts,
+            }),
             panes_rx,
             versions_rx,
+            layouts_rx,
         )
+    }
+
+    /// A store file and two `SharedStore` handles on it: two processes.
+    fn two_processes() -> (tempfile::TempDir, Arc<SharedStore>, Arc<SharedStore>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("two_processes.sqlite");
+        let path = path.to_str().unwrap().to_string();
+        let first = SharedStore::open(path.clone()).expect("open");
+        let second = SharedStore::open(path).expect("open a second handle");
+        (dir, first, second)
+    }
+
+    fn fast_feed(layout: &SharedLayout) {
+        layout.set_debounce_ms(20);
+        layout.set_startup_grace_secs(0);
+        layout.set_external_poll_ms(20);
+    }
+
+    const RETARGET_LIST: &str = r#"{"verb":"set-query","target":{"ref":"role","role":"list"},
+        "query":{"kinds":["manuscript"]}}"#;
+
+    /// Review RL-L2: every chassis app opens one file and every verb writes
+    /// that app's live row, a focus keystroke included. A write to ANOTHER
+    /// app's row must not tell this window its tree changed, and must not
+    /// cost it its undo rings.
+    #[test]
+    fn another_apps_write_leaves_this_tree_and_its_undo_rings_alone() {
+        let (_dir, here, there) = two_processes();
+        let layout = SharedLayout::open(here, "impress".into(), Some("desk".into()));
+        let before = layout.snapshot().expect("snapshot");
+        // An exploration step to undo later.
+        layout
+            .apply(RETARGET_LIST.into(), "human".into())
+            .expect("set-query");
+
+        fast_feed(&layout);
+        let (listener, _panes, versions, layouts) = recorder_with_all();
+        layout.subscribe_invalidations(listener).expect("subscribe");
+        while versions.recv_timeout(Duration::from_millis(100)).is_ok() {}
+
+        // Another chassis app, same file, same device: keystrokes and a split.
+        let imbib = SharedLayout::open(there, "imbib".into(), Some("desk".into()));
+        imbib
+            .focus_direction("left".into(), "human".into())
+            .expect("imbib focus");
+        imbib
+            .apply(
+                r#"{"verb":"split","target":{"ref":"role","role":"list"},"dir":"vertical"}"#.into(),
+                "human".into(),
+            )
+            .expect("imbib split");
+
+        assert!(
+            versions.recv_timeout(Duration::from_millis(600)).is_err(),
+            "imbib's write is not impress's tree changing"
+        );
+        assert!(
+            layouts.recv_timeout(Duration::from_millis(50)).is_err(),
+            "nor impress's saved layouts"
+        );
+        // The undo ring is still there: ⌘Z in the list puts its query back.
+        layout
+            .undo(
+                "exploration".into(),
+                Some(role_of(&layout, "list")),
+                "human".into(),
+            )
+            .expect("undo");
+        let list = layout.pane(role_of(&layout, "list")).expect("list pane");
+        assert!(
+            list.spec_json.contains("publication"),
+            "the list's own query is back: {}",
+            list.spec_json
+        );
+        assert_eq!(layout.snapshot().unwrap().leaves, before.leaves);
+        layout.unsubscribe_invalidations();
+    }
+
+    /// Review RL-L2's other half: a named layout saved elsewhere changes this
+    /// app's saved-layouts list, not its tree.
+    #[test]
+    fn a_layout_saved_elsewhere_signals_the_list_not_the_tree() {
+        let (_dir, here, there) = two_processes();
+        let layout = SharedLayout::open(here, "impress".into(), Some("desk".into()));
+        layout.snapshot().expect("snapshot");
+        fast_feed(&layout);
+        let (listener, _panes, versions, layouts) = recorder_with_all();
+        layout.subscribe_invalidations(listener).expect("subscribe");
+        while versions.recv_timeout(Duration::from_millis(100)).is_ok() {}
+
+        let cli = SharedLayout::open(there, "impress".into(), Some("desk".into()));
+        cli.save_layout("From the CLI".into(), None, "agent".into())
+            .expect("save elsewhere");
+        layouts
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the saved-layouts list is told");
+        assert!(
+            versions.recv_timeout(Duration::from_millis(300)).is_err(),
+            "and the tree is not"
+        );
+        assert_eq!(layout.list_layouts().unwrap().len(), 1);
+
+        // A delete elsewhere leaves no row to read; it is still seen.
+        cli.delete_layout("From the CLI".into(), "agent".into())
+            .expect("delete elsewhere");
+        layouts
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a delete elsewhere is told too");
+        assert!(layout.list_layouts().unwrap().is_empty());
+        layout.unsubscribe_invalidations();
+    }
+
+    /// Review RL-L9: a verb that changed nothing moves no version, and a verb
+    /// this object applied is never reported back as a change made elsewhere
+    /// (the feed used to race `finish` and add a spurious bump).
+    #[test]
+    fn a_local_verb_is_never_reported_back_and_a_no_op_bumps_nothing() {
+        let (_store, layout) = open();
+        layout.snapshot().expect("snapshot");
+        fast_feed(&layout);
+        let (listener, _panes, versions) = recorder_with_versions();
+        layout.subscribe_invalidations(listener).expect("subscribe");
+
+        let list = role_of(&layout, "list");
+        let focused = layout
+            .apply(
+                format!(r#"{{"verb":"focus","target":{{"ref":"id","tile":{list}}}}}"#),
+                "human".into(),
+            )
+            .expect("focus the focused pane");
+        assert_eq!(
+            focused.version, 0,
+            "focusing the focused pane changed nothing"
+        );
+
+        let mut last = 0;
+        for _ in 0..20 {
+            last = layout
+                .focus_direction("next".into(), "human".into())
+                .expect("step")
+                .version;
+        }
+        assert_eq!(
+            last, 20,
+            "each step that moved focus moved the version once"
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        let reported: Vec<u64> = versions.try_iter().collect();
+        assert!(
+            reported.iter().all(|v| *v <= last),
+            "the feed invented a version after the verbs: {reported:?} (last {last})"
+        );
+        assert_eq!(layout.version(), last);
+        layout.unsubscribe_invalidations();
     }
 
     #[test]
@@ -2025,9 +2288,10 @@ mod tests {
         let version = versions
             .recv_timeout(Duration::from_secs(2))
             .expect("the host is told the tree changed, within roughly one poll interval");
-        assert!(
-            version > before,
-            "the version must move forward: {version} <= {before}"
+        assert_eq!(
+            version,
+            before + 1,
+            "one write elsewhere moves the version exactly once"
         );
 
         // The notification is worth nothing if the reload it triggers answers
@@ -2044,6 +2308,18 @@ mod tests {
             after.leaves.len(),
             tiles_before
         );
+
+        // One change elsewhere, one reload: the reload itself moves this
+        // object's session to the new revision, and that is not news.
+        let extra: Vec<u64> = versions
+            .recv_timeout(Duration::from_millis(600))
+            .into_iter()
+            .collect();
+        assert!(
+            extra.is_empty(),
+            "one external write reported more than once: {version} then {extra:?}"
+        );
+        assert_eq!(layout.version(), version);
 
         layout.unsubscribe_invalidations();
     }

@@ -38,114 +38,19 @@
 //
 
 import Foundation
+import ImpressSurface
 
 // MARK: - Opaque JSON
 
 /// An arbitrary JSON value: what the layout keeps opaque (`query`,
 /// `view_state`, a `ParamSource`'s payload) and what the verb builder emits.
-public enum LayoutJSONValue: Codable, Hashable, Sendable {
-    case null
-    case bool(Bool)
-    case int(Int)
-    case double(Double)
-    case string(String)
-    case array([LayoutJSONValue])
-    case object([String: LayoutJSONValue])
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode(Int.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .double(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode([LayoutJSONValue].self) {
-            self = .array(value)
-        } else if let value = try? container.decode([String: LayoutJSONValue].self) {
-            self = .object(value)
-        } else {
-            throw DecodingError.dataCorruptedError(
-                in: container, debugDescription: "unrepresentable JSON value")
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .null: try container.encodeNil()
-        case .bool(let value): try container.encode(value)
-        case .int(let value): try container.encode(value)
-        case .double(let value): try container.encode(value)
-        case .string(let value): try container.encode(value)
-        case .array(let value): try container.encode(value)
-        case .object(let value): try container.encode(value)
-        }
-    }
-
-    // MARK: Accessors
-
-    public var objectValue: [String: LayoutJSONValue]? {
-        if case .object(let value) = self { return value }
-        return nil
-    }
-
-    public var arrayValue: [LayoutJSONValue]? {
-        if case .array(let value) = self { return value }
-        return nil
-    }
-
-    public var stringValue: String? {
-        if case .string(let value) = self { return value }
-        return nil
-    }
-
-    public var boolValue: Bool? {
-        if case .bool(let value) = self { return value }
-        return nil
-    }
-
-    /// An integer, whether serde wrote it as one or as a whole double.
-    public var intValue: Int? {
-        switch self {
-        case .int(let value): return value
-        case .double(let value) where value == value.rounded(): return Int(value)
-        default: return nil
-        }
-    }
-
-    public var isNull: Bool {
-        if case .null = self { return true }
-        return false
-    }
-
-    public subscript(key: String) -> LayoutJSONValue? {
-        objectValue?[key]
-    }
-
-    /// The strings of a JSON array of strings (`query.kinds`), or `[]`.
-    public var stringArrayValue: [String] {
-        arrayValue?.compactMap(\.stringValue) ?? []
-    }
-
-    /// Parse a JSON string (the FFI hands every opaque value over as one).
-    public static func decode(_ json: String) throws -> LayoutJSONValue {
-        try JSONDecoder().decode(LayoutJSONValue.self, from: Data(json.utf8))
-    }
-
-    /// Serialize with sorted keys, so a verb's JSON is byte-stable and can be
-    /// asserted in a test without a parser.
-    public func jsonString() throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(self)
-        return String(decoding: data, as: UTF8.self)
-    }
-}
+///
+/// The same type as `ImpressSurface.SurfaceJSONValue`, under the name the
+/// layout has always used for it. There used to be two identical enums
+/// (review SK-K22); a host that mixes layout and surface values now needs no
+/// conversion between them. `jsonString()` sorts keys, so a verb's JSON is
+/// byte-stable and can be asserted in a test without a parser.
+public typealias LayoutJSONValue = SurfaceJSONValue
 
 // MARK: - Small vocabulary
 
@@ -472,9 +377,13 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
     public var channels: [String: [String: [String]]]
     public var nextTile: UInt64
     public var nextWindow: UInt64
+    /// The key window (`Layout::current`): where a verb with no explicit
+    /// window acts, and where roles resolve. Absent for a layout that never
+    /// had two windows.
+    public var current: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case windows, tiles, channels
+        case windows, tiles, channels, current
         case nextTile = "next_tile"
         case nextWindow = "next_window"
     }
@@ -498,6 +407,7 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
             try container.decodeIfPresent([String: [String: [String]]].self, forKey: .channels) ?? [:]
         nextTile = try container.decodeIfPresent(UInt64.self, forKey: .nextTile) ?? 0
         nextWindow = try container.decodeIfPresent(UInt64.self, forKey: .nextWindow) ?? 1
+        current = try container.decodeIfPresent(UInt64.self, forKey: .current)
     }
 
     /// Decode a `layoutJson` from `SharedLayoutSnapshot` / `SharedAppliedVerb`.
@@ -520,6 +430,15 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
     public func container(_ id: UInt64) -> LayoutContainer? { tiles[id]?.containerValue }
 
     public var firstWindow: LayoutWindow? { windows.first }
+
+    /// `Layout::current_window`: the key window when it names one that
+    /// exists, else the first window with a focused leaf, else the first.
+    public var currentWindow: LayoutWindow? {
+        if let current, let window = windows.first(where: { $0.id == current }) {
+            return window
+        }
+        return windows.first(where: { $0.focused != nil }) ?? windows.first
+    }
 
     /// The parent container of `id`, or nil for a window root.
     public func parent(of id: UInt64) -> UInt64? {
@@ -610,16 +529,15 @@ public struct LayoutTree: Decodable, Sendable, Hashable {
     /// Which pane carries `role` — the Swift mirror of
     /// `Layout::pane_with_role`, used only for read-side rendering (the
     /// authoritative lookup for a chord is `SharedLayout.paneWithRole`).
+    ///
+    /// The same rule, not an approximation of it (review SK-K19, RL-L19): the
+    /// first pane in tree order among the KEY window's leaves. It used to take
+    /// the lowest tile id anywhere in the arena — another window's pane, or an
+    /// orphan — so the menu's check mark could describe a different pane from
+    /// the one ⌃⌘S resized.
     public func paneWithRole(_ role: String) -> UInt64? {
-        // Lowest tile id wins, so the answer is stable across the arena's
-        // (unordered) dictionary iteration.
-        var found: UInt64?
-        for (id, tile) in tiles {
-            guard let spec = tile.paneSpec, spec.role == role else { continue }
-            if let current = found, current <= id { continue }
-            found = id
-        }
-        return found
+        guard let window = currentWindow else { return nil }
+        return leaves(of: window.root).first { pane($0)?.role == role }
     }
 
     /// The current selection of `kind` on the channel `pane` publishes on.

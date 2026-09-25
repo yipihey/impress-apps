@@ -37,13 +37,27 @@
 //! scope, so the churn ADR-0019 D6 is about is entirely in the updates, which
 //! are tiered correctly.
 //!
-//! # Startup guard
+//! # Revisions: the live row is compare-and-swap
 //!
-//! Nothing here may be called during the first ~90 s of an app launch (root
-//! CLAUDE.md, ADR-0019 D6): a `.storeDidMutate` storm in the settling window
-//! is the perpetual-render-loop bug. This crate cannot enforce that — it has
-//! no idea when its host launched — so the rule belongs to the caller, and
-//! the L6 projection is where it is implemented.
+//! A [`crate::LayoutSession`] caches the live tree, and several writers hold
+//! one on the same row — the app, `impress-mcp`, `impress-cli`, a second
+//! chassis app on the same file. The row's `logical_clock` is its revision:
+//! every operation and insert stamps it (ADR-0007 Phase 3), including writes
+//! from builds that have never heard of this. [`LayoutStore::load_live`]
+//! returns it, and [`LayoutStore::save_live_if`] writes only if the row is
+//! still at the revision the session read — one `BEGIN IMMEDIATE`
+//! transaction (`SqliteItemStore::apply_operation_if_clock`), so a stale
+//! session can never write its tree back over someone else's change
+//! (review RL-L1).
+//!
+//! # Startup
+//!
+//! Writes at launch are expected: the host's first snapshot cold-starts the
+//! live row, and a first touch gives session-bearing panes their sessions.
+//! What must not happen in the first ~90 s (root CLAUDE.md, ADR-0019 D6) is
+//! *invalidation delivery* waking SwiftUI while the window settles, and that
+//! rule is enforced where the invalidations are delivered — the FFI feed's
+//! grace period (`SharedLayout::set_startup_grace_secs`) — not here.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -54,7 +68,7 @@ use impress_core::operation::{OperationIntent, OperationSpec, OperationType, Ret
 use impress_core::pane_query::PaneQuery;
 use impress_core::query::ItemQuery;
 use impress_core::schemas::LAYOUT_SCHEMA_REF;
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
 use impress_core::store::ItemStore;
 use impress_layout::{preset, Layout, ViewKindId};
 
@@ -68,6 +82,9 @@ pub mod field {
     pub const DEVICE: &str = "device";
     pub const APP_ID: &str = "app_id";
     pub const IS_LIVE: &str = "is_live";
+    /// Set on a live row that no longer decoded and was set aside
+    /// ([`super::LayoutStore::load_live`]): why, in the decoder's words.
+    pub const QUARANTINED_REASON: &str = "quarantined_reason";
 }
 
 /// The record kind the cold-start live layout lists: imbib's publications.
@@ -80,6 +97,27 @@ pub const DEFAULT_LIST_KIND: &str = "publication";
 /// `message`, which is the shape every other `#[impress_service]` result in
 /// the suite has.
 pub type Result<T> = std::result::Result<T, String>;
+
+/// What [`LayoutStore::load_live`] found.
+#[derive(Debug, Clone)]
+pub struct LiveLoad {
+    pub item_id: ItemId,
+    /// The row's `logical_clock` when it was read.
+    pub revision: u64,
+    pub layout: Layout,
+    /// Set when the load did something the caller should report: a live row
+    /// that did not decode was quarantined.
+    pub note: Option<String>,
+}
+
+/// What [`LayoutStore::save_live_if`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveWrite {
+    /// Written; the row is now at `revision`.
+    Written { revision: u64 },
+    /// The row had moved (or is gone, `None`); nothing was written.
+    Moved { revision: Option<u64> },
+}
 
 /// One `impress/ui/layout@1.0.0` row, without its tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,21 +150,48 @@ impl LayoutStore {
     // ------------------------------------------------------------ the live row
 
     /// The live arrangement for `(app_id, device)`, creating it on a cold
-    /// start.
+    /// start, with the row's revision.
     ///
     /// "Cold start" is the path that matters: with no row for this scope, the
     /// three-column preset is built (navigator | list | detail, the chassis as
     /// a value — ADR-0031 D10) and **persisted**, so the very first read
     /// leaves the store in the state every later read expects. A caller never
     /// has to ask whether a layout exists.
-    pub fn load_live(
-        &self,
-        app_id: &str,
-        device: &str,
-        actor: ActorKind,
-    ) -> Result<(ItemId, Layout)> {
-        if let Some((row, layout)) = self.live_row(app_id, device)? {
-            return Ok((row.id, layout));
+    ///
+    /// A live row that no longer decodes (a hand edit, a sync merge, a future
+    /// rename) is **quarantined, never deleted** (review RL-L17): it stops
+    /// being live, is renamed "Unreadable layout <time>" so it shows in the
+    /// saved-layouts list where the user can inspect or delete it, carries
+    /// the decoder's error in `quarantined_reason`, and a fresh preset takes
+    /// its place. Before, every snapshot, verb and read of the scope failed
+    /// with "read layout tree: …" for good. [`LiveLoad::note`] says what
+    /// happened, for the caller to report.
+    pub fn load_live(&self, app_id: &str, device: &str, actor: ActorKind) -> Result<LiveLoad> {
+        let mut note = None;
+        if let Some(item) = self.live_item(app_id, device)? {
+            match layout_of(&item) {
+                Ok(layout) => {
+                    return Ok(LiveLoad {
+                        item_id: item.id,
+                        revision: item.logical_clock,
+                        layout,
+                        note: None,
+                    });
+                }
+                Err(error) => {
+                    let name = self.quarantine(&item, &error, actor)?;
+                    log::error!(
+                        target: "layout",
+                        "live layout row {} ({app_id}/{device}) does not decode: {error} — \
+                         kept as the saved layout '{name}' and replaced by a fresh preset",
+                        item.id
+                    );
+                    note = Some(format!(
+                        "The live layout could not be read ({error}); it was kept as the saved \
+                         layout '{name}' and a fresh arrangement was started."
+                    ));
+                }
+            }
         }
         let layout = cold_start_layout();
         let id = self.insert_row(
@@ -139,7 +204,75 @@ impl LayoutStore {
             actor,
             "cold start: the three-column preset",
         )?;
-        Ok((id, layout))
+        let revision = self
+            .store
+            .logical_clock_of(id)
+            .map_err(|e| format!("read layout {id}: {e}"))?
+            .ok_or("the cold-started layout vanished")?;
+        Ok(LiveLoad {
+            item_id: id,
+            revision,
+            layout,
+            note,
+        })
+    }
+
+    /// Set an undecodable live row aside: not live any more, named so it
+    /// lists among the saved layouts, and carrying the reason. Returns the
+    /// name it was given.
+    fn quarantine(&self, item: &Item, error: &str, actor: ActorKind) -> Result<String> {
+        let name = format!(
+            "Unreadable layout {}",
+            Utc::now().format("%Y-%m-%d %H:%M:%S")
+        );
+        let intent = "set aside a live layout that no longer decodes";
+        for (field, value) in [
+            (field::IS_LIVE, Value::Bool(false)),
+            (field::NAME, Value::String(name.clone())),
+            (field::QUARANTINED_REASON, Value::String(error.to_string())),
+        ] {
+            self.patch_field(item.id, field, value, actor, intent, Ephemerality::Commit)?;
+        }
+        Ok(name)
+    }
+
+    /// Write the live tree only if the row is still at `revision` — see the
+    /// module docs. `Moved` means another writer got there first and nothing
+    /// was written; the caller reloads.
+    pub fn save_live_if(
+        &self,
+        item_id: ItemId,
+        revision: u64,
+        layout: &Layout,
+        actor: ActorKind,
+        intent: &str,
+    ) -> Result<LiveWrite> {
+        let spec = OperationSpec {
+            target_id: item_id,
+            op_type: OperationType::SetPayload(field::LAYOUT.to_string(), layout_value(layout)?),
+            intent: Ephemerality::Exploration.intent(),
+            reason: Some(intent.to_string()),
+            batch_id: None,
+            author: author_for(actor),
+            author_kind: actor,
+            retention: Ephemerality::Exploration.retention(),
+        };
+        match self
+            .store
+            .apply_operation_if_clock(spec, revision)
+            .map_err(|e| format!("write layout: {e}"))?
+        {
+            GuardedWrite::Applied { clock, .. } => Ok(LiveWrite::Written { revision: clock }),
+            GuardedWrite::Moved { clock } => Ok(LiveWrite::Moved { revision: clock }),
+        }
+    }
+
+    /// The live row's current revision, `None` when it is gone. One indexed
+    /// lookup — what a session checks before every use.
+    pub fn revision_of(&self, item_id: ItemId) -> Result<Option<u64>> {
+        self.store
+            .logical_clock_of(item_id)
+            .map_err(|e| format!("read layout {item_id}: {e}"))
     }
 
     /// Persist the live arrangement. Ephemeral retention; see the module docs.
@@ -176,6 +309,14 @@ impl LayoutStore {
 
     /// The live row and its tree, if this scope has one.
     pub fn live_row(&self, app_id: &str, device: &str) -> Result<Option<(LayoutRow, Layout)>> {
+        match self.live_item(app_id, device)? {
+            Some(item) => Ok(Some((row_of(&item), layout_of(&item)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// The live row itself, undecoded.
+    fn live_item(&self, app_id: &str, device: &str) -> Result<Option<Item>> {
         let mut live: Vec<Item> = self
             .rows(app_id)?
             .into_iter()
@@ -189,11 +330,7 @@ impl LayoutStore {
         // answering with the newest is the only reading that does not lose
         // the user's most recent arrangement.
         live.sort_by_key(|item| item.modified);
-        let Some(item) = live.pop() else {
-            return Ok(None);
-        };
-        let layout = layout_of(&item)?;
-        Ok(Some((row_of(&item), layout)))
+        Ok(live.pop())
     }
 
     // ----------------------------------------------------------- named layouts

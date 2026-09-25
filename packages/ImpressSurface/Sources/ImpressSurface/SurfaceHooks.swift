@@ -15,11 +15,12 @@
 //  plain `Text`, a plot as a labelled placeholder, and list rows as an
 //  ordinary `List` over each row's `displayText`
 //  (`SurfaceJSONValue.displayText` — a `title`/`name`/`label`/`text` key
-//  when one exists, else the row stringified). `LayoutSurfacePaneView`
-//  (PublicationManagerCore, work package S7) supplies the real one: MarkdownUI
-//  for `renderMarkdown`, `renderPlotSvg` for `renderPlot`, and (for now, see
-//  that file) a plain list for `renderListRows` too — the row-style registry
-//  wire-up is follow-up work, noted there.
+//  when one exists, else the row stringified). The kit's own `surface` view
+//  kind (`ImpressLayout.LayoutSurfacePaneView`) renders with `.plain`; a
+//  host that has the suite re-registers `surface` with real hooks —
+//  PublicationManagerCore's `LayoutSurfaceHooks.chassis`: MarkdownUI for
+//  `renderMarkdown`, imprint-core's `renderPlotSvg` for `renderPlot`, and
+//  its record rows for `renderListRows`.
 //
 
 import SwiftUI

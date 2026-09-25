@@ -4598,10 +4598,12 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
+ "log",
  "reqwest",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
 ]

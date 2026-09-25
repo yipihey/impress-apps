@@ -11,6 +11,24 @@
 //! Sessions live in a process-wide registry, the same shape
 //! `impress_store_service::store_instance()` uses for the store: one map, one
 //! mutex, entries created on first touch.
+//!
+//! # A cached session is checked against its row before every use
+//!
+//! Other writers hold sessions on the same row: `impress-mcp` and
+//! `impress-cli` in their own processes, another chassis app on the same
+//! file, another registry in this one. A session remembers the row revision
+//! its tree came from ([`LayoutSession::revision`], the row's
+//! `logical_clock`); [`SessionRegistry::with`] compares it with the row
+//! before running anything — one indexed lookup — and when the row has moved
+//! it **reloads**, dropping both undo rings, because their patches describe a
+//! tree that is no longer the stored one. That is the honest outcome, and the
+//! caller is told ([`LayoutSession::take_notice`]). Every save is
+//! compare-and-swap on the same revision ([`LayoutSession::save`]), so the
+//! window between the check and the write cannot lose a change either: a
+//! save that finds the row moved writes nothing and marks the session stale
+//! (review RL-L1). Before, a session loaded once was trusted forever, and
+//! the next verb from a long-lived `impress-mcp` wrote its stale tree over
+//! whatever the user had done since.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -21,7 +39,7 @@ use impress_layout::{
     WindowId,
 };
 
-use crate::store::LayoutStore;
+use crate::store::{LayoutStore, LiveWrite};
 
 /// Which ring a verb's patch landed on — what a caller needs to know to route
 /// the right ⌘Z back to it.
@@ -86,6 +104,18 @@ pub struct LayoutSession {
     pub item_id: ItemId,
     pub layout: Layout,
     pub undo: UndoStacks,
+    /// The live row's revision (`logical_clock`) this tree is. `None` once a
+    /// guarded save found the row moved: the session is stale and the next
+    /// touch reloads it.
+    pub revision: Option<u64>,
+    /// What the caller should be told about how this session came to be —
+    /// a reload because the row moved, a quarantined row. Taken once, by the
+    /// next verb (reads leave it, so a background read cannot swallow it).
+    notice: Option<String>,
+    /// Set when a reload dropped undo steps, until the next step is recorded:
+    /// what an undo that finds its ring empty says instead of "nothing to
+    /// undo", because there WAS something and it went with the old tree.
+    dropped: Option<String>,
     /// The registry's write generation, bumped by every mutation below so a
     /// renderer sharing the registry learns the tree moved under it. See
     /// [`SessionRegistry::generation`].
@@ -97,12 +127,83 @@ impl LayoutSession {
         self.generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
+
+    /// Persist the tree, compare-and-swap on [`Self::revision`] (see the
+    /// module docs). Ephemeral retention, coalescing left to the caller: see
+    /// `store`'s module docs and ADR-0019 D6.
+    ///
+    /// When the row moved, nothing is written, the session is marked stale
+    /// ([`Self::is_stale`]) and the error says so; the caller either retries
+    /// against the reloaded tree or reports the refusal.
+    pub fn save(
+        &mut self,
+        store: &LayoutStore,
+        actor: ActorKind,
+        intent: &str,
+    ) -> Result<(), String> {
+        let Some(revision) = self.revision else {
+            return Err(STALE.to_string());
+        };
+        match store.save_live_if(self.item_id, revision, &self.layout, actor, intent)? {
+            LiveWrite::Written { revision } => {
+                self.revision = Some(revision);
+                Ok(())
+            }
+            LiveWrite::Moved { revision: now } => {
+                log::warn!(
+                    target: "layout",
+                    "{}/{}: live row {} moved ({revision} → {now:?}) under a write ('{intent}'); \
+                     nothing written, the session reloads",
+                    self.app_id,
+                    self.device,
+                    self.item_id
+                );
+                self.revision = None;
+                Err(STALE.to_string())
+            }
+        }
+    }
+
+    /// Whether a save found the row moved: the tree in memory is not the
+    /// stored one, and the next touch reloads it.
+    pub fn is_stale(&self) -> bool {
+        self.revision.is_none()
+    }
+
+    /// Record the revision a write to the live row made outside
+    /// [`Self::save`] (the preset edge `apply_preset` adds), so the next
+    /// check does not mistake this session's own write for someone else's.
+    pub fn advance_revision(&mut self, revision: u64) {
+        if self.revision.is_some() {
+            self.revision = Some(revision);
+        }
+    }
+
+    /// What happened while loading this session that the caller should pass
+    /// on — `None` for an ordinary touch. Taken, so it is reported once.
+    pub fn take_notice(&mut self) -> Option<String> {
+        self.notice.take()
+    }
+
+    /// Why the undo history is shorter than the user may expect: undo steps
+    /// a reload dropped, since no new step was recorded. See the field.
+    pub fn dropped_history(&self) -> Option<&str> {
+        self.dropped.as_deref()
+    }
 }
+
+/// What a save that lost the race says. The session has reloaded by the
+/// next touch, so trying again acts on the current tree.
+pub const STALE: &str = "the layout changed elsewhere while this was being applied, so nothing \
+     was written; it has been reloaded — try again";
 
 impl LayoutSession {
     /// Apply a verb, recording its patch on the ring [`stack_for`] chooses.
     pub fn apply(&mut self, verb: Verb) -> Result<AppliedVerb, LayoutError> {
         let applied = self.apply_inner(verb)?;
+        if applied.stack != Stack::Unrecorded && !applied.patch.is_empty() {
+            self.dropped = None;
+        }
         self.note_write();
         Ok(applied)
     }
@@ -172,7 +273,8 @@ impl LayoutSession {
         let stepped = match pane {
             Some(tile) => self.undo.undo_exploration(&mut self.layout, tile),
             None => self.undo.undo_arrangement(&mut self.layout),
-        };
+        }
+        .inspect_err(|e| self.log_refused_step("undo", e))?;
         if stepped.is_some() {
             self.note_write();
         }
@@ -183,9 +285,10 @@ impl LayoutSession {
     pub fn redo(&mut self, target: &UndoTarget) -> Result<Option<Patch>, LayoutError> {
         let pane = self.ring_pane(target)?;
         let stepped = match pane {
-            Some(tile) => self.undo.exploration_ring(tile).redo(&mut self.layout),
-            None => self.undo.arrangement.redo(&mut self.layout),
-        };
+            Some(tile) => self.undo.redo_exploration(&mut self.layout, tile),
+            None => self.undo.redo_arrangement(&mut self.layout),
+        }
+        .inspect_err(|e| self.log_refused_step("redo", e))?;
         if stepped.is_some() {
             self.note_write();
         }
@@ -234,6 +337,15 @@ impl LayoutSession {
             .map(|w| w.default_channel)
             .unwrap_or(ChannelId::ONE);
         Some(spec.channel.resolve(default))
+    }
+
+    fn log_refused_step(&self, word: &str, error: &LayoutError) {
+        log::info!(
+            target: "layout",
+            "{}/{}: {word} refused and dropped: {error}",
+            self.app_id,
+            self.device
+        );
     }
 
     fn ring_pane(&self, target: &UndoTarget) -> Result<Option<TileId>, LayoutError> {
@@ -290,7 +402,8 @@ impl SessionRegistry {
     }
 
     /// Run `f` against the session for `(app_id, device)`, loading the live
-    /// row (or cold-starting it) if this is the first touch.
+    /// row (or cold-starting it) if this is the first touch, and reloading it
+    /// if the row moved since this session read it (see the module docs).
     ///
     /// The lock is held for the whole closure — including the store write a
     /// verb makes — so two concurrent verbs on one scope cannot interleave
@@ -306,32 +419,73 @@ impl SessionRegistry {
     ) -> Result<R, String> {
         let mut sessions = self.lock();
         let key = (app_id.to_string(), device.to_string());
+        let mut notice = None;
+        let mut dropped = None;
+        if let Some(session) = sessions.get(&key) {
+            let stored = store.revision_of(session.item_id)?;
+            if stored.is_none() || stored != session.revision {
+                let steps = session.undo.arrangement.done.len()
+                    + session.undo.arrangement.undone.len()
+                    + session
+                        .undo
+                        .exploration
+                        .values()
+                        .map(|ring| ring.done.len() + ring.undone.len())
+                        .sum::<usize>();
+                log::info!(
+                    target: "layout",
+                    "{app_id}/{device}: live row {} moved ({:?} → {stored:?}); reloading, \
+                     {steps} undo step(s) dropped",
+                    session.item_id,
+                    session.revision
+                );
+                notice = Some(if steps == 0 {
+                    "The layout had changed elsewhere, so it was reloaded first.".to_string()
+                } else {
+                    format!(
+                        "The layout had changed elsewhere, so it was reloaded first and its undo \
+                         history ({steps} step(s)) was dropped."
+                    )
+                });
+                if steps > 0 {
+                    dropped = Some(format!(
+                        "the layout changed elsewhere and was reloaded, which dropped {steps} undo \
+                         step(s)"
+                    ));
+                }
+                sessions.remove(&key);
+            }
+        }
         if !sessions.contains_key(&key) {
-            let (item_id, mut layout) = store.load_live(app_id, device, actor)?;
+            let load = store.load_live(app_id, device, actor)?;
+            let notice = match (notice, load.note) {
+                (Some(a), Some(b)) => Some(format!("{a} {b}")),
+                (a, b) => a.or(b),
+            };
+            let reloaded = notice.is_some();
+            let mut session = LayoutSession {
+                app_id: app_id.to_string(),
+                device: device.to_string(),
+                item_id: load.item_id,
+                layout: load.layout,
+                undo: UndoStacks::default(),
+                revision: Some(load.revision),
+                notice,
+                dropped,
+                generation: self.generation.clone(),
+            };
             // A tree stored before its panes had sessions (or cold-started
             // from a preset, which carries none) is given them now, and saved
             // at once: a second process loading the same row must read the
             // SAME ids, or its next save would re-key every editor (D6).
-            if layout.ensure_sessions() {
-                store.save_live(
-                    app_id,
-                    device,
-                    &layout,
-                    actor,
-                    "gave session-bearing panes their sessions",
-                )?;
+            if session.layout.ensure_sessions() {
+                session.save(store, actor, "gave session-bearing panes their sessions")?;
             }
-            sessions.insert(
-                key.clone(),
-                LayoutSession {
-                    app_id: app_id.to_string(),
-                    device: device.to_string(),
-                    item_id,
-                    layout,
-                    undo: UndoStacks::default(),
-                    generation: self.generation.clone(),
-                },
-            );
+            if reloaded {
+                // A renderer sharing this registry holds the old tree.
+                session.note_write();
+            }
+            sessions.insert(key.clone(), session);
         }
         let session = sessions
             .get_mut(&key)
@@ -339,15 +493,24 @@ impl SessionRegistry {
         Ok(f(session))
     }
 
+    /// The revision the cached session for a scope holds, without touching
+    /// the store: `None` when no session is loaded (or it is stale). What a
+    /// renderer compares a row it saw change with, to tell its own write
+    /// from someone else's.
+    pub fn revision_of(&self, app_id: &str, device: &str) -> Option<u64> {
+        self.lock()
+            .get(&(app_id.to_string(), device.to_string()))
+            .and_then(|session| session.revision)
+    }
+
     /// Drop a scope's session, so the next touch re-reads the live row.
     ///
-    /// L4: per-pane invalidation will let the projection do better than this —
-    /// re-run the panes a mutation actually touched instead of dropping the
-    /// whole session — but a session that another writer has overtaken has to
-    /// be droppable today, and this is the one lever for it.
-    // TODO(L4): subscribe to `impress_core::pane_query::invalidation` and
-    // refresh the affected panes in place; add a test that a mutation on a
-    // kind no pane queries leaves every session untouched.
+    /// No longer how another writer's change is picked up — [`Self::with`]
+    /// checks the row's revision on every touch and reloads by itself, and
+    /// the FFI feed stopped calling this (it used to, for every layout row
+    /// any app wrote, which cost every running app its undo rings on each
+    /// keystroke elsewhere — review RL-L2). It remains for a caller that
+    /// wants the rings gone.
     pub fn forget(&self, app_id: &str, device: &str) {
         self.lock()
             .remove(&(app_id.to_string(), device.to_string()));

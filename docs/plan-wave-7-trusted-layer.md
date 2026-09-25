@@ -140,3 +140,124 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     run failed `layout.outline_collection_row` once and I did not capture why; the echo fix
     followed, and no later run failed.
 
+- 2026-09-25 — **T1 Layout coherence** (`claude/wave7-t1-layout`). **Closed:** RL-L1, RL-L2, RL-L4,
+  RL-L5, RL-L7, RL-L8, RL-L9, RL-L10, RL-L17, RL-L19 + SK-K19. **Narrowed:** RL-L14, RL-L15 (below).
+  - *Revisions (RL-L1).* The live row's `logical_clock` is its revision: every operation and insert
+    already stamps it, including writes from older builds, so nobody has to opt in. A session keeps
+    it; `SessionRegistry::with` checks it (one indexed lookup) and reloads when the row moved,
+    dropping the rings and saying so in the verb's message; every save is compare-and-swap through
+    the new `SqliteItemStore::apply_operation_if_clock` (one `BEGIN IMMEDIATE` transaction). A save
+    that loses the race writes nothing and the verb is applied once more on the reloaded tree.
+    Revisions are not on the wire yet (no `revision` in results, no `expected_revision`): that is
+    an additive step for T6's versioned wire.
+  - *Whose change (RL-L2, RL-L9).* The feed moves the tree only for this scope's live row
+    (`is_live`, app, device) at a revision the host has not been given; a named layout or preset of
+    this app calls the new `SharedLayoutListener.layouts_changed`; other apps' rows are ignored, and
+    nothing forgets sessions any more. A verb records the revision it produced under the lock the
+    feed compares under; a verb whose patch is empty writes nothing and bumps nothing.
+  - *Undo (RL-L4, RL-L8).* Selection patches hold only the `(channel, kind)` entries they changed;
+    ring steps restore pane and window fields one by one and refuse (`UndoConflict`, entry dropped)
+    when a field they would restore moved since, or when a role would be held twice. Allocators never
+    roll back; rings of panes nothing can bring back are pruned after every step. A seeded property
+    interleaves verbs with undo/redo across every ring (fails under blind replay).
+  - *Key window and roles (RL-L5, RL-L19, SK-K19).* `Layout.current` (serialized only once a
+    layout has had two windows, so the golden is unchanged); `pane_with_role` resolves in it, as
+    `PaneRef::Role` and `set-role` already did; a verb that would put one role on two panes of a
+    window is refused (`RoleHeldTwice`), and a split's copy just does not take the role. Swift's
+    `LayoutTree.paneWithRole` is the same rule over the decoded `current`.
+  - *Cursor (RL-L7).* `data_version` advances only after every read succeeded; each read reaches
+    10 s behind the mark and dedupes by revision; hard deletes of layout rows are found by an id
+    diff. *Registry (RL-L10).* The store `install_store` accepts uses `SessionRegistry::shared()`.
+    *Quarantine (RL-L17).* An undecodable live row becomes the saved layout "Unreadable layout
+    <time>" with `quarantined_reason` (declared in `schemas/ui.rs`), never deleted; a fresh preset
+    loads, logged at error level.
+  - *Narrowed.* RL-L14: the collection resolver is public, lazy and outside the lock, panes compile
+    with no JSON round trip, saves patch the row by id with no all-rows scan; focus-only saves are
+    still written (focus is what an agent reads to know what the user sees) and `finish` still
+    re-reads the tree. RL-L15: the GUI reads as the human (`get_layout_as`, `compiled_pane`); the
+    MCP read verbs keep their `Agent` default with no `actor` argument (an MCP shape change, T6).
+    Rust log lines use the `log` facade, target `layout`, not yet bridged to `/api/logs` (T5).
+  - *Tests.* impress-layout 5 new + 1 new property (`tests/undo.rs`, `verbs.rs`, `properties.rs`);
+    `impress-layout-service/tests/coherence.rs` (6: two services on two connections and on one,
+    the injected race, dropped rings reported, quarantine ×2); FFI: another app's write keeps the
+    tree and the rings, a saved/deleted layout elsewhere signals the list only, a local verb is never
+    reported back, one external write moves the version exactly once, `ui_feed` late-commit and
+    delete; `tests/layout_registry.rs` (RL-L10: an inventory verb keeps the window's ⌘Z). Each new
+    test was checked to fail with its fix reverted.
+  - *Live (impress built from this branch, 23141, `IMPRESS_DEVICE_ID=w7-t1-proof` so the proof
+    had its own live row).* (a) GUI-process verbs over `/api/layout/verb` interleaved with
+    `impress` CLI writes: set-query, CLI split, close, CLI set-view-kind, focus — all five in the
+    window's tree and the store, and an idle CLI write moved the window exactly one version
+    (13 → 14, one "changed elsewhere"). (b) A second impress of mine (23143, device `w7-t1-other`)
+    made 22 layout writes and saved/deleted a named layout while the CLI wrote impel's row: the
+    first window stayed at version 50 with 0 reloads, logged "saved layouts changed elsewhere"
+    twice, and its ⌘Z still restored its detail pane. implore and impel could not be used: implore
+    binds its table port (23123, another agent's) and impel's server did not start in a direct
+    launch. (c) Tier B 13/13, 0 skipped. Throwaway rows (four `w7-t1-*` scopes, 93 operation
+    rows) removed through `SqliteItemStore::delete`; launchers restored.
+  - *Gates.* `rust-gate.sh fmt`, `clippy auto` (rest shard), `check-uniffi-bindings` (7 match;
+    the binding gained `layoutsChanged()`, lost nothing), `check-schema-refs`, `check-kit-deps
+    --strict`, `check-kit-packages`, `check-chassis-deps`; `cargo test` for every touched crate plus
+    impress-surface-service and impress-capabilities-kit; ImpressLayout `swift test` 52/0;
+    PublicationManagerCore `swift test` 2133 XCTest / 0 failures (2 skipped) + 112 swift-testing.
+  - *Rebased on #67 (T2)*; the only conflicts were `lib.rs` (both registries now come from
+    `*_sessions_for(installed)`) and this log. Re-checked on the rebased build: (a) again (all five
+    writes kept, idle write 5 → 6), (b) with the CLI writing three other scopes 15 times plus a
+    saved/deleted layout (window stayed at version 7, 0 reloads, ⌘Z kept), Tier B 13/13, clippy
+    `rest`, ImpressLayout 52/0, PMC 2133/0. A second impress started right after the first did not
+    open its window's tree (409) without activation, so the final (b) used CLI writers.
+  - *Outside "Owns", on purpose:* `impress-core` gained `apply_operation_if_clock`,
+    `logical_clock_of` and `GuardedWrite` (T2 can use the same primitive for surface rows), and
+    `impress-store-ffi/src/lib.rs` gained `layout_sessions_for` (expect a merge with T2).
+- 2026-09-25 — **T3 (Kit behaviour)**, branch `claude/wave7-t3-kit`. Swift only, no Rust or
+  binding change.
+  - **A verb redraws the panes Rust names (PH-H1 = SK-K6).** Each tile has its own refresh
+    token in its own observable slot, and a pane host resolves on that token alone. A verb
+    that leaves the tree unchanged redraws nothing. That covers an undo on an empty ring,
+    which Rust answers `ok` with every pane named (`from_layout(None)`; T1 may want to
+    return none). Live on impress (port 23161, throwaway pane): focus 0, 0; resize 0;
+    set-query 1. PMC's `LayoutRowsPaneView` still watches the global compatibility token:
+    the same set-query re-ran the list pane's query too (`pane 2 display: 85 rows`). T4
+    closes that with `.onChange(of: context.refreshToken)` at `ChassisViewKinds.swift:274`.
+  - **Errors are scoped (SK-K7, PH-M3):** `lastRefusal`, `paneError(for:)`, `treeError`;
+    `PaneContext.loadRows() throws`. PMC's `loadFailed` read is right now because `lastError`
+    is the outcome of the last call, but T4 should switch it to `context.error`.
+  - **A tree that does not decode is not adopted (SK-K8).** Split children keep their
+    identity by tile id (SK-K11). The divider uses a pointer style (SK-K25).
+  - **Several windows (SK-K10 + PH-H3):** `LayoutTreeRuntime` registers each controller by
+    identity, and the key window's is current. `didClose` is always followed by the
+    survivor's `didOpen`, so PMC's unconditional `host = nil` is repaired without touching
+    PMC. Not done: h/l from `ChassisRootView`'s notification bridge still applies once per
+    open root (PMC's; route to the root's own controller). Detached tree windows still do
+    not render (RL-L5, ask-first).
+  - **⌘Z through Edit ▸ Undo (SK-K13):** `LayoutWindowResponder` sits directly before the
+    NSWindow in each tree window's chain. A text first responder or a session-bearing pane
+    goes to the first responder's own undo manager (a SwiftUI text field keeps its own, not
+    the window's). Otherwise the chord goes to the exploration ring, and to the window's
+    manager when the ring is empty. There are no ⌥⌘Z menu items: apps own their menus.
+  - **Surfaces:** fields send on blur, on Return (change then submit), and before any other
+    widget's action (SK-K3). A select or date field never sends unasked (SK-K12). There is no
+    `.focusable()` in `SurfaceView`, and keys come through the root (SK-K14). The subscription
+    is task-lifetime (SK-K18, AC-F17). A malformed node degrades alone (SK-K17). Failed
+    effects are decoded, logged and shown (SK-K16). There is one request line and one result
+    line per event, and identical re-renders are not adopted (SK-K15, narrowed: the FFI render
+    still runs until the feed can tell a write's author). Sessions of closed panes are
+    released, and all are flushed at termination (SK-K23). Seam tests run on a real in-memory
+    `SharedLayout` (SK-K20). The docs were corrected (SK-K21), and there is one JSON value type
+    (SK-K22).
+  - **Found live:** another session's pre-fix impress (port 23125) shares impress's layout
+    row and rendered my throwaway surface pane. It sent `change` for the null select and the
+    date (SK-K12, before) the moment it drew them; my build sent none. The first
+    `build-impress-app.sh` run installed my build over `~/Applications/impress.app` for about
+    four minutes, until another session's build replaced it. Set `IMPRESS_SKIP_INSTALL=1`
+    for any worktree build.
+  - **Proof:** `apps/kit-demo --prove` drives real keys, clicks and menu items in-process,
+    with no assistive-access grant, and all 14 claims pass. osascript has no assistive
+    access here, so impress's own UI (typing, ⌘N, the menu) was not driven from outside.
+    Tier B on 23161: 13/13, 0 skipped.
+  - **Merged with T2 (#67):** the surface pane awaits T2's async `render`/`dispatch` and keeps
+    T2's in-order dispatch chain and generation tickets, plus T3's resubscribe, per-event trace,
+    effects decoding and "an identical tree is not adopted". SK-K15 stays narrowed: T2's
+    revisions are on the spec row (`expected_revision`), but neither the dispatch reply nor the
+    feed's `surfaces_changed(ids)` carries one, so the pane still cannot tell its own write's
+    echo from an agent's. The echo render now runs off the main actor, so it no longer blocks.

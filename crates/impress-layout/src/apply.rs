@@ -36,6 +36,14 @@ impl Layout {
         // held one before the verb keeps it — so a split's new pane is the
         // one that gets a fresh id (`sessions.rs`).
         scratch.ensure_sessions_keeping(&before.session_holders());
+        // Roles are unique per window (ADR-0031 D5): `set-role` moves one,
+        // and every other verb that would leave two panes of a window with
+        // the same role — a swap or move across windows, a `set-pane` naming
+        // a role another pane holds — is refused rather than turning ⌘0 into
+        // a coin toss (review RL-L19).
+        if let Some((role, window)) = scratch.new_duplicate_role(&before) {
+            return Err(LayoutError::RoleHeldTwice { role, window });
+        }
         let patch = Patch::diff(verb, &before, &scratch);
         *self = scratch;
         Ok(patch)
@@ -199,6 +207,13 @@ impl Layout {
         if let Some(w) = self.window_mut(home) {
             w.focused = Some(leaf);
         }
+        // Focus moving into a window makes it the key window: the next verb
+        // with no explicit window acts there (review RL-L5). Left alone when
+        // it is already current, so a single-window layout never grows the
+        // field.
+        if self.current_window().ok() != Some(home) {
+            self.current = Some(home);
+        }
         // Focus is always visible: bring the leaf out from under every tab
         // strip above it.
         self.reveal(leaf);
@@ -321,6 +336,17 @@ impl Layout {
         new: PaneSpec,
     ) -> Result<(), LayoutError> {
         let target = self.resolve(window, target)?;
+        // A copy of the pane being split carries its role, the way it
+        // carries its session (D6: the target keeps its own, the copy gets a
+        // fresh one). Same rule for roles (D5): a role this window already
+        // has stays where it is, and the new pane gets none.
+        let mut new = new;
+        if let Some(role) = new.role.clone() {
+            let home = self.window_of(target).unwrap_or(window);
+            if self.pane_with_role_in(home, &role).is_some() {
+                new.role = None;
+            }
+        }
         let tile = self.alloc_tile();
         self.tiles.insert(tile, Tile::Pane(new));
         self.insert_beside(target, tile, dir, after)?;
@@ -552,8 +578,11 @@ impl Layout {
             }
             self.reveal(survivor);
         }
-        // Focus follows the pane out of the window it left.
-        self.add_window(tile);
+        // Focus follows the pane out of the window it left, and so does the
+        // key window: `close {focused}` right after a detach closes the
+        // detached pane, not the main window's (review RL-L5).
+        let detached = self.add_window(tile);
+        self.current = Some(detached);
         Ok(())
     }
 

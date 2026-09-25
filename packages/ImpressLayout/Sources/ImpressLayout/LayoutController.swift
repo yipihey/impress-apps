@@ -9,9 +9,9 @@
 //  ## What it is allowed to hold
 //
 //  A decoded copy of the tree, the version it came from, the focused leaf and
-//  the set of panes the invalidation feed says are stale. All four are
-//  DERIVED: every one of them is replaced wholesale from the value Rust hands
-//  back after a verb, and none of them is ever edited in place. There is no
+//  which panes are stale. All four are DERIVED: every one of them is replaced
+//  wholesale from the value Rust hands back after a verb, and none of them is
+//  ever edited in place. There is no
 //  `@State`, no `@AppStorage` and no `@SceneStorage` anywhere in this folder
 //  for anything the tree holds — ADR-0019 D3 / ADR-0031 invariant 1: "no view
 //  may hold layout state; the tree is the only source". A width, a hidden
@@ -34,6 +34,29 @@
 //  (tile count + focus) — CLAUDE.md's mutation / save / display trace, which
 //  is the only way an async tree bug is visible at all. Watch it live:
 //  `curl 'http://localhost:23120/api/logs?category=layout&limit=50'`.
+//
+//  ## A verb redraws the panes Rust names, and no others
+//
+//  Every applied verb carries `affected_panes`: for `select`, the publishing
+//  pane plus every pane whose bindings the publication changed; for any other
+//  verb, the panes its patch touched. A focus or a divider drag touches no
+//  pane, so it names none. The controller turns that list into one refresh
+//  token PER TILE (`refreshToken(for:)`), and a pane host re-resolves — and a
+//  rows pane re-runs its query — only when its own token moves. Until wave 7
+//  one global counter moved on every verb, so every pane in the window
+//  re-compiled its query and re-ran it on every keystroke that moved focus
+//  (review PH-H1 = SK-K6). The global `refreshToken` survives for hosts that
+//  have not adopted the per-tile token; it now moves only when at least one
+//  pane went stale, never on a verb that made none stale.
+//
+//  ## Errors say what failed
+//
+//  A refused verb is `lastRefusal` (named after the verb); a pane whose spec
+//  or query would not resolve keeps ITS error (`paneError(for:)`), cleared by
+//  that pane's next success; a tree Rust handed back that Swift could not
+//  decode is `treeError`, sticky until a tree decodes. There used to be one
+//  `lastError` for all three, cleared only by the next successful verb, so a
+//  pane showed whichever refusal happened last anywhere (SK-K7 / PH-M3).
 //
 
 import Foundation
@@ -214,13 +237,16 @@ final class LayoutInvalidationBridge: SharedLayoutListener, @unchecked Sendable 
 
     private let onPanesInvalidated: @MainActor @Sendable ([UInt64]) -> Void
     private let onLayoutChanged: @MainActor @Sendable (UInt64) -> Void
+    private let onLayoutsChanged: @MainActor @Sendable () -> Void
 
     init(
         onPanesInvalidated: @escaping @MainActor @Sendable ([UInt64]) -> Void,
-        onLayoutChanged: @escaping @MainActor @Sendable (UInt64) -> Void
+        onLayoutChanged: @escaping @MainActor @Sendable (UInt64) -> Void,
+        onLayoutsChanged: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.onPanesInvalidated = onPanesInvalidated
         self.onLayoutChanged = onLayoutChanged
+        self.onLayoutsChanged = onLayoutsChanged
     }
 
     func panesInvalidated(panes: [UInt64]) {
@@ -231,6 +257,11 @@ final class LayoutInvalidationBridge: SharedLayoutListener, @unchecked Sendable 
     func layoutChanged(version: UInt64) {
         let hop = onLayoutChanged
         Task { @MainActor in hop(version) }
+    }
+
+    func layoutsChanged() {
+        let hop = onLayoutsChanged
+        Task { @MainActor in hop() }
     }
 }
 
@@ -255,18 +286,43 @@ public final class LayoutController {
     /// there is no `@FocusState` pane enum anywhere in this folder.
     public private(set) var focused: UInt64?
 
-    /// Panes the feed says are stale. A pane view re-runs its query when its
-    /// id appears here and clears itself with `didRefresh(_:)`.
+    /// Panes marked stale and not yet re-run. A rows pane clears its own id
+    /// with `didRefresh(_:)` after it re-ran its query. Diagnostic: what a
+    /// view WATCHES is its tile's token, `refreshToken(for:)`.
     public private(set) var invalidatedPanes: Set<UInt64> = []
 
-    /// The last refusal Rust returned, for the placeholder/diagnostic paths.
-    /// A refused verb is a typed refusal, never a silently empty tree.
+    /// The outcome of the most recent fallible call on this controller — a
+    /// verb, a pane read, a query run — or nil when it succeeded. Kept for a
+    /// caller that reads it straight after its own call (`rows()` then
+    /// `lastError`); anything drawn later reads the scoped values below,
+    /// because by then another pane's call may have replaced this one.
     public private(set) var lastError: String?
 
-    /// Bumped whenever a pane's rows may have changed, so a pane view can
-    /// depend on ONE observable value rather than on `invalidatedPanes`
-    /// identity.
+    /// The last verb Rust refused, with the verb named. Cleared by the next
+    /// verb that applies. A refused verb is a typed refusal, never a silently
+    /// empty tree.
+    public private(set) var lastRefusal: String?
+
+    /// A tree Rust handed back that Swift could not decode, or a snapshot
+    /// that failed. Sticky until a tree decodes again: while it is set, the
+    /// window shows an older tree than Rust holds and says so (SK-K8).
+    public private(set) var treeError: String?
+
+    /// Compatibility token: moves once whenever AT LEAST ONE pane went stale,
+    /// and never on a verb that made none stale (a focus, a resize). A pane
+    /// view should watch its own `refreshToken(for:)` instead — this one
+    /// still reloads every pane that watches it when any one pane changes.
     public private(set) var refreshToken: UInt64 = 0
+
+    /// Per-tile token and error, each in its own observable slot so a view
+    /// that reads tile 3's token is not invalidated when tile 5's moves.
+    @ObservationIgnored private var slots: [UInt64: PaneSlot] = [:]
+
+    /// Bumped when a saved layout or preset of this app was written or
+    /// deleted elsewhere (`SharedLayoutListener.layoutsChanged`). The tree
+    /// did not change; `savedLayouts()` reads this so a view listing them
+    /// re-reads.
+    public private(set) var layoutsVersion: UInt64 = 0
 
     private let layout: SharedLayout
     public let appID: String
@@ -275,9 +331,27 @@ public final class LayoutController {
     /// on, so the kit never asks a host-specific adapter for it. `nil` only
     /// for a controller built without one (tests).
     public let store: SharedStore?
-    private var subscribed = false
+    public private(set) var isSubscribed = false
 
-    public init(layout: SharedLayout, appID: String, store: SharedStore? = nil) {
+    /// Closes a session-bearing pane's session when its pane leaves the tree
+    /// (SK-K23). Set by the host view; see `closedSessions(from:to:)`.
+    @ObservationIgnored public var onSessionsClosed: (@MainActor ([String]) -> Void)?
+
+    /// Key handlers the focused pane registered for the root's j / k / ⏎ / ⎋
+    /// (SK-K14): the root is the one `.focusable()` in the window, so a pane
+    /// cannot listen for keys itself without putting a second focus target
+    /// around its own text fields.
+    @ObservationIgnored private var keyHandlers:
+        [UInt64: (owner: ObjectIdentifier, handle: @MainActor (PaneKey) -> Bool)] = [:]
+
+    /// - Parameter startupGraceSecs: how long the invalidation feed holds its
+    ///   deliveries (CLAUDE.md's startup render-loop guard). The host passes
+    ///   what is LEFT of the launch window, so a window opened ten minutes in
+    ///   is not deaf for 90 s (SK-K10).
+    public init(
+        layout: SharedLayout, appID: String, store: SharedStore? = nil,
+        startupGraceSecs: UInt32 = 90
+    ) {
         self.layout = layout
         self.appID = appID
         self.store = store
@@ -287,32 +361,45 @@ public final class LayoutController {
         // seconds and delivers nothing, so no background mutation can wake
         // SwiftUI while the window is still settling. Must be set BEFORE
         // `subscribeInvalidations`.
-        layout.setStartupGraceSecs(secs: 90)
+        layout.setStartupGraceSecs(secs: startupGraceSecs)
 
         reload()
+        start()
+    }
+
+    /// Start (or restart) the invalidation feed. Idempotent. The host calls
+    /// it every time its window appears, so a window SwiftUI hid and showed
+    /// again does not stay deaf (SK-K18).
+    public func start() {
+        guard !isSubscribed else { return }
         subscribe()
     }
 
-    /// Stop the invalidation feed. Called from the host's `onDisappear`
+    /// Stop the invalidation feed. Called when the host's window goes away
     /// rather than from `deinit`: a `@MainActor` class cannot touch its
     /// stored properties from a nonisolated `deinit` under strict
     /// concurrency, and `SharedLayout`'s own `Drop` stops the feed anyway —
     /// this only makes the background thread go away at window close rather
     /// than whenever the last Arc is released.
     public func stop() {
-        guard subscribed else { return }
+        guard isSubscribed else { return }
         layout.unsubscribeInvalidations()
-        subscribed = false
+        isSubscribed = false
         logInfo("layout invalidation feed stopped", category: "layout")
     }
 
     // MARK: Reading
 
     /// Re-read the whole tree from Rust. The DISPLAY leg of the trace.
+    ///
+    /// A reload replaces the tree wholesale — another process or another
+    /// window wrote it — so every pane in it is stale.
     public func reload() {
         do {
             let snapshot = try layout.snapshot()
-            adopt(layoutJSON: snapshot.layoutJson, version: snapshot.version, focused: snapshot.focused)
+            guard adopt(layoutJSON: snapshot.layoutJson, version: snapshot.version, focused: snapshot.focused)
+            else { return }
+            markStale(tree.map { tree in tree.windows.flatMap { tree.leaves(of: $0.root) } } ?? [])
             let focusText = snapshot.focused == nil ? "none" : String(snapshot.focused!)
             let tileCount = tree?.tiles.count ?? 0
             logInfo(
@@ -320,30 +407,51 @@ public final class LayoutController {
                     + "focus \(focusText), \(snapshot.leaves.count) leaves",
                 category: "layout")
         } catch {
-            lastError = String(describing: error)
-            logError("layout snapshot failed: \(error)", category: "layout")
+            let text = Self.describe(error)
+            lastError = text
+            treeError = "layout snapshot failed: \(text)"
+            logError("layout snapshot failed: \(text)", category: "layout")
         }
     }
 
-    /// One pane's spec, compiled query and resolved bindings.
+    /// One pane's spec, compiled query and resolved bindings, or nil with
+    /// the reason kept as the pane's error.
     public func pane(_ tile: UInt64) -> SharedPane? {
+        try? resolvePane(tile)
+    }
+
+    /// `pane(_:)`, throwing what Rust refused.
+    public func resolvePane(_ tile: UInt64) throws -> SharedPane {
         do {
-            return try layout.pane(id: tile)
+            let pane = try layout.pane(id: tile)
+            succeeded(tile)
+            return pane
         } catch {
-            lastError = String(describing: error)
-            logWarning("layout pane(\(tile)) failed: \(error)", category: "layout")
-            return nil
+            failed(tile, "pane \(tile) did not resolve: \(Self.describe(error))")
+            throw error
         }
     }
 
     /// Run a pane's compiled query. `limit` of 0 keeps the pane's own limit.
+    ///
+    /// An EMPTY array means the query ran and matched nothing, or it failed —
+    /// tell them apart with `paneError(for:)`, or call `loadRows`, which
+    /// throws instead.
     public func rows(for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = 500) -> [SharedItemRow] {
+        (try? loadRows(for: tile, offset: offset, limit: limit)) ?? []
+    }
+
+    /// `rows(for:)`, throwing what Rust refused.
+    public func loadRows(
+        for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = 500
+    ) throws -> [SharedItemRow] {
         do {
-            return try layout.runPane(id: tile, offset: offset, limit: limit)
+            let rows = try layout.runPane(id: tile, offset: offset, limit: limit)
+            succeeded(tile)
+            return rows
         } catch {
-            lastError = String(describing: error)
-            logWarning("layout runPane(\(tile)) failed: \(error)", category: "layout")
-            return []
+            failed(tile, "pane \(tile) query did not run: \(Self.describe(error))")
+            throw error
         }
     }
 
@@ -351,20 +459,44 @@ public final class LayoutController {
     /// of the decoded copy: the chords act on the authoritative tree.
     public func paneWithRole(_ role: String) -> UInt64? {
         do {
-            return try layout.paneWithRole(role: role)
+            let tile = try layout.paneWithRole(role: role)
+            lastError = nil
+            return tile
         } catch {
-            lastError = String(describing: error)
+            let text = Self.describe(error)
+            lastError = text
+            logWarning("layout paneWithRole(\(role)) failed: \(text)", category: "layout")
             return nil
         }
     }
 
     public func savedLayouts() -> [SharedLayoutRow] {
-        (try? layout.listLayouts()) ?? []
+        // Read so a view listing the layouts re-reads when they change
+        // elsewhere (T1's `layoutsChanged`).
+        _ = layoutsVersion
+        do {
+            return try layout.listLayouts()
+        } catch {
+            logWarning("layout listLayouts failed: \(Self.describe(error))", category: "layout")
+            return []
+        }
     }
 
     /// The pane view calls this once it has re-run its query.
     public func didRefresh(_ tile: UInt64) {
         invalidatedPanes.remove(tile)
+    }
+
+    /// Tile `tile`'s refresh token: moves exactly when Rust says this pane is
+    /// stale — a verb named it, the feed invalidated it, or the whole tree
+    /// was reloaded. What a pane view watches to know when to re-run.
+    public func refreshToken(for tile: UInt64) -> UInt64 {
+        slot(tile).token
+    }
+
+    /// Why tile `tile`'s spec or query last failed, or nil once it succeeded.
+    public func paneError(for tile: UInt64) -> String? {
+        slot(tile).error
     }
 
     // MARK: Mutating
@@ -379,14 +511,13 @@ public final class LayoutController {
             // 2. SAVE — what Rust actually did with it.
             logInfo(
                 "layout applied: \(verb.traceDescription) → version \(applied.version), "
-                    + "\(applied.affectedPanes.count) affected, \(applied.changedTiles.count) changed",
+                    + "stale panes \(applied.affectedPanes), \(applied.changedTiles.count) tiles changed",
                 category: "layout")
             adoptApplied(applied)
             return true
         } catch {
             // A refused verb is a REFUSAL, not an empty tree: say so.
-            lastError = String(describing: error)
-            logWarning("layout verb refused: \(verb.traceDescription) — \(error)", category: "layout")
+            refused(verb.traceDescription, error)
             return false
         }
     }
@@ -434,18 +565,36 @@ public final class LayoutController {
     /// differently. Throws what Rust refused; the caller reports it.
     public func applyVerbJSON(_ json: String, actor: String) throws -> SharedAppliedVerb {
         logInfo("layout verb (\(actor)): \(json)", category: "layout")
-        let applied = try layout.apply(verbJson: json, actor: actor)
-        adoptApplied(applied)
-        return applied
+        do {
+            let applied = try layout.apply(verbJson: json, actor: actor)
+            logInfo(
+                "layout applied (\(actor)) → version \(applied.version), "
+                    + "stale panes \(applied.affectedPanes)",
+                category: "layout")
+            adoptApplied(applied)
+            return applied
+        } catch {
+            refused("verb (\(actor)) \(json)", error)
+            throw error
+        }
     }
 
     /// The typed half: the operations that are not `Verb` cases (undo, redo,
     /// resize-share, save-layout, apply-layout).
     public func performForAutomation(_ verb: LayoutVerb, actor: String) throws -> SharedAppliedVerb {
         logInfo("layout verb (\(actor)): \(verb.traceDescription)", category: "layout")
-        let applied = try perform(verb, actor: actor)
-        adoptApplied(applied)
-        return applied
+        do {
+            let applied = try perform(verb, actor: actor)
+            logInfo(
+                "layout applied (\(actor)): \(verb.traceDescription) → version \(applied.version), "
+                    + "stale panes \(applied.affectedPanes)",
+                category: "layout")
+            adoptApplied(applied)
+            return applied
+        } catch {
+            refused("\(verb.traceDescription) (\(actor))", error)
+            throw error
+        }
     }
 
     /// The live tree as a decoded JSON object, for a caller that wants to ship
@@ -464,11 +613,119 @@ public final class LayoutController {
     /// Adopt what one verb returned: the tree, the version, the focus, the
     /// stale panes. One place, because a caller that adopted three of the four
     /// would render a tree that disagrees with the one Rust holds.
+    ///
+    /// Only the panes Rust NAMED go stale (PH-H1 / SK-K6). If the tree does
+    /// not decode, nothing is adopted and the version stays where it was, so
+    /// the feed's report of this very version reloads the tree instead of
+    /// being taken for one already on screen (SK-K8).
     private func adoptApplied(_ applied: SharedAppliedVerb) {
-        adopt(layoutJSON: applied.layoutJson, version: applied.version, focused: applied.focused)
-        for pane in applied.affectedPanes { invalidatedPanes.insert(pane) }
-        refreshToken &+= 1
+        lastRefusal = nil
         lastError = nil
+        let previous = tree
+        guard adopt(layoutJSON: applied.layoutJson, version: applied.version, focused: applied.focused)
+        else { return }
+        // A verb that left the tree as it was redraws nothing, whatever it
+        // names: an undo on an empty ring answers `ok` with EVERY pane
+        // affected (Rust's "no patch means a new tree"), and a pane's data
+        // cannot change without its spec, bindings or the store changing —
+        // the last is the invalidation feed's to report.
+        guard tree != previous else {
+            logInfo("layout: verb left the tree unchanged — no pane redrawn", category: "layout")
+            return
+        }
+        markStale(applied.affectedPanes)
+        if let previous, let current = tree {
+            let closed = Self.closedSessions(from: previous, to: current)
+            if !closed.isEmpty {
+                logInfo("layout: sessions of closed panes \(closed) released", category: "layout")
+                onSessionsClosed?(closed)
+            }
+        }
+    }
+
+    /// Session ids a pane in `old` carried that no pane in `new` carries —
+    /// the sessions a verb just closed (SK-K23). A session that MOVED to
+    /// another pane (a move, a swap) is still in `new` and is not closed.
+    public nonisolated static func closedSessions(from old: LayoutTree, to new: LayoutTree) -> [String] {
+        func sessions(_ tree: LayoutTree) -> Set<String> {
+            Set(tree.tiles.values.compactMap { $0.paneSpec?.session })
+        }
+        return sessions(old).subtracting(sessions(new)).sorted()
+    }
+
+    // MARK: Staleness and errors
+
+    /// Mark `tiles` stale: each one's token moves, and the compatibility
+    /// token moves once if any did.
+    func markStale(_ tiles: [UInt64]) {
+        guard !tiles.isEmpty else { return }
+        for tile in tiles {
+            invalidatedPanes.insert(tile)
+            slot(tile).token &+= 1
+        }
+        refreshToken &+= 1
+    }
+
+    private func slot(_ tile: UInt64) -> PaneSlot {
+        if let existing = slots[tile] { return existing }
+        let created = PaneSlot()
+        slots[tile] = created
+        return created
+    }
+
+    private func succeeded(_ tile: UInt64) {
+        lastError = nil
+        let slot = slot(tile)
+        if slot.error != nil { slot.error = nil }
+    }
+
+    private func failed(_ tile: UInt64, _ text: String) {
+        lastError = text
+        slot(tile).error = text
+        logWarning("layout \(text)", category: "layout")
+    }
+
+    private func refused(_ what: String, _ error: Error) {
+        let text = "\(what) refused: \(Self.describe(error))"
+        lastRefusal = text
+        lastError = text
+        logWarning("layout verb \(text)", category: "layout")
+    }
+
+    /// The message a `SharedLayoutError` carries, rather than
+    /// `String(describing:)`'s `Layout(message: "…")`.
+    nonisolated static func describe(_ error: Error) -> String {
+        guard let layoutError = error as? SharedLayoutError else { return String(describing: error) }
+        switch layoutError {
+        case .Layout(let message): return message
+        case .Query(let message): return "query: \(message)"
+        case .Store(let message): return "store: \(message)"
+        case .Json(let message): return "json: \(message)"
+        }
+    }
+
+    // MARK: Pane keys (SK-K14)
+
+    /// Register what tile `tile` does with the root's j / k / ⏎ / ⎋ while it
+    /// is focused. `owner` is the object whose lifetime the handler belongs
+    /// to, so a view tearing down late cannot remove its successor's.
+    public func setKeyHandler(
+        for tile: UInt64, owner: AnyObject, _ handler: @escaping @MainActor (PaneKey) -> Bool
+    ) {
+        keyHandlers[tile] = (ObjectIdentifier(owner), handler)
+    }
+
+    /// Remove tile `tile`'s key handler if `owner` registered it.
+    public func removeKeyHandler(for tile: UInt64, owner: AnyObject) {
+        guard keyHandlers[tile]?.owner == ObjectIdentifier(owner) else { return }
+        keyHandlers[tile] = nil
+    }
+
+    /// Offer `key` to the focused pane. False when it has no handler or did
+    /// not use the key, so the caller can let the key go on.
+    public func routeKeyToFocusedPane(_ key: PaneKey) -> Bool {
+        guard let focused, let handler = keyHandlers[focused] else { return false }
+        return handler.handle(key)
     }
 
     // MARK: Roles (the universal chords, ADR-0031 D5)
@@ -545,13 +802,49 @@ public final class LayoutController {
     }
 
     /// ⌥⌘Z — the window's shape, always ours.
-    public func undoArrangement() {
+    @discardableResult
+    public func undoArrangement() -> Bool {
         apply(.undo(stack: .arrangement, pane: nil))
     }
 
     /// ⌥⇧⌘Z.
-    public func redoArrangement() {
+    @discardableResult
+    public func redoArrangement() -> Bool {
         apply(.redo(stack: .arrangement, pane: nil))
+    }
+
+    /// ⌘Z / ⇧⌘Z from ANY source — the Edit menu, its key equivalent, or a
+    /// key press — routed per ADR-0031 D7. Returns true when the tree took
+    /// the chord; false means "pass it down the responder chain", where the
+    /// window's own undo manager answers it:
+    ///
+    /// - a text view is first responder (typing has its own undo) → false;
+    /// - the focused pane is session-bearing (the editor's stack) → false;
+    /// - otherwise the focused pane's EXPLORATION ring; if Rust refuses (the
+    ///   ring is empty), false, so an app-level undo such as a deleted row
+    ///   still answers ⌘Z instead of the chord doing nothing.
+    public func routeUndoChord(redo: Bool, textIsFirstResponder: Bool) -> Bool {
+        let chord = redo ? "⇧⌘Z" : "⌘Z"
+        if textIsFirstResponder {
+            logInfo("layout \(chord): a text view has focus → responder chain", category: "layout")
+            return false
+        }
+        if focusedPaneIsSessionBearing {
+            logInfo(
+                "layout \(chord): focused pane is session-bearing → its own undo manager",
+                category: "layout")
+            return false
+        }
+        // Rust answers an empty ring with `ok` and the tree as it was, so
+        // "the step did something" is "the tree changed".
+        let before = tree
+        let applied = (redo ? redoInFocus() : undoInFocus()) && tree != before
+        if !applied {
+            logInfo(
+                "layout \(chord): exploration ring had nothing to take → responder chain",
+                category: "layout")
+        }
+        return applied
     }
 
     // MARK: Private
@@ -576,47 +869,89 @@ public final class LayoutController {
         delivered > current
     }
 
-    private func adopt(layoutJSON: String, version: UInt64, focused: UInt64?) {
+    /// Adopt a tree, its version and its focus — all three, or none.
+    ///
+    /// Returns false, and changes nothing but `treeError`, when the tree does
+    /// not decode. Advancing `version` over a tree that is not on screen
+    /// would make `isNewer` refuse the feed's reload of that same version,
+    /// and the drift would outlive the moment with nothing showing it (SK-K8).
+    @discardableResult
+    func adopt(layoutJSON: String, version: UInt64, focused: UInt64?) -> Bool {
+        let decoded: LayoutTree
         do {
-            tree = try LayoutTree.decode(layoutJSON)
+            decoded = try LayoutTree.decode(layoutJSON)
         } catch {
-            lastError = String(describing: error)
-            logError(
-                "layout tree did not decode — the Swift mirror and the Rust wire form have "
-                    + "diverged (LayoutModelTests is the gate for this): \(error)",
-                category: "layout")
+            let text =
+                "layout version \(version) did not decode — the Swift mirror and the Rust wire "
+                + "form have diverged (LayoutModelTests is the gate for this): \(error)"
+            treeError = text
+            lastError = text
+            logError(text, category: "layout")
+            return false
         }
+        tree = decoded
+        treeError = nil
         self.version = version
         // Prefer the window's own focused leaf when the snapshot carries one;
         // both come from the same value, and the tree's is the one the
         // renderer draws the focus ring from.
-        self.focused = focused ?? tree?.firstWindow?.focused
+        self.focused = focused ?? decoded.firstWindow?.focused
+        return true
     }
 
     private func subscribe() {
-        guard !subscribed else { return }
+        guard !isSubscribed else { return }
         let bridge = LayoutInvalidationBridge(
             onPanesInvalidated: { [weak self] panes in
                 guard let self else { return }
-                for pane in panes { self.invalidatedPanes.insert(pane) }
-                self.refreshToken &+= 1
-                logInfo("layout invalidation: \(panes.count) panes stale", category: "layout")
+                logInfo("layout invalidation: panes \(panes) stale", category: "layout")
+                self.markStale(panes)
             },
             onLayoutChanged: { [weak self] version in
                 guard let self, Self.isNewer(version, than: self.version) else { return }
                 logInfo("layout changed elsewhere → version \(version)", category: "layout")
                 self.reload()
+            },
+            onLayoutsChanged: { [weak self] in
+                guard let self else { return }
+                self.layoutsVersion &+= 1
+                logInfo("saved layouts changed elsewhere", category: "layout")
             })
         do {
             try layout.subscribeInvalidations(listener: bridge)
-            subscribed = true
+            isSubscribed = true
+            logInfo("layout invalidation feed started", category: "layout")
         } catch {
-            lastError = String(describing: error)
+            lastError = Self.describe(error)
             logWarning(
                 "layout invalidation feed did not start: \(error) — panes will only refresh "
                     + "on a verb",
                 category: "layout")
         }
     }
+}
+
+// MARK: - Per-pane state
+
+/// The keys the window root hands to the focused pane (SK-K14): the ADR-0033
+/// widget grammar, j / k / ⏎ / ⎋, for a pane kind that has widgets to walk.
+public enum PaneKey: Sendable, Hashable {
+    /// j
+    case down
+    /// k
+    case up
+    /// ⏎
+    case activate
+    /// ⎋
+    case leave
+}
+
+/// One tile's refresh token and error. A class of its own so a view that
+/// reads tile 3's token depends on tile 3's slot, not on every tile's.
+@MainActor
+@Observable
+final class PaneSlot {
+    var token: UInt64 = 0
+    var error: String?
 }
 #endif

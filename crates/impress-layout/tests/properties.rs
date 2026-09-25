@@ -5,7 +5,8 @@
 //! to five. The properties are the ones the rest of the stack relies on:
 //!
 //! 1. a verb either applies or changes nothing;
-//! 2. apply-then-revert is the identity (that is what undo *is*);
+//! 2. apply-then-revert is the identity (that is what undo *is*), up to the
+//!    id allocators, which never move backward (review RL-L8);
 //! 3. revert-then-reapply is the identity (that is what redo is);
 //! 4. the tree is normalized and the arena sound after every verb;
 //! 5. focus is always a pane of its own window;
@@ -17,7 +18,7 @@ mod common;
 
 use common::{
     assert_arena_is_sound, assert_focus_is_a_leaf, assert_focus_is_visible, scratch_pane,
-    three_column,
+    three_column, without_allocators,
 };
 use impress_layout::{
     ChannelId, ContainerKind, Direction, Geometry, Layout, LinearDir, PaneRef, PaneSpec,
@@ -274,11 +275,15 @@ fn random_verb_sequences_hold_every_invariant() {
                         "seed {seed} step {step}: {verb:?} left the tree un-normalized"
                     );
 
-                    // (2): apply-then-revert is the identity.
+                    // (2): apply-then-revert is the identity, up to the
+                    // allocators — and they never move backward.
                     let mut reverted = layout.clone();
                     reverted.revert(&patch);
+                    assert!(reverted.next_tile >= layout.next_tile);
+                    assert!(reverted.next_window >= layout.next_window);
                     assert_eq!(
-                        reverted, before,
+                        without_allocators(&reverted),
+                        without_allocators(&before),
                         "seed {seed} step {step}: reverting {verb:?} did not restore the layout"
                     );
 
@@ -288,6 +293,26 @@ fn random_verb_sequences_hold_every_invariant() {
                     assert_eq!(
                         reverted, after,
                         "seed {seed} step {step}: redoing {verb:?} did not restore the layout"
+                    );
+
+                    // The checked step a ring takes agrees with the primitive
+                    // when nothing has happened since: it must never refuse
+                    // its own most recent patch.
+                    let mut stepped = layout.clone();
+                    stepped.undo_step(&patch).unwrap_or_else(|e| {
+                        panic!("seed {seed} step {step}: undo_step refused {verb:?}: {e}")
+                    });
+                    assert_eq!(
+                        without_allocators(&stepped),
+                        without_allocators(&before),
+                        "seed {seed} step {step}: undo_step of {verb:?} did not restore the layout"
+                    );
+                    stepped.redo_step(&patch).unwrap_or_else(|e| {
+                        panic!("seed {seed} step {step}: redo_step refused {verb:?}: {e}")
+                    });
+                    assert_eq!(
+                        stepped, after,
+                        "seed {seed} step {step}: redo_step of {verb:?} did not restore the layout"
                     );
                 }
             }
@@ -329,4 +354,96 @@ fn normalization_never_loses_a_pane() {
             assert_eq!(again.panes(), leaves, "normalization moved or lost a pane");
         }
     }
+}
+
+/// The undo rings, interleaved (review RL-L4): random verbs land on the
+/// arrangement ring and on per-pane exploration rings, and random undo/redo
+/// steps are taken on any of them, out of order. Every step either replays
+/// cleanly or is refused and changes nothing; the tree stays sound and
+/// normalized; no step hands a role out twice; and an exploration step on
+/// one pane never changes another pane.
+#[test]
+fn interleaved_undo_and_redo_across_rings_keep_every_invariant() {
+    use impress_layout::{LayoutError, UndoStacks};
+
+    let mut stepped = 0usize;
+    let mut refused_steps = 0usize;
+    for seed in 1000..1300u64 {
+        let (mut layout, _) = three_column();
+        let mut stacks = UndoStacks::default();
+        let mut rng = Lcg::new(seed);
+        for step in 0..40 {
+            let before = layout.clone();
+            let roll = rng.below(10);
+            if roll < 6 {
+                let verb = any_verb(&mut rng, &layout);
+                if stacks.apply(&mut layout, verb.clone()).is_err() {
+                    assert_eq!(
+                        layout, before,
+                        "seed {seed} step {step}: refused {verb:?} changed the layout"
+                    );
+                    continue;
+                }
+            } else {
+                let undo = roll < 9;
+                let rings: Vec<TileId> = stacks.exploration.keys().copied().collect();
+                let pane = if rng.below(2) == 0 || rings.is_empty() {
+                    None
+                } else {
+                    Some(rng.pick(&rings))
+                };
+                let outcome = match (pane, undo) {
+                    (None, true) => stacks.undo_arrangement(&mut layout),
+                    (None, false) => stacks.redo_arrangement(&mut layout),
+                    (Some(tile), true) => stacks.undo_exploration(&mut layout, tile),
+                    (Some(tile), false) => stacks.redo_exploration(&mut layout, tile),
+                };
+                match outcome {
+                    Err(LayoutError::UndoConflict { .. }) => {
+                        refused_steps += 1;
+                        assert_eq!(
+                            layout, before,
+                            "seed {seed} step {step}: a refused step changed the layout"
+                        );
+                        continue;
+                    }
+                    Err(other) => panic!("seed {seed} step {step}: unexpected {other}"),
+                    Ok(None) => continue,
+                    Ok(Some(patch)) => {
+                        stepped += 1;
+                        if let Some(tile) = pane {
+                            // No cross-pane effect: every OTHER pane is as it was.
+                            for other in before.panes() {
+                                if other != tile && !patch.tiles.contains_key(&other) {
+                                    assert_eq!(
+                                        layout.pane(other),
+                                        before.pane(other),
+                                        "seed {seed} step {step}: an exploration step on pane {tile} changed pane {other}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            assert_arena_is_sound(&layout);
+            assert_focus_is_a_leaf(&layout);
+            assert_focus_is_visible(&layout);
+            let mut again = layout.clone();
+            again.normalize();
+            assert_eq!(
+                again, layout,
+                "seed {seed} step {step}: left the tree un-normalized"
+            );
+            assert_eq!(
+                layout.new_duplicate_role(&before),
+                None,
+                "seed {seed} step {step}: a role is now held twice in one window"
+            );
+        }
+    }
+    assert!(
+        stepped > 1_000,
+        "only {stepped} undo/redo steps replayed ({refused_steps} refused): not exercising much"
+    );
 }

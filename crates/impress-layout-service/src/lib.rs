@@ -71,10 +71,11 @@ pub use presets::{
 };
 pub use report::{CapabilityResult, SelfTestReport, Tier};
 pub use selftest::{DefaultLayoutSelftestService, LayoutSelftestService};
-pub use service::{DefaultLayoutService, LayoutService};
+pub use service::{CollectionSubtrees, CompiledPane, DefaultLayoutService, LayoutService};
 pub use session::{AppliedVerb, LayoutSession, SessionRegistry, Stack, UndoTarget};
 pub use store::{
     actor_from, author_for, cold_start_layout, default_list_query, LayoutRow, LayoutStore,
+    LiveLoad, LiveWrite,
 };
 
 /// What went wrong, as a sentence the service turns into `ok: false` +
