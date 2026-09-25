@@ -1529,6 +1529,11 @@ struct AppCommands: Commands {
             .keyboardShortcut("?", modifiers: .command)
 
             Button("Search Help...") {
+                // The window may be closed: leave the request for it to take
+                // when it appears, then open it (or bring it forward) and post
+                // for an already-open one.
+                HelpSearchPaletteRequest.request()
+                openWindow(id: "help")
                 NotificationCenter.default.post(name: .showHelpSearchPalette, object: nil)
             }
             .keyboardShortcut("?", modifiers: [.command, .shift])

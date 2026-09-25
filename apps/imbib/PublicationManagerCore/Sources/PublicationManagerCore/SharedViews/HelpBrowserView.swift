@@ -7,6 +7,25 @@
 
 import SwiftUI
 
+/// Help ▸ Search Help… (⇧⌘?) opens the Help window and then asks for its
+/// search palette — but a window that was closed has no view to hear the
+/// post yet, which is why the menu item did nothing until 2026-09-25. The
+/// menu leaves a request here first; the browser takes it when it appears,
+/// or on the post when it is already open.
+@MainActor
+public enum HelpSearchPaletteRequest {
+    private static var pending = false
+
+    /// Called by the menu item before it opens the window and posts.
+    public static func request() { pending = true }
+
+    /// True once per request.
+    public static func consume() -> Bool {
+        defer { pending = false }
+        return pending
+    }
+}
+
 /// Main help browser view with sidebar navigation and document display.
 public struct HelpBrowserView: View {
 
@@ -36,6 +55,10 @@ public struct HelpBrowserView: View {
         .task {
             await viewModel.loadIndex()
         }
+        .onAppear { showPaletteIfRequested(via: "window opened") }
+        .onReceive(NotificationCenter.default.publisher(for: .showHelpSearchPalette)) { _ in
+            showPaletteIfRequested(via: "window already open")
+        }
         .onChange(of: viewModel.selectedDocumentID) { _, newID in
             if let id = newID {
                 viewModel.selectDocument(id: id)
@@ -63,6 +86,14 @@ public struct HelpBrowserView: View {
             return .handled
         }
         #endif
+    }
+
+    /// Help ▸ Search Help…: raise the palette (its field takes focus on
+    /// appear) if the menu asked for it.
+    private func showPaletteIfRequested(via route: String) {
+        guard HelpSearchPaletteRequest.consume() else { return }
+        logInfo("Help ▸ Search Help: palette shown (\(route))", category: "help")
+        showSearchPalette = true
     }
 
     // MARK: - Detail View
