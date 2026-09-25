@@ -128,13 +128,22 @@ fn main() {
              default is the app-group container.\n\nNaming: a subcommand is the method \
              name (`get-layout`) unless two linked services declare the same method, in \
              which case every party is spelled `<service>_<method>` — the MCP tool name \
-             (`imbib-tags-service_remove-tag`, `triage-service_remove-tag`).",
+             (`imbib-tags-service_remove-tag`, `triage-service_remove-tag`).\n\nExit \
+             status: 0 when the verb did what it was asked; 3 when it answered `\"ok\": \
+             false` (the JSON on stdout says why, with a machine-readable `code`); 1 when \
+             the verb could not be dispatched; 2 for a bad invocation or an unreachable \
+             store.",
         );
     let matches = app.get_matches_from(args);
 
     match cli::dispatch_matches(&matches) {
         Ok(value) => match serde_json::to_string_pretty(&value) {
-            Ok(s) => println!("{s}"),
+            Ok(s) => {
+                println!("{s}");
+                // A refusal is not a success (review AC-F12): the verb's
+                // own `ok: false` sets the status a script tests.
+                std::process::exit(impress_service_core::refusal::exit_status(&value));
+            }
             Err(e) => {
                 eprintln!("error: failed to serialize result: {e}");
                 std::process::exit(2);
