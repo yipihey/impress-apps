@@ -28,6 +28,21 @@ description: >-
 # win is the other case: a Swift-only push (the majority) hits cache on all of
 # them and the lane drops from ~40 minutes of Rust to a few minutes of Swift.
 #
+# Where the cache lives depends on the runner.
+#
+#   hosted       actions/cache, as below. Only impart-apps.yml runs here.
+#   self-hosted  a directory on the runner's own disk ($HOME/ci-xcframework-
+#                store/<key>), same key, same paths. The self-hosted lanes all
+#                run on one Mac that keeps its disk between jobs, so uploading
+#                to GitHub and downloading again bought nothing, and those
+#                entries were most of the repo's 10 GB quota: every Rust change
+#                on main saved a new ~1.4 GB set across the lanes' variants,
+#                five sets in one day on 2026-09-24. Under LRU eviction the
+#                hosted impart lane, which runs least often, lost its entries
+#                first and fell back to a 90-minute cold build. Same reasoning
+#                as the persistent CARGO_TARGET_DIR those lanes already use.
+#                Entries nobody has restored for three days are pruned.
+#
 # The generated .swift bindings are cached alongside the .xcframework. They are
 # not optional decoration: apps/imprint/ImprintRustCore/Sources/.../
 # imprint_core.swift and friends are what the packages compile against, and a
@@ -51,7 +66,7 @@ inputs:
 outputs:
   cache-hit:
     description: "true when the artifacts were restored from cache and no build ran."
-    value: ${{ steps.cache.outputs.cache-hit }}
+    value: ${{ steps.cache.outputs.cache-hit || steps.store.outputs.hit }}
 
 runs:
   using: composite
@@ -239,28 +254,73 @@ runs:
           echo "sha=" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        sha=$(git ls-files -s -- $dirs Cargo.toml Cargo.lock \
+        # rust-toolchain.toml because the compiler is an input too: without
+        # it a pin bump restored frameworks the old rustc built.
+        sha=$(git ls-files -s -- $dirs Cargo.toml Cargo.lock rust-toolchain.toml \
                 "crates/$CRATE/build-xcframework.sh" .github/actions/xcframework/action.yml \
               | shasum -a 256 | cut -d' ' -f1)
         echo "scope=crate" >> "$GITHUB_OUTPUT"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
         echo "cache scope: $CRATE closure = $(echo "$dirs" | wc -l | tr -d ' ') crate dirs, sha ${sha:0:12}"
 
+    # The key is computed once, here, so the hosted cache and the self-hosted
+    # store use the identical string.
+    #
+    # One line on purpose: a folded scalar would smuggle newlines into the
+    # hashFiles() call. The globs skip build outputs (no .rs/.toml/.udl/.sh is
+    # ever written under crates/*/frameworks/), so the key is stable whether or
+    # not an earlier step in the same job already built a sibling crate.
+    - name: Cache key for ${{ inputs.crate }}
+      id: key
+      shell: bash
+      env:
+        KEY: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh') }}
+      run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
     - name: Restore ${{ inputs.crate }} xcframework
       id: cache
+      if: runner.environment != 'self-hosted'
       uses: actions/cache@v4
       with:
         path: ${{ steps.meta.outputs.paths }}
         # No restore-keys on purpose: a near-miss would hand this lane an
         # xcframework built from different Rust, and the build step would then
         # be skipped. Exact match or rebuild.
-        #
-        # One line on purpose: a folded scalar would smuggle newlines into the
-        # hashFiles() call. The globs skip build outputs (no .rs/.toml/.udl/.sh
-        # is ever written under crates/*/frameworks/), so the key is stable
-        # whether or not an earlier step in the same job already built a
-        # sibling crate.
-        key: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh') }}
+        key: ${{ steps.key.outputs.key }}
+
+    # Self-hosted: the same restore from the runner's own disk. An entry is
+    # only ever read once its .complete marker exists, and it only gets one
+    # after every path was copied in (see the save step), so a job cancelled
+    # mid-save leaves nothing a later job could restore half of.
+    - name: Restore ${{ inputs.crate }} xcframework from the runner's store
+      id: store
+      if: runner.environment == 'self-hosted'
+      shell: bash
+      env:
+        KEY: ${{ steps.key.outputs.key }}
+        PATHS: ${{ steps.meta.outputs.paths }}
+      run: |
+        set -euo pipefail
+        STORE="$HOME/ci-xcframework-store"
+        mkdir -p "$STORE"
+        # Superseded keys stop being touched; three days covers a weekend.
+        # Stray .tmp-* dirs are cancelled saves.
+        find "$STORE" -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm -rf {} + 2>/dev/null || true
+        entry="$STORE/$KEY"
+        if [ ! -f "$entry/.complete" ]; then
+          echo "store miss: $KEY"
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        while IFS= read -r p; do
+          [ -n "$p" ] && [ -e "$entry/tree/$p" ] || continue
+          rm -rf "$p"
+          mkdir -p "$(dirname "$p")"
+          ditto "$entry/tree/$p" "$p"       # keeps the frameworks' symlinks
+        done <<< "$PATHS"
+        touch "$entry"
+        echo "store hit: $KEY"
+        echo "hit=true" >> "$GITHUB_OUTPUT"
 
     - name: Check restored artifacts
       id: check
@@ -270,7 +330,7 @@ runs:
         # interpolation into the script body.
         CRATE: ${{ inputs.crate }}
         REQUIRED: ${{ steps.meta.outputs.required }}
-        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit || steps.store.outputs.hit }}
       run: |
         set -euo pipefail
         complete=true
@@ -319,4 +379,34 @@ runs:
         if [ "$missing" -ne 0 ]; then
           echo "Update the output list for $CRATE in .github/actions/xcframework/action.yml."
           exit 1
+        fi
+
+    # Copy into a private temp dir, mark it complete, then rename it into
+    # place. rename(2) onto an existing non-empty directory fails, so when two
+    # lanes build the same key at once the second simply discards its copy;
+    # `mv` would have nested it inside the first.
+    - name: Save ${{ inputs.crate }} xcframework to the runner's store
+      if: runner.environment == 'self-hosted' && steps.check.outputs.complete != 'true'
+      shell: bash
+      env:
+        KEY: ${{ steps.key.outputs.key }}
+        PATHS: ${{ steps.meta.outputs.paths }}
+      run: |
+        set -euo pipefail
+        STORE="$HOME/ci-xcframework-store"
+        entry="$STORE/$KEY"
+        [ -f "$entry/.complete" ] && { echo "already stored: $KEY"; exit 0; }
+        tmp="$(mktemp -d "$STORE/.tmp-XXXXXX")"
+        trap 'rm -rf "$tmp"' EXIT
+        while IFS= read -r p; do
+          [ -n "$p" ] && [ -e "$p" ] || continue
+          mkdir -p "$tmp/tree/$(dirname "$p")"
+          ditto "$p" "$tmp/tree/$p"
+        done <<< "$PATHS"
+        touch "$tmp/.complete"
+        if perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$tmp" "$entry"; then
+          trap - EXIT
+          echo "stored: $KEY ($(du -sh "$entry" | cut -f1))"
+        else
+          echo "another job stored $KEY first; keeping its copy"
         fi
