@@ -172,6 +172,7 @@ enum Proof {
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         await settle()
+        snapshot(window, name: "kit-demo-window.png")
         await redrawCounter(controller)
         await typedValueReachesTheButton(window)
         await undoFromTheEditMenu(controller, window)
@@ -395,6 +396,20 @@ enum Proof {
     }
 
     // MARK: Helpers
+
+    /// The window as drawn, into `$TMPDIR` — in-process, so no
+    /// screen-recording grant is involved.
+    static func snapshot(_ window: NSWindow, name: String) {
+        guard let view = window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: url)
+            Demo.say("window snapshot: \(url.path)")
+        }
+    }
 
     /// The surface's fields as a FRESH handle renders them: a new
     /// `SharedSurface` reads the store, not any handle's cache.

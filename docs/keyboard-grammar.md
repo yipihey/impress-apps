@@ -19,7 +19,7 @@ them.
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
 | ⌃⌘1…9 | Apply layout N — N spans the app's layout-tree presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number). imbib's own pre-chassis window keeps its View ▸ Layouts menu: the N-th saved `PaneLayoutState` | View ▸ Layouts (its own window's saved arrangements); every chassis app: View ▸ Apply Layout N (`ImpressLayoutOrdinalButtons`) | Layouts menu: the tree's ordinal N in the chassis window; the editor window's N-th saved layout while a manuscript editor window is key (`ImprintLayoutsMenu`) |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
-| ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): a session-bearing pane (`source` / `editor`) keeps the chord for its own undo manager via the responder chain; any other focused pane undoes on its **exploration** ring (parameter bindings + view state) | the responder chain (imbib's own window has no tree) | every chassis window (the tree) |
+| ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): while a text view has focus, or when the focused pane is session-bearing (`source` / `editor`), the chord is the first responder's own undo manager; any other focused pane undoes on its **exploration** ring (parameter bindings + view state), and when that ring has nothing, the window's own undo manager answers (an app-level undo such as a deleted row). Edit ▸ Undo / Redo and their key equivalents route the same way: the kit puts a responder into each tree window's chain (`LayoutWindowResponder`) — no app mounts a command for it | the responder chain (imbib's own window has no tree) | every chassis window (the tree) |
 | ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | — (no tree in imbib's own window) | every chassis window (the tree) |
 | ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
@@ -189,8 +189,19 @@ All of this runs under `.keyboardGuarded`, so a text `field` never loses
 keystrokes to j/k/Enter/Escape while it has focus — the same guard rule every
 other guarded single key in this document follows.
 
-This is the specification the Swift renderer (`packages/ImpressSurface`, work
-package S7) implements; it has not yet been verified on the Mac.
+How the keys get there (wave 7, review SK-K14): the window's layout root is
+the one `.focusable()` in the window, and it forwards j / k / ⏎ / ⎋ to the
+focused pane's registered handler (`LayoutController.setKeyHandler`) — a
+surface pane never wraps its text fields in a focus target of its own. j / k
+move only the highlight; Enter gives the highlighted widget real focus (a
+field begins editing, a table's arrows and type-select take over, a button
+is clicked), and Escape hands the keys back. A typed value is sent when the
+field loses focus, on Return (then a `submit`), and before any other widget's
+click, select or submit, so a button always acts on what is on screen.
+
+Verified on the Mac 2026-09-25 by `apps/kit-demo --prove` (real key events
+and clicks in-process): typed text reaches a button's event, and Edit ▸ Undo
+while typing undoes the typing, not the tree.
 
 ## Per-surface appearance
 

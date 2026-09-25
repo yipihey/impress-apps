@@ -41,8 +41,10 @@ kit-demo: pane 3: info → renders placeholder
 kit-demo: pane 5: surface → renders surface (single item 4529b182-65cc-47fe-b05e-014eebf67fcc)
 ```
 
-`standalone.png` is the window: three "View Kind Unavailable" panes naming their
-query kinds, role and tile, and the surface pane with its text, slider and button.
+`standalone.png` is the window (taken in-process by `--prove`, 2026-09-25): three "View
+Kind Unavailable" panes naming their query kinds, role and tile, and the surface pane with
+its text, slider, text field, a select showing "—" (nothing stored, nothing chosen), the
+agent's plain day as a date, and the button.
 The temp store is left in `$TMPDIR`; delete it when done.
 
 ## `--prove` (plan wave 7, T3)
