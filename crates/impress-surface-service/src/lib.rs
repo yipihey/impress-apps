@@ -42,6 +42,7 @@ pub mod selftest;
 pub mod service;
 pub mod store;
 pub mod tier_a;
+pub mod tier_b;
 
 pub use report::{CapabilityResult, SelfTestReport, Tier};
 pub use runtime::{
@@ -102,6 +103,12 @@ pub fn skipped(id: &str, description: &str, tier: Tier, reason: &str) -> Capabil
 /// in-memory store.
 pub async fn run_tier_a() -> SelfTestReport {
     SelfTestReport::from_results(tier_a::run().await)
+}
+
+/// Run the Tier B catalogue against the app `tier_b::configured_base_url`
+/// names (see that module).
+pub async fn run_tier_b() -> SelfTestReport {
+    SelfTestReport::from_results(tier_b::run().await)
 }
 
 #[cfg(test)]

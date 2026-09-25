@@ -24,14 +24,17 @@ use crate::report::SelfTestReport;
 pub trait SurfaceSelftestService: Send + Sync + 'static {
     /// Run the surface capability self-tests and return the report.
     ///
-    /// `tier` is `"a"` (pure Rust over a private in-memory store — every
-    /// verb plus the create → show → dispatch → render → emit → events
-    /// loop), `"all"` or `""` (the same), or `"b"`: one skipped entry
-    /// pointing at the live surface checks, which are the layout self-test's
-    /// Tier B (`layout-selftest-service_run-selftest --tier b`, the
-    /// `surface.*` capabilities). Any other value is refused — a report
-    /// with one failed `tier` entry — rather than quietly running Tier A
-    /// (review AC-F25). Nothing here touches the user's store.
+    /// `tier` is `"a"` (or `""`: pure Rust over a private in-memory store —
+    /// every verb plus the create → show → dispatch → render → emit →
+    /// events loop), `"b"` (a running app's `/api/surface/*`: every route
+    /// answers its verb's result with `wire_version`, strict arguments, an
+    /// invalid spec refused at create — at `IMPRESS_SURFACE_SELFTEST_BASE_URL`,
+    /// else `IMPRESS_LAYOUT_SELFTEST_BASE_URL`, else impress's port; skipped,
+    /// and not ok, when no app answers; its one scratch surface is deleted),
+    /// or `"all"` (both). Any other value is refused — a report with one
+    /// failed `tier` entry — rather than quietly running Tier A (review
+    /// AC-F25). Tier A touches no store but its own; Tier B only its scratch
+    /// surface.
     #[impress_method]
     async fn run_selftest(&self, tier: String) -> SelfTestReport;
 }
@@ -44,14 +47,13 @@ pub struct DefaultSurfaceSelftestService;
 impl SurfaceSelftestService for DefaultSurfaceSelftestService {
     async fn run_selftest(&self, tier: String) -> SelfTestReport {
         match tier.trim().to_ascii_lowercase().as_str() {
-            "b" => SelfTestReport::from_results(vec![crate::skipped(
-                "tier-b",
-                "drive a running app over HTTP",
-                crate::report::Tier::B,
-                "the live surface checks are Tier B of the layout self-test \
-                 (`layout-selftest-service_run-selftest --tier b`, the `surface.*` capabilities)",
-            )]),
-            "a" | "all" | "" => crate::run_tier_a().await,
+            "b" => crate::run_tier_b().await,
+            "a" | "" => crate::run_tier_a().await,
+            "all" => {
+                let mut report = crate::run_tier_a().await;
+                report.results.extend(crate::run_tier_b().await.results);
+                SelfTestReport::from_results(report.results)
+            }
             other => SelfTestReport::from_results(vec![crate::CapabilityResult {
                 id: "tier".to_string(),
                 description: "choose a tier".to_string(),
