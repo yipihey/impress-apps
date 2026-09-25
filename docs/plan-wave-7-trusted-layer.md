@@ -84,3 +84,29 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
 
 - 2026-09-25 — Planned from the review. Tom approved all four contract groups. One review finding
   was rejected on verification (RS-S5: the out-of-process verb refusal holds, see the review).
+- 2026-09-25 — **T4 (host correctness).** Branch `claude/wave7-t4-host`. Swift only, in PMC; no
+  Rust, kit or menu files touched.
+  - **PH-H2 closed.** The retention cleanup ran from the sidebar lifecycle that the outline pane
+    applies, so every chassis app ran it on every mount. It is now scheduled once per process from
+    `InboxCoordinator.start`, which only imbib calls, behind the 90 s gate, inside
+    `performAutomatic("retention")`, and logged under `retention`. Live: impress and imprint on
+    23171–23173 logged 0 retention lines 104 s after launch, after two splits and two Tier B runs
+    each. imbib on 23174 (scratch store) logged `scheduled, runs in 90 s` at launch and
+    `run 1 (launch) done` 93 s later, once.
+  - **Closed:** PH-H5, PH-M4, PH-M6, PH-M8, PH-M9, PH-M10, PH-L1, PH-L2, PH-L3, PH-L4, PH-L6,
+    PH-L7. The outline follows a list someone else retargeted. It asks Rust's forward mapping
+    which candidate row leaves the list alone, so no new FFI was needed. Live in impress, an agent's
+    narrowed query deselected the sidebar and restoring it made the sidebar follow to Inbox. In
+    imprint (scratch store), `info` rendered a manuscript. An external
+    `prune-empty-manuscripts --apply` discarded the session with no flush, abandoned the source
+    pane's editor, and the pane then said "Manuscript Not Found". An agent's `set-pane
+    view_state {tab: source}` switched the info pane's tab.
+  - **Narrowed:** PH-M1 (the GUI opens the right feed form; `OutlineNode::FeedForm` still carries
+    no ids, and that half is `outline.rs`'s), PH-M2 (a click is all-or-nothing with a rollback,
+    but still 2–3 undo entries until Rust applies the verbs as one step), PH-L5 (an undated
+    surface row still shows a date, because `MailStyleItem.date` is not optional), and PH-L8 (the
+    host half; the kit's `savedLayouts()` is T3's).
+  - Tier B: impress 13/13 and imprint 13/13, twice each on scratch stores. One earlier imprint
+    run failed `layout.outline_collection_row` once and I did not capture why; the echo fix
+    followed, and no later run failed.
+
