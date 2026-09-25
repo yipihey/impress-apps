@@ -152,10 +152,12 @@ struct ImplMacroInput {
     service: Ident,
     instance: syn::Expr,
     methods: Vec<MethodDecl>,
-    /// `strict_args = true`: every method's arguments deny unknown fields,
-    /// and arguments that do not parse answer
-    /// `impress_service_core::refusal::argument_refusal` (`ok: false`,
-    /// `invalid-argument`) rather than a transport error.
+    /// `strict_args = true`: an argument object carrying a field the method's
+    /// input schema does not name — or one that does not parse — is answered
+    /// with a refusal envelope (`{"ok": false, "code": "invalid-argument",
+    /// …}`) rather than parsed leniently or failed as a transport error. See
+    /// `impress_service_core::strict`. Opt-in per service, so a service whose
+    /// callers send extra keys is not broken by another's contract.
     strict_args: bool,
 }
 
@@ -458,31 +460,18 @@ fn expand_method(
         __instance.#name(#( __args.#arg_idents ),*).await
     };
 
-    // `strict_args`: an unknown argument is refused (and the schema says
-    // `additionalProperties: false`), and arguments that do not parse are the
-    // verb's own `ok: false` answer, naming the tool and the field.
-    let deny_unknown = if strict_args {
-        quote! { #[serde(deny_unknown_fields)] }
-    } else {
-        quote! {}
-    };
     let parse_args = if strict_args {
         quote! {
-            let __json = if __json.is_null() {
-                ::impress_service_core::serde_json::Value::Object(Default::default())
-            } else {
-                __json
+            let __args: #args_struct = match ::impress_service_core::strict::args(
+                concat!(#service_kebab, "_", #kebab_name),
+                __json,
+                &#schema_fn(),
+            ) {
+                Ok(args) => args,
+                Err(refusal) => {
+                    return Ok(::impress_service_core::strict::refusal_value(&refusal));
+                }
             };
-            let __args: #args_struct =
-                match ::impress_service_core::serde_json::from_value(__json) {
-                    Ok(args) => args,
-                    Err(e) => {
-                        return Ok(::impress_service_core::refusal::argument_refusal(
-                            concat!(#service_kebab, "_", #kebab_name),
-                            &e,
-                        ))
-                    }
-                };
         }
     } else {
         quote! {
@@ -499,7 +488,6 @@ fn expand_method(
             ::impress_service_core::schemars::JsonSchema,
             ::serde::Deserialize,
         )]
-        #deny_unknown
         #[allow(non_camel_case_types)]
         pub struct #args_struct {
             #(#struct_fields)*

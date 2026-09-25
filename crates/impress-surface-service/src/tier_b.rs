@@ -242,8 +242,8 @@ async fn strict(http: &Http) -> Result<String, String> {
         (
             "POST",
             format!("/api/surface/{none}/show"),
-            Some(json!({ "target": { "id": 7 } })),
-            "id",
+            Some(json!({ "target": { "ref": "id", "tile": 7 } })),
+            "tile",
         ),
         (
             "GET",
@@ -269,7 +269,7 @@ async fn strict(http: &Http) -> Result<String, String> {
             ));
         }
     }
-    Ok("target {\"id\": 7}, ?after= and ?pane= each refused 400 invalid-argument, naming the field".into())
+    Ok("the retired target {\"ref\": \"id\", \"tile\": 7}, ?after= and ?pane= each refused 400 invalid-argument, naming the field".into())
 }
 
 async fn invalid_spec(http: &Http) -> Result<String, String> {

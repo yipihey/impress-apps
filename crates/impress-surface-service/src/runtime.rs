@@ -464,6 +464,7 @@ impl Executor for DefaultExecutor {
                 kind.to_string(),
                 id_strings,
                 Some(actor_name(actor).to_string()),
+                None,
             )
             .await;
         if result.ok {
@@ -491,7 +492,7 @@ impl Executor for DefaultExecutor {
         let query: PaneQuery = serde_json::from_value(query)
             .map_err(|e| Refusal::invalid_argument(format!("open: query: {e}")))?;
         let show_target = match target {
-            Some(role) => ShowTarget::Role(role.to_string()),
+            Some(role) => ShowTarget::Pane(LayoutPaneRefDto::role(role)),
             None => ShowTarget::Split {
                 direction: "vertical".to_string(),
             },
@@ -615,8 +616,7 @@ pub(crate) async fn show_in_pane(
     actor: Option<String>,
 ) -> Result<(u64, bool, Vec<u64>)> {
     let pane_ref = match target {
-        ShowTarget::Tile(tile) => LayoutPaneRefDto::tile(impress_layout::TileId::new(*tile)),
-        ShowTarget::Role(role) => LayoutPaneRefDto::role(role),
+        ShowTarget::Pane(pane) => pane.clone(),
         ShowTarget::Split { direction } => {
             let mut new_pane = PaneSpec::new(query, ViewKindId::from(view_kind.to_string()));
             new_pane.params = params.unwrap_or_default();
@@ -629,6 +629,7 @@ pub(crate) async fn show_in_pane(
                     true,
                     Some(new_pane),
                     actor,
+                    None,
                 )
                 .await;
             if !split.ok {
@@ -678,6 +679,7 @@ pub(crate) async fn show_in_pane(
             LayoutPaneRefDto::tile(impress_layout::TileId::new(tile)),
             spec,
             actor,
+            None,
         )
         .await;
     if !set.ok {

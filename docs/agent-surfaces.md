@@ -31,8 +31,10 @@ identically by any host that implements the mapping.
 - **Strict arguments.** Every argument an agent sends is checked: an
   unknown field — anywhere, including inside `target` or `event` — is
   refused with `invalid-argument` and a message naming it, never ignored.
-  `{"id": 7}` as a `target` is refused (`unknown field \`id\``); it used to
-  open a new split.
+  A pane is referred to one way across the suite — exactly one of `{"id":
+  N}`, `{"role": "…"}`, `{"direction": "…"}`, `{"focused": true}` — and the
+  retired tagged `{"ref": "id", "tile": N}` is refused naming `ref`; an
+  unknown key in a `target` used to be ignored and open a new split.
 - **Codes.** `invalid-argument` (400), `not-found` (404), `conflict` (409, a
   stale `expected_revision`), `invalid-spec` (422, a spec with an error),
   `store-unavailable` (503), `store-error` / `internal` (500),
@@ -89,8 +91,9 @@ action's schema): `impress.surface.surface-get`, `impress.surface.surface-list`,
    does and refuses a spec with an error, listing every problem; a spec with
    warnings is stored and the warnings come back in `problems`.
 5. **`surface_show`** `{id, target, app_id, device?}` — puts the surface in a
-   pane of `app_id`'s window: `target` is exactly one of `{"tile": N}`,
-   `{"role": "detail"}` or `{"split": {"direction": "horizontal"|"vertical"}}`
+   pane of `app_id`'s window: `target` is exactly one of the suite's pane
+   references — `{"id": N}`, `{"role": "detail"}`, `{"direction": "right"}`,
+   `{"focused": true}` — or `{"split": {"direction": "horizontal"|"vertical"}}`
    (a new pane beside the focused one; `horizontal` is side by side,
    `vertical` stacked). It composes ordinary `layout-service` verbs — a
    surface pane is an ordinary pane whose query names a surface — and gives
@@ -373,7 +376,12 @@ last render left them), `{{state.…}}`, `{{param.…}}`, `{{event.…}}`, and
 index out of range is refused, an array is never turned into an object, and a
 missing path read is refused (it is never read as `null`). `publish` puts the
 ids under the kind of `{"kind": K, "ids": [...]}` when the value at `ids` is
-that object, else the surface's first declared param's kind, else `item`.
+that object, else the surface's first declared param's kind (a schema ref
+as its pane-query kind), else the generic `item`. The layout takes a
+selection of any kind — a channel is keyed by kind — but a pane follows only
+the kind its param declares, so a spec that publishes and declares no param is
+a validation warning. An `open`'s `view_kind` must be one the layout knows
+(`layout_vocabulary_json`), or validation says which it does.
 
 `each` fans a `call`/`emit` out over an array: a literal path (never a
 `{{…}}` template) whose root is `state`, `param`, `source` or `event`, which

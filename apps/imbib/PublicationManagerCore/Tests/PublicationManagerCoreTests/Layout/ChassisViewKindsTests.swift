@@ -14,6 +14,7 @@
 //  unknown kind still falls back to the placeholder (ADR-0031 D4).
 //
 
+import ImpressAutomation
 import SwiftUI
 import XCTest
 
@@ -26,12 +27,25 @@ final class ChassisViewKindsTests: XCTestCase {
         ChassisViewKinds.registerIfNeeded()
     }
 
-    /// Every constant in `crates/impress-layout/src/ids.rs`'s `ViewKindId`,
-    /// plus the kit's `surface` (ADR-0033) and imbib's two extra tabs.
-    private let vocabulary: [ViewKindID] = [
-        .outline, .list, .info, .pdf, .notes, .bibtex, .source, .plot, .console, .legacy,
-        .placeholder, .surface,
-    ]
+    /// The vocabulary as RUST exports it (`layoutVocabularyJson()`,
+    /// `impress_layout::ViewKindId::KNOWN`) — not a list typed here, which
+    /// is what this test used to compare against (review PH-M7).
+    private var vocabulary: [ViewKindID] { ViewKindID.rustVocabulary }
+
+    /// Swift's registrations equal Rust's list: every kind Rust names renders,
+    /// and Swift renders nothing Rust does not name (plan wave 7 T6).
+    func testTheRegistryIsExactlyRustsVocabulary() {
+        XCTAssertEqual(vocabulary.count, 12, "Rust exports the whole vocabulary")
+        XCTAssertEqual(ViewKindRegistry.builtin.registeredKinds, Set(vocabulary))
+        let registered = Set(ChassisViewKinds.kinds).union(ViewKindID.kitBuiltins)
+        XCTAssertEqual(registered, Set(vocabulary))
+    }
+
+    /// The HTTP layout routes' `wire_version` (ImpressAutomation, which does
+    /// not link Rust) is the one Rust's envelopes carry.
+    func testTheHTTPWireVersionIsRusts() {
+        XCTAssertEqual(LayoutAutomationRoutes.wireVersion, LayoutVocabulary.current.wireVersion)
+    }
 
     func testEveryViewKindResolvesToItselfOnceTheChassisRegisters() {
         let registry = ViewKindRegistry.builtin

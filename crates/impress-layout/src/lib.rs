@@ -64,14 +64,14 @@ mod verb;
 
 pub use channels::ChannelState;
 pub use error::LayoutError;
-pub use ids::{ChannelId, Role, SessionId, TileId, ViewKindId, WindowId};
+pub use ids::{view_state, ChannelId, Role, SessionId, TileId, ViewKindId, WindowId};
 pub use layout::Layout;
 pub use patch::{Change, Patch, TileChange};
 pub use shares::{is_hidden, HIDDEN_SHARE, HIDDEN_SHARE_CEILING};
 pub use spec::{PaneSpec, ParamBinding, ParamSource};
 pub use tree::{Container, ContainerKind, Geometry, LinearDir, Tile, Window};
 pub use undo::{stack_for, StackKind, UndoRing, UndoStacks, DEFAULT_CAPACITY};
-pub use verb::{Direction, PaneRef, Placement, Verb};
+pub use verb::{Direction, PaneRef, PaneRefWire, Placement, Verb};
 
 // Re-exported so a caller does not have to depend on impress-pane-query just
 // to spell a pane's query or read its resolved bindings.

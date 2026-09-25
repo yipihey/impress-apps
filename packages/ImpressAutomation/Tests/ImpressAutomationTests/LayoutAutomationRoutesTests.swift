@@ -31,8 +31,8 @@ private final class FakeLayoutHost: LayoutAutomationHost {
     func layoutTreeJSON() -> [String: Any] {
         if snapshotFails {
             return [
-                "version": 7, "layout": NSNull(), "snapshotError": "store: disk I/O error",
-                "snapshotCode": "store-error",
+                "version": 7, "snapshot_error": "store: disk I/O error",
+                "snapshot_code": "store-error",
             ]
         }
         return ["version": 7, "focused": 2, "layout": ["tiles": ["1": ["pane": [:]]]]]
@@ -48,13 +48,13 @@ private final class FakeLayoutHost: LayoutAutomationHost {
     func applyLayoutVerb(_ verb: [String: Any]) throws -> [String: Any] {
         lastVerb = verb
         if let refusal { throw refusal }
-        return ["version": 8, "affectedPanes": [2]]
+        return ["version": 8, "affected_panes": [2], "revision": 41]
     }
 
     func applyLayoutOperation(_ operation: String, body: [String: Any]) throws -> [String: Any] {
         lastOperation = (operation, body)
         if let refusal { throw refusal }
-        return ["version": 9, "affectedPanes": []]
+        return ["version": 9, "affected_panes": [] as [Int]]
     }
 }
 
@@ -103,7 +103,9 @@ struct LayoutAutomationRoutesTests {
             let response = try #require(await SharedAutomationRoutes.route(request))
             #expect(response.status == 409)
             let payload = try json(response)
-            #expect(payload["status"] as? String == "error")
+            #expect(payload["ok"] as? Bool == false)
+            #expect(payload["code"] as? String == "no-layout-tree")
+            #expect(payload["wire_version"] as? Int == LayoutAutomationRoutes.wireVersion)
             // The 409 must say why (no flag exists any more: a chassis window
             // IS the tree, imbib's own window has none) and name the headless
             // path that needs no app at all.
@@ -123,7 +125,9 @@ struct LayoutAutomationRoutesTests {
             let response = try #require(await SharedAutomationRoutes.route(get("/api/layout/tree")))
             #expect(response.status == 200)
             let payload = try json(response)
-            #expect(payload["status"] as? String == "ok")
+            #expect(payload["ok"] as? Bool == true)
+            #expect(payload["wire_version"] as? Int == 1)
+            #expect(payload["status"] == nil, "no status/error pair any more")
             #expect(payload["app"] as? String == "imbib")
             #expect(payload["version"] as? Int == 7)
             #expect(payload["focused"] as? Int == 2)
@@ -150,7 +154,8 @@ struct LayoutAutomationRoutesTests {
         let host = FakeLayoutHost()
         let verb: [String: Any] = [
             "verb": "split",
-            "target": ["ref": "role", "role": "detail"],
+            "target": ["role": "detail"],
+            "expected_revision": 40,
             "dir": "horizontal",
             "after": true,
             "new": ["view_kind": "source"],
@@ -165,6 +170,10 @@ struct LayoutAutomationRoutesTests {
             #expect(sent.keys.sorted() == verb.keys.sorted())
             #expect(sent["verb"] as? String == "split")
             #expect((sent["target"] as? [String: Any])?["role"] as? String == "detail")
+            let payload = try json(response)
+            #expect(payload["ok"] as? Bool == true)
+            #expect(payload["affected_panes"] as? [Int] == [2])
+            #expect(payload["revision"] as? Int == 41)
         }
     }
 
@@ -180,10 +189,12 @@ struct LayoutAutomationRoutesTests {
                     post("/api/layout/verb", ["verb": "close"])))
             #expect(response.status == 422)
             let payload = try json(response)
+            #expect(payload["ok"] as? Bool == false)
             #expect(payload["code"] as? String == "cannot-close-last-pane")
-            #expect((payload["error"] as? String ?? "").contains("at least one pane"))
+            #expect((payload["message"] as? String ?? "").contains("at least one pane"))
             // The prose, not `String(describing:)` of an error type.
-            #expect(!(payload["error"] as? String ?? "").contains("AutomationRefusal"))
+            #expect(!(payload["message"] as? String ?? "").contains("AutomationRefusal"))
+            #expect(payload["error"] == nil)
         }
     }
 
@@ -216,9 +227,9 @@ struct LayoutAutomationRoutesTests {
             let response = try #require(await SharedAutomationRoutes.route(get("/api/layout/tree")))
             #expect(response.status == 500)
             let payload = try json(response)
-            #expect(payload["status"] as? String == "error")
+            #expect(payload["ok"] as? Bool == false)
             #expect(payload["code"] as? String == "store-error")
-            #expect((payload["error"] as? String ?? "").contains("disk I/O"))
+            #expect((payload["message"] as? String ?? "").contains("disk I/O"))
         }
     }
 
@@ -241,6 +252,7 @@ struct LayoutAutomationRoutesTests {
                 await SharedAutomationRoutes.route(
                     HTTPRequest(method: "POST", path: "/api/layout/verb", body: "not json")))
             #expect(response.status == 400)
+            #expect(try json(response)["code"] as? String == "invalid-argument")
         }
     }
 
@@ -256,7 +268,8 @@ struct LayoutAutomationRoutesTests {
             #expect(host.lastOperation == nil)
             // The 400 lists what IS accepted; "split" is a verb, not an op.
             let payload = try json(response)
-            let error = payload["error"] as? String ?? ""
+            #expect(payload["code"] as? String == "invalid-argument")
+            let error = payload["message"] as? String ?? ""
             #expect(error.contains("apply-layout"))
             #expect(error.contains("/api/layout/verb"))
         }

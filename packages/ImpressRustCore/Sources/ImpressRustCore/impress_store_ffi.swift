@@ -1581,9 +1581,26 @@ public protocol SharedLayoutProtocol : AnyObject {
      * Apply one verb, as the serde form of [`impress_layout::Verb`].
      *
      * This is the whole mutating surface. `actor` is `human` | `agent` |
-     * `system`; the GUI passes `human`.
+     * `system`; the GUI passes `human`. The object may also carry
+     * `"expected_revision": N` — refused `conflict`, nothing written, unless
+     * the live row is still at revision `N` (what `/api/layout/verb` takes).
+     *
+     * Parsed strictly (review RL-L3): a field the verb's schema does not
+     * name is refused `invalid-argument` naming it, and a pane reference is
+     * written one way — `{"id": 7}`, `{"role": "detail"}`,
+     * `{"direction": "left"}` or `{"focused": true}`. A split with no `new`
+     * duplicates its target; that rule is the verb's, not this function's
+     * (review RL-L20).
      */
     func apply(verbJson: String, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Apply several verbs as ONE gesture: all or none, one undo step
+     * (review PH-M2) — what an outline click is. `verbs_json` is a JSON
+     * array of verbs, each as [`Self::apply`] takes one, or an object
+     * `{"verbs": [...], "expected_revision": N}`.
+     */
+    func applyAll(verbsJson: String, actor: String) throws  -> SharedAppliedVerb
     
     /**
      * Recall a saved layout by name, by id, or by ⌃⌘1–9 ordinal — a string
@@ -1647,15 +1664,18 @@ public protocol SharedLayoutProtocol : AnyObject {
     func resizeShare(pane: UInt64, share: Float, actor: String) throws  -> SharedAppliedVerb
     
     /**
-     * Run a pane's compiled query. The read path every list pane uses.
+     * Run a pane's compiled query, one page. The read path every list pane
+     * uses.
      *
-     * `limit` of 0 keeps whatever limit the pane's own query carries. Rows
-     * come back as the ordinary [`SharedItemRow`], so Swift reuses the
-     * payload decoders it already has. The compiled query is used as it
-     * comes back — it used to be serialized to JSON and parsed straight
-     * back on every display pass (review RL-L14).
+     * `limit` is the page size; 0 means none. The pane's own query limit is
+     * always honoured — a page is the smaller of the two — and the answer
+     * says how many rows the query has in all (`total`) and whether this
+     * page is all of them (`truncated`), so a host never shows a cut list
+     * as if it were the whole (review PH-H4, SK-K9: the kit's page of 500
+     * used to REPLACE the query's own limit, and nothing said 2,657 rows
+     * had become 500). Rows come back as the ordinary [`SharedItemRow`].
      */
-    func runPane(id: UInt64, offset: UInt32, limit: UInt32) throws  -> [SharedItemRow]
+    func runPane(id: UInt64, offset: UInt32, limit: UInt32) throws  -> SharedPaneRows
     
     /**
      * Save the current arrangement under a name, durably. Re-saving a name
@@ -1807,12 +1827,36 @@ public static func `open`(store: SharedStore, appId: String, device: String?) ->
      * Apply one verb, as the serde form of [`impress_layout::Verb`].
      *
      * This is the whole mutating surface. `actor` is `human` | `agent` |
-     * `system`; the GUI passes `human`.
+     * `system`; the GUI passes `human`. The object may also carry
+     * `"expected_revision": N` — refused `conflict`, nothing written, unless
+     * the live row is still at revision `N` (what `/api/layout/verb` takes).
+     *
+     * Parsed strictly (review RL-L3): a field the verb's schema does not
+     * name is refused `invalid-argument` naming it, and a pane reference is
+     * written one way — `{"id": 7}`, `{"role": "detail"}`,
+     * `{"direction": "left"}` or `{"focused": true}`. A split with no `new`
+     * duplicates its target; that rule is the verb's, not this function's
+     * (review RL-L20).
      */
 open func apply(verbJson: String, actor: String)throws  -> SharedAppliedVerb {
     return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedlayout_apply(self.uniffiClonePointer(),
         FfiConverterString.lower(verbJson),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Apply several verbs as ONE gesture: all or none, one undo step
+     * (review PH-M2) — what an outline click is. `verbs_json` is a JSON
+     * array of verbs, each as [`Self::apply`] takes one, or an object
+     * `{"verbs": [...], "expected_revision": N}`.
+     */
+open func applyAll(verbsJson: String, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_apply_all(self.uniffiClonePointer(),
+        FfiConverterString.lower(verbsJson),
         FfiConverterString.lower(actor),$0
     )
 })
@@ -1934,16 +1978,19 @@ open func resizeShare(pane: UInt64, share: Float, actor: String)throws  -> Share
 }
     
     /**
-     * Run a pane's compiled query. The read path every list pane uses.
+     * Run a pane's compiled query, one page. The read path every list pane
+     * uses.
      *
-     * `limit` of 0 keeps whatever limit the pane's own query carries. Rows
-     * come back as the ordinary [`SharedItemRow`], so Swift reuses the
-     * payload decoders it already has. The compiled query is used as it
-     * comes back — it used to be serialized to JSON and parsed straight
-     * back on every display pass (review RL-L14).
+     * `limit` is the page size; 0 means none. The pane's own query limit is
+     * always honoured — a page is the smaller of the two — and the answer
+     * says how many rows the query has in all (`total`) and whether this
+     * page is all of them (`truncated`), so a host never shows a cut list
+     * as if it were the whole (review PH-H4, SK-K9: the kit's page of 500
+     * used to REPLACE the query's own limit, and nothing said 2,657 rows
+     * had become 500). Rows come back as the ordinary [`SharedItemRow`].
      */
-open func runPane(id: UInt64, offset: UInt32, limit: UInt32)throws  -> [SharedItemRow] {
-    return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+open func runPane(id: UInt64, offset: UInt32, limit: UInt32)throws  -> SharedPaneRows {
+    return try  FfiConverterTypeSharedPaneRows.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedlayout_run_pane(self.uniffiClonePointer(),
         FfiConverterUInt64.lower(id),
         FfiConverterUInt32.lower(offset),
@@ -8428,6 +8475,11 @@ public struct SharedAppliedVerb {
      * The tree afterwards, same shape as [`SharedLayoutSnapshot::layout_json`].
      */
     public var layoutJson: String
+    /**
+     * The live row's revision after the verb (see
+     * [`SharedLayoutSnapshot::revision`]).
+     */
+    public var revision: UInt64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -8442,12 +8494,17 @@ public struct SharedAppliedVerb {
          */changedTiles: [UInt64], 
         /**
          * The tree afterwards, same shape as [`SharedLayoutSnapshot::layout_json`].
-         */layoutJson: String) {
+         */layoutJson: String, 
+        /**
+         * The live row's revision after the verb (see
+         * [`SharedLayoutSnapshot::revision`]).
+         */revision: UInt64?) {
         self.version = version
         self.focused = focused
         self.affectedPanes = affectedPanes
         self.changedTiles = changedTiles
         self.layoutJson = layoutJson
+        self.revision = revision
     }
 }
 
@@ -8470,6 +8527,9 @@ extension SharedAppliedVerb: Equatable, Hashable {
         if lhs.layoutJson != rhs.layoutJson {
             return false
         }
+        if lhs.revision != rhs.revision {
+            return false
+        }
         return true
     }
 
@@ -8479,6 +8539,7 @@ extension SharedAppliedVerb: Equatable, Hashable {
         hasher.combine(affectedPanes)
         hasher.combine(changedTiles)
         hasher.combine(layoutJson)
+        hasher.combine(revision)
     }
 }
 
@@ -8494,7 +8555,8 @@ public struct FfiConverterTypeSharedAppliedVerb: FfiConverterRustBuffer {
                 focused: FfiConverterOptionUInt64.read(from: &buf), 
                 affectedPanes: FfiConverterSequenceUInt64.read(from: &buf), 
                 changedTiles: FfiConverterSequenceUInt64.read(from: &buf), 
-                layoutJson: FfiConverterString.read(from: &buf)
+                layoutJson: FfiConverterString.read(from: &buf), 
+                revision: FfiConverterOptionUInt64.read(from: &buf)
         )
     }
 
@@ -8504,6 +8566,7 @@ public struct FfiConverterTypeSharedAppliedVerb: FfiConverterRustBuffer {
         FfiConverterSequenceUInt64.write(value.affectedPanes, into: &buf)
         FfiConverterSequenceUInt64.write(value.changedTiles, into: &buf)
         FfiConverterString.write(value.layoutJson, into: &buf)
+        FfiConverterOptionUInt64.write(value.revision, into: &buf)
     }
 }
 
@@ -10348,6 +10411,13 @@ public struct SharedLayoutSnapshot {
      * snapshot it has already rendered.
      */
     public var version: UInt64
+    /**
+     * The live layout row's revision (its `logical_clock`) this tree is —
+     * the number an agent passes back as `expected_revision`. Unlike
+     * `version`, which counts this object's redraws, it is the store's, the
+     * same in every process.
+     */
+    public var revision: UInt64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -10366,12 +10436,19 @@ public struct SharedLayoutSnapshot {
         /**
          * Bumped on every applied verb. A host that holds this number can skip a
          * snapshot it has already rendered.
-         */version: UInt64) {
+         */version: UInt64, 
+        /**
+         * The live layout row's revision (its `logical_clock`) this tree is —
+         * the number an agent passes back as `expected_revision`. Unlike
+         * `version`, which counts this object's redraws, it is the store's, the
+         * same in every process.
+         */revision: UInt64?) {
         self.layoutJson = layoutJson
         self.focused = focused
         self.windows = windows
         self.leaves = leaves
         self.version = version
+        self.revision = revision
     }
 }
 
@@ -10394,6 +10471,9 @@ extension SharedLayoutSnapshot: Equatable, Hashable {
         if lhs.version != rhs.version {
             return false
         }
+        if lhs.revision != rhs.revision {
+            return false
+        }
         return true
     }
 
@@ -10403,6 +10483,7 @@ extension SharedLayoutSnapshot: Equatable, Hashable {
         hasher.combine(windows)
         hasher.combine(leaves)
         hasher.combine(version)
+        hasher.combine(revision)
     }
 }
 
@@ -10418,7 +10499,8 @@ public struct FfiConverterTypeSharedLayoutSnapshot: FfiConverterRustBuffer {
                 focused: FfiConverterOptionUInt64.read(from: &buf), 
                 windows: FfiConverterSequenceTypeSharedWindow.read(from: &buf), 
                 leaves: FfiConverterSequenceUInt64.read(from: &buf), 
-                version: FfiConverterUInt64.read(from: &buf)
+                version: FfiConverterUInt64.read(from: &buf), 
+                revision: FfiConverterOptionUInt64.read(from: &buf)
         )
     }
 
@@ -10428,6 +10510,7 @@ public struct FfiConverterTypeSharedLayoutSnapshot: FfiConverterRustBuffer {
         FfiConverterSequenceTypeSharedWindow.write(value.windows, into: &buf)
         FfiConverterSequenceUInt64.write(value.leaves, into: &buf)
         FfiConverterUInt64.write(value.version, into: &buf)
+        FfiConverterOptionUInt64.write(value.revision, into: &buf)
     }
 }
 
@@ -11033,6 +11116,143 @@ public func FfiConverterTypeSharedPane_lift(_ buf: RustBuffer) throws -> SharedP
 #endif
 public func FfiConverterTypeSharedPane_lower(_ value: SharedPane) -> RustBuffer {
     return FfiConverterTypeSharedPane.lower(value)
+}
+
+
+/**
+ * One page of a pane's rows, and how many the pane's query has in all —
+ * so a list pane can say "showing 500 of 2,657" instead of presenting a
+ * cut list as the whole result (review PH-H4, SK-K9).
+ */
+public struct SharedPaneRows {
+    public var rows: [SharedItemRow]
+    /**
+     * Every row the pane's query would show: the store's count, capped by
+     * the query's own `limit` when it has one.
+     */
+    public var total: UInt64
+    /**
+     * Where this page starts.
+     */
+    public var offset: UInt32
+    /**
+     * The page size actually used: the caller's `limit`, or the query's own
+     * when that is smaller; `None` when neither limits it.
+     */
+    public var limit: UInt32?
+    /**
+     * The query's own `limit`, which is honoured — a page never shows more.
+     */
+    public var queryLimit: UInt32?
+    /**
+     * `offset + rows.len() < total`: there is more than this page shows.
+     */
+    public var truncated: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: [SharedItemRow], 
+        /**
+         * Every row the pane's query would show: the store's count, capped by
+         * the query's own `limit` when it has one.
+         */total: UInt64, 
+        /**
+         * Where this page starts.
+         */offset: UInt32, 
+        /**
+         * The page size actually used: the caller's `limit`, or the query's own
+         * when that is smaller; `None` when neither limits it.
+         */limit: UInt32?, 
+        /**
+         * The query's own `limit`, which is honoured — a page never shows more.
+         */queryLimit: UInt32?, 
+        /**
+         * `offset + rows.len() < total`: there is more than this page shows.
+         */truncated: Bool) {
+        self.rows = rows
+        self.total = total
+        self.offset = offset
+        self.limit = limit
+        self.queryLimit = queryLimit
+        self.truncated = truncated
+    }
+}
+
+
+
+extension SharedPaneRows: Equatable, Hashable {
+    public static func ==(lhs: SharedPaneRows, rhs: SharedPaneRows) -> Bool {
+        if lhs.rows != rhs.rows {
+            return false
+        }
+        if lhs.total != rhs.total {
+            return false
+        }
+        if lhs.offset != rhs.offset {
+            return false
+        }
+        if lhs.limit != rhs.limit {
+            return false
+        }
+        if lhs.queryLimit != rhs.queryLimit {
+            return false
+        }
+        if lhs.truncated != rhs.truncated {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rows)
+        hasher.combine(total)
+        hasher.combine(offset)
+        hasher.combine(limit)
+        hasher.combine(queryLimit)
+        hasher.combine(truncated)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedPaneRows: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedPaneRows {
+        return
+            try SharedPaneRows(
+                rows: FfiConverterSequenceTypeSharedItemRow.read(from: &buf), 
+                total: FfiConverterUInt64.read(from: &buf), 
+                offset: FfiConverterUInt32.read(from: &buf), 
+                limit: FfiConverterOptionUInt32.read(from: &buf), 
+                queryLimit: FfiConverterOptionUInt32.read(from: &buf), 
+                truncated: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedPaneRows, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeSharedItemRow.write(value.rows, into: &buf)
+        FfiConverterUInt64.write(value.total, into: &buf)
+        FfiConverterUInt32.write(value.offset, into: &buf)
+        FfiConverterOptionUInt32.write(value.limit, into: &buf)
+        FfiConverterOptionUInt32.write(value.queryLimit, into: &buf)
+        FfiConverterBool.write(value.truncated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedPaneRows_lift(_ buf: RustBuffer) throws -> SharedPaneRows {
+    return try FfiConverterTypeSharedPaneRows.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedPaneRows_lower(_ value: SharedPaneRows) -> RustBuffer {
+    return FfiConverterTypeSharedPaneRows.lower(value)
 }
 
 
@@ -17490,13 +17710,24 @@ public func installLogSink(sink: SharedLogSink, level: String) -> Bool {
     )
 })
 }
-/**
- * The record-kind manifest as JSON: kind id → the schema refs the store
- * matches by exact equality. The one place that mapping lives.
- */
 public func kindManifestJson() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_impress_store_ffi_fn_func_kind_manifest_json($0
+    )
+})
+}
+/**
+ * The record-kind manifest as JSON: kind id → the schema refs the store
+ * matches by exact equality. The one place that mapping lives.
+ * The layout's written vocabulary, owned by Rust (review PH-M7):
+ * `{"wire_version": 1, "view_kinds": [...], "session_bearing": [...],
+ * "view_state_keys": [...]}`. A host pins its own registrations to this in a
+ * test, so a view kind or a `view_state` key spelled on one side only fails
+ * the build rather than rendering a placeholder.
+ */
+public func layoutVocabularyJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_layout_vocabulary_json($0
     )
 })
 }
@@ -17677,7 +17908,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 14824) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 39295) {
+    if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 19740) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_layout_vocabulary_json() != 20433) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_outline_cleared_verbs_json() != 18137) {
@@ -17848,7 +18082,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedaistore_tool_options() != 34205) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply() != 25284) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply() != 9803) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply_all() != 51428) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply_layout() != 60163) {
@@ -17875,7 +18112,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_resize_share() != 3639) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_run_pane() != 17104) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_run_pane() != 53468) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_save_layout() != 2161) {

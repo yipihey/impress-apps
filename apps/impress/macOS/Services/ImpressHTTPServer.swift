@@ -39,9 +39,13 @@ public actor ImpressHTTPRouter: HTTPRouter {
 
         let path = request.path.lowercased()
         if request.method == "GET", path == "/status" || path == "/api/status" {
+            // The port this server is BOUND to — the one a caller reached it
+            // on (a `-httpAutomationPort` launch argument, a saved setting) —
+            // not the table's default, which it reported before (plan wave 7
+            // T5's finding 4; implore's half was #73's).
             return SharedAutomationRoutes.status(
                 app: "impress",
-                port: Int(ImpressHTTPServer.defaultPort),
+                port: Int(ImpressHTTPServer.configuredPort),
                 domain: ["shell": "impress", "facets": "all"])
         }
 
@@ -61,7 +65,9 @@ public actor ImpressHTTPServer {
         UserDefaults.standard.bool(forKey: "httpAutomationEnabled")
     }
 
-    private static var configuredPort: UInt16 {
+    /// The port `start()` binds: the saved or launch-argument
+    /// `httpAutomationPort`, else the table's default.
+    static var configuredPort: UInt16 {
         let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
         return port > 0 ? UInt16(port) : defaultPort
     }

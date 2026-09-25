@@ -201,7 +201,7 @@ fn refusal_reply(refusal: &Refusal) -> SharedHttpReply {
             "ok": false,
             "code": refusal.code,
             "message": refusal.message,
-            "wire_version": impress_service_core::WIRE_VERSION,
+            "wire_version": impress_service_core::wire::WIRE_VERSION,
         })
         .to_string(),
     )
@@ -709,7 +709,7 @@ impl SurfaceCore {
             tree: Some(tree),
             source_errors,
             revisions,
-            wire_version: impress_service_core::WIRE_VERSION,
+            wire_version: impress_service_core::wire::WIRE_VERSION,
         })
     }
 
@@ -1559,12 +1559,11 @@ mod tests {
         let shown = runtime().block_on(service.surface_show(
             id.clone(),
             ShowTargetDto {
-                role: None,
-                tile: None,
                 split: Some(SplitTargetDto {
                     direction: "horizontal".into(),
                     from_focused: true,
                 }),
+                ..ShowTargetDto::default()
             },
             "impress".into(),
             None,
@@ -2124,8 +2123,8 @@ mod tests {
             (
                 "POST",
                 format!("/api/surface/{id}/show"),
-                r#"{"target": {"id": 7}}"#,
-                "id",
+                r#"{"target": {"tile": 7}}"#,
+                "tile",
             ),
             (
                 "POST",

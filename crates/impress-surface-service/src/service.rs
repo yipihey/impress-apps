@@ -31,7 +31,8 @@ use impress_core::item::{ActorKind, ItemId};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::{resolve_device, DefaultLayoutService};
 use impress_service_core::async_trait;
-use impress_service_core::{McpToolDescriptor, Refusal, WIRE_VERSION};
+use impress_service_core::wire::WIRE_VERSION;
+use impress_service_core::{McpToolDescriptor, Refusal};
 use impress_service_macros::{impress_service, impress_service_impl};
 
 #[allow(unused_imports)]
@@ -347,6 +348,7 @@ impl DefaultImpressSurfaceService {
     pub fn problems_of(&self, raw: &Value) -> (Option<SurfaceSpec>, Vec<Problem>) {
         let (spec, mut problems) = validate_json(raw);
         if let Some(spec) = &spec {
+            vocabulary_problems(spec, &mut problems);
             for (path, verb, args_at, args) in verb_refs(spec) {
                 if !self.verb_known(verb) {
                     problems.push(Problem::error(path, format!("no such verb: {verb}")));
@@ -395,6 +397,48 @@ fn verb_refs(spec: &SurfaceSpec) -> Vec<(String, &str, String, &Value)> {
         }
     }
     out
+}
+
+/// What only the layout's vocabulary can say about a spec (review RS-S8,
+/// RL-L12's surface side):
+///
+/// * an `open` names a view kind the layout does not know — an error, as the
+///   layout's own `set-view-kind` refuses it (`impress_layout::ViewKindId::KNOWN`);
+/// * a `publish` in a spec that declares no param publishes under the
+///   generic `item` kind, which no pane's param follows — a warning. The
+///   layout takes a selection of any kind (a channel is keyed by kind); a
+///   pane follows only the kind its param declares, so declare a param of the
+///   kind you publish, or publish `{"kind": K, "ids": […]}` explicitly.
+fn vocabulary_problems(spec: &SurfaceSpec, problems: &mut Vec<Problem>) {
+    for (at, action) in walk_actions(&spec.root) {
+        match action {
+            Action::Open { view_kind, .. } => {
+                let kind = impress_layout::ViewKindId::from(view_kind.clone());
+                if !view_kind.trim().is_empty() && !kind.is_known() {
+                    let known: Vec<String> = impress_layout::ViewKindId::KNOWN
+                        .iter()
+                        .map(|k| k.to_string())
+                        .collect();
+                    problems.push(Problem::error(
+                        format!("{at}/open/view_kind"),
+                        format!(
+                            "no view kind '{view_kind}' (the layout's: {})",
+                            known.join(", ")
+                        ),
+                    ));
+                }
+            }
+            Action::Publish { .. } if spec.params.is_empty() => {
+                problems.push(Problem::warning(
+                    format!("{at}/publish"),
+                    "this surface declares no param, so the selection is published under the \
+                     generic `item` kind, which no pane follows; declare a param of the kind \
+                     you publish (or publish {\"kind\": K, \"ids\": […]})",
+                ));
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Whether `value` holds a `{{…}}` reference anywhere (so its type is only
@@ -1190,39 +1234,19 @@ pub async fn call_verb_on(
     } else {
         args
     };
-    // Top-level keys against the tool's published input schema, before
-    // parsing: strict whatever the args struct itself does with an extra
-    // key, so this router never depends on how the macro enforces it.
+    // The same strict parse the MCP tool of this name runs
+    // (`impress_service_core::strict`): its published input schema decides
+    // which fields exist, nested ones included.
     let tool = format!("impress-surface-service_{}", method.replace('_', "-"));
-    if let (Some(descriptor), Value::Object(map)) =
-        (McpToolDescriptor::iter().find(|d| d.name == tool), &args)
-    {
-        let schema = (descriptor.input_schema)();
-        let known: Vec<&str> = schema
-            .get("properties")
-            .and_then(Value::as_object)
-            .map(|p| p.keys().map(String::as_str).collect())
-            .unwrap_or_default();
-        if let Some(extra) = map.keys().find(|k| !known.contains(&k.as_str())) {
-            return Some(impress_service_core::refusal::argument_refusal(
-                &tool,
-                &format!(
-                    "unknown field `{extra}`, expected one of {}",
-                    known.join(", ")
-                ),
-            ));
-        }
-    }
+    let schema = McpToolDescriptor::iter()
+        .find(|d| d.name == tool)
+        .map(|d| (d.input_schema)())
+        .unwrap_or(Value::Null);
     macro_rules! verb {
         ($tool:literal, $args:ident, |$a:ident| $call:expr) => {{
-            let $a: $args = match serde_json::from_value(args) {
+            let $a: $args = match impress_service_core::strict::args(&tool, args, &schema) {
                 Ok(parsed) => parsed,
-                Err(e) => {
-                    return Some(impress_service_core::refusal::argument_refusal(
-                        concat!("impress-surface-service_", $tool),
-                        &e,
-                    ))
-                }
+                Err(refusal) => return Some(impress_service_core::strict::refusal_value(&refusal)),
             };
             let out = $call.await;
             Some(serde_json::to_value(out).unwrap_or_else(|e| {

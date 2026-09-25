@@ -314,6 +314,18 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   ring) whenever a framework build and a plain `cargo test` alternated.
 
 - **Rust-first logic**: non-UI logic added in Swift needs a justification or a `*-service` Rust trait — `#[impress_service]` derives the MCP tool, CLI subcommand, and Tier-A testability for free. (The Rust-generated MCP server, `crates/impress-mcp`, is the only one; the hand-written TypeScript server was deleted on 2026-07-26 — see `docs/mcp-migration-ledger.md`.)
+- **The layout verbs have a written contract** (plan wave 7 T6): an argument
+  field the verb's input schema does not name is refused `invalid-argument`
+  naming it (`impress_service_core::strict`, opt-in per service with
+  `strict_args = true`); a pane reference is written one way, exactly one of
+  `{"id": N}`, `{"role": "…"}`, `{"direction": "…"}`, `{"focused": true}`;
+  every result and `/api/layout/*` body is snake_case with `"wire_version": 1`
+  and refuses as `{"ok": false, "code", "message"}`; results carry the live
+  row's `revision`, and a verb's `expected_revision` that went stale is
+  `conflict`. The view-kind list is Rust's (`ViewKindId::KNOWN`, exported as
+  `layout_vocabulary_json`) and Swift is pinned to it by tests — never add a
+  kind on the Swift side alone. See docs/chassis-capability-matrix.md
+  § HTTP automation and § View kinds.
 - **AI providers live in Rust** (ADR-0029): every model host the suite talks to — oMLX,
   Ollama, any OpenAI-compatible server, Anthropic, OpenAI, Google, OpenRouter — is a
   `crates/impress-ai` client behind the `InferenceProvider` port, declared once in

@@ -38,35 +38,50 @@ fn call(tool: &str, args: Value) -> Value {
 
 fn split() -> ShowTargetDto {
     ShowTargetDto {
-        role: None,
-        tile: None,
         split: Some(SplitTargetDto {
             direction: "vertical".into(),
             from_focused: true,
         }),
+        ..ShowTargetDto::default()
     }
 }
 
 // ─── Strict arguments (AC-F3, RL-L3's surface half) ─────────────────────────
 
-/// `{"id": 7}` — the layout verbs' spelling of a pane — used to be read as
-/// `{}` and open a new split. It is refused, naming the field.
+/// A pane reference in a spelling the suite no longer takes — the retired
+/// tagged `{"ref": "id", "tile": 7}`, or this verb's own old `{"tile": 7}` —
+/// is refused, naming the field. `{"id": 7}`, the one spelling, is the
+/// pane; before T6 an unknown key was ignored and the surface opened in a new
+/// split instead.
 #[test]
 fn an_unknown_field_in_a_target_is_refused_naming_it() {
+    for (target, field) in [
+        (json!({ "ref": "id", "tile": 7 }), "ref"),
+        (json!({ "tile": 7 }), "tile"),
+    ] {
+        let answer = call(
+            "impress-surface-service_surface-show",
+            json!({ "id": "00000000-0000-4000-8000-000000000000",
+                    "target": target, "app_id": "impress" }),
+        );
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["code"], "invalid-argument", "{answer}");
+        assert!(
+            answer["message"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("'{field}'")),
+            "must name `{field}`: {answer}"
+        );
+        assert_eq!(answer["wire_version"], 1);
+    }
+    // The one spelling reaches the verb (which then finds no such surface).
     let answer = call(
         "impress-surface-service_surface-show",
         json!({ "id": "00000000-0000-4000-8000-000000000000",
                 "target": { "id": 7 }, "app_id": "impress" }),
     );
-    assert_eq!(answer["ok"], false, "{answer}");
-    assert_eq!(answer["code"], "invalid-argument", "{answer}");
-    assert!(
-        answer["message"]
-            .as_str()
-            .unwrap()
-            .contains("unknown field `id`"),
-        "{answer}"
-    );
+    assert_eq!(answer["code"], "not-found", "{answer}");
     assert_eq!(answer["wire_version"], 1);
 }
 
@@ -96,10 +111,17 @@ fn an_unknown_top_level_argument_is_refused_naming_it() {
             "{tool} must name `{field}`: {answer}"
         );
     }
-    // No arguments at all is `{}` for a verb that takes none.
+    // `{}` is a verb that takes none called with nothing; a key there is refused.
     assert_eq!(
-        call("impress-surface-service_surface-examples", Value::Null)["ok"],
+        call("impress-surface-service_surface-examples", json!({}))["ok"],
         true
+    );
+    assert_eq!(
+        call(
+            "impress-surface-service_surface-examples",
+            json!({ "zzz": 1 })
+        )["code"],
+        "invalid-argument"
     );
 }
 
@@ -119,10 +141,10 @@ async fn a_target_must_name_exactly_one_pane() {
         (
             ShowTargetDto {
                 role: Some("detail".into()),
-                tile: Some(3),
-                split: None,
+                id: Some(3),
+                ..ShowTargetDto::default()
             },
-            "role and tile",
+            "id and role",
         ),
         (
             ShowTargetDto {
@@ -363,6 +385,7 @@ async fn params_come_from_the_pane_and_effects_land_in_the_panes_app() {
             "publication".into(),
             vec![paper.to_string()],
             None,
+            None,
         )
         .await;
     assert!(selected.ok, "{}", selected.message);
@@ -495,4 +518,28 @@ async fn an_unknown_selftest_tier_is_refused() {
     let report = DefaultSurfaceSelftestService.run_selftest("x".into()).await;
     assert!(!report.ok());
     assert!(report.results[0].detail.contains("unknown tier 'x'"));
+}
+
+/// RS-S8 (4) and RL-L12's surface side: an `open` of a view kind the layout
+/// does not know is an error; a `publish` with no declared param is a warning.
+#[tokio::test]
+async fn the_layout_vocabulary_is_checked() {
+    let (_, service) = world();
+    let spec = json!({ "surface": "1.0", "name": "x", "state": {},
+        "root": { "column": [
+            { "id": "o", "button": { "label": "Open", "on_click": [
+                { "open": { "query": { "kinds": ["publication"] }, "view_kind": "nope" } } ] } },
+            { "id": "t", "table": { "columns": ["id"], "rows": [], "on_select": [ { "publish": {} } ] } }
+        ] } });
+    let problems = service.surface_validate(SpecArg(spec)).await.problems;
+    let at = |path: &str| problems.iter().find(|p| p.path == path).cloned();
+    assert!(
+        at("/root/column/0/button/on_click/0/open/view_kind").is_some_and(|p| p.is_error()),
+        "{problems:?}"
+    );
+    assert_eq!(
+        at("/root/column/1/table/on_select/0/publish").map(|p| p.severity),
+        Some(Severity::Warning),
+        "{problems:?}"
+    );
 }

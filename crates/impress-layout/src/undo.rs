@@ -138,6 +138,7 @@ pub fn stack_for(verb: &Verb) -> StackKind {
         | Verb::Close { .. }
         | Verb::Swap { .. }
         | Verb::Resize { .. }
+        | Verb::SetCollapsed { .. }
         | Verb::SetContainerKind { .. }
         | Verb::Maximize { .. }
         | Verb::Restore
@@ -215,6 +216,60 @@ impl UndoStacks {
         }
         self.prune(layout);
         Ok(patch)
+    }
+
+    /// Apply several verbs as ONE gesture: all or none, and one undo step.
+    ///
+    /// What an outline click is (review PH-M2): focus the navigator, publish
+    /// the row on its channel, re-point the list — three verbs the person
+    /// made with one click, so one ⌘Z must take all three back, and a refusal
+    /// of the third must leave the first two unapplied. The verbs run in
+    /// order on a scratch copy; the first refusal returns with the layout
+    /// untouched. The step is the diff of the whole run, recorded on the ring
+    /// the FIRST recorded verb's rule picks (its target resolved before
+    /// anything runs, as [`Self::apply`] does) — for an outline click that is
+    /// the navigator's exploration ring, which is where ⌘Z goes after the
+    /// click, since focus is on the navigator. The step's `verb` is that
+    /// first recorded verb (the log's label); reverting never reads it.
+    /// `Ok(None)` for an empty list: nothing to apply.
+    pub fn apply_all(
+        &mut self,
+        layout: &mut Layout,
+        verbs: Vec<Verb>,
+    ) -> Result<Option<Patch>, LayoutError> {
+        let window = layout.current_window()?;
+        let Some(principal) = verbs
+            .iter()
+            .find(|verb| stack_for(verb) != StackKind::None)
+            .or_else(|| verbs.first())
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let destination = match stack_for(&principal) {
+            StackKind::Arrangement => Destination::Arrangement,
+            StackKind::Exploration(reference) => match layout.resolve(window, &reference) {
+                Ok(tile) => Destination::Pane(tile),
+                Err(_) => Destination::Unrecorded,
+            },
+            StackKind::None => Destination::Unrecorded,
+        };
+        let before = layout.clone();
+        let mut scratch = before.clone();
+        for verb in verbs {
+            // Each verb resolves against the key window as it stands after
+            // the ones before it — exactly as if they were applied one by one.
+            scratch.apply(verb)?;
+        }
+        let patch = Patch::diff(principal, &before, &scratch);
+        *layout = scratch;
+        match destination {
+            Destination::Arrangement => self.arrangement.push(patch.clone()),
+            Destination::Pane(tile) => self.exploration_ring(tile).push(patch.clone()),
+            Destination::Unrecorded => {}
+        }
+        self.prune(layout);
+        Ok(Some(patch))
     }
 
     /// The exploration ring of one pane, created if absent.

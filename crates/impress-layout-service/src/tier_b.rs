@@ -89,7 +89,7 @@ const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
 /// maps this list, so a capability added below without a description here
 /// fails to compile rather than silently vanishing from a headless run.
-const CATALOGUE: [(&str, &str); 12] = [
+const CATALOGUE: [(&str, &str); 13] = [
     ("app.reachable", "impress HTTP automation is reachable"),
     (
         "layout.apply_preset",
@@ -113,7 +113,7 @@ const CATALOGUE: [(&str, &str); 12] = [
     ),
     (
         "layout.hidden_share",
-        "A pane resizes to HIDDEN_SHARE and back",
+        "set-collapsed hides the navigator and shows it again at exactly its share",
     ),
     (
         "layout.outline_collection_row",
@@ -134,6 +134,10 @@ const CATALOGUE: [(&str, &str); 12] = [
     (
         "layout.console_pane",
         "A `console` pane split beside the detail pane renders the app's log, scoped by its `view_state`",
+    ),
+    (
+        "layout.wire_contract",
+        "Layout bodies are snake_case with wire_version; an unknown field, a stale expected_revision and an unknown view kind are refused with their codes",
     ),
 ];
 
@@ -203,6 +207,21 @@ impl Http {
         decode(path, response).await
     }
 
+    /// POST, returning the status and body whatever they are — for checking
+    /// that a refusal is the refusal it should be.
+    async fn post_raw(&self, path: &str, body: &Value) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .post(&url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("POST {path}: {e}"))?;
+        let (status, value, _) = read(path, response).await?;
+        Ok((status.as_u16(), value))
+    }
+
     /// `POST /api/layout/verb` with one `impress_layout::Verb` body.
     async fn verb(&self, verb: &Value) -> Result<Value, String> {
         self.post("/api/layout/verb", verb).await
@@ -228,11 +247,25 @@ impl Http {
     }
 }
 
-/// Read one response: non-2xx, or a `{"status":"error"}` envelope, is an error
-/// carrying whatever the app said. The layout routes wrap success in
-/// `{"status":"ok", …}`; the surface routes answer bare JSON. Both are handled
-/// by checking for the error shapes rather than requiring the ok shape.
+/// Read one response: non-2xx, or an `{"ok": false}` envelope, is an error
+/// carrying the refusal's `code` and `message` — the one wire convention
+/// (`impress_service_core::wire`), which the layout and surface routes share.
 async fn decode(path: &str, response: reqwest::Response) -> Result<Value, String> {
+    let (status, value, text) = read(path, response).await?;
+    if !status.is_success() || value.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(format!(
+            "{path}: HTTP {status}: {}",
+            refusal_of(&value).unwrap_or(text)
+        ));
+    }
+    Ok(value)
+}
+
+/// The status, the JSON body, and the raw text of one response.
+async fn read(
+    path: &str,
+    response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, Value, String), String> {
     let status = response.status();
     let text = response
         .text()
@@ -240,21 +273,16 @@ async fn decode(path: &str, response: reqwest::Response) -> Result<Value, String
         .map_err(|e| format!("{path}: reading body: {e}"))?;
     let value: Value = serde_json::from_str(&text)
         .map_err(|e| format!("{path}: HTTP {status}, body is not JSON ({e}): {text}"))?;
-    if !status.is_success() {
-        let reason = value
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or(text.as_str());
-        return Err(format!("{path}: HTTP {status}: {reason}"));
-    }
-    if value.get("status").and_then(Value::as_str) == Some("error") {
-        let reason = value
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("unspecified");
-        return Err(format!("{path}: refused: {reason}"));
-    }
-    Ok(value)
+    Ok((status, value, text))
+}
+
+/// `[code] message` out of a refusal envelope.
+fn refusal_of(value: &Value) -> Option<String> {
+    let message = value.get("message").and_then(Value::as_str)?;
+    Some(match value.get("code").and_then(Value::as_str) {
+        Some(code) => format!("[{code}] {message}"),
+        None => message.to_string(),
+    })
 }
 
 // ─── tree readers ─────────────────────────────────────────────────────────
@@ -419,6 +447,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(source_pane_session_capability(&http).await);
     out.push(reading_preset_capability(&http).await);
     out.push(console_pane_capability(&http).await);
+    out.push(wire_contract_capability(&http).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
@@ -491,7 +520,7 @@ async fn version_moves_capability(http: &Http) -> CapabilityResult {
         let split = http
             .verb(&json!({
                 "verb": "split",
-                "target": { "ref": "id", "tile": detail },
+                "target": {"id": detail},
                 "dir": "horizontal",
                 "after": true,
                 "new": {
@@ -528,8 +557,8 @@ async fn version_moves_capability(http: &Http) -> CapabilityResult {
         let before = version;
         let swap = json!({
             "verb": "swap",
-            "a": { "ref": "role", "role": "list" },
-            "b": { "ref": "role", "role": "detail" }
+            "a": {"role": "list"},
+            "b": {"role": "detail"}
         });
         http.verb(&swap).await?;
         version = http.version().await?;
@@ -543,7 +572,7 @@ async fn version_moves_capability(http: &Http) -> CapabilityResult {
         let before = version;
         http.verb(&json!({
             "verb": "close",
-            "target": { "ref": "id", "tile": new_tile }
+            "target": {"id": new_tile}
         }))
         .await?;
         version = http.version().await?;
@@ -657,7 +686,7 @@ async fn channel_selection_capability(http: &Http) -> CapabilityResult {
         let selected = uuid::Uuid::new_v4().to_string();
         http.verb(&json!({
             "verb": "select",
-            "target": { "ref": "id", "tile": list },
+            "target": {"id": list},
             "kind": kind,
             "ids": [selected]
         }))
@@ -811,7 +840,7 @@ async fn outline_collection_capability(http: &Http) -> CapabilityResult {
         let before_select = log_cursor();
         http.verb(&json!({
             "verb": "select",
-            "target": { "ref": "id", "tile": list_tile },
+            "target": {"id": list_tile},
             "kind": kind,
             "ids": [item.to_string()]
         }))
@@ -906,7 +935,7 @@ async fn reading_preset_capability(http: &Http) -> CapabilityResult {
         query.insert("text".into(), Value::Null);
         http.verb(&json!({
             "verb": "set-query",
-            "target": { "ref": "id", "tile": list },
+            "target": {"id": list},
             "query": read_papers
         }))
         .await?;
@@ -914,7 +943,7 @@ async fn reading_preset_capability(http: &Http) -> CapabilityResult {
         let before = log_cursor();
         http.verb(&json!({
             "verb": "select",
-            "target": { "ref": "id", "tile": list },
+            "target": {"id": list},
             "kind": "publication",
             "ids": [paper]
         }))
@@ -962,7 +991,7 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
         let split = http
             .verb(&json!({
                 "verb": "split",
-                "target": { "ref": "id", "tile": detail },
+                "target": {"id": detail},
                 "dir": "horizontal",
                 "after": true,
                 "new": pdf_spec
@@ -994,7 +1023,7 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
             query.insert("text".into(), Value::Null);
             http.verb(&json!({
                 "verb": "set-query",
-                "target": { "ref": "id", "tile": list },
+                "target": {"id": list},
                 "query": read_papers
             }))
             .await?;
@@ -1015,7 +1044,7 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
                     let before = log_cursor();
                     http.verb(&json!({
                         "verb": "select",
-                        "target": { "ref": "id", "tile": list },
+                        "target": {"id": list},
                         "kind": "publication",
                         "ids": [paper]
                     }))
@@ -1037,7 +1066,7 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
         };
 
         // Tidy up even when the log never came.
-        http.verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": pdf_tile } }))
+        http.verb(&json!({ "verb": "close", "target": {"id": pdf_tile} }))
             .await?;
         outcome
     })
@@ -1065,7 +1094,7 @@ async fn console_pane_capability(http: &Http) -> CapabilityResult {
         let split = http
             .verb(&json!({
                 "verb": "split",
-                "target": { "ref": "id", "tile": detail },
+                "target": {"id": detail},
                 "dir": "vertical",
                 "after": true,
                 "new": { "view_kind": "console", "view_state": view_state }
@@ -1100,7 +1129,7 @@ async fn console_pane_capability(http: &Http) -> CapabilityResult {
         .await;
 
         // Tidy up even when the log never came.
-        http.verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": console } }))
+        http.verb(&json!({ "verb": "close", "target": {"id": console} }))
             .await?;
         checked.map(|line| {
             format!(
@@ -1156,7 +1185,7 @@ async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
         let source = http
             .verb(&json!({
                 "verb": "split",
-                "target": { "ref": "id", "tile": detail },
+                "target": {"id": detail},
                 "dir": "horizontal",
                 "after": true,
                 "new": spec
@@ -1177,7 +1206,7 @@ async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
             let copy = http
                 .verb(&json!({
                     "verb": "split",
-                    "target": { "ref": "id", "tile": source },
+                    "target": {"id": source},
                     "dir": "vertical",
                     "after": true,
                     "new": copy_spec
@@ -1211,7 +1240,7 @@ async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
             let pdf = http
                 .verb(&json!({
                     "verb": "split",
-                    "target": { "ref": "id", "tile": source },
+                    "target": {"id": source},
                     "dir": "horizontal",
                     "after": true,
                     "new": pdf_spec
@@ -1223,8 +1252,8 @@ async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
             made.push(pdf);
             http.verb(&json!({
                 "verb": "swap",
-                "a": { "ref": "id", "tile": source },
-                "b": { "ref": "id", "tile": copy }
+                "a": {"id": source},
+                "b": {"id": copy}
             }))
             .await?;
             let tree = http.tree().await?;
@@ -1243,7 +1272,7 @@ async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
         // Tidy up whatever was made, newest first, even after a failure.
         for tile in made.iter().rev() {
             let _ = http
-                .verb(&json!({ "verb": "close", "target": { "ref": "id", "tile": tile } }))
+                .verb(&json!({ "verb": "close", "target": {"id": tile} }))
                 .await;
         }
         let (copy, copy_session, pdf) = outcome?;
@@ -1559,41 +1588,129 @@ async fn hidden_share_capability(http: &Http) -> CapabilityResult {
         let tree = http.tree().await?;
         let navigator = tile_with_role(&tree, "navigator")?;
         let original = share_of(&tree, navigator)?;
+        let toggle = json!({"verb": "set-collapsed", "target": {"role": "navigator"}});
 
-        http.op(&json!({
-            "op": "resize-share",
-            "pane": navigator,
-            "share": impress_layout::HIDDEN_SHARE
-        }))
-        .await?;
+        // ⌃⌘S as the tree's own verb (review RL-L13): the decision to hide
+        // or show is taken under the verb's lock, from the tree.
+        http.verb(&toggle).await?;
         let hidden = share_of(&http.tree().await?, navigator)?;
         if hidden > f64::from(impress_layout::HIDDEN_SHARE_CEILING) {
             return Err(format!(
-                "resize-share to HIDDEN_SHARE left the pane at {hidden}, above the \
-                 {} ceiling — it would still be visible",
+                "set-collapsed left the navigator at {hidden}, above the {} ceiling — it \
+                 would still be visible",
                 impress_layout::HIDDEN_SHARE_CEILING
             ));
         }
 
-        // Bring it back to the share it had. A person's ⌃⌘S computes the
-        // sibling average; a caller that knows the previous value can simply
-        // restore it, which is both the exact restoration and a visible pane.
-        http.op(&json!({
-            "op": "resize-share",
-            "pane": navigator,
-            "share": original
-        }))
-        .await?;
+        // Showing it again restores EXACTLY the share it had — not the
+        // siblings' average, which is what the Swift toggle used to compute.
+        http.verb(&toggle).await?;
         let restored = share_of(&http.tree().await?, navigator)?;
-        if restored <= f64::from(impress_layout::HIDDEN_SHARE_CEILING) {
+        if (restored - original).abs() > 1e-4 {
             return Err(format!(
-                "the pane stayed hidden at {restored} after being resized back"
+                "the navigator came back at {restored}, not the {original} it had"
             ));
         }
 
         Ok(format!(
             "tile {navigator}: {original} → {hidden} (≤ {}) → {restored}",
             impress_layout::HIDDEN_SHARE_CEILING
+        ))
+    })
+    .await
+}
+
+/// The written contract, over HTTP (plan wave 7, T6): every layout body is
+/// snake_case and carries `wire_version`; a field the verb does not take is
+/// 400 `invalid-argument` naming it; a verb made against a revision someone
+/// has since moved is 409 `conflict` and changes nothing; a view kind outside
+/// the vocabulary is 422 `unknown-view-kind`.
+async fn wire_contract_capability(http: &Http) -> CapabilityResult {
+    let (id, description) = CATALOGUE[12];
+    check(id, description, Tier::B, || async {
+        let tree = http.tree().await?;
+        if tree.get("wire_version").and_then(Value::as_u64)
+            != Some(u64::from(impress_service_core::wire::WIRE_VERSION))
+        {
+            return Err(format!("the tree body carries no wire_version 1: {tree}"));
+        }
+        let camel: Vec<&String> = tree
+            .as_object()
+            .map(|o| {
+                o.keys()
+                    .filter(|k| k.chars().any(char::is_uppercase))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !camel.is_empty() {
+            return Err(format!("the tree body has camelCase keys: {camel:?}"));
+        }
+        let revision = tree
+            .get("revision")
+            .and_then(Value::as_u64)
+            .ok_or("the tree body carries no `revision`")?;
+
+        let (status, body) = http
+            .post_raw(
+                "/api/layout/verb",
+                &json!({"verb": "focus", "target": {"role": "list"}, "targett": {}}),
+            )
+            .await?;
+        if status != 400
+            || body.get("code").and_then(Value::as_str) != Some("invalid-argument")
+            || !body
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .contains("targett")
+        {
+            return Err(format!(
+                "an unknown field was not refused by name: {status} {body}"
+            ));
+        }
+
+        // Move the revision (focus on another pane), then act on the old one.
+        let list = tile_with_role(&tree, "list")?;
+        let detail = tile_with_role(&tree, "detail")?;
+        let focused = tree.get("focused").and_then(Value::as_u64);
+        let other = if focused == Some(list) { detail } else { list };
+        let moved = http
+            .verb(&json!({"verb": "focus", "target": {"id": other}}))
+            .await?;
+        let now = moved
+            .get("revision")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("a verb's body carries no `revision`: {moved}"))?;
+        let (status, body) = http
+            .post_raw(
+                "/api/layout/verb",
+                &json!({"verb": "close", "target": {"id": other}, "expected_revision": revision}),
+            )
+            .await?;
+        if status != 409 || body.get("code").and_then(Value::as_str) != Some("conflict") {
+            return Err(format!(
+                "a stale expected_revision was not a conflict: {status} {body}"
+            ));
+        }
+        if http.tree().await?.get("revision").and_then(Value::as_u64) != Some(now) {
+            return Err("the refused verb wrote something".into());
+        }
+
+        let (status, body) = http
+            .post_raw(
+                "/api/layout/verb",
+                &json!({"verb": "set-view-kind", "target": {"id": other}, "view_kind": "editor"}),
+            )
+            .await?;
+        if status != 422 || body.get("code").and_then(Value::as_str) != Some("unknown-view-kind") {
+            return Err(format!(
+                "an unknown view kind was not refused: {status} {body}"
+            ));
+        }
+
+        Ok(format!(
+            "wire_version 1, snake_case; unknown field → 400; revision {revision} → {now} then \
+             stale → 409; 'editor' → 422"
         ))
     })
     .await
@@ -1632,7 +1749,11 @@ async fn restore_capability(
                     .op(&json!({ "op": "apply-layout", "name": RESTORE_LAYOUT }))
                     .await
                 {
-                    Ok(_) => notes.push("re-applied the arrangement that was live".into()),
+                    Ok(_) => notes.push(
+                        "re-applied the arrangement that was live (its undo rings were reset: \
+                         applying a layout starts them afresh)"
+                            .into(),
+                    ),
                     Err(e) => problems.push(format!("could not re-apply `{RESTORE_LAYOUT}`: {e}")),
                 }
                 match http

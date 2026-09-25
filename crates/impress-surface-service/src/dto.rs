@@ -10,7 +10,7 @@
 //! # The wire (version 1)
 //!
 //! Every result is snake_case and carries `"wire_version": 1`
-//! ([`impress_service_core::WIRE_VERSION`]); every refusal is `ok: false` with
+//! (`impress_service_core::wire::WIRE_VERSION`); every refusal is `ok: false` with
 //! a `code` and a `message` (`impress_service_core::refusal`). Every argument
 //! an agent sends is strict: an unknown field is refused with
 //! `invalid-argument` naming it, never ignored.
@@ -18,7 +18,8 @@
 use std::collections::BTreeMap;
 
 use impress_service_core::refusal::codes;
-use impress_service_core::{wire_version, Refusal, WIRE_VERSION};
+use impress_service_core::wire::{wire_version, WIRE_VERSION};
+use impress_service_core::Refusal;
 use impress_surface::{Problem, SurfaceSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -69,23 +70,30 @@ impl schemars::JsonSchema for SpecArg {
 /// that shows the surface (see `docs/agent-surfaces.md`, "Params").
 pub type ParamsArg = BTreeMap<String, String>;
 
-/// Which pane `surface_show` should put the surface in (`docs/agent-surfaces.md`
-/// "5. surface-show"): exactly ONE of a tile id, a role, or a fresh split
-/// beside the focused pane. Setting none or several is refused with
-/// `invalid-argument` naming them, and so is any other key — `{"id": 7}`
-/// (the layout verbs' spelling) used to be read as `{}` and open a new split
-/// (review AC-F3, RS-S18).
+/// Which pane `surface_show` should put the surface in: exactly ONE of the
+/// suite's one pane-reference spelling — `{"id": N}`, `{"role": "detail"}`,
+/// `{"direction": "right"}`, `{"focused": true}` (the layout verbs'
+/// `PaneRefWire`, so a reference copied from any layout result works here) —
+/// or `{"split": {"direction": "horizontal"|"vertical"}}` for a new pane
+/// beside the focused one. None or several is refused with `invalid-argument`
+/// naming them, and so is any other key (review AC-F3, RS-S18).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ShowTargetDto {
-    /// `navigator` | `list` | `detail` | `preview` | `console` | any role a
-    /// preset assigned. The surface replaces whatever that pane currently
-    /// shows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
     /// A tile id from a prior `get_layout` / `surface_show` result.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tile: Option<u64>,
+    pub id: Option<u64>,
+    /// `navigator` | `list` | `detail` | `preview` | `console` | any role a
+    /// preset assigned. The surface replaces whatever that pane shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// The pane one step from the focused one: `left` | `right` | `up` |
+    /// `down` | `next` | `prev`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<impress_layout::Direction>,
+    /// `true`: the focused pane itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused: Option<bool>,
     /// Open a NEW pane beside the focused one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split: Option<SplitTargetDto>,
@@ -94,48 +102,70 @@ pub struct ShowTargetDto {
 /// What a [`ShowTargetDto`] names, once checked.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShowTarget {
-    Role(String),
-    Tile(u64),
-    Split { direction: String },
+    /// An existing pane, in the layout verbs' own spelling.
+    Pane(impress_layout::PaneRefWire),
+    Split {
+        direction: String,
+    },
 }
 
 impl ShowTargetDto {
     /// The one target this names, or why it names none or several.
     pub fn target(&self) -> Result<ShowTarget, Refusal> {
-        let mut set: Vec<&str> = Vec::new();
-        if self.role.is_some() {
-            set.push("role");
+        let set: Vec<&str> = [
+            ("id", self.id.is_some()),
+            ("role", self.role.is_some()),
+            ("direction", self.direction.is_some()),
+            ("focused", self.focused.is_some()),
+            ("split", self.split.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, on)| on.then_some(name))
+        .collect();
+        if set.len() != 1 {
+            return Err(Refusal::invalid_argument(if set.is_empty() {
+                "target names no pane: give exactly one of {\"id\": N}, {\"role\": \"…\"}, \
+                 {\"direction\": \"…\"}, {\"focused\": true} or {\"split\": {\"direction\": \
+                 \"horizontal\"|\"vertical\"}}"
+                    .to_string()
+            } else {
+                format!(
+                    "target sets {} — give exactly one of id, role, direction, focused or split",
+                    set.join(" and ")
+                )
+            }));
         }
-        if self.tile.is_some() {
-            set.push("tile");
-        }
-        if self.split.is_some() {
-            set.push("split");
-        }
-        match (set.as_slice(), self) {
-            (
-                [_],
-                ShowTargetDto {
-                    role: Some(role), ..
-                },
-            ) => {
+        let pane = impress_layout::PaneRefWire::default();
+        Ok(match self {
+            ShowTargetDto { id: Some(id), .. } => ShowTarget::Pane(impress_layout::PaneRefWire {
+                id: Some(*id),
+                ..pane
+            }),
+            ShowTargetDto {
+                role: Some(role), ..
+            } => {
                 if role.trim().is_empty() {
                     return Err(Refusal::invalid_argument("target.role is empty"));
                 }
-                Ok(ShowTarget::Role(role.clone()))
+                ShowTarget::Pane(impress_layout::PaneRefWire::role(role))
             }
-            (
-                [_],
-                ShowTargetDto {
-                    tile: Some(tile), ..
-                },
-            ) => Ok(ShowTarget::Tile(*tile)),
-            (
-                [_],
-                ShowTargetDto {
-                    split: Some(split), ..
-                },
-            ) => {
+            ShowTargetDto {
+                direction: Some(d), ..
+            } => ShowTarget::Pane(impress_layout::PaneRefWire::direction(*d)),
+            ShowTargetDto {
+                focused: Some(focused),
+                ..
+            } => {
+                if !focused {
+                    return Err(Refusal::invalid_argument(
+                        "target.focused: false names no pane; say true, or name one",
+                    ));
+                }
+                ShowTarget::Pane(impress_layout::PaneRefWire::focused())
+            }
+            ShowTargetDto {
+                split: Some(split), ..
+            } => {
                 if !split.from_focused {
                     return Err(Refusal::invalid_argument(
                         "target.split.from_focused: false is not supported; a split is always \
@@ -143,24 +173,19 @@ impl ShowTargetDto {
                     ));
                 }
                 match split.direction.as_str() {
-                    "horizontal" | "vertical" => Ok(ShowTarget::Split {
+                    "horizontal" | "vertical" => ShowTarget::Split {
                         direction: split.direction.clone(),
-                    }),
-                    other => Err(Refusal::invalid_argument(format!(
-                        "target.split.direction '{other}' is neither 'horizontal' (side by side) \
-                         nor 'vertical' (stacked)"
-                    ))),
+                    },
+                    other => {
+                        return Err(Refusal::invalid_argument(format!(
+                            "target.split.direction '{other}' is neither 'horizontal' (side by \
+                             side) nor 'vertical' (stacked)"
+                        )))
+                    }
                 }
             }
-            ([], _) => Err(Refusal::invalid_argument(
-                "target names no pane: give exactly one of {\"tile\": N}, {\"role\": \"…\"} or \
-                 {\"split\": {\"direction\": \"horizontal\"|\"vertical\"}}",
-            )),
-            (several, _) => Err(Refusal::invalid_argument(format!(
-                "target sets {} — give exactly one of tile, role or split",
-                several.join(" and ")
-            ))),
-        }
+            _ => unreachable!("exactly one field is set"),
+        })
     }
 }
 

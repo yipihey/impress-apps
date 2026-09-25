@@ -119,8 +119,18 @@ enum LayoutOutlineNode {
             )
         case .auxiliary(let route):
             return (obj(["node": .string("auxiliary"), "route": .string(route.rawValue)]), [:])
-        case .addFeed, .addLibraryFeed, .editFeed:
+        // The feed form carries the feed being edited or the library a new
+        // feed is for (review PH-M1), so the pane it routes to opens THAT
+        // form and not generic feed creation.
+        case .addFeed:
             return (obj(["node": .string("feed-form")]), [:])
+        case .editFeed(let feed):
+            return (obj(["node": .string("feed-form"), "feed": .string(feed.uuidString.lowercased())]), [:])
+        case .addLibraryFeed(let library):
+            return (
+                obj(["node": .string("feed-form"), "library": .string(library.uuidString.lowercased())]),
+                [:]
+            )
         }
     }
 
@@ -187,7 +197,10 @@ enum LayoutOutlineNode {
             return fields["form"]?.stringValue.flatMap(SearchFormType.init(rawValue:)).map {
                 .searchForm($0)
             }
-        case "feed-form": return .addFeed
+        case "feed-form":
+            if let feed = uuid("feed") { return .editFeed(feed) }
+            if let library = uuid("library") { return .addLibraryFeed(library) }
+            return .addFeed
         case "recent": return .recent
         case "artifact-type": return fields["type"]?.stringValue.map { .artifactType($0) }
         case "custom-surface": return fields["id"]?.stringValue.map { .customSurface($0) }

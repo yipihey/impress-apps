@@ -22,6 +22,10 @@
 //  undo, redo, resize-share, save-layout, apply-layout, delete-layout —
 //  because those go through typed FFI methods rather than the JSON door.
 //
+//  WIRE. snake_case keys only (plan wave 7 T6, review AC-F24): the envelope
+//  adds `ok` and `wire_version`, and every key below is the spelling the MCP
+//  verbs answer with — `affected_panes`, `changed_tiles`, `revision`.
+//
 //  ACTOR. `LayoutAutomationRoutes.actor` ("agent"), never `guiActor`. The
 //  undo rings are per-actor-visible in the log, and a script's arrangement
 //  change that claimed to be the human's would be unreadable in exactly the
@@ -48,8 +52,8 @@ extension LayoutController: @retroactive LayoutAutomationHost {
         var payload: [String: Any] = [:]
         if let focused { payload["focused"] = focused }
         if let error = lastRefusal {
-            payload["lastRefusal"] = error
-            if let code = lastRefusalCode { payload["lastRefusalCode"] = code }
+            payload["last_refusal"] = error
+            if let code = lastRefusalCode { payload["last_refusal_code"] = code }
         }
         // The tree itself is Rust's JSON, decoded here only so the response is
         // one object rather than an object with a string of JSON inside it,
@@ -61,11 +65,11 @@ extension LayoutController: @retroactive LayoutAutomationHost {
             let snapshot = try liveSnapshotWithVersion()
             payload["layout"] = snapshot.tree
             payload["version"] = snapshot.version
+            if let revision = snapshot.revision { payload["revision"] = revision }
         } catch {
-            payload["layout"] = NSNull()
             payload["version"] = version
-            payload["snapshotError"] = LayoutController.describe(error)
-            payload["snapshotCode"] = LayoutController.refusalCode(of: error)
+            payload["snapshot_error"] = LayoutController.describe(error)
+            payload["snapshot_code"] = LayoutController.refusalCode(of: error)
             logError("layout tree for automation: snapshot failed — \(error)", category: "layout")
         }
         return payload
@@ -195,10 +199,11 @@ extension LayoutController: @retroactive LayoutAutomationHost {
             category: "layout")
         var payload: [String: Any] = [
             "version": result.version,
-            "affectedPanes": result.affectedPanes,
-            "changedTiles": result.changedTiles,
+            "affected_panes": result.affectedPanes,
+            "changed_tiles": result.changedTiles,
         ]
         if let focused = result.focused { payload["focused"] = focused }
+        if let revision = result.revision { payload["revision"] = revision }
         if let tree = try? JSONSerialization.jsonObject(
             with: Data(result.layoutJson.utf8)) as? [String: Any]
         {
@@ -206,7 +211,7 @@ extension LayoutController: @retroactive LayoutAutomationHost {
         } else {
             // The verb applied; only the echo of the tree is missing. Say so
             // rather than answer as if the response had no tree to carry.
-            payload["layoutError"] = "the applied verb's layout JSON did not parse as an object"
+            payload["layout_error"] = "the applied verb's layout JSON did not parse as an object"
             logError(
                 "layout applied (agent): \(what) — layout JSON did not parse (\(result.layoutJson.count) bytes)",
                 category: "layout")

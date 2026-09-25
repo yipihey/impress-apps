@@ -647,12 +647,11 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
         .surface_show(
             id.clone(),
             ShowTargetDto {
-                role: None,
-                tile: None,
                 split: Some(SplitTargetDto {
                     direction: "vertical".into(),
                     from_focused: true,
                 }),
+                ..ShowTargetDto::default()
             },
             app.into(),
             Some(HOST.into()),
@@ -678,6 +677,7 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
             Some(HOST.into()),
             impress_layout_service::dto::PaneRefDto::tile(impress_layout::TileId::new(tile)),
             other,
+            None,
             None,
         )
         .await;

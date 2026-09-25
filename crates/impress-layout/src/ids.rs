@@ -200,20 +200,72 @@ string_newtype! {
     ViewKindId
 }
 
+/// The view-kind vocabulary is this list and nothing else (review PH-M7,
+/// RL-L12). A verb that names a kind outside it (`set-view-kind`,
+/// `set-pane`, a split's new pane) is refused with `unknown-view-kind`; a
+/// STORED tree that names one still loads and renders a placeholder that
+/// keeps its spec (ADR-0031 D4), because a newer build may have written it.
+///
+/// The Swift hosts register exactly these: the kit `placeholder`, `surface`
+/// and `console`, the chassis the rest. `ChassisViewKindsTests` compares the
+/// Swift registry with [`ViewKindId::KNOWN`] as the FFI exports it
+/// (`layout_vocabulary_json`), so a kind added on one side only fails a test.
 impl ViewKindId {
+    /// The navigator: the chassis sidebar as a pane.
     pub const OUTLINE: ViewKindId = ViewKindId(Cow::Borrowed("outline"));
+    /// Rows of the pane's query.
     pub const LIST: ViewKindId = ViewKindId(Cow::Borrowed("list"));
+    /// One record's detail: imbib's Info tab, a manuscript's info.
     pub const INFO: ViewKindId = ViewKindId(Cow::Borrowed("info"));
+    /// A publication's PDF, or a manuscript's compiled preview.
     pub const PDF: ViewKindId = ViewKindId(Cow::Borrowed("pdf"));
+    /// A publication's notes (imbib's Notes tab).
+    pub const NOTES: ViewKindId = ViewKindId(Cow::Borrowed("notes"));
+    /// A publication's BibTeX (imbib's BibTeX tab).
+    pub const BIBTEX: ViewKindId = ViewKindId(Cow::Borrowed("bibtex"));
     /// A source buffer. Session-bearing (ADR-0031 D6): the spelling is
     /// `source`, which is what the presets and the Swift `ViewKindRegistry`
-    /// both say.
+    /// both say. (`editor` is not a view kind.)
     pub const SOURCE: ViewKindId = ViewKindId(Cow::Borrowed("source"));
+    /// A figure's rendered plot.
     pub const PLOT: ViewKindId = ViewKindId(Cow::Borrowed("plot"));
+    /// The app's own log.
     pub const CONSOLE: ViewKindId = ViewKindId(Cow::Borrowed("console"));
+    /// An agent-authored `impress/ui/surface@1.0.0` document (ADR-0033).
+    pub const SURFACE: ViewKindId = ViewKindId(Cow::Borrowed("surface"));
     /// Hosts a legacy `SectionContentView` route unchanged (ADR-0031 D11).
     pub const LEGACY: ViewKindId = ViewKindId(Cow::Borrowed("legacy"));
     pub const PLACEHOLDER: ViewKindId = ViewKindId(Cow::Borrowed("placeholder"));
+
+    /// Every view kind a host renders — the closed vocabulary (see above).
+    pub const KNOWN: &'static [ViewKindId] = &[
+        ViewKindId::OUTLINE,
+        ViewKindId::LIST,
+        ViewKindId::INFO,
+        ViewKindId::PDF,
+        ViewKindId::NOTES,
+        ViewKindId::BIBTEX,
+        ViewKindId::SOURCE,
+        ViewKindId::PLOT,
+        ViewKindId::CONSOLE,
+        ViewKindId::SURFACE,
+        ViewKindId::LEGACY,
+        ViewKindId::PLACEHOLDER,
+    ];
+
+    /// Is this a kind some host renders?
+    pub fn is_known(&self) -> bool {
+        Self::KNOWN.contains(self)
+    }
+
+    /// The vocabulary as prose, for a refusal: `outline, list, …`.
+    pub fn known_list() -> String {
+        Self::KNOWN
+            .iter()
+            .map(ViewKindId::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 
     /// The view kinds whose panes carry a [`SessionId`] (ADR-0031 D6): the
     /// ones that own state a re-layout must not destroy — an `NSTextView`
@@ -227,6 +279,34 @@ impl ViewKindId {
     pub fn is_session_bearing(&self) -> bool {
         Self::SESSION_BEARING.contains(self)
     }
+}
+
+/// The `view_state` keys a pane's spec is known to carry — defined once here
+/// (review PH-M7). `view_state` itself stays free-form JSON: a view kind may
+/// keep anything of its own there. These are the keys more than one party
+/// reads, so their spelling is a contract:
+///
+/// * the **legacy** pane (ADR-0031 D11): the outline writes `section`, `node`
+///   and `reason` for a row the query algebra cannot express yet
+///   (`impress_layout_service::outline`), and the chassis' legacy pane reads
+///   them to show ONE section's route;
+/// * the **info** pane's `tab` (plan wave 7 T4): which tab of a record's
+///   detail is showing, so an agent's `set-pane` can switch it.
+///
+/// The FFI exports them (`layout_vocabulary_json`) and a Swift test pins the
+/// chassis' spellings to that export.
+pub mod view_state {
+    /// Legacy pane: the section name (`SidebarSectionType` spelling).
+    pub const SECTION: &str = "section";
+    /// Legacy pane: the outline node the row was (`OutlineNode` JSON).
+    pub const NODE: &str = "node";
+    /// Legacy pane: why this row is not a query yet.
+    pub const REASON: &str = "reason";
+    /// Info pane: which detail tab shows.
+    pub const TAB: &str = "tab";
+
+    /// Every key above, for the export.
+    pub const KNOWN: &[&str] = &[SECTION, NODE, REASON, TAB];
 }
 
 string_newtype! {
@@ -263,6 +343,32 @@ mod tests {
     fn channel_numbers_are_clamped() {
         assert_eq!(ChannelId::number(0), ChannelId::Number(1));
         assert_eq!(ChannelId::number(99), ChannelId::Number(8));
+    }
+
+    #[test]
+    fn the_view_kind_vocabulary_is_closed_and_names_every_constant() {
+        for kind in [
+            "outline",
+            "list",
+            "info",
+            "pdf",
+            "notes",
+            "bibtex",
+            "source",
+            "plot",
+            "console",
+            "surface",
+            "legacy",
+            "placeholder",
+        ] {
+            assert!(ViewKindId::from(kind).is_known(), "{kind}");
+        }
+        assert_eq!(ViewKindId::KNOWN.len(), 12);
+        assert!(!ViewKindId::from("editor").is_known());
+        assert!(!ViewKindId::from("publications").is_known());
+        for kind in ViewKindId::SESSION_BEARING {
+            assert!(kind.is_known());
+        }
     }
 
     #[test]

@@ -75,6 +75,7 @@ async fn interleave(
             true,
             None,
             Some("agent".into()),
+            None,
         )
         .await;
     assert!(split.ok, "{}", split.message);
@@ -87,6 +88,7 @@ async fn interleave(
             PaneRefDto::role("list"),
             kinds("manuscript"),
             Some("human".into()),
+            None,
         )
         .await;
     assert!(query.ok, "{}", query.message);
@@ -103,6 +105,7 @@ async fn interleave(
             device(),
             PaneRefDto::role("navigator"),
             Some("agent".into()),
+            None,
         )
         .await;
     assert!(close.ok, "{}", close.message);
@@ -117,6 +120,7 @@ async fn interleave(
             true,
             None,
             Some("human".into()),
+            None,
         )
         .await;
     assert!(split_again.ok, "{}", split_again.message);
@@ -185,6 +189,7 @@ async fn a_writer_whose_row_moved_drops_its_rings_and_says_so() {
             PaneRefDto::role("list"),
             kinds("manuscript"),
             Some("human".into()),
+            None,
         )
         .await;
     assert!(explored.ok, "{}", explored.message);
@@ -195,6 +200,7 @@ async fn a_writer_whose_row_moved_drops_its_rings_and_says_so() {
             PaneRefDto::role("navigator"),
             Some("console".into()),
             Some("agent".into()),
+            None,
         )
         .await;
     assert!(moved.ok, "{}", moved.message);
@@ -204,8 +210,9 @@ async fn a_writer_whose_row_moved_drops_its_rings_and_says_so() {
             APP.into(),
             device(),
             "exploration".into(),
-            PaneRefDto::role("list"),
+            Some(PaneRefDto::role("list")),
             Some("human".into()),
+            None,
         )
         .await;
     assert!(!undo.ok, "nothing was undone: {undo:?}");
@@ -247,6 +254,7 @@ fn a_save_that_loses_the_race_writes_nothing() {
                 PaneRefDto::role("list"),
                 kinds("manuscript"),
                 Some("agent".into()),
+                None,
             ));
             assert!(theirs.ok, "{}", theirs.message);
             // …and this session writes a tree built on the old revision.
@@ -376,6 +384,7 @@ async fn the_first_verb_after_a_quarantine_reports_it() {
             device(),
             PaneRefDto::role("list"),
             Some("human".into()),
+            None,
         )
         .await;
     assert!(focus.ok, "{}", focus.message);

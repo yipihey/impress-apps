@@ -233,6 +233,7 @@ async fn cap_split() -> CapabilityResult {
                     true,
                     None,
                     Some("human".into()),
+                    None,
                 )
                 .await;
             want(r.ok, r.message.clone())?;
@@ -283,6 +284,7 @@ async fn cap_move_tile() -> CapabilityResult {
                     role_ref("detail"),
                     "right".into(),
                     None,
+                    None,
                 )
                 .await;
             want(r.ok, r.message.clone())?;
@@ -306,7 +308,7 @@ async fn cap_close() -> CapabilityResult {
             let w = World::open()?;
             let r = w
                 .service
-                .close(APP.into(), w.device(), role_ref("navigator"), None)
+                .close(APP.into(), w.device(), role_ref("navigator"), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let layout = w.persisted()?;
@@ -339,6 +341,7 @@ async fn cap_swap() -> CapabilityResult {
                     role_ref("list"),
                     role_ref("detail"),
                     None,
+                    None,
                 )
                 .await;
             want(r.ok, r.message.clone())?;
@@ -369,6 +372,7 @@ async fn cap_resize() -> CapabilityResult {
                     w.device(),
                     root.raw(),
                     vec![3.0, 2.0, 1.0],
+                    None,
                     None,
                 )
                 .await;
@@ -402,7 +406,14 @@ async fn cap_set_container_kind() -> CapabilityResult {
             let before = leaves(&layout)?;
             let r = w
                 .service
-                .set_container_kind(APP.into(), w.device(), root.raw(), "tabs".into(), None)
+                .set_container_kind(
+                    APP.into(),
+                    w.device(),
+                    root.raw(),
+                    "tabs".into(),
+                    None,
+                    None,
+                )
                 .await;
             want(r.ok, r.message.clone())?;
             let after = w.persisted()?;
@@ -433,7 +444,7 @@ async fn cap_maximize_restore() -> CapabilityResult {
 
             let r = w
                 .service
-                .maximize(APP.into(), w.device(), role_ref("detail"), None)
+                .maximize(APP.into(), w.device(), role_ref("detail"), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let zoomed = w.persisted()?;
@@ -446,7 +457,7 @@ async fn cap_maximize_restore() -> CapabilityResult {
                 "maximize must not mutate the tree — every share and session survives it",
             )?;
 
-            let r = w.service.restore(APP.into(), w.device(), None).await;
+            let r = w.service.restore(APP.into(), w.device(), None, None).await;
             want(r.ok, r.message.clone())?;
             want(
                 w.persisted()?
@@ -471,7 +482,7 @@ async fn cap_detach() -> CapabilityResult {
             let w = World::open()?;
             let r = w
                 .service
-                .detach(APP.into(), w.device(), role_ref("detail"), None)
+                .detach(APP.into(), w.device(), role_ref("detail"), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let layout = w.persisted()?;
@@ -508,7 +519,7 @@ async fn cap_set_pane() -> CapabilityResult {
 
             let r = w
                 .service
-                .set_pane(APP.into(), w.device(), role_ref("list"), spec, None)
+                .set_pane(APP.into(), w.device(), role_ref("list"), spec, None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let layout = w.persisted()?;
@@ -542,7 +553,7 @@ async fn cap_set_query() -> CapabilityResult {
             };
             let r = w
                 .service
-                .set_query(APP.into(), w.device(), role_ref("list"), query, None)
+                .set_query(APP.into(), w.device(), role_ref("list"), query, None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let layout = w.persisted()?;
@@ -573,6 +584,7 @@ async fn cap_set_view_kind() -> CapabilityResult {
                     w.device(),
                     role_ref("detail"),
                     "pdf".into(),
+                    None,
                     None,
                 )
                 .await;
@@ -615,6 +627,7 @@ async fn cap_bind_param() -> CapabilityResult {
                     DETAIL_PARAM.into(),
                     ParamSource::Fixed { item: pinned },
                     None,
+                    None,
                 )
                 .await;
             want(r.ok, r.message.clone())?;
@@ -653,7 +666,14 @@ async fn cap_set_channel() -> CapabilityResult {
             let w = World::open()?;
             let r = w
                 .service
-                .set_channel(APP.into(), w.device(), role_ref("list"), "2".into(), None)
+                .set_channel(
+                    APP.into(),
+                    w.device(),
+                    role_ref("list"),
+                    "2".into(),
+                    None,
+                    None,
+                )
                 .await;
             want(r.ok, r.message.clone())?;
             let layout = w.persisted()?;
@@ -677,7 +697,7 @@ async fn cap_set_default_channel() -> CapabilityResult {
             let w = World::open()?;
             let r = w
                 .service
-                .set_default_channel(APP.into(), w.device(), None, "4".into(), None)
+                .set_default_channel(APP.into(), w.device(), None, "4".into(), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let layout = w.persisted()?;
@@ -705,6 +725,7 @@ async fn cap_set_role() -> CapabilityResult {
                     w.device(),
                     role_ref("navigator"),
                     Some("console".into()),
+                    None,
                     None,
                 )
                 .await;
@@ -741,7 +762,7 @@ async fn cap_focus() -> CapabilityResult {
             let navigator = w.tile_with_role("navigator").await?;
             let r = w
                 .service
-                .focus(APP.into(), w.device(), role_ref("navigator"), None)
+                .focus(APP.into(), w.device(), role_ref("navigator"), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             want(
@@ -766,12 +787,12 @@ async fn cap_focus_direction() -> CapabilityResult {
         || async {
             let w = World::open()?;
             w.service
-                .focus(APP.into(), w.device(), role_ref("navigator"), None)
+                .focus(APP.into(), w.device(), role_ref("navigator"), None, None)
                 .await;
             let list = w.tile_with_role("list").await?;
             let r = w
                 .service
-                .focus_direction(APP.into(), w.device(), "right".into(), None)
+                .focus_direction(APP.into(), w.device(), "right".into(), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             want(
@@ -802,6 +823,7 @@ async fn cap_select() -> CapabilityResult {
                     "publication".into(),
                     vec![chosen.to_string()],
                     Some("human".into()),
+                    None,
                 )
                 .await;
             want(r.ok, r.message.clone())?;
@@ -840,7 +862,7 @@ async fn cap_set_window_geometry() -> CapabilityResult {
             };
             let r = w
                 .service
-                .set_window_geometry(APP.into(), w.device(), None, Some(geometry), None)
+                .set_window_geometry(APP.into(), w.device(), None, Some(geometry), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             let stored = w
@@ -853,7 +875,7 @@ async fn cap_set_window_geometry() -> CapabilityResult {
 
             let r = w
                 .service
-                .set_window_geometry(APP.into(), w.device(), None, None, None)
+                .set_window_geometry(APP.into(), w.device(), None, None, None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             want(
@@ -890,6 +912,7 @@ async fn cap_save_and_apply_layout() -> CapabilityResult {
                         display: None,
                     }),
                     None,
+                    None,
                 )
                 .await;
             let saved = w
@@ -906,7 +929,7 @@ async fn cap_save_and_apply_layout() -> CapabilityResult {
 
             // Wreck the arrangement …
             w.service
-                .close(APP.into(), w.device(), role_ref("navigator"), None)
+                .close(APP.into(), w.device(), role_ref("navigator"), None, None)
                 .await;
             want(
                 w.persisted()?.panes().len() == 2,
@@ -922,6 +945,7 @@ async fn cap_save_and_apply_layout() -> CapabilityResult {
                     Some("Triage".into()),
                     None,
                     Some("human".into()),
+                    None,
                 )
                 .await;
             want(applied.ok, applied.message.clone())?;
@@ -967,7 +991,7 @@ async fn cap_apply_layout_by_ordinal() -> CapabilityResult {
 
             // Layout 2: two panes.
             w.service
-                .close(APP.into(), w.device(), role_ref("navigator"), None)
+                .close(APP.into(), w.device(), role_ref("navigator"), None, None)
                 .await;
             let second = w
                 .service
@@ -984,7 +1008,14 @@ async fn cap_apply_layout_by_ordinal() -> CapabilityResult {
             for (index, name) in shipped.iter().enumerate() {
                 let r = w
                     .service
-                    .apply_layout(APP.into(), w.device(), None, Some(index as u32 + 1), None)
+                    .apply_layout(
+                        APP.into(),
+                        w.device(),
+                        None,
+                        Some(index as u32 + 1),
+                        None,
+                        None,
+                    )
                     .await;
                 want(r.ok, r.message.clone())?;
                 want(
@@ -997,7 +1028,7 @@ async fn cap_apply_layout_by_ordinal() -> CapabilityResult {
             let offset = shipped.len() as u32;
             let r = w
                 .service
-                .apply_layout(APP.into(), w.device(), None, Some(offset + 2), None)
+                .apply_layout(APP.into(), w.device(), None, Some(offset + 2), None, None)
                 .await;
             want(r.ok, r.message.clone())?;
             want(
@@ -1013,7 +1044,7 @@ async fn cap_apply_layout_by_ordinal() -> CapabilityResult {
             // never a silent no-op on position one.
             let past = w
                 .service
-                .apply_layout(APP.into(), w.device(), None, Some(offset + 99), None)
+                .apply_layout(APP.into(), w.device(), None, Some(offset + 99), None, None)
                 .await;
             want(!past.ok, "an ordinal past the end must be refused")?;
 
@@ -1095,6 +1126,7 @@ async fn cap_undo_redo_arrangement() -> CapabilityResult {
                     true,
                     None,
                     None,
+                    None,
                 )
                 .await;
             want(
@@ -1108,7 +1140,8 @@ async fn cap_undo_redo_arrangement() -> CapabilityResult {
                     APP.into(),
                     w.device(),
                     "arrangement".into(),
-                    PaneRefDto::focused(),
+                    Some(PaneRefDto::focused()),
+                    None,
                     None,
                 )
                 .await;
@@ -1124,7 +1157,8 @@ async fn cap_undo_redo_arrangement() -> CapabilityResult {
                     APP.into(),
                     w.device(),
                     "arrangement".into(),
-                    PaneRefDto::focused(),
+                    Some(PaneRefDto::focused()),
+                    None,
                     None,
                 )
                 .await;
@@ -1158,6 +1192,7 @@ async fn cap_undo_redo_exploration() -> CapabilityResult {
                     role_ref("list"),
                     "outline".into(),
                     None,
+                    None,
                 )
                 .await;
             w.service
@@ -1166,6 +1201,7 @@ async fn cap_undo_redo_exploration() -> CapabilityResult {
                     w.device(),
                     role_ref("detail"),
                     "pdf".into(),
+                    None,
                     None,
                 )
                 .await;
@@ -1176,7 +1212,8 @@ async fn cap_undo_redo_exploration() -> CapabilityResult {
                     APP.into(),
                     w.device(),
                     "exploration".into(),
-                    role_ref("detail"),
+                    Some(role_ref("detail")),
+                    None,
                     None,
                 )
                 .await;
@@ -1202,7 +1239,8 @@ async fn cap_undo_redo_exploration() -> CapabilityResult {
                     APP.into(),
                     w.device(),
                     "exploration".into(),
-                    role_ref("detail"),
+                    Some(role_ref("detail")),
+                    None,
                     None,
                 )
                 .await;
@@ -1302,6 +1340,7 @@ async fn cap_get_pane_compiles_the_detail_query() -> CapabilityResult {
                     "publication".into(),
                     vec![chosen.to_string()],
                     None,
+                    None,
                 )
                 .await;
             want(selected.ok, selected.message.clone())?;
@@ -1361,6 +1400,7 @@ async fn cap_get_channel() -> CapabilityResult {
                     role_ref("list"),
                     "publication".into(),
                     vec![chosen.to_string()],
+                    None,
                     None,
                 )
                 .await;
@@ -1423,7 +1463,11 @@ async fn cap_resolve_reference() -> CapabilityResult {
             // Focus starts on the list, so "right" is the detail pane.
             let by_direction = w
                 .service
-                .resolve_reference(APP.into(), w.device(), PaneRefDto::direction("right"))
+                .resolve_reference(
+                    APP.into(),
+                    w.device(),
+                    PaneRefDto::direction(impress_layout::Direction::Right),
+                )
                 .await;
             want(by_direction.ok, by_direction.message.clone())?;
             want(
@@ -1575,7 +1619,7 @@ async fn cap_one_live_row_per_scope() -> CapabilityResult {
             let w = World::open()?;
             for _ in 0..10 {
                 w.service
-                    .focus_direction(APP.into(), w.device(), "next".into(), None)
+                    .focus_direction(APP.into(), w.device(), "next".into(), None, None)
                     .await;
                 w.service
                     .select(
@@ -1584,6 +1628,7 @@ async fn cap_one_live_row_per_scope() -> CapabilityResult {
                         role_ref("list"),
                         "publication".into(),
                         vec![uuid::Uuid::new_v4().to_string()],
+                        None,
                         None,
                     )
                     .await;
@@ -1643,7 +1688,7 @@ async fn cap_misspelled_reference_is_refused() -> CapabilityResult {
 
             let by_role = w
                 .service
-                .close(APP.into(), w.device(), role_ref("detial"), None)
+                .close(APP.into(), w.device(), role_ref("detial"), None, None)
                 .await;
             want(
                 !by_role.ok,
@@ -1664,6 +1709,7 @@ async fn cap_misspelled_reference_is_refused() -> CapabilityResult {
                     APP.into(),
                     w.device(),
                     PaneRefDto::tile(TileId::new(9999)),
+                    None,
                     None,
                 )
                 .await;
@@ -1753,6 +1799,7 @@ async fn cap_apply_preset() -> CapabilityResult {
                     w.device(),
                     "Triage".into(),
                     Some("human".into()),
+                    None,
                 )
                 .await;
             want(applied.ok, applied.message.clone())?;
@@ -1788,7 +1835,7 @@ async fn cap_apply_preset() -> CapabilityResult {
             // second: a layout derives from one preset.
             let again = w
                 .service
-                .apply_preset(APP.into(), w.device(), "Reading".into(), None)
+                .apply_preset(APP.into(), w.device(), "Reading".into(), None, None)
                 .await;
             want(again.ok, again.message.clone())?;
             let derived = presets::derived_from(&w.store, row.id)?.ok_or("still derived")?;
@@ -1818,7 +1865,7 @@ async fn cap_apply_preset() -> CapabilityResult {
             // An unknown preset is a refusal that names the app.
             let missing = w
                 .service
-                .apply_preset(APP.into(), w.device(), "Nope".into(), None)
+                .apply_preset(APP.into(), w.device(), "Nope".into(), None, None)
                 .await;
             want(!missing.ok, "an unknown preset must be refused")?;
             Ok("Triage → Reading, one DerivedFrom edge throughout".to_string())
@@ -1838,7 +1885,7 @@ async fn cap_save_and_reset_preset() -> CapabilityResult {
 
             // Rearrange the live window, then save it OVER a shipped preset.
             w.service
-                .close(APP.into(), w.device(), role_ref("navigator"), None)
+                .close(APP.into(), w.device(), role_ref("navigator"), None, None)
                 .await;
             let live = w.persisted()?;
             let saved = w
@@ -1872,7 +1919,7 @@ async fn cap_save_and_reset_preset() -> CapabilityResult {
 
             // Applying it gives back what the user saved, not the table's.
             w.service
-                .apply_preset(APP.into(), w.device(), "Triage".into(), None)
+                .apply_preset(APP.into(), w.device(), "Triage".into(), None, None)
                 .await;
             want(
                 w.persisted()?.panes().len() == live.panes().len(),
@@ -1890,7 +1937,7 @@ async fn cap_save_and_reset_preset() -> CapabilityResult {
                 "after a reset the row matches the table again",
             )?;
             w.service
-                .apply_preset(APP.into(), w.device(), "Triage".into(), None)
+                .apply_preset(APP.into(), w.device(), "Triage".into(), None, None)
                 .await;
             let triage = presets::shipped_preset(APP, "Triage").ok_or("shipped")?;
             want(
@@ -1960,7 +2007,14 @@ async fn cap_preset_ordinals() -> CapabilityResult {
             // types into one name space, not two.
             let by_name = w
                 .service
-                .apply_layout(APP.into(), w.device(), Some("Reading".into()), None, None)
+                .apply_layout(
+                    APP.into(),
+                    w.device(),
+                    Some("Reading".into()),
+                    None,
+                    None,
+                    None,
+                )
                 .await;
             want(by_name.ok, by_name.message.clone())?;
             want(
@@ -2078,7 +2132,7 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
             let w = World::open()?;
             let applied = w
                 .service
-                .apply_preset(IMPRINT.into(), w.device(), "Default".into(), None)
+                .apply_preset(IMPRINT.into(), w.device(), "Default".into(), None, None)
                 .await;
             want(applied.ok, applied.message.clone())?;
             let live = |w: &World| -> Result<Layout> {
@@ -2107,6 +2161,7 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
                         PaneRefDto::tile(editor_tile),
                         "vertical".into(),
                         true,
+                        None,
                         None,
                         None,
                     )
@@ -2140,6 +2195,7 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
                     PaneRefDto::tile(editor_tile),
                     PaneRefDto::tile(new_tiles[0]),
                     None,
+                    None,
                 )
                 .await;
             want(swapped.ok, swapped.message.clone())?;
@@ -2154,7 +2210,7 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
             for preset in ["Default", "Writing"] {
                 let again = w
                     .service
-                    .apply_preset(IMPRINT.into(), w.device(), preset.into(), None)
+                    .apply_preset(IMPRINT.into(), w.device(), preset.into(), None, None)
                     .await;
                 want(again.ok, again.message.clone())?;
                 let layout = live(&w)?;

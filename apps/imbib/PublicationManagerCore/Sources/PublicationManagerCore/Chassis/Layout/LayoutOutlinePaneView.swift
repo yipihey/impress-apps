@@ -277,12 +277,6 @@ struct LayoutOutlineRouter {
         } else if kind == "inert", let reason = target["reason"]?.stringValue {
             logInfo("outline: row navigates nowhere — \(reason)", category: "layout")
         }
-        // Which feed form the list pane hosts, before the verbs make it
-        // render (PH-M1; see `LayoutFeedFormRoutes`).
-        let listTile = controller.paneWithRole("list")
-        if let listTile, !(initial && answer["applies"]?.boolValue == false) {
-            LayoutFeedFormRoutes.shared.record(tab, into: listTile, of: controller)
-        }
         guard !verbs.isEmpty else {
             state.routedTab = tab
             state.lastListSpec = currentListSpec
@@ -291,12 +285,13 @@ struct LayoutOutlineRouter {
 
         // Selecting IS clicking: focus follows the pane the user acted in
         // (the same rule `PaneContext.select` applies to a list row). Not at
-        // launch — nobody clicked.
+        // launch — nobody clicked. Part of the same gesture as the row's
+        // verbs, so a refusal of any of them leaves focus where it was too.
+        var gesture = verbs
         if !initial, controller.focused != tile {
-            controller.apply(.focus(target: .id(tile)))
+            gesture.insert(LayoutVerb.focus(target: .id(tile)).verbJSON!, at: 0)
         }
-        guard applyAtomically(verbs, for: "\(tab)") else {
-            if let listTile { LayoutFeedFormRoutes.shared.record(state.routedTab, into: listTile, of: controller) }
+        guard applyAtomically(gesture, for: "\(tab)") else {
             state.lastListSpec = currentListSpec
             return
         }
@@ -305,32 +300,28 @@ struct LayoutOutlineRouter {
         state.lastListSpec = currentListSpec
     }
 
-    /// Apply a click's verbs as one unit: all of them, or — when one is
-    /// refused — none, by undoing the ones that did apply (PH-M2).
+    /// Apply a click's verbs as ONE gesture: all of them or none, and one
+    /// ⌘Z takes the click back (review PH-M2). Rust applies them in one step
+    /// (`SharedLayout.applyAll`), so there is no half-routed tree to roll
+    /// back by hand and no two-or-three undo entries for one click.
     @discardableResult
     func applyAtomically(_ verbs: [LayoutJSONValue], for label: String) -> Bool {
-        // The exploration ring each applied verb landed on, for a rollback.
-        var appliedRings: [UInt64] = []
-        for (index, verb) in verbs.enumerated() {
-            let ring = explorationRing(of: verb)
-            do {
-                let applied = try controller.applyVerbJSON(verb.jsonString(), actor: LayoutController.guiActor)
-                if let ring { appliedRings.append(ring) }
-                // 2. SAVE — what Rust did with it.
-                logInfo(
-                    "outline applied: \(verb.objectValue?["verb"]?.stringValue ?? "?") → version "
-                        + "\(applied.version), \(applied.affectedPanes.count) affected",
-                    category: "layout")
-            } catch {
-                logWarning(
-                    "outline verb \(index + 1) of \(verbs.count) refused: "
-                        + "\((try? verb.jsonString()) ?? "?") — \(error)",
-                    category: "layout")
-                rollBack(appliedRings, of: verbs.count, for: label)
-                return false
-            }
+        guard !verbs.isEmpty else { return true }
+        do {
+            let json = try LayoutJSONValue.array(verbs).jsonString()
+            // 2. SAVE — what Rust did with the click.
+            let applied = try controller.applyAll(json, label: "outline \(label)")
+            logInfo(
+                "outline applied \(verbs.count) verb(s) as one step → version \(applied.version), "
+                    + "\(applied.affectedPanes.count) affected",
+                category: "layout")
+            return true
+        } catch {
+            logWarning(
+                "outline: \(label) refused, none of its \(verbs.count) verb(s) applied — \(error)",
+                category: "layout")
+            return false
         }
-        return true
     }
 
     /// The tile whose exploration ring a verb is recorded on — its target
@@ -338,33 +329,13 @@ struct LayoutOutlineRouter {
     /// exploration verb on the pane it targets). Resolved BEFORE the verb
     /// runs, as Rust does.
     func explorationRing(of verb: LayoutJSONValue) -> UInt64? {
-        guard let target = verb["target"] else { return nil }
-        switch target["ref"]?.stringValue {
-        case "id": return target["tile"]?.intValue.map(UInt64.init)
-        case "role": return target["role"]?.stringValue.flatMap { controller.paneWithRole($0) }
-        default: return nil
+        guard let target = verb["target"], let reference = LayoutPaneRef(json: target) else {
+            return nil
         }
-    }
-
-    /// Undo, newest first, the verbs of a click that did apply before one
-    /// was refused — so the tree is back where the click found it.
-    func rollBack(_ rings: [UInt64], of total: Int, for tab: String) {
-        guard !rings.isEmpty else {
-            logInfo("outline: \(tab) refused before any verb applied — nothing to roll back", category: "layout")
-            return
-        }
-        var undone = 0
-        for ring in rings.reversed() where controller.apply(.undo(stack: .exploration, pane: ring)) {
-            undone += 1
-        }
-        if undone == rings.count {
-            logInfo(
-                "outline: \(tab) rolled back — \(undone) of \(total) verb(s) had applied, all undone",
-                category: "layout")
-        } else {
-            logWarning(
-                "outline: \(tab) left HALF-ROUTED — \(rings.count) of \(total) verb(s) applied, "
-                    + "only \(undone) undone", category: "layout")
+        switch reference {
+        case .id(let tile): return tile
+        case .role(let role): return controller.paneWithRole(role)
+        case .direction, .focused: return nil
         }
     }
 
@@ -491,19 +462,7 @@ struct LayoutOutlineRouter {
         logInfo(
             "outline cleared: \(nodeJSON) — \(why) → \(verbs.count) verb(s), no row selected",
             category: "layout")
-        for verb in verbs {
-            do {
-                let applied = try controller.applyVerbJSON(verb.jsonString(), actor: LayoutController.guiActor)
-                // 2. SAVE
-                logInfo(
-                    "outline applied: \(verb.objectValue?["verb"]?.stringValue ?? "?") → version "
-                        + "\(applied.version), \(applied.affectedPanes.count) affected",
-                    category: "layout")
-            } catch {
-                logWarning("outline verb refused: \((try? verb.jsonString()) ?? "?") — \(error)", category: "layout")
-                break
-            }
-        }
+        applyAtomically(verbs, for: "cleared \(gone)")
         state.lastListSpec = currentListSpec
     }
 }
@@ -538,11 +497,10 @@ struct LayoutScopedLegacyPaneView: View {
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(\.layoutToolbarBand) private var toolbarBand
 
-    /// The node's route — or, for the lossy `feed-form` node, the exact
-    /// form the outline routed here (PH-M1, `LayoutFeedFormRoutes`).
+    /// The node's route. A feed form's node carries its feed or library
+    /// (review PH-M1), so Edit Feed… comes back as the feed's own form.
     private var tab: ImbibTab? {
-        LayoutFeedFormRoutes.shared.resolved(
-            LayoutOutlineNode.tab(from: node), tile: context.tile, controller: context.controller)
+        LayoutOutlineNode.tab(from: node)
     }
 
     var body: some View {

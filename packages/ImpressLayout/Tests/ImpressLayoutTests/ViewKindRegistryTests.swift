@@ -61,21 +61,21 @@ final class ViewKindRegistryTests: XCTestCase {
         XCTAssertEqual(registry.resolvedKind(for: ViewKindID("holodeck")), .placeholder)
     }
 
-    /// The names are the wire form: `PaneSpec.view_kind` is matched by string
-    /// equality against `impress_layout::ViewKindId`'s constants, so a
-    /// renamed case here is a pane that stops rendering.
-    func testBuiltinNamesMatchTheRustConstants() {
-        XCTAssertEqual(ViewKindID.outline.rawValue, "outline")
-        XCTAssertEqual(ViewKindID.list.rawValue, "list")
-        XCTAssertEqual(ViewKindID.info.rawValue, "info")
-        XCTAssertEqual(ViewKindID.pdf.rawValue, "pdf")
-        XCTAssertEqual(ViewKindID.legacy.rawValue, "legacy")
-        XCTAssertEqual(ViewKindID.placeholder.rawValue, "placeholder")
-        XCTAssertEqual(ViewKindID.surface.rawValue, "surface")
-        XCTAssertEqual(ViewKindID.source.rawValue, "source")
-        // `crates/impress-layout/src/ids.rs`: `ViewKindId::PLOT` / `CONSOLE`.
-        XCTAssertEqual(ViewKindID.plot.rawValue, "plot")
-        XCTAssertEqual(ViewKindID.console.rawValue, "console")
+    /// The names are the wire form, and RUST owns them (plan wave 7 T6,
+    /// review PH-M7): the Swift spellings equal `ViewKindId::KNOWN` as Rust
+    /// exports it, and so do the shared `view_state` keys. A kind or a key
+    /// added on one side only fails here.
+    func testTheSwiftVocabularyIsRusts() {
+        let rust = LayoutVocabulary.current
+        XCTAssertEqual(Set(ViewKindID.vocabulary.map(\.rawValue)), Set(rust.viewKinds))
+        XCTAssertEqual(ViewKindID.vocabulary.count, rust.viewKinds.count, "no duplicates")
+        XCTAssertEqual(Set(ViewKindID.rustVocabulary), Set(ViewKindID.vocabulary))
+        XCTAssertEqual(rust.sessionBearing, [ViewKindID.source.rawValue])
+        XCTAssertEqual(LayoutViewStateKey.all, rust.viewStateKeys)
+        XCTAssertEqual(rust.wireVersion, 1)
+        for kind in ViewKindID.kitBuiltins {
+            XCTAssertTrue(rust.viewKinds.contains(kind.rawValue), kind.rawValue)
+        }
     }
 
     /// ⌘Z routing asks this registry (ADR-0031 D7). The kit's three kinds own

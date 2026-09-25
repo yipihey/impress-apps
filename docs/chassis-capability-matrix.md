@@ -2983,10 +2983,35 @@ what the user is looking at". Four routes now do, in `SharedAutomationRoutes`
 
 | Route | Answers |
 |---|---|
-| `GET /api/layout/tree` | the live tree — windows, tiles, channels — plus `version` and `focused` |
+| `GET /api/layout/tree` | the live tree — windows, tiles, channels — plus `version`, `revision` and `focused` |
 | `GET /api/layout/layouts` | the saved layouts, in ⌃⌘1–9 order |
-| `POST /api/layout/verb` | one `impress_layout::Verb`, forwarded VERBATIM to `SharedLayout.apply(verbJson:actor:)` |
+| `POST /api/layout/verb` | one `impress_layout::Verb`, forwarded VERBATIM to `SharedLayout.apply(verbJson:actor:)`; may carry `"expected_revision": N` |
 | `POST /api/layout/op` | the six operations that are not `Verb` cases: `undo`, `redo`, `resize-share`, `save-layout`, `apply-layout`, `delete-layout` |
+
+**The wire convention (plan wave 7 T6, review AC-F24).** Every body is
+snake_case and carries `"wire_version": 1`
+(`impress_service_core::wire::WIRE_VERSION`) — the same envelope the
+`layout-service_*` verbs answer over MCP and the CLI. Success is
+`{"ok": true, "wire_version": 1, …}` (`affected_panes`, `changed_tiles`,
+`revision`, `last_refusal`); every refusal is
+`{"ok": false, "wire_version": 1, "code", "message"}` with the status Rust
+maps the code to (`refusal_http_status`): `invalid-argument` 400, `not-found`
+404, `conflict` 409, `no-layout-tree` 409, a tree refusal 422. There is no
+`status`/`error` pair and no camelCase key any more; a client of the old
+bodies reads `ok` and `message` instead.
+
+* **Strict.** A verb is parsed against its JSON schema: a field it does not
+  take is 400 `invalid-argument` naming the field and what its object takes.
+  A pane reference is written ONE way — exactly one of `{"id": 7}`,
+  `{"role": "detail"}`, `{"direction": "left"}`, `{"focused": true}` — on
+  HTTP, MCP, the CLI and in every message that echoes a verb. The tagged
+  `{"ref": "id", "tile": 7}` spelling is retired (nothing persisted it), and
+  `{}` names no pane.
+* **Revisions.** `revision` is the live row's `logical_clock`, the same in
+  every process. A verb carrying `expected_revision` that no longer matches
+  is 409 `conflict` and writes nothing; read the tree again and retry.
+* **View kinds** are `impress_layout::ViewKindId::KNOWN` (below); any other
+  name is 422 `unknown-view-kind`.
 
 Three properties worth keeping:
 
@@ -3064,14 +3089,23 @@ imbib's do. That is the setting working, not the pane ignoring it.
 
 The registry key is `PaneSpec.view_kind`, matched by **string equality**
 against `impress_layout::ViewKindId` — the same exact-match discipline as
-schema refs, with the same failure mode (a misspelled kind renders a
-placeholder forever, in silence, on every platform). Copy the spelling from
-`crates/impress-layout/src/ids.rs`.
+schema refs. **Rust owns the list** (plan wave 7 T6, review PH-M7):
+`ViewKindId::KNOWN` in `crates/impress-layout/src/ids.rs` is every row below,
+exported over the FFI as `layout_vocabulary_json()` with the session-bearing
+kinds and the shared `view_state` keys (`section`, `node`, `reason` for the
+legacy pane, `tab` for the info pane — `impress_layout::view_state`). A verb
+that names any other kind (`set-view-kind`, `set-pane`, a split's new pane)
+is refused `unknown-view-kind`; `editor` is not a view kind (`source` is). A
+STORED tree naming an unknown kind still loads and renders the placeholder
+(D4). `ViewKindRegistryTests` pins the kit's spellings and `LayoutViewStateKey`
+to the export, and `ChassisViewKindsTests` pins what the kit and the chassis
+register to it — a kind added on one side only fails a test. Copy the
+spelling from `ids.rs`.
 
 | View kind | L6 status | Renders | Session-bearing (D6) | Notes |
 |---|---|---|---|---|
 | `outline` | ✅ rendered — **the chassis sidebar** (L8 W3, Mac-verified 2026-09-23) | `LayoutOutlinePaneView` — `ImbibSidebarColumn` over an `ImbibSidebarViewModel` with `ImbibSidebarLifecycle`, i.e. the SAME sidebar `TabContentView` hosts (both now apply the one column + lifecycle in `TabSidebar/ImbibSidebarHost.swift`) | ➖ | Rows, badges, context menus, inline rename, delete + its confirmations, drag and drop are the view model's own — nothing re-implemented. Which sections show is Rust's `outline_sections_json(app)`; a selected row becomes an `OutlineNode` and Rust's `outline_row_verbs_json` returns the verbs (`select` on the channel + `set-query`/`set-pane` on the `list` role, a detail `set-pane` when the kind changes). See § The outline sidebar below. **Wave 7 T4:** the sidebar's view model, dedupe and last-seen list spec live in `LayoutOutlinePaneState` keyed by tile, so a split keeps selection, expansion and filter and does not reconfigure; a click is committed only when every verb applied (a refusal undoes the rest); a list retargeted by anyone else (agent `set-query`, `apply-layout`, undo) makes the sidebar follow it to the row Rust says it is, or deselect (`outline: … follows the list to …` / `… no row here is the list's query`). The pane never runs imbib's retention cleanup: that is `InboxCoordinator.start`'s, once per imbib launch |
-| `list` | ✅ rendered | `LayoutRowsPaneView` — the pane's compiled query, run | ➖ | Rows re-run whenever the controller's `refreshToken` moves, which today is EVERY applied verb and every invalidation — not only when this pane is stale (review PH-H1, the kit's to fix). **Rows carry their kind's menu and drag (W4)** — see § List-pane rows. The pane also re-reads on the store's own event stream (a mutation of a row on screen, or a structural / membership change): the invalidation feed never sees writes made through `RustStoreAdapter`'s handle, so a star, flag, tag, dismiss or delete from a menu left the rows stale |
+| `list` | ✅ rendered | `LayoutRowsPaneView` — the pane's compiled query, run one page at a time (plan wave 7 T6, PH-H4 + SK-K9): the page is `LayoutController.pageSize` (500) or the query's own `limit` when smaller, and `SharedPaneRows` says the query's `total` — a pane that shows fewer than all says "Showing 500 of 2,657" with a Show More button, and logs `pane N display: 500 of 2657 rows (truncated; 1 page(s))` | ➖ | Rows re-run whenever the controller's `refreshToken` moves, which today is EVERY applied verb and every invalidation — not only when this pane is stale (review PH-H1, the kit's to fix). **Rows carry their kind's menu and drag (W4)** — see § List-pane rows. The pane also re-reads on the store's own event stream (a mutation of a row on screen, or a structural / membership change): the invalidation feed never sees writes made through `RustStoreAdapter`'s handle, so a star, flag, tag, dismiss or delete from a menu left the rows stale |
 | `info` | ✅ rendered | the record kind's OWN existing detail pane, dispatched on the pane's layout kind: `DetailView(publicationID:selectedTab:)` for `publication`, `ManuscriptDetailPane` for `manuscript` (wave 7 T4 — the session resolved by the pane as host, debounced 90 ms, never for an `external_source` manuscript), `FigureDetailPane` for `figure`, `MessageDetailPane` for `message`, `AgentRecordDetailPane` for `task` and `agent-run`. The layout kind is joined to the chassis kind through the manifest's schema refs (`LayoutKindID`), not by comparing raw values | ➖ | **The detail tab is `view_state["tab"]`** (wave 7 T4), written with `set-pane`: it survives a split, an agent can read and set it, and ⌘Z in the pane takes it back. Row menu Open PDF focuses a `pdf` pane on the list's channel, else sets this tab to PDF — never the global `.showPDFTab`. Resolves `SharedPane.single_item`, else the `item` binding. The kind comes from `PaneContext.primaryKind` — for a detail pane that is `detail_query(list).kinds.first`, the list's kind scoped to `$item`, read from the spec rather than guessed. **Nothing was extracted to get here (L8 W2):** all four panes were already `public` and already took `(id, Binding<DetailTab>, topInset:)`, because a section's detail half and a tree's detail pane want the same two things — the dispatch is a door onto existing views, not new detail UI (D11 “map, do not rewrite”). `topInset` is the toolbar band the tree measured for the pane (`layoutToolbarBand`, set by `LayoutLinearSplit` for each child that reclaims the band with `.ignoresSafeArea(.top)`, 0 for one that does not) — NOT 0: a horizontal child after the first does reclaim it, and 0 put the Info/Source picker under the window toolbar. Before a selection the pane shows `ChassisEmptyState.noRowSelection(kind:)`, phrased by its own kind. The branch it took is logged (`pane N info: <kind> detail for <id>`, `?category=layout`), so a leaf's conversion is read rather than screenshotted. A kind with no pane registered still gets a named empty state, never an error |
 | `legacy` | ✅ rendered — **per route** (L8 W3) | with `view_state {section, node, reason}`: `LayoutScopedLegacyPaneView` — ONE route, `SectionContentView` over a view model set to that node's tab, under a caption naming the section and the reason it is hosted rather than queried; without it: a named "Unscoped Legacy Pane" state (wave 7 T4; it mounted a whole second `TabContentView` before) | ➖ | Written only by the outline, for a node Rust answers `OutlineTarget::Legacy` for — the five `MATERIALIZE_FIRST` sections' rows and the routes whose query would lie (see § The outline sidebar). Logged: `pane N legacy: section S route R (scoped, not the whole chassis)` |
 | `placeholder` | ✅ rendered — **the kit's own** (W6) | `LayoutPlaceholderPaneView` in `packages/ImpressLayout`: the same "View Kind Unavailable" state `ChassisEmptyState` drew, naming the missing kind and keeping the spec | ➖ | D4's degradation rule: the tree outlives its content. Also what every host-registered kind renders in a host that did not register it (proven by `apps/kit-demo`, 2026-09-24) |

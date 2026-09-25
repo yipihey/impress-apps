@@ -55,7 +55,7 @@ fn split(layout: &mut Layout, target: TileId, new: PaneSpec) -> TileId {
             target: PaneRef::id(target),
             dir: LinearDir::Vertical,
             after: true,
-            new,
+            new: Some(new),
         })
         .unwrap();
     layout.window(window).unwrap().focused.unwrap()
@@ -267,7 +267,7 @@ fn undo_and_redo_of_a_split_restore_the_same_sessions() {
             target: PaneRef::id(parts.detail),
             dir: LinearDir::Horizontal,
             after: true,
-            new: source_pane(),
+            new: Some(source_pane()),
         },
     )
     .unwrap();

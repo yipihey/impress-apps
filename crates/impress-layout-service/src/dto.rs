@@ -17,88 +17,25 @@ use std::collections::BTreeMap;
 use impress_core::item::ItemId;
 use impress_core::pane_query::{CompiledQuery, PaneQueryError};
 use impress_layout::{
-    ChannelId, ContainerKind, Direction, Layout, LinearDir, PaneRef, PaneSpec, Patch, Placement,
-    Role, TileId, ViewKindId, WindowId,
+    ChannelId, ContainerKind, Direction, Layout, LinearDir, PaneSpec, Patch, Placement, TileId,
+    ViewKindId, WindowId,
 };
+use impress_service_core::wire::{wire_version, WIRE_VERSION};
 use impress_service_core::Refusal;
 use serde::{Deserialize, Serialize};
 
 use crate::session::{AppliedVerb, Stack};
 
-/// How a verb names a pane (ADR-0031 D8): by tile id, by role, by direction
-/// from the focused leaf, or the focused leaf itself.
+/// How a verb names a pane (ADR-0031 D8): exactly one of `{"id": 7}`,
+/// `{"role": "detail"}`, `{"direction": "left"}` or `{"focused": true}`.
 ///
-/// Four optional fields rather than a tagged enum because this is an
-/// *argument*: an agent says `{"role": "detail"}`, a keyboard chord says
-/// `{"direction": "right"}`, and the operation log says `{"id": 7}`. They are
-/// read in that precedence, and an empty reference means the focused pane —
-/// which is what every chord means when it says nothing.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneRefDto {
-    /// Canonical: the tile id. What the log and the tests use.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<u64>,
-    /// `navigator` | `list` | `detail` | `preview` | `console` | any role a
-    /// preset assigned. What chords and agents say.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-    /// `left` | `right` | `up` | `down` | `next` | `prev` — a step from the
-    /// focused leaf. What h / l and drag gestures produce.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub direction: Option<String>,
-    /// The focused leaf itself. The default when nothing else is given.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub focused: Option<bool>,
-}
-
-impl PaneRefDto {
-    pub fn tile(id: TileId) -> Self {
-        Self {
-            id: Some(id.raw()),
-            ..Default::default()
-        }
-    }
-
-    pub fn role(role: &str) -> Self {
-        Self {
-            role: Some(role.to_string()),
-            ..Default::default()
-        }
-    }
-
-    pub fn direction(direction: &str) -> Self {
-        Self {
-            direction: Some(direction.to_string()),
-            ..Default::default()
-        }
-    }
-
-    pub fn focused() -> Self {
-        Self {
-            focused: Some(true),
-            ..Default::default()
-        }
-    }
-
-    /// Resolve to a crate reference. Precedence: id, role, direction, focused.
-    pub fn to_pane_ref(&self) -> Result<PaneRef, String> {
-        if let Some(id) = self.id {
-            return Ok(PaneRef::id(TileId::new(id)));
-        }
-        if let Some(role) = self
-            .role
-            .as_deref()
-            .map(str::trim)
-            .filter(|r| !r.is_empty())
-        {
-            return Ok(PaneRef::role(Role::from(role.to_string())));
-        }
-        if let Some(direction) = self.direction.as_deref() {
-            return Ok(PaneRef::direction(parse_direction(direction)?));
-        }
-        Ok(PaneRef::Focused)
-    }
-}
+/// The one spelling (review RL-L3, AC-F3): this IS `impress_layout::PaneRef`'s
+/// wire form, so a reference copied from any result, message or HTTP body
+/// works as an argument everywhere. Unknown fields, an empty `{}` and two
+/// selectors at once are refused with `invalid-argument` — an empty
+/// reference used to mean the focused pane, so a reference in the other
+/// spelling closed it.
+pub use impress_layout::PaneRefWire as PaneRefDto;
 
 /// `horizontal` | `vertical`.
 pub fn parse_linear_dir(raw: &str) -> Result<LinearDir, String> {
@@ -235,6 +172,11 @@ impl From<&Patch> for PatchSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LayoutVerbResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -263,6 +205,13 @@ pub struct LayoutVerbResult {
     pub stack_pane: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch: Option<PatchSummary>,
+    /// The live layout row's revision after this verb — what an agent
+    /// passes back as `expected_revision` on its next verb, so a change the
+    /// person made in between is refused as `conflict` instead of silently
+    /// acted on (review RL-L1). Absent for verbs that do not touch the live
+    /// row (`save_layout`, `delete_layout`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
 }
 
 impl LayoutVerbResult {
@@ -270,6 +219,7 @@ impl LayoutVerbResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             focused: None,
@@ -278,12 +228,38 @@ impl LayoutVerbResult {
             stack: None,
             stack_pane: None,
             patch: None,
+            revision: None,
+        }
+    }
+
+    /// The same result, carrying the live row's revision.
+    pub fn with_revision(mut self, revision: Option<u64>) -> Self {
+        self.revision = revision;
+        self
+    }
+
+    /// A success that did not touch the tree (`delete_layout`, `commit` as a
+    /// preset): nothing to redraw.
+    pub fn done(message: impl Into<String>) -> Self {
+        Self {
+            ok: true,
+            wire_version: WIRE_VERSION,
+            message: message.into(),
+            code: None,
+            focused: None,
+            affected_panes: Vec::new(),
+            window: None,
+            stack: None,
+            stack_pane: None,
+            patch: None,
+            revision: None,
         }
     }
 
     pub fn applied(message: impl Into<String>, applied: &AppliedVerb) -> Self {
         Self {
             ok: true,
+            wire_version: WIRE_VERSION,
             message: message.into(),
             code: None,
             focused: applied.focused.map(TileId::raw),
@@ -292,6 +268,7 @@ impl LayoutVerbResult {
             stack: Some(applied.stack.name().to_string()),
             stack_pane: applied.stack.pane().map(TileId::raw),
             patch: Some(PatchSummary::from(&applied.patch)),
+            revision: None,
         }
     }
 
@@ -320,6 +297,7 @@ impl LayoutVerbResult {
         };
         Self {
             ok: true,
+            wire_version: WIRE_VERSION,
             message: message.into(),
             code: None,
             focused: focused.map(TileId::raw),
@@ -328,6 +306,7 @@ impl LayoutVerbResult {
             stack: stack.map(|s| s.name().to_string()),
             stack_pane: stack.and_then(Stack::pane).map(TileId::raw),
             patch: patch.map(PatchSummary::from),
+            revision: None,
         }
     }
 }
@@ -337,6 +316,11 @@ impl LayoutVerbResult {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LayoutResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -359,6 +343,16 @@ pub struct LayoutResult {
     /// null` finds out here which machine it was answered for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+    /// The live row's revision this tree is. Pass it as `expected_revision`
+    /// to a verb to have it refused (`conflict`) if anyone changed the
+    /// layout since this read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+    /// `"fallback"` when the real store could not be opened and this answer
+    /// comes from the in-memory stand-in (review AC-F20): it is not the
+    /// user's layout. Absent for the real store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 impl LayoutResult {
@@ -366,6 +360,7 @@ impl LayoutResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             layout: None,
@@ -374,6 +369,8 @@ impl LayoutResult {
             window: None,
             item_id: None,
             device: None,
+            revision: None,
+            store: None,
         }
     }
 }
@@ -423,6 +420,11 @@ impl CompiledQueryDto {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -447,6 +449,10 @@ pub struct PaneResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused: Option<u64>,
     pub affected_panes: Vec<u64>,
+    /// `"fallback"` when this answer comes from the in-memory stand-in for
+    /// a store that could not be opened (review AC-F20). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 impl PaneResult {
@@ -454,6 +460,7 @@ impl PaneResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             tile: None,
@@ -463,6 +470,7 @@ impl PaneResult {
             channel: None,
             focused: None,
             affected_panes: Vec::new(),
+            store: None,
         }
     }
 }
@@ -471,6 +479,11 @@ impl PaneResult {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ChannelResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -489,6 +502,10 @@ pub struct ChannelResult {
     pub affected_panes: Vec<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused: Option<u64>,
+    /// `"fallback"` when this answer comes from the in-memory stand-in for
+    /// a store that could not be opened (review AC-F20). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 impl ChannelResult {
@@ -496,12 +513,14 @@ impl ChannelResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             channel: 0,
             selections: BTreeMap::new(),
             affected_panes: Vec::new(),
             focused: None,
+            store: None,
         }
     }
 }
@@ -511,6 +530,11 @@ impl ChannelResult {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReferenceResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -531,6 +555,10 @@ pub struct ReferenceResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused: Option<u64>,
     pub affected_panes: Vec<u64>,
+    /// `"fallback"` when this answer comes from the in-memory stand-in for
+    /// a store that could not be opened (review AC-F20). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 impl ReferenceResult {
@@ -538,6 +566,7 @@ impl ReferenceResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             tile: None,
@@ -546,6 +575,7 @@ impl ReferenceResult {
             is_pane: false,
             focused: None,
             affected_panes: Vec::new(),
+            store: None,
         }
     }
 }
@@ -576,6 +606,11 @@ pub struct SavedLayoutDto {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LayoutListResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -585,6 +620,10 @@ pub struct LayoutListResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub layouts: Vec<SavedLayoutDto>,
+    /// `"fallback"` when this answer comes from the in-memory stand-in for
+    /// a store that could not be opened (review AC-F20). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 impl LayoutListResult {
@@ -592,9 +631,11 @@ impl LayoutListResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             layouts: Vec::new(),
+            store: None,
         }
     }
 }
@@ -613,10 +654,17 @@ pub(crate) fn parse_ids(ids: &[String]) -> Result<Vec<ItemId>, String> {
         .collect()
 }
 
+/// A view kind as an argument names it. Only emptiness is refused here; a
+/// name outside the vocabulary is refused by the tree itself
+/// (`unknown-view-kind`, `impress_layout::ViewKindId::KNOWN`), so every path
+/// into a verb — MCP, the CLI, the FFI, HTTP — gets the same answer.
 pub(crate) fn view_kind(raw: &str) -> Result<ViewKindId, String> {
     let raw = raw.trim();
     if raw.is_empty() {
-        return Err("a pane needs a view kind ('list', 'info', 'pdf', 'editor', …)".to_string());
+        return Err(format!(
+            "a pane needs a view kind: one of {}",
+            ViewKindId::known_list()
+        ));
     }
     Ok(ViewKindId::from(raw.to_string()))
 }
@@ -659,6 +707,11 @@ pub struct PresetDto {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PresetListResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -672,6 +725,10 @@ pub struct PresetListResult {
     /// ADR-0031 D2's "materialize it first" list, so a caller asking what a
     /// preset can show is told what it cannot, and why, in the same answer.
     pub materialize_first: Vec<MaterializeFirstDto>,
+    /// `"fallback"` when this answer comes from the in-memory stand-in for
+    /// a store that could not be opened (review AC-F20). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 impl PresetListResult {
@@ -679,10 +736,12 @@ impl PresetListResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             presets: Vec::new(),
             materialize_first: Vec::new(),
+            store: None,
         }
     }
 }
@@ -698,6 +757,11 @@ pub struct MaterializeFirstDto {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PresetResult {
     pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`): snake_case, refusals `{code,
+    /// message}`. Moves only when a shape changes incompatibly.
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
     pub message: String,
     /// Why it was refused, machine-readable: a `LayoutError` tag
     /// (`unknown-tile`, `cannot-close-last-pane`, …) or a generic code
@@ -715,6 +779,7 @@ impl PresetResult {
     pub fn refused(refusal: Refusal) -> Self {
         Self {
             ok: false,
+            wire_version: WIRE_VERSION,
             message: refusal.message,
             code: Some(refusal.code),
             preset: None,

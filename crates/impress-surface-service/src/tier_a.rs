@@ -321,12 +321,11 @@ async fn cap_show_composes_layout() -> CapabilityResult {
                 .surface_show(
                     id,
                     ShowTargetDto {
-                        role: None,
-                        tile: None,
                         split: Some(SplitTargetDto {
                             direction: "vertical".to_string(),
                             from_focused: true,
                         }),
+                        ..ShowTargetDto::default()
                     },
                     APP.to_string(),
                     Some(DEVICE.to_string()),
@@ -783,12 +782,11 @@ mod real_verb_loop {
             .surface_show(
                 id.clone(),
                 ShowTargetDto {
-                    role: None,
-                    tile: None,
                     split: Some(SplitTargetDto {
                         direction: "vertical".to_string(),
                         from_focused: true,
                     }),
+                    ..ShowTargetDto::default()
                 },
                 APP.to_string(),
                 Some(DEVICE.to_string()),
@@ -1041,12 +1039,11 @@ mod paper_triage_loop {
             .surface_show(
                 id.clone(),
                 ShowTargetDto {
-                    role: None,
-                    tile: None,
                     split: Some(SplitTargetDto {
                         direction: "vertical".to_string(),
                         from_focused: true,
                     }),
+                    ..ShowTargetDto::default()
                 },
                 APP.to_string(),
                 Some(DEVICE.to_string()),

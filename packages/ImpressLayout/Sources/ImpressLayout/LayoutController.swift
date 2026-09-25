@@ -74,20 +74,37 @@ public enum LayoutPaneRef: Sendable, Hashable {
     case direction(LayoutFocusDirection)
     case focused
 
-    /// The serde form: internally tagged on `"ref"`, kebab-case variants.
+    /// The one spelling every path shares (plan wave 7 T6, review RL-L3):
+    /// an object with exactly ONE of `id`, `role`, `direction` or
+    /// `focused: true` — `impress_layout::PaneRefWire`. The tagged
+    /// `{"ref": …}` form is retired and Rust refuses it.
     public var json: LayoutJSONValue {
         switch self {
         case .id(let tile):
-            return .object(["ref": .string("id"), "tile": .int(Int(tile))])
+            return .object(["id": .int(Int(tile))])
         case .role(let role):
-            return .object(["ref": .string("role"), "role": .string(role)])
+            return .object(["role": .string(role)])
         case .direction(let direction):
-            return .object([
-                "ref": .string("direction"),
-                "direction": .string(direction.rawValue),
-            ])
+            return .object(["direction": .string(direction.rawValue)])
         case .focused:
-            return .object(["ref": .string("focused")])
+            return .object(["focused": .bool(true)])
+        }
+    }
+
+    /// Read a reference back from its wire form (a verb Rust wrote, e.g. the
+    /// outline's). `nil` for anything that is not exactly one selector.
+    public init?(json: LayoutJSONValue) {
+        guard let object = json.objectValue, object.count == 1, let (key, value) = object.first
+        else { return nil }
+        switch key {
+        case "id": guard let tile = value.intValue else { return nil }; self = .id(UInt64(tile))
+        case "role": guard let role = value.stringValue else { return nil }; self = .role(role)
+        case "direction":
+            guard let raw = value.stringValue, let direction = LayoutFocusDirection(rawValue: raw)
+            else { return nil }
+            self = .direction(direction)
+        case "focused": guard value.boolValue == true else { return nil }; self = .focused
+        default: return nil
         }
     }
 }
@@ -120,6 +137,9 @@ public enum LayoutVerb: Sendable, Hashable {
     case move(tile: LayoutPaneRef, target: LayoutPaneRef, placement: LayoutPlacement)
     case maximize(target: LayoutPaneRef)
     case restore
+    /// Hide a pane in its split, or show it at exactly the share it had;
+    /// `nil` toggles, decided by Rust against the tree (review RL-L13).
+    case setCollapsed(target: LayoutPaneRef, collapsed: Bool?)
 
     // ---- content (tree verbs) ----
     case setViewKind(target: LayoutPaneRef, viewKind: ViewKindID)
@@ -175,6 +195,14 @@ public enum LayoutVerb: Sendable, Hashable {
         case .restore:
             return .object(["verb": .string("restore")])
 
+        case .setCollapsed(let target, let collapsed):
+            var object: [String: LayoutJSONValue] = [
+                "verb": .string("set-collapsed"),
+                "target": target.json,
+            ]
+            if let collapsed { object["collapsed"] = .bool(collapsed) }
+            return .object(object)
+
         case .setViewKind(let target, let viewKind):
             return .object([
                 "verb": .string("set-view-kind"),
@@ -206,6 +234,8 @@ public enum LayoutVerb: Sendable, Hashable {
         case .move(_, _, let placement): return "move(\(placement.rawValue))"
         case .maximize: return "maximize"
         case .restore: return "restore"
+        case .setCollapsed(_, let collapsed):
+            return "set-collapsed(\(collapsed.map { String($0) } ?? "toggle"))"
         case .setViewKind(_, let kind): return "set-view-kind(\(kind.rawValue))"
         case .setRole(_, let role): return "set-role(\(role ?? "nil"))"
         case .focus: return "focus"
@@ -434,23 +464,36 @@ public final class LayoutController {
         }
     }
 
-    /// Run a pane's compiled query. `limit` of 0 keeps the pane's own limit.
-    ///
-    /// An EMPTY array means the query ran and matched nothing, or it failed —
-    /// tell them apart with `paneError(for:)`, or call `loadRows`, which
-    /// throws instead.
-    public func rows(for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = 500) -> [SharedItemRow] {
-        (try? loadRows(for: tile, offset: offset, limit: limit)) ?? []
+    /// The kit's page size for a list pane. A page, not a cap: the pane's
+    /// own query limit is always honoured (the smaller wins), and
+    /// `loadPage` says how many rows there are in all (review PH-H4, SK-K9).
+    public static let pageSize: UInt32 = 500
+
+    /// Run a pane's compiled query. An EMPTY array means the query ran and
+    /// matched nothing, or it failed — tell them apart with
+    /// `paneError(for:)`, or call `loadPage`, which throws instead.
+    public func rows(
+        for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = LayoutController.pageSize
+    ) -> [SharedItemRow] {
+        (try? loadPage(for: tile, offset: offset, limit: limit).rows) ?? []
     }
 
     /// `rows(for:)`, throwing what Rust refused.
     public func loadRows(
-        for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = 500
+        for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = LayoutController.pageSize
     ) throws -> [SharedItemRow] {
+        try loadPage(for: tile, offset: offset, limit: limit).rows
+    }
+
+    /// One page of a pane's rows with the query's total: `limit` 0 means no
+    /// page (the query's own limit still applies). Throws what Rust refused.
+    public func loadPage(
+        for tile: UInt64, offset: UInt32 = 0, limit: UInt32 = LayoutController.pageSize
+    ) throws -> SharedPaneRows {
         do {
-            let rows = try layout.runPane(id: tile, offset: offset, limit: limit)
+            let page = try layout.runPane(id: tile, offset: offset, limit: limit)
             succeeded(tile)
-            return rows
+            return page
         } catch {
             failed(tile, "pane \(tile) query did not run: \(Self.describe(error))")
             throw error
@@ -585,6 +628,29 @@ public final class LayoutController {
         }
     }
 
+    /// Apply several verbs as ONE gesture: all or none, and one undo step
+    /// (review PH-M2) — what an outline click is. `verbsJSON` is a JSON array
+    /// of `impress_layout::Verb`s. Throws what Rust refused, in which case
+    /// nothing was applied.
+    @discardableResult
+    public func applyAll(
+        _ verbsJSON: String, label: String, actor: String = LayoutController.guiActor
+    ) throws -> SharedAppliedVerb {
+        logInfo("layout gesture (\(actor)) \(label): \(verbsJSON)", category: "layout")
+        do {
+            let applied = try layout.applyAll(verbsJson: verbsJSON, actor: actor)
+            logInfo(
+                "layout applied (\(actor)) \(label) as one step → version \(applied.version), "
+                    + "stale panes \(applied.affectedPanes)",
+                category: "layout")
+            adoptApplied(applied)
+            return applied
+        } catch {
+            refused("gesture (\(actor)) \(label)", error)
+            throw error
+        }
+    }
+
     /// The typed half: the operations that are not `Verb` cases (undo, redo,
     /// resize-share, save-layout, apply-layout).
     public func performForAutomation(_ verb: LayoutVerb, actor: String) throws -> SharedAppliedVerb {
@@ -612,7 +678,11 @@ public final class LayoutController {
     /// The live tree and the version of THAT snapshot, read together — a
     /// payload that paired a fresh tree with the controller's adopted
     /// version could claim a version whose tree it is not (review SK-K24).
-    public func liveSnapshotWithVersion() throws -> (tree: [String: Any], version: UInt64) {
+    /// `revision` is the live row's (the store's, the same in every
+    /// process) — what an agent passes back as `expected_revision`.
+    public func liveSnapshotWithVersion() throws -> (
+        tree: [String: Any], version: UInt64, revision: UInt64?
+    ) {
         let snapshot = try layout.snapshot()
         guard
             let object = try JSONSerialization.jsonObject(
@@ -620,7 +690,7 @@ public final class LayoutController {
         else {
             throw SharedLayoutError.Layout(code: "internal", message: "layout JSON is not an object")
         }
-        return (object, snapshot.version)
+        return (object, snapshot.version, snapshot.revision)
     }
 
     /// Adopt what one verb returned: the tree, the version, the focus, the
@@ -767,30 +837,14 @@ public final class LayoutController {
     /// ADR-0019 D3 exists to remove. So the pane stays in the tree with no
     /// width.
     ///
-    /// The remembered width also lives in the tree: un-collapsing restores to
-    /// the SIBLING AVERAGE rather than to a Swift-held "last share", because
-    /// a Swift-held one would be a second source of truth for a layout value
-    /// (and would be wrong after an `applyLayout`, an undo, or a sync from
-    /// another device).
+    /// Whether to hide or show, and the width to show it at, are Rust's:
+    /// one `set-collapsed` verb, decided against the tree under the verb's
+    /// own lock, restoring EXACTLY the share the pane had (the tree
+    /// remembers it on the pane's spec). This used to be decided here and
+    /// restored to the siblings' average, so a 240 pt sidebar came back as
+    /// wide as the list (review RL-L13).
     public func toggleRole(_ role: String) {
-        guard let tile = paneWithRole(role) else {
-            logInfo("layout role toggle: no pane carries role '\(role)'", category: "layout")
-            return
-        }
-        guard let current = tree?.share(of: tile) else {
-            // A pane that is a window's whole root has no share to set, and
-            // Rust refuses the resize rather than inventing a parent.
-            logInfo(
-                "layout role toggle: pane \(tile) ('\(role)') is not inside a split",
-                category: "layout")
-            return
-        }
-        if LayoutShare.isCollapsed(current) {
-            let restored = tree?.siblingAverageShare(of: tile) ?? 1
-            apply(.resizeShare(pane: tile, share: restored))
-        } else {
-            apply(.resizeShare(pane: tile, share: LayoutShare.collapsed))
-        }
+        apply(.setCollapsed(target: .role(role), collapsed: nil))
     }
 
     /// Is the pane carrying `role` currently collapsed? (Menu check marks.)

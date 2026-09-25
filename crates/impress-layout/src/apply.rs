@@ -56,7 +56,12 @@ impl Layout {
                 dir,
                 after,
                 new,
-            } => self.do_split(window, target, *dir, *after, new.clone()),
+            } => {
+                if let Some(spec) = new {
+                    LayoutError::check_view_kind(&spec.view_kind)?;
+                }
+                self.do_split(window, target, *dir, *after, new.clone())
+            }
             Verb::MoveTile {
                 tile,
                 target,
@@ -68,6 +73,9 @@ impl Layout {
             Verb::SetContainerKind { container, kind } => {
                 self.do_set_container_kind(*container, *kind)
             }
+            Verb::SetCollapsed { target, collapsed } => {
+                self.do_set_collapsed(window, target, *collapsed)
+            }
             Verb::Maximize { target } => self.do_maximize(window, target),
             Verb::Detach { target } => self.do_detach(window, target),
             Verb::Restore => {
@@ -77,14 +85,20 @@ impl Layout {
                 Ok(())
             }
             Verb::SetPane { target, spec } => {
+                LayoutError::check_view_kind(&spec.view_kind)?;
                 let tile = self.resolve(window, target)?;
                 let slot = self.expect_pane_mut(tile)?;
                 let session = slot.session.take();
+                let collapsed_share = slot.collapsed_share.take();
                 *slot = spec.clone();
                 // Replacing a pane's spec is not closing it: a spec that
-                // names no session keeps the one the pane had (D6).
+                // names no session keeps the one the pane had (D6), and a
+                // collapsed pane stays restorable to its old share.
                 if slot.session.is_none() {
                     slot.session = session;
+                }
+                if slot.collapsed_share.is_none() {
+                    slot.collapsed_share = collapsed_share;
                 }
                 Ok(())
             }
@@ -94,6 +108,7 @@ impl Layout {
                 Ok(())
             }
             Verb::SetViewKind { target, view_kind } => {
+                LayoutError::check_view_kind(view_kind)?;
                 let tile = self.resolve(window, target)?;
                 self.expect_pane_mut(tile)?.view_kind = view_kind.clone();
                 Ok(())
@@ -333,9 +348,26 @@ impl Layout {
         target: &PaneRef,
         dir: LinearDir,
         after: bool,
-        new: PaneSpec,
+        new: Option<PaneSpec>,
     ) -> Result<(), LayoutError> {
         let target = self.resolve(window, target)?;
+        // A bare split duplicates the pane being split: the only spec that is
+        // certainly renderable here, and the user re-points one half at once.
+        // Two panes cannot hold one role (D5) nor share a session (D6), so
+        // the copy gets neither.
+        let new = match new {
+            Some(spec) => spec,
+            None => {
+                let mut spec = self
+                    .pane(target)
+                    .ok_or(LayoutError::NotAPane { tile: target })?
+                    .clone();
+                spec.role = None;
+                spec.session = None;
+                spec.collapsed_share = None;
+                spec
+            }
+        };
         // A copy of the pane being split carries its role, the way it
         // carries its session (D6: the target keeps its own, the copy gets a
         // fresh one). Same rule for roles (D5): a role this window already
@@ -352,6 +384,58 @@ impl Layout {
         self.insert_beside(target, tile, dir, after)?;
         // Focus follows the new pane: a split exists to be typed into.
         self.focus_tile(window, tile);
+        Ok(())
+    }
+
+    fn do_set_collapsed(
+        &mut self,
+        window: WindowId,
+        target: &PaneRef,
+        collapsed: Option<bool>,
+    ) -> Result<(), LayoutError> {
+        let tile = self.resolve(window, target)?;
+        self.pane(tile).ok_or(LayoutError::NotAPane { tile })?;
+        let parent = self
+            .parent_of(tile)
+            .filter(|p| matches!(self.container(*p), Some(Container::Linear { .. })))
+            .ok_or(LayoutError::NotInASplit { tile })?;
+        let container = self
+            .container(parent)
+            .ok_or(LayoutError::NotAContainer { tile: parent })?;
+        let index = container
+            .index_of(tile)
+            .ok_or(LayoutError::UnknownTile { tile })?;
+        let share = sane_share(container.share_at(index));
+        let hidden = crate::shares::is_hidden(share);
+        let siblings: Vec<f32> = (0..container.len())
+            .filter(|i| *i != index)
+            .map(|i| sane_share(container.share_at(i)))
+            .filter(|s| !crate::shares::is_hidden(*s))
+            .collect();
+        let want = collapsed.unwrap_or(!hidden);
+        if want == hidden {
+            return Ok(()); // already so: an empty patch, no ⌘Z spent.
+        }
+        let remembered = self.pane(tile).and_then(|spec| spec.collapsed_share);
+        let (new_share, remember) = if want {
+            (crate::shares::HIDDEN_SHARE, Some(share))
+        } else {
+            // Back to exactly what it had. A pane hidden some other way (a
+            // drag to nothing, a preset that ships it hidden) has no memory;
+            // it gets its siblings' average, the old rule, as a last resort.
+            let restored = remembered.unwrap_or_else(|| {
+                if siblings.is_empty() {
+                    1.0
+                } else {
+                    siblings.iter().sum::<f32>() / siblings.len() as f32
+                }
+            });
+            (restored, None)
+        };
+        self.container_mut(parent)
+            .ok_or(LayoutError::NotAContainer { tile: parent })?
+            .set_share_at(index, new_share);
+        self.expect_pane_mut(tile)?.collapsed_share = remember;
         Ok(())
     }
 
