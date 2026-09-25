@@ -355,10 +355,11 @@ struct ImbibSidebarLifecycle: ViewModifier {
                     },
                     onDismiss: { viewModel.attachmentReviewRequest = nil })
             }
-            .task {
-                // Run retention cleanup on launch
-                RetentionCleanupService.shared.performCleanup()
-            }
+            // NO retention cleanup here. This modifier is applied by every
+            // host of the sidebar — the layout tree's `outline` pane in all
+            // six chassis apps, remounted on every split — and a view's
+            // lifecycle is not the app's. imbib schedules it once per launch
+            // from `InboxCoordinator.start` (review PH-H2).
     }
 }
 
