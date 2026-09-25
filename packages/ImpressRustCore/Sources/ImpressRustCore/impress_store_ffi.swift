@@ -2517,6 +2517,18 @@ public protocol SharedStoreProtocol : AnyObject {
     func relatedItems(id: String, limit: UInt32) throws  -> [SharedRelatedItem]
     
     /**
+     * Remove a content-addressed blob from this store's `<workspace>/content`
+     * if no live row still references it. Returns whether a file went.
+     *
+     * Call after deleting the row that pointed at the blob (a figure's
+     * `data_hash`). "Referenced" means ANY row of ANY kind whose payload
+     * names the digest — a second figure with identical bytes, a manuscript
+     * file's `blob:sha256:` ref — so one app's delete never takes bytes
+     * another app's row still draws. `hash` must be a sha256 hex digest.
+     */
+    func releaseBlob(hash: String) throws  -> Bool
+    
+    /**
      * Remove a typed reference previously added with `add_reference`.
      */
     func removeReference(sourceId: String, targetId: String, edgeType: String) throws 
@@ -3717,6 +3729,24 @@ open func relatedItems(id: String, limit: UInt32)throws  -> [SharedRelatedItem] 
     uniffi_impress_store_ffi_fn_method_sharedstore_related_items(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
+     * Remove a content-addressed blob from this store's `<workspace>/content`
+     * if no live row still references it. Returns whether a file went.
+     *
+     * Call after deleting the row that pointed at the blob (a figure's
+     * `data_hash`). "Referenced" means ANY row of ANY kind whose payload
+     * names the digest — a second figure with identical bytes, a manuscript
+     * file's `blob:sha256:` ref — so one app's delete never takes bytes
+     * another app's row still draws. `hash` must be a sha256 hex digest.
+     */
+open func releaseBlob(hash: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_release_blob(self.uniffiClonePointer(),
+        FfiConverterString.lower(hash),$0
     )
 })
 }
@@ -17535,6 +17565,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_related_items() != 22360) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_release_blob() != 64521) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_remove_reference() != 31901) {

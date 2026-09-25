@@ -27,6 +27,7 @@ pub mod colormap;
 pub mod dataset;
 pub mod error;
 pub mod export;
+pub mod figure_artifact;
 pub mod input;
 pub mod library;
 pub mod plot;
