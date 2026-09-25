@@ -79,20 +79,39 @@ impl UndoRing {
         !self.undone.is_empty()
     }
 
-    /// Revert the most recent patch, returning it.
-    pub fn undo(&mut self, layout: &mut Layout) -> Option<Patch> {
-        let patch = self.done.pop_back()?;
-        layout.revert(&patch);
+    /// Revert the most recent patch, returning it. `Ok(None)` is an empty
+    /// ring.
+    ///
+    /// Checked ([`Layout::undo_step`]): when something the patch would
+    /// restore has changed since, the step is refused and **dropped** — it
+    /// can never apply again, and leaving it on top would make every later
+    /// ⌘Z refuse on the same entry — and the layout is untouched.
+    pub fn undo(&mut self, layout: &mut Layout) -> Result<Option<Patch>, LayoutError> {
+        let Some(patch) = self.done.pop_back() else {
+            return Ok(None);
+        };
+        layout.undo_step(&patch)?;
         self.undone.push(patch.clone());
-        Some(patch)
+        Ok(Some(patch))
     }
 
-    /// Re-apply the most recently undone patch, returning it.
-    pub fn redo(&mut self, layout: &mut Layout) -> Option<Patch> {
-        let patch = self.undone.pop()?;
-        layout.reapply(&patch);
+    /// Re-apply the most recently undone patch, returning it. Checked and
+    /// dropped on conflict, exactly as [`Self::undo`].
+    pub fn redo(&mut self, layout: &mut Layout) -> Result<Option<Patch>, LayoutError> {
+        let Some(patch) = self.undone.pop() else {
+            return Ok(None);
+        };
+        layout.redo_step(&patch)?;
         self.done.push_back(patch.clone());
-        Some(patch)
+        Ok(Some(patch))
+    }
+
+    /// Whether any patch on this ring, either side, names `tile`.
+    pub fn mentions(&self, tile: TileId) -> bool {
+        self.done
+            .iter()
+            .chain(self.undone.iter())
+            .any(|p| p.mentions(tile))
     }
 }
 
@@ -194,6 +213,7 @@ impl UndoStacks {
             }
             Destination::Unrecorded => {}
         }
+        self.prune(layout);
         Ok(patch)
     }
 
@@ -206,18 +226,64 @@ impl UndoStacks {
     }
 
     /// Undo the last arrangement gesture.
-    pub fn undo_arrangement(&mut self, layout: &mut Layout) -> Option<Patch> {
-        self.arrangement.undo(layout)
+    pub fn undo_arrangement(&mut self, layout: &mut Layout) -> Result<Option<Patch>, LayoutError> {
+        let stepped = self.arrangement.undo(layout);
+        self.prune(layout);
+        stepped
+    }
+
+    /// Redo the last undone arrangement gesture.
+    pub fn redo_arrangement(&mut self, layout: &mut Layout) -> Result<Option<Patch>, LayoutError> {
+        let stepped = self.arrangement.redo(layout);
+        self.prune(layout);
+        stepped
     }
 
     /// Undo the last exploration in one pane.
-    pub fn undo_exploration(&mut self, layout: &mut Layout, pane: TileId) -> Option<Patch> {
-        self.exploration.get_mut(&pane)?.undo(layout)
+    pub fn undo_exploration(
+        &mut self,
+        layout: &mut Layout,
+        pane: TileId,
+    ) -> Result<Option<Patch>, LayoutError> {
+        let Some(ring) = self.exploration.get_mut(&pane) else {
+            return Ok(None);
+        };
+        let stepped = ring.undo(layout);
+        self.prune(layout);
+        stepped
     }
 
-    /// Drop the exploration rings of panes the layout no longer has. The
-    /// service calls this after a close; it is not automatic, because undoing
-    /// the close should bring the pane's ring back with it.
+    /// Redo the last undone exploration in one pane.
+    pub fn redo_exploration(
+        &mut self,
+        layout: &mut Layout,
+        pane: TileId,
+    ) -> Result<Option<Patch>, LayoutError> {
+        let Some(ring) = self.exploration.get_mut(&pane) else {
+            return Ok(None);
+        };
+        let stepped = ring.redo(layout);
+        self.prune(layout);
+        stepped
+    }
+
+    /// Drop the exploration rings of panes the layout no longer has AND no
+    /// arrangement step can bring back.
+    ///
+    /// Runs after every applied verb and every undo or redo step (review
+    /// RL-L8: before, nothing outside tests ever pruned). A closed pane's ring
+    /// is kept while the arrangement ring still holds the close — undoing the
+    /// close brings the pane back with its history — and goes once that step
+    /// has fallen off the ring or been dropped by a commit. Tile ids are never
+    /// reused, so a kept ring can never be inherited by a new pane.
+    pub fn prune(&mut self, layout: &Layout) {
+        let arrangement = &self.arrangement;
+        self.exploration
+            .retain(|tile, _| layout.pane(*tile).is_some() || arrangement.mentions(*tile));
+    }
+
+    /// Drop the exploration rings of every pane the layout no longer has,
+    /// whether or not an arrangement step could bring it back.
     pub fn forget_closed_panes(&mut self, layout: &Layout) {
         self.exploration
             .retain(|tile, _| layout.pane(*tile).is_some());

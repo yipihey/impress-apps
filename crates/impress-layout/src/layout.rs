@@ -42,6 +42,19 @@ pub struct Layout {
     /// window for the life of the layout.
     #[serde(default)]
     pub next_window: u64,
+    /// The window a verb with no explicit window acts on — the key window.
+    ///
+    /// Set wherever focus moves between windows ([`Layout::focus_tile`]'s
+    /// callers: focus, a directional step, a split, a detach), repaired by
+    /// [`Layout::normalize`] when the window it names is gone. `None` means
+    /// "the first window", which is what a single-window layout (every
+    /// preset) always is, so a layout that never had two windows serializes
+    /// exactly as before this field existed. Before it, "current" was "the
+    /// first window with a focused leaf" — and normalization gives every
+    /// window one, so every verb acted on window 0 even after focus had
+    /// followed a detached pane into its own window (review RL-L5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<WindowId>,
 }
 
 /// What [`Layout`] deserializes *through*, so that JSON written before
@@ -60,6 +73,8 @@ struct LayoutWire {
     next_tile: u64,
     #[serde(default)]
     next_window: Option<u64>,
+    #[serde(default)]
+    current: Option<WindowId>,
 }
 
 impl From<LayoutWire> for Layout {
@@ -77,6 +92,7 @@ impl From<LayoutWire> for Layout {
             channels: wire.channels,
             next_tile: wire.next_tile,
             next_window: wire.next_window.unwrap_or(floor).max(floor),
+            current: wire.current,
         }
     }
 }
@@ -106,6 +122,7 @@ impl Layout {
             channels: ChannelState::new(),
             next_tile: 0,
             next_window: 1,
+            current: None,
         }
     }
 
@@ -170,9 +187,13 @@ impl Layout {
         self.windows.iter_mut().find(|w| w.id == id)
     }
 
-    /// The window a verb with no explicit window acts on: the first window
-    /// that has focus, else the first window at all.
+    /// The window a verb with no explicit window acts on: [`Layout::current`]
+    /// when it names a window that exists, else the first window that has
+    /// focus, else the first window at all.
     pub fn current_window(&self) -> Result<WindowId, LayoutError> {
+        if let Some(current) = self.current.filter(|id| self.window(*id).is_some()) {
+            return Ok(current);
+        }
         self.windows
             .iter()
             .find(|w| w.focused.is_some())
@@ -536,11 +557,49 @@ impl Layout {
             .collect()
     }
 
-    /// The first pane carrying `role`, anywhere in the layout.
+    /// The pane carrying `role` in the current window — exactly what
+    /// [`PaneRef::Role`] resolves to for a verb with no explicit window.
+    ///
+    /// One rule for roles (review RL-L19): [`crate::Verb::SetRole`] keeps a
+    /// role unique *per window*, `PaneRef::Role` resolves in one window, and
+    /// so does this. It used to scan every window in tile-id order, so with a
+    /// detached window holding its own `detail`, ⌘0 could collapse a pane in a
+    /// window the user was not looking at.
     pub fn pane_with_role(&self, role: &Role) -> Option<TileId> {
-        self.panes()
+        let window = self.current_window().ok()?;
+        self.pane_with_role_in(window, role)
+    }
+
+    /// A `(role, window)` this layout holds twice that `before` did not —
+    /// the per-window uniqueness ADR-0031 D5 relies on, checked against the
+    /// value a change started from so that a stored tree that already broke
+    /// it (hand-edited, merged) is not made unusable.
+    pub fn new_duplicate_role(&self, before: &Layout) -> Option<(Role, WindowId)> {
+        let before = before.duplicate_roles();
+        self.duplicate_roles()
             .into_iter()
-            .find(|id| self.pane(*id).and_then(|p| p.role.as_ref()) == Some(role))
+            .find(|pair| !before.contains(pair))
+    }
+
+    fn duplicate_roles(&self) -> BTreeSet<(Role, WindowId)> {
+        let mut out = BTreeSet::new();
+        for window in &self.windows {
+            let mut seen = BTreeSet::new();
+            for leaf in self.leaves(window.id) {
+                if let Some(role) = self.pane(leaf).and_then(|p| p.role.as_ref()) {
+                    if !seen.insert(role.clone()) {
+                        out.insert((role.clone(), window.id));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The pane carrying `role` in `window`, in tree order.
+    pub fn pane_with_role_in(&self, window: WindowId, role: &Role) -> Option<TileId> {
+        self.resolve(window, &PaneRef::Role { role: role.clone() })
+            .ok()
     }
 
     // ----------------------------------------------------------- normalize
@@ -750,6 +809,12 @@ impl Layout {
             .map(|max| max + 1)
             .unwrap_or(1);
         self.next_window = self.next_window.max(floor);
+        // A current window that closed falls back to "the first window".
+        if let Some(current) = self.current {
+            if self.window(current).is_none() {
+                self.current = None;
+            }
+        }
         for index in 0..self.windows.len() {
             let root = self.windows[index].root;
             let leaves = self.leaves_of(root);

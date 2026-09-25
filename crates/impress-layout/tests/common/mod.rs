@@ -23,6 +23,16 @@ pub fn scratch_pane() -> PaneSpec {
     PaneSpec::new(publication_query(), ViewKindId::PDF)
 }
 
+/// The layout with its id allocators zeroed: what an undo restores. Ids are
+/// never reused, so undo leaves the allocators where they were (review
+/// RL-L8) and a test comparing trees across an undo compares these.
+pub fn without_allocators(layout: &Layout) -> Layout {
+    let mut layout = layout.clone();
+    layout.next_tile = 0;
+    layout.next_window = 0;
+    layout
+}
+
 /// Every window's focus is a pane of that window. The invariant every verb
 /// must leave standing.
 pub fn assert_focus_is_a_leaf(layout: &Layout) {
