@@ -1071,3 +1071,122 @@ fn set_default_channel_moves_what_follow_means_and_refuses_follow_itself() {
         .unwrap_err();
     assert!(matches!(err, LayoutError::UnknownWindow { .. }));
 }
+
+// ------------------------------------------- the key window (RL-L5, RL-L19)
+
+#[test]
+fn after_a_detach_a_bare_close_closes_the_detached_pane() {
+    let (mut layout, parts) = three_column();
+    layout
+        .apply(Verb::Detach {
+            target: PaneRef::id(parts.detail),
+        })
+        .unwrap();
+    let detached = layout.window_of(parts.detail).unwrap();
+    assert_eq!(
+        layout.current_window().unwrap(),
+        detached,
+        "focus followed the pane, and so did the key window"
+    );
+
+    layout
+        .apply(Verb::Close {
+            target: PaneRef::Focused,
+        })
+        .unwrap();
+    assert!(
+        layout.pane(parts.detail).is_none(),
+        "the detached pane went"
+    );
+    assert_eq!(
+        layout.leaves(parts.window),
+        vec![parts.navigator, parts.list],
+        "the main window is untouched"
+    );
+    assert_eq!(layout.current_window().unwrap(), parts.window);
+    assert_arena_is_sound(&layout);
+}
+
+#[test]
+fn roles_resolve_in_the_key_window_only() {
+    let (mut layout, parts) = three_column();
+    layout
+        .apply(Verb::Detach {
+            target: PaneRef::id(parts.detail),
+        })
+        .unwrap();
+    // The detached window holds `detail`; the main window holds the others.
+    assert_eq!(layout.pane_with_role(&Role::DETAIL), Some(parts.detail));
+    assert_eq!(
+        layout.pane_with_role(&Role::NAVIGATOR),
+        None,
+        "⌃⌘S in the detached window finds no navigator there"
+    );
+
+    layout
+        .apply(Verb::Focus {
+            target: PaneRef::id(parts.list),
+        })
+        .unwrap();
+    assert_eq!(layout.current_window().unwrap(), parts.window);
+    assert_eq!(
+        layout.pane_with_role(&Role::NAVIGATOR),
+        Some(parts.navigator)
+    );
+    assert_eq!(
+        layout.pane_with_role(&Role::DETAIL),
+        None,
+        "and back in the main window, the detached `detail` is not this window's"
+    );
+}
+
+#[test]
+fn a_single_window_layout_never_writes_a_key_window() {
+    let (mut layout, _) = three_column();
+    for direction in [Direction::Left, Direction::Right, Direction::Next] {
+        layout.apply(Verb::FocusDirection { direction }).unwrap();
+    }
+    let json = serde_json::to_value(&layout).unwrap();
+    assert!(
+        json.get("current").is_none(),
+        "the wire form of a one-window layout is unchanged: {json}"
+    );
+}
+
+#[test]
+fn a_move_across_windows_that_would_hold_a_role_twice_is_refused() {
+    let (mut layout, parts) = three_column();
+    layout
+        .apply(Verb::Detach {
+            target: PaneRef::id(parts.detail),
+        })
+        .unwrap();
+    // A second `list` in the detached window, then try to bring it home.
+    let mut spec = scratch_pane();
+    spec.role = Some(Role::LIST);
+    layout
+        .apply(Verb::Split {
+            target: PaneRef::id(parts.detail),
+            dir: impress_layout::LinearDir::Vertical,
+            after: true,
+            new: spec,
+        })
+        .unwrap();
+    let second_list = layout
+        .window(layout.window_of(parts.detail).unwrap())
+        .unwrap()
+        .focused
+        .unwrap();
+    assert_eq!(layout.pane(second_list).unwrap().role, Some(Role::LIST));
+
+    let before = layout.clone();
+    let err = layout
+        .apply(Verb::MoveTile {
+            tile: PaneRef::id(second_list),
+            target: PaneRef::id(parts.list),
+            placement: Placement::Right,
+        })
+        .unwrap_err();
+    assert!(matches!(err, LayoutError::RoleHeldTwice { .. }), "{err:?}");
+    assert_eq!(layout, before);
+}

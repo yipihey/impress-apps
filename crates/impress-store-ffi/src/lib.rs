@@ -776,6 +776,25 @@ fn surface_sessions_for(installed: bool) -> Arc<impress_surface_service::Session
     }
 }
 
+/// The layout session registry for a store this process just opened.
+///
+/// The store `install_store` accepted is the one every in-process inventory
+/// call reaches (`DefaultLayoutService::new()` → `store_instance()`), and
+/// those calls use `SessionRegistry::shared()` — so that store's objects use
+/// it too, and a verb an agent or a surface makes through the inventory lands
+/// in the very session the window renders from. A private registry here meant
+/// two registries on one connection, writing over each other with no
+/// `data_version` to warn either (review RL-L10). Any other store (a second
+/// one in the process: tests, the review store) keeps a registry of its own,
+/// because the shared one belongs to the installed store.
+fn layout_sessions_for(installed: bool) -> Arc<impress_layout_service::SessionRegistry> {
+    if installed {
+        impress_layout_service::SessionRegistry::shared()
+    } else {
+        Arc::new(impress_layout_service::SessionRegistry::new())
+    }
+}
+
 impl SharedStore {
     /// The layout session registry shared by every object opened on this
     /// store — see the field.
@@ -843,7 +862,7 @@ impl SharedStore {
         let store = Arc::new(store);
         let installed = impress_store_service::install_store(store.clone()).is_ok();
         Ok(Arc::new(SharedStore {
-            layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
+            layout_sessions: layout_sessions_for(installed),
             surface_sessions: surface_sessions_for(installed),
             verb_host: Arc::new(Mutex::new(None)),
             inner: store,
@@ -872,7 +891,7 @@ impl SharedStore {
         let store = Arc::new(store);
         let installed = impress_store_service::install_store(store.clone()).is_ok();
         Ok(Arc::new(SharedStore {
-            layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
+            layout_sessions: layout_sessions_for(installed),
             surface_sessions: surface_sessions_for(installed),
             verb_host: Arc::new(Mutex::new(None)),
             inner: store,

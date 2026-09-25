@@ -44,4 +44,21 @@ pub enum LayoutError {
 
     #[error("pane {tile} declares no parameter named '{name}'")]
     UnknownParam { tile: TileId, name: String },
+
+    /// A verb that would leave two panes of one window carrying the same role
+    /// (a swap or move across windows, a `set-pane` naming a role another
+    /// pane holds). Roles are unique per window (ADR-0031 D5) because the
+    /// universal chords act on "the" pane with a role; `set-role` is the verb
+    /// that moves one.
+    #[error(
+        "the role '{role}' would be held by two panes in window {window}; use set-role to move it"
+    )]
+    RoleHeldTwice { role: Role, window: WindowId },
+
+    /// An undo or redo step whose recorded value is no longer what the layout
+    /// holds: something else changed it since (another ring, another pane,
+    /// another writer). Refused rather than replayed, because replaying would
+    /// silently undo that later change too (review RL-L4).
+    #[error("{what} changed since this step was recorded, so the step was dropped and nothing was changed")]
+    UndoConflict { what: String },
 }

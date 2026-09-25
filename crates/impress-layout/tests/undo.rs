@@ -3,10 +3,10 @@
 
 mod common;
 
-use common::{scratch_pane, three_column};
+use common::{scratch_pane, three_column, without_allocators};
 use impress_layout::{
-    stack_for, ChannelId, Direction, LinearDir, PaneRef, ParamSource, Role, StackKind, UndoRing,
-    UndoStacks, Verb, ViewKindId,
+    stack_for, ChannelId, Direction, LayoutError, LinearDir, PaneQuery, PaneRef, ParamSource, Role,
+    StackKind, UndoRing, UndoStacks, Verb, ViewKindId,
 };
 use uuid::Uuid;
 
@@ -98,8 +98,16 @@ fn arrangement_undo_and_redo_restore_the_tree_exactly() {
 
     stacks.undo_arrangement(&mut layout).unwrap();
     stacks.undo_arrangement(&mut layout).unwrap();
-    assert_eq!(layout, original, "two undos got back to where we started");
-    assert!(stacks.undo_arrangement(&mut layout).is_none());
+    assert_eq!(
+        without_allocators(&layout),
+        without_allocators(&original),
+        "two undos got back to where we started"
+    );
+    assert!(
+        layout.next_tile > original.next_tile,
+        "the split's id is not handed out again"
+    );
+    assert!(stacks.undo_arrangement(&mut layout).unwrap().is_none());
 
     stacks.arrangement.redo(&mut layout).unwrap();
     stacks.arrangement.redo(&mut layout).unwrap();
@@ -124,7 +132,8 @@ fn undoing_a_detach_puts_the_window_back_together() {
 
     stacks.undo_arrangement(&mut layout).unwrap();
     assert_eq!(
-        layout, original,
+        without_allocators(&layout),
+        without_allocators(&original),
         "the second window and the split are both back"
     );
 }
@@ -235,7 +244,7 @@ fn a_ring_forgets_its_oldest_patch_at_capacity() {
     }
     assert_eq!(ring.done.len(), 3);
     // Undoing everything the ring still holds walks back three steps only.
-    while ring.undo(&mut layout).is_some() {}
+    while ring.undo(&mut layout).unwrap().is_some() {}
     assert_eq!(
         layout.pane(parts.list).unwrap().channel,
         ChannelId::number(2),
@@ -311,5 +320,245 @@ fn forgetting_closed_panes_is_explicit() {
         )
         .unwrap();
     stacks.forget_closed_panes(&layout);
+    assert!(!stacks.exploration.contains_key(&parts.detail));
+}
+
+// ------------------------------------------------ out-of-order undo (RL-L4)
+
+fn select(
+    stacks: &mut UndoStacks,
+    layout: &mut impress_layout::Layout,
+    pane: impress_layout::TileId,
+    kind: &str,
+    id: u128,
+) {
+    stacks
+        .apply(
+            layout,
+            Verb::Select {
+                target: PaneRef::id(pane),
+                kind: kind.to_string(),
+                ids: vec![Uuid::from_u128(id)],
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn undoing_one_panes_selection_leaves_another_panes_later_selection_alone() {
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::default();
+    // The navigator publishes on channel 2, so its selection is another
+    // channel's entry entirely.
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetChannel {
+                target: PaneRef::id(parts.navigator),
+                channel: ChannelId::number(2),
+            },
+        )
+        .unwrap();
+
+    select(&mut stacks, &mut layout, parts.list, "publication", 1);
+    select(&mut stacks, &mut layout, parts.navigator, "collection", 2);
+
+    // ⌘Z in the list: before, the list's patch held the WHOLE channel state,
+    // so this also wiped the navigator's later selection on channel 2.
+    let undone = stacks.undo_exploration(&mut layout, parts.list).unwrap();
+    assert!(undone.is_some());
+    assert_eq!(layout.channels.current(1, "publication"), None);
+    assert_eq!(
+        layout.channels.current(2, "collection"),
+        Some(Uuid::from_u128(2)),
+        "the navigator's selection, made after, survives"
+    );
+}
+
+#[test]
+fn undoing_a_selection_someone_else_has_since_overwritten_is_refused_and_dropped() {
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::default();
+    select(&mut stacks, &mut layout, parts.list, "publication", 1);
+    // The detail pane publishes on the SAME channel and kind afterwards.
+    select(&mut stacks, &mut layout, parts.detail, "publication", 2);
+    let before = layout.clone();
+
+    let refused = stacks.undo_exploration(&mut layout, parts.list);
+    assert!(
+        matches!(refused, Err(LayoutError::UndoConflict { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(layout, before, "a refused step changes nothing");
+    assert!(
+        stacks.exploration[&parts.list].done.is_empty(),
+        "and it is dropped, so the next ⌘Z does not refuse on it again"
+    );
+    assert_eq!(
+        layout.channels.current(1, "publication"),
+        Some(Uuid::from_u128(2))
+    );
+}
+
+#[test]
+fn undoing_a_query_does_not_bring_back_a_role_another_verb_moved() {
+    // The review's case: set-query on P, then set-role moves `list` from P
+    // to Q on the arrangement ring, then ⌘Z in P. The whole-spec replay
+    // restored P's old spec — role and all — and two panes held `list`.
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::default();
+    let original_query = layout.pane(parts.list).unwrap().query.clone();
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetQuery {
+                target: PaneRef::id(parts.list),
+                query: PaneQuery {
+                    kinds: vec!["manuscript".to_string()],
+                    ..PaneQuery::default()
+                },
+            },
+        )
+        .unwrap();
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetRole {
+                target: PaneRef::id(parts.detail),
+                role: Some(Role::LIST),
+            },
+        )
+        .unwrap();
+
+    stacks.undo_exploration(&mut layout, parts.list).unwrap();
+    assert_eq!(
+        layout.pane(parts.list).unwrap().query,
+        original_query,
+        "the query this step changed is back"
+    );
+    assert_eq!(
+        layout.pane(parts.list).unwrap().role,
+        None,
+        "the role is not"
+    );
+    assert_eq!(layout.pane_with_role(&Role::LIST), Some(parts.detail));
+}
+
+#[test]
+fn a_step_that_would_hand_out_a_role_twice_is_refused() {
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::default();
+    // Exploration: P's spec replaced by one with no role (set-pane is
+    // exploration and carries the role field).
+    let mut bare = layout.pane(parts.list).unwrap().clone();
+    bare.role = None;
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetPane {
+                target: PaneRef::id(parts.list),
+                spec: bare,
+            },
+        )
+        .unwrap();
+    // Arrangement: the free role goes to the detail pane.
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetRole {
+                target: PaneRef::id(parts.detail),
+                role: Some(Role::LIST),
+            },
+        )
+        .unwrap();
+    let before = layout.clone();
+
+    let refused = stacks.undo_exploration(&mut layout, parts.list);
+    assert!(
+        matches!(refused, Err(LayoutError::UndoConflict { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(layout, before);
+}
+
+// --------------------------------------------- ids are not reused (RL-L8)
+
+#[test]
+fn a_new_split_never_inherits_the_ring_of_a_split_that_was_undone() {
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::default();
+    let split = |stacks: &mut UndoStacks, layout: &mut impress_layout::Layout| {
+        stacks
+            .apply(
+                layout,
+                Verb::Split {
+                    target: PaneRef::id(parts.detail),
+                    dir: LinearDir::Vertical,
+                    after: true,
+                    new: scratch_pane(),
+                },
+            )
+            .unwrap();
+        layout.window(parts.window).unwrap().focused.unwrap()
+    };
+
+    let first = split(&mut stacks, &mut layout);
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetViewKind {
+                target: PaneRef::id(first),
+                view_kind: ViewKindId::INFO,
+            },
+        )
+        .unwrap();
+    stacks.undo_arrangement(&mut layout).unwrap();
+    assert!(layout.pane(first).is_none());
+
+    let second = split(&mut stacks, &mut layout);
+    assert_ne!(second, first, "the allocator did not roll back");
+    assert_eq!(
+        stacks.undo_exploration(&mut layout, second).unwrap(),
+        None,
+        "the new pane has no history of its own, and none of the dead one's"
+    );
+    assert_eq!(layout.pane(second).unwrap().view_kind, ViewKindId::PDF);
+}
+
+#[test]
+fn the_ring_of_a_pane_nothing_can_bring_back_is_pruned() {
+    let (mut layout, parts) = three_column();
+    let mut stacks = UndoStacks::new(1);
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetViewKind {
+                target: PaneRef::id(parts.detail),
+                view_kind: ViewKindId::PDF,
+            },
+        )
+        .unwrap();
+    stacks
+        .apply(
+            &mut layout,
+            Verb::Close {
+                target: PaneRef::id(parts.detail),
+            },
+        )
+        .unwrap();
+    assert!(
+        stacks.exploration.contains_key(&parts.detail),
+        "the close is on the arrangement ring, so undoing it can bring the ring back"
+    );
+    // A capacity-one arrangement ring forgets the close at the next gesture.
+    stacks
+        .apply(
+            &mut layout,
+            Verb::SetContainerKind {
+                container: parts.root,
+                kind: impress_layout::ContainerKind::Vertical,
+            },
+        )
+        .unwrap();
     assert!(!stacks.exploration.contains_key(&parts.detail));
 }

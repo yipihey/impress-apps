@@ -1651,7 +1651,9 @@ public protocol SharedLayoutProtocol : AnyObject {
      *
      * `limit` of 0 keeps whatever limit the pane's own query carries. Rows
      * come back as the ordinary [`SharedItemRow`], so Swift reuses the
-     * payload decoders it already has.
+     * payload decoders it already has. The compiled query is used as it
+     * comes back — it used to be serialized to JSON and parsed straight
+     * back on every display pass (review RL-L14).
      */
     func runPane(id: UInt64, offset: UInt32, limit: UInt32) throws  -> [SharedItemRow]
     
@@ -1936,7 +1938,9 @@ open func resizeShare(pane: UInt64, share: Float, actor: String)throws  -> Share
      *
      * `limit` of 0 keeps whatever limit the pane's own query carries. Rows
      * come back as the ordinary [`SharedItemRow`], so Swift reuses the
-     * payload decoders it already has.
+     * payload decoders it already has. The compiled query is used as it
+     * comes back — it used to be serialized to JSON and parsed straight
+     * back on every display pass (review RL-L14).
      */
 open func runPane(id: UInt64, offset: UInt32, limit: UInt32)throws  -> [SharedItemRow] {
     return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
@@ -14929,9 +14933,16 @@ public protocol SharedLayoutListener : AnyObject {
     
     /**
      * The tree itself changed — re-read [`SharedLayout::snapshot`]. The
-     * number is the same counter the snapshot carries.
+     * number is the same counter the snapshot carries. Only for THIS
+     * scope's live row: another app's keystroke is not this window's change.
      */
     func layoutChanged(version: UInt64) 
+    
+    /**
+     * A saved layout or preset of this app was written or deleted elsewhere
+     * — re-read [`SharedLayout::list_layouts`]. The tree did not change.
+     */
+    func layoutsChanged() 
     
 }
 
@@ -14986,6 +14997,28 @@ fileprivate struct UniffiCallbackInterfaceSharedLayoutListener {
                 }
                 return uniffiObj.layoutChanged(
                      version: try FfiConverterUInt64.lift(version)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        layoutsChanged: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedLayoutListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.layoutsChanged(
                 )
             }
 
@@ -17418,7 +17451,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_resize_share() != 3639) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_run_pane() != 20896) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_run_pane() != 17104) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_save_layout() != 2161) {
@@ -17781,7 +17814,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_panes_invalidated() != 34210) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_layout_changed() != 36108) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_layout_changed() != 49957) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_layouts_changed() != 63482) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 2563) {
