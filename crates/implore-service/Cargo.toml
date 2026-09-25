@@ -8,6 +8,11 @@ repository.workspace = true
 
 [dependencies]
 impress-service-core = { workspace = true }
+# `create-figure`'s data arguments are validated by the module that renders
+# them (`implore_core::figure_artifact::validate_figure_data`), so the verb
+# and implore's renderer share one definition of a series, a spec and an SVG.
+# Default features only: no uniffi, kuva or typst.
+implore-core = { workspace = true }
 impress-service-macros = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
