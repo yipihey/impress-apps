@@ -1776,7 +1776,7 @@ impl ImbibStore {
             .ok_or_else(|| StoreApiError::NotFound(format!("comment {id}")))?;
         if item.schema != "imbib/comment" {
             return Err(StoreApiError::InvalidInput(format!(
-                "{id} is a {} record, not a comment; nothing was deleted",
+                "{id} is a record of kind {}, not a comment; nothing was deleted",
                 item.schema
             )));
         }

@@ -665,10 +665,14 @@ impl SurfaceCore {
             "surface {surface_id} ({}): {} dispatch {}: {}",
             self.host,
             actor_name(actor),
-            if dto.ok {
-                "ok".to_string()
-            } else {
-                format!("refused [{}]", dto.code.as_deref().unwrap_or("?"))
+            match (dto.ok, dto.code.as_deref()) {
+                (true, _) => "ok".to_string(),
+                // The event was applied and its state saved; an effect did
+                // not happen. Not a refusal of the dispatch.
+                (false, Some(code @ "effect-failed")) => {
+                    format!("applied, but not ok [{code}]")
+                }
+                (false, code) => format!("refused [{}]", code.unwrap_or("?")),
             },
             dto.message
         );
@@ -1843,7 +1847,7 @@ mod tests {
         assert!(
             mine.iter()
                 .any(|(_, category, message)| category == "surface"
-                    && message.contains("human dispatch refused [effect-failed]")),
+                    && message.contains("human dispatch applied, but not ok [effect-failed]")),
             "{mine:#?}"
         );
     }
