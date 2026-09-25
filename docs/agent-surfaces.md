@@ -44,7 +44,10 @@ calls "the prototyping loop is five verbs and one scaffold" (ADR-0033 D8).
 7. **React**: read what came back and either
    **`impress-surface-service_surface-update`** the spec/state (change what
    the human sees) or call a domain verb directly with what the human chose
-   (act on it). Then `surface_wait` again — the loop is
+   (act on it). Every surface row carries a `revision` (1 on create, +1 per
+   update); pass the one you read as `expected_revision` and an update that
+   would overwrite someone else's change is refused with `conflict:` instead.
+   An open pane shows an update on its next render — no reopening. Then `surface_wait` again — the loop is
    create → show → wait → update or act → wait.
 
 ### A full round, transcript-shaped
@@ -283,6 +286,12 @@ Sources are cached by their resolved arguments and re-run only when an
 argument changes, a store invalidation names the query, or an action
 `refresh`es them explicitly (ADR-0033, "Defaults accepted without further
 discussion").
+A store write names a query when it touches a record kind the query reads
+(its `kinds`, or every kind when it names none) — in this process or, through
+the app's 250 ms poll, in another one such as `impress-mcp`. A `verb` source
+declares nothing it reads, so it re-runs only on an argument change or a
+`refresh`. A source that failed is not asked again with the same arguments
+for 5 seconds; its error stays on the placeholder meanwhile.
 
 ### Actions
 

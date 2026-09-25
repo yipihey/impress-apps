@@ -1956,8 +1956,9 @@ public actor HTTPAutomationRouter: HTTPRouter {
     /// Unlike `LayoutAutomation.shared.host` (a live GUI controller this
     /// router must reuse to stay in sync with an open window), a
     /// `SharedSurface` handle holds no state of its own — a surface's state
-    /// lives in `impress/ui/surface-state@1.0.0` store rows, not in this
-    /// object — so a FRESH handle is opened per request rather than cached.
+    /// lives in `impress/ui/surface-state@1.0.0` store rows and the store's
+    /// one surface registry, not in this object — so the bridge's one handle
+    /// serves every request.
     /// That also means this route answers whether or not the ADR-0031 layout
     /// tree (or any surface pane) is even rendering: an agent can build and
     /// drive a surface entirely headlessly, the same five-verb loop
@@ -1972,19 +1973,19 @@ public actor HTTPAutomationRouter: HTTPRouter {
     ) async -> HTTPResponse {
         let fullPath = Self.pathWithQuery(path, params: request.queryParams)
         let body = request.body ?? ""
-        return await MainActor.run {
-            // ONE implementation, in the shared group (`SurfaceAutomation`),
-            // because impress serves these too and a second copy here would
-            // be the thing that drifts. imbib keeps its own prefix checks so
-            // the path still cannot fall through to "Unknown endpoint".
-            let reply = SurfaceAutomationBridge.shared.routeSurfaceRequest(
-                method: method, path: fullPath, body: body)
-            return HTTPResponse(
-                status: reply.status,
-                statusText: Self.surfaceStatusText(UInt16(reply.status)),
-                headers: ["Content-Type": "application/json; charset=utf-8"],
-                body: Data(reply.body.utf8))
-        }
+        // ONE implementation, in the shared group (`SurfaceAutomation`),
+        // because impress serves these too and a second copy here would be
+        // the thing that drifts. imbib keeps its own prefix checks so the
+        // path still cannot fall through to "Unknown endpoint". Awaited: the
+        // bridge hops to the main actor only to find the store, and Rust runs
+        // the request off it (wave 7, SK-K2).
+        let reply = await SurfaceAutomationBridge.shared.routeSurfaceRequest(
+            method: method, path: fullPath, body: body)
+        return HTTPResponse(
+            status: reply.status,
+            statusText: Self.surfaceStatusText(UInt16(reply.status)),
+            headers: ["Content-Type": "application/json; charset=utf-8"],
+            body: Data(reply.body.utf8))
     }
 
     /// `SharedSurface.surfaceHttp` documents its statuses as 200, or 400/404

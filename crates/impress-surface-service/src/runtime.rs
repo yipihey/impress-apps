@@ -1151,6 +1151,9 @@ struct Slot {
     /// Refs a store invalidation named since the runtime last ran; applied
     /// with [`SurfaceRuntime::invalidate_sources`] on the next call.
     dirty: Mutex<BTreeSet<String>>,
+    /// Set by [`SessionRegistry::retry_failed_sources`]: forget every
+    /// remembered failure on the next call.
+    retry_failed: std::sync::atomic::AtomicBool,
 }
 
 type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
@@ -1236,6 +1239,12 @@ impl SessionRegistry {
         if !dirty.is_empty() {
             runtime.invalidate_sources(&dirty);
         }
+        if slot
+            .retry_failed
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            runtime.failed.clear();
+        }
         f(runtime).await
     }
 
@@ -1261,6 +1270,16 @@ impl SessionRegistry {
             }
         }
         marked
+    }
+
+    /// What can answer a verb changed (a verb host was installed): let every
+    /// runtime ask its failed sources again on its next call instead of
+    /// waiting out [`FAILED_SOURCE_BACKOFF`].
+    pub fn retry_failed_sources(&self) {
+        for slot in self.lock().values() {
+            slot.retry_failed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     /// Every schema ref some live runtime's query sources read — what a feed

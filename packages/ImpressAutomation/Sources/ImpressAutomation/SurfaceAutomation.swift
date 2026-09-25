@@ -40,7 +40,11 @@ public protocol SurfaceAutomationHost: AnyObject {
     /// `path` already carries its query string; `body` is the raw request
     /// body (empty for methods that take none). The reply is Rust's own
     /// status and JSON body, passed through untouched.
-    func routeSurfaceRequest(method: String, path: String, body: String) -> (
+    ///
+    /// `async`: `surfaceHttp` runs sources and effects — verb calls that may
+    /// be HTTP round trips to another app — on Rust's own runtime, and the
+    /// main actor is suspended, not blocked, while it does (wave 7, SK-K2).
+    func routeSurfaceRequest(method: String, path: String, body: String) async -> (
         status: Int, body: String
     )
 }
@@ -77,29 +81,34 @@ public enum SurfaceAutomationRoutes {
         guard matches(path) else { return nil }
         let fullPath = pathWithQuery(path, params: request.queryParams)
         let body = request.body ?? ""
-        return await MainActor.run {
-            guard let host = SurfaceAutomation.shared.host else {
-                // 409, not 404: the route exists, the app cannot serve it
-                // (its store is not open yet). A 404 here would read as
-                // "this build has no surfaces".
-                return HTTPResponse.json(
-                    [
-                        "status": "error",
-                        "error": "no surface host is registered in this app",
-                        "detail":
-                            "The shared store must be open before the surface routes can "
-                            + "answer. Headless callers need no app at all — the same verbs "
-                            + "are `impress-surface-service_surface-*` over MCP.",
-                    ],
-                    status: 409)
-            }
-            let reply = host.routeSurfaceRequest(method: method, path: fullPath, body: body)
-            return HTTPResponse(
-                status: reply.status,
-                statusText: statusText(reply.status),
-                headers: ["Content-Type": "application/json; charset=utf-8"],
-                body: Data(reply.body.utf8))
+        return await answer(method: method, path: fullPath, body: body)
+    }
+
+    /// On the main actor only to find the host; the host's own `await` of
+    /// Rust suspends it rather than holding it.
+    @MainActor
+    private static func answer(method: String, path: String, body: String) async -> HTTPResponse {
+        guard let host = SurfaceAutomation.shared.host else {
+            // 409, not 404: the route exists, the app cannot serve it
+            // (its store is not open yet). A 404 here would read as
+            // "this build has no surfaces".
+            return HTTPResponse.json(
+                [
+                    "status": "error",
+                    "error": "no surface host is registered in this app",
+                    "detail":
+                        "The shared store must be open before the surface routes can "
+                        + "answer. Headless callers need no app at all — the same verbs "
+                        + "are `impress-surface-service_surface-*` over MCP.",
+                ],
+                status: 409)
         }
+        let reply = await host.routeSurfaceRequest(method: method, path: path, body: body)
+        return HTTPResponse(
+            status: reply.status,
+            statusText: statusText(reply.status),
+            headers: ["Content-Type": "application/json; charset=utf-8"],
+            body: Data(reply.body.utf8))
     }
 
     /// Re-attach the query string the router already parsed away, because
@@ -117,12 +126,13 @@ public enum SurfaceAutomationRoutes {
         return "\(path)?\(query)"
     }
 
-    /// The three statuses `SharedSurface.surfaceHttp` documents.
+    /// The statuses `SharedSurface.surfaceHttp` documents.
     static func statusText(_ status: Int) -> String {
         switch status {
         case 200: return "OK"
         case 400: return "Bad Request"
         case 404: return "Not Found"
+        case 409: return "Conflict"
         default: return "Error"
         }
     }
