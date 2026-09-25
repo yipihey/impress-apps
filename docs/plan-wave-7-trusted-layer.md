@@ -506,6 +506,17 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     verbs, and the pane's "echo of its own write — not re-rendered" line. Throwaways (four
     surfaces, the two `w7-t6a-proof` live rows via `SqliteItemStore::delete`) removed; no launcher
     touched (xcodebuild direct).
+  - **After the merge with #75** (same ports and device, rebuilt from the merged tree): the retired
+    `target: {"ref": "id", "tile": 7}` is refused naming `ref` and `tile` — CLI exit 3, HTTP 400,
+    MCP `isError` — while `{"id": 7}` reaches the verb (404, no such surface); surface Tier B 3/3
+    on 23201 and 23202; layout Tier B 14/14 on 23201; the param proof and the implore publish
+    reproduced; kit-demo `--prove` 18/18; throwaways removed again.
+  - **Gates.** `rust-gate.sh fmt`, `clippy auto` (imprint + rest), `test auto` (imprint + rest;
+    one run's imbib-core doctest could not load a `impress_smart_search` rlib a stopped build
+    had truncated — cleaned and rerun green), `check-uniffi-bindings` (7 match; the regenerated
+    store binding is byte-identical to the merge), `check-schema-refs`, `check-kit-deps
+    --strict`, `check-kit-packages`, `check-chassis-deps`; ImpressLayout 79/0, ImpressSurface
+    18/18, ImpressAutomation 14 + 63, PublicationManagerCore full (see the PR).
   - **Found.** The copied imbib-core/implore-core frameworks predated T5 and the toolchain pin
     (missing checksums, duplicate `_rust_eh_personality`); rebuilt in the worktree. impress's
     `/api/status` still reports 23125 on 23201 (T5's finding 4).
