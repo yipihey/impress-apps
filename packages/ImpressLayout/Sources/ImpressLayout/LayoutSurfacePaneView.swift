@@ -82,28 +82,38 @@ public struct LayoutSurfacePaneView: View {
                 content(surfaceID: surfaceID)
             } else {
                 // An unfilled parameter is the empty state, never an error
-                // (ADR-0031 D3). The words and glyph are the ones this pane
-                // drew before W6 (`ChassisEmptyState.noRowSelection(isArtifact:
-                // false)`), kept verbatim by the move.
+                // (ADR-0031 D3) — and it names what is unfilled, rather than
+                // the publication detail pane's words it borrowed until wave
+                // 7 (SK-K21).
                 LayoutUnavailable(
-                    "No Selection", systemImage: "doc.text",
-                    message: "Select a publication to view details")
+                    "No Surface", systemImage: "rectangle.dashed",
+                    message:
+                        "This pane's item parameter is unbound, so it names no surface "
+                        + "(tile \(String(context.tile))).")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The subscription lives exactly as long as this task (SK-K18 /
+        // AC-F17): SwiftUI cancels it when the pane disappears or its surface
+        // id changes, and re-runs it when the pane appears again. The old
+        // shape unsubscribed in `onDisappear` and returned early from `open`
+        // on reappearing with the same id, so a pane hidden once (a tab
+        // switch, maximize/restore) never heard an agent's write again.
         .task(id: surfaceID) {
-            await open(surfaceID: surfaceID)
-        }
-        .onDisappear {
-            model?.stop()
+            await attend(surfaceID: surfaceID)
         }
     }
 
     @ViewBuilder
     private func content(surfaceID: String) -> some View {
         if let model, let tree = model.tree {
-            SurfaceView(tree: tree, hooks: hooks) { event in
-                handle(event, model: model)
+            VStack(spacing: 0) {
+                if let failure = model.effectFailure {
+                    effectFailureLine(failure, model: model)
+                }
+                SurfaceView(tree: tree, hooks: hooks, keyInput: model.keyInput) { event in
+                    handle(event, model: model)
+                }
             }
         } else if let model, let lastError = model.lastError {
             LayoutUnavailable(
@@ -115,45 +125,75 @@ public struct LayoutSurfacePaneView: View {
         }
     }
 
-    // MARK: Opening
+    /// A failed effect is said, above the surface, until dismissed (SK-K16).
+    private func effectFailureLine(_ failure: String, model: SurfacePaneModel) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+            Text(failure).lineLimit(2)
+            Spacer(minLength: 0)
+            Button {
+                model.dismissEffectFailure()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+        }
+        .font(.caption)
+        .foregroundStyle(.orange)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
 
-    /// Opens (or reuses) the `SharedSurface` handle for this pane. Called
-    /// from `.task(id: surfaceID)`, so it re-runs exactly when the pane's
-    /// `item` parameter resolves to a DIFFERENT surface — never on every
-    /// keystroke a widget inside it makes, since those go through
-    /// `model.dispatch`, not through this path.
+    // MARK: Lifetime
+
+    /// Open (or reuse) this pane's `SharedSurface` handle, start its feed,
+    /// take the root's keys, and hold all three until SwiftUI cancels the
+    /// task — then release all three.
     ///
-    /// `surfaceID` arrives as a plain parameter (the `.task(id:)` snapshot),
-    /// and every other value this reads off `context` is a `let` on the
-    /// view's own struct, not `@State` — so, per CLAUDE.md's capture rule,
-    /// there is nothing here that can go stale out from under the `await`.
-    private func open(surfaceID: String?) async {
+    /// `surfaceID` arrives as the `.task(id:)` snapshot, and every other
+    /// value this reads off `context` is a `let` on the view's own struct,
+    /// not `@State` — so, per CLAUDE.md's capture rule, nothing here can go
+    /// stale across the `await`.
+    private func attend(surfaceID: String?) async {
+        let tile = context.tile
+        let controller = context.controller
         guard let surfaceID else {
-            model?.stop()
             model = nil
             return
         }
+        let active: SurfacePaneModel
         if let existing = model, existing.surfaceID == surfaceID {
-            return
+            active = existing
+        } else {
+            logInfo("surface pane \(tile): opening surface \(surfaceID)", category: "surface")
+            guard let store = controller.store else {
+                logError(
+                    "surface pane \(tile): no SharedStore handle — surface not rendered",
+                    category: "surface")
+                return
+            }
+            // `host: ""` — SharedSurface resolves the layout device id itself
+            // (see `SharedSurface.open`'s doc comment).
+            let surface = SharedSurface.open(store: store, host: "")
+            active = SurfacePaneModel(surface: surface, surfaceID: surfaceID, pane: tile)
+            model = active
         }
-        model?.stop()
-        model = nil
-
-        let tile = context.tile
-        logInfo("surface pane \(tile): opening surface \(surfaceID)", category: "surface")
-
-        guard let store = context.controller.store else {
-            logError(
-                "surface pane \(tile): no SharedStore handle — surface not rendered",
-                category: "surface")
-            return
+        active.start()
+        let keys = active.keyInput
+        controller.setKeyHandler(for: tile, owner: active) { key in
+            switch key {
+            case .down: return keys.send(.next)
+            case .up: return keys.send(.previous)
+            case .activate: return keys.send(.activate)
+            case .leave: return keys.send(.leave)
+            }
         }
-        // `host: ""` — SharedSurface resolves the layout device id itself
-        // (see `SharedSurface.open`'s doc comment).
-        let surface = SharedSurface.open(store: store, host: "")
-        let opened = SurfacePaneModel(surface: surface, surfaceID: surfaceID, pane: tile)
-        model = opened
-        opened.start()
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3600))
+        }
+        controller.removeKeyHandler(for: tile, owner: active)
+        active.stop()
     }
 
     // MARK: Events
@@ -161,11 +201,9 @@ public struct LayoutSurfacePaneView: View {
     /// Every `SurfaceEvent` the renderer sends, forwarded to Rust via
     /// `model.dispatch` — and, for a `select` event, ALSO published on this
     /// pane's own channel via `context.select(_:)`, exactly the way
-    /// `LayoutRowsPaneView` publishes a row click: a surface's table/list
-    /// selection is how a surface feeds another pane (`docs/agent-surfaces.md`
-    /// § Actions, `{"publish": {...}}`), and that only works if the PANE's
-    /// selection channel — not just the surface's own dispatch/reduce state —
-    /// carries it.
+    /// `LayoutRowsPaneView` publishes a row click. (Whether the renderer
+    /// should publish at all, or leave it to the spec's own `publish`
+    /// effect, is review SK-K4 — wave 7's T6.)
     private func handle(_ event: SurfaceEvent, model: SurfacePaneModel) {
         if event.kind == .select, let ids = event.value.arrayValue?.compactMap(\.stringValue) {
             context.select(ids)
@@ -177,7 +215,7 @@ public struct LayoutSurfacePaneView: View {
 // MARK: - The per-pane model
 
 /// Owns ONE `SharedSurface` handle and its invalidation subscription for the
-/// life of this pane's surface id (see `LayoutSurfacePaneView.open`).
+/// life of this pane's surface id (see `LayoutSurfacePaneView.attend`).
 /// `@Observable` so the view re-renders when `tree`/`lastError` change,
 /// exactly the way `LayoutController` drives `LayoutWindowView` — the same
 /// idiom, one level down.
@@ -188,10 +226,15 @@ final class SurfacePaneModel {
     let surface: SharedSurface
     let surfaceID: String
     let pane: UInt64
+    /// Where the window root's j / k / ⏎ / ⎋ arrive for this surface.
+    let keyInput = SurfaceKeyInput()
 
     private(set) var tree: RenderTree?
     private(set) var lastError: String?
+    /// The most recent dispatch's failed effects, until dismissed.
+    private(set) var effectFailure: String?
     private var subscribed = false
+    private var everSubscribed = false
 
     init(surface: SharedSurface, surfaceID: String, pane: UInt64) {
         self.surface = surface
@@ -199,9 +242,8 @@ final class SurfacePaneModel {
         self.pane = pane
     }
 
-    /// First render, then subscribe — a pane that shows this surface before
-    /// any subsequent `dispatch`/external write still has an answer either
-    /// way (mirrors `SharedSurface.render`'s own doc comment on `pane:`).
+    /// Render, then subscribe. Idempotent; a pane that appears again after
+    /// being hidden re-renders (it may have missed writes) and resubscribes.
     func start() {
         render()
         guard !subscribed else { return }
@@ -211,6 +253,10 @@ final class SurfacePaneModel {
                     self?.render()
                 })
             subscribed = true
+            logInfo(
+                "surface pane \(pane): \(everSubscribed ? "resubscribed" : "subscribed") to \(surfaceID)",
+                category: "surface")
+            everSubscribed = true
         } catch {
             lastError = String(describing: error)
             logWarning(
@@ -222,16 +268,30 @@ final class SurfacePaneModel {
         guard subscribed else { return }
         surface.unsubscribe()
         subscribed = false
+        logInfo("surface pane \(pane): unsubscribed from \(surfaceID)", category: "surface")
+    }
+
+    func dismissEffectFailure() {
+        effectFailure = nil
     }
 
     /// The DISPLAY leg of the trace: re-read the resolved tree from Rust.
+    ///
+    /// A tree equal to the one on screen is not adopted, so the feed's echo
+    /// of this pane's own dispatch — which the dispatch reply already
+    /// rendered — redraws nothing (SK-K15). The FFI call itself still runs:
+    /// the feed carries no way to tell our write from an agent's, and
+    /// skipping it could hide the agent's.
     func render() {
-        logInfo(
-            "surface pane \(pane): render requested for \(surfaceID)", category: "surface")
+        logDebug("surface pane \(pane): render requested for \(surfaceID)", category: "surface")
         do {
             let json = try surface.render(surfaceId: surfaceID, pane: pane)
             let decoded = try RenderTree.decode(json)
             lastError = nil
+            guard decoded != tree else {
+                logDebug("surface pane \(pane): render unchanged", category: "surface")
+                return
+            }
             tree = decoded
             logInfo(
                 "surface pane \(pane) display: \(decoded.focusOrder.count) focusable widgets",
@@ -243,34 +303,47 @@ final class SurfacePaneModel {
         }
     }
 
-    /// The MUTATION leg (the request) and the SAVE leg (what Rust actually
-    /// did) of the trace; `render()` above is the DISPLAY leg, called again
-    /// here once the reply carries a fresh tree.
+    /// The MUTATION leg (the request) and the SAVE leg (what Rust did,
+    /// effects included) of the trace, as ONE line each; the reply's tree is
+    /// the DISPLAY leg.
     func dispatch(_ event: SurfaceEvent) {
+        let value = (try? event.value.jsonString()) ?? "?"
         logInfo(
-            "surface pane \(pane): dispatch \(event.kind.rawValue) on \(event.widget)",
+            "surface pane \(pane): \(event.kind.rawValue) \(event.widget)=\(value.prefix(80))",
             category: "surface")
         do {
             let eventJSON = try event.jsonString()
             let replyJSON = try surface.dispatch(
                 surfaceId: surfaceID, pane: pane, eventJson: eventJSON)
             let reply = try SurfaceDispatchReply.decode(replyJSON)
-            logInfo(
-                "surface pane \(pane) applied: ok=\(reply.ok) message=\(reply.message)",
-                category: "surface")
+            let failed = reply.effects.filter { !$0.ok }
             if let newTree = reply.tree {
                 lastError = nil
-                tree = newTree
-                logInfo(
-                    "surface pane \(pane) display: \(newTree.focusOrder.count) focusable widgets",
-                    category: "surface")
+                if newTree != tree { tree = newTree }
             } else if !reply.ok {
                 lastError = reply.message
             }
+            logInfo(
+                "surface pane \(pane): \(event.kind.rawValue) \(event.widget) → "
+                    + "\(reply.ok ? "ok" : "refused: \(reply.message)"), "
+                    + "\(reply.effects.count) effect(s), \(failed.count) failed, "
+                    + "\(tree?.focusOrder.count ?? 0) widgets",
+                category: "surface")
+            // Rust has run every effect already (none is left for the host);
+            // a failed one is reported, not retried (SK-K16).
+            for effect in failed {
+                logWarning(
+                    "surface pane \(pane): \(effect.kind) effect failed — \(effect.message)",
+                    category: "surface")
+            }
+            effectFailure =
+                failed.isEmpty
+                ? nil : failed.map { "\($0.kind) failed: \($0.message)" }.joined(separator: "; ")
         } catch {
             lastError = String(describing: error)
             logWarning(
-                "surface pane \(pane): dispatch failed — \(error)", category: "surface")
+                "surface pane \(pane): \(event.kind.rawValue) \(event.widget) failed — \(error)",
+                category: "surface")
         }
     }
 }
@@ -295,23 +368,33 @@ private final class SurfaceInvalidationBridge: SharedSurfaceListener, @unchecked
     }
 }
 
-/// `impress_surface_service::dto::SurfaceDispatchResult`'s wire shape
-/// (`{"ok", "message", "tree", "effects"}`) — only `ok`/`message`/`tree` are
-/// modelled; `effects` (the `open`/`publish` actions the host must still
-/// run, per `SharedSurface.dispatch`'s doc comment) are not yet consumed
-/// here. NOTED AS A GAP, not silently dropped: an `on_click`/`on_select`
-/// spec that names `{"open": {...}}` or `{"publish": {...}}` (as opposed to
-/// the `context.select` this file already does for a raw `select` EVENT)
-/// will validate, dispatch and re-render correctly, but the pane will not
-/// itself open a query in another pane or publish on demand from an
-/// `on_click`'s `publish` action — only from an actual `select` event on a
-/// `table`/`list`, which `handle(_:model:)` above does cover. Wiring
-/// `effects` is follow-up, tracked alongside the `list` row-style gap noted
-/// on `hooks` above.
-private struct SurfaceDispatchReply: Decodable {
+/// `impress_surface_service::dto::SurfaceDispatchResult`'s wire shape:
+/// `{"ok", "message", "tree", "effects"}`. Rust has already RUN every effect
+/// by the time this arrives — `call`, `publish`, `emit`, `open`, `refresh`;
+/// none is a to-do for the host — and `effects` says how each one went. A
+/// dispatch can be `ok` with a failed effect (a publish that found no pane,
+/// an `open` Rust refused), which is why the pane reads them (SK-K16).
+struct SurfaceDispatchReply: Decodable {
     let ok: Bool
     let message: String
     let tree: RenderTree?
+    let effects: [Effect]
+
+    struct Effect: Decodable, Equatable {
+        let kind: String
+        let ok: Bool
+        let message: String
+    }
+
+    private enum CodingKeys: String, CodingKey { case ok, message, tree, effects }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decode(Bool.self, forKey: .ok)
+        message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+        tree = try container.decodeIfPresent(RenderTree.self, forKey: .tree)
+        effects = try container.decodeIfPresent([Effect].self, forKey: .effects) ?? []
+    }
 
     static func decode(_ json: String) throws -> SurfaceDispatchReply {
         try JSONDecoder().decode(SurfaceDispatchReply.self, from: Data(json.utf8))
