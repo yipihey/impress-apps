@@ -68,13 +68,10 @@ final class LayoutOutlinePaneState {
             guard let controller = entry.controller else { return false }
             return controller.tree?.tile(key.tile) != nil
         }
-        if let entry = entries[key] {
-            logInfo(
-                "outline pane \(context.tile): remounted — kept its sidebar state "
-                    + "(selection \(entry.state.routedTab.map { "\($0)" } ?? "none"))",
-                category: "layout")
-            return entry.state
-        }
+        // No log on a hit: the view calls this from `init`, which SwiftUI
+        // runs on every parent re-evaluation. The remount itself is logged
+        // once, by the router (`outline: remount — …`).
+        if let entry = entries[key] { return entry.state }
         let state = LayoutOutlinePaneState()
         entries[key] = Entry(controller: context.controller, state: state)
         return state

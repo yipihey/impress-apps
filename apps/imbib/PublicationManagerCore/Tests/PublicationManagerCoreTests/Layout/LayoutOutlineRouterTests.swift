@@ -112,6 +112,29 @@ final class LayoutOutlineRouterTests: XCTestCase {
         XCTAssertEqual(router.currentListSpec?.query, libraryQuery, "the click did not put the list back")
     }
 
+    /// The Inbox's query is its library's too; the row that comes back is
+    /// the one a person would pick, Inbox — not the library by id (seen live
+    /// in impress, 2026-09-25).
+    func testAListBackOnTheInboxQuerySelectsTheInboxRow() throws {
+        _ = UndoCoordinator.performAutomatic("test setup") { InboxManager.shared.getOrCreateInbox() }
+        router.route(.inbox, initial: false)
+        try XCTSkipIf(state.routedTab != .inbox, "the Inbox did not route in this environment")
+        let inboxQuery = try XCTUnwrap(router.currentListSpec?.query)
+
+        var query = try XCTUnwrap(inboxQuery.objectValue)
+        query["filters"] = .array((query["filters"]?.arrayValue ?? []) + [
+            .object(["filter": .string("starred"), "starred": .bool(true)]),
+        ])
+        for next in [LayoutJSONValue.object(query), inboxQuery] {
+            let verb = LayoutJSONValue.object([
+                "verb": .string("set-query"), "target": LayoutPaneRef.role("list").json, "query": next,
+            ])
+            _ = try controller.applyVerbJSON(verb.jsonString(), actor: "agent")
+            router.listMayHaveMoved(at: controller.version)
+        }
+        XCTAssertEqual(state.routedTab, .inbox)
+    }
+
     func testTheOutlinesOwnRoutingIsNotMistakenForSomeoneElses() throws {
         router.route(.inbox, initial: false)
         let seen = state.lastListSpec

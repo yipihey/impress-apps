@@ -437,10 +437,12 @@ struct LayoutOutlineRouter {
                 if let id = UUID(uuidString: String(match.output)), !ids.contains(id) { ids.append(id) }
             }
         }
+        // Section rows first: the Inbox's query IS its library's, and the
+        // row a person picks for it is Inbox, not the library by id.
+        tabs.append(contentsOf: [.inbox, .dismissed, .allArtifacts, .citedInManuscripts, .reviewQueue, .recent])
         for id in ids {
             tabs.append(contentsOf: [.library(id), .collection(id), .libraryFeed(id), .inboxFeed(id), .exploration(id)])
         }
-        tabs.append(contentsOf: [.inbox, .dismissed, .allArtifacts, .citedInManuscripts, .reviewQueue, .recent])
         for filter in spec?.query["filters"]?.arrayValue ?? [] {
             switch filter["filter"]?.stringValue {
             case "tag": if let path = filter["path"]?.stringValue { tabs.append(.tag(path: path)) }
