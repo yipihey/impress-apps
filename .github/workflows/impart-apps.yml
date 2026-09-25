@@ -10,17 +10,57 @@ on:
     branches: [main]
     paths:
       - 'apps/impart/**'
-      - 'crates/impress-store-ffi/**'
-      - 'crates/impress-core/**'
+      - 'apps/chassis-utis.yml'
+      # Everything impart's package graph resolves outside apps/impart:
+      # both targets link PublicationManagerCore, which reaches imbib's and
+      # imprint's Swift cores and their committed bindings. A PMC-only PR
+      # changes what this lane compiles without touching apps/impart.
+      - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibRustCore/**'
+      - 'apps/imprint/Packages/ImprintCore/**'
+      - 'apps/imprint/ImprintRustCore/**'
       - 'packages/**'
+      # All of crates/, not a list. The five frameworks below reach 32 crate
+      # directories between them (their --all-features path closure, the same
+      # set the xcframework action hashes into each cache key), and an
+      # enumeration here would drift the first time one gains a dependency.
+      # Over-triggering is cheap: a crate outside every closure leaves all
+      # five keys unchanged, so the run is cache hits plus the Swift build, on
+      # a hosted runner.
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/actions/xcframework/**'
       - '.github/workflows/impart-apps.yml'
   pull_request:
     branches: [main]
     paths:
       - 'apps/impart/**'
-      - 'crates/impress-store-ffi/**'
-      - 'crates/impress-core/**'
+      - 'apps/chassis-utis.yml'
+      # Everything impart's package graph resolves outside apps/impart:
+      # both targets link PublicationManagerCore, which reaches imbib's and
+      # imprint's Swift cores and their committed bindings. A PMC-only PR
+      # changes what this lane compiles without touching apps/impart.
+      - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibRustCore/**'
+      - 'apps/imprint/Packages/ImprintCore/**'
+      - 'apps/imprint/ImprintRustCore/**'
       - 'packages/**'
+      # All of crates/, not a list. The five frameworks below reach 32 crate
+      # directories between them (their --all-features path closure, the same
+      # set the xcframework action hashes into each cache key), and an
+      # enumeration here would drift the first time one gains a dependency.
+      # Over-triggering is cheap: a crate outside every closure leaves all
+      # five keys unchanged, so the run is cache hits plus the Swift build, on
+      # a hosted runner.
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - '.github/actions/xcframework/**'
       - '.github/workflows/impart-apps.yml'
 
 env:
@@ -29,16 +69,11 @@ env:
   # incremental state onto a 14 GB disk that is thrown away afterwards.
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
-  # The xcode-27 image runs macOS 27, where rustc 1.97.1 (rust-toolchain.toml)
-  # cannot read back a proc-macro dylib after release's default
-  # strip=debuginfo: every framework build died at the first derive with
-  # "can't find crate for `zerofrom_derive`", the locator logging "metadata
-  # mismatch" (runs 36047933967, 36049515666). The same run built with
-  # stable 1.98.1, or with 1.97.1 and stripping off. rustc never strips a
-  # staticlib, so the .a files in the xcframeworks are unchanged; only
-  # proc-macro dylibs and build scripts keep their symbols. Delete this when
-  # the toolchain pin moves to 1.98 or later.
-  CARGO_PROFILE_RELEASE_STRIP: "false"
+  # No CARGO_PROFILE_RELEASE_STRIP override. Under rustc 1.97.1 the xcode-27
+  # image (macOS 27) could not read back a proc-macro dylib after release's
+  # default strip=debuginfo ("can't find crate for `zerofrom_derive`", runs
+  # 36047933967, 36049515666), so this lane turned stripping off. 1.98.1
+  # does not have the problem, and rust-toolchain.toml pins it.
 
 jobs:
   build-apps:

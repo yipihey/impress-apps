@@ -27,7 +27,7 @@ name: kit - the layout + surface kit can leave
 # half-installed-toolchain repair either: that step exists for the shared
 # ~/.rustup on the self-hosted Mac, and a hosted VM starts clean.
 #
-# The toolchain is rust-toolchain.toml's pin (1.97.1). rustup resolves it on
+# The toolchain is rust-toolchain.toml's pin (1.98.1). rustup resolves it on
 # the first cargo call in the checkout, the same way it does locally.
 
 on:
