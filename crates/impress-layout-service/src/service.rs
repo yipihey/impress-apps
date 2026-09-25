@@ -658,6 +658,12 @@ impl DefaultLayoutService {
                 };
                 let intent = intent_text(&verb);
                 let applied = session.apply(verb).map_err(|e| e.to_string())?;
+                if applied.patch.is_empty() {
+                    // Nothing changed (focus on the focused pane, restore
+                    // with nothing maximized): nothing to write, and no
+                    // write for every other reader of the row to wake on.
+                    return Ok(Some((intent, applied)));
+                }
                 match session.save(&store, actor_kind, &intent) {
                     Ok(()) => Ok(Some((intent, applied))),
                     // Lost the race: the session is stale and reloads on
@@ -728,13 +734,11 @@ impl DefaultLayoutService {
         actor: ActorKind,
     ) -> LayoutResult {
         let outcome = self.with_session(app_id, device, actor, |session, _| {
-            let notice = session.take_notice();
             let window = session.layout.current_window().ok();
             Ok(LayoutResult {
                 ok: true,
                 message: format!(
-                    "{}{} window(s), {} pane(s).",
-                    notice.map(|n| format!("{n} ")).unwrap_or_default(),
+                    "{} window(s), {} pane(s).",
                     session.layout.windows.len(),
                     session.layout.panes().len()
                 ),
@@ -1883,6 +1887,11 @@ impl DefaultLayoutService {
                 session.redo(&ring).map_err(|e| e.to_string())?
             };
             let word = if undo { "undo" } else { "redo" };
+            if let (None, Some(dropped)) = (&stepped, session.dropped_history()) {
+                // The ring is empty because a reload emptied it, not because
+                // there was never anything to undo.
+                return Err(format!("nothing to {word}: {dropped}"));
+            }
             let Some(patch) = stepped else {
                 // An empty ring is a no-op, not a failure: ⌘Z with nothing to
                 // undo does nothing everywhere else in macOS too.

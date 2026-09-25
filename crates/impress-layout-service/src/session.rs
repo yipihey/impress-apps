@@ -109,8 +109,13 @@ pub struct LayoutSession {
     /// touch reloads it.
     pub revision: Option<u64>,
     /// What the caller should be told about how this session came to be —
-    /// a reload because the row moved, a quarantined row. Taken once.
+    /// a reload because the row moved, a quarantined row. Taken once, by the
+    /// next verb (reads leave it, so a background read cannot swallow it).
     notice: Option<String>,
+    /// Set when a reload dropped undo steps, until the next step is recorded:
+    /// what an undo that finds its ring empty says instead of "nothing to
+    /// undo", because there WAS something and it went with the old tree.
+    dropped: Option<String>,
     /// The registry's write generation, bumped by every mutation below so a
     /// renderer sharing the registry learns the tree moved under it. See
     /// [`SessionRegistry::generation`].
@@ -179,6 +184,12 @@ impl LayoutSession {
     pub fn take_notice(&mut self) -> Option<String> {
         self.notice.take()
     }
+
+    /// Why the undo history is shorter than the user may expect: undo steps
+    /// a reload dropped, since no new step was recorded. See the field.
+    pub fn dropped_history(&self) -> Option<&str> {
+        self.dropped.as_deref()
+    }
 }
 
 /// What a save that lost the race says. The session has reloaded by the
@@ -190,6 +201,9 @@ impl LayoutSession {
     /// Apply a verb, recording its patch on the ring [`stack_for`] chooses.
     pub fn apply(&mut self, verb: Verb) -> Result<AppliedVerb, LayoutError> {
         let applied = self.apply_inner(verb)?;
+        if applied.stack != Stack::Unrecorded && !applied.patch.is_empty() {
+            self.dropped = None;
+        }
         self.note_write();
         Ok(applied)
     }
@@ -406,6 +420,7 @@ impl SessionRegistry {
         let mut sessions = self.lock();
         let key = (app_id.to_string(), device.to_string());
         let mut notice = None;
+        let mut dropped = None;
         if let Some(session) = sessions.get(&key) {
             let stored = store.revision_of(session.item_id)?;
             if stored.is_none() || stored != session.revision {
@@ -432,6 +447,12 @@ impl SessionRegistry {
                          history ({steps} step(s)) was dropped."
                     )
                 });
+                if steps > 0 {
+                    dropped = Some(format!(
+                        "the layout changed elsewhere and was reloaded, which dropped {steps} undo \
+                         step(s)"
+                    ));
+                }
                 sessions.remove(&key);
             }
         }
@@ -450,6 +471,7 @@ impl SessionRegistry {
                 undo: UndoStacks::default(),
                 revision: Some(load.revision),
                 notice,
+                dropped,
                 generation: self.generation.clone(),
             };
             // A tree stored before its panes had sessions (or cold-started
