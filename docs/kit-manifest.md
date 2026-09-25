@@ -102,7 +102,11 @@ one surface pane.
   its own `LayoutController`; `LayoutTreeRuntime.shared.controller` is the key
   window's, which is what menu commands act on.
 - **View kinds.** `ViewKindRegistry.builtin.register(ViewKindFactory(kind:make:))`
-  once, before the first pane renders. A kind nobody registered renders as the
+  once, before the first pane renders. The vocabulary is Rust's
+  (`impress_layout::ViewKindId::KNOWN`, exported as `layoutVocabularyJson()` and
+  read as `LayoutVocabulary.current`): a host registers only kinds from it, pins its
+  registrations to it in a test, and a verb naming any other kind is refused
+  `unknown-view-kind`. A stored kind nobody registered renders as the
   placeholder, which keeps the spec. A factory that owns an editor declares
   `isSessionBearing: true` and keeps its session in a `PaneSessionRegistry`. The kit
   releases a session when a verb removes its pane and flushes every registry when the
@@ -113,8 +117,19 @@ one surface pane.
   verb, an invalidation, a reload). `controller.refreshToken` moves when any pane
   went stale, and watching it reloads every pane for every other pane's change.
   `context.loadRows()` throws; `context.error` is this pane's own error, never another
-  pane's and never a verb refusal (that is `controller.lastRefusal`). Selection is
-  `context.select(ids)`: a verb, not view state.
+  pane's and never a verb refusal (that is `controller.lastRefusal`). A list pane
+  reads `context.loadPage()`: one page (`LayoutController.pageSize`, or the query's
+  own limit when smaller) with the query's `total` and `truncated`, and says
+  "showing N of M" when the page is not the whole result. Selection is
+  `context.select(ids)`: a verb, not view state. Several verbs that are one gesture
+  (an outline click) go through `controller.applyAll(_:label:)`: all or none, one
+  undo step.
+- **Verbs are strict.** `SharedLayout.apply` parses a verb against its schema; a
+  misspelt field is refused `invalid-argument` naming it. A pane reference is
+  written one way, exactly one of `{"id": N}`, `{"role": "…"}`,
+  `{"direction": "…"}`, `{"focused": true}` (`LayoutPaneRef.json`). ⌃⌘S is the
+  `set-collapsed` verb (`controller.toggleRole`), which restores the pane's own
+  share.
 - **Keys.** The window root is the one `.focusable()` in the tree (pitfalls rule 5).
   A pane never adds its own. It registers
   `controller.setKeyHandler(for:owner:)` for the root's j / k / ⏎ / ⎋ instead, which
