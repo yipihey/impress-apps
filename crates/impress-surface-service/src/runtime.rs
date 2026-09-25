@@ -29,17 +29,17 @@ use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{Bindings, ItemRef, KindManifest, PaneQueryError, Scope};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
-use impress_layout::{PaneSpec, ViewKindId};
+use impress_layout::{ChannelId, PaneSpec, ParamBinding, ParamSource, ViewKindId};
 use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
 use impress_service_core::McpToolDescriptor;
 use impress_surface::{
-    plan, reduce, resolve_with_source_errors, CachedSource, Effect, Event, PaneQuery, ParamDecl,
-    RenderTree, Source, SourceCache, SourceRequestKind, SurfaceSpec,
+    plan, reduce, resolve_with_source_errors, state_path, CachedSource, Effect, Event, PaneQuery,
+    ParamDecl, RenderTree, Source, SourceCache, SourceRequestKind, SurfaceSpec,
 };
 use serde_json::Value;
 
-use crate::dto::{EffectOutcomeDto, ShowTargetDto, SplitTargetDto};
+use crate::dto::{EffectOutcomeDto, ParamsArg, Revisions, ShowTarget};
 use crate::store::{SurfaceRow, SurfaceStore};
 use impress_service_core::refusal::codes;
 use impress_service_core::Refusal;
@@ -138,7 +138,15 @@ pub trait Executor: Send + Sync {
     /// same way `impress_store_ffi::layout::compile_pane_query` does. Rows
     /// come back as a JSON array (each item's own JSON shape), never a
     /// domain-specific projection.
-    async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value>;
+    ///
+    /// `decls` are the surface's own `params`, so a `required` one that is
+    /// unbound is refused by the compiler rather than read as "no filter".
+    async fn run_query(
+        &self,
+        query: &PaneQuery,
+        decls: &[ParamDecl],
+        bindings: &Bindings,
+    ) -> Result<Value>;
     /// Publish a selection on `pane`'s channel — `layout-service_select`.
     async fn publish(
         &self,
@@ -191,6 +199,13 @@ pub trait Executor: Send + Sync {
     /// `true`: a fixture has no layout to disagree with.
     async fn pane_shows(&self, _pane: &PaneHandle, _surface: ItemId) -> bool {
         true
+    }
+    /// The pane's resolved parameter bindings (name → record id), as the
+    /// layout computes them from the pane's `params` — what a surface's own
+    /// `params` are bound from when no caller passes them (review RS-S3,
+    /// AC-F15). Default `None`: a fixture has no layout.
+    async fn pane_bindings(&self, _pane: &PaneHandle) -> Option<BTreeMap<String, String>> {
+        None
     }
 }
 
@@ -245,6 +260,11 @@ pub struct DefaultExecutor {
     /// binary that has not installed one (the CLI, MCP, and every Tier A
     /// test unless it opts in with [`Self::with_verb_host`]).
     verb_host: Option<Arc<dyn VerbHost>>,
+    /// The app this executor serves, when it serves one (the app's own
+    /// `SharedSurface` handle): its layout is searched first for the pane
+    /// that shows a surface. Never a default — without it every app's live
+    /// layout on this device is searched (review RS-S4, AC-F6).
+    app_id: Option<String>,
 }
 
 impl DefaultExecutor {
@@ -258,6 +278,7 @@ impl DefaultExecutor {
             layout: DefaultLayoutService::new(),
             store,
             verb_host: None,
+            app_id: None,
         }
     }
 
@@ -269,6 +290,7 @@ impl DefaultExecutor {
             layout: DefaultLayoutService::with_store(store.clone()),
             store,
             verb_host: None,
+            app_id: None,
         }
     }
 
@@ -284,6 +306,7 @@ impl DefaultExecutor {
             layout: DefaultLayoutService::with_store_and_sessions(store.clone(), sessions),
             store,
             verb_host: None,
+            app_id: None,
         }
     }
 
@@ -294,6 +317,61 @@ impl DefaultExecutor {
     pub fn with_verb_host(mut self, host: Arc<dyn VerbHost>) -> Self {
         self.verb_host = Some(host);
         self
+    }
+
+    /// The app this executor serves — see the field.
+    pub fn with_app(mut self, app_id: impl Into<String>) -> Self {
+        let app_id = app_id.into();
+        self.app_id = (!app_id.trim().is_empty()).then_some(app_id);
+        self
+    }
+
+    /// The layout service this executor's `publish`/`open` run through —
+    /// `surface_show` uses the same one, so a surface shown from this
+    /// process lands in the tree its window draws.
+    pub fn layout(&self) -> &DefaultLayoutService {
+        &self.layout
+    }
+
+    /// Every app with a live layout row on `device`, this executor's own app
+    /// first. Read from the store — no layout row is created by asking.
+    fn apps_with_live_layout(&self, device: &str) -> Vec<String> {
+        use impress_core::item::Value as ItemValue;
+        use impress_core::query::{ItemQuery, Predicate};
+        let query = ItemQuery {
+            schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF.into()),
+            predicates: vec![
+                Predicate::Eq(
+                    impress_layout_service::store::field::DEVICE.into(),
+                    ItemValue::String(device.to_string()),
+                ),
+                Predicate::Eq(
+                    impress_layout_service::store::field::IS_LIVE.into(),
+                    ItemValue::Bool(true),
+                ),
+            ],
+            include_tags: false,
+            include_references: false,
+            assume_schema_rare: true,
+            ..Default::default()
+        };
+        let mut apps: Vec<String> = self.app_id.iter().cloned().collect();
+        match self.store.query(&query) {
+            Ok(items) => {
+                for item in items {
+                    if let Some(ItemValue::String(app)) = item
+                        .payload
+                        .get(impress_layout_service::store::field::APP_ID)
+                    {
+                        if !apps.contains(app) {
+                            apps.push(app.clone());
+                        }
+                    }
+                }
+            }
+            Err(e) => log::warn!(target: "surface", "list live layouts on {device}: {e}"),
+        }
+        apps
     }
 }
 
@@ -336,16 +414,15 @@ impl Executor for DefaultExecutor {
             })?
     }
 
-    async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value> {
-        // `decls` is empty: the Executor trait (by design, see this crate's
-        // report) is handed only resolved `bindings`, not the surface's own
-        // `ParamDecl`s, so a `required` param that is unbound cannot be
-        // flagged as an error here — it simply compiles to an empty-set
-        // predicate, the same "unfilled, not wrong" reading `compile`
-        // already gives an optional unbound param.
+    async fn run_query(
+        &self,
+        query: &PaneQuery,
+        decls: &[ParamDecl],
+        bindings: &Bindings,
+    ) -> Result<Value> {
         let compiled = impress_core::pane_query::compile(
             query,
-            &[],
+            decls,
             bindings,
             &impress_core::pane_query::builtin_manifest(),
         )
@@ -414,18 +491,9 @@ impl Executor for DefaultExecutor {
         let query: PaneQuery = serde_json::from_value(query)
             .map_err(|e| Refusal::invalid_argument(format!("open: query: {e}")))?;
         let show_target = match target {
-            Some(role) => ShowTargetDto {
-                role: Some(role.to_string()),
-                tile: None,
-                split: None,
-            },
-            None => ShowTargetDto {
-                role: None,
-                tile: None,
-                split: Some(SplitTargetDto {
-                    direction: "vertical".to_string(),
-                    from_focused: true,
-                }),
+            Some(role) => ShowTarget::Role(role.to_string()),
+            None => ShowTarget::Split {
+                direction: "vertical".to_string(),
             },
         };
         show_in_pane(
@@ -435,6 +503,7 @@ impl Executor for DefaultExecutor {
             query,
             view_kind,
             &show_target,
+            None,
             Some(actor_name(actor).to_string()),
         )
         .await
@@ -454,28 +523,32 @@ impl Executor for DefaultExecutor {
     }
 
     async fn pane_showing(&self, surface: ItemId) -> Option<PaneHandle> {
-        // The app that renders surfaces is the chassis shell, and the layout
-        // is device-scoped: this machine's tree, the one the window draws.
-        // `impress-store-ffi::surface` binds panes under the same app id.
-        let app_id = SURFACE_APP_ID.to_string();
+        // The layout is device-scoped: this machine's trees, the ones its
+        // windows draw. Which APP's tree is not assumed (review RS-S4,
+        // AC-F6): this executor's own app first, then every app with a live
+        // layout here.
         let device = impress_layout_service::resolve_device(None);
-        let result = self
-            .layout
-            .get_layout(app_id.clone(), Some(device.clone()))
-            .await;
-        let layout = result.layout?;
         let wanted = surface_item_query(surface);
-        let tile = layout.panes().into_iter().find(|tile| {
-            layout.pane(*tile).is_some_and(|spec| {
-                spec.view_kind == ViewKindId::from(SURFACE_VIEW_KIND.to_string())
-                    && spec.query == wanted
-            })
-        })?;
-        Some(PaneHandle {
-            app_id,
-            device,
-            tile: tile.raw(),
-        })
+        let layouts = impress_layout_service::store::LayoutStore::new(self.store.clone());
+        for app_id in self.apps_with_live_layout(&device) {
+            let Ok(Some((_, layout))) = layouts.live_row(&app_id, &device) else {
+                continue;
+            };
+            let tile = layout.panes().into_iter().find(|tile| {
+                layout.pane(*tile).is_some_and(|spec| {
+                    spec.view_kind == ViewKindId::from(SURFACE_VIEW_KIND.to_string())
+                        && spec.query == wanted
+                })
+            });
+            if let Some(tile) = tile {
+                return Some(PaneHandle {
+                    app_id,
+                    device,
+                    tile: tile.raw(),
+                });
+            }
+        }
+        None
     }
 
     async fn pane_shows(&self, pane: &PaneHandle, surface: ItemId) -> bool {
@@ -494,11 +567,20 @@ impl Executor for DefaultExecutor {
                     && spec.query == wanted
             })
     }
+
+    async fn pane_bindings(&self, pane: &PaneHandle) -> Option<BTreeMap<String, String>> {
+        let result = self
+            .layout
+            .get_pane(
+                pane.app_id.clone(),
+                Some(pane.device.clone()),
+                LayoutPaneRefDto::tile(impress_layout::TileId::new(pane.tile)),
+            )
+            .await;
+        result.ok.then_some(result.bindings)
+    }
 }
 
-/// The app whose layout a surface pane lives in. One chassis shell renders
-/// surfaces today; `impress-store-ffi` binds panes under the same id.
-pub const SURFACE_APP_ID: &str = "impress";
 /// `impress_layout::ViewKindId::SURFACE`'s spelling.
 const SURFACE_VIEW_KIND: &str = "surface";
 
@@ -514,114 +596,113 @@ const SURFACE_VIEW_KIND: &str = "surface";
 /// This is the one place `surface_show` and an `{"open": …}` action agree on
 /// what "put this in a pane" means — see this crate's module docs and
 /// `docs/agent-surfaces.md`'s "`open`" row.
+///
+/// `params`, when given, become the pane's parameters: the pane then
+/// resolves one binding per name, which is what a surface's own params are
+/// bound from ([`SurfaceRuntime::bind_params`]). A binding the pane already
+/// has under the same name keeps its source (someone re-bound it); a new one
+/// follows the window's default channel. `None` leaves the pane's params as
+/// they are (an `open` action).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn show_in_pane(
     layout: &DefaultLayoutService,
     app_id: &str,
     device: Option<String>,
     query: PaneQuery,
     view_kind: &str,
-    target: &ShowTargetDto,
+    target: &ShowTarget,
+    params: Option<Vec<ParamBinding>>,
     actor: Option<String>,
 ) -> Result<(u64, bool, Vec<u64>)> {
-    if let Some(tile) = target.tile {
-        let pane_ref = LayoutPaneRefDto::tile(impress_layout::TileId::new(tile));
-        let r1 = layout
-            .set_query(
-                app_id.to_string(),
-                device.clone(),
-                pane_ref.clone(),
-                query,
-                actor.clone(),
-            )
-            .await;
-        if !r1.ok {
-            return Err(layout_refused(r1.code, r1.message));
+    let pane_ref = match target {
+        ShowTarget::Tile(tile) => LayoutPaneRefDto::tile(impress_layout::TileId::new(*tile)),
+        ShowTarget::Role(role) => LayoutPaneRefDto::role(role),
+        ShowTarget::Split { direction } => {
+            let mut new_pane = PaneSpec::new(query, ViewKindId::from(view_kind.to_string()));
+            new_pane.params = params.unwrap_or_default();
+            let split = layout
+                .split(
+                    app_id.to_string(),
+                    device,
+                    LayoutPaneRefDto::focused(),
+                    direction.clone(),
+                    true,
+                    Some(new_pane),
+                    actor,
+                )
+                .await;
+            if !split.ok {
+                return Err(layout_refused(split.code, split.message));
+            }
+            let tile = split
+                .focused
+                .ok_or_else(|| Refusal::internal("split produced no focused tile"))?;
+            return Ok((tile, true, split.affected_panes));
         }
-        let r2 = layout
-            .set_view_kind(
-                app_id.to_string(),
-                device.clone(),
-                pane_ref,
-                view_kind.to_string(),
-                actor,
-            )
-            .await;
-        if !r2.ok {
-            return Err(layout_refused(r2.code, r2.message));
-        }
-        return Ok((tile, r2.focused == Some(tile), r2.affected_panes));
+    };
+    // A tile or a role: read the pane, then replace what it shows in ONE
+    // verb (one undo step), keeping its role, channel and session.
+    let current = layout
+        .get_pane(app_id.to_string(), device.clone(), pane_ref.clone())
+        .await;
+    if !current.ok {
+        return Err(layout_refused(current.code, current.message));
     }
-
-    if let Some(role) = &target.role {
-        let pane_ref = LayoutPaneRefDto::role(role);
-        let resolved = layout
-            .resolve_reference(app_id.to_string(), device.clone(), pane_ref.clone())
-            .await;
-        if !resolved.ok {
-            return Err(layout_refused(resolved.code, resolved.message));
-        }
-        let tile = resolved.tile.ok_or_else(|| {
-            Refusal::new(
-                "no-pane-with-role",
-                format!("role '{role}' does not resolve to a pane"),
+    let (Some(tile), Some(mut spec)) = (current.tile, current.spec) else {
+        return Err(Refusal::new(
+            "unknown-tile",
+            format!("{target:?} names no pane in {app_id}'s layout"),
+        ));
+    };
+    spec.query = query;
+    spec.view_kind = ViewKindId::from(view_kind.to_string());
+    if let Some(params) = params {
+        let previous = std::mem::take(&mut spec.params);
+        spec.params = params
+            .into_iter()
+            .map(
+                |wanted| match previous.iter().find(|p| p.decl.name == wanted.decl.name) {
+                    Some(kept) => ParamBinding {
+                        decl: wanted.decl,
+                        source: kept.source.clone(),
+                    },
+                    None => wanted,
+                },
             )
-        })?;
-        let r1 = layout
-            .set_query(
-                app_id.to_string(),
-                device.clone(),
-                pane_ref.clone(),
-                query,
-                actor.clone(),
-            )
-            .await;
-        if !r1.ok {
-            return Err(layout_refused(r1.code, r1.message));
-        }
-        let r2 = layout
-            .set_view_kind(
-                app_id.to_string(),
-                device,
-                pane_ref,
-                view_kind.to_string(),
-                actor,
-            )
-            .await;
-        if !r2.ok {
-            return Err(layout_refused(r2.code, r2.message));
-        }
-        return Ok((tile, r2.focused == Some(tile), r2.affected_panes));
+            .collect();
     }
-
-    // Split — the default when neither `tile` nor `role` is given, and the
-    // only shape `SplitTargetDto` has. `from_focused` is documented on the
-    // DTO as accepted-but-currently-equivalent to always-true (splitting the
-    // focused pane is the only target this composition can resolve without
-    // more state than a surface instance tracks).
-    let direction = target
-        .split
-        .as_ref()
-        .map(|s| s.direction.as_str())
-        .unwrap_or("vertical");
-    let new_pane = PaneSpec::new(query, ViewKindId::from(view_kind.to_string()));
-    let split = layout
-        .split(
+    let set = layout
+        .set_pane(
             app_id.to_string(),
             device,
-            LayoutPaneRefDto::focused(),
-            direction.to_string(),
-            true,
-            Some(new_pane),
+            LayoutPaneRefDto::tile(impress_layout::TileId::new(tile)),
+            spec,
             actor,
         )
         .await;
-    if !split.ok {
-        return Err(layout_refused(split.code, split.message));
+    if !set.ok {
+        return Err(layout_refused(set.code, set.message));
     }
-    let tile = split
-        .focused
-        .ok_or_else(|| Refusal::internal("split produced no focused tile"))?;
-    Ok((tile, true, split.affected_panes))
+    Ok((tile, set.focused == Some(tile), set.affected_panes))
+}
+
+/// The pane parameters a surface's declared `params` become when it is
+/// shown: each follows the window's default channel for its kind (a schema
+/// ref is read as its pane-query kind, the way `publish` does).
+pub(crate) fn pane_params_for(spec: &SurfaceSpec) -> Vec<ParamBinding> {
+    spec.params
+        .iter()
+        .map(|decl| ParamBinding {
+            decl: ParamDecl {
+                name: decl.name.clone(),
+                kind: as_layout_kind(&decl.kind),
+                required: decl.required,
+            },
+            source: ParamSource::Channel {
+                channel: ChannelId::Follow,
+            },
+        })
+        .collect()
 }
 
 /// `item(id)` of the `surface` kind — the query every surface pane's spec is
@@ -670,12 +751,17 @@ pub struct SurfaceRuntime {
     pub host: String,
     pub spec: SurfaceSpec,
     pub state: Value,
-    /// The pane parameters bound to this surface (ADR-0033's `param` root).
-    /// No S4 verb currently sets this — the normative verb list
-    /// (`docs/plan-agent-surfaces.md`) has no `params` argument anywhere —
-    /// so it is `{}` until a later work package wires pane bindings through
-    /// (see this crate's report).
+    /// The values of the surface's declared `params` for this call, by name
+    /// (the `param` template root and a query source's bindings) — set by
+    /// [`Self::bind_params`] before every render and dispatch, from the
+    /// caller's explicit `params` or else from the pane that shows the
+    /// surface (review RS-S3, AC-F15).
     pub params: Value,
+    /// The spec's `revision`, as last loaded.
+    pub revision: u64,
+    /// The state row's revision, as last read or written — `None` while the
+    /// instance runs on the spec's initial state.
+    pub state_revision: Option<u64>,
     pub cache: SourceCache,
     /// Why a source's last fetch failed, by name — cleared when it succeeds.
     /// `render` hands it to `resolve_with_source_errors` so the pane says
@@ -693,13 +779,20 @@ pub struct SurfaceRuntime {
 }
 
 impl SurfaceRuntime {
-    fn load(surface_id: ItemId, host: String, row: SurfaceRow, state_text: Option<String>) -> Self {
+    fn load(
+        surface_id: ItemId,
+        host: String,
+        row: SurfaceRow,
+        state: Option<(String, u64)>,
+    ) -> Self {
         let mut runtime = Self {
             surface_id,
             host,
             state: row.spec.state.clone(),
             spec: row.spec,
             params: Value::Object(serde_json::Map::new()),
+            revision: row.revision,
+            state_revision: None,
             cache: SourceCache::new(),
             source_errors: BTreeMap::new(),
             pane: None,
@@ -707,7 +800,7 @@ impl SurfaceRuntime {
             state_text: None,
             failed: BTreeMap::new(),
         };
-        runtime.adopt_state(state_text);
+        runtime.adopt_state(state);
         runtime
     }
 
@@ -715,7 +808,8 @@ impl SurfaceRuntime {
     /// (and every cached source, which may no longer mean what it did); a
     /// new state replaces the working state. Unchanged text is left alone,
     /// so a warm source cache survives every call that changed nothing.
-    fn refresh(&mut self, row: SurfaceRow, state_text: Option<String>) {
+    fn refresh(&mut self, row: SurfaceRow, state: Option<(String, u64)>) {
+        self.revision = row.revision;
         if row.spec_text != self.spec_text {
             self.spec = row.spec;
             self.spec_text = row.spec_text;
@@ -724,16 +818,23 @@ impl SurfaceRuntime {
             self.failed.clear();
             // No state row: the instance runs on the spec's initial state,
             // which is the NEW spec's now.
-            if state_text.is_none() {
+            if state.is_none() {
                 self.state = self.spec.state.clone();
             }
         }
+        self.state_revision = state.as_ref().map(|(_, revision)| *revision);
+        let state_text = state.map(|(text, _)| text);
         if state_text != self.state_text {
-            self.adopt_state(state_text);
+            self.adopt_state_text(state_text);
         }
     }
 
-    fn adopt_state(&mut self, state_text: Option<String>) {
+    fn adopt_state(&mut self, state: Option<(String, u64)>) {
+        self.state_revision = state.as_ref().map(|(_, revision)| *revision);
+        self.adopt_state_text(state.map(|(text, _)| text));
+    }
+
+    fn adopt_state_text(&mut self, state_text: Option<String>) {
         self.state = match state_text.as_deref().map(serde_json::from_str::<Value>) {
             Some(Ok(state)) => state,
             // An unreadable state row is not a reason to refuse the surface:
@@ -742,6 +843,93 @@ impl SurfaceRuntime {
             Some(Err(_)) | None => self.spec.state.clone(),
         };
         self.state_text = state_text;
+    }
+
+    /// Bind the surface's declared `params` for this call:
+    ///
+    /// 1. `explicit`, when the caller passed params — they are the whole
+    ///    binding, and a name the spec does not declare is refused;
+    /// 2. else, when a pane shows this instance (bound by the host, set by
+    ///    `surface_show`, or found in the layout), that pane's bindings for
+    ///    each declared name — the pane's own `params` as the layout
+    ///    resolves them (a fixed id, or its channel's selection of the
+    ///    param's kind);
+    /// 3. else nothing: an unbound param leaves `{{param.x}}` a placeholder
+    ///    and a query source's `required` `$x` refused.
+    ///
+    /// The pane's `item` binding is never a surface param: it names the
+    /// surface itself.
+    pub async fn bind_params(
+        &mut self,
+        executor: &dyn Executor,
+        explicit: Option<&ParamsArg>,
+    ) -> Result<()> {
+        let declared: BTreeSet<String> = self.spec.params.iter().map(|p| p.name.clone()).collect();
+        let bound: BTreeMap<String, String> = match explicit {
+            Some(params) => {
+                if let Some(extra) = params.keys().find(|k| !declared.contains(*k)) {
+                    return Err(Refusal::invalid_argument(format!(
+                        "params: this surface declares no param '{extra}' (it declares: {})",
+                        if declared.is_empty() {
+                            "none".to_string()
+                        } else {
+                            declared.iter().cloned().collect::<Vec<_>>().join(", ")
+                        }
+                    )));
+                }
+                params.clone()
+            }
+            None if declared.is_empty() => BTreeMap::new(),
+            None => match self.pane_or_lookup(executor).await {
+                Some(pane) => executor
+                    .pane_bindings(&pane)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|(name, _)| declared.contains(name) && name != "item")
+                    .collect(),
+                None => BTreeMap::new(),
+            },
+        };
+        self.params = Value::Object(
+            bound
+                .into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect(),
+        );
+        Ok(())
+    }
+
+    /// What this instance's last render or dispatch was built from.
+    pub fn revisions(&self) -> Revisions {
+        Revisions {
+            revision: Some(self.revision),
+            state_revision: self.state_revision,
+            params: self
+                .params
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Every source's value as the last render left it: `value` sources from
+    /// the spec, fetched ones from the cache.
+    fn source_values(&self) -> Value {
+        let mut values = serde_json::Map::new();
+        for (name, source) in &self.spec.sources {
+            if let Source::Value { value } = source {
+                values.insert(name.clone(), value.clone());
+            }
+        }
+        for (name, cached) in self.cache.iter() {
+            values.insert(name.clone(), cached.value.clone());
+        }
+        Value::Object(values)
     }
 
     /// The schema refs this runtime's `query` sources read — what a store
@@ -818,8 +1006,9 @@ impl SurfaceRuntime {
                         executor.call_verb(verb, args.clone()).await
                     }
                     SourceRequestKind::Query { query } => {
-                        let bindings = bindings_from_params(&self.spec.params, &self.params);
-                        executor.run_query(query, &bindings).await
+                        let decls = query_decls(&self.spec.params);
+                        let bindings = bindings_from_params(&decls, &self.params);
+                        executor.run_query(query, &decls, &bindings).await
                     }
                 };
                 match fetched {
@@ -865,24 +1054,13 @@ impl SurfaceRuntime {
             }
         }
         // `{"value": …}` sources never go through `plan()`/fetch at all
-        // (`impress_surface::plan`'s own module docs: "it has no request
-        // kind to give the runtime... `resolve.rs` reads it straight out of
-        // the spec") — so the source map handed to `resolve` has to include
-        // them directly, not only what the fetch loop above cached.
-        let mut source_values = serde_json::Map::new();
-        for (name, source) in &self.spec.sources {
-            if let Source::Value { value } = source {
-                source_values.insert(name.clone(), value.clone());
-            }
-        }
-        for (name, cached) in self.cache.iter() {
-            source_values.insert(name.clone(), cached.value.clone());
-        }
+        // (`impress_surface::plan`'s own module docs), so the source map
+        // handed to `resolve` includes them directly.
         resolve_with_source_errors(
             &self.spec,
             &self.state,
             &self.params,
-            &Value::Object(source_values),
+            &self.source_values(),
             Some(&self.source_errors),
         )
     }
@@ -914,7 +1092,9 @@ impl SurfaceRuntime {
         event: &Event,
         actor: ActorKind,
     ) -> Result<(RenderTree, Vec<EffectOutcomeDto>)> {
-        let (new_state, effects) = reduce(&self.spec, &self.state, &self.params, event)
+        // Actions read sources as the last render left them (RS-S8).
+        let sources = self.source_values();
+        let (new_state, effects) = reduce(&self.spec, &self.state, &self.params, &sources, event)
             .map_err(|e| Refusal::new(e.code(), e.to_string()))?;
         self.state = new_state;
         self.persist_state(surfaces, actor)?;
@@ -963,8 +1143,9 @@ impl SurfaceRuntime {
         if unchanged {
             return Ok(false);
         }
-        surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
+        let revision = surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
         self.state_text = Some(text);
+        self.state_revision = Some(revision);
         Ok(true)
     }
 
@@ -978,9 +1159,10 @@ impl SurfaceRuntime {
     ) -> Result<()> {
         let text = serde_json::to_string(&state)
             .map_err(|e| Refusal::internal(format!("encode surface state: {e}")))?;
-        surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
+        let revision = surfaces.set_state_text(self.surface_id, &self.host, text.clone(), actor)?;
         self.state = state;
         self.state_text = Some(text);
+        self.state_revision = Some(revision);
         Ok(())
     }
 
@@ -1009,8 +1191,11 @@ impl SurfaceRuntime {
             Effect::Call { verb, args, into } => match executor.call_verb(&verb, args).await {
                 Ok(value) => {
                     if let Some(path) = &into {
-                        if let Err(e) = set_state_path(&mut self.state, path, value) {
-                            return EffectOutcomeDto::failed("call", e);
+                        if let Err(e) = state_path::write(&mut self.state, path, value) {
+                            return EffectOutcomeDto::failed(
+                                "call",
+                                Refusal::new(e.code(), format!("{verb} ran, but `into`: {e}")),
+                            );
                         }
                     }
                     EffectOutcomeDto::done("call", format!("called {verb}"))
@@ -1160,6 +1345,22 @@ fn refs_read_by(query: &PaneQuery, manifest: &KindManifest) -> Vec<String> {
         .collect()
 }
 
+/// A surface's declared params as the query compiler reads them: a schema
+/// ref (`imbib/bibliography-entry`, the spelling the vocabulary documents)
+/// is its pane-query kind (`publication`), the same reading `publish` gives
+/// it — else a param bound to a paper is "the wrong kind" for a query over
+/// papers.
+fn query_decls(params: &[ParamDecl]) -> Vec<ParamDecl> {
+    params
+        .iter()
+        .map(|decl| ParamDecl {
+            name: decl.name.clone(),
+            kind: as_layout_kind(&decl.kind),
+            required: decl.required,
+        })
+        .collect()
+}
+
 fn bindings_from_params(decls: &[ParamDecl], params: &Value) -> Bindings {
     let mut bindings = Bindings::new();
     if let Some(obj) = params.as_object() {
@@ -1172,51 +1373,6 @@ fn bindings_from_params(decls: &[ParamDecl], params: &Value) -> Bindings {
         }
     }
     bindings
-}
-
-/// Write `value` at `path` (`state.a.b.c`), the same discipline
-/// `impress_surface::reduce`'s own (private) `set_path` uses — duplicated
-/// here in miniature because a `Call … into:` write happens AFTER `reduce`
-/// has already returned, not inside it.
-fn set_state_path(state: &mut Value, path: &str, value: Value) -> Result<()> {
-    let mut parts = path.split('.');
-    if parts.next() != Some("state") {
-        return Err(Refusal::new(
-            "invalid-path",
-            format!("`into` path '{path}' must start with 'state.'"),
-        ));
-    }
-    let segments: Vec<&str> = parts.collect();
-    if segments.is_empty() {
-        return Err(Refusal::new(
-            "invalid-path",
-            format!("`into` path '{path}' must start with 'state.'"),
-        ));
-    }
-    if !state.is_object() {
-        *state = Value::Object(serde_json::Map::new());
-    }
-    let mut cur = state;
-    for (i, seg) in segments.iter().enumerate() {
-        let map = match cur {
-            Value::Object(m) => m,
-            _ => {
-                *cur = Value::Object(serde_json::Map::new());
-                match cur {
-                    Value::Object(m) => m,
-                    _ => unreachable!("just assigned an object"),
-                }
-            }
-        };
-        if i + 1 == segments.len() {
-            map.insert((*seg).to_string(), value);
-            return Ok(());
-        }
-        cur = map
-            .entry((*seg).to_string())
-            .or_insert_with(|| Value::Object(serde_json::Map::new()));
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,17 +1462,17 @@ impl SessionRegistry {
             self.forget(surface_id, host);
             return Err(Refusal::not_found(format!("no surface {surface_id}")));
         };
-        let state_text = surfaces.get_state_text(surface_id, host)?;
+        let state = surfaces.get_state_entry(surface_id, host)?;
         let runtime = match guard.as_mut() {
             Some(runtime) => {
-                runtime.refresh(row, state_text);
+                runtime.refresh(row, state);
                 runtime
             }
             None => guard.insert(SurfaceRuntime::load(
                 surface_id,
                 host.to_string(),
                 row,
-                state_text,
+                state,
             )),
         };
         *lock_set(&slot.reads) = runtime.query_refs();

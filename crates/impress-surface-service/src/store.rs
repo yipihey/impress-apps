@@ -389,9 +389,25 @@ impl SurfaceStore {
     /// The state row's `state` field exactly as stored — what a cached
     /// runtime compares with the text it last loaded or wrote (RS-S1).
     pub fn get_state_text(&self, surface: ItemId, host: &str) -> Result<Option<String>> {
+        Ok(self.get_state_entry(surface, host)?.map(|(text, _)| text))
+    }
+
+    /// The state row's text and its revision (the row's logical clock, which
+    /// every write moves) — what a runtime compares, and what a render or
+    /// dispatch reports as `state_revision` (review SK-K15).
+    pub fn get_state_entry(&self, surface: ItemId, host: &str) -> Result<Option<(String, u64)>> {
+        Ok(self.state_item(surface, host)?.and_then(|item| {
+            string_field(&item, field::state::STATE).map(|text| (text, item.logical_clock))
+        }))
+    }
+
+    /// The state row's revision after a write: read back, since the store
+    /// stamps it.
+    fn state_revision_of(&self, surface: ItemId, host: &str) -> Result<u64> {
         Ok(self
             .state_item(surface, host)?
-            .and_then(|item| string_field(&item, field::state::STATE)))
+            .map(|item| item.logical_clock)
+            .unwrap_or_default())
     }
 
     /// Upsert the state row for `(surface, host)`. `Ephemeral` + `Routine`:
@@ -403,7 +419,7 @@ impl SurfaceStore {
         host: &str,
         state: &Value,
         actor: ActorKind,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         let text = serde_json::to_string(state)
             .map_err(|e| Refusal::store(format!("encode surface state: {e}")))?;
         self.set_state_text(surface, host, text, actor)
@@ -415,6 +431,17 @@ impl SurfaceStore {
     /// to create it cannot leave two rows for one `(surface, host)`: the
     /// loser's insert is refused and it patches the winner's row instead.
     pub fn set_state_text(
+        &self,
+        surface: ItemId,
+        host: &str,
+        text: String,
+        actor: ActorKind,
+    ) -> Result<u64> {
+        self.write_state_text(surface, host, text, actor)?;
+        self.state_revision_of(surface, host)
+    }
+
+    fn write_state_text(
         &self,
         surface: ItemId,
         host: &str,

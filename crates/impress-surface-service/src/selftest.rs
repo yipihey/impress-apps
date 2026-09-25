@@ -24,11 +24,14 @@ use crate::report::SelfTestReport;
 pub trait SurfaceSelftestService: Send + Sync + 'static {
     /// Run the surface capability self-tests and return the report.
     ///
-    /// `tier` accepts `"a"` (pure Rust over a private in-memory store —
-    /// every S4 verb plus the create → show → dispatch → render → emit →
-    /// events loop) or `"all"`/`""`, which is the same thing. `"b"` is one
-    /// skipped entry pointing at the live surface checks, which are the
-    /// layout self-test's Tier B. Nothing here touches the user's store.
+    /// `tier` is `"a"` (pure Rust over a private in-memory store — every
+    /// verb plus the create → show → dispatch → render → emit → events
+    /// loop), `"all"` or `""` (the same), or `"b"`: one skipped entry
+    /// pointing at the live surface checks, which are the layout self-test's
+    /// Tier B (`layout-selftest-service_run-selftest --tier b`, the
+    /// `surface.*` capabilities). Any other value is refused — a report
+    /// with one failed `tier` entry — rather than quietly running Tier A
+    /// (review AC-F25). Nothing here touches the user's store.
     #[impress_method]
     async fn run_selftest(&self, tier: String) -> SelfTestReport;
 }
@@ -48,7 +51,16 @@ impl SurfaceSelftestService for DefaultSurfaceSelftestService {
                 "the live surface checks are Tier B of the layout self-test \
                  (`layout-selftest-service_run-selftest --tier b`, the `surface.*` capabilities)",
             )]),
-            _ => crate::run_tier_a().await,
+            "a" | "all" | "" => crate::run_tier_a().await,
+            other => SelfTestReport::from_results(vec![crate::CapabilityResult {
+                id: "tier".to_string(),
+                description: "choose a tier".to_string(),
+                tier: crate::report::Tier::A,
+                pass: false,
+                detail: format!("unknown tier '{other}': use a, b or all"),
+                duration_ms: 0,
+                skipped: false,
+            }]),
         }
     }
 }
@@ -62,7 +74,7 @@ impress_service_impl! {
     impl = DefaultSurfaceSelftestService,
     instance = || selftest_instance(),
     methods = [
-        /// Run the surface capability self-tests (`tier` = a | all).
+        /// Run the surface capability self-tests (`tier` = a | b | all).
         run_selftest(tier: String) -> SelfTestReport,
     ],
 }

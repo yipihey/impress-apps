@@ -48,7 +48,7 @@ pub use runtime::{
     verb_exists, DefaultExecutor, Executor, PaneHandle, SessionRegistry, SurfaceRuntime, VerbHost,
 };
 pub use selftest::{DefaultSurfaceSelftestService, SurfaceSelftestService};
-pub use service::{DefaultImpressSurfaceService, ImpressSurfaceService};
+pub use service::{call_verb_on, DefaultImpressSurfaceService, ImpressSurfaceService};
 pub use store::{EventRow, SurfaceRow, SurfaceStore};
 
 /// What went wrong: a stable `code` and a sentence (see

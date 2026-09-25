@@ -189,7 +189,7 @@ async fn two_registries_on_one_store_render_one_spec() {
         .await
         .contains("one"));
     let updated = http
-        .surface_update(row.id.to_string(), text_spec("two"), None, None)
+        .surface_update(row.id.to_string(), text_spec("two").into(), None, None)
         .await;
     assert!(updated.ok, "{}", updated.message);
     assert!(render(&pane, &surfaces, &executor, row.id)
@@ -261,9 +261,14 @@ impl Executor for Counting {
             Ok(json!({ "answer": 42 }))
         }
     }
-    async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value, Refusal> {
+    async fn run_query(
+        &self,
+        query: &PaneQuery,
+        decls: &[impress_surface::ParamDecl],
+        bindings: &Bindings,
+    ) -> Result<Value, Refusal> {
         self.queries.fetch_add(1, Ordering::SeqCst);
-        self.inner.run_query(query, bindings).await
+        self.inner.run_query(query, decls, bindings).await
     }
     async fn publish(
         &self,
@@ -633,7 +638,11 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
         "root": { "table": { "columns": ["title"], "rows": "{{source.rows}}",
                              "on_select": [ { "publish": {} } ] }, "id": "picker" }
     }));
-    let id = service.surface_create(table, None, None).await.id.unwrap();
+    let id = service
+        .surface_create(table.into(), None, None)
+        .await
+        .id
+        .unwrap();
     let shown = service
         .surface_show(
             id.clone(),
@@ -645,7 +654,7 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
                     from_focused: true,
                 }),
             },
-            Some(app.into()),
+            app.into(),
             Some(HOST.into()),
         )
         .await;
@@ -656,7 +665,7 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
         value: json!([PICKED]),
     };
     let while_shown = service
-        .surface_dispatch(id.clone(), select.clone(), Some(HOST.into()))
+        .surface_dispatch(id.clone(), select.clone(), Some(HOST.into()), None)
         .await;
     assert!(while_shown.effects[0].ok, "{:?}", while_shown.effects);
 
@@ -674,7 +683,7 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
         .await;
     assert!(moved.ok, "{}", moved.message);
     let after = service
-        .surface_dispatch(id, select, Some(HOST.into()))
+        .surface_dispatch(id, select, Some(HOST.into()), None)
         .await;
     assert!(
         !after.effects[0].ok,
