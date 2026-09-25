@@ -7,6 +7,7 @@
 
 import SwiftUI
 import ImpressKit
+import ImpressLogging
 
 // MARK: - Comment Section
 
@@ -100,7 +101,11 @@ public struct CommentSectionView: View {
         ) {
             Button("Delete", role: .destructive) {
                 if let comment = commentToDelete {
-                    RustStoreAdapter.shared.deleteComment(comment.id)
+                    do {
+                        try RustStoreAdapter.shared.deleteComment(comment.id)
+                    } catch {
+                        logError("delete comment \(comment.id) failed: \(error)", category: "comments")
+                    }
                     comments = RustStoreAdapter.shared.commentsForItem(itemID)
                     commentToDelete = nil
                 }

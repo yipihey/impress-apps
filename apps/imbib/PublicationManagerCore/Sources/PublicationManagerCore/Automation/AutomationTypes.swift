@@ -819,6 +819,8 @@ public enum AutomationOperationError: Error, LocalizedError, Sendable {
     case unauthorized
     case rateLimited
     case commentNotFound(UUID)
+    /// The id names a record that is not a comment; nothing was deleted.
+    case notAComment(UUID, String)
     case assignmentNotFound(UUID)
     case participantNotFound(String)
     case sharingUnavailable
@@ -851,6 +853,8 @@ public enum AutomationOperationError: Error, LocalizedError, Sendable {
             return "Rate limited: too many requests"
         case .commentNotFound(let id):
             return "Comment not found: \(id)"
+        case .notAComment(_, let why):
+            return why
         case .assignmentNotFound(let id):
             return "Assignment not found: \(id)"
         case .participantNotFound(let id):
