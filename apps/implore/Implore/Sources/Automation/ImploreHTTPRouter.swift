@@ -221,7 +221,9 @@ public actor ImploreHTTPRouter: HTTPRouter {
         // "1.0.0" this route has always reported rather than the bundle's.
         var response = SharedAutomationRoutes.statusPayload(
             app: "implore",
-            port: Int(Self.defaultPort),
+            // The port actually bound (a launch argument can move it), so a
+            // caller probing a second implore is told where it answered.
+            port: Int(HTTPAutomationServer.configuredPort),
             version: "1.0.0",
             domain: [
                 "openDatasets": 0,
