@@ -914,6 +914,9 @@ private func updateDockBadge(_ count: Int) {
 
 struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    /// The key window's sidebar history — Go ▸ Back / Forward's enabled
+    /// state and the object of their post.
+    @FocusedValue(\.imbibNavigationHistory) private var navigationHistory
 
     /// Check if running in edit-default-set development mode
     private var isEditingDefaultSet: Bool {
@@ -1399,14 +1402,16 @@ struct AppCommands: Commands {
         // Go menu (new)
         CommandMenu("Go") {
             Button("Back") {
-                NotificationCenter.default.post(name: .navigateBack, object: nil)
+                NotificationCenter.default.post(name: .navigateBack, object: navigationHistory)
             }
             .keyboardShortcut("[", modifiers: .command)
+            .disabled(!(navigationHistory?.canGoBack ?? false))
 
             Button("Forward") {
-                NotificationCenter.default.post(name: .navigateForward, object: nil)
+                NotificationCenter.default.post(name: .navigateForward, object: navigationHistory)
             }
             .keyboardShortcut("]", modifiers: .command)
+            .disabled(!(navigationHistory?.canGoForward ?? false))
 
             Divider()
 

@@ -36,10 +36,6 @@ final class MenuNotificationObserverTests: XCTestCase {
     /// entry is a known dead menu item, not an exemption: when one is wired,
     /// this test fails until it leaves the list.
     static let unwired: [String: String] = [
-        "showSearch": "View ▸ Show Search (⌘2): macOS has no single Search tab — the section's children are nine search forms; which one ⌘2 opens is a decision",
-        "navigateBack": "Go ▸ Back (⌘[): NavigationHistoryStore exists but nothing pushes to it since b748151d",
-        "navigateForward": "Go ▸ Forward (⌘]): as Back",
-        "focusSidebar": "View ▸ Focus Sidebar (⌥⌘1): needs first-responder plumbing into the sidebar's NSOutlineView",
         "focusDetail": "View ▸ Focus Detail (⌥⌘3): needs a detail-pane focus target",
         "showHelpSearchPalette": "Help ▸ Search Help… (⇧⌘?): the palette lives in the Help window, which may not be open when the post arrives",
     ]

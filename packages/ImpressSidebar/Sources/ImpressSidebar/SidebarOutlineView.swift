@@ -90,6 +90,13 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
     /// Set to a node ID to begin inline editing. Reset to nil when done.
     @Binding public var editingNodeID: UUID?
 
+    /// Bump this counter to make the outline the key window's first
+    /// responder (e.g. a "Focus Sidebar" command). SwiftUI's `@FocusState`
+    /// cannot reach an AppKit view inside a representable, so a request is a
+    /// value change, like `dataVersion`. 0 never focuses; an outline in a
+    /// window that is not key ignores the request.
+    public var focusRequest: Int
+
     // MARK: - Init
 
     public init(
@@ -97,13 +104,15 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         expansionState: TreeExpansionState,
         configuration: SidebarOutlineConfiguration<Node>,
         dataVersion: Int,
-        editingNodeID: Binding<UUID?> = .constant(nil)
+        editingNodeID: Binding<UUID?> = .constant(nil),
+        focusRequest: Int = 0
     ) {
         self._selectedNodeID = selectedNodeID
         self.expansionState = expansionState
         self.configuration = configuration
         self.dataVersion = dataVersion
         self._editingNodeID = editingNodeID
+        self.focusRequest = focusRequest
     }
 
     // MARK: - NSViewRepresentable
@@ -198,6 +207,13 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         guard let outlineView = coordinator.outlineView else { return }
 
+        if coordinator.lastFocusRequest != focusRequest {
+            coordinator.lastFocusRequest = focusRequest
+            if focusRequest != 0, let window = outlineView.window, window.isKeyWindow {
+                window.makeFirstResponder(outlineView)
+            }
+        }
+
         // Only rebuild + reload when data actually changed
         if coordinator.lastDataVersion != dataVersion {
             coordinator.lastDataVersion = dataVersion
@@ -289,6 +305,10 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         /// Last data version seen, to avoid unnecessary reloads.
         var lastDataVersion: Int = -1
+
+        /// Last `focusRequest` acted on (0 = none yet, so a new outline does
+        /// not take the keyboard when it first draws).
+        var lastFocusRequest: Int = 0
 
         /// Last editing node ID, to trigger editing only once.
         var lastEditingNodeID: UUID?
