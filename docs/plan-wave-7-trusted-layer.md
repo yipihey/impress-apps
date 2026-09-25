@@ -174,6 +174,12 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     --strict`, `check-kit-packages`, `check-chassis-deps`; `cargo test` for every touched crate plus
     impress-surface-service and impress-capabilities-kit; ImpressLayout `swift test` 52/0;
     PublicationManagerCore `swift test` 2133 XCTest / 0 failures (2 skipped) + 112 swift-testing.
+  - *Rebased on #67 (T2)*; the only conflicts were `lib.rs` (both registries now come from
+    `*_sessions_for(installed)`) and this log. Re-checked on the rebased build: (a) again (all five
+    writes kept, idle write 5 → 6), (b) with the CLI writing three other scopes 15 times plus a
+    saved/deleted layout (window stayed at version 7, 0 reloads, ⌘Z kept), Tier B 13/13, clippy
+    `rest`, ImpressLayout 52/0, PMC 2133/0. A second impress started right after the first did not
+    open its window's tree (409) without activation, so the final (b) used CLI writers.
   - *Outside "Owns", on purpose:* `impress-core` gained `apply_operation_if_clock`,
     `logical_clock_of` and `GuardedWrite` (T2 can use the same primitive for surface rows), and
     `impress-store-ffi/src/lib.rs` gained `layout_sessions_for` (expect a merge with T2).
