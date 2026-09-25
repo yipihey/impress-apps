@@ -233,6 +233,9 @@ struct ControlledPDFKitView: NSViewRepresentable {
     @Binding var hasSelection: Bool
     var isAnnotationMode: Bool = false
     var darkModeEnabled: Bool = false
+    /// The linked file this view shows, so Annotate ▸ Highlight / Underline /
+    /// Strikethrough (which post no id) persist under it.
+    var linkedFileID: UUID? = nil
     var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -385,6 +388,7 @@ struct ControlledPDFKitView: NSViewRepresentable {
     }
 
     func updateNSView(_ pdfView: AnnotationModePDFView, context: Context) {
+        context.coordinator.parent = self
         if pdfView.document !== document {
             pdfView.document = document
         }
@@ -511,7 +515,10 @@ struct ControlledPDFKitView: NSViewRepresentable {
                 color = .yellow
             }
 
-            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
+            // The menu posts no file id; the file is the one this view shows
+            // (a post naming another file is not for this view).
+            guard AnnotationCommandTarget.applies(notification, displayed: parent.linkedFileID) else { return }
+            let linkedFileID = AnnotationCommandTarget.fileID(notification, displayed: parent.linkedFileID)
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addHighlightWithPersistence(
@@ -523,7 +530,10 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
         @objc func handleUnderline(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
+            // The menu posts no file id; the file is the one this view shows
+            // (a post naming another file is not for this view).
+            guard AnnotationCommandTarget.applies(notification, displayed: parent.linkedFileID) else { return }
+            let linkedFileID = AnnotationCommandTarget.fileID(notification, displayed: parent.linkedFileID)
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addUnderlineWithPersistence(
@@ -535,7 +545,10 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
         @objc func handleStrikethrough(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
+            // The menu posts no file id; the file is the one this view shows
+            // (a post naming another file is not for this view).
+            guard AnnotationCommandTarget.applies(notification, displayed: parent.linkedFileID) else { return }
+            let linkedFileID = AnnotationCommandTarget.fileID(notification, displayed: parent.linkedFileID)
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addStrikethroughWithPersistence(
@@ -617,6 +630,9 @@ struct ControlledPDFKitView: UIViewRepresentable {
     @Binding var canGoForward: Bool
     var isAnnotationMode: Bool = false
     var darkModeEnabled: Bool = false
+    /// The linked file this view shows, so Annotate ▸ Highlight / Underline /
+    /// Strikethrough (which post no id) persist under it.
+    var linkedFileID: UUID? = nil
     var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -750,6 +766,7 @@ struct ControlledPDFKitView: UIViewRepresentable {
     }
 
     func updateUIView(_ pdfView: AnnotationModePDFViewiOS, context: Context) {
+        context.coordinator.parent = self
         if pdfView.document !== document {
             pdfView.document = document
         }
@@ -875,7 +892,10 @@ struct ControlledPDFKitView: UIViewRepresentable {
                 color = .yellow
             }
 
-            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
+            // The menu posts no file id; the file is the one this view shows
+            // (a post naming another file is not for this view).
+            guard AnnotationCommandTarget.applies(notification, displayed: parent.linkedFileID) else { return }
+            let linkedFileID = AnnotationCommandTarget.fileID(notification, displayed: parent.linkedFileID)
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addHighlightWithPersistence(
@@ -887,7 +907,10 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
         @objc func handleUnderline(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
+            // The menu posts no file id; the file is the one this view shows
+            // (a post naming another file is not for this view).
+            guard AnnotationCommandTarget.applies(notification, displayed: parent.linkedFileID) else { return }
+            let linkedFileID = AnnotationCommandTarget.fileID(notification, displayed: parent.linkedFileID)
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addUnderlineWithPersistence(
@@ -899,7 +922,10 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
         @objc func handleStrikethrough(_ notification: Notification) {
             guard let pdfView = pdfView else { return }
-            let linkedFileID = notification.userInfo?["linkedFileID"] as? UUID
+            // The menu posts no file id; the file is the one this view shows
+            // (a post naming another file is not for this view).
+            guard AnnotationCommandTarget.applies(notification, displayed: parent.linkedFileID) else { return }
+            let linkedFileID = AnnotationCommandTarget.fileID(notification, displayed: parent.linkedFileID)
 
             DispatchQueue.main.async {
                 _ = AnnotationService.shared.addStrikethroughWithPersistence(
@@ -1284,19 +1310,13 @@ public struct PDFViewerWithControls: View {
             logInfo("Annotate ▸ Add Note at Selection", category: "annotations")
             addNoteAtSelection()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { notification in
-            // A `page` (1-based) in the userInfo navigates — the Notes tab's
-            // reMarkable rows and `imbib://pdf?action=go-to-page` post one;
-            // scoped to this document when a `linkedFileID` is given.
-            // Without a page the notification is the (still unbuilt)
-            // go-to-page dialog and does nothing.
-            guard let page = notification.userInfo?["page"] as? Int else { return }
-            if let target = notification.userInfo?["linkedFileID"] as? UUID, let own = linkedFileID, target != own {
-                return
-            }
-            guard totalPages > 0 else { return }
-            currentPage = min(max(1, page), totalPages)
-        }
+        // Go ▸ Go to Page… (⌘G), the Notes tab's reMarkable rows and
+        // `imbib://pdf?action=go-to-page`.
+        .modifier(GoToPageCommand(
+            linkedFileID: linkedFileID,
+            totalPages: totalPages,
+            currentPage: $currentPage,
+            isInKeyWindow: { pdfViewReference?.window?.isKeyWindow == true }))
         .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
             // Refresh dark mode setting when it changes
             Task {
@@ -1354,6 +1374,7 @@ public struct PDFViewerWithControls: View {
                 canGoForward: $canGoForward,
                 isAnnotationMode: showAnnotationToolbar,
                 darkModeEnabled: pdfDarkModeEnabled,
+                linkedFileID: linkedFileID,
                 pdfViewRef: { pdfViewReference = $0 }
             )
             #else
@@ -1364,6 +1385,7 @@ public struct PDFViewerWithControls: View {
                 hasSelection: $hasSelection,
                 isAnnotationMode: showAnnotationToolbar,
                 darkModeEnabled: pdfDarkModeEnabled,
+                linkedFileID: linkedFileID,
                 pdfViewRef: { pdfViewReference = $0 }
             )
             #endif

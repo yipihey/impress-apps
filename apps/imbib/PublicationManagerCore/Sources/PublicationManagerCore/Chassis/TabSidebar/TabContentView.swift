@@ -114,6 +114,9 @@ public struct TabContentView: View {
             }
         }
         .modifier(ImbibSidebarLifecycle(viewModel: viewModel))
+        // Go ▸ Back / Forward read this window's history (enabled state) and
+        // name it in their post.
+        .focusedSceneValue(\.imbibNavigationHistory, viewModel.navigationHistory)
     }
 
 }

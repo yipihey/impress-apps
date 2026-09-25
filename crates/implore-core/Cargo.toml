@@ -73,5 +73,9 @@ typst-as-lib = { workspace = true, optional = true }
 # Statistics (for histogram computation)
 implore-stats = { workspace = true }
 
+# A figure's rendered artifact: SVG → PNG (figure_artifact.rs)
+resvg = { workspace = true }
+
 
 [dev-dependencies]
+tempfile = "3"

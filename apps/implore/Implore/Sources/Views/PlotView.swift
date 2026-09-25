@@ -2,6 +2,8 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import ImpressKeyboard
+import ImpressLogging
+import ImploreRustCore
 
 /// Displays an SVG string as an image with copy/save support and interactive features.
 ///
@@ -62,6 +64,7 @@ struct PlotView: View {
                         if let img = svgToImage(svgString) { copyImage(img) }
                     }
                     Divider()
+                    Button("Save as Figure") { saveAsFigure() }
                     Button("Save SVG...") { showingSavePanel = true }
                     if plotState != nil {
                         Button("Export as Typst...") { exportTypst() }
@@ -149,6 +152,16 @@ struct PlotView: View {
             }
             .buttonStyle(.borderless)
             .help("Copy SVG to clipboard")
+
+            Button {
+                saveAsFigure()
+            } label: {
+                Image(systemName: "square.and.arrow.down.on.square")
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(svgString.isEmpty)
+            .help("Save as Figure (⌥⌘S): stores it in the library, where every app can show it")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -181,6 +194,41 @@ struct PlotView: View {
     private func svgToImage(_ svg: String) -> NSImage? {
         guard !svg.isEmpty, let data = svg.data(using: .utf8) else { return nil }
         return NSImage(data: data)
+    }
+
+    /// Save the plot on screen as a library figure. Its view state carries
+    /// the SVG itself, so the stored artifact is exactly what is shown; the
+    /// write is `LibraryManager.addFigure`, the same path as
+    /// `POST /api/figures`.
+    private func saveAsFigure() {
+        let svg = svgString
+        guard !svg.isEmpty else { return }
+        let title = plotState?.figureTitle ?? "Plot"
+        let viewState: [String: Any] = [
+            "type": plotState?.plotMode.rawValue.lowercased() ?? "svg",
+            "title": title,
+            "svg": svg
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: viewState, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let now = ISO8601DateFormatter().string(from: Date())
+        let figure = LibraryFigure(
+            id: UUID().uuidString,
+            title: title,
+            thumbnail: nil,
+            sessionId: "plot-viewer",
+            viewStateSnapshot: json,
+            datasetSource: .inMemory(format: "plot-viewer"),
+            imprintLinks: [],
+            tags: [],
+            folderId: nil,
+            createdAt: now,
+            modifiedAt: now
+        )
+        let write = LibraryManager.shared.addFigure(figure)
+        if write.artifact == nil {
+            logError("Save as Figure failed for \(figure.id): \(write.renderError ?? "unknown")", category: "figures")
+        }
     }
 
     private func copySVG() {
