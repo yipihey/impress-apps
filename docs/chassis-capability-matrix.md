@@ -1119,6 +1119,28 @@ row for the macOS wrapper; and `imbib-iOSUITests/IOSPublicationListUITests`
 (booted simulator — selection updates the detail pane, pull-to-refresh, and the
 BibTeX sheet opening the shared editor).
 
+### Menu commands, every one observed (imbib, 2026-09-25)
+
+`MenuNotificationObserverTests.unwired` is empty: the nine menu commands #62
+left posting to nobody reach an action, and so do two it found half-working.
+Each was driven from its menu (System Events) in imbib's own window on a
+throwaway library of three papers and two 5-page throwaway PDFs, all deleted
+after (the store holds no row of them; imbib's preferences were restored to
+a snapshot taken before launch, key for key).
+
+| Command | Surface it acts on | Evidence (live, console / API / AX) |
+|---|---|---|
+| View ▸ Show Search ⌘2 | sidebar: last-used search form, else the section's first (`SidebarPersistenceScope.loadLastSearchForm`) | `View ▸ Show Search: ads-modern` (nothing used yet → the user's first visible form); the ADS Modern form showed |
+| Go ▸ Back ⌘[ / Forward ⌘] | sidebar selection history (`NavigationHistory<ImbibTab>`, per sidebar) | Inbox → ⌘2 → the library row selected in the outline: `Go ▸ Back: searchForm(adsModern)`, `Go ▸ Forward: library(1C541C10…)`, `Go ▸ Back: inbox`; the menu read `Back=true, Forward=false` → after Back to the start `Back=false, Forward=true` |
+| Edit ▸ Copy as Citation ⇧⌘C | list selection | `Copy as Citation: 3 paper(s) via typst:` and the pasteboard held `T. Abel, G. L. Bryan, and M. L. Norman, “Zz Menu Test: The Formation of the First Star,” Science, vol. 295, pp. 93–98, 2002, doi: …` (+2 lines). The first run showed `[2] [3] ` on line 1 — PDFKit reads the label column first — fixed and tested |
+| View ▸ Focus Sidebar ⌥⌘1 | the outline (`SidebarOutlineView.focusRequest`) | AX focused element `AXOutline / list` → `AXOutline / outline` |
+| View ▸ Focus Detail ⌥⌘3 | `DetailView`'s focusable container | `View ▸ Focus Detail: detail pane focused = true` (the container has no AX element to read) |
+| Paper ▸ Share… ⇧⌘F | list selection | `Share…: 3 paper(s), 3 item(s) (2 URL) — picker shown`; the picker offered "2 Links — arxiv.org and doi.org" at the top of the window; dismissed with Escape |
+| Window ▸ Toggle PDF Filter ⇧⌘\ | list filter text (`has:pdf`, `LocalFilterService`) | `filter 'has:pdf' → 2 rows shown` (the two papers with a paperclip; the bar read `has:pdf 2 · Clear`), again → `'' → 3 rows shown` |
+| Help ▸ Search Help… ⇧⌘? | the Help window's palette | window closed: `palette shown (window opened)`, windows `imbib` → `Help, imbib`, focus `AXTextField`; window open: `palette shown (window already open)` |
+| Go ▸ Go to Page… ⌘G | the key window's PDF view | `Go to Page: asking (page 1 of 5)`; the sheet read "1 of 5"; 4 ⏎ → `4 of 5`, the page indicator `4 / 5` |
+| Annotate ▸ Highlight / Underline / Strikethrough | the displayed linked file (`AnnotationCommandTarget`) | text selected with the PDF's own search; each item → `Saved 1 annotations to store`; `GET /api/files/9D28FBD3…/annotations` → Highlight "line 30:", Underline "line 31:", StrikeOut "line 32:", every `linked_file_id` = the displayed PDF; the other paper's PDF: 0. Before the fix the post carried no id and `add…WithPersistence` stores nothing without one |
+
 ### The shared iOS list host (`RecordListHost`, C1, 2026-07-30)
 
 Stage 5c REPORTED the gap ("there is no shared iOS LIST host — three apps each
