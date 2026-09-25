@@ -163,9 +163,13 @@ fi
 # years, so nothing needs it.
 RUST_TOOL_BIN="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin"
 OBJCOPY=""
-if [ -x "$RUST_TOOL_BIN/rust-objcopy" ]; then
+# Use a tool only if it RUNS, not merely if the file is executable: a
+# toolchain can carry rust-objcopy without the llvm-tools component's
+# libLLVM.dylib, and then it dies at load (dyld, exit 134) and the failed run
+# leaves an empty xcframework behind. Seen on 1.98.1, 2026-09-25.
+if [ -x "$RUST_TOOL_BIN/rust-objcopy" ] && "$RUST_TOOL_BIN/rust-objcopy" --version > /dev/null 2>&1; then
     OBJCOPY="$RUST_TOOL_BIN/rust-objcopy"
-elif command -v llvm-objcopy > /dev/null 2>&1; then
+elif command -v llvm-objcopy > /dev/null 2>&1 && llvm-objcopy --version > /dev/null 2>&1; then
     OBJCOPY="$(command -v llvm-objcopy)"
 fi
 
