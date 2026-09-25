@@ -19,10 +19,12 @@
 //  every app that mounts the shared group gains the surface surface.
 //
 //  THE ROUTE TABLE IS RUST'S. The host forwards method + path + body to
-//  `SharedSurface.surfaceHttp`, which is the same table MCP and the CLI
-//  reach. Swift chooses no paths, parses no bodies and invents no statuses —
-//  if a route moves in `crates/impress-store-ffi/src/surface.rs`, it moves
-//  here for free.
+//  `SharedSurface.surfaceHttp`, where each route runs the surface verb of
+//  the same name through the argument parser MCP and the CLI use, and
+//  answers that verb's result (wave 7 T6a; the table is in
+//  docs/agent-surfaces.md). Swift chooses no paths, parses no bodies and
+//  invents no statuses — if a route moves in
+//  `crates/impress-store-ffi/src/surface.rs`, it moves here for free.
 //
 
 import Foundation
@@ -89,19 +91,21 @@ public enum SurfaceAutomationRoutes {
     @MainActor
     private static func answer(method: String, path: String, body: String) async -> HTTPResponse {
         guard let host = SurfaceAutomation.shared.host else {
-            // 409, not 404: the route exists, the app cannot serve it
-            // (its store is not open yet). A 404 here would read as
-            // "this build has no surfaces".
+            // 503, not 404: the route exists, the app cannot serve it yet
+            // (its store is not open). A 404 here would read as "this build
+            // has no surfaces". The body is the wire's refusal envelope.
             return HTTPResponse.json(
                 [
-                    "status": "error",
-                    "error": "no surface host is registered in this app",
-                    "detail":
-                        "The shared store must be open before the surface routes can "
-                        + "answer. Headless callers need no app at all — the same verbs "
-                        + "are `impress-surface-service_surface-*` over MCP.",
+                    "ok": false,
+                    "code": "store-unavailable",
+                    "message":
+                        "no surface host is registered in this app: the shared store must be "
+                        + "open before the surface routes can answer. Headless callers need no "
+                        + "app at all — the same verbs are impress-surface-service_surface-* "
+                        + "over MCP.",
+                    "wire_version": 1,
                 ],
-                status: 409)
+                status: 503)
         }
         let reply = await host.routeSurfaceRequest(method: method, path: path, body: body)
         return HTTPResponse(
@@ -112,7 +116,7 @@ public enum SurfaceAutomationRoutes {
     }
 
     /// Re-attach the query string the router already parsed away, because
-    /// Rust's table reads `?pane=` and `?after=` itself.
+    /// Rust's table reads `?host=`, `?after_seq=`, `?timeout_ms=` itself.
     static func pathWithQuery(_ path: String, params: [String: String]) -> String {
         guard !params.isEmpty else { return path }
         let query = params
@@ -126,13 +130,18 @@ public enum SurfaceAutomationRoutes {
         return "\(path)?\(query)"
     }
 
-    /// The statuses `SharedSurface.surfaceHttp` documents.
+    /// The statuses `impress_service_core::refusal::http_status` maps a
+    /// refusal's code to.
     static func statusText(_ status: Int) -> String {
         switch status {
         case 200: return "OK"
         case 400: return "Bad Request"
         case 404: return "Not Found"
         case 409: return "Conflict"
+        case 422: return "Unprocessable Entity"
+        case 500: return "Internal Server Error"
+        case 502: return "Bad Gateway"
+        case 503: return "Service Unavailable"
         default: return "Error"
         }
     }

@@ -60,7 +60,7 @@ enum Demo {
 
     static func prepare() {
         guard let store else { return }
-        let surfaces = SharedSurface.open(store: store, host: "")
+        let surfaces = SharedSurface.open(store: store, host: "", appId: appID)
         // A text field, a select with nothing stored, a date an agent wrote
         // as a plain day, and a button whose event carries the text.
         let spec = #"""
@@ -449,7 +449,7 @@ enum Proof {
     /// The surface's fields as a FRESH handle renders them: a new
     /// `SharedSurface` reads the store, not any handle's cache.
     static func fields(renderedBy store: SharedStore, _ id: String) async -> [String: LayoutJSONValue] {
-        let reply = await SharedSurface.open(store: store, host: "")
+        let reply = await SharedSurface.open(store: store, host: "", appId: Demo.appID)
             .surfaceHttp(method: "GET", path: "/api/surface/\(id)/render", body: "")
         guard let tree = try? LayoutJSONValue.decode(reply.body) else { return [:] }
         var out: [String: LayoutJSONValue] = [:]
@@ -463,12 +463,13 @@ enum Proof {
                 if let child = node["node"]?[key], child.objectValue != nil { walk(child) }
             }
         }
-        if let root = tree["root"] { walk(root) }
+        // The render route answers the wire's envelope; the tree is inside.
+        if let root = tree["tree"]?["root"] { walk(root) }
         return out
     }
 
     static func events(_ store: SharedStore, _ id: String) async -> [[String: Any]] {
-        let reply = await SharedSurface.open(store: store, host: "")
+        let reply = await SharedSurface.open(store: store, host: "", appId: Demo.appID)
             .surfaceHttp(method: "GET", path: "/api/surface/\(id)/events", body: "")
         let object = try? JSONSerialization.jsonObject(with: Data(reply.body.utf8)) as? [String: Any]
         return object?["events"] as? [[String: Any]] ?? []
