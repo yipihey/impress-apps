@@ -201,7 +201,7 @@ async fn a_stale_expected_revision_is_a_conflict_and_changes_nothing() {
 }
 
 #[tokio::test]
-async fn a_view_kind_or_record_kind_outside_the_vocabulary_is_refused() {
+async fn a_view_kind_or_a_query_kind_outside_the_vocabulary_is_refused() {
     let svc = service();
     let holodeck = svc
         .set_view_kind(
@@ -216,27 +216,6 @@ async fn a_view_kind_or_record_kind_outside_the_vocabulary_is_refused() {
     assert!(!holodeck.ok);
     assert_eq!(holodeck.code.as_deref(), Some("unknown-view-kind"));
     assert!(holodeck.message.contains("source"), "{}", holodeck.message);
-
-    let select = svc
-        .select(
-            APP.into(),
-            device(),
-            PaneRefDto::role("list"),
-            "publications".into(),
-            Vec::new(),
-            None,
-            None,
-        )
-        .await;
-    assert_eq!(
-        select.code.as_deref(),
-        Some("invalid-argument"),
-        "{}",
-        select.message
-    );
-    assert!(select
-        .message
-        .contains("unknown record kind 'publications'"));
 
     let query: impress_layout::PaneQuery =
         serde_json::from_value(json!({"kinds": ["papers"]})).unwrap();

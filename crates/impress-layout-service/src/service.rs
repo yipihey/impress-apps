@@ -1099,10 +1099,15 @@ fn check_expected(session: &LayoutSession, expected: Option<u64>) -> Result<(), 
 }
 
 /// The checks every verb passes before it reaches the tree, on every path
-/// (MCP, the CLI, the FFI, HTTP, a surface effect, a batch): a record kind
-/// the manifest does not know is refused at verb time rather than stored to
-/// bind nothing (review RL-L12). The view-kind vocabulary is the tree's own
-/// check (`unknown-view-kind`).
+/// (MCP, the CLI, the FFI, HTTP, a surface effect, a batch): a query naming a
+/// record kind the manifest does not know is refused at verb time rather
+/// than stored to match nothing (review RL-L12). The view-kind vocabulary is
+/// the tree's own check (`unknown-view-kind`).
+///
+/// A `select`'s kind is NOT checked: a surface's `publish` may name a kind
+/// this build has never heard of (the generic `item`, a newer build's kind —
+/// `impress-surface-service`'s `publish_kind_and_ids`), and refusing it is a
+/// change to the surface contract, not this one's.
 pub fn check_verb(verb: &Verb) -> Result<(), Refusal> {
     match verb {
         Verb::SetQuery { query, .. } => check_query_kinds(query),
@@ -1110,7 +1115,6 @@ pub fn check_verb(verb: &Verb) -> Result<(), Refusal> {
         Verb::Split {
             new: Some(spec), ..
         } => check_query_kinds(&spec.query),
-        Verb::Select { kind, .. } => check_record_kind(kind),
         _ => Ok(()),
     }
 }
