@@ -118,8 +118,7 @@ use impress_core::schemas;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout::{
-    ChannelId, Container, Direction, Layout, LinearDir, PaneRef, PaneSpec, Placement, Role, Tile,
-    TileId, Verb, HIDDEN_SHARE,
+    ChannelId, Container, Layout, PaneRef, PaneSpec, Role, Tile, TileId, Verb, HIDDEN_SHARE,
 };
 use impress_layout_service::device::resolve_device;
 use impress_layout_service::{
@@ -250,6 +249,11 @@ pub struct SharedLayoutSnapshot {
     /// Bumped on every applied verb. A host that holds this number can skip a
     /// snapshot it has already rendered.
     pub version: u64,
+    /// The live layout row's revision (its `logical_clock`) this tree is —
+    /// the number an agent passes back as `expected_revision`. Unlike
+    /// `version`, which counts this object's redraws, it is the store's, the
+    /// same in every process.
+    pub revision: Option<u64>,
 }
 
 /// What one verb changed — the renderer's whole input (ADR-0019 D3).
@@ -266,6 +270,9 @@ pub struct SharedAppliedVerb {
     pub changed_tiles: Vec<u64>,
     /// The tree afterwards, same shape as [`SharedLayoutSnapshot::layout_json`].
     pub layout_json: String,
+    /// The live row's revision after the verb (see
+    /// [`SharedLayoutSnapshot::revision`]).
+    pub revision: Option<u64>,
 }
 
 /// One saved layout, in ⌃⌘1–9 order.
@@ -308,6 +315,27 @@ pub struct SharedPane {
     pub channel: Option<u8>,
     pub view_kind: String,
     pub role: Option<String>,
+}
+
+/// One page of a pane's rows, and how many the pane's query has in all —
+/// so a list pane can say "showing 500 of 2,657" instead of presenting a
+/// cut list as the whole result (review PH-H4, SK-K9).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedPaneRows {
+    pub rows: Vec<SharedItemRow>,
+    /// Every row the pane's query would show: the store's count, capped by
+    /// the query's own `limit` when it has one.
+    pub total: u64,
+    /// Where this page starts.
+    pub offset: u32,
+    /// The page size actually used: the caller's `limit`, or the query's own
+    /// when that is smaller; `None` when neither limits it.
+    pub limit: Option<u32>,
+    /// The query's own `limit`, which is honoured — a page never shows more.
+    pub query_limit: Option<u32>,
+    /// `offset + rows.len() < total`: there is more than this page shows.
+    pub truncated: bool,
 }
 
 // ─── The invalidation listener ───────────────────────────────────────────
@@ -427,8 +455,11 @@ impl SharedLayout {
     pub fn snapshot(&self) -> Result<SharedLayoutSnapshot> {
         let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
         let layout = self.read_layout()?;
-        *told = self.session_revision().or(*told);
-        self.snapshot_of(&layout)
+        let revision = self.session_revision();
+        *told = revision.or(*told);
+        let mut snapshot = self.snapshot_of(&layout)?;
+        snapshot.revision = revision;
+        Ok(snapshot)
     }
 
     /// One pane's spec, its compiled query and its resolved bindings.
@@ -457,14 +488,17 @@ impl SharedLayout {
         })
     }
 
-    /// Run a pane's compiled query. The read path every list pane uses.
+    /// Run a pane's compiled query, one page. The read path every list pane
+    /// uses.
     ///
-    /// `limit` of 0 keeps whatever limit the pane's own query carries. Rows
-    /// come back as the ordinary [`SharedItemRow`], so Swift reuses the
-    /// payload decoders it already has. The compiled query is used as it
-    /// comes back — it used to be serialized to JSON and parsed straight
-    /// back on every display pass (review RL-L14).
-    pub fn run_pane(&self, id: u64, offset: u32, limit: u32) -> Result<Vec<SharedItemRow>> {
+    /// `limit` is the page size; 0 means none. The pane's own query limit is
+    /// always honoured — a page is the smaller of the two — and the answer
+    /// says how many rows the query has in all (`total`) and whether this
+    /// page is all of them (`truncated`), so a host never shows a cut list
+    /// as if it were the whole (review PH-H4, SK-K9: the kit's page of 500
+    /// used to REPLACE the query's own limit, and nothing said 2,657 rows
+    /// had become 500). Rows come back as the ordinary [`SharedItemRow`].
+    pub fn run_pane(&self, id: u64, offset: u32, limit: u32) -> Result<SharedPaneRows> {
         let mut query = self
             .compiled_pane(id)?
             .compiled
@@ -472,14 +506,36 @@ impl SharedLayout {
                 message: e.to_string(),
             })?
             .item_query;
-        if limit > 0 {
-            query.limit = Some(limit as usize);
-        }
-        if offset > 0 {
-            query.offset = Some(offset as usize);
-        }
+        let query_limit = query.limit;
+        let page = match (limit, query_limit) {
+            (0, own) => own,
+            (page, Some(own)) => Some((page as usize).min(own)),
+            (page, None) => Some(page as usize),
+        };
+        query.limit = page;
+        query.offset = (offset > 0).then_some(offset as usize);
         let items = self.store.query(&query).map_err(SharedLayoutError::store)?;
-        Ok(items.into_iter().map(item_to_row).collect())
+        let shown = items.len() as u64;
+        // Counting costs a second query, so only when the page came back
+        // full — a short page is the end of the result.
+        let full = page.is_some_and(|p| items.len() >= p);
+        let total = if full {
+            let mut all = query.clone();
+            all.limit = None;
+            all.offset = None;
+            let count = self.store.count(&all).map_err(SharedLayoutError::store)? as u64;
+            query_limit.map_or(count, |own| count.min(own as u64))
+        } else {
+            offset as u64 + shown
+        };
+        Ok(SharedPaneRows {
+            rows: items.into_iter().map(item_to_row).collect(),
+            total,
+            offset,
+            limit: page.map(|p| p as u32),
+            query_limit: query_limit.map(|l| l as u32),
+            truncated: offset as u64 + shown < total,
+        })
     }
 
     /// Which pane holds `role` right now, if any.
@@ -518,29 +574,64 @@ impl SharedLayout {
     /// Apply one verb, as the serde form of [`impress_layout::Verb`].
     ///
     /// This is the whole mutating surface. `actor` is `human` | `agent` |
-    /// `system`; the GUI passes `human`.
+    /// `system`; the GUI passes `human`. The object may also carry
+    /// `"expected_revision": N` — refused `conflict`, nothing written, unless
+    /// the live row is still at revision `N` (what `/api/layout/verb` takes).
+    ///
+    /// Parsed strictly (review RL-L3): a field the verb's schema does not
+    /// name is refused `invalid-argument` naming it, and a pane reference is
+    /// written one way — `{"id": 7}`, `{"role": "detail"}`,
+    /// `{"direction": "left"}` or `{"focused": true}`. A split with no `new`
+    /// duplicates its target; that rule is the verb's, not this function's
+    /// (review RL-L20).
     pub fn apply(&self, verb_json: String, actor: String) -> Result<SharedAppliedVerb> {
-        match serde_json::from_str::<Verb>(&verb_json) {
-            Ok(verb) => self.dispatch(verb, actor),
-            // `Verb::Split` names the new pane; a bare "split this" does not,
-            // and the service answers it by duplicating the pane being split.
-            // That is the service's decision, not one taken again here — this
-            // arm only recognizes the shape and forwards it.
-            Err(e) => match bare_split(&verb_json) {
-                Some(bare) => self.verb(|| {
-                    runtime().block_on(self.service.split(
-                        self.app_id.clone(),
-                        self.device.clone(),
-                        ref_dto(&bare.target),
-                        linear_name(bare.dir).to_string(),
-                        bare.after,
-                        None,
-                        Some(actor),
-                    ))
-                }),
-                None => Err(SharedLayoutError::json(e)),
-            },
+        let (verb, expected) = parse_verb(&verb_json)?;
+        self.dispatch(verb, actor, expected)
+    }
+
+    /// Apply several verbs as ONE gesture: all or none, one undo step
+    /// (review PH-M2) — what an outline click is. `verbs_json` is a JSON
+    /// array of verbs, each as [`Self::apply`] takes one, or an object
+    /// `{"verbs": [...], "expected_revision": N}`.
+    pub fn apply_all(&self, verbs_json: String, actor: String) -> Result<SharedAppliedVerb> {
+        let value: serde_json::Value =
+            serde_json::from_str(&verbs_json).map_err(SharedLayoutError::json)?;
+        let (items, expected) = match value {
+            serde_json::Value::Array(items) => (items, None),
+            serde_json::Value::Object(mut object) => {
+                let expected = take_expected(&mut object)?;
+                let Some(serde_json::Value::Array(items)) = object.remove("verbs") else {
+                    return Err(invalid(
+                        "apply_all takes an array of verbs, or {\"verbs\": […]}",
+                    ));
+                };
+                if let Some(key) = object.keys().next() {
+                    return Err(invalid(format!(
+                        "unknown field '{key}' (apply_all takes: verbs, expected_revision)"
+                    )));
+                }
+                (items, expected)
+            }
+            _ => return Err(invalid("apply_all takes an array of verbs")),
+        };
+        let schema = verb_schema();
+        let mut verbs = Vec::with_capacity(items.len());
+        for (index, item) in items.into_iter().enumerate() {
+            let verb = impress_service_core::strict::args::<Verb>(
+                &format!("verb {}", index + 1),
+                item,
+                schema,
+            )
+            .map_err(SharedLayoutError::layout)?;
+            verbs.push(verb);
         }
+        let app = self.app_id.clone();
+        let device = self.device.clone();
+        let actor = actor_from(Some(&actor));
+        self.verb(|| {
+            self.service
+                .apply_verbs_as(&app, device, actor, expected, verbs)
+        })
     }
 
     /// Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. The
@@ -552,6 +643,7 @@ impl SharedLayout {
                 self.device.clone(),
                 dir,
                 Some(actor),
+                None,
             ))
         })
     }
@@ -574,6 +666,7 @@ impl SharedLayout {
                 kind,
                 ids,
                 Some(actor),
+                None,
             ))
         })
     }
@@ -591,51 +684,17 @@ impl SharedLayout {
     /// exactly the view-held layout state ADR-0019 D3 exists to remove — so
     /// the pane stays in the tree with no width.
     pub fn resize_share(&self, pane: u64, share: f32, actor: String) -> Result<SharedAppliedVerb> {
-        let layout = self.read_layout()?;
-        let tile = TileId::new(pane);
-        let parent = layout.parent_of(tile).ok_or_else(|| {
-            SharedLayoutError::layout(Refusal::new(
-                "not-in-a-split",
-                format!("tile {pane} has no parent split"),
-            ))
-        })?;
-        let container = layout
-            .tile(parent)
-            .and_then(Tile::as_container)
-            .ok_or_else(|| {
-                SharedLayoutError::layout(Refusal::new(
-                    "not-a-container",
-                    format!("tile {parent} is not a container"),
-                ))
-            })?;
-        if !matches!(container, Container::Linear { .. }) {
-            return Err(SharedLayoutError::layout(Refusal::new(
-                "not-in-a-split",
-                format!(
-                    "tile {parent} is a {:?}, and only a split has shares",
-                    container.kind()
-                ),
-            )));
-        }
-        let index = container.index_of(tile).ok_or_else(|| {
-            SharedLayoutError::layout(Refusal::new(
-                "unknown-tile",
-                format!("tile {pane} is not a child of {parent}"),
-            ))
-        })?;
-        let existing = container.shares().unwrap_or(&[]);
-        let mut shares: Vec<f32> = (0..container.len())
-            .map(|i| existing.get(i).copied().unwrap_or(1.0))
-            .collect();
-        shares[index] = share.max(HIDDEN_SHARE);
+        let app = self.app_id.clone();
+        let device = self.device.clone();
+        let actor = actor_from(Some(&actor));
+        // The shares are read from the session the verb applies to, under
+        // its lock: reading the tree first and resizing after let a verb in
+        // between turn this into "N shares for M children" (review RL-L13).
         self.verb(|| {
-            runtime().block_on(self.service.resize(
-                self.app_id.clone(),
-                self.device.clone(),
-                parent.raw(),
-                shares,
-                Some(actor),
-            ))
+            self.service
+                .apply_verb_as(&app, device, actor, None, |session| {
+                    resize_one_share(&session.layout, TileId::new(pane), share)
+                })
         })
     }
 
@@ -653,8 +712,9 @@ impl SharedLayout {
                 self.app_id.clone(),
                 self.device.clone(),
                 stack,
-                pane_ref(pane),
+                Some(pane_ref(pane)),
                 Some(actor),
+                None,
             ))
         })
     }
@@ -671,8 +731,9 @@ impl SharedLayout {
                 self.app_id.clone(),
                 self.device.clone(),
                 stack,
-                pane_ref(pane),
+                Some(pane_ref(pane)),
                 Some(actor),
+                None,
             ))
         })
     }
@@ -720,6 +781,7 @@ impl SharedLayout {
                 name,
                 ordinal,
                 Some(actor),
+                None,
             ))
         })
     }
@@ -845,6 +907,7 @@ impl SharedLayout {
             affected_panes: result.affected_panes,
             changed_tiles,
             layout_json: serde_json::to_string(&layout).map_err(SharedLayoutError::json)?,
+            revision: result.revision.or(revision),
         })
     }
 
@@ -868,131 +931,117 @@ impl SharedLayout {
             .map_err(SharedLayoutError::layout)
     }
 
-    /// Every [`Verb`] variant, routed to the `layout-service` method that owns
-    /// it. A translation table rather than a second applier: nothing here
-    /// decides anything about the tree.
-    fn dispatch(&self, verb: Verb, actor: String) -> Result<SharedAppliedVerb> {
+    /// Apply one parsed [`Verb`] through the service — the same path, checks
+    /// and log line an MCP verb takes (`DefaultLayoutService::apply_verb_as`),
+    /// with no translation table in between: nothing here decides anything
+    /// about the tree.
+    fn dispatch(
+        &self,
+        verb: Verb,
+        actor: String,
+        expected_revision: Option<u64>,
+    ) -> Result<SharedAppliedVerb> {
         let app = self.app_id.clone();
         let device = self.device.clone();
-        let actor = Some(actor);
-        let service = &self.service;
-        let rt = runtime();
-
-        self.verb(move || match verb {
-            Verb::Split {
-                target,
-                dir,
-                after,
-                new,
-            } => rt.block_on(service.split(
-                app,
-                device,
-                ref_dto(&target),
-                linear_name(dir).to_string(),
-                after,
-                Some(new),
-                actor,
-            )),
-            Verb::MoveTile {
-                tile,
-                target,
-                placement,
-            } => rt.block_on(service.move_tile(
-                app,
-                device,
-                ref_dto(&tile),
-                ref_dto(&target),
-                placement_name(placement).to_string(),
-                actor,
-            )),
-            Verb::Close { target } => {
-                rt.block_on(service.close(app, device, ref_dto(&target), actor))
-            }
-            Verb::Swap { a, b } => {
-                rt.block_on(service.swap(app, device, ref_dto(&a), ref_dto(&b), actor))
-            }
-            Verb::Resize { container, shares } => {
-                rt.block_on(service.resize(app, device, container.raw(), shares, actor))
-            }
-            Verb::SetContainerKind { container, kind } => rt.block_on(service.set_container_kind(
-                app,
-                device,
-                container.raw(),
-                container_kind_name(kind).to_string(),
-                actor,
-            )),
-            Verb::Maximize { target } => {
-                rt.block_on(service.maximize(app, device, ref_dto(&target), actor))
-            }
-            Verb::Restore => rt.block_on(service.restore(app, device, actor)),
-            Verb::Detach { target } => {
-                rt.block_on(service.detach(app, device, ref_dto(&target), actor))
-            }
-            Verb::SetPane { target, spec } => {
-                rt.block_on(service.set_pane(app, device, ref_dto(&target), spec, actor))
-            }
-            Verb::SetQuery { target, query } => {
-                rt.block_on(service.set_query(app, device, ref_dto(&target), query, actor))
-            }
-            Verb::SetViewKind { target, view_kind } => rt.block_on(service.set_view_kind(
-                app,
-                device,
-                ref_dto(&target),
-                view_kind.to_string(),
-                actor,
-            )),
-            Verb::BindParam {
-                target,
-                name,
-                source,
-            } => {
-                rt.block_on(service.bind_param(app, device, ref_dto(&target), name, source, actor))
-            }
-            Verb::SetChannel { target, channel } => rt.block_on(service.set_channel(
-                app,
-                device,
-                ref_dto(&target),
-                channel_name(channel),
-                actor,
-            )),
-            Verb::SetRole { target, role } => rt.block_on(service.set_role(
-                app,
-                device,
-                ref_dto(&target),
-                role.map(|r| r.to_string()),
-                actor,
-            )),
-            Verb::Focus { target } => {
-                rt.block_on(service.focus(app, device, ref_dto(&target), actor))
-            }
-            Verb::FocusDirection { direction } => rt.block_on(service.focus_direction(
-                app,
-                device,
-                direction_name(direction).to_string(),
-                actor,
-            )),
-            Verb::Select { target, kind, ids } => rt.block_on(service.select(
-                app,
-                device,
-                ref_dto(&target),
-                kind,
-                ids.iter().map(ItemId::to_string).collect(),
-                actor,
-            )),
-            Verb::SetWindowGeometry { window, geometry } => rt.block_on(
-                service.set_window_geometry(app, device, Some(window.raw()), geometry, actor),
-            ),
-            Verb::SetDefaultChannel { window, channel } => {
-                rt.block_on(service.set_default_channel(
-                    app,
-                    device,
-                    Some(window.raw()),
-                    channel_name(channel),
-                    actor,
-                ))
-            }
+        let actor = actor_from(Some(&actor));
+        self.verb(|| {
+            self.service
+                .apply_verb_as(&app, device, actor, expected_revision, |_| Ok(verb))
         })
     }
+}
+
+/// `human` | `agent` | `system` — the service's own reading of the string.
+fn actor_from(actor: Option<&str>) -> ActorKind {
+    impress_layout_service::store::actor_from(actor)
+}
+
+fn invalid(message: impl Into<String>) -> SharedLayoutError {
+    SharedLayoutError::layout(Refusal::invalid_argument(message))
+}
+
+/// `Verb`'s JSON schema, for the strict check (generated once).
+fn verb_schema() -> &'static serde_json::Value {
+    static SCHEMA: OnceLock<serde_json::Value> = OnceLock::new();
+    SCHEMA.get_or_init(|| {
+        serde_json::to_value(impress_service_core::schemars::schema_for!(Verb))
+            .unwrap_or(serde_json::Value::Null)
+    })
+}
+
+/// Take `expected_revision` out of a verb object, if it is there.
+fn take_expected(object: &mut serde_json::Map<String, serde_json::Value>) -> Result<Option<u64>> {
+    match object.remove("expected_revision") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => value.as_u64().map(Some).ok_or_else(|| {
+            invalid(format!(
+                "expected_revision must be a non-negative integer, not {value}"
+            ))
+        }),
+    }
+}
+
+/// A verb as `apply` and `/api/layout/verb` take it: the verb's own fields,
+/// strictly, plus an optional `expected_revision`.
+fn parse_verb(verb_json: &str) -> Result<(Verb, Option<u64>)> {
+    let value: serde_json::Value =
+        serde_json::from_str(verb_json).map_err(SharedLayoutError::json)?;
+    let serde_json::Value::Object(mut object) = value else {
+        return Err(invalid("a verb is a JSON object with a \"verb\" field"));
+    };
+    let expected = take_expected(&mut object)?;
+    let verb = impress_service_core::strict::args::<Verb>(
+        "verb",
+        serde_json::Value::Object(object),
+        verb_schema(),
+    )
+    .map_err(SharedLayoutError::layout)?;
+    Ok((verb, expected))
+}
+
+/// The `Resize` that gives one pane `share` in its parent split and leaves
+/// its siblings alone — computed from the tree the verb will apply to.
+fn resize_one_share(
+    layout: &Layout,
+    tile: TileId,
+    share: f32,
+) -> std::result::Result<Verb, Refusal> {
+    let parent = layout.parent_of(tile).ok_or_else(|| {
+        Refusal::new("not-in-a-split", format!("tile {tile} has no parent split"))
+    })?;
+    let container = layout
+        .tile(parent)
+        .and_then(Tile::as_container)
+        .ok_or_else(|| {
+            Refusal::new(
+                "not-a-container",
+                format!("tile {parent} is not a container"),
+            )
+        })?;
+    if !matches!(container, Container::Linear { .. }) {
+        return Err(Refusal::new(
+            "not-in-a-split",
+            format!(
+                "tile {parent} is a {:?}, and only a split has shares",
+                container.kind()
+            ),
+        ));
+    }
+    let index = container.index_of(tile).ok_or_else(|| {
+        Refusal::new(
+            "unknown-tile",
+            format!("tile {tile} is not a child of {parent}"),
+        )
+    })?;
+    let existing = container.shares().unwrap_or(&[]);
+    let mut shares: Vec<f32> = (0..container.len())
+        .map(|i| existing.get(i).copied().unwrap_or(1.0))
+        .collect();
+    shares[index] = share.max(HIDDEN_SHARE);
+    Ok(Verb::Resize {
+        container: parent,
+        shares,
+    })
 }
 
 fn read_layout(
@@ -1046,31 +1095,7 @@ fn snapshot_of(layout: &Layout, version: u64) -> Result<SharedLayoutSnapshot> {
         windows,
         leaves,
         version,
-    })
-}
-
-/// A bare `{"verb":"split", "target":…, "dir":…}` with no `new` pane.
-struct BareSplit {
-    target: PaneRef,
-    dir: LinearDir,
-    after: bool,
-}
-
-fn bare_split(verb_json: &str) -> Option<BareSplit> {
-    let value: serde_json::Value = serde_json::from_str(verb_json).ok()?;
-    if value.get("verb")?.as_str()? != "split" || value.get("new").is_some() {
-        return None;
-    }
-    Some(BareSplit {
-        target: match value.get("target") {
-            Some(target) => serde_json::from_value(target.clone()).ok()?,
-            None => PaneRef::Focused,
-        },
-        dir: serde_json::from_value(value.get("dir")?.clone()).ok()?,
-        after: value
-            .get("after")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
+        revision: None,
     })
 }
 
@@ -1078,60 +1103,6 @@ fn pane_ref(pane: Option<u64>) -> PaneRefDto {
     match pane {
         Some(id) => PaneRefDto::tile(TileId::new(id)),
         None => PaneRefDto::focused(),
-    }
-}
-
-fn ref_dto(reference: &PaneRef) -> PaneRefDto {
-    match reference {
-        PaneRef::Id { tile } => PaneRefDto::tile(*tile),
-        PaneRef::Role { role } => PaneRefDto::role(role.as_str()),
-        PaneRef::Direction { direction } => PaneRefDto::direction(direction_name(*direction)),
-        PaneRef::Focused => PaneRefDto::focused(),
-    }
-}
-
-fn direction_name(direction: Direction) -> &'static str {
-    match direction {
-        Direction::Left => "left",
-        Direction::Right => "right",
-        Direction::Up => "up",
-        Direction::Down => "down",
-        Direction::Next => "next",
-        Direction::Prev => "prev",
-    }
-}
-
-fn linear_name(dir: LinearDir) -> &'static str {
-    match dir {
-        LinearDir::Horizontal => "horizontal",
-        LinearDir::Vertical => "vertical",
-    }
-}
-
-fn placement_name(placement: Placement) -> &'static str {
-    match placement {
-        Placement::Left => "left",
-        Placement::Right => "right",
-        Placement::Above => "above",
-        Placement::Below => "below",
-        Placement::IntoTabs => "into-tabs",
-    }
-}
-
-fn container_kind_name(kind: impress_layout::ContainerKind) -> &'static str {
-    use impress_layout::ContainerKind::*;
-    match kind {
-        Tabs => "tabs",
-        Horizontal => "horizontal",
-        Vertical => "vertical",
-        Grid => "grid",
-    }
-}
-
-fn channel_name(channel: ChannelId) -> String {
-    match channel {
-        ChannelId::Number(n) => n.to_string(),
-        ChannelId::Follow => "follow".to_string(),
     }
 }
 
@@ -1495,6 +1466,30 @@ pub fn compile_pane_query(
 
 /// The record-kind manifest as JSON: kind id → the schema refs the store
 /// matches by exact equality. The one place that mapping lives.
+/// The layout's written vocabulary, owned by Rust (review PH-M7):
+/// `{"wire_version": 1, "view_kinds": [...], "session_bearing": [...],
+/// "view_state_keys": [...]}`. A host pins its own registrations to this in a
+/// test, so a view kind or a `view_state` key spelled on one side only fails
+/// the build rather than rendering a placeholder.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn layout_vocabulary_json() -> String {
+    encode_static(
+        &serde_json::json!({
+            "wire_version": impress_service_core::wire::WIRE_VERSION,
+            "view_kinds": impress_layout::ViewKindId::KNOWN
+                .iter()
+                .map(|k| k.as_str())
+                .collect::<Vec<_>>(),
+            "session_bearing": impress_layout::ViewKindId::SESSION_BEARING
+                .iter()
+                .map(|k| k.as_str())
+                .collect::<Vec<_>>(),
+            "view_state_keys": impress_layout::view_state::KNOWN,
+        }),
+        "the layout vocabulary",
+    )
+}
+
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn kind_manifest_json() -> String {
     encode_static(&builtin_manifest(), "the kind manifest")
@@ -1800,7 +1795,7 @@ mod tests {
             .apply(
                 serde_json::json!({
                     "verb": "split",
-                    "target": { "ref": "id", "tile": list },
+                    "target": {"id": list},
                     "dir": "vertical",
                     "after": true,
                 })
@@ -1830,7 +1825,201 @@ mod tests {
 
         // …and an unknown verb is a typed refusal, not a silent no-op.
         let refused = layout.apply(r#"{"verb":"teleport"}"#.into(), "human".into());
-        assert!(matches!(refused, Err(SharedLayoutError::Json { .. })));
+        assert!(
+            matches!(&refused, Err(SharedLayoutError::Layout { code, .. }) if code == "invalid-argument"),
+            "{refused:?}"
+        );
+    }
+
+    /// The written contract on the FFI path (review RL-L3, RL-L20, RL-L1):
+    /// a strict parse, one reference spelling, `expected_revision` in the
+    /// verb object, and a split whose `new` is omitted.
+    #[test]
+    fn a_verb_is_parsed_strictly_and_a_stale_revision_is_a_conflict() {
+        let (_store, layout) = open();
+        let code_of = |r: Result<SharedAppliedVerb>| match r {
+            Err(SharedLayoutError::Layout { code, message }) => (code, message),
+            other => panic!("expected a refusal, got {other:?}"),
+        };
+        let (code, message) = code_of(layout.apply(
+            r#"{"verb":"close","target":{"ref":"id","tile":1}}"#.into(),
+            "human".into(),
+        ));
+        assert_eq!(code, "invalid-argument");
+        assert!(
+            message.contains("unknown field 'ref' in 'target'"),
+            "{message}"
+        );
+        let (code, message) = code_of(layout.apply(
+            r#"{"verb":"focus","target":{"role":"list"},"targett":{}}"#.into(),
+            "human".into(),
+        ));
+        assert_eq!(code, "invalid-argument");
+        assert!(message.contains("'targett'"), "{message}");
+        let (code, _) =
+            code_of(layout.apply(r#"{"verb":"close","target":{}}"#.into(), "human".into()));
+        assert_eq!(code, "invalid-argument");
+        let (code, message) = code_of(layout.apply(
+            r#"{"verb":"set-view-kind","target":{"role":"detail"},"view_kind":"editor"}"#.into(),
+            "human".into(),
+        ));
+        assert_eq!(code, "unknown-view-kind", "{message}");
+
+        // Read the revision, let someone else write, then act on the read.
+        let read = layout
+            .service
+            .get_layout_as("test-app", Some("test".into()), ActorKind::Agent);
+        let revision = read.revision.expect("revision");
+        layout
+            .apply(
+                r#"{"verb":"split","target":{"role":"list"},"dir":"vertical"}"#.into(),
+                "human".into(),
+            )
+            .expect("a split with no `new` duplicates its target");
+        let (code, message) = code_of(layout.apply(
+            format!(
+                r#"{{"verb":"focus","target":{{"role":"detail"}},"expected_revision":{revision}}}"#
+            ),
+            "agent".into(),
+        ));
+        assert_eq!(code, "conflict", "{message}");
+        let now = layout
+            .service
+            .get_layout_as("test-app", Some("test".into()), ActorKind::Agent)
+            .revision
+            .expect("revision");
+        layout
+            .apply(
+                format!(
+                    r#"{{"verb":"focus","target":{{"role":"detail"}},"expected_revision":{now}}}"#
+                ),
+                "agent".into(),
+            )
+            .expect("the current revision goes through");
+    }
+
+    /// An outline click as one gesture (review PH-M2): one call, one undo
+    /// step, nothing applied when any verb is refused.
+    #[test]
+    fn apply_all_is_one_gesture_and_one_undo_step() {
+        let (_store, layout) = open();
+        let list = role_of(&layout, "list");
+        let detail = role_of(&layout, "detail");
+        let before = layout.pane(detail).expect("detail").view_kind;
+        let applied = layout
+            .apply_all(
+                format!(
+                    r#"[{{"verb":"focus","target":{{"id":{list}}}}},
+                        {{"verb":"set-view-kind","target":{{"id":{list}}},"view_kind":"info"}},
+                        {{"verb":"set-view-kind","target":{{"id":{detail}}},"view_kind":"bibtex"}}]"#
+                ),
+                "human".into(),
+            )
+            .expect("one gesture");
+        assert_eq!(applied.version, 1, "one gesture, one version");
+        layout
+            .undo("exploration".into(), Some(list), "human".into())
+            .expect("one undo");
+        assert_eq!(layout.pane(detail).expect("detail").view_kind, before);
+        assert_eq!(layout.pane(list).expect("list").view_kind, "list");
+
+        let refused = layout.apply_all(
+            format!(
+                r#"[{{"verb":"set-view-kind","target":{{"id":{detail}}},"view_kind":"notes"}},
+                    {{"verb":"close","target":{{"id":4242}}}}]"#
+            ),
+            "human".into(),
+        );
+        assert!(
+            matches!(&refused, Err(SharedLayoutError::Layout { code, .. }) if code == "unknown-tile"),
+            "{refused:?}"
+        );
+        assert_eq!(layout.pane(detail).expect("detail").view_kind, before);
+    }
+
+    /// A page says how many rows there are in all, and the query's own limit
+    /// is honoured (review PH-H4, SK-K9).
+    #[test]
+    fn a_page_of_rows_says_how_many_there_are_in_all() {
+        let (store, layout) = open();
+        let list = role_of(&layout, "list");
+        for n in 0..7 {
+            seed_publication(&store, &format!("paper {n}"));
+        }
+        layout
+            .apply(
+                format!(
+                    r#"{{"verb":"set-query","target":{{"id":{list}}},"query":{{"kinds":["publication"]}}}}"#
+                ),
+                "human".into(),
+            )
+            .expect("list every publication");
+        let page = layout.run_pane(list, 0, 3).expect("a page");
+        assert_eq!(page.rows.len(), 3);
+        assert_eq!(page.total, 7);
+        assert!(page.truncated);
+        assert_eq!(page.limit, Some(3));
+        let rest = layout.run_pane(list, 6, 3).expect("the last page");
+        assert_eq!(rest.rows.len(), 1);
+        assert!(!rest.truncated);
+        let all = layout.run_pane(list, 0, 0).expect("unpaged");
+        assert_eq!((all.rows.len(), all.total, all.truncated), (7, 7, false));
+
+        // The pane's own limit wins over a larger page.
+        layout
+            .apply(
+                format!(
+                    r#"{{"verb":"set-query","target":{{"id":{list}}},"query":{{"kinds":["publication"],"limit":5}}}}"#
+                ),
+                "human".into(),
+            )
+            .expect("a limited query");
+        let limited = layout.run_pane(list, 0, 500).expect("a page");
+        assert_eq!(limited.rows.len(), 5);
+        assert_eq!(limited.query_limit, Some(5));
+        assert_eq!(limited.total, 5, "the query shows five, so five is all");
+        assert!(!limited.truncated);
+    }
+
+    /// ⌃⌘S as the tree's decision (review RL-L13).
+    #[test]
+    fn set_collapsed_hides_and_restores_the_navigator() {
+        let (_store, layout) = open();
+        let navigator = role_of(&layout, "navigator");
+        let share = |layout: &SharedLayout| {
+            let tree: Layout =
+                serde_json::from_str(&layout.snapshot().unwrap().layout_json).unwrap();
+            let parent = tree.parent_of(TileId::new(navigator)).unwrap();
+            let c = tree.tile(parent).unwrap().as_container().unwrap();
+            c.shares().unwrap()[c.index_of(TileId::new(navigator)).unwrap()]
+        };
+        let before = share(&layout);
+        let toggle = r#"{"verb":"set-collapsed","target":{"role":"navigator"}}"#;
+        layout.apply(toggle.into(), "human".into()).expect("hide");
+        assert!(impress_layout::is_hidden(share(&layout)));
+        layout.apply(toggle.into(), "human".into()).expect("show");
+        assert!((share(&layout) - before).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_vocabulary_is_exported_from_rust() {
+        let vocabulary: serde_json::Value =
+            serde_json::from_str(&layout_vocabulary_json()).expect("json");
+        assert_eq!(vocabulary["wire_version"], 1);
+        let kinds: Vec<&str> = vocabulary["view_kinds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k.as_str().unwrap())
+            .collect();
+        assert!(
+            kinds.contains(&"notes") && kinds.contains(&"surface") && kinds.contains(&"bibtex")
+        );
+        assert_eq!(vocabulary["session_bearing"], serde_json::json!(["source"]));
+        assert_eq!(
+            vocabulary["view_state_keys"],
+            serde_json::json!(["section", "node", "reason", "tab"])
+        );
     }
 
     #[test]
@@ -1861,6 +2050,7 @@ mod tests {
             layout
                 .run_pane(detail, 0, 0)
                 .expect("run an unfilled pane")
+                .rows
                 .is_empty(),
             "and running it returns no rows, which is what the empty state draws"
         );
@@ -1881,13 +2071,15 @@ mod tests {
         let pane = layout.pane(detail).expect("detail pane compiles now");
         assert_eq!(pane.single_item.as_deref(), Some(wanted.as_str()));
 
-        let rows = layout.run_pane(detail, 0, 0).expect("run detail");
+        let rows = layout.run_pane(detail, 0, 0).expect("run detail").rows;
         assert_eq!(rows.len(), 1, "the detail pane shows exactly the selection");
         assert_eq!(rows[0].id, wanted);
 
         // And the list pane reads both, through the same path.
         let listed = layout.run_pane(list, 0, 0).expect("run list");
-        assert_eq!(listed.len(), 2);
+        assert_eq!(listed.rows.len(), 2);
+        assert_eq!(listed.total, 2);
+        assert!(!listed.truncated);
     }
 
     #[test]
@@ -2077,7 +2269,7 @@ mod tests {
         layout.set_external_poll_ms(20);
     }
 
-    const RETARGET_LIST: &str = r#"{"verb":"set-query","target":{"ref":"role","role":"list"},
+    const RETARGET_LIST: &str = r#"{"verb":"set-query","target":{"role": "list"},
         "query":{"kinds":["manuscript"]}}"#;
 
     /// Review RL-L2: every chassis app opens one file and every verb writes
@@ -2106,7 +2298,7 @@ mod tests {
             .expect("imbib focus");
         imbib
             .apply(
-                r#"{"verb":"split","target":{"ref":"role","role":"list"},"dir":"vertical"}"#.into(),
+                r#"{"verb":"split","target":{"role": "list"},"dir":"vertical"}"#.into(),
                 "human".into(),
             )
             .expect("imbib split");
@@ -2185,7 +2377,7 @@ mod tests {
         let list = role_of(&layout, "list");
         let focused = layout
             .apply(
-                format!(r#"{{"verb":"focus","target":{{"ref":"id","tile":{list}}}}}"#),
+                format!(r#"{{"verb":"focus","target":{{"id": {list}}}}}"#),
                 "human".into(),
             )
             .expect("focus the focused pane");
@@ -2307,7 +2499,8 @@ mod tests {
 
         layout
             .apply(
-                r#"{"verb":"set-query","target":{"ref":"role","role":"list"},"query":{"kinds":["surface"]}}"#.into(),
+                r#"{"verb":"set-query","target":{"role": "list"},"query":{"kinds":["surface"]}}"#
+                    .into(),
                 "human".into(),
             )
             .expect("retarget the list pane at the surface kind");
@@ -2370,7 +2563,7 @@ mod tests {
         let leaves_before = layout.snapshot().expect("snapshot").leaves.len();
         external
             .apply(
-                r#"{"verb":"split","target":{"ref":"role","role":"detail"},"dir":"vertical",
+                r#"{"verb":"split","target":{"role": "detail"},"dir":"vertical",
                     "after":true,"new":{"view_kind":"surface","query":{"kinds":["surface"],
                     "scope":{"scope":"all"},"filters":[],"sort":[],"limit":null,
                     "relation":null,"text":null}}}"#
@@ -2455,6 +2648,7 @@ mod tests {
             true,
             Some(new_pane),
             Some("agent".into()),
+            None,
         ));
         assert!(split.ok, "{}", split.message);
 
@@ -2484,7 +2678,7 @@ mod tests {
         let layout = SharedLayout::open(store, "t5-refusal".into(), Some("t5".into()));
         let err = layout
             .apply(
-                r#"{"verb":"close","target":{"ref":"id","tile":4242}}"#.into(),
+                r#"{"verb":"close","target":{"id": 4242}}"#.into(),
                 "agent".into(),
             )
             .unwrap_err();

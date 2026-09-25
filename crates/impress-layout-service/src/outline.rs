@@ -77,8 +77,18 @@ pub enum OutlineNode {
     ScixLibrary { id: Uuid },
     /// One of the online search forms (`SearchFormType`'s raw value).
     SearchForm { form: String },
-    /// The feed-creation / feed-editing forms.
-    FeedForm,
+    /// The feed-creation / feed-editing forms. `feed` names the feed being
+    /// edited (Edit Feed…), `library` the library a new feed is for (a
+    /// library's Add Feed…); neither is the generic "pick a search form"
+    /// route. Both optional and omitted when absent, so `{"node":
+    /// "feed-form"}` is still the generic form (review PH-M1: the ids were
+    /// dropped, and Edit Feed… opened feed creation).
+    FeedForm {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feed: Option<Uuid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        library: Option<Uuid>,
+    },
     /// Recently viewed or hand-added papers.
     Recent,
     /// One artifact type (`ArtifactType`'s raw value).
@@ -142,12 +152,13 @@ pub enum OutlineTarget {
     Inert { reason: String },
 }
 
-/// The `view_state` key a scoped legacy pane carries its section under.
-pub const LEGACY_SECTION_KEY: &str = "section";
+/// The `view_state` key a scoped legacy pane carries its section under —
+/// `impress_layout::view_state::SECTION`, the one spelling (review PH-M7).
+pub const LEGACY_SECTION_KEY: &str = impress_layout::view_state::SECTION;
 /// The `view_state` key a scoped legacy pane carries its node under.
-pub const LEGACY_NODE_KEY: &str = "node";
+pub const LEGACY_NODE_KEY: &str = impress_layout::view_state::NODE;
 /// The `view_state` key a scoped legacy pane carries its reason under.
-pub const LEGACY_REASON_KEY: &str = "reason";
+pub const LEGACY_REASON_KEY: &str = impress_layout::view_state::REASON;
 
 /// The five [`MATERIALIZE_FIRST`] sections by their `SidebarSectionType` case
 /// name — the table's first word, which is how it spells them.
@@ -353,7 +364,7 @@ pub fn outline_target(
         ),
         OutlineNode::SharedLibrary { .. } => deferred("sharedWithMe"),
         OutlineNode::ScixLibrary { .. } => deferred("scixLibraries"),
-        OutlineNode::SearchForm { .. } | OutlineNode::FeedForm => deferred("search"),
+        OutlineNode::SearchForm { .. } | OutlineNode::FeedForm { .. } => deferred("search"),
         OutlineNode::Recent => legacy(
             Some("inbox"),
             "'recent' is a view history (viewed or added by hand), which is not a field \
@@ -828,7 +839,20 @@ mod tests {
                 },
                 "search",
             ),
-            (OutlineNode::FeedForm, "search"),
+            (
+                OutlineNode::FeedForm {
+                    feed: None,
+                    library: None,
+                },
+                "search",
+            ),
+            (
+                OutlineNode::FeedForm {
+                    feed: Some(Uuid::nil()),
+                    library: None,
+                },
+                "search",
+            ),
         ];
         for (node, section) in cases {
             let target = outline_target("impress", &node, &BTreeMap::new());
@@ -1057,6 +1081,42 @@ mod tests {
                 scope: RecordScope::Folder { id: id(9) }
             }
         );
+    }
+
+    /// Review PH-M1: Edit Feed… and a library's Add Feed… carry the feed and
+    /// the library, through the legacy pane's `view_state` and back, and the
+    /// bare form is still the generic one.
+    #[test]
+    fn a_feed_form_carries_its_feed_or_library_through_the_legacy_pane() {
+        for (json, feed, library) in [
+            (r#"{"node":"feed-form"}"#.to_string(), None, None),
+            (
+                format!(r#"{{"node":"feed-form","feed":"{}"}}"#, id(4)),
+                Some(id(4)),
+                None,
+            ),
+            (
+                format!(r#"{{"node":"feed-form","library":"{}"}}"#, id(5)),
+                None,
+                Some(id(5)),
+            ),
+        ] {
+            let node: OutlineNode = serde_json::from_str(&json).unwrap();
+            assert_eq!(node, OutlineNode::FeedForm { feed, library });
+            assert_eq!(serde_json::to_string(&node).unwrap().replace(' ', ""), json);
+            let target = outline_target("imbib", &node, &BTreeMap::new());
+            let verbs = outline_verbs(&node, &target, &impress_panes());
+            let spec = verbs
+                .iter()
+                .find_map(|verb| match verb {
+                    Verb::SetPane { spec, .. } => Some(spec),
+                    _ => None,
+                })
+                .expect("a legacy pane");
+            let back: OutlineNode =
+                serde_json::from_value(spec.view_state[LEGACY_NODE_KEY].clone()).unwrap();
+            assert_eq!(back, node, "the pane gets the node, ids and all");
+        }
     }
 
     #[test]

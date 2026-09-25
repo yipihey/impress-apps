@@ -178,6 +178,41 @@ final class LayoutControllerFFITests: XCTestCase {
         XCTAssertNil(controller.lastRefusal)
     }
 
+    /// A page says how many rows the query has in all (review PH-H4,
+    /// SK-K9): an empty store is a page of 0 of 0, not truncated.
+    func testAPageSaysItsTotal() throws {
+        let controller = try makeController()
+        let list = try tile(controller, role: "list")
+        let page = try controller.loadPage(for: list)
+        XCTAssertEqual(page.rows.count, 0)
+        XCTAssertEqual(page.total, 0)
+        XCTAssertFalse(page.truncated)
+        XCTAssertEqual(LayoutController.pageSize, 500)
+    }
+
+    /// Several verbs are ONE gesture (review PH-M2): one version, one ⌘Z,
+    /// and a refused verb applies none of them.
+    func testApplyAllIsOneGesture() throws {
+        let controller = try makeController()
+        let list = try tile(controller, role: "list")
+        let detail = try tile(controller, role: "detail")
+        let before = controller.version
+        let verbs = LayoutJSONValue.array([
+            LayoutVerb.focus(target: .id(list)).verbJSON!,
+            LayoutVerb.setViewKind(target: .id(detail), viewKind: .notes).verbJSON!,
+        ])
+        try controller.applyAll(verbs.jsonString(), label: "test")
+        XCTAssertEqual(controller.version, before + 1, "one gesture, one version")
+        XCTAssertEqual(controller.tree?.pane(detail)?.viewKind, "notes")
+
+        let refused = LayoutJSONValue.array([
+            LayoutVerb.setViewKind(target: .id(detail), viewKind: .bibtex).verbJSON!,
+            LayoutVerb.close(target: .id(987_654)).verbJSON!,
+        ])
+        XCTAssertThrowsError(try controller.applyAll(refused.jsonString(), label: "refused"))
+        XCTAssertEqual(controller.tree?.pane(detail)?.viewKind, "notes", "nothing applied")
+    }
+
     func testAPaneThatDoesNotResolveKeepsItsOwnError() throws {
         let controller = try makeController()
         let list = try tile(controller, role: "list")
@@ -232,10 +267,12 @@ final class LayoutControllerFFITests: XCTestCase {
 
     // MARK: Roles (⌃⌘S / ⌥⌘0 / ⌘0)
 
-    func testToggleRoleCollapsesAndRestoresToTheSiblingAverage() throws {
+    /// ⌃⌘S restores EXACTLY the share the pane had — Rust remembers it on
+    /// the pane's spec (review RL-L13) — not the siblings' average.
+    func testToggleRoleCollapsesAndRestoresTheExactShare() throws {
         let controller = try makeController()
         let list = try tile(controller, role: "list")
-        let expected = try XCTUnwrap(controller.tree?.siblingAverageShare(of: list))
+        let expected = try XCTUnwrap(controller.tree?.share(of: list))
 
         controller.toggleRole("list")
         XCTAssertTrue(controller.roleIsCollapsed("list"))

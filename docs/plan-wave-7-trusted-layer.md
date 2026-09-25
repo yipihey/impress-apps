@@ -343,3 +343,86 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     `check-schema-refs`, `check-kit-deps --strict`, `check-kit-packages`, `check-chassis-deps`;
     ImpressLayout `swift test` 76/0; ImpressAutomation 14 XCTest + 63 swift-testing, 0 failures;
     PublicationManagerCore 2152 XCTest / 0 failures (2 skipped) + 112 swift-testing.
+- 2026-09-25 — **T6b (the written contract, layout half)**, branch `claude/wave7-t6b-layout`.
+  - **Strict inputs (AC-F3 + RL-L3, closed for layout).** `impress_service_core::strict` checks an
+    argument object against the schema schemars already derives (the MCP `inputSchema`), through
+    `$ref`s and a tagged enum's branch; `impress_service_impl! { strict_args = true }` (opt-in per
+    service, so no other service changed) answers a refused argument as a result,
+    `{ok: false, code: "invalid-argument", message, wire_version}`, so MCP carries it with
+    `isError` and the CLI exits 3. The FFI's `apply` (and `/api/layout/verb`) parses the same way
+    against `Verb`'s schema. One pane-reference spelling everywhere: exactly one of `{"id": N}`,
+    `{"role"}`, `{"direction"}`, `{"focused": true}` (`PaneRefWire`, `deny_unknown_fields`); the
+    tagged `{"ref": "id", "tile": N}` is retired with no transition (nothing persisted it), and
+    `{}` names nothing. Persisted rows stay lenient.
+  - **Vocabulary (PH-M7 + RL-L12, closed).** `ViewKindId::KNOWN` = outline, list, info, pdf,
+    notes, bibtex, source, plot, console, surface, legacy, placeholder; `set-view-kind`,
+    `set-pane` and a split's new pane refuse any other (`unknown-view-kind`, 422); stored trees
+    still load. `impress_layout::view_state` spells `section`/`node`/`reason`/`tab` once.
+    `layout_vocabulary_json()` exports kinds, session-bearing kinds, keys and the wire version;
+    `ViewKindRegistryTests` (kit spellings, `LayoutViewStateKey`) and `ChassisViewKindsTests`
+    (kit + chassis registrations) compare against it. A query naming an unknown record kind is
+    refused at verb time on every path (`check_verb`). **Narrowed:** a `select`'s kind is not
+    checked — a surface `publish` may carry an unknown kind by the surface contract (`item`),
+    and refusing it broke `impress-surface-service`'s coherence test; that is T6a's contract.
+  - **Wire (AC-F24, layout half closed).** Every layout result carries `wire_version: 1`
+    (`impress_service_core::wire`); every `/api/layout/*` body is snake_case,
+    `{ok, wire_version, …}` or `{ok: false, wire_version, code, message}`, the `status`/`error`
+    pair and `affectedPanes`/`changedTiles`/`lastRefusal` gone; no tree is 409 `no-layout-tree`.
+  - **Revisions (RL-L1 wire half, closed).** Verb results, `get_layout`, the FFI snapshot and
+    applied verb, and the HTTP bodies carry `revision` (the live row's `logical_clock`); the 24
+    verbs that move the live tree take `expected_revision` (MCP/CLI argument; a key in the verb
+    object over FFI/HTTP) and refuse `conflict`, writing nothing, when it is stale — checked under
+    the session lock after the registry's own reload, so the CAS retry also refuses.
+  - **Rows (PH-H4 + SK-K9, closed).** `run_pane` returns `SharedPaneRows {rows, total, offset,
+    limit, query_limit, truncated}`: the page is the kit's 500 or the query's own limit when
+    smaller (the query's limit is honoured; it used to be replaced), the total is counted only
+    when a page comes back full. The list pane shows "Showing 500 of 6,867" and a Show More
+    button and logs `display: 500 of 6867 rows (truncated; 1 page(s))`.
+  - **Also closed:** RL-L20 (`Verb::Split.new` optional, duplicated in `apply`; `bare_split` and
+    the FFI's verb→method translation table gone — the FFI applies the `Verb` through
+    `apply_verb_as`), RL-L13 (`set-collapsed {target, collapsed?}` verb, MCP/CLI too: hide/show
+    decided under the lock, the pane's spec remembers `collapsed_share` so showing restores it
+    exactly; `resize_share` reads its shares under the lock; Swift's sibling average deleted),
+    RL-L16 (`SHIPPED_FINGERPRINTS`: FNV-1a of every shipped revision, a test that fails with the
+    line to add, upgrade from any older revision, a log line when a row is left alone), RL-L15
+    (decided and documented: an MCP/CLI read's cold start is the agent's; reads take no `actor`),
+    AC-F20 read half (`store: "fallback"` and a FALLBACK STORE message prefix on every read),
+    PH-M1 wire half (`OutlineNode::FeedForm {feed, library}`; T4's Swift route map deleted),
+    PH-M2 Rust half (`apply_all` / `applyAll`: an outline click, its focus included, is one
+    gesture and one undo step, all or none; the Swift rollback is gone). `save_layout`,
+    `apply_layout`, `apply_preset`, `delete_layout`, `save_preset` and `reset_preset` log their
+    outcome under `layout`. impress's `/api/status` reports the bound port. imbib-cli and
+    imprint-cli exit 3 on `ok: false`.
+  - **Skipped, no longer applied on main:** RL-L22 (store.rs "Startup" and session.rs `forget`
+    were already rewritten), RL-L23 (both exhaustive `From`s and a round-trip test exist).
+  - **Narrowed:** RL-L24 — `delete_layout` is logged with its actor, but the row is a hard delete,
+    its operation rows cascade and the sync tombstone has no author and is pruned: a durable
+    "who deleted it" needs a retire-instead-of-delete or an author on tombstones (a store
+    decision). Tier B's restore now says the undo rings were reset.
+  - **Bindings.** ImpressStoreFfi gained `applyAll`, `layoutVocabularyJson`, `SharedPaneRows`,
+    `revision` on `SharedLayoutSnapshot`/`SharedAppliedVerb`; `runPane` returns
+    `SharedPaneRows`. Nothing else lost; `check-uniffi-bindings` 7 match.
+  - **Shared with T6a:** `impress-service-core` (`strict.rs`, `wire.rs`, two `lib.rs` lines),
+    `impress-service-macros` (the `strict_args` key), and six `None` arguments in
+    `impress-surface-service/src/runtime.rs` for `expected_revision`. Expect a merge.
+  - **Live** (impress from this branch, port 23211 by launch argument,
+    `IMPRESS_DEVICE_ID=w7-t6b-proof`, own DerivedData, launcher restored): `/api/status` said
+    `port: 23211`; `/api/layout/tree` keys `app, focused, ok, revision, version, wire_version`;
+    a verb with `{"ref": "role"}` → 400 `invalid-argument` naming `ref`; `view_kind: editor` →
+    422 `unknown-view-kind`; the list pane logged `pane 2 display: 500 of 6867 rows
+    (truncated; 1 page(s))` (the footer is below row 500; osascript has no assistive access
+    here, so it was not scrolled to). Tier B 14/14, 0 skipped, including the new
+    `layout.wire_contract` (revision moved, stale → 409, nothing written) and
+    `layout.hidden_share` over `set-collapsed` (1 → 0.0001 → 1). MCP (`impress-mcp` over stdio,
+    scratch store): `layout-service_close` with the retired spelling → `isError: true`,
+    `invalid-argument`. CLI (scratch store): the same refusal, a typo inside `query`, a stale
+    `--expected-revision` (`conflict`) and `editor` all exit 3. imbib-cli `eink-remove-device`
+    and imprint-cli `project-tree` of nothing (scratch `HOME` and store) exit 3. The proof's
+    live row was removed through `SqliteItemStore::delete`; Tier B removed its own.
+  - **Gates.** `rust-gate.sh fmt`, `clippy auto` (imprint + rest), `cargo test` for
+    impress-service-core, -service-macros, -layout, -layout-service, -store-ffi,
+    -surface-service, -cli (all green); `check-uniffi-bindings`, `check-schema-refs`,
+    `check-kit-deps --strict`, `check-kit-packages`, `check-chassis-deps`; ImpressLayout 79/0;
+    ImpressAutomation 63/0; PublicationManagerCore 2154 XCTest / 0 failures (2 skipped) + 112
+    swift-testing. After #63's toolchain move the copied imbib-core, imprint-core, scix,
+    implore, impel-tools, helix and impart frameworks had to be rebuilt in the worktree.

@@ -95,7 +95,7 @@ enum Demo {
 
         let layout = SharedLayout.open(store: store, appId: appID, device: nil)
         let split = #"""
-            {"verb": "split", "target": {"ref": "role", "role": "detail"},
+            {"verb": "split", "target": {"role": "detail"},
              "dir": "vertical", "after": true,
              "new": {"channel": {"number": 2}, "view_kind": "surface",
                      "query": {"kinds": ["surface"], "scope": {"scope": "item",

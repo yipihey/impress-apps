@@ -267,6 +267,71 @@ impl LayoutSession {
         })
     }
 
+    /// Apply several verbs as one gesture — all or none, one undo step
+    /// (`impress_layout::UndoStacks::apply_all`). The caller refuses an
+    /// empty list before it gets here.
+    pub fn apply_all(&mut self, verbs: Vec<Verb>) -> Result<AppliedVerb, LayoutError> {
+        let window = self.layout.current_window()?;
+        let stack = match verbs
+            .iter()
+            .map(stack_for)
+            .find(|kind| *kind != StackKind::None)
+        {
+            Some(StackKind::Arrangement) => Stack::Arrangement,
+            Some(StackKind::Exploration(reference)) => {
+                match self.layout.resolve(window, &reference) {
+                    Ok(tile) => Stack::Exploration(tile),
+                    Err(_) => Stack::Unrecorded,
+                }
+            }
+            _ => Stack::Unrecorded,
+        };
+        // Each selection's fan-out, read before the gesture runs, exactly as
+        // a lone `Select` does.
+        let selections: Vec<(TileId, ChannelId, String)> = verbs
+            .iter()
+            .filter_map(|verb| match verb {
+                Verb::Select { target, kind, .. } => {
+                    self.layout.resolve(window, target).ok().and_then(|tile| {
+                        self.layout
+                            .pane(tile)
+                            .map(|spec| (tile, spec.channel, kind.clone()))
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let Some(patch) = self.undo.apply_all(&mut self.layout, verbs)? else {
+            return Err(LayoutError::UndoConflict {
+                what: "an empty gesture".to_string(),
+            });
+        };
+        let mut affected: Vec<TileId> = patch
+            .tiles
+            .keys()
+            .copied()
+            .filter(|tile| self.layout.pane(*tile).is_some())
+            .collect();
+        for (tile, channel, kind) in selections {
+            for pane in std::iter::once(tile).chain(self.layout.affected_panes(channel, &kind)) {
+                if !affected.contains(&pane) && self.layout.pane(pane).is_some() {
+                    affected.push(pane);
+                }
+            }
+        }
+        if stack != Stack::Unrecorded && !patch.is_empty() {
+            self.dropped = None;
+        }
+        self.note_write();
+        Ok(AppliedVerb {
+            patch,
+            window,
+            focused: self.focused(window),
+            affected,
+            stack,
+        })
+    }
+
     /// Undo on one ring. `None` means the ring was empty — not an error: a ⌘Z
     /// with nothing to undo is a no-op everywhere else in macOS too.
     pub fn undo(&mut self, target: &UndoTarget) -> Result<Option<Patch>, LayoutError> {

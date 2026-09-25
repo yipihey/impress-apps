@@ -670,6 +670,7 @@ async fn a_publish_does_not_land_on_a_pane_that_no_longer_shows_the_surface() {
             impress_layout_service::dto::PaneRefDto::tile(impress_layout::TileId::new(tile)),
             other,
             None,
+            None,
         )
         .await;
     assert!(moved.ok, "{}", moved.message);

@@ -264,6 +264,11 @@ pub fn shipped_preset(app_id: &str, name: &str) -> Option<ShippedPreset> {
 
 /// Revision 1 of a shipped preset, rebuilt from revision 2.
 ///
+/// No longer what the upgrade reads — [`SHIPPED_FINGERPRINTS`] is — but kept
+/// so a test can pin revision 1's recorded fingerprints to the value they
+/// were computed from: a change to how a preset serializes then fails that
+/// test instead of silently orphaning every untouched revision-1 row.
+///
 /// The only difference between the two is the `inbox` named query
 /// ([`q::inbox`] vs [`q::inbox_revision_1`]), wherever it occurs: in the
 /// query map and as a pane's query in the tree. A preset that never named the
@@ -320,6 +325,85 @@ pub fn is_superseded_list_query(query: &PaneQuery) -> bool {
         };
     }
     normalized == q::inbox_revision_1()
+}
+
+/// The fingerprint of a preset's stored form — tree, named queries, roles —
+/// as the hex of a 64-bit FNV-1a over its canonical JSON (every map in it is
+/// a `BTreeMap`, so the JSON is canonical). FNV rather than `std`'s hasher,
+/// whose output may change between Rust releases: these are written down in
+/// [`SHIPPED_FINGERPRINTS`] and must mean the same thing next year.
+pub fn fingerprint(
+    layout: &Layout,
+    queries: &BTreeMap<String, PaneQuery>,
+    roles: &BTreeMap<String, u64>,
+) -> String {
+    let canonical = serde_json::json!({
+        "layout": layout,
+        "queries": queries,
+        "roles": roles,
+    })
+    .to_string();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in canonical.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+/// The fingerprint of a shipped preset as it is stored.
+pub fn shipped_fingerprint(preset: &ShippedPreset) -> String {
+    fingerprint(&preset.layout, &preset.queries, &role_ids(&preset.roles))
+}
+
+/// Every revision of every preset the suite has shipped, as
+/// `(app_id, name, version, fingerprint)` — the history the upgrade reads
+/// (review RL-L16). A stored row whose fingerprint is here, at an older
+/// version, is untouched and is upgraded to the current revision; a row that
+/// matches none of them is the user's and is left alone, with a log line
+/// saying so.
+///
+/// `tests::every_shipped_preset_is_in_the_fingerprint_table` fails when a
+/// preset changes without a new line here (and prints the line to add):
+/// changing a shipped preset means bumping its `version` and appending, never
+/// editing an old entry.
+pub const SHIPPED_FINGERPRINTS: &[(&str, &str, u32, &str)] = &[
+    ("imbib", "Default", 1, "1d4d6bf842f5b68a"),
+    ("imbib", "Default", 2, "2e76ec1b9af8902b"),
+    ("imbib", "Full", 1, "1d4d6bf842f5b68a"),
+    ("imbib", "Full", 2, "2e76ec1b9af8902b"),
+    ("imbib", "Reading", 1, "ba7146ac7ea67fb8"),
+    ("imbib", "Reading", 2, "d6f0c0488f0fd1b1"),
+    ("imbib", "Triage", 1, "f0a65bd119c492aa"),
+    ("imbib", "Triage", 2, "e860fcd8ee2e6d81"),
+    ("impart", "Default", 1, "87c206ba4c821c0e"),
+    ("impart", "Default", 2, "87c206ba4c821c0e"),
+    ("impel", "Default", 1, "5be9ae35cd763ee2"),
+    ("impel", "Default", 2, "5be9ae35cd763ee2"),
+    ("implore", "Default", 1, "0f23c19d42b4a43e"),
+    ("implore", "Default", 2, "0f23c19d42b4a43e"),
+    ("impress", "Default", 1, "908b6a72c5f22f73"),
+    ("impress", "Default", 2, "2baaa7e598b4eba8"),
+    ("impress", "Full", 1, "908b6a72c5f22f73"),
+    ("impress", "Full", 2, "2baaa7e598b4eba8"),
+    ("impress", "Reading", 1, "d09d9d634af99d49"),
+    ("impress", "Reading", 2, "1f1bbc2411a8c30e"),
+    ("impress", "Triage", 1, "8ba86ed4b129d693"),
+    ("impress", "Triage", 2, "3dc3f5344687cabe"),
+    ("impress", "Writing", 1, "a34b6df84ee138d8"),
+    ("impress", "Writing", 2, "621f537e94c7e05e"),
+    ("imprint", "Default", 1, "78dd8e1de27e211b"),
+    ("imprint", "Default", 2, "78dd8e1de27e211b"),
+    ("imprint", "Writing", 1, "7461c5fb0fdd4f96"),
+    ("imprint", "Writing", 2, "7461c5fb0fdd4f96"),
+];
+
+/// Is `print` a revision of `app_id`'s preset `name` older than `version`?
+fn is_older_shipped(app_id: &str, name: &str, version: u32, print: &str) -> Option<u32> {
+    SHIPPED_FINGERPRINTS
+        .iter()
+        .find(|(app, n, v, f)| *app == app_id && *n == name && *v < version && *f == print)
+        .map(|(_, _, v, _)| *v)
 }
 
 /// Does a stored row carry exactly `shipped` — tree, queries, roles, version?
@@ -1134,9 +1218,23 @@ impl PresetStore {
             return Ok(());
         };
         let stored = stored_of(&item)?;
-        if !stored_matches(row, &stored, &previous_revision(shipped)) {
+        let Some(layout) = stored.layout.as_ref() else {
+            // An inheriting preset (queries or roles only) is always a user's.
             return Ok(());
-        }
+        };
+        let print = fingerprint(layout, &stored.queries, &stored.roles);
+        let Some(from) = is_older_shipped(shipped.app_id, shipped.name, shipped.version, &print)
+        else {
+            log::info!(
+                target: "layout",
+                "preset '{}' of {} left at {:?}: it matches no revision the suite shipped \
+                 (fingerprint {print}), so it is the user's",
+                shipped.name,
+                shipped.app_id,
+                row.version
+            );
+            return Ok(());
+        };
         self.save(
             shipped.app_id,
             shipped.name,
@@ -1147,10 +1245,17 @@ impl PresetStore {
             Some(shipped.version),
             ActorKind::System,
             &format!(
-                "upgrade the untouched preset '{}' to shipped revision {}",
+                "upgrade the untouched preset '{}' from shipped revision {from} to {}",
                 shipped.name, shipped.version
             ),
         )?;
+        log::info!(
+            target: "layout",
+            "preset '{}' of {} upgraded from shipped revision {from} to {}",
+            shipped.name,
+            shipped.app_id,
+            shipped.version
+        );
         Ok(())
     }
 
@@ -1679,6 +1784,68 @@ fn from_value<T: serde::de::DeserializeOwned>(value: &Value, what: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review RL-L16: every revision the suite ships is written down, and a
+    /// changed preset without a new entry fails here with the line to add.
+    #[test]
+    fn every_shipped_preset_is_in_the_fingerprint_table() {
+        let mut missing = Vec::new();
+        for preset in shipped_presets() {
+            for (version, print) in [
+                (preset.version, shipped_fingerprint(&preset)),
+                (
+                    preset.version - 1,
+                    shipped_fingerprint(&previous_revision(&preset)),
+                ),
+            ] {
+                let line = (preset.app_id, preset.name, version, print.as_str());
+                if !SHIPPED_FINGERPRINTS
+                    .iter()
+                    .any(|(a, n, v, f)| (*a, *n, *v, *f) == line)
+                {
+                    missing.push(format!(
+                        "    (\"{}\", \"{}\", {}, \"{}\"),",
+                        line.0, line.1, line.2, line.3
+                    ));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "a shipped preset changed (or serializes differently) without a new line in \
+             SHIPPED_FINGERPRINTS. Bump its version and append:\n{}",
+            missing.join("\n")
+        );
+    }
+
+    /// A row two revisions behind is still upgraded, and one matching no
+    /// revision is left alone (review RL-L16).
+    #[test]
+    fn an_older_fingerprint_upgrades_and_an_unknown_one_does_not() {
+        let preset = shipped_presets()
+            .into_iter()
+            .find(|p| p.app_id == "imbib")
+            .expect("imbib ships a preset");
+        let old = shipped_fingerprint(&previous_revision(&preset));
+        assert_eq!(
+            is_older_shipped(preset.app_id, preset.name, preset.version, &old),
+            Some(preset.version - 1)
+        );
+        assert_eq!(
+            is_older_shipped(preset.app_id, preset.name, preset.version + 5, &old),
+            Some(preset.version - 1),
+            "several revisions behind is still a shipped revision"
+        );
+        assert_eq!(
+            is_older_shipped(
+                preset.app_id,
+                preset.name,
+                preset.version,
+                "0000000000000000"
+            ),
+            None
+        );
+    }
     use impress_core::pane_query::{builtin_manifest, compile, Bindings, KindManifest, ParamDecl};
     use impress_layout::Tile;
 

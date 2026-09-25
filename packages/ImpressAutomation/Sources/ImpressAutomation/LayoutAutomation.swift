@@ -35,6 +35,14 @@
 //  No tree rendering → **409**, with the reason. Not a 200 with an empty
 //  body, and not a 404: the route exists, the tree does not.
 //
+//  THE WIRE CONVENTION (plan wave 7 T6, review AC-F24). Every body here is
+//  snake_case and carries `"wire_version": 1`
+//  (`impress_service_core::wire::WIRE_VERSION`), the same convention the
+//  layout verbs answer over MCP and the CLI. Success is `{"ok": true, …}`;
+//  every refusal — Rust's, a malformed body, no tree — is
+//  `{"ok": false, "code", "message"}` with the status the code maps to.
+//  There is no `status`/`error` pair and no camelCase key.
+//
 
 import Foundation
 
@@ -52,8 +60,10 @@ public protocol LayoutAutomationHost: AnyObject {
     /// The app whose tree this is: `"imbib"`, `"imprint"`, …
     var layoutAppID: String { get }
 
-    /// The whole live tree — windows, tiles, channels — plus `version` and
-    /// `focused`. The same value `GET /api/layout/tree` returns.
+    /// The whole live tree — windows, tiles, channels — plus `version`,
+    /// `revision` and `focused`, snake_case. The same value
+    /// `GET /api/layout/tree` returns. A snapshot that failed carries
+    /// `snapshot_error` and `snapshot_code` instead of `layout`.
     func layoutTreeJSON() -> [String: Any]
 
     /// Apply one `impress_layout::Verb`, given in its own serde spelling.
@@ -122,6 +132,33 @@ public enum LayoutAutomationRoutes {
     /// The actor every mutation from HTTP is attributed to.
     public static let actor = "agent"
 
+    /// `impress_service_core::wire::WIRE_VERSION`. This package does not
+    /// link the Rust core, so it is written here and pinned to Rust's export
+    /// (`layoutVocabularyJson()`) by `LayoutWireVersionTests` in
+    /// ImpressLayout.
+    public static let wireVersion = 1
+
+    /// A success body: `ok`, `wire_version`, then the payload.
+    public static func ok(_ payload: [String: Any] = [:], status: Int = 200) -> HTTPResponse {
+        var body = payload
+        body["ok"] = true
+        body["wire_version"] = wireVersion
+        return .json(body, status: status)
+    }
+
+    /// A refusal body: `{"ok": false, "wire_version", "code", "message"}`,
+    /// plus anything in `extra` (a `detail`).
+    public static func refusal(
+        code: String, message: String, status: Int, extra: [String: Any] = [:]
+    ) -> HTTPResponse {
+        var body = extra
+        body["ok"] = false
+        body["wire_version"] = wireVersion
+        body["code"] = code
+        body["message"] = message
+        return .json(body, status: status)
+    }
+
     public static let paths: Set<String> = [
         "/api/layout/tree",
         "/api/layout/verb",
@@ -143,21 +180,19 @@ public enum LayoutAutomationRoutes {
                 payload["app"] = host.layoutAppID
                 // A snapshot that failed is a 500 with the reason, never a
                 // 200 whose `layout` is null (reviews SK-K24, PH-L8).
-                if payload["snapshotError"] != nil {
-                    payload["status"] = "error"
-                    payload["error"] = payload["snapshotError"]
-                    payload["code"] = payload["snapshotCode"] ?? "internal"
-                    return .json(payload, status: 500)
+                if let error = payload["snapshot_error"] as? String {
+                    return refusal(
+                        code: payload["snapshot_code"] as? String ?? "internal",
+                        message: error, status: 500)
                 }
-                payload["status"] = "ok"
-                return .json(payload)
+                return ok(payload)
             }
 
         case ("/api/layout/layouts", "GET"):
             return await withHost { host in
                 do {
                     let rows = try host.savedLayoutsJSON()
-                    return .json(["status": "ok", "app": host.layoutAppID, "layouts": rows])
+                    return ok(["app": host.layoutAppID, "layouts": rows])
                 } catch {
                     return refused(error)
                 }
@@ -165,15 +200,16 @@ public enum LayoutAutomationRoutes {
 
         case ("/api/layout/verb", "POST"):
             guard let body = jsonBody(request) else {
-                return .badRequest(
-                    "Expected an impress_layout::Verb JSON object, e.g. "
-                        + #"{"verb":"focus","target":{"ref":"role","role":"detail"}}"#)
+                return refusal(
+                    code: "invalid-argument",
+                    message: "Expected an impress_layout::Verb JSON object, e.g. "
+                        + #"{"verb":"focus","target":{"role":"detail"}}"#
+                        + #" — optionally with "expected_revision": N"#,
+                    status: 400)
             }
             return await withHost { host in
                 do {
-                    var payload = try host.applyLayoutVerb(body)
-                    payload["status"] = "ok"
-                    return .json(payload)
+                    return ok(try host.applyLayoutVerb(body))
                 } catch {
                     return refused(error)
                 }
@@ -181,21 +217,23 @@ public enum LayoutAutomationRoutes {
 
         case ("/api/layout/op", "POST"):
             guard let body = jsonBody(request), let op = body["op"] as? String else {
-                return .badRequest(
-                    "Expected {\"op\": ...} — one of "
-                        + operations.sorted().joined(separator: ", "))
+                return refusal(
+                    code: "invalid-argument",
+                    message: "Expected {\"op\": ...} — one of "
+                        + operations.sorted().joined(separator: ", "),
+                    status: 400)
             }
             guard operations.contains(op) else {
-                return .badRequest(
-                    "Unknown layout operation '\(op)'. Known: "
+                return refusal(
+                    code: "invalid-argument",
+                    message: "Unknown layout operation '\(op)'. Known: "
                         + operations.sorted().joined(separator: ", ")
-                        + ". Tree-shaped verbs go to POST /api/layout/verb.")
+                        + ". Tree-shaped verbs go to POST /api/layout/verb.",
+                    status: 400)
             }
             return await withHost { host in
                 do {
-                    var payload = try host.applyLayoutOperation(op, body: body)
-                    payload["status"] = "ok"
-                    return .json(payload)
+                    return ok(try host.applyLayoutOperation(op, body: body))
                 } catch {
                     return refused(error)
                 }
@@ -217,18 +255,18 @@ public enum LayoutAutomationRoutes {
     ) async -> HTTPResponse {
         await MainActor.run {
             guard let host = LayoutAutomation.shared.host else {
-                return HTTPResponse.json(
-                    [
-                        "status": "error",
-                        "error": "no layout tree is rendering in this app",
+                return refusal(
+                    code: "no-layout-tree",
+                    message: "no layout tree is rendering in this app",
+                    status: 409,
+                    extra: [
                         "detail":
                             "Every chassis app's window is the ADR-0031 layout tree (impress, impel, "
                             + "implore, impart, imprint), so there this answer means the window has not "
                             + "opened its tree yet. imbib's own window is its pre-chassis ContentView "
                             + "and has no tree. Headless callers do not need the app at all — "
-                            + "the same verbs are `layout-service_*` over MCP and `impress <verb>` in the CLI.",
-                    ],
-                    status: 409)
+                            + "the same verbs are `layout-service_*` over MCP and `impress <verb>` in the CLI."
+                    ])
             }
             return work(host)
         }
@@ -240,16 +278,12 @@ public enum LayoutAutomationRoutes {
     /// with `String(describing:)` of a Swift enum (review SK-K24).
     static func refused(_ error: Error) -> HTTPResponse {
         switch error {
-        case let refusal as AutomationRefusal:
-            return .json(
-                ["status": "error", "error": refusal.message, "code": refusal.code],
-                status: refusal.status)
+        case let refused as AutomationRefusal:
+            return refusal(code: refused.code, message: refused.message, status: refused.status)
         case let convertible as AutomationRefusalConvertible:
             return refused(convertible.automationRefusal)
         default:
-            return .json(
-                ["status": "error", "error": String(describing: error), "code": "internal"],
-                status: 500)
+            return refusal(code: "internal", message: String(describing: error), status: 500)
         }
     }
 

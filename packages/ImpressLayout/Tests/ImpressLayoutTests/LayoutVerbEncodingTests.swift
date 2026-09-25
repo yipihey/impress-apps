@@ -5,9 +5,8 @@
 //
 //  ADR-0031 L6. `LayoutVerb` must serialize to EXACTLY the serde form of
 //  `impress_layout::Verb`, because that string is the whole mutating surface
-//  (`SharedLayout.apply(verbJson:actor:)`) and a misspelled tag does not fail
-//  loudly: `apply` falls through to the "bare split" recogniser and then
-//  returns a JSON error, i.e. a gesture that silently does nothing.
+//  (`SharedLayout.apply(verbJson:actor:)`), and Rust parses it STRICTLY: a
+//  misspelled field is refused `invalid-argument` naming it (plan wave 7 T6).
 //
 //  The expected strings below are written BY HAND from the Rust attributes,
 //  not captured from the encoder — a golden taken from the code under test
@@ -19,7 +18,7 @@
 //    * `rename_all` does NOT touch struct-variant FIELDS, so they keep Rust's
 //      own spelling — `view_kind`, not `view-kind` and not `viewKind`;
 //    * `#[serde(tag = "ref", rename_all = "kebab-case")]` on `PaneRef` ⇒
-//      `{"ref":"id","tile":3}` / `{"ref":"focused"}`;
+//      `{"id":3}` / `{"focused":true}`;
 //    * `Placement::IntoTabs` ⇒ `"into-tabs"`.
 //
 //  Keys are sorted by the encoder, so these strings are stable.
@@ -40,25 +39,25 @@ final class LayoutVerbEncodingTests: XCTestCase {
     func testFocus() throws {
         XCTAssertEqual(
             try json(.focus(target: .id(2))),
-            #"{"target":{"ref":"id","tile":2},"verb":"focus"}"#)
+            #"{"target":{"id":2},"verb":"focus"}"#)
     }
 
     func testFocusByRoleAndByDirection() throws {
         XCTAssertEqual(
             try json(.focus(target: .role("detail"))),
-            #"{"target":{"ref":"role","role":"detail"},"verb":"focus"}"#)
+            #"{"target":{"role":"detail"},"verb":"focus"}"#)
         XCTAssertEqual(
             try json(.focus(target: .direction(.prev))),
-            #"{"target":{"direction":"prev","ref":"direction"},"verb":"focus"}"#)
+            #"{"target":{"direction":"prev"},"verb":"focus"}"#)
         XCTAssertEqual(
             try json(.focus(target: .focused)),
-            #"{"target":{"ref":"focused"},"verb":"focus"}"#)
+            #"{"target":{"focused":true},"verb":"focus"}"#)
     }
 
     func testSplit() throws {
         XCTAssertEqual(
             try json(.split(target: .id(1), dir: .vertical, after: true, new: nil)),
-            #"{"after":true,"dir":"vertical","target":{"ref":"id","tile":1},"verb":"split"}"#)
+            #"{"after":true,"dir":"vertical","target":{"id":1},"verb":"split"}"#)
     }
 
     /// A split that NAMES its new pane carries the whole spec under `new`.
@@ -69,38 +68,58 @@ final class LayoutVerbEncodingTests: XCTestCase {
         ])
         XCTAssertEqual(
             try json(.split(target: .focused, dir: .horizontal, after: false, new: spec)),
-            #"{"after":false,"dir":"horizontal","new":{"channel":{"number":1},"view_kind":"info"},"target":{"ref":"focused"},"verb":"split"}"#
+            #"{"after":false,"dir":"horizontal","new":{"channel":{"number":1},"view_kind":"info"},"target":{"focused":true},"verb":"split"}"#
         )
     }
 
     func testClose() throws {
         XCTAssertEqual(
             try json(.close(target: .id(3))),
-            #"{"target":{"ref":"id","tile":3},"verb":"close"}"#)
+            #"{"target":{"id":3},"verb":"close"}"#)
     }
 
     func testMoveTile() throws {
         XCTAssertEqual(
             try json(.move(tile: .id(1), target: .id(2), placement: .intoTabs)),
-            #"{"placement":"into-tabs","target":{"ref":"id","tile":2},"tile":{"ref":"id","tile":1},"verb":"move-tile"}"#
+            #"{"placement":"into-tabs","target":{"id":2},"tile":{"id":1},"verb":"move-tile"}"#
         )
         XCTAssertEqual(
             try json(.move(tile: .focused, target: .role("list"), placement: .below)),
-            #"{"placement":"below","target":{"ref":"role","role":"list"},"tile":{"ref":"focused"},"verb":"move-tile"}"#
+            #"{"placement":"below","target":{"role":"list"},"tile":{"focused":true},"verb":"move-tile"}"#
         )
+    }
+
+    /// ⌃⌘S as a verb (review RL-L13): `collapsed` omitted toggles.
+    func testSetCollapsed() throws {
+        XCTAssertEqual(
+            try json(.setCollapsed(target: .role("navigator"), collapsed: nil)),
+            #"{"target":{"role":"navigator"},"verb":"set-collapsed"}"#)
+        XCTAssertEqual(
+            try json(.setCollapsed(target: .id(1), collapsed: true)),
+            #"{"collapsed":true,"target":{"id":1},"verb":"set-collapsed"}"#)
+    }
+
+    /// A reference reads back from its wire form, and nothing else does.
+    func testAPaneReferenceReadsBackFromItsOneSpelling() {
+        for reference: LayoutPaneRef in [.id(3), .role("detail"), .direction(.left), .focused] {
+            XCTAssertEqual(LayoutPaneRef(json: reference.json), reference)
+        }
+        XCTAssertNil(LayoutPaneRef(json: .object(["ref": .string("id"), "tile": .int(3)])))
+        XCTAssertNil(LayoutPaneRef(json: .object([:])))
+        XCTAssertNil(LayoutPaneRef(json: .object(["focused": .bool(false)])))
     }
 
     func testMaximizeAndRestore() throws {
         XCTAssertEqual(
             try json(.maximize(target: .id(7))),
-            #"{"target":{"ref":"id","tile":7},"verb":"maximize"}"#)
+            #"{"target":{"id":7},"verb":"maximize"}"#)
         XCTAssertEqual(try json(.restore), #"{"verb":"restore"}"#)
     }
 
     func testSetViewKindKeepsRustsFieldSpelling() throws {
         XCTAssertEqual(
             try json(.setViewKind(target: .id(3), viewKind: .pdf)),
-            #"{"target":{"ref":"id","tile":3},"verb":"set-view-kind","view_kind":"pdf"}"#)
+            #"{"target":{"id":3},"verb":"set-view-kind","view_kind":"pdf"}"#)
     }
 
     /// `role: None` is how a role is CLEARED, and `#[serde(default)]` on the
@@ -108,10 +127,10 @@ final class LayoutVerbEncodingTests: XCTestCase {
     func testSetRoleAndClearRole() throws {
         XCTAssertEqual(
             try json(.setRole(target: .id(1), role: "navigator")),
-            #"{"role":"navigator","target":{"ref":"id","tile":1},"verb":"set-role"}"#)
+            #"{"role":"navigator","target":{"id":1},"verb":"set-role"}"#)
         XCTAssertEqual(
             try json(.setRole(target: .id(1), role: nil)),
-            #"{"role":null,"target":{"ref":"id","tile":1},"verb":"set-role"}"#)
+            #"{"role":null,"target":{"id":1},"verb":"set-role"}"#)
     }
 
     // MARK: - The typed half

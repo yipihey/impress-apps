@@ -26,7 +26,7 @@ final class RefusalCodeTests: XCTestCase {
 
         XCTAssertThrowsError(
             try controller.applyVerbJSON(
-                #"{"verb":"close","target":{"ref":"id","tile":4242}}"#, actor: "agent")
+                #"{"verb":"close","target":{"id": 4242}}"#, actor: "agent")
         ) { error in
             XCTAssertEqual(LayoutController.refusalCode(of: error), "unknown-tile")
             XCTAssertTrue(

@@ -636,6 +636,38 @@ impl Layout {
         self.windows = survivors;
         self.gc();
         self.repair_windows();
+        self.forget_stale_collapses();
+    }
+
+    /// A pane's `collapsed_share` means "hidden, and this is what showing it
+    /// restores". Once its share is not hidden any more — dragged open,
+    /// resized, moved out of its split, restored by an undo — the memory is
+    /// dropped, so a later collapse remembers the new width.
+    fn forget_stale_collapses(&mut self) {
+        let stale: Vec<TileId> = self
+            .tiles
+            .iter()
+            .filter_map(|(id, tile)| match tile {
+                Tile::Pane(spec) if spec.collapsed_share.is_some() => Some(*id),
+                _ => None,
+            })
+            .filter(|id| {
+                let share = self
+                    .parent_of(*id)
+                    .and_then(|parent| match self.container(parent) {
+                        Some(c @ Container::Linear { .. }) => {
+                            c.index_of(*id).map(|index| sane_share(c.share_at(index)))
+                        }
+                        _ => None,
+                    });
+                !share.is_some_and(crate::shares::is_hidden)
+            })
+            .collect();
+        for id in stale {
+            if let Some(Tile::Pane(spec)) = self.tiles.get_mut(&id) {
+                spec.collapsed_share = None;
+            }
+        }
     }
 
     /// Simplify one subtree, returning the id that should stand in its place

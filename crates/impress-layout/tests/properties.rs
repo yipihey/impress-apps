@@ -114,7 +114,7 @@ fn any_verb(rng: &mut Lcg, layout: &Layout) -> Verb {
             target: any_ref(rng, layout),
             dir: rng.pick(&dirs),
             after: rng.below(2) == 0,
-            new: scratch_pane(),
+            new: Some(scratch_pane()),
         },
         1 => Verb::MoveTile {
             tile: any_ref(rng, layout),

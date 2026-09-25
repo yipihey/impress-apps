@@ -60,9 +60,10 @@ public struct ViewKindID: RawRepresentable, Hashable, Sendable, Codable,
 
     public var description: String { rawValue }
 
-    // The builtin vocabulary. The first five are the ones `impress_layout`'s
-    // own constants name; `source`, `notes` and `bibtex` are imbib's detail
-    // tabs, which become panes in L8.
+    // The builtin vocabulary: exactly `impress_layout::ViewKindId::KNOWN`,
+    // which Rust owns and exports (`layoutVocabularyJson()`). A test pins
+    // these spellings, and every kind a host registers, to that export
+    // (plan wave 7 T6, review PH-M7) — a kind added here alone fails it.
     public static let outline = ViewKindID("outline")
     public static let list = ViewKindID("list")
     public static let info = ViewKindID("info")
@@ -91,6 +92,60 @@ public struct ViewKindID: RawRepresentable, Hashable, Sendable, Codable,
     /// The kinds the kit itself has a factory for. The rest of the
     /// vocabulary above is a host's to register (see the file header).
     public static let kitBuiltins: [ViewKindID] = [.placeholder, .surface, .console]
+
+    /// Every spelling above — equal, as a set, to Rust's
+    /// `impress_layout::ViewKindId::KNOWN` (`ViewKindRegistryTests` pins it
+    /// to `layoutVocabularyJson()`).
+    public static let vocabulary: [ViewKindID] = [
+        .outline, .list, .info, .pdf, .notes, .bibtex, .source, .plot, .console, .surface,
+        .legacy, .placeholder,
+    ]
+
+    /// The vocabulary as Rust exports it — the source of truth
+    /// (`layout_vocabulary_json`, plan wave 7 T6, review PH-M7).
+    public static var rustVocabulary: [ViewKindID] {
+        LayoutVocabulary.current.viewKinds.map { ViewKindID($0) }
+    }
+}
+
+/// The layout's written vocabulary, read from Rust once
+/// (`layoutVocabularyJson()`): the view kinds, which of them are
+/// session-bearing, the `view_state` keys more than one party reads, and the
+/// wire version. Rust owns all four; Swift's spellings are pinned to this by
+/// tests, never the other way round.
+public struct LayoutVocabulary: Sendable {
+    public let wireVersion: Int
+    public let viewKinds: [String]
+    public let sessionBearing: [String]
+    public let viewStateKeys: [String]
+
+    public static let current: LayoutVocabulary = {
+        let object = (try? LayoutJSONValue.decode(layoutVocabularyJson()).objectValue) ?? [:]
+        func strings(_ key: String) -> [String] {
+            object[key]?.arrayValue?.compactMap(\.stringValue) ?? []
+        }
+        return LayoutVocabulary(
+            wireVersion: object["wire_version"]?.intValue ?? 0,
+            viewKinds: strings("view_kinds"),
+            sessionBearing: strings("session_bearing"),
+            viewStateKeys: strings("view_state_keys"))
+    }()
+}
+
+/// The `view_state` keys more than one party reads — spelled once, in Rust
+/// (`impress_layout::view_state`), and pinned here by a test against
+/// `LayoutVocabulary.current.viewStateKeys`.
+public enum LayoutViewStateKey {
+    /// Legacy pane: the section name.
+    public static let section = "section"
+    /// Legacy pane: the outline node the row was.
+    public static let node = "node"
+    /// Legacy pane: why the row is not a query yet.
+    public static let reason = "reason"
+    /// Info pane: which detail tab shows.
+    public static let tab = "tab"
+
+    public static let all: [String] = [section, node, reason, tab]
 }
 
 // MARK: - Pane context
@@ -173,8 +228,21 @@ public struct PaneContext {
     /// Run the pane's compiled query, throwing what Rust refused — so an
     /// empty result and a refused query cannot be mistaken for each other.
     @MainActor
-    public func loadRows(offset: UInt32 = 0, limit: UInt32 = 500) throws -> [SharedItemRow] {
+    public func loadRows(
+        offset: UInt32 = 0, limit: UInt32 = LayoutController.pageSize
+    ) throws -> [SharedItemRow] {
         try controller.loadRows(for: tile, offset: offset, limit: limit)
+    }
+
+    /// One page of the pane's rows and how many the query has in all, so a
+    /// pane can say "showing 500 of 2,657" rather than present a cut list as
+    /// the whole result (review PH-H4, SK-K9). The pane's own query limit is
+    /// honoured; `limit` 0 asks for no page.
+    @MainActor
+    public func loadPage(
+        offset: UInt32 = 0, limit: UInt32 = LayoutController.pageSize
+    ) throws -> SharedPaneRows {
+        try controller.loadPage(for: tile, offset: offset, limit: limit)
     }
 
     /// The record kind the pane's query names first — the DEFAULT for a
@@ -192,7 +260,7 @@ public struct PaneContext {
     /// Run the pane's compiled query. Empty on failure too — read `error`
     /// afterwards, or call `loadRows`, to tell the two apart.
     @MainActor
-    public func rows(limit: UInt32 = 500) -> [SharedItemRow] {
+    public func rows(limit: UInt32 = LayoutController.pageSize) -> [SharedItemRow] {
         controller.rows(for: tile, limit: limit)
     }
 
