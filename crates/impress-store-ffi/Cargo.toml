@@ -72,6 +72,12 @@ impress-surface-service.workspace = true
 # `surface-demo-service`) that had no real reference anywhere in this crate;
 # see `lib.rs`'s force-link comment for the mechanism.
 impress-capabilities-kit.workspace = true
+# `Refusal`, the code-and-message every layout and surface refusal carries
+# across the FFI and HTTP (wave 7 T5).
+impress-service-core.workspace = true
+# The facade `impress-layout-service` and `impress-surface-service` log
+# through; `log_bridge.rs` forwards it to the host's Console (wave 7 T5).
+log = { version = "0.4", features = ["std"] }
 futures-util = "0.3"
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }

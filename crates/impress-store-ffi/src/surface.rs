@@ -72,6 +72,10 @@ use impress_core::schemas::{
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout_service::resolve_device;
+use impress_service_core::refusal::codes;
+use impress_service_core::Refusal;
+use impress_surface_service::runtime::actor_name;
+use impress_surface_service::store::actor_from;
 
 use impress_surface::{Event, SurfaceSpec};
 use impress_surface_service::dto::{SurfaceDispatchResult, SurfaceEventDto, SurfaceSummaryDto};
@@ -121,18 +125,33 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 pub enum SharedSurfaceError {
     /// A verb was refused by the store, the runtime, or the linked
     /// inventory: no such surface, a `reduce` error, a store write that
-    /// failed.
+    /// failed. `code` is its stable name (`not-found`, `invalid-argument`,
+    /// `conflict`, `store-error`, a reduce error's own code, …), so Swift
+    /// branches on it rather than on the prose (review AC-F19).
     #[error("{message}")]
-    Surface { message: String },
+    Surface { code: String, message: String },
     /// A JSON argument or result would not parse.
     #[error("{message}")]
     Json { message: String },
 }
 
 impl SharedSurfaceError {
-    fn surface(message: impl std::fmt::Display) -> Self {
+    fn surface(refusal: Refusal) -> Self {
         SharedSurfaceError::Surface {
-            message: message.to_string(),
+            code: refusal.code,
+            message: refusal.message,
+        }
+    }
+
+    fn internal(message: impl std::fmt::Display) -> Self {
+        Self::surface(Refusal::internal(message))
+    }
+
+    /// The refusal this error carries, for an HTTP reply.
+    fn refusal(&self) -> Refusal {
+        match self {
+            SharedSurfaceError::Surface { code, message } => Refusal::new(code, message),
+            SharedSurfaceError::Json { message } => Refusal::invalid_argument(message),
         }
     }
 
@@ -146,11 +165,11 @@ impl SharedSurfaceError {
 type Result<T> = std::result::Result<T, SharedSurfaceError>;
 
 fn parse_surface_id(id: &str) -> Result<ItemId> {
-    id.trim()
-        .parse::<ItemId>()
-        .map_err(|_| SharedSurfaceError::Surface {
-            message: format!("'{id}' is not a surface id"),
-        })
+    id.trim().parse::<ItemId>().map_err(|_| {
+        SharedSurfaceError::surface(Refusal::invalid_argument(format!(
+            "'{id}' is not a surface id"
+        )))
+    })
 }
 
 // ─── Records ─────────────────────────────────────────────────────────────
@@ -179,35 +198,29 @@ fn reply(status: u16, body: String) -> SharedHttpReply {
     SharedHttpReply { status, body }
 }
 
-fn error_reply(status: u16, message: impl Into<String>) -> SharedHttpReply {
+/// A refusal as an HTTP reply: `{"error": <message>, "code": <code>}` at the
+/// status the code maps to (`impress_service_core::refusal::http_status`).
+fn refusal_reply(refusal: &Refusal) -> SharedHttpReply {
+    log::info!(
+        target: "surface",
+        "http refused [{}]: {}",
+        refusal.code,
+        refusal.message
+    );
     reply(
-        status,
-        serde_json::json!({ "error": message.into() }).to_string(),
+        refusal.http_status(),
+        serde_json::json!({ "error": refusal.message, "code": refusal.code }).to_string(),
     )
+}
+
+fn error_reply(code: &str, message: impl Into<String>) -> SharedHttpReply {
+    refusal_reply(&Refusal::new(code, message))
 }
 
 fn json_reply(status: u16, value: impl serde::Serialize) -> SharedHttpReply {
     match serde_json::to_string(&value) {
         Ok(body) => reply(status, body),
-        Err(e) => error_reply(500, format!("encode response: {e}")),
-    }
-}
-
-/// `"no surface …"` (the message every `SurfaceStore`/`SessionRegistry`
-/// not-found path spells, copied verbatim rather than reinvented — see
-/// `impress-surface-service/src/store.rs`) is a 404; `"conflict: …"` (a
-/// stale `expected_revision`) is a 409; anything else is a 400.
-/// Not exhaustive by construction — a store-level failure not shaped like
-/// "no surface" reads as a bad request rather than a 500, which is the
-/// right default for an FFI boundary that has no independent way to tell
-/// "the caller's fault" from "ours".
-fn status_for(message: &str) -> u16 {
-    if message.starts_with("no surface") {
-        404
-    } else if message.starts_with("conflict:") {
-        409
-    } else {
-        400
+        Err(e) => error_reply(codes::INTERNAL, format!("encode response: {e}")),
     }
 }
 
@@ -293,15 +306,23 @@ impl VerbHost for HostAdapter {
             guard.clone()
         };
         let Some(host) = host else {
-            return Err(format!("no verb host installed for '{name}'"));
+            return Err(Refusal::new(
+                "unknown-verb",
+                format!("no verb host installed for '{name}'"),
+            ));
         };
-        let args_json =
-            serde_json::to_string(&args).map_err(|e| format!("encode args for '{name}': {e}"))?;
-        let reply_json = host
-            .call_verb(name.to_string(), args_json)
-            .map_err(|e| e.to_string())?;
-        serde_json::from_str(&reply_json)
-            .map_err(|e| format!("'{name}': host reply was not JSON: {e}"))
+        let args_json = serde_json::to_string(&args)
+            .map_err(|e| Refusal::internal(format!("encode args for '{name}': {e}")))?;
+        let reply_json = host.call_verb(name.to_string(), args_json).map_err(|e| {
+            log::warn!(target: "surface", "verb host refused '{name}': {e}");
+            Refusal::new(codes::VERB_FAILED, e.to_string())
+        })?;
+        serde_json::from_str(&reply_json).map_err(|e| {
+            Refusal::new(
+                codes::VERB_FAILED,
+                format!("'{name}': host reply was not JSON: {e}"),
+            )
+        })
     }
 }
 
@@ -350,11 +371,11 @@ struct SurfaceCore {
 /// a verb itself.
 async fn off_caller<T: Send + 'static>(
     work: impl std::future::Future<Output = T> + Send + 'static,
-) -> std::result::Result<T, String> {
+) -> std::result::Result<T, Refusal> {
     runtime()
         .spawn(work)
         .await
-        .map_err(|e| format!("surface task failed: {e}"))
+        .map_err(|e| Refusal::internal(format!("surface task failed: {e}")))
 }
 
 #[cfg_attr(feature = "native", uniffi::export)]
@@ -459,10 +480,17 @@ impl SharedSurface {
     /// Reduce one renderer event, run its effects, and re-render — OFF the
     /// caller's thread. The JSON is exactly
     /// [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape
-    /// (`{"ok", "message", "tree", "effects"}`), so Swift and MCP read one
-    /// document. `event_json` is `impress_surface::Event` JSON
-    /// (`{"widget", "kind", "value"}`). `pane`, when given, is bound first —
-    /// see [`Self::render`].
+    /// (`{"ok", "code", "message", "tree", "effects", "effects_failed",
+    /// "source_errors"}`), so Swift and MCP read one document; `ok` is true
+    /// only when every effect happened (see that type's docs).
+    /// `event_json` is `impress_surface::Event` JSON (`{"widget", "kind",
+    /// "value"}`). `pane`, when given, is bound first — see
+    /// [`Self::render`].
+    ///
+    /// `actor` is who acted: the pane passes `human` for a person's click or
+    /// edit, and the state write, every emitted event and every layout verb
+    /// an effect runs are recorded as that actor (review SK-K5, AC-F5). The
+    /// HTTP route dispatches as `agent`.
     ///
     /// Only a malformed `surface_id`/`event_json` fails as `Err`: a refused
     /// dispatch (no such surface, a `reduce` error) comes back `Ok` with
@@ -474,9 +502,11 @@ impl SharedSurface {
         surface_id: String,
         pane: Option<u64>,
         event_json: String,
+        actor: String,
     ) -> Result<String> {
         let core = self.core.clone();
-        off_caller(async move { core.dispatch(&surface_id, pane, &event_json).await })
+        let actor = actor_from(Some(actor.as_str()));
+        off_caller(async move { core.dispatch(&surface_id, pane, &event_json, actor).await })
             .await
             .map_err(SharedSurfaceError::surface)?
     }
@@ -497,10 +527,12 @@ impl SharedSurface {
     /// may carry a query string (`?pane=7`, `?after=12`,
     /// `?expected_revision=3`); `body` is the raw request body, ignored for
     /// methods that do not take one. Every response is JSON; a failure is
-    /// `{"error": "…"}` at 400, 404 or 409 (see [`status_for`]) except
-    /// `POST …/validate`, whose 400 carries `{"problems": […]}` — the same
-    /// shape a 200 from it would, so a caller never has to branch on status
-    /// to read what is wrong.
+    /// `{"error": "…", "code": "…"}` at the status its code maps to
+    /// (`impress_service_core::refusal::http_status`: `invalid-argument` 400,
+    /// `not-found` 404, `conflict` 409, …), except `POST …/validate`, whose
+    /// 400 carries `{"problems": […]}` — the same shape a 200 from it would,
+    /// so a caller never has to branch on status to read what is wrong — and
+    /// `POST …/dispatch`, whose body is always the dispatch result.
     pub async fn surface_http(
         &self,
         method: String,
@@ -510,7 +542,7 @@ impl SharedSurface {
         let core = self.core.clone();
         off_caller(async move { core.route(&method, &path, &body).await })
             .await
-            .unwrap_or_else(|e| error_reply(500, e))
+            .unwrap_or_else(|e| refusal_reply(&e))
     }
 
     // ------------------------------------------------------------ the feed
@@ -521,7 +553,7 @@ impl SharedSurface {
             .core
             .store
             .subscribe_mutations()
-            .map_err(SharedSurfaceError::surface)?;
+            .map_err(SharedSurfaceError::internal)?;
 
         let running = Arc::new(AtomicBool::new(true));
         let worker = SurfaceFeed {
@@ -536,7 +568,7 @@ impl SharedSurface {
         let join = std::thread::Builder::new()
             .name("impress-surface-invalidation".into())
             .spawn(move || worker.run(rx))
-            .map_err(SharedSurfaceError::surface)?;
+            .map_err(SharedSurfaceError::internal)?;
 
         let mut slot = self.feed.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(previous) = slot.as_mut() {
@@ -577,7 +609,9 @@ impl SurfaceCore {
             .surfaces
             .get(id)
             .map_err(SharedSurfaceError::surface)?
-            .ok_or_else(|| SharedSurfaceError::surface(format!("no surface {surface_id}")))?;
+            .ok_or_else(|| {
+                SharedSurfaceError::surface(Refusal::not_found(format!("no surface {surface_id}")))
+            })?;
         serde_json::to_string(&row.spec).map_err(SharedSurfaceError::json)
     }
 
@@ -602,6 +636,7 @@ impl SurfaceCore {
         surface_id: &str,
         pane: Option<u64>,
         event_json: &str,
+        actor: ActorKind,
     ) -> Result<String> {
         let id = parse_surface_id(surface_id)?;
         let event: Event = serde_json::from_str(event_json).map_err(SharedSurfaceError::json)?;
@@ -614,20 +649,29 @@ impl SurfaceCore {
             .registry
             .with(&self.surfaces, id, &self.host, move |rt| {
                 Box::pin(async move {
-                    rt.dispatch(&executor, &writer, &event, ActorKind::Agent)
-                        .await
+                    let (tree, effects) = rt.dispatch(&executor, &writer, &event, actor).await?;
+                    Ok((tree, effects, rt.source_error_list()))
                 })
             })
             .await;
         let dto = match outcome {
-            Ok((tree, effects)) => SurfaceDispatchResult {
-                ok: true,
-                message: format!("dispatched; {} effect(s)", effects.len()),
-                tree: Some(tree),
-                effects,
-            },
-            Err(e) => SurfaceDispatchResult::failed(e),
+            Ok((tree, effects, source_errors)) => {
+                SurfaceDispatchResult::dispatched(tree, effects, source_errors)
+            }
+            Err(e) => SurfaceDispatchResult::refused(e),
         };
+        log::info!(
+            target: "surface",
+            "surface {surface_id} ({}): {} dispatch {}: {}",
+            self.host,
+            actor_name(actor),
+            if dto.ok {
+                "ok".to_string()
+            } else {
+                format!("refused [{}]", dto.code.as_deref().unwrap_or("?"))
+            },
+            dto.message
+        );
         serde_json::to_string(&dto).map_err(SharedSurfaceError::json)
     }
 
@@ -643,7 +687,7 @@ impl SurfaceCore {
             .with(&self.surfaces, id, &self.host, move |rt| {
                 Box::pin(async move {
                     rt.pane = Some(pane);
-                    Ok::<(), String>(())
+                    Ok::<(), Refusal>(())
                 })
             })
             .await
@@ -662,7 +706,7 @@ impl SurfaceCore {
             .filter(|s| !s.is_empty())
             .collect();
         if segments.len() < 2 || segments[0] != "api" || segments[1] != "surface" {
-            return error_reply(404, "no such route");
+            return error_reply(codes::NOT_FOUND, "no such route");
         }
         let rest = &segments[2..];
         match (method.as_str(), rest) {
@@ -676,7 +720,7 @@ impl SurfaceCore {
             ("GET", [id, "render"]) => self.http_render(id, query).await,
             ("POST", [id, "dispatch"]) => self.http_dispatch(id, query, body).await,
             ("GET", [id, "events"]) => self.http_events(id, query),
-            _ => error_reply(404, "no such route"),
+            _ => error_reply(codes::NOT_FOUND, "no such route"),
         }
     }
 
@@ -687,21 +731,23 @@ impl SurfaceCore {
                     rows.iter().map(SurfaceSummaryDto::from).collect();
                 json_reply(200, serde_json::json!({ "surfaces": summaries }))
             }
-            Err(e) => error_reply(status_for(&e), e),
+            Err(e) => refusal_reply(&e),
         }
     }
 
     fn http_create(&self, body: &str) -> SharedHttpReply {
         let spec: SurfaceSpec = match serde_json::from_str(body) {
             Ok(s) => s,
-            Err(e) => return error_reply(400, format!("invalid spec JSON: {e}")),
+            Err(e) => {
+                return error_reply(codes::INVALID_ARGUMENT, format!("invalid spec JSON: {e}"))
+            }
         };
         match self.surfaces.create(&spec, None, &[], ActorKind::Agent) {
             Ok(row) => json_reply(
                 200,
                 serde_json::json!({ "id": row.id.to_string(), "revision": row.revision }),
             ),
-            Err(e) => error_reply(status_for(&e), e),
+            Err(e) => refusal_reply(&e),
         }
     }
 
@@ -712,7 +758,9 @@ impl SurfaceCore {
     async fn http_validate(&self, body: &str) -> SharedHttpReply {
         let spec: SurfaceSpec = match serde_json::from_str(body) {
             Ok(s) => s,
-            Err(e) => return error_reply(400, format!("invalid spec JSON: {e}")),
+            Err(e) => {
+                return error_reply(codes::INVALID_ARGUMENT, format!("invalid spec JSON: {e}"))
+            }
         };
         let result = self.service.surface_validate(spec).await;
         let status = if result.ok() { 200 } else { 400 };
@@ -722,7 +770,7 @@ impl SurfaceCore {
     fn http_spec(&self, id: &str) -> SharedHttpReply {
         match self.spec(id) {
             Ok(body) => reply(200, body),
-            Err(e) => error_reply(status_for(&e.to_string()), e.to_string()),
+            Err(e) => refusal_reply(&e.refusal()),
         }
     }
 
@@ -732,20 +780,25 @@ impl SurfaceCore {
     fn http_update(&self, id: &str, query: &str, body: &str) -> SharedHttpReply {
         let surface_id = match parse_surface_id(id) {
             Ok(id) => id,
-            Err(e) => return error_reply(400, e.to_string()),
+            Err(e) => return refusal_reply(&e.refusal()),
         };
         let expected = match query_param(query, "expected_revision") {
             None => None,
             Some(raw) => match raw.parse::<u64>() {
                 Ok(n) => Some(n),
                 Err(_) => {
-                    return error_reply(400, format!("expected_revision '{raw}' is not a number"))
+                    return error_reply(
+                        codes::INVALID_ARGUMENT,
+                        format!("expected_revision '{raw}' is not a number"),
+                    )
                 }
             },
         };
         let spec: SurfaceSpec = match serde_json::from_str(body) {
             Ok(s) => s,
-            Err(e) => return error_reply(400, format!("invalid spec JSON: {e}")),
+            Err(e) => {
+                return error_reply(codes::INVALID_ARGUMENT, format!("invalid spec JSON: {e}"))
+            }
         };
         match self
             .surfaces
@@ -753,24 +806,24 @@ impl SurfaceCore {
         {
             Ok(row) => match serde_json::to_string(&row.spec) {
                 Ok(body) => reply(200, body),
-                Err(e) => error_reply(500, format!("encode response: {e}")),
+                Err(e) => error_reply(codes::INTERNAL, format!("encode response: {e}")),
             },
-            Err(e) => error_reply(status_for(&e), e),
+            Err(e) => refusal_reply(&e),
         }
     }
 
     fn http_delete(&self, id: &str) -> SharedHttpReply {
         let surface_id = match parse_surface_id(id) {
             Ok(id) => id,
-            Err(e) => return error_reply(400, e.to_string()),
+            Err(e) => return refusal_reply(&e.refusal()),
         };
         match self.surfaces.delete(surface_id) {
             Ok(true) => {
                 self.registry.forget_surface(surface_id);
                 json_reply(200, serde_json::json!({ "deleted": true }))
             }
-            Ok(false) => error_reply(404, format!("no surface {id}")),
-            Err(e) => error_reply(status_for(&e), e),
+            Ok(false) => error_reply(codes::NOT_FOUND, format!("no surface {id}")),
+            Err(e) => refusal_reply(&e),
         }
     }
 
@@ -778,45 +831,46 @@ impl SurfaceCore {
         let pane = query_param(query, "pane").and_then(|p| p.parse::<u64>().ok());
         match self.render(id, pane).await {
             Ok(body) => reply(200, body),
-            Err(e) => error_reply(status_for(&e.to_string()), e.to_string()),
+            Err(e) => refusal_reply(&e.refusal()),
         }
     }
 
     async fn http_dispatch(&self, id: &str, query: &str, body: &str) -> SharedHttpReply {
         let pane = query_param(query, "pane").and_then(|p| p.parse::<u64>().ok());
-        match self.dispatch(id, pane, body).await {
+        // Over HTTP the dispatcher is an agent; only the pane passes `human`.
+        match self.dispatch(id, pane, body, ActorKind::Agent).await {
             Ok(json) => {
                 // `dispatch` always answers `Ok` with the `SurfaceDispatchResult`
                 // shape (see its own docs); the HTTP surface still owes a real
-                // status code, so it reads the embedded `ok`/`message` back out.
+                // status code, which its `code` decides: 200 when `ok`, else
+                // the code's status — `effect-failed` is 422, with the
+                // re-rendered tree and every effect's outcome in the body.
                 let status = match serde_json::from_str::<serde_json::Value>(&json) {
-                    Ok(v) if v.get("ok").and_then(serde_json::Value::as_bool) == Some(false) => {
-                        let message = v
-                            .get("message")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("");
-                        status_for(message)
-                    }
+                    Ok(v) if v.get("ok").and_then(serde_json::Value::as_bool) == Some(false) => v
+                        .get("code")
+                        .and_then(serde_json::Value::as_str)
+                        .map(impress_service_core::refusal::http_status)
+                        .unwrap_or(422),
                     _ => 200,
                 };
                 reply(status, json)
             }
-            Err(e) => error_reply(400, e.to_string()),
+            Err(e) => refusal_reply(&e.refusal()),
         }
     }
 
     fn http_events(&self, id: &str, query: &str) -> SharedHttpReply {
         let surface_id = match parse_surface_id(id) {
             Ok(id) => id,
-            Err(e) => return error_reply(400, e.to_string()),
+            Err(e) => return refusal_reply(&e.refusal()),
         };
         let after = query_param(query, "after")
             .and_then(|a| a.parse::<u64>().ok())
             .unwrap_or(0);
         match self.surfaces.get(surface_id) {
             Ok(Some(_)) => {}
-            Ok(None) => return error_reply(404, format!("no surface {id}")),
-            Err(e) => return error_reply(status_for(&e), e),
+            Ok(None) => return error_reply(codes::NOT_FOUND, format!("no surface {id}")),
+            Err(e) => return refusal_reply(&e),
         }
         match self.surfaces.events_after(surface_id, &self.host, after, 0) {
             Ok(rows) => {
@@ -828,7 +882,7 @@ impl SurfaceCore {
                     serde_json::json!({ "events": events, "next_seq": next_seq, "gap": gap }),
                 )
             }
-            Err(e) => error_reply(status_for(&e), e),
+            Err(e) => refusal_reply(&e),
         }
     }
 }
@@ -949,6 +1003,12 @@ impl SurfaceFeed {
                 grace_over = true;
             }
             if grace_over && !held.is_empty() {
+                log::debug!(
+                    target: "surface",
+                    "feed: {} surface(s) changed: {}",
+                    held.len(),
+                    held.join(", ")
+                );
                 self.listener.surfaces_changed(std::mem::take(&mut held));
             }
         }
@@ -1070,7 +1130,7 @@ mod tests {
             futures_block(self.render(id, pane))
         }
         fn dispatch_now(&self, id: String, pane: Option<u64>, event: String) -> Result<String> {
-            futures_block(self.dispatch(id, pane, event))
+            futures_block(self.dispatch(id, pane, event, "human".into()))
         }
         fn http_now(&self, method: String, path: String, body: String) -> SharedHttpReply {
             futures_block(self.surface_http(method, path, body))
@@ -1644,6 +1704,147 @@ mod tests {
         assert!(
             ticks >= 10,
             "the awaiting thread ran only {ticks} ticks during a 400 ms verb"
+        );
+    }
+
+    // ── wave 7 T5: codes, the dispatch rule, the actor, the log bridge ──
+
+    /// A button that emits (always works) and publishes (fails: no layout
+    /// shows the surface in a bare store).
+    fn publish_spec() -> SurfaceSpec {
+        serde_json::from_value(serde_json::json!({
+            "surface": "1.0",
+            "name": "T5",
+            "state": { "clicked": false },
+            "root": { "column": [
+                { "button": { "label": "Go", "on_click": [
+                    { "set": { "path": "state.clicked", "value": true } },
+                    { "emit": { "name": "went", "payload": {} } },
+                    { "publish": { "ids": "state.clicked" } }
+                ] }, "id": "go" }
+            ] }
+        }))
+        .unwrap()
+    }
+
+    const CLICK: &str = r#"{"widget":"go","kind":"click","value":null}"#;
+
+    fn create(store: &Arc<SharedStore>, spec: &SurfaceSpec) -> String {
+        SurfaceStore::new(store.core())
+            .create(spec, None, &[], ActorKind::Agent)
+            .unwrap()
+            .id
+            .to_string()
+    }
+
+    #[test]
+    fn http_refusals_carry_a_code_and_the_status_it_maps_to() {
+        let (_store, surface) = open();
+        let missing = surface.http_now(
+            "GET".into(),
+            "/api/surface/00000000-0000-4000-8000-000000000000".into(),
+            String::new(),
+        );
+        assert_eq!(missing.status, 404, "{}", missing.body);
+        let body: serde_json::Value = serde_json::from_str(&missing.body).unwrap();
+        assert_eq!(body["code"], "not-found");
+
+        let malformed = surface.http_now("GET".into(), "/api/surface/nope".into(), String::new());
+        assert_eq!(malformed.status, 400, "{}", malformed.body);
+        let body: serde_json::Value = serde_json::from_str(&malformed.body).unwrap();
+        assert_eq!(body["code"], "invalid-argument");
+    }
+
+    /// A dispatch whose effect failed answers `ok: false`, `effect-failed`,
+    /// 422, with the tree and every effect's own outcome — it used to answer
+    /// 200 "dispatched; 2 effect(s)" (review RS-S12, AC-F11).
+    #[test]
+    fn an_http_dispatch_whose_effect_failed_is_422_with_each_outcome() {
+        let (store, surface) = open();
+        let id = create(&store, &publish_spec());
+        let reply = surface.http_now(
+            "POST".into(),
+            format!("/api/surface/{id}/dispatch"),
+            CLICK.into(),
+        );
+        assert_eq!(reply.status, 422, "{}", reply.body);
+        let body: serde_json::Value = serde_json::from_str(&reply.body).unwrap();
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["code"], "effect-failed");
+        assert_eq!(body["effects_failed"], 1);
+        assert_eq!(body["effects"][0]["kind"], "emit");
+        assert_eq!(body["effects"][0]["ok"], true);
+        assert_eq!(body["effects"][1]["kind"], "publish");
+        assert_eq!(body["effects"][1]["code"], "no-pane");
+        assert!(body["tree"].is_object(), "the tree still comes back");
+    }
+
+    /// The pane's dispatch is the human's; the HTTP route's is the agent's —
+    /// in the events an agent waits on, and in the state row's author.
+    #[test]
+    fn the_panes_dispatch_is_recorded_as_the_human() {
+        let (store, surface) = open();
+        let id = create(&store, &publish_spec());
+        surface
+            .dispatch_now(id.clone(), None, CLICK.into())
+            .expect("the pane's dispatch");
+        surface.http_now(
+            "POST".into(),
+            format!("/api/surface/{id}/dispatch"),
+            CLICK.into(),
+        );
+        let events = surface.http_now(
+            "GET".into(),
+            format!("/api/surface/{id}/events"),
+            String::new(),
+        );
+        let body: serde_json::Value = serde_json::from_str(&events.body).unwrap();
+        let actors: Vec<&str> = body["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["actor"].as_str().unwrap())
+            .collect();
+        assert_eq!(actors, vec!["human", "agent"], "{}", events.body);
+    }
+
+    #[test]
+    fn surface_errors_reach_swift_with_their_code() {
+        let (_store, surface) = open();
+        let err = surface
+            .render_now("00000000-0000-4000-8000-000000000000".into(), None)
+            .unwrap_err();
+        match err {
+            SharedSurfaceError::Surface { code, .. } => assert_eq!(code, "not-found"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Rust's own lines reach the host's Console under `surface`: a dispatch
+    /// and its failed effect (review RS-S11, AC-F18).
+    #[test]
+    fn a_dispatch_and_its_failed_effect_are_logged_under_surface() {
+        let sink = crate::log_bridge::tests::captured();
+        let (store, surface) = open();
+        let id = create(&store, &publish_spec());
+        surface
+            .dispatch_now(id.clone(), None, CLICK.into())
+            .unwrap();
+        let lines = sink.0.lock().unwrap().clone();
+        let mine: Vec<&(String, String, String)> =
+            lines.iter().filter(|l| l.2.contains(&id)).collect();
+        assert!(
+            mine.iter()
+                .any(|(level, category, message)| level == "warning"
+                    && category == "surface"
+                    && message.contains("publish effect failed [no-pane]")),
+            "{mine:#?}"
+        );
+        assert!(
+            mine.iter()
+                .any(|(_, category, message)| category == "surface"
+                    && message.contains("human dispatch refused [effect-failed]")),
+            "{mine:#?}"
         );
     }
 }

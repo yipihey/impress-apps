@@ -4449,10 +4449,17 @@ public protocol SharedSurfaceProtocol : AnyObject {
      * Reduce one renderer event, run its effects, and re-render — OFF the
      * caller's thread. The JSON is exactly
      * [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape
-     * (`{"ok", "message", "tree", "effects"}`), so Swift and MCP read one
-     * document. `event_json` is `impress_surface::Event` JSON
-     * (`{"widget", "kind", "value"}`). `pane`, when given, is bound first —
-     * see [`Self::render`].
+     * (`{"ok", "code", "message", "tree", "effects", "effects_failed",
+     * "source_errors"}`), so Swift and MCP read one document; `ok` is true
+     * only when every effect happened (see that type's docs).
+     * `event_json` is `impress_surface::Event` JSON (`{"widget", "kind",
+     * "value"}`). `pane`, when given, is bound first — see
+     * [`Self::render`].
+     *
+     * `actor` is who acted: the pane passes `human` for a person's click or
+     * edit, and the state write, every emitted event and every layout verb
+     * an effect runs are recorded as that actor (review SK-K5, AC-F5). The
+     * HTTP route dispatches as `agent`.
      *
      * Only a malformed `surface_id`/`event_json` fails as `Err`: a refused
      * dispatch (no such surface, a `reduce` error) comes back `Ok` with
@@ -4460,7 +4467,7 @@ public protocol SharedSurfaceProtocol : AnyObject {
      * carries that field and a caller reading the same shape from MCP would
      * see the same thing.
      */
-    func dispatch(surfaceId: String, pane: UInt64?, eventJson: String) async throws  -> String
+    func dispatch(surfaceId: String, pane: UInt64?, eventJson: String, actor: String) async throws  -> String
     
     /**
      * This object's resolved host/device tag.
@@ -4512,10 +4519,12 @@ public protocol SharedSurfaceProtocol : AnyObject {
      * may carry a query string (`?pane=7`, `?after=12`,
      * `?expected_revision=3`); `body` is the raw request body, ignored for
      * methods that do not take one. Every response is JSON; a failure is
-     * `{"error": "…"}` at 400, 404 or 409 (see [`status_for`]) except
-     * `POST …/validate`, whose 400 carries `{"problems": […]}` — the same
-     * shape a 200 from it would, so a caller never has to branch on status
-     * to read what is wrong.
+     * `{"error": "…", "code": "…"}` at the status its code maps to
+     * (`impress_service_core::refusal::http_status`: `invalid-argument` 400,
+     * `not-found` 404, `conflict` 409, …), except `POST …/validate`, whose
+     * 400 carries `{"problems": […]}` — the same shape a 200 from it would,
+     * so a caller never has to branch on status to read what is wrong — and
+     * `POST …/dispatch`, whose body is always the dispatch result.
      */
     func surfaceHttp(method: String, path: String, body: String) async  -> SharedHttpReply
     
@@ -4612,10 +4621,17 @@ public static func `open`(store: SharedStore, host: String) -> SharedSurface {
      * Reduce one renderer event, run its effects, and re-render — OFF the
      * caller's thread. The JSON is exactly
      * [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape
-     * (`{"ok", "message", "tree", "effects"}`), so Swift and MCP read one
-     * document. `event_json` is `impress_surface::Event` JSON
-     * (`{"widget", "kind", "value"}`). `pane`, when given, is bound first —
-     * see [`Self::render`].
+     * (`{"ok", "code", "message", "tree", "effects", "effects_failed",
+     * "source_errors"}`), so Swift and MCP read one document; `ok` is true
+     * only when every effect happened (see that type's docs).
+     * `event_json` is `impress_surface::Event` JSON (`{"widget", "kind",
+     * "value"}`). `pane`, when given, is bound first — see
+     * [`Self::render`].
+     *
+     * `actor` is who acted: the pane passes `human` for a person's click or
+     * edit, and the state write, every emitted event and every layout verb
+     * an effect runs are recorded as that actor (review SK-K5, AC-F5). The
+     * HTTP route dispatches as `agent`.
      *
      * Only a malformed `surface_id`/`event_json` fails as `Err`: a refused
      * dispatch (no such surface, a `reduce` error) comes back `Ok` with
@@ -4623,13 +4639,13 @@ public static func `open`(store: SharedStore, host: String) -> SharedSurface {
      * carries that field and a caller reading the same shape from MCP would
      * see the same thing.
      */
-open func dispatch(surfaceId: String, pane: UInt64?, eventJson: String)async throws  -> String {
+open func dispatch(surfaceId: String, pane: UInt64?, eventJson: String, actor: String)async throws  -> String {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_impress_store_ffi_fn_method_sharedsurface_dispatch(
                     self.uniffiClonePointer(),
-                    FfiConverterString.lower(surfaceId),FfiConverterOptionUInt64.lower(pane),FfiConverterString.lower(eventJson)
+                    FfiConverterString.lower(surfaceId),FfiConverterOptionUInt64.lower(pane),FfiConverterString.lower(eventJson),FfiConverterString.lower(actor)
                 )
             },
             pollFunc: ffi_impress_store_ffi_rust_future_poll_rust_buffer,
@@ -4741,10 +4757,12 @@ open func subscribe(listener: SharedSurfaceListener)throws  {try rustCallWithErr
      * may carry a query string (`?pane=7`, `?after=12`,
      * `?expected_revision=3`); `body` is the raw request body, ignored for
      * methods that do not take one. Every response is JSON; a failure is
-     * `{"error": "…"}` at 400, 404 or 409 (see [`status_for`]) except
-     * `POST …/validate`, whose 400 carries `{"problems": […]}` — the same
-     * shape a 200 from it would, so a caller never has to branch on status
-     * to read what is wrong.
+     * `{"error": "…", "code": "…"}` at the status its code maps to
+     * (`impress_service_core::refusal::http_status`: `invalid-argument` 400,
+     * `not-found` 404, `conflict` 409, …), except `POST …/validate`, whose
+     * 400 carries `{"problems": […]}` — the same shape a 200 from it would,
+     * so a caller never has to branch on status to read what is wrong — and
+     * `POST …/dispatch`, whose body is always the dispatch result.
      */
 open func surfaceHttp(method: String, path: String, body: String)async  -> SharedHttpReply {
     return
@@ -14661,9 +14679,13 @@ public enum SharedLayoutError {
     
     /**
      * A verb was refused by the tree or the service: no such pane, the last
-     * pane of a window, a detach of a whole window.
+     * pane of a window, a detach of a whole window. `code` is the refusal's
+     * stable name — a `LayoutError` tag (`unknown-tile`,
+     * `cannot-close-last-pane`, …) or a generic code (`invalid-argument`,
+     * `not-found`, `conflict`, `store-error`, `store-unavailable`) — so a
+     * caller branches on it, never on the prose (review RL-L11).
      */
-    case Layout(message: String
+    case Layout(code: String, message: String
     )
     /**
      * A pane query did not compile — a typed refusal, never an empty list
@@ -14698,6 +14720,7 @@ public struct FfiConverterTypeSharedLayoutError: FfiConverterRustBuffer {
 
         
         case 1: return .Layout(
+            code: try FfiConverterString.read(from: &buf), 
             message: try FfiConverterString.read(from: &buf)
             )
         case 2: return .Query(
@@ -14721,8 +14744,9 @@ public struct FfiConverterTypeSharedLayoutError: FfiConverterRustBuffer {
 
         
         
-        case let .Layout(message):
+        case let .Layout(code,message):
             writeInt(&buf, Int32(1))
+            FfiConverterString.write(code, into: &buf)
             FfiConverterString.write(message, into: &buf)
             
         
@@ -14849,9 +14873,11 @@ public enum SharedSurfaceError {
     /**
      * A verb was refused by the store, the runtime, or the linked
      * inventory: no such surface, a `reduce` error, a store write that
-     * failed.
+     * failed. `code` is its stable name (`not-found`, `invalid-argument`,
+     * `conflict`, `store-error`, a reduce error's own code, …), so Swift
+     * branches on it rather than on the prose (review AC-F19).
      */
-    case Surface(message: String
+    case Surface(code: String, message: String
     )
     /**
      * A JSON argument or result would not parse.
@@ -14875,6 +14901,7 @@ public struct FfiConverterTypeSharedSurfaceError: FfiConverterRustBuffer {
 
         
         case 1: return .Surface(
+            code: try FfiConverterString.read(from: &buf), 
             message: try FfiConverterString.read(from: &buf)
             )
         case 2: return .Json(
@@ -14892,8 +14919,9 @@ public struct FfiConverterTypeSharedSurfaceError: FfiConverterRustBuffer {
 
         
         
-        case let .Surface(message):
+        case let .Surface(code,message):
             writeInt(&buf, Int32(1))
+            FfiConverterString.write(code, into: &buf)
             FfiConverterString.write(message, into: &buf)
             
         
@@ -15056,6 +15084,117 @@ fileprivate struct FfiConverterCallbackInterfaceSharedLayoutListener {
 #endif
 extension FfiConverterCallbackInterfaceSharedLayoutListener : FfiConverter {
     typealias SwiftType = SharedLayoutListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+
+
+/**
+ * What the host implements to receive the Rust half's log lines.
+ */
+public protocol SharedLogSink : AnyObject {
+    
+    /**
+     * One line. `level` is `error` | `warning` | `info` | `debug` (the
+     * Console's own spellings); `category` is one of
+     * [`BRIDGED_CATEGORIES`].
+     */
+    func log(level: String, category: String, message: String) 
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceSharedLogSink {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceSharedLogSink = UniffiVTableCallbackInterfaceSharedLogSink(
+        log: { (
+            uniffiHandle: UInt64,
+            level: RustBuffer,
+            category: RustBuffer,
+            message: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedLogSink.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.log(
+                     level: try FfiConverterString.lift(level),
+                     category: try FfiConverterString.lift(category),
+                     message: try FfiConverterString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceSharedLogSink.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface SharedLogSink: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitSharedLogSink() {
+    uniffi_impress_store_ffi_fn_init_callback_vtable_sharedlogsink(&UniffiCallbackInterfaceSharedLogSink.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceSharedLogSink {
+    fileprivate static var handleMap = UniffiHandleMap<SharedLogSink>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceSharedLogSink : FfiConverter {
+    typealias SwiftType = SharedLogSink
     typealias FfiType = UInt64
 
 #if swift(>=5.8)
@@ -17087,6 +17226,21 @@ public func compilePaneQuery(queryJson: String, declsJson: String, bindingsJson:
 })
 }
 /**
+ * Install `sink` as the destination of the layout and surface crates' log
+ * lines, at `level` (`error` | `warning` | `info` | `debug`; anything else
+ * is `info`). Installing again replaces the sink and the level. Returns
+ * false when this process already had a different `log` logger, in which
+ * case nothing is bridged — the host logs that.
+ */
+public func installLogSink(sink: SharedLogSink, level: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_install_log_sink(
+        FfiConverterCallbackInterfaceSharedLogSink.lower(sink),
+        FfiConverterString.lower(level),$0
+    )
+})
+}
+/**
  * The record-kind manifest as JSON: kind id → the schema refs the store
  * matches by exact equality. The one place that mapping lives.
  */
@@ -17189,6 +17343,20 @@ public func rankHybridSearchResults(query: String, candidates: [SharedHybridCand
 })
 }
 /**
+ * The HTTP status a refusal `code` answers with — the one table
+ * (`impress_service_core::refusal::http_status`), so a Swift route that
+ * reports a `SharedLayoutError` maps it exactly as the Rust routes do
+ * (`invalid-argument` 400, `not-found` 404, `conflict` 409, a tree refusal
+ * 422, `store-error` 500, …) instead of keeping a second copy.
+ */
+public func refusalHttpStatus(code: String) -> UInt16 {
+    return try!  FfiConverterUInt16.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_refusal_http_status(
+        FfiConverterString.lower(code),$0
+    )
+})
+}
+/**
  * The record kind each section serves in `app_id`'s shipped shell, as JSON:
  * `{"<SidebarSectionType case>": "<kind short id>"}` — `{}` for an app that
  * ships no preset. `AppShellConfiguration`'s shipped presets read their
@@ -17256,6 +17424,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_compile_pane_query() != 7773) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 14824) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 39295) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17272,6 +17443,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_rank_hybrid_search_results() != 39200) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_refusal_http_status() != 65103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_section_bindings_json() != 33769) {
@@ -17760,7 +17934,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_record_produced() != 53538) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_dispatch() != 35798) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_dispatch() != 11704) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_host() != 58823) {
@@ -17787,7 +17961,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_subscribe() != 63432) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 46226) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 12986) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_unsubscribe() != 53229) {
@@ -17820,6 +17994,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_layouts_changed() != 63482) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlogsink_log() != 38040) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 2563) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17831,6 +18008,7 @@ private var initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitSharedLayoutListener()
+    uniffiCallbackInitSharedLogSink()
     uniffiCallbackInitSharedSurfaceListener()
     uniffiCallbackInitSharedVerbHost()
     return InitializationResult.ok
