@@ -561,14 +561,14 @@ async fn the_cursor_is_the_last_event_returned() {
             .unwrap();
     }
     let first = service
-        .surface_events(id.to_string(), 0, Some(HOST.into()))
+        .surface_events(id.to_string(), Some(0), Some(HOST.into()))
         .await;
     assert_eq!(first.next_seq, 3);
     surfaces
         .append_event(id, HOST, "late", &json!({}), ActorKind::Agent)
         .unwrap();
     let second = service
-        .surface_wait(id.to_string(), first.next_seq, 10, Some(HOST.into()))
+        .surface_wait(id.to_string(), Some(first.next_seq), 10, Some(HOST.into()))
         .await;
     assert_eq!(second.events.len(), 1);
     assert_eq!(second.events[0].name, "late");
@@ -577,7 +577,7 @@ async fn the_cursor_is_the_last_event_returned() {
 
     // Nothing new: the cursor stands.
     let idle = service
-        .surface_wait(id.to_string(), 4, 1, Some(HOST.into()))
+        .surface_wait(id.to_string(), Some(4), 1, Some(HOST.into()))
         .await;
     assert!(idle.timed_out);
     assert_eq!(idle.next_seq, 4);

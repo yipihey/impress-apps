@@ -519,7 +519,7 @@ async fn cap_dispatch_click_runs_set_and_emit() -> CapabilityResult {
                 ),
             )?;
 
-            let events = world.service.surface_events(id, 0, None).await;
+            let events = world.service.surface_events(id, Some(0), None).await;
             want(
                 events.ok,
                 format!("surface_events failed: {}", events.message),
@@ -558,12 +558,15 @@ async fn cap_events_after_cursor() -> CapabilityResult {
                     .surface_dispatch(id.clone(), click, None, None)
                     .await;
             }
-            let all = world.service.surface_events(id.clone(), 0, None).await;
+            let all = world
+                .service
+                .surface_events(id.clone(), Some(0), None)
+                .await;
             want(
                 all.events.len() == 3,
                 format!("expected 3 events, got {}", all.events.len()),
             )?;
-            let after_one = world.service.surface_events(id, 1, None).await;
+            let after_one = world.service.surface_events(id, Some(1), None).await;
             want(
                 after_one.events.len() == 2,
                 format!(
@@ -601,7 +604,7 @@ async fn cap_wait_returns_an_existing_event_immediately() -> CapabilityResult {
                 .await;
 
             let started = std::time::Instant::now();
-            let waited = world.service.surface_wait(id, 0, 5_000, None).await;
+            let waited = world.service.surface_wait(id, Some(0), 5_000, None).await;
             want(
                 waited.ok && !waited.timed_out,
                 format!("{waited:?}", waited = waited.message),
@@ -633,7 +636,7 @@ async fn cap_wait_times_out_with_nothing_new() -> CapabilityResult {
                 .await;
             let id = created.id.ok_or("create returned no id")?;
 
-            let waited = world.service.surface_wait(id, 0, 300, None).await;
+            let waited = world.service.surface_wait(id, Some(0), 300, None).await;
             want(
                 waited.ok && waited.timed_out && waited.events.is_empty(),
                 format!(
@@ -693,7 +696,7 @@ async fn cap_event_ring_is_pruned() -> CapabilityResult {
                     .surface_dispatch(id.clone(), click, None, None)
                     .await;
             }
-            let all = world.service.surface_events(id, 0, None).await;
+            let all = world.service.surface_events(id, Some(0), None).await;
             want(
                 all.events.len() == EVENT_RING_CAPACITY,
                 format!(
@@ -853,7 +856,7 @@ mod real_verb_loop {
         );
 
         // 6. surface_events returns bins-chosen with the payload
-        let events = world.service.surface_events(id, 0, None).await;
+        let events = world.service.surface_events(id, Some(0), None).await;
         assert!(events.ok, "{}", events.message);
         let bins_chosen = events
             .events
@@ -1195,7 +1198,7 @@ mod paper_triage_loop {
         );
 
         // 6. surface_events carries a 'triaged' event for each selected id.
-        let events = world.service.surface_events(id, 0, None).await;
+        let events = world.service.surface_events(id, Some(0), None).await;
         assert!(events.ok, "{}", events.message);
         let mut triaged_ids: Vec<&str> = events
             .events

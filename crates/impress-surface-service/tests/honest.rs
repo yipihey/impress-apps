@@ -123,7 +123,7 @@ async fn lookups_say_not_found_and_malformed_ids_say_invalid_argument() {
         .await;
     assert_eq!(deleted.code.as_deref(), Some("not-found"));
     let events = svc
-        .surface_events("00000000-0000-4000-8000-000000000000".into(), 0, None)
+        .surface_events("00000000-0000-4000-8000-000000000000".into(), Some(0), None)
         .await;
     assert_eq!(events.code.as_deref(), Some("not-found"));
 }
@@ -173,7 +173,7 @@ async fn an_event_records_who_caused_it() {
     svc.surface_dispatch(id.clone(), click(), Some(HOST.into()), None)
         .await;
 
-    let events = svc.surface_events(id, 0, Some(HOST.into())).await;
+    let events = svc.surface_events(id, Some(0), Some(HOST.into())).await;
     let actors: Vec<&str> = events.events.iter().map(|e| e.actor.as_str()).collect();
     assert_eq!(actors, vec!["human", "agent"], "{:?}", events.events);
 }

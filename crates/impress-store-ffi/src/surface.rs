@@ -21,30 +21,26 @@
 //!   [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape, so
 //!   Swift, the CLI and MCP all read one document for "what happened".
 //!
-//! # Which pane a surface instance is "in"
+//! # Which pane, in which app
 //!
 //! [`impress_surface_service::runtime::SurfaceRuntime::pane`] is what
-//! `publish`/`open` effects need and is normally set by `surface_show` (a
-//! `layout-service` composition this object does not re-implement — see
-//! `docs/agent-surfaces.md`'s "5. surface-show", driven from Swift through
-//! [`crate::layout::SharedLayout`] directly, or from a chat over MCP).
-//! [`Self::render`]/[`Self::dispatch`] additionally accept an optional
-//! `pane`: when given, it is recorded on the SAME [`PaneHandle`] shape
-//! `surface_show` would have set — `app_id` "impress" (ADR-0033 leaves which
-//! app a surface belongs to unspecified; `impress-surface-service::service`
-//! already gives it this neutral, appless scope), `device` this object's
-//! `host` — so a pane the Swift chassis already knows about (from its own
-//! `SharedLayout` snapshot) can tell a surface instance which tile shows it
-//! without a second `surface_show` round trip.
+//! `publish`/`open` effects and param binding need. [`Self::render`] and
+//! [`Self::dispatch`] take the calling pane's tile, and the handle knows the
+//! app it serves ([`SharedSurface::open`]'s `app_id`): the pane is recorded
+//! as `(app_id, this handle's host as the device, tile)`, so a publish from a
+//! surface in implore's window selects on implore's channel (review RS-S4,
+//! AC-F6 — it used to be impress's, whatever window showed it). A handle
+//! opened with no app (an HTTP bridge in a process with no layout tree)
+//! finds the pane that shows a surface in every app's layout on this device.
 //!
 //! # `host`
 //!
-//! One `SharedSurface` is opened per store, not per host: `host` is passed
-//! per call (mirroring every `impress-surface-service` verb's own `host:
-//! Option<String>`), defaulting to [`Self::host`] — resolved once at
-//! [`Self::open`] with the exact rule `SharedLayout`'s `device` uses
-//! ([`impress_layout_service::resolve_device`]), so a surface instance and
-//! the layout tree on the same machine agree on which device they are.
+//! The state instance, resolved once at [`SharedSurface::open`] with the rule
+//! `SharedLayout`'s `device` uses ([`impress_layout_service::resolve_device`]):
+//! every pane on this device that shows a surface shares one state row and
+//! one runtime, and an agent that leaves `host` out reaches the same one
+//! (`impress-surface-service`'s module docs, "host"). No FFI call takes a
+//! `host`; the HTTP routes take `?host=` like the verbs do.
 //!
 //! # Liveness (ADR-0033 D6)
 //!
@@ -66,9 +62,7 @@ use std::time::{Duration, Instant};
 
 use impress_core::event::StoreMutation;
 use impress_core::item::{ActorKind, ItemId, Value as ItemValue};
-use impress_core::schemas::{
-    SURFACE_EVENT_SCHEMA_REF, SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF,
-};
+use impress_core::schemas::{SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout_service::resolve_device;
@@ -77,22 +71,15 @@ use impress_service_core::Refusal;
 use impress_surface_service::runtime::actor_name;
 use impress_surface_service::store::actor_from;
 
-use impress_surface::{Event, SurfaceSpec};
-use impress_surface_service::dto::{SurfaceDispatchResult, SurfaceEventDto, SurfaceSummaryDto};
+use impress_surface::Event;
+use impress_surface_service::dto::{SurfaceDispatchResult, SurfaceRenderResult};
 use impress_surface_service::{
-    DefaultExecutor, DefaultImpressSurfaceService, ImpressSurfaceService, PaneHandle,
+    call_verb_on, DefaultExecutor, DefaultImpressSurfaceService, ImpressSurfaceService, PaneHandle,
     SessionRegistry, SurfaceStore, VerbHost,
 };
 
 use crate::ui_feed::{self, ExternalPoll, Feed};
 use crate::{SharedStore, SharedStoreError};
-
-/// The neutral, appless scope `impress-surface-service::service::surface_show`
-/// gives a surface pane when no `app_id` is provided (ADR-0033 leaves which
-/// app a surface belongs to unspecified). Used here so a `pane` argument to
-/// [`SharedSurface::render`]/[`SharedSurface::dispatch`] resolves to the SAME
-/// [`PaneHandle`] `surface_show` would already have set for this instance.
-const APP_ID: &str = "impress";
 
 /// Schema-ref prefix this object's own feed watches — narrower than
 /// [`crate::ui_feed::EXTERNAL_UI_PREFIX`] (`layout.rs`'s feed also watches
@@ -198,8 +185,9 @@ fn reply(status: u16, body: String) -> SharedHttpReply {
     SharedHttpReply { status, body }
 }
 
-/// A refusal as an HTTP reply: `{"error": <message>, "code": <code>}` at the
-/// status the code maps to (`impress_service_core::refusal::http_status`).
+/// A refusal as an HTTP reply: the wire's refusal envelope, `{"ok": false,
+/// "code", "message", "wire_version": 1}`, at the status the code maps to
+/// (`impress_service_core::refusal::http_status`).
 fn refusal_reply(refusal: &Refusal) -> SharedHttpReply {
     log::info!(
         target: "surface",
@@ -209,7 +197,13 @@ fn refusal_reply(refusal: &Refusal) -> SharedHttpReply {
     );
     reply(
         refusal.http_status(),
-        serde_json::json!({ "error": refusal.message, "code": refusal.code }).to_string(),
+        serde_json::json!({
+            "ok": false,
+            "code": refusal.code,
+            "message": refusal.message,
+            "wire_version": impress_service_core::WIRE_VERSION,
+        })
+        .to_string(),
     )
 }
 
@@ -217,23 +211,40 @@ fn error_reply(code: &str, message: impl Into<String>) -> SharedHttpReply {
     refusal_reply(&Refusal::new(code, message))
 }
 
-fn json_reply(status: u16, value: impl serde::Serialize) -> SharedHttpReply {
-    match serde_json::to_string(&value) {
-        Ok(body) => reply(status, body),
-        Err(e) => error_reply(codes::INTERNAL, format!("encode response: {e}")),
-    }
-}
-
 // ─── The invalidation listener ───────────────────────────────────────────
 
-/// What Swift implements to be told a surface changed — its spec, its state,
-/// or its event ring. Arrives on the feed's own thread; hop to the main
-/// actor before touching a view (same rule `SharedLayoutListener` documents).
+/// One surface that changed, and what about it moved — so a pane can tell
+/// the feed's echo of its own write from anyone else's (review SK-K15): it
+/// compares `revision` and `state_revision` with the ones its last render or
+/// dispatch reply carried, and skips the render when neither is newer and
+/// `sources_changed` is false.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedSurfaceChange {
+    pub id: String,
+    /// The spec's revision after the change, when the spec row moved (or
+    /// was deleted: then the surface is gone and this is `None` with
+    /// `deleted` set).
+    pub revision: Option<u64>,
+    /// The state row's revision after the change, when this handle's host's
+    /// state row moved. Another host's state row is not reported.
+    pub state_revision: Option<u64>,
+    /// A store write named a kind one of its query sources reads: those
+    /// sources re-run on the next render, whoever wrote.
+    pub sources_changed: bool,
+    pub deleted: bool,
+}
+
+/// What Swift implements to be told a surface changed — its spec, this
+/// host's state, or data a query source reads. Arrives on the feed's own
+/// thread; hop to the main actor before touching a view (same rule
+/// `SharedLayoutListener` documents). An event appended to a surface's ring
+/// changes nothing a render shows and is not reported.
 #[cfg_attr(feature = "native", uniffi::export(callback_interface))]
 pub trait SharedSurfaceListener: Send + Sync {
-    /// Deduplicated surface ids (as strings) that changed since the last
-    /// delivery, coalesced over the debounce window.
-    fn surfaces_changed(&self, ids: Vec<String>);
+    /// Every surface that changed since the last delivery, one entry each,
+    /// coalesced over the debounce window.
+    fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>);
 }
 
 // ─── The verb host bridge (ADR-0033 D4, amended 2026-09-23 for wave 5) ────
@@ -363,6 +374,9 @@ struct SurfaceCore {
     service: DefaultImpressSurfaceService,
     registry: Arc<SessionRegistry>,
     host: String,
+    /// The app this handle serves (its panes' layout); empty for a handle
+    /// that serves none — see the module docs.
+    app_id: String,
 }
 
 /// Run `work` on this module's runtime and await it from wherever the caller
@@ -380,12 +394,15 @@ async fn off_caller<T: Send + 'static>(
 
 #[cfg_attr(feature = "native", uniffi::export)]
 impl SharedSurface {
-    /// Bind to the surfaces of the given `store`. `host` defaults to the
-    /// layout device id when empty — see the module docs.
+    /// Bind to the surfaces of the given `store`, for the app `app_id` (the
+    /// app whose window this handle's panes are in: `controller.appID`; empty
+    /// for a handle that serves no window). `host` defaults to the layout
+    /// device id when empty — see the module docs.
     #[cfg_attr(feature = "native", uniffi::constructor)]
-    pub fn open(store: Arc<SharedStore>, host: String) -> Arc<Self> {
+    pub fn open(store: Arc<SharedStore>, host: String, app_id: String) -> Arc<Self> {
         let core = store.core();
         let host = resolve_device(Some(host.trim()).filter(|h| !h.is_empty()));
+        let app_id = app_id.trim().to_string();
         // See `HostAdapter`'s docs: it reads `store`'s verb-host slot fresh
         // on every call, so a `set_verb_host` that runs after this `open`
         // still reaches the executor and the service built right here.
@@ -393,28 +410,39 @@ impl SharedSurface {
             slot: store.verb_host_slot(),
         });
         let registry = store.surface_sessions();
+        let executor =
+            DefaultExecutor::with_store_and_sessions(core.clone(), store.layout_sessions())
+                .with_verb_host(verb_host.clone())
+                .with_app(app_id.clone());
         Arc::new(SharedSurface {
             core: SurfaceCore {
                 surfaces: SurfaceStore::new(core.clone()),
-                executor: DefaultExecutor::with_store_and_sessions(
-                    core.clone(),
-                    store.layout_sessions(),
-                )
-                .with_verb_host(verb_host.clone()),
+                // The HTTP routes run the verbs through this service, which
+                // runs sources, effects and `surface_show` through the SAME
+                // executor the panes use: one layout registry, one verb
+                // host, one app.
                 service: DefaultImpressSurfaceService::with_store_and_sessions(
                     core.clone(),
                     registry.clone(),
                 )
-                .with_verb_host(verb_host),
+                .with_verb_host(verb_host)
+                .with_executor(executor.clone()),
+                executor,
                 registry,
                 store: core,
                 host,
+                app_id,
             },
             debounce_ms: AtomicU64::new(ui_feed::DEFAULT_DEBOUNCE_MS),
             startup_grace_secs: AtomicU64::new(0),
             external_poll_ms: AtomicU64::new(ui_feed::EXTERNAL_POLL_MS),
             feed: Mutex::new(None),
         })
+    }
+
+    /// The app this handle serves; empty when none.
+    pub fn app_id(&self) -> String {
+        self.core.app_id.clone()
     }
 
     /// This object's resolved host/device tag.
@@ -464,12 +492,14 @@ impl SharedSurface {
             .collect())
     }
 
-    /// The resolved render tree for `(surface_id, this object's host)` —
-    /// exactly what a renderer turns into pixels, as JSON
-    /// (`serde_json::to_string(&RenderTree)`). Runs every stale source
-    /// through the linked inventory / the store first, OFF the caller's
-    /// thread (see the struct docs). When `pane` is given, records it as
-    /// this instance's [`PaneHandle`] first (see the module docs).
+    /// Render `(surface_id, this object's host)` for the pane `pane` of this
+    /// handle's app, OFF the caller's thread (see the struct docs): runs
+    /// every stale source, binds the surface's params from the pane, and
+    /// answers [`SurfaceRenderResult`]'s JSON — `{"ok", "code", "message",
+    /// "tree", "source_errors", "revision", "state_revision", "params",
+    /// "wire_version"}`, the same document `surface_render` returns over MCP
+    /// and HTTP. A refusal (no such surface) is `ok: false` in that document,
+    /// not an `Err`.
     pub async fn render(&self, surface_id: String, pane: Option<u64>) -> Result<String> {
         let core = self.core.clone();
         off_caller(async move { core.render(&surface_id, pane).await })
@@ -481,7 +511,8 @@ impl SharedSurface {
     /// caller's thread. The JSON is exactly
     /// [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape
     /// (`{"ok", "code", "message", "tree", "effects", "effects_failed",
-    /// "source_errors"}`), so Swift and MCP read one document; `ok` is true
+    /// "source_errors", "revision", "state_revision", "params",
+    /// "wire_version"}`), so Swift and MCP read one document; `ok` is true
     /// only when every effect happened (see that type's docs).
     /// `event_json` is `impress_surface::Event` JSON (`{"widget", "kind",
     /// "value"}`). `pane`, when given, is bound first — see
@@ -523,16 +554,15 @@ impl SharedSurface {
     // 13,000 lines from the cause. No `///` on a #[uniffi::export] item may
     // contain `/*`.
 
-    /// Route one `/api/surface/…` request, OFF the caller's thread. `path`
-    /// may carry a query string (`?pane=7`, `?after=12`,
-    /// `?expected_revision=3`); `body` is the raw request body, ignored for
-    /// methods that do not take one. Every response is JSON; a failure is
-    /// `{"error": "…", "code": "…"}` at the status its code maps to
-    /// (`impress_service_core::refusal::http_status`: `invalid-argument` 400,
-    /// `not-found` 404, `conflict` 409, …), except `POST …/validate`, whose
-    /// 400 carries `{"problems": […]}` — the same shape a 200 from it would,
-    /// so a caller never has to branch on status to read what is wrong — and
-    /// `POST …/dispatch`, whose body is always the dispatch result.
+    /// Route one `/api/surface/…` request, OFF the caller's thread. Every
+    /// route runs the surface verb of the same name, through the same strict
+    /// argument parser MCP uses, and answers that verb's result unchanged —
+    /// `docs/agent-surfaces.md` has the table. The verb's arguments are the
+    /// path's id, the query string (`?host=`, `?after_seq=`, `?timeout_ms=`,
+    /// `?expected_revision=`, `?params=` as JSON), and the JSON body; an
+    /// argument the verb does not take is refused with `invalid-argument`
+    /// naming it. The status is 200 when `ok`, else the status its `code`
+    /// maps to (`impress_service_core::refusal::http_status`).
     pub async fn surface_http(
         &self,
         method: String,
@@ -560,6 +590,8 @@ impl SharedSurface {
             running: running.clone(),
             listener: Arc::from(listener),
             store: self.core.store.clone(),
+            surfaces: self.core.surfaces.clone(),
+            host: self.core.host.clone(),
             registry: self.core.registry.clone(),
             debounce: Duration::from_millis(self.debounce_ms.load(Ordering::SeqCst)),
             grace: Duration::from_secs(self.startup_grace_secs.load(Ordering::SeqCst)),
@@ -616,19 +648,43 @@ impl SurfaceCore {
     }
 
     async fn render(&self, surface_id: &str, pane: Option<u64>) -> Result<String> {
-        let id = parse_surface_id(surface_id)?;
-        if let Some(tile) = pane {
-            self.bind_pane(id, tile).await?;
-        }
+        let dto = match self.render_dto(surface_id, pane).await {
+            Ok(dto) => dto,
+            Err(refusal) => SurfaceRenderResult::refused(refusal),
+        };
+        serde_json::to_string(&dto).map_err(SharedSurfaceError::json)
+    }
+
+    async fn render_dto(
+        &self,
+        surface_id: &str,
+        pane: Option<u64>,
+    ) -> std::result::Result<SurfaceRenderResult, Refusal> {
+        let id = parse_surface_id(surface_id).map_err(|e| e.refusal())?;
+        let pane = self.pane_handle(pane)?;
         let executor = self.executor.clone();
-        let tree = self
+        let (tree, source_errors, revisions) = self
             .registry
             .with(&self.surfaces, id, &self.host, move |rt| {
-                Box::pin(async move { Ok(rt.render(&executor).await) })
+                Box::pin(async move {
+                    if let Some(pane) = pane {
+                        rt.pane = Some(pane);
+                    }
+                    rt.bind_params(&executor, None).await?;
+                    let tree = rt.render(&executor).await;
+                    Ok((tree, rt.source_error_list(), rt.revisions()))
+                })
             })
-            .await
-            .map_err(SharedSurfaceError::surface)?;
-        serde_json::to_string(&tree).map_err(SharedSurfaceError::json)
+            .await?;
+        Ok(SurfaceRenderResult {
+            ok: true,
+            code: None,
+            message: "rendered".to_string(),
+            tree: Some(tree),
+            source_errors,
+            revisions,
+            wire_version: impress_service_core::WIRE_VERSION,
+        })
     }
 
     async fn dispatch(
@@ -640,23 +696,29 @@ impl SurfaceCore {
     ) -> Result<String> {
         let id = parse_surface_id(surface_id)?;
         let event: Event = serde_json::from_str(event_json).map_err(SharedSurfaceError::json)?;
-        if let Some(tile) = pane {
-            self.bind_pane(id, tile).await?;
-        }
         let executor = self.executor.clone();
         let writer = self.surfaces.clone();
-        let outcome = self
-            .registry
-            .with(&self.surfaces, id, &self.host, move |rt| {
-                Box::pin(async move {
-                    let (tree, effects) = rt.dispatch(&executor, &writer, &event, actor).await?;
-                    Ok((tree, effects, rt.source_error_list()))
-                })
-            })
-            .await;
+        let outcome = match self.pane_handle(pane) {
+            Err(refusal) => Err(refusal),
+            Ok(pane) => {
+                self.registry
+                    .with(&self.surfaces, id, &self.host, move |rt| {
+                        Box::pin(async move {
+                            if let Some(pane) = pane {
+                                rt.pane = Some(pane);
+                            }
+                            rt.bind_params(&executor, None).await?;
+                            let (tree, effects) =
+                                rt.dispatch(&executor, &writer, &event, actor).await?;
+                            Ok((tree, effects, rt.source_error_list(), rt.revisions()))
+                        })
+                    })
+                    .await
+            }
+        };
         let dto = match outcome {
-            Ok((tree, effects, source_errors)) => {
-                SurfaceDispatchResult::dispatched(tree, effects, source_errors)
+            Ok((tree, effects, source_errors, revisions)) => {
+                SurfaceDispatchResult::dispatched(tree, effects, source_errors, revisions)
             }
             Err(e) => SurfaceDispatchResult::refused(e),
         };
@@ -679,23 +741,22 @@ impl SurfaceCore {
         serde_json::to_string(&dto).map_err(SharedSurfaceError::json)
     }
 
-    /// Set `(id, self.host)`'s [`PaneHandle`] to tile `tile` under
-    /// [`APP_ID`] — the same shape `surface_show` would already have set.
-    async fn bind_pane(&self, id: ItemId, tile: u64) -> Result<()> {
-        let pane = PaneHandle {
-            app_id: APP_ID.to_string(),
-            device: self.host.clone(),
-            tile,
-        };
-        self.registry
-            .with(&self.surfaces, id, &self.host, move |rt| {
-                Box::pin(async move {
-                    rt.pane = Some(pane);
-                    Ok::<(), Refusal>(())
-                })
-            })
-            .await
-            .map_err(SharedSurfaceError::surface)
+    /// The pane a render or dispatch comes from, as `(this handle's app,
+    /// this handle's host as the device, tile)`. A tile with no app to put
+    /// it in is refused: which layout it is in would be a guess.
+    fn pane_handle(&self, tile: Option<u64>) -> std::result::Result<Option<PaneHandle>, Refusal> {
+        match tile {
+            None => Ok(None),
+            Some(_) if self.app_id.is_empty() => Err(Refusal::invalid_argument(
+                "a pane was given, but this handle serves no app: open it with the app id \
+                 whose window the pane is in",
+            )),
+            Some(tile) => Ok(Some(PaneHandle {
+                app_id: self.app_id.clone(),
+                device: self.host.clone(),
+                tile,
+            })),
+        }
     }
 
     async fn route(&self, method: &str, path: &str, body: &str) -> SharedHttpReply {
@@ -712,195 +773,187 @@ impl SurfaceCore {
         if segments.len() < 2 || segments[0] != "api" || segments[1] != "surface" {
             return error_reply(codes::NOT_FOUND, "no such route");
         }
-        let rest = &segments[2..];
-        match (method.as_str(), rest) {
-            ("GET", []) => self.http_list(),
-            ("POST", []) => self.http_create(body),
-            ("GET", ["schema"]) => self.http_schema().await,
-            ("POST", ["validate"]) => self.http_validate(body).await,
-            ("GET", [id]) => self.http_spec(id),
-            ("PUT", [id]) => self.http_update(id, query, body),
-            ("DELETE", [id]) => self.http_delete(id),
-            ("GET", [id, "render"]) => self.http_render(id, query).await,
-            ("POST", [id, "dispatch"]) => self.http_dispatch(id, query, body).await,
-            ("GET", [id, "events"]) => self.http_events(id, query),
-            _ => error_reply(codes::NOT_FOUND, "no such route"),
-        }
-    }
-
-    fn http_list(&self) -> SharedHttpReply {
-        match self.surfaces.list() {
-            Ok(rows) => {
-                let summaries: Vec<SurfaceSummaryDto> =
-                    rows.iter().map(SurfaceSummaryDto::from).collect();
-                json_reply(200, serde_json::json!({ "surfaces": summaries }))
-            }
-            Err(e) => refusal_reply(&e),
-        }
-    }
-
-    fn http_create(&self, body: &str) -> SharedHttpReply {
-        let spec: SurfaceSpec = match serde_json::from_str(body) {
-            Ok(s) => s,
-            Err(e) => {
-                return error_reply(codes::INVALID_ARGUMENT, format!("invalid spec JSON: {e}"))
-            }
-        };
-        match self.surfaces.create(&spec, None, &[], ActorKind::Agent) {
-            Ok(row) => json_reply(
-                200,
-                serde_json::json!({ "id": row.id.to_string(), "revision": row.revision }),
-            ),
-            Err(e) => refusal_reply(&e),
-        }
-    }
-
-    async fn http_schema(&self) -> SharedHttpReply {
-        json_reply(200, self.service.surface_schema().await)
-    }
-
-    async fn http_validate(&self, body: &str) -> SharedHttpReply {
-        let spec: SurfaceSpec = match serde_json::from_str(body) {
-            Ok(s) => s,
-            Err(e) => {
-                return error_reply(codes::INVALID_ARGUMENT, format!("invalid spec JSON: {e}"))
-            }
-        };
-        let result = self.service.surface_validate(spec).await;
-        let status = if result.ok() { 200 } else { 400 };
-        json_reply(status, result)
-    }
-
-    fn http_spec(&self, id: &str) -> SharedHttpReply {
-        match self.spec(id) {
-            Ok(body) => reply(200, body),
-            Err(e) => refusal_reply(&e.refusal()),
-        }
-    }
-
-    /// `PUT …/<id>`, with `?expected_revision=N` for optimistic concurrency
-    /// (409 on a mismatch, nothing written). No registry forget: every
-    /// runtime re-reads the spec on its next call.
-    fn http_update(&self, id: &str, query: &str, body: &str) -> SharedHttpReply {
-        let surface_id = match parse_surface_id(id) {
-            Ok(id) => id,
-            Err(e) => return refusal_reply(&e.refusal()),
-        };
-        let expected = match query_param(query, "expected_revision") {
-            None => None,
-            Some(raw) => match raw.parse::<u64>() {
-                Ok(n) => Some(n),
-                Err(_) => {
+        let body: Option<serde_json::Value> = if body.trim().is_empty() {
+            None
+        } else {
+            match serde_json::from_str(body) {
+                Ok(v) => Some(v),
+                Err(e) => {
                     return error_reply(
                         codes::INVALID_ARGUMENT,
-                        format!("expected_revision '{raw}' is not a number"),
+                        format!("the request body is not JSON: {e}"),
                     )
                 }
-            },
-        };
-        let spec: SurfaceSpec = match serde_json::from_str(body) {
-            Ok(s) => s,
-            Err(e) => {
-                return error_reply(codes::INVALID_ARGUMENT, format!("invalid spec JSON: {e}"))
             }
         };
-        match self
-            .surfaces
-            .update(surface_id, &spec, None, expected, ActorKind::Agent)
-        {
-            Ok(row) => match serde_json::to_string(&row.spec) {
-                Ok(body) => reply(200, body),
-                Err(e) => error_reply(codes::INTERNAL, format!("encode response: {e}")),
-            },
-            Err(e) => refusal_reply(&e),
-        }
-    }
-
-    fn http_delete(&self, id: &str) -> SharedHttpReply {
-        let surface_id = match parse_surface_id(id) {
-            Ok(id) => id,
-            Err(e) => return refusal_reply(&e.refusal()),
+        let rest = &segments[2..];
+        let Some((verb, id, body_args)) = route_of(&method, rest, body) else {
+            return error_reply(
+                codes::NOT_FOUND,
+                format!("no route {method} {path_only} (docs/agent-surfaces.md lists them)"),
+            );
         };
-        match self.surfaces.delete(surface_id) {
-            Ok(true) => {
-                self.registry.forget_surface(surface_id);
-                json_reply(200, serde_json::json!({ "deleted": true }))
-            }
-            Ok(false) => error_reply(codes::NOT_FOUND, format!("no surface {id}")),
-            Err(e) => refusal_reply(&e),
-        }
-    }
-
-    async fn http_render(&self, id: &str, query: &str) -> SharedHttpReply {
-        let pane = query_param(query, "pane").and_then(|p| p.parse::<u64>().ok());
-        match self.render(id, pane).await {
-            Ok(body) => reply(200, body),
-            Err(e) => refusal_reply(&e.refusal()),
-        }
-    }
-
-    async fn http_dispatch(&self, id: &str, query: &str, body: &str) -> SharedHttpReply {
-        let pane = query_param(query, "pane").and_then(|p| p.parse::<u64>().ok());
-        // Over HTTP the dispatcher is an agent; only the pane passes `human`.
-        match self.dispatch(id, pane, body, ActorKind::Agent).await {
-            Ok(json) => {
-                // `dispatch` always answers `Ok` with the `SurfaceDispatchResult`
-                // shape (see its own docs); the HTTP surface still owes a real
-                // status code, which its `code` decides: 200 when `ok`, else
-                // the code's status — `effect-failed` is 422, with the
-                // re-rendered tree and every effect's outcome in the body.
-                let status = match serde_json::from_str::<serde_json::Value>(&json) {
-                    Ok(v) if v.get("ok").and_then(serde_json::Value::as_bool) == Some(false) => v
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .map(impress_service_core::refusal::http_status)
-                        .unwrap_or(422),
-                    _ => 200,
-                };
-                reply(status, json)
-            }
-            Err(e) => refusal_reply(&e.refusal()),
-        }
-    }
-
-    fn http_events(&self, id: &str, query: &str) -> SharedHttpReply {
-        let surface_id = match parse_surface_id(id) {
-            Ok(id) => id,
-            Err(e) => return refusal_reply(&e.refusal()),
+        let mut args = match query_args(query) {
+            Ok(args) => args,
+            Err(refusal) => return refusal_reply(&refusal),
         };
-        let after = query_param(query, "after")
-            .and_then(|a| a.parse::<u64>().ok())
-            .unwrap_or(0);
-        match self.surfaces.get(surface_id) {
-            Ok(Some(_)) => {}
-            Ok(None) => return error_reply(codes::NOT_FOUND, format!("no surface {id}")),
-            Err(e) => return refusal_reply(&e),
+        if let Some(id) = id {
+            args.insert("id".into(), serde_json::Value::String(id));
         }
-        match self.surfaces.events_after(surface_id, &self.host, after, 0) {
-            Ok(rows) => {
-                // The cursor comes from the rows just read (AC-F2).
-                let (next_seq, gap) = impress_surface_service::service::cursor_after(&rows, after);
-                let events: Vec<SurfaceEventDto> = rows.iter().map(SurfaceEventDto::from).collect();
-                json_reply(
-                    200,
-                    serde_json::json!({ "events": events, "next_seq": next_seq, "gap": gap }),
+        match body_args {
+            Some(serde_json::Value::Object(map)) => {
+                for (key, value) in map {
+                    if args.contains_key(&key) {
+                        return error_reply(
+                            codes::INVALID_ARGUMENT,
+                            format!("`{key}` is given twice (path or query, and body)"),
+                        );
+                    }
+                    args.insert(key, value);
+                }
+            }
+            Some(other) => {
+                return error_reply(
+                    codes::INVALID_ARGUMENT,
+                    format!("the request body must be a JSON object, got {other}"),
                 )
             }
-            Err(e) => refusal_reply(&e),
+            None => {}
         }
+        // This handle's own instance unless the caller names another: its
+        // host (the state instance its panes use), and for `show` its app
+        // and device (the window this process draws).
+        let fill =
+            |args: &mut serde_json::Map<String, serde_json::Value>, key: &str, value: &str| {
+                if !value.is_empty() && !args.contains_key(key) {
+                    args.insert(key.into(), serde_json::Value::String(value.to_string()));
+                }
+            };
+        match verb {
+            "surface_show" => {
+                fill(&mut args, "app_id", &self.app_id);
+                fill(&mut args, "device", &self.host);
+            }
+            "surface_render" | "surface_state_get" | "surface_state_set" | "surface_dispatch"
+            | "surface_events" | "surface_wait" => fill(&mut args, "host", &self.host),
+            _ => {}
+        }
+        let Some(answer) = call_verb_on(&self.service, verb, serde_json::Value::Object(args)).await
+        else {
+            return error_reply(codes::INTERNAL, format!("no verb {verb}"));
+        };
+        let status = match (
+            answer.get("ok").and_then(serde_json::Value::as_bool),
+            answer.get("code").and_then(serde_json::Value::as_str),
+        ) {
+            (Some(false), Some(code)) => impress_service_core::refusal::http_status(code),
+            (Some(false), None) => 422,
+            _ => 200,
+        };
+        if status != 200 {
+            log::info!(
+                target: "surface",
+                "http {method} {path_only} → {status} [{}]: {}",
+                answer.get("code").and_then(serde_json::Value::as_str).unwrap_or("?"),
+                answer.get("message").and_then(serde_json::Value::as_str).unwrap_or("")
+            );
+        }
+        reply(status, answer.to_string())
     }
 }
 
-fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
-    query.split('&').find_map(|pair| {
-        let mut parts = pair.splitn(2, '=');
-        let k = parts.next()?;
-        if k == key {
-            Some(parts.next().unwrap_or(""))
-        } else {
-            None
+/// The route table: `(verb, id from the path, arguments from the body)`
+/// for one `/api/surface/…` request (after `/api/surface`). Two bodies have
+/// a shorthand the verb's own shape does not: a spec on its own (it has a
+/// `surface` key; the arguments never do) is `{"spec": …}`, and an event on
+/// its own (a `widget` key) is `{"event": …}`.
+fn route_of(
+    method: &str,
+    rest: &[&str],
+    body: Option<serde_json::Value>,
+) -> Option<(&'static str, Option<String>, Option<serde_json::Value>)> {
+    fn spec_body(body: Option<serde_json::Value>) -> Option<serde_json::Value> {
+        match body {
+            Some(v) if v.get("surface").is_some() => Some(serde_json::json!({ "spec": v })),
+            other => other,
         }
+    }
+    fn event_body(body: Option<serde_json::Value>) -> Option<serde_json::Value> {
+        match body {
+            Some(v) if v.get("widget").is_some() => Some(serde_json::json!({ "event": v })),
+            other => other,
+        }
+    }
+    let id = |s: &&str| Some(s.to_string());
+    Some(match (method, rest) {
+        ("GET", []) => ("surface_list", None, body),
+        ("POST", []) => ("surface_create", None, spec_body(body)),
+        ("GET", ["schema"]) => ("surface_schema", None, body),
+        ("GET", ["examples"]) => ("surface_examples", None, body),
+        ("POST", ["validate"]) => ("surface_validate", None, spec_body(body)),
+        ("GET", [s]) => ("surface_get", id(s), body),
+        ("PUT", [s]) => ("surface_update", id(s), spec_body(body)),
+        ("DELETE", [s]) => ("surface_delete", id(s), body),
+        ("POST", [s, "show"]) => ("surface_show", id(s), body),
+        ("GET", [s, "render"]) => ("surface_render", id(s), body),
+        ("POST", [s, "dispatch"]) => ("surface_dispatch", id(s), event_body(body)),
+        ("GET", [s, "state"]) => ("surface_state_get", id(s), body),
+        ("PUT", [s, "state"]) => ("surface_state_set", id(s), body),
+        ("GET", [s, "events"]) => ("surface_events", id(s), body),
+        ("GET", [s, "wait"]) => ("surface_wait", id(s), body),
+        _ => return None,
     })
+}
+
+/// A query string as verb arguments: every key is an argument name (the
+/// verb refuses one it does not take), `after_seq`/`timeout_ms`/
+/// `expected_revision` are numbers, `params` is a JSON object, and anything
+/// else is a string. Values are percent-decoded.
+fn query_args(
+    query: &str,
+) -> std::result::Result<serde_json::Map<String, serde_json::Value>, Refusal> {
+    let mut args = serde_json::Map::new();
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, raw) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = percent_decode(key);
+        let raw = percent_decode(raw);
+        let value = match key.as_str() {
+            "after_seq" | "timeout_ms" | "expected_revision" => raw
+                .parse::<u64>()
+                .map(serde_json::Value::from)
+                .map_err(|_| Refusal::invalid_argument(format!("?{key}={raw} is not a number")))?,
+            "params" => serde_json::from_str(&raw).map_err(|e| {
+                Refusal::invalid_argument(format!("?params= must be a JSON object: {e}"))
+            })?,
+            _ => serde_json::Value::String(raw),
+        };
+        if args.insert(key.clone(), value).is_some() {
+            return Err(Refusal::invalid_argument(format!("?{key} is given twice")));
+        }
+    }
+    Ok(args)
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => match u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                Ok(b) => {
+                    out.push(b);
+                    i += 3;
+                    continue;
+                }
+                Err(_) => out.push(b'%'),
+            },
+            b'+' => out.push(b' '),
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 // ─── The feed's worker ───────────────────────────────────────────────────
@@ -909,6 +962,10 @@ struct SurfaceFeed {
     running: Arc<AtomicBool>,
     listener: Arc<dyn SharedSurfaceListener>,
     store: Arc<SqliteItemStore>,
+    /// To read a surface row's revision for a change.
+    surfaces: SurfaceStore,
+    /// Only this host's state rows are this handle's panes' state.
+    host: String,
     /// The store's one surface registry: the feed marks the runtimes whose
     /// query sources read a kind that was written (RS-S2) and reports those
     /// surfaces as changed.
@@ -930,7 +987,8 @@ impl SurfaceFeed {
         // Surface ids invalidated but not yet delivered — non-empty only
         // during the startup grace (CLAUDE.md's render-loop guard, ADR-0019
         // D6, applied here exactly as `layout.rs`'s feed applies it).
-        let mut held: Vec<String> = Vec::new();
+        let mut held: std::collections::BTreeMap<String, SharedSurfaceChange> =
+            std::collections::BTreeMap::new();
         let mut grace_over = self.grace.is_zero();
 
         let mut external = ExternalPoll::baseline(&self.store);
@@ -983,21 +1041,24 @@ impl SurfaceFeed {
                 .unwrap_or(false);
             if (!pending.is_empty() || !pending_refs.is_empty()) && (quiet || overdue) {
                 for mutation in pending.drain(..) {
-                    if let Some(id) = surface_id_of(&self.store, &mutation) {
-                        let id = id.to_string();
-                        if !held.contains(&id) {
-                            held.push(id);
-                        }
+                    if let Some(change) = self.change_of(&mutation) {
+                        merge(&mut held, change);
                     }
                 }
                 for id in self
                     .registry
                     .invalidate_refs(&std::mem::take(&mut pending_refs))
                 {
-                    let id = id.to_string();
-                    if !held.contains(&id) {
-                        held.push(id);
-                    }
+                    merge(
+                        &mut held,
+                        SharedSurfaceChange {
+                            id: id.to_string(),
+                            revision: None,
+                            state_revision: None,
+                            sources_changed: true,
+                            deleted: false,
+                        },
+                    );
                 }
                 burst_started = None;
                 last_seen = None;
@@ -1007,13 +1068,15 @@ impl SurfaceFeed {
                 grace_over = true;
             }
             if grace_over && !held.is_empty() {
+                let changes: Vec<SharedSurfaceChange> =
+                    std::mem::take(&mut held).into_values().collect();
                 log::debug!(
                     target: "surface",
-                    "feed: {} surface(s) changed: {}",
-                    held.len(),
-                    held.join(", ")
+                    "feed: {} surface(s) changed: {:?}",
+                    changes.len(),
+                    changes
                 );
-                self.listener.surfaces_changed(std::mem::take(&mut held));
+                self.listener.surfaces_changed(changes);
             }
         }
     }
@@ -1079,26 +1142,72 @@ fn is_surface_mutation(mutation: &StoreMutation) -> bool {
         .unwrap_or(false)
 }
 
-/// Which surface a mutation is ABOUT. A `surface@1.0.0` row's own id IS the
-/// surface id; a `surface-state@1.0.0` / `surface-event@1.0.0` row's id is
-/// the STATE/EVENT row's own id, so this reads the row back for its
-/// `surface` field (the same field name both schemas use — see
-/// `impress-surface-service/src/store.rs`'s `field::state::SURFACE` /
-/// `field::event::SURFACE`). `None` when the row is already gone (a pruned
-/// event) or unreadable — dropping that one notification is acceptable: the
-/// surface itself did not change.
-fn surface_id_of(store: &SqliteItemStore, mutation: &StoreMutation) -> Option<ItemId> {
-    match mutation.schema_ref.as_deref() {
-        Some(s) if s == SURFACE_SCHEMA_REF => Some(mutation.item_id),
-        Some(s) if s == SURFACE_STATE_SCHEMA_REF || s == SURFACE_EVENT_SCHEMA_REF => {
-            let item = store.get(mutation.item_id).ok().flatten()?;
-            match item.payload.get("surface") {
-                Some(ItemValue::String(raw)) => raw.parse().ok(),
-                _ => None,
+impl SurfaceFeed {
+    /// What a surface mutation changed, for this handle — `None` for one
+    /// that changes nothing a render here shows: an event row (the ring is
+    /// read by `surface_wait`, never drawn), another host's state row, or a
+    /// row already gone.
+    ///
+    /// A `surface@1.0.0` row's own id IS the surface id; a
+    /// `surface-state@1.0.0` row is read back for its `surface` and `host`
+    /// fields and its revision (its logical clock, which every write moves —
+    /// the same number a render or dispatch reply carries as
+    /// `state_revision`).
+    fn change_of(&self, mutation: &StoreMutation) -> Option<SharedSurfaceChange> {
+        match mutation.schema_ref.as_deref() {
+            Some(s) if s == SURFACE_SCHEMA_REF => {
+                let row = self.surfaces.get(mutation.item_id).ok()?;
+                Some(SharedSurfaceChange {
+                    id: mutation.item_id.to_string(),
+                    revision: row.as_ref().map(|r| r.revision),
+                    state_revision: None,
+                    sources_changed: false,
+                    deleted: row.is_none(),
+                })
             }
+            Some(s) if s == SURFACE_STATE_SCHEMA_REF => {
+                let item = self.store.get(mutation.item_id).ok().flatten()?;
+                let field = |name: &str| match item.payload.get(name) {
+                    Some(ItemValue::String(raw)) => Some(raw.clone()),
+                    _ => None,
+                };
+                if field("host")? != self.host {
+                    return None;
+                }
+                let surface: ItemId = field("surface")?.parse().ok()?;
+                Some(SharedSurfaceChange {
+                    id: surface.to_string(),
+                    revision: None,
+                    state_revision: Some(item.logical_clock),
+                    sources_changed: false,
+                    deleted: false,
+                })
+            }
+            // `SURFACE_EVENT_SCHEMA_REF` and anything else.
+            _ => None,
         }
-        _ => None,
     }
+}
+
+/// Fold `change` into what is held for its surface: the newest revisions,
+/// and `sources_changed`/`deleted` if either said so.
+fn merge(
+    held: &mut std::collections::BTreeMap<String, SharedSurfaceChange>,
+    change: SharedSurfaceChange,
+) {
+    let entry = held
+        .entry(change.id.clone())
+        .or_insert_with(|| SharedSurfaceChange {
+            id: change.id.clone(),
+            revision: None,
+            state_revision: None,
+            sources_changed: false,
+            deleted: false,
+        });
+    entry.revision = entry.revision.max(change.revision);
+    entry.state_revision = entry.state_revision.max(change.state_revision);
+    entry.sources_changed |= change.sources_changed;
+    entry.deleted |= change.deleted;
 }
 
 // ─── Free functions ──────────────────────────────────────────────────────
@@ -1125,7 +1234,7 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
-    use impress_surface::example_signal_explorer;
+    use impress_surface::{example_signal_explorer, SurfaceSpec};
 
     /// The async exports, driven to completion from a plain test thread —
     /// the way a Swift `await` drives them, minus Swift.
@@ -1153,7 +1262,7 @@ mod tests {
 
     fn open() -> (Arc<SharedStore>, Arc<SharedSurface>) {
         let store = SharedStore::open_in_memory().expect("open");
-        let surface = SharedSurface::open(store.clone(), "test-host".into());
+        let surface = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
         (store, surface)
     }
 
@@ -1281,7 +1390,7 @@ mod tests {
             "/api/surface/validate".into(),
             spec_json.clone(),
         );
-        assert_eq!(before.status, 400, "{}", before.body);
+        assert_eq!(before.status, 422, "{}", before.body);
         assert!(before.body.contains(FAKE_VERB), "{}", before.body);
 
         store.set_verb_host(Box::new(FakeVerbHost));
@@ -1312,7 +1421,7 @@ mod tests {
         surface.render_now(id.clone(), None).expect("first render");
 
         let event = serde_json::json!({
-            "widget": "n0.1.1", // root/column -> row(1) -> bins field(1)
+            "widget": "bins-slider",
             "kind": "change",
             "value": 40
         })
@@ -1333,7 +1442,8 @@ mod tests {
 
         let rendered = surface.render_now(id, None).expect("render after dispatch");
         let tree: serde_json::Value = serde_json::from_str(&rendered).unwrap();
-        let bins_value = &tree["root"]["node"]["items"][1]["node"]["items"][1]["node"]["value"];
+        let bins_value =
+            &tree["tree"]["root"]["node"]["items"][1]["node"]["items"][1]["node"]["value"];
         assert_eq!(
             bins_value,
             &serde_json::json!(40),
@@ -1361,7 +1471,7 @@ mod tests {
             "/api/surface/validate".into(),
             serde_json::to_string(&bad_spec).unwrap(),
         );
-        assert_eq!(validated.status, 400, "{}", validated.body);
+        assert_eq!(validated.status, 422, "{}", validated.body);
         assert!(validated.body.contains("problems"), "{}", validated.body);
     }
 
@@ -1372,7 +1482,7 @@ mod tests {
         let path_str = path.to_str().unwrap().to_string();
 
         let store = SharedStore::open(path_str.clone()).expect("open");
-        let surface = SharedSurface::open(store.clone(), "test-host".into());
+        let surface = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
 
         surface.set_debounce_ms(20);
         surface.set_startup_grace_secs(0);
@@ -1381,8 +1491,8 @@ mod tests {
         let (tx, rx) = mpsc::channel::<Vec<String>>();
         struct Recorder(mpsc::Sender<Vec<String>>);
         impl SharedSurfaceListener for Recorder {
-            fn surfaces_changed(&self, ids: Vec<String>) {
-                let _ = self.0.send(ids);
+            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+                let _ = self.0.send(changes.into_iter().map(|c| c.id).collect());
             }
         }
         surface
@@ -1431,18 +1541,18 @@ mod tests {
                     from_focused: true,
                 }),
             },
-            Some(impress_surface_service::runtime::SURFACE_APP_ID.into()),
+            "impress".into(),
             None,
         ));
         assert!(shown.ok, "{}", shown.message);
 
         // A brand-new handle, as the HTTP bridge opens per request.
-        let fresh = SharedSurface::open(store.clone(), "test-host".into());
+        let fresh = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
         fresh
             .render_now(id.clone(), None)
             .expect("render on the fresh handle");
         let event = serde_json::json!({
-            "widget": "n0.3", // the table, whose on_select publishes
+            "widget": "papers-table", // its on_select publishes
             "kind": "select",
             "value": ["2b995442-c45a-4922-8c22-600d98900fc1"]
         })
@@ -1485,8 +1595,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t2_handles.sqlite");
         let store = SharedStore::open(path.to_str().unwrap().into()).unwrap();
-        let pane = SharedSurface::open(store.clone(), "test-host".into());
-        let bridge = SharedSurface::open(store.clone(), "test-host".into());
+        let pane = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
+        let bridge = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
         assert!(Arc::ptr_eq(&pane.core.registry, &bridge.core.registry));
 
         let id = created_id(&bridge.http_now(
@@ -1496,11 +1606,12 @@ mod tests {
         ));
         assert!(pane.render_now(id.clone(), None).unwrap().contains("first"));
 
-        let put = SharedSurface::open(store.clone(), "test-host".into()).http_now(
-            "PUT".into(),
-            format!("/api/surface/{id}?expected_revision=1"),
-            titled_spec("second"),
-        );
+        let put = SharedSurface::open(store.clone(), "test-host".into(), "impress".into())
+            .http_now(
+                "PUT".into(),
+                format!("/api/surface/{id}?expected_revision=1"),
+                titled_spec("second"),
+            );
         assert_eq!(put.status, 200, "{}", put.body);
         assert!(pane
             .render_now(id.clone(), None)
@@ -1577,7 +1688,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t2_feed.sqlite");
         let store = SharedStore::open(path.to_str().unwrap().into()).unwrap();
-        let surface = SharedSurface::open(store.clone(), "test-host".into());
+        let surface = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
         surface.set_debounce_ms(20);
         surface.set_external_poll_ms(20);
         let id = SurfaceStore::new(store.core())
@@ -1591,8 +1702,8 @@ mod tests {
         let (tx, rx) = mpsc::channel::<Vec<String>>();
         struct Recorder(mpsc::Sender<Vec<String>>);
         impl SharedSurfaceListener for Recorder {
-            fn surfaces_changed(&self, ids: Vec<String>) {
-                let _ = self.0.send(ids);
+            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+                let _ = self.0.send(changes.into_iter().map(|c| c.id).collect());
             }
         }
         surface.subscribe(Box::new(Recorder(tx))).unwrap();
@@ -1815,11 +1926,17 @@ mod tests {
     #[test]
     fn surface_errors_reach_swift_with_their_code() {
         let (_store, surface) = open();
-        let err = surface
+        // A render answers the wire's envelope, refusal included…
+        let rendered = surface
             .render_now("00000000-0000-4000-8000-000000000000".into(), None)
-            .unwrap_err();
-        match err {
-            SharedSurfaceError::Surface { code, .. } => assert_eq!(code, "not-found"),
+            .unwrap();
+        let rendered: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(rendered["ok"], false);
+        assert_eq!(rendered["code"], "not-found");
+        assert_eq!(rendered["wire_version"], 1);
+        // …and a plain read throws with the code.
+        match surface.spec("00000000-0000-4000-8000-000000000000".into()) {
+            Err(SharedSurfaceError::Surface { code, .. }) => assert_eq!(code, "not-found"),
             other => panic!("{other:?}"),
         }
     }
@@ -1850,5 +1967,228 @@ mod tests {
                     && message.contains("human dispatch applied, but not ok [effect-failed]")),
             "{mine:#?}"
         );
+    }
+
+    // ── wave 7 T6a: the HTTP mirror, the echo marker ────────────────────────
+
+    fn body(reply: &SharedHttpReply) -> serde_json::Value {
+        serde_json::from_str(&reply.body).unwrap_or_else(|e| panic!("{e}: {}", reply.body))
+    }
+
+    /// AC-F9 + RS-S13: every route answers its verb's own result, with
+    /// `wire_version`, and the routes the verbs had no HTTP form for exist.
+    #[test]
+    fn every_mirrored_route_answers_its_verbs_result() {
+        let (store, surface) = open();
+        let id = create(&store, &publish_spec());
+        let http = |m: &str, p: String, b: &str| surface.http_now(m.into(), p, b.into());
+        let routes: Vec<(&str, String, String, u16, &str)> = vec![
+            ("GET", "/api/surface".into(), "".into(), 200, "surfaces"),
+            (
+                "GET",
+                "/api/surface/schema".into(),
+                "".into(),
+                200,
+                "schema",
+            ),
+            (
+                "GET",
+                "/api/surface/examples".into(),
+                "".into(),
+                200,
+                "examples",
+            ),
+            (
+                "POST",
+                "/api/surface/validate".into(),
+                serde_json::to_string(&publish_spec()).unwrap(),
+                200,
+                "problems",
+            ),
+            ("GET", format!("/api/surface/{id}"), "".into(), 200, "spec"),
+            (
+                "GET",
+                format!("/api/surface/{id}/render"),
+                "".into(),
+                200,
+                "tree",
+            ),
+            (
+                "GET",
+                format!("/api/surface/{id}/state"),
+                "".into(),
+                200,
+                "state",
+            ),
+            (
+                "PUT",
+                format!("/api/surface/{id}/state"),
+                r#"{"state": {"clicked": true}}"#.into(),
+                200,
+                "state",
+            ),
+            (
+                "POST",
+                format!("/api/surface/{id}/dispatch"),
+                r#"{"event": {"widget": "go", "kind": "click"}}"#.into(),
+                422,
+                "effects",
+            ),
+            (
+                "GET",
+                format!("/api/surface/{id}/events?after_seq=0"),
+                "".into(),
+                200,
+                "events",
+            ),
+            (
+                "GET",
+                format!("/api/surface/{id}/wait?after_seq=0&timeout_ms=10"),
+                "".into(),
+                200,
+                "timed_out",
+            ),
+            (
+                "PUT",
+                format!("/api/surface/{id}?expected_revision=1"),
+                serde_json::to_string(&publish_spec()).unwrap(),
+                200,
+                "revision",
+            ),
+            (
+                "POST",
+                format!("/api/surface/{id}/show"),
+                r#"{"target": {"split": {"direction": "vertical"}}}"#.into(),
+                200,
+                "tile",
+            ),
+            ("DELETE", format!("/api/surface/{id}"), "".into(), 200, "ok"),
+        ];
+        for (method, path, request, status, key) in routes {
+            let reply = http(method, path.clone(), &request);
+            let answer = body(&reply);
+            assert_eq!(reply.status, status, "{method} {path}: {}", reply.body);
+            assert_eq!(answer["wire_version"], 1, "{method} {path}: {}", reply.body);
+            assert!(
+                answer.get(key).is_some(),
+                "{method} {path} has no `{key}`: {}",
+                reply.body
+            );
+        }
+    }
+
+    /// Strict over HTTP too: an argument the verb does not take — the old
+    /// `?after=`, a misspelt body key — is a 400 naming it.
+    #[test]
+    fn an_unknown_http_argument_is_refused_naming_it() {
+        let (store, surface) = open();
+        let id = create(&store, &publish_spec());
+        for (method, path, request, field) in [
+            (
+                "GET",
+                format!("/api/surface/{id}/events?after=0"),
+                "",
+                "after",
+            ),
+            (
+                "GET",
+                format!("/api/surface/{id}/render?pane=3"),
+                "",
+                "pane",
+            ),
+            (
+                "POST",
+                format!("/api/surface/{id}/show"),
+                r#"{"target": {"id": 7}}"#,
+                "id",
+            ),
+            (
+                "POST",
+                "/api/surface".to_string(),
+                r#"{"spec": {"surface": "1.0"}, "tagz": []}"#,
+                "tagz",
+            ),
+        ] {
+            let reply = surface.http_now(method.into(), path.clone(), request.into());
+            let answer = body(&reply);
+            assert_eq!(reply.status, 400, "{method} {path}: {}", reply.body);
+            assert_eq!(answer["code"], "invalid-argument");
+            assert!(
+                answer["message"].as_str().unwrap().contains(field),
+                "{method} {path} must name `{field}`: {}",
+                reply.body
+            );
+        }
+    }
+
+    /// An invalid spec is refused at create over HTTP, with every problem.
+    #[test]
+    fn an_invalid_spec_is_refused_at_create_over_http() {
+        let (_store, surface) = open();
+        let reply = surface.http_now(
+            "POST".into(),
+            "/api/surface".into(),
+            r#"{"surface": "1.0", "name": "x", "root": {"table": {"rows": []}}}"#.into(),
+        );
+        let answer = body(&reply);
+        assert_eq!(reply.status, 422, "{}", reply.body);
+        assert_eq!(answer["code"], "invalid-spec");
+        assert_eq!(answer["problems"][0]["path"], "/root");
+        let listed = body(&surface.http_now("GET".into(), "/api/surface".into(), String::new()));
+        assert_eq!(listed["surfaces"], serde_json::json!([]));
+    }
+
+    /// SK-K15: a dispatch's reply carries the state revision it wrote, and
+    /// the feed reports that same revision for the write — so the pane can
+    /// tell its own echo from an agent's. An event appended by the same
+    /// dispatch is not reported at all.
+    #[test]
+    fn the_feed_reports_the_state_revision_the_dispatch_reply_carried() {
+        let (store, surface) = open();
+        surface.set_debounce_ms(20);
+        let id = create(&store, &publish_spec());
+        let (tx, rx) = mpsc::channel::<Vec<SharedSurfaceChange>>();
+        struct Recorder(mpsc::Sender<Vec<SharedSurfaceChange>>);
+        impl SharedSurfaceListener for Recorder {
+            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+                let _ = self.0.send(changes);
+            }
+        }
+        surface.subscribe(Box::new(Recorder(tx))).unwrap();
+
+        let reply: serde_json::Value = serde_json::from_str(
+            &surface
+                .dispatch_now(id.clone(), None, CLICK.into())
+                .unwrap(),
+        )
+        .unwrap();
+        let written = reply["state_revision"].as_u64().expect("a state revision");
+        let changes = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(changes.len(), 1, "{changes:?}");
+        assert_eq!(changes[0].id, id);
+        assert_eq!(changes[0].state_revision, Some(written), "{changes:?}");
+        assert!(!changes[0].sources_changed);
+
+        // Another writer's state is newer than what the pane last saw.
+        let other = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
+        other.http_now(
+            "PUT".into(),
+            format!("/api/surface/{id}/state"),
+            r#"{"state": {"clicked": false}}"#.into(),
+        );
+        let changes = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(changes[0].state_revision.unwrap() > written, "{changes:?}");
+        surface.unsubscribe();
+    }
+
+    /// RS-S4: the pane a render comes from is recorded in THIS handle's app.
+    #[test]
+    fn a_pane_with_no_app_is_refused_not_guessed() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let appless = SharedSurface::open(store.clone(), "test-host".into(), String::new());
+        let id = create(&store, &publish_spec());
+        let rendered: serde_json::Value =
+            serde_json::from_str(&appless.render_now(id, Some(3)).unwrap()).unwrap();
+        assert_eq!(rendered["code"], "invalid-argument", "{rendered}");
     }
 }

@@ -4446,11 +4446,17 @@ public func FfiConverterTypeSharedStore_lower(_ value: SharedStore) -> UnsafeMut
 public protocol SharedSurfaceProtocol : AnyObject {
     
     /**
+     * The app this handle serves; empty when none.
+     */
+    func appId()  -> String
+    
+    /**
      * Reduce one renderer event, run its effects, and re-render — OFF the
      * caller's thread. The JSON is exactly
      * [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape
      * (`{"ok", "code", "message", "tree", "effects", "effects_failed",
-     * "source_errors"}`), so Swift and MCP read one document; `ok` is true
+     * "source_errors", "revision", "state_revision", "params",
+     * "wire_version"}`), so Swift and MCP read one document; `ok` is true
      * only when every effect happened (see that type's docs).
      * `event_json` is `impress_surface::Event` JSON (`{"widget", "kind",
      * "value"}`). `pane`, when given, is bound first — see
@@ -4480,12 +4486,14 @@ public protocol SharedSurfaceProtocol : AnyObject {
     func list() throws  -> [SharedSurfaceRow]
     
     /**
-     * The resolved render tree for `(surface_id, this object's host)` —
-     * exactly what a renderer turns into pixels, as JSON
-     * (`serde_json::to_string(&RenderTree)`). Runs every stale source
-     * through the linked inventory / the store first, OFF the caller's
-     * thread (see the struct docs). When `pane` is given, records it as
-     * this instance's [`PaneHandle`] first (see the module docs).
+     * Render `(surface_id, this object's host)` for the pane `pane` of this
+     * handle's app, OFF the caller's thread (see the struct docs): runs
+     * every stale source, binds the surface's params from the pane, and
+     * answers [`SurfaceRenderResult`]'s JSON — `{"ok", "code", "message",
+     * "tree", "source_errors", "revision", "state_revision", "params",
+     * "wire_version"}`, the same document `surface_render` returns over MCP
+     * and HTTP. A refusal (no such surface) is `ok: false` in that document,
+     * not an `Err`.
      */
     func render(surfaceId: String, pane: UInt64?) async throws  -> String
     
@@ -4515,16 +4523,15 @@ public protocol SharedSurfaceProtocol : AnyObject {
     func subscribe(listener: SharedSurfaceListener) throws 
     
     /**
-     * Route one `/api/surface/…` request, OFF the caller's thread. `path`
-     * may carry a query string (`?pane=7`, `?after=12`,
-     * `?expected_revision=3`); `body` is the raw request body, ignored for
-     * methods that do not take one. Every response is JSON; a failure is
-     * `{"error": "…", "code": "…"}` at the status its code maps to
-     * (`impress_service_core::refusal::http_status`: `invalid-argument` 400,
-     * `not-found` 404, `conflict` 409, …), except `POST …/validate`, whose
-     * 400 carries `{"problems": […]}` — the same shape a 200 from it would,
-     * so a caller never has to branch on status to read what is wrong — and
-     * `POST …/dispatch`, whose body is always the dispatch result.
+     * Route one `/api/surface/…` request, OFF the caller's thread. Every
+     * route runs the surface verb of the same name, through the same strict
+     * argument parser MCP uses, and answers that verb's result unchanged —
+     * `docs/agent-surfaces.md` has the table. The verb's arguments are the
+     * path's id, the query string (`?host=`, `?after_seq=`, `?timeout_ms=`,
+     * `?expected_revision=`, `?params=` as JSON), and the JSON body; an
+     * argument the verb does not take is refused with `invalid-argument`
+     * naming it. The status is 200 when `ok`, else the status its `code`
+     * maps to (`impress_service_core::refusal::http_status`).
      */
     func surfaceHttp(method: String, path: String, body: String) async  -> SharedHttpReply
     
@@ -4603,14 +4610,17 @@ open class SharedSurface:
 
     
     /**
-     * Bind to the surfaces of the given `store`. `host` defaults to the
-     * layout device id when empty — see the module docs.
+     * Bind to the surfaces of the given `store`, for the app `app_id` (the
+     * app whose window this handle's panes are in: `controller.appID`; empty
+     * for a handle that serves no window). `host` defaults to the layout
+     * device id when empty — see the module docs.
      */
-public static func `open`(store: SharedStore, host: String) -> SharedSurface {
+public static func `open`(store: SharedStore, host: String, appId: String) -> SharedSurface {
     return try!  FfiConverterTypeSharedSurface.lift(try! rustCall() {
     uniffi_impress_store_ffi_fn_constructor_sharedsurface_open(
         FfiConverterTypeSharedStore.lower(store),
-        FfiConverterString.lower(host),$0
+        FfiConverterString.lower(host),
+        FfiConverterString.lower(appId),$0
     )
 })
 }
@@ -4618,11 +4628,22 @@ public static func `open`(store: SharedStore, host: String) -> SharedSurface {
 
     
     /**
+     * The app this handle serves; empty when none.
+     */
+open func appId() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsurface_app_id(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Reduce one renderer event, run its effects, and re-render — OFF the
      * caller's thread. The JSON is exactly
      * [`impress_surface_service::dto::SurfaceDispatchResult`]'s shape
      * (`{"ok", "code", "message", "tree", "effects", "effects_failed",
-     * "source_errors"}`), so Swift and MCP read one document; `ok` is true
+     * "source_errors", "revision", "state_revision", "params",
+     * "wire_version"}`), so Swift and MCP read one document; `ok` is true
      * only when every effect happened (see that type's docs).
      * `event_json` is `impress_surface::Event` JSON (`{"widget", "kind",
      * "value"}`). `pane`, when given, is bound first — see
@@ -4677,12 +4698,14 @@ open func list()throws  -> [SharedSurfaceRow] {
 }
     
     /**
-     * The resolved render tree for `(surface_id, this object's host)` —
-     * exactly what a renderer turns into pixels, as JSON
-     * (`serde_json::to_string(&RenderTree)`). Runs every stale source
-     * through the linked inventory / the store first, OFF the caller's
-     * thread (see the struct docs). When `pane` is given, records it as
-     * this instance's [`PaneHandle`] first (see the module docs).
+     * Render `(surface_id, this object's host)` for the pane `pane` of this
+     * handle's app, OFF the caller's thread (see the struct docs): runs
+     * every stale source, binds the surface's params from the pane, and
+     * answers [`SurfaceRenderResult`]'s JSON — `{"ok", "code", "message",
+     * "tree", "source_errors", "revision", "state_revision", "params",
+     * "wire_version"}`, the same document `surface_render` returns over MCP
+     * and HTTP. A refusal (no such surface) is `ok: false` in that document,
+     * not an `Err`.
      */
 open func render(surfaceId: String, pane: UInt64?)async throws  -> String {
     return
@@ -4753,16 +4776,15 @@ open func subscribe(listener: SharedSurfaceListener)throws  {try rustCallWithErr
 }
     
     /**
-     * Route one `/api/surface/…` request, OFF the caller's thread. `path`
-     * may carry a query string (`?pane=7`, `?after=12`,
-     * `?expected_revision=3`); `body` is the raw request body, ignored for
-     * methods that do not take one. Every response is JSON; a failure is
-     * `{"error": "…", "code": "…"}` at the status its code maps to
-     * (`impress_service_core::refusal::http_status`: `invalid-argument` 400,
-     * `not-found` 404, `conflict` 409, …), except `POST …/validate`, whose
-     * 400 carries `{"problems": […]}` — the same shape a 200 from it would,
-     * so a caller never has to branch on status to read what is wrong — and
-     * `POST …/dispatch`, whose body is always the dispatch result.
+     * Route one `/api/surface/…` request, OFF the caller's thread. Every
+     * route runs the surface verb of the same name, through the same strict
+     * argument parser MCP uses, and answers that verb's result unchanged —
+     * `docs/agent-surfaces.md` has the table. The verb's arguments are the
+     * path's id, the query string (`?host=`, `?after_seq=`, `?timeout_ms=`,
+     * `?expected_revision=`, `?params=` as JSON), and the JSON body; an
+     * argument the verb does not take is refused with `invalid-argument`
+     * naming it. The status is 200 when `ok`, else the status its `code`
+     * maps to (`impress_service_core::refusal::http_status`).
      */
 open func surfaceHttp(method: String, path: String, body: String)async  -> SharedHttpReply {
     return
@@ -12098,6 +12120,129 @@ public func FfiConverterTypeSharedSkippedFile_lower(_ value: SharedSkippedFile) 
 
 
 /**
+ * One surface that changed, and what about it moved — so a pane can tell
+ * the feed's echo of its own write from anyone else's (review SK-K15): it
+ * compares `revision` and `state_revision` with the ones its last render or
+ * dispatch reply carried, and skips the render when neither is newer and
+ * `sources_changed` is false.
+ */
+public struct SharedSurfaceChange {
+    public var id: String
+    /**
+     * The spec's revision after the change, when the spec row moved (or
+     * was deleted: then the surface is gone and this is `None` with
+     * `deleted` set).
+     */
+    public var revision: UInt64?
+    /**
+     * The state row's revision after the change, when this handle's host's
+     * state row moved. Another host's state row is not reported.
+     */
+    public var stateRevision: UInt64?
+    /**
+     * A store write named a kind one of its query sources reads: those
+     * sources re-run on the next render, whoever wrote.
+     */
+    public var sourcesChanged: Bool
+    public var deleted: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * The spec's revision after the change, when the spec row moved (or
+         * was deleted: then the surface is gone and this is `None` with
+         * `deleted` set).
+         */revision: UInt64?, 
+        /**
+         * The state row's revision after the change, when this handle's host's
+         * state row moved. Another host's state row is not reported.
+         */stateRevision: UInt64?, 
+        /**
+         * A store write named a kind one of its query sources reads: those
+         * sources re-run on the next render, whoever wrote.
+         */sourcesChanged: Bool, deleted: Bool) {
+        self.id = id
+        self.revision = revision
+        self.stateRevision = stateRevision
+        self.sourcesChanged = sourcesChanged
+        self.deleted = deleted
+    }
+}
+
+
+
+extension SharedSurfaceChange: Equatable, Hashable {
+    public static func ==(lhs: SharedSurfaceChange, rhs: SharedSurfaceChange) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.revision != rhs.revision {
+            return false
+        }
+        if lhs.stateRevision != rhs.stateRevision {
+            return false
+        }
+        if lhs.sourcesChanged != rhs.sourcesChanged {
+            return false
+        }
+        if lhs.deleted != rhs.deleted {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(revision)
+        hasher.combine(stateRevision)
+        hasher.combine(sourcesChanged)
+        hasher.combine(deleted)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSurfaceChange: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSurfaceChange {
+        return
+            try SharedSurfaceChange(
+                id: FfiConverterString.read(from: &buf), 
+                revision: FfiConverterOptionUInt64.read(from: &buf), 
+                stateRevision: FfiConverterOptionUInt64.read(from: &buf), 
+                sourcesChanged: FfiConverterBool.read(from: &buf), 
+                deleted: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedSurfaceChange, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionUInt64.write(value.revision, into: &buf)
+        FfiConverterOptionUInt64.write(value.stateRevision, into: &buf)
+        FfiConverterBool.write(value.sourcesChanged, into: &buf)
+        FfiConverterBool.write(value.deleted, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSurfaceChange_lift(_ buf: RustBuffer) throws -> SharedSurfaceChange {
+    return try FfiConverterTypeSharedSurfaceChange.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSurfaceChange_lower(_ value: SharedSurfaceChange) -> RustBuffer {
+    return FfiConverterTypeSharedSurfaceChange.lower(value)
+}
+
+
+/**
  * One surface row, for a picker or a pane's title — never the spec (see
  * [`SharedSurface::spec`] for the full document).
  */
@@ -15231,17 +15376,19 @@ extension FfiConverterCallbackInterfaceSharedLogSink : FfiConverter {
 
 
 /**
- * What Swift implements to be told a surface changed — its spec, its state,
- * or its event ring. Arrives on the feed's own thread; hop to the main
- * actor before touching a view (same rule `SharedLayoutListener` documents).
+ * What Swift implements to be told a surface changed — its spec, this
+ * host's state, or data a query source reads. Arrives on the feed's own
+ * thread; hop to the main actor before touching a view (same rule
+ * `SharedLayoutListener` documents). An event appended to a surface's ring
+ * changes nothing a render shows and is not reported.
  */
 public protocol SharedSurfaceListener : AnyObject {
     
     /**
-     * Deduplicated surface ids (as strings) that changed since the last
-     * delivery, coalesced over the debounce window.
+     * Every surface that changed since the last delivery, one entry each,
+     * coalesced over the debounce window.
      */
-    func surfacesChanged(ids: [String]) 
+    func surfacesChanged(changes: [SharedSurfaceChange]) 
     
 }
 
@@ -15255,7 +15402,7 @@ fileprivate struct UniffiCallbackInterfaceSharedSurfaceListener {
     static var vtable: UniffiVTableCallbackInterfaceSharedSurfaceListener = UniffiVTableCallbackInterfaceSharedSurfaceListener(
         surfacesChanged: { (
             uniffiHandle: UInt64,
-            ids: RustBuffer,
+            changes: RustBuffer,
             uniffiOutReturn: UnsafeMutableRawPointer,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
@@ -15265,7 +15412,7 @@ fileprivate struct UniffiCallbackInterfaceSharedSurfaceListener {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.surfacesChanged(
-                     ids: try FfiConverterSequenceString.lift(ids)
+                     changes: try FfiConverterSequenceTypeSharedSurfaceChange.lift(changes)
                 )
             }
 
@@ -16901,6 +17048,31 @@ fileprivate struct FfiConverterSequenceTypeSharedSkippedFile: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedSurfaceChange: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedSurfaceChange]
+
+    public static func write(_ value: [SharedSurfaceChange], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedSurfaceChange.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedSurfaceChange] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedSurfaceChange]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedSurfaceChange.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedSurfaceRow: FfiConverterRustBuffer {
     typealias SwiftType = [SharedSurfaceRow]
 
@@ -17934,7 +18106,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_record_produced() != 53538) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_dispatch() != 11704) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_app_id() != 7654) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_dispatch() != 14363) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_host() != 58823) {
@@ -17943,7 +18118,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_list() != 4236) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_render() != 2108) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_render() != 37251) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_set_debounce_ms() != 4617) {
@@ -17961,7 +18136,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_subscribe() != 63432) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 12986) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 10034) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_unsubscribe() != 53229) {
@@ -17982,7 +18157,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open_in_memory() != 51392) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_constructor_sharedsurface_open() != 9026) {
+    if (uniffi_impress_store_ffi_checksum_constructor_sharedsurface_open() != 56699) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_panes_invalidated() != 34210) {
@@ -17997,7 +18172,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlogsink_log() != 38040) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 2563) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 53629) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_has_verb() != 43567) {

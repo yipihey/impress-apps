@@ -182,12 +182,13 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
         params: Option<ParamsArg>,
     ) -> SurfaceDispatchResult;
 
-    /// A page of `(surface, host)`'s emitted events with `seq > after_seq`.
+    /// A page of `(surface, host)`'s emitted events with `seq > after_seq`
+    /// (0, every event still in the ring, when absent).
     #[impress_method]
     async fn surface_events(
         &self,
         id: String,
-        after_seq: u64,
+        after_seq: Option<u64>,
         host: Option<String>,
     ) -> SurfaceEventsResult;
 
@@ -199,7 +200,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     async fn surface_wait(
         &self,
         id: String,
-        after_seq: u64,
+        after_seq: Option<u64>,
         timeout_ms: u64,
         host: Option<String>,
     ) -> SurfaceWaitResult;
@@ -957,9 +958,10 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     async fn surface_events(
         &self,
         id: String,
-        after_seq: u64,
+        after_seq: Option<u64>,
         host: Option<String>,
     ) -> SurfaceEventsResult {
+        let after_seq = after_seq.unwrap_or(0);
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
             Err(e) => return SurfaceEventsResult::refused(e),
@@ -991,10 +993,11 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     async fn surface_wait(
         &self,
         id: String,
-        after_seq: u64,
+        after_seq: Option<u64>,
         timeout_ms: u64,
         host: Option<String>,
     ) -> SurfaceWaitResult {
+        let after_seq = after_seq.unwrap_or(0);
         let surface_id = match parse_id(&id) {
             Ok(id) => id,
             Err(e) => return SurfaceWaitResult::refused(e),
@@ -1149,13 +1152,14 @@ impress_service_impl! {
         ) -> SurfaceDispatchResult,
         surface_events(
             id: String,
-            /// Return events with a larger `seq`; 0 for all.
-            after_seq: u64,
+            /// Return events with a larger `seq`; 0 (all) when absent.
+            after_seq: Option<u64>,
             host: Option<String>
         ) -> SurfaceEventsResult,
         surface_wait(
             id: String,
-            after_seq: u64,
+            /// Wait for an event with a larger `seq`; 0 when absent.
+            after_seq: Option<u64>,
             /// At most 55000.
             timeout_ms: u64,
             host: Option<String>

@@ -1441,8 +1441,11 @@ async fn surface_capability(http: &Http, created: &mut Vec<String>) -> Capabilit
     created.push(surface_id.clone());
 
     check(id, description, Tier::B, || async {
-        /// The value of the widget bound to `state.bins` in a render tree.
-        fn bins_value(tree: &Value) -> Option<f64> {
+        /// The value of the widget bound to `state.bins` in a render — the
+        /// wire's render envelope (`{"ok", "tree", …}`, wave 7 T6a) or a bare
+        /// tree.
+        fn bins_value(rendered: &Value) -> Option<f64> {
+            let tree = rendered.get("tree").unwrap_or(rendered);
             fn walk(node: &Value) -> Option<f64> {
                 if node.get("id").and_then(Value::as_str) == Some("bins") {
                     return node.get("node")?.get("value")?.as_f64();
@@ -1518,7 +1521,7 @@ async fn surface_capability(http: &Http, created: &mut Vec<String>) -> Capabilit
         }
 
         let events = http
-            .get(&format!("/api/surface/{surface_id}/events?after=0"))
+            .get(&format!("/api/surface/{surface_id}/events?after_seq=0"))
             .await?;
         let names: Vec<&str> = events
             .get("events")
