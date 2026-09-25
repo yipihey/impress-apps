@@ -158,6 +158,16 @@ struct LayoutPublicationTabPaneView: View {
     private func reload() {
         guard let id = loadedID else { return }
         publication = RustStoreAdapter.shared.getPublicationDetail(id: id)
+        if publication == nil {
+            // The paper went away while shown (PH-L6). Clearing `loadedID`
+            // is what makes the pane say "No publication …" instead of
+            // falling through to "select a publication" under a row that is
+            // still selected.
+            loadedID = nil
+            logInfo(
+                "pane \(context.tile) \(tab.rawValue): publication \(id.uuidString) — no longer in the store",
+                category: "layout")
+        }
     }
 }
 #endif

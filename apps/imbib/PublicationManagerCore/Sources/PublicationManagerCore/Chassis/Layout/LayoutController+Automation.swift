@@ -50,10 +50,14 @@ extension LayoutController: @retroactive LayoutAutomationHost {
         if let error = lastError { payload["lastError"] = error }
         // The tree itself is Rust's JSON, decoded here only so the response is
         // one object rather than an object with a string of JSON inside it.
-        if let snapshot = try? liveSnapshot() {
-            payload["layout"] = snapshot
-        } else {
+        // A failed snapshot says WHY (PH-L8): `"layout": null` alone reads
+        // exactly like "no tree", and an agent cannot tell the two apart.
+        do {
+            payload["layout"] = try liveSnapshot()
+        } catch {
             payload["layout"] = NSNull()
+            payload["snapshotError"] = String(describing: error)
+            logError("layout tree for automation: snapshot failed — \(error)", category: "layout")
         }
         return payload
     }
@@ -170,6 +174,13 @@ extension LayoutController: @retroactive LayoutAutomationHost {
             with: Data(result.layoutJson.utf8)) as? [String: Any]
         {
             payload["layout"] = tree
+        } else {
+            // The verb applied; only the echo of the tree is missing. Say so
+            // rather than answer as if the response had no tree to carry.
+            payload["layoutError"] = "the applied verb's layout JSON did not parse as an object"
+            logError(
+                "layout applied (agent): \(what) — layout JSON did not parse (\(result.layoutJson.count) bytes)",
+                category: "layout")
         }
         return payload
     }
