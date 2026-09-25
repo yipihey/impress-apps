@@ -33,7 +33,14 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
 
     private init() {}
 
-    func routeSurfaceRequest(method: String, path: String, body: String) -> (
+    /// ONE handle for every request (SK-K1), reopened only if the store
+    /// handle itself changes. A handle is cheap and stateless — the store's
+    /// one surface registry is shared by every handle — but opening one per
+    /// request was how the bridge and the panes came to disagree.
+    private var surface: SharedSurface?
+    private var surfaceStore: SharedStore?
+
+    func routeSurfaceRequest(method: String, path: String, body: String) async -> (
         status: Int, body: String
     ) {
         guard let store = RustStoreAdapter.shared.layoutSharedStore() else {
@@ -48,8 +55,17 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
         // `host: ""` is the process-wide host, the same one `surface_show`
         // binds a pane under: a surface created by an agent and a surface
         // rendered in this window are one row, not two.
-        let surface = SharedSurface.open(store: store, host: "")
-        let reply = surface.surfaceHttp(method: method, path: path, body: body)
+        let surface: SharedSurface
+        if let cached = self.surface, surfaceStore === store {
+            surface = cached
+        } else {
+            surface = SharedSurface.open(store: store, host: "")
+            self.surface = surface
+            surfaceStore = store
+        }
+        // Awaited, not blocked on: Rust runs the request on its own runtime
+        // and the main actor is free meanwhile (wave 7, SK-K2).
+        let reply = await surface.surfaceHttp(method: method, path: path, body: body)
         logInfo(
             "surface automation: \(method) \(path) → \(reply.status)", category: "surface")
         return (Int(reply.status), reply.body)

@@ -4855,6 +4855,7 @@ dependencies = [
  "serde",
  "serde_json",
  "surface-demo-service",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "uuid",

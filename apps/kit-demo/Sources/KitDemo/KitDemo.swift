@@ -51,7 +51,9 @@ enum Demo {
                  {"emit": {"name": "bins-chosen", "payload": {"bins": "{{state.bins}}"}}}]}}
              ]}}
             """#
-        let created = surfaces.surfaceHttp(method: "POST", path: "/api/surface", body: spec)
+        let created = seedBeforeTheWindowOpens {
+            await surfaces.surfaceHttp(method: "POST", path: "/api/surface", body: spec)
+        }
         guard created.status < 300,
             let object = try? JSONSerialization.jsonObject(with: Data(created.body.utf8))
                 as? [String: Any],
@@ -104,6 +106,23 @@ enum Demo {
                 ? " (single item \(controller.pane(tile)?.singleItem ?? "unresolved"))" : ""
             say("pane \(tile): \(kind.rawValue) → renders \(resolved.rawValue)\(detail)")
         }
+    }
+
+    /// `surfaceHttp` is async (wave 7): it runs on Rust's own runtime and
+    /// never needs this thread, so waiting for it here cannot deadlock. The
+    /// demo seeds its surface in `App.init`, before the tree is opened, and
+    /// keeps that order rather than splitting a pane into an open window.
+    static func seedBeforeTheWindowOpens(
+        _ work: @escaping @Sendable () async -> SharedHttpReply
+    ) -> SharedHttpReply {
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = SharedHttpReply(status: 500, body: "{}")
+        Task.detached {
+            reply = await work()
+            done.signal()
+        }
+        done.wait()
+        return reply
     }
 
     static func say(_ line: String) {
