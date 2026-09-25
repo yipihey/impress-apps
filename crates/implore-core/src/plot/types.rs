@@ -78,8 +78,9 @@ pub enum LegendPosition {
     BottomLeft,
 }
 
-/// Legend configuration.
+/// Legend configuration. Missing fields take [`PlotLegend::default`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlotLegend {
     pub position: LegendPosition,
     pub visible: bool,
@@ -97,26 +98,46 @@ impl Default for PlotLegend {
 // ── Data series ─────────────────────────────────────────────────────
 
 /// A single data series in a plot.
+///
+/// Only `x` and `y` are required when deserializing; everything else takes
+/// the same default as [`PlotSeries::line`]. A spec written by hand (or by an
+/// agent through the `create-figure` verb) need not spell out every style
+/// field to be accepted.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotSeries {
     /// Display name for legend.
+    #[serde(default)]
     pub label: String,
     /// X values.
     pub x: Vec<f64>,
     /// Y values.
     pub y: Vec<f64>,
     /// Lower error bound (y - error_low). If present, error bars are drawn.
+    #[serde(default)]
     pub error_low: Option<Vec<f64>>,
     /// Upper error bound (y + error_high).
+    #[serde(default)]
     pub error_high: Option<Vec<f64>>,
     /// Rendering style.
+    #[serde(default)]
     pub style: SeriesStyle,
     /// Series color.
+    #[serde(default)]
     pub color: PlotColor,
     /// Point radius for scatter/line-scatter (default 3.0).
+    #[serde(default = "default_point_radius")]
     pub point_radius: f64,
     /// Line width (default 1.5).
+    #[serde(default = "default_line_width")]
     pub line_width: f64,
+}
+
+fn default_point_radius() -> f64 {
+    3.0
+}
+
+fn default_line_width() -> f64 {
+    1.5
 }
 
 impl PlotSeries {
@@ -130,8 +151,8 @@ impl PlotSeries {
             error_high: None,
             style: SeriesStyle::Line,
             color: PlotColor::default(),
-            point_radius: 3.0,
-            line_width: 1.5,
+            point_radius: default_point_radius(),
+            line_width: default_line_width(),
         }
     }
 
@@ -171,8 +192,9 @@ impl PlotSeries {
 
 // ── Axis spec ───────────────────────────────────────────────────────
 
-/// Axis configuration within a PlotSpec.
+/// Axis configuration within a PlotSpec. Missing fields take their default.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlotAxis {
     pub label: Option<String>,
     pub min: Option<f64>,
@@ -184,7 +206,11 @@ pub struct PlotAxis {
 // ── PlotSpec ────────────────────────────────────────────────────────
 
 /// Complete declarative specification for a 1D plot.
+///
+/// Missing fields take [`PlotSpec::default`] (640×400, grid on, legend top
+/// right), so `{"series":[{"x":[1,2],"y":[3,4]}]}` is a whole spec.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlotSpec {
     pub title: Option<String>,
     pub width: f64,

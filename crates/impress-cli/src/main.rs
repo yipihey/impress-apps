@@ -103,6 +103,33 @@ fn take_store_path(args: Vec<String>) -> Vec<String> {
     out
 }
 
+/// Install the HTTP backend of the app whose verb is about to run, exactly
+/// as `impress-mcp` does at startup, so `impress <verb>` and the MCP tool of
+/// the same name reach the same implementation.
+///
+/// Only implore so far. Its verbs have no store-backed default: datasets and
+/// figures live in the running app, so without the probe every implore verb
+/// here answered "implore is not running" even with implore open
+/// (`impress create-figure` could never work). imbib, imprint and impart keep
+/// their store-backed defaults here; installing their HTTP backends would
+/// change what those verbs read, which is a separate decision.
+///
+/// The probe runs only for an implore verb, so no other command pays for a
+/// connection attempt or prints the probe's line on stderr.
+/// `IMPLORE_HTTP_URL` (another port) and `IMPLORE_BACKEND=off` apply as they
+/// do for impress-mcp.
+fn install_app_backend(matches: &clap::ArgMatches) {
+    let Some((name, _)) = matches.subcommand() else {
+        return;
+    };
+    let is_implore = cli::effective_names()
+        .into_iter()
+        .any(|(n, sub)| n == name && sub.qualified_name.starts_with("implore-service_"));
+    if is_implore {
+        implore_service_http::maybe_install_http_backend();
+    }
+}
+
 fn main() {
     // The real reference into `impress-capabilities` this file's top comment
     // promises: `cli::build_cli_from_inventory`/`dispatch_matches` below read
@@ -135,6 +162,7 @@ fn main() {
              store.",
         );
     let matches = app.get_matches_from(args);
+    install_app_backend(&matches);
 
     match cli::dispatch_matches(&matches) {
         Ok(value) => match serde_json::to_string_pretty(&value) {

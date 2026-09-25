@@ -421,6 +421,19 @@ trait named `<Name>Service` in a crate named `<name>-service`, that is always
 `<name>-service_<method>` — no separate derivation needed, which is why the
 scaffold can print the tool name up front.
 
+**Describing the arguments.** The trait method's `///` doc is the verb's
+description. An argument is described by `///` lines on it inside
+`impress_service_impl!`'s `methods = [...]` (Rust allows no doc comments on a
+trait method's parameters); they become the args-struct field's doc, so the
+argument's JSON-schema `description` in the MCP `inputSchema`, and its flag
+help in the CLI (`-h` shows the first paragraph, `--help` all of it). An
+argument whose shape a flat type cannot say — a list of objects, a whole
+spec — can be a `#[serde(transparent)]` newtype over `serde_json::Value` with
+a hand-written `schemars::JsonSchema` (non-referenceable, so the shape shows
+inline): the schema stays precise while the verb, not serde, words the
+refusal. `implore-service`'s `create_figure` (`FigureSeriesArg`,
+`PlotSpecArg`) is the worked example.
+
 **Becoming callable from a surface.** Once the crate exists, it still has to
 be *linked* before any process can dispatch its verb — an `#[impress_service]`
 trait registers into the `inventory` crate's global collector only in a

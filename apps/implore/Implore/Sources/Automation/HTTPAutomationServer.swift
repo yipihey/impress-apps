@@ -44,6 +44,17 @@ public actor HTTPAutomationServer {
     /// loser's automation API silently never came up.
     public static let defaultPort: UInt16 = SiblingApp.implore.httpPort
 
+    /// The port to bind: `httpAutomationPort` from the defaults, else
+    /// `defaultPort`. implore has no settings pane that writes it, so it is
+    /// set only by a launch argument (`-httpAutomationPort 23181`, the
+    /// volatile argument domain), which is how a second implore (a branch
+    /// build under test) runs beside the user's without taking its socket.
+    /// The same key and rule as impress's, imprint's and impel's servers.
+    public static var configuredPort: UInt16 {
+        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
+        return (1...Int(UInt16.max)).contains(port) ? UInt16(port) : defaultPort
+    }
+
     // MARK: - State
 
     private let server: HTTPServer<ImploreHTTPRouter>
@@ -73,14 +84,14 @@ public actor HTTPAutomationServer {
         }
 
         let configuration = HTTPServerConfiguration(
-            port: Self.defaultPort,
+            port: Self.configuredPort,
             loggerSubsystem: "com.implore.app",
             loggerCategory: "httpServer",
             logRequests: true
         )
 
         await server.start(configuration: configuration)
-        logInfo("HTTP server started on port \(Self.defaultPort)", category: "http-server")
+        logInfo("HTTP server started on port \(Self.configuredPort)", category: "http-server")
     }
 
     /// Stop the HTTP server.
@@ -92,7 +103,7 @@ public actor HTTPAutomationServer {
     /// Restart the server.
     public func restart() async {
         let configuration = HTTPServerConfiguration(
-            port: Self.defaultPort,
+            port: Self.configuredPort,
             loggerSubsystem: "com.implore.app",
             loggerCategory: "httpServer",
             logRequests: true

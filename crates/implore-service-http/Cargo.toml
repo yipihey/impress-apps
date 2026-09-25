@@ -9,6 +9,8 @@ repository.workspace = true
 [dependencies]
 impress-app-client = { workspace = true }
 implore-service = { workspace = true }
+# `FigureData`, the validated create-figure data this crate forwards.
+implore-core = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -16,3 +18,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
+
+[dev-dependencies]
+# The pass-through tests' one-request mock of implore (`#[tokio::test]`).
+tokio = { workspace = true }

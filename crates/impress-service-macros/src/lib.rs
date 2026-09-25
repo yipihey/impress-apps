@@ -157,7 +157,10 @@ struct ImplMacroInput {
 struct MethodDecl {
     name: Ident,
     doc: String,
-    args: Vec<(Ident, Type)>,
+    /// `(docs, name, type)`: `docs` are the argument's `///` lines, which
+    /// become the args-struct field's doc attributes and so its JSON-schema
+    /// `description` (MCP `inputSchema`, CLI `--help`).
+    args: Vec<(Vec<syn::Attribute>, Ident, Type)>,
     ret: Option<Type>,
 }
 
@@ -173,6 +176,10 @@ impl syn::parse::Parse for ImplMacroInput {
         //   methods = [
         //     name(arg: Type, ...) -> RetType,
         //     name(arg: Type, ...),            // implicit `-> ()`
+        //     name(
+        //         /// Becomes this argument's schema `description`.
+        //         arg: Type,
+        //     ) -> RetType,
         //   ],
 
         let mut service: Option<Ident> = None;
@@ -243,10 +250,19 @@ fn parse_method_decl(input: syn::parse::ParseStream) -> syn::Result<MethodDecl> 
 
     let mut args = Vec::new();
     while !arg_content.is_empty() {
+        // `/// doc` lines on an argument describe it in the generated schema.
+        // Only doc attributes are kept; anything else is a mistake here.
+        let arg_attrs = arg_content.call(syn::Attribute::parse_outer)?;
+        if let Some(bad) = arg_attrs.iter().find(|a| !a.path().is_ident("doc")) {
+            return Err(syn::Error::new_spanned(
+                bad,
+                "only `///` doc comments are allowed on an impress_service_impl! argument",
+            ));
+        }
         let arg_name: Ident = arg_content.parse()?;
         arg_content.parse::<syn::Token![:]>()?;
         let arg_ty: Type = arg_content.parse()?;
-        args.push((arg_name, arg_ty));
+        args.push((arg_attrs, arg_name, arg_ty));
         if arg_content.peek(syn::Token![,]) {
             arg_content.parse::<syn::Token![,]>()?;
         }
@@ -390,9 +406,10 @@ fn expand_method(
     // Build the args struct fields and the deserialization → call expression.
     let mut struct_fields = Vec::new();
     let mut arg_idents = Vec::new();
-    for (arg_name, arg_ty) in &method.args {
+    for (arg_attrs, arg_name, arg_ty) in &method.args {
         validate_supported_ty(arg_ty)?;
         struct_fields.push(quote! {
+            #(#arg_attrs)*
             pub #arg_name: #arg_ty,
         });
         arg_idents.push(arg_name.clone());
