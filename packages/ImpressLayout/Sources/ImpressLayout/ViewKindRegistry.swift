@@ -134,13 +134,34 @@ public struct PaneContext {
         self.bindings = bindings
     }
 
-    public var viewKind: ViewKindID { ViewKindID(pane.viewKind) }
+    /// The view kind to render, from the SPEC the tree walk handed in rather
+    /// than from `pane` (which is fetched, so it can lag one resolve behind):
+    /// the renderer must never build tile B with tile A's kind (SK-K11).
+    public var viewKind: ViewKindID { ViewKindID(spec?.viewKind ?? pane.viewKind) }
 
     public var role: String? { pane.role }
 
     /// Set when the pane's scope was a single item and it resolved — what a
     /// detail pane renders.
     public var singleItem: String? { pane.singleItem }
+
+    /// This tile's refresh token: moves exactly when Rust says THIS pane is
+    /// stale. A rows pane re-runs its query on it — not on the controller's
+    /// global `refreshToken`, which moves when any pane goes stale (PH-H1).
+    @MainActor
+    public var refreshToken: UInt64 { controller.refreshToken(for: tile) }
+
+    /// Why this pane's spec or query last failed, or nil. Never another
+    /// pane's error, and never a verb refusal (SK-K7 / PH-M3).
+    @MainActor
+    public var error: String? { controller.paneError(for: tile) }
+
+    /// Run the pane's compiled query, throwing what Rust refused — so an
+    /// empty result and a refused query cannot be mistaken for each other.
+    @MainActor
+    public func loadRows(offset: UInt32 = 0, limit: UInt32 = 500) throws -> [SharedItemRow] {
+        try controller.loadRows(for: tile, offset: offset, limit: limit)
+    }
 
     /// The record kind the pane's query names first — the DEFAULT for a
     /// selection, and only that.
@@ -154,7 +175,8 @@ public struct PaneContext {
     /// own kind is what a selection means; see `select(_:kind:)`.
     public var primaryKind: String? { spec?.queryKinds.first }
 
-    /// Run the pane's compiled query.
+    /// Run the pane's compiled query. Empty on failure too — read `error`
+    /// afterwards, or call `loadRows`, to tell the two apart.
     @MainActor
     public func rows(limit: UInt32 = 500) -> [SharedItemRow] {
         controller.rows(for: tile, limit: limit)

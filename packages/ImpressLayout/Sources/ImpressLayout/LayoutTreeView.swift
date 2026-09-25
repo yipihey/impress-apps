@@ -35,7 +35,8 @@
 //  fraction, one divider) and a linear container holds N children with N
 //  relative weights that live in the tree rather than in `UserDefaults`.
 //  Its conventions are kept, deliberately and visibly: the same 1 pt divider
-//  with a 10 pt invisible hit area and the same `NSCursor` push/pop, the same
+//  with a 10 pt invisible hit area (with a system pointer style rather than
+//  its `NSCursor` push/pop, which could come unbalanced — SK-K25), the same
 //  `ZStack`-free `.clipped()` children, and the same
 //  `.ignoresSafeArea(.container, edges: .top)` on the pane that sits under
 //  the window toolbar (CLAUDE.md § macOS Toolbar & Split View Layout — the
@@ -64,12 +65,17 @@ public struct LayoutHostServices: Sendable {
     /// warms it off-main here.
     public var openStore: @MainActor @Sendable () async -> SharedStore?
 
-    /// The controller is open and about to render. PublicationManagerCore
-    /// registers it as `LayoutAutomation.shared.host` here, so "a tree is
-    /// rendering" and "layout automation works" stay one fact.
+    /// This controller is now the process's CURRENT tree: it just opened,
+    /// its window became key, or the window that was current closed and it
+    /// took over. PublicationManagerCore registers it as
+    /// `LayoutAutomation.shared.host` here, so "a tree is rendering" and
+    /// "layout automation works" stay one fact. May be called more than once
+    /// for one controller (see `LayoutTreeRuntime`).
     public var didOpen: @MainActor @Sendable (LayoutController) -> Void
 
-    /// The window is going away; the controller has already stopped its feed.
+    /// This controller's window is going away; its feed has already stopped.
+    /// While another tree is still open, `didOpen` for that one follows at
+    /// once — so a host may clear a single "current host" slot here.
     public var didClose: @MainActor @Sendable (LayoutController) -> Void
 
     /// Shown while `openStore` runs.
@@ -123,47 +129,60 @@ public struct LayoutTreeHost: View {
                 services.loading()
             }
         }
+        // Setup and teardown are one task's lifetime (SK-K18 / AC-F17). The
+        // task opens the controller once, then — on EVERY appearance — starts
+        // its feed and registers it, and when SwiftUI cancels the task (the
+        // window closed, or a remount hid it) stops the feed and unregisters.
+        // The old shape opened in `.task` and stopped in `onDisappear`, so a
+        // remount that kept `@State` found the controller, returned early,
+        // and left a tree whose feed was off and whose chords were dead.
         .task {
-            guard controller == nil else { return }
-            guard let store = await services.openStore() else {
-                failure =
-                    "The shared store handle the layout tree needs is not open. "
-                    + "Relaunch once the workspace is reachable."
-                logError("layout host: no SharedStore handle — tree not rendered", category: "layout")
-                return
+            let opened: LayoutController
+            if let existing = controller {
+                opened = existing
+            } else {
+                guard let store = await services.openStore() else {
+                    failure =
+                        "The shared store handle the layout tree needs is not open. "
+                        + "Relaunch once the workspace is reachable."
+                    logError(
+                        "layout host: no SharedStore handle — tree not rendered", category: "layout")
+                    return
+                }
+                // `device: nil` = this machine. Window geometry is
+                // device-scoped (ADR-0019 D2); the logical tree is not.
+                let layout = SharedLayout.open(store: store, appId: appID, device: nil)
+                // Bind the local, not the `@State` read-back: a freshly
+                // written `@State` is not guaranteed to read back as the new
+                // value inside the same closure.
+                opened = LayoutController(
+                    layout: layout, appID: appID, store: store,
+                    startupGraceSecs: LayoutTreeRuntime.shared.remainingStartupGrace())
+                opened.onSessionsClosed = { ids in PaneSessionRegistries.release(ids) }
+                controller = opened
+                logInfo("layout host: tree opened for \(appID)", category: "layout")
             }
-            // `device: nil` = this machine. Window geometry is device-scoped
-            // (ADR-0019 D2); the logical tree is not.
-            let layout = SharedLayout.open(store: store, appId: appID, device: nil)
-            // Bind the local, not the `@State` read-back: a freshly written
-            // `@State` is not guaranteed to read back as the new value inside
-            // the same closure, and the runtime pointer would then be nil.
-            let opened = LayoutController(layout: layout, appID: appID, store: store)
-            controller = opened
-            LayoutTreeRuntime.shared.controller = opened
-            services.didOpen(opened)
-            logInfo("layout host: tree opened for \(appID)", category: "layout")
-        }
-        .onDisappear {
-            guard let controller else { return }
-            controller.stop()
-            LayoutTreeRuntime.shared.controller = nil
-            services.didClose(controller)
+            await attend(opened)
         }
     }
-}
 
-/// The one live controller of this process, for the menu chords.
-///
-/// `Commands` values are built outside any window's environment, so ⌃⌘S /
-/// ⌥⌘0 / ⌘0 / ⌃⌘1–9 cannot reach a controller through `@Environment`. It
-/// holds no layout state of its own: it is a pointer to the object that asks
-/// Rust.
-@MainActor
-public final class LayoutTreeRuntime {
-    public static let shared = LayoutTreeRuntime()
-    public weak var controller: LayoutController?
-    private init() {}
+    /// The window's lifetime for `controller`: feed on and registered until
+    /// the task is cancelled, then feed off and unregistered — by identity,
+    /// so another window's registration is untouched (SK-K10).
+    private func attend(_ controller: LayoutController) async {
+        controller.start()
+        LayoutTreeRuntime.shared.register(controller, services: services)
+        logInfo("layout host: \(appID) window attached", category: "layout")
+        // Not a sleep loop that swallows cancellation (CLAUDE.md): the
+        // condition is checked every time the sleep ends, and a cancelled
+        // sleep ends at once.
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3600))
+        }
+        controller.stop()
+        LayoutTreeRuntime.shared.unregister(controller)
+        logInfo("layout host: \(appID) window detached", category: "layout")
+    }
 }
 
 // MARK: - Window
@@ -181,14 +200,32 @@ public struct LayoutWindowView: View {
     public var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) { treeErrorBanner }
+            // Knows the NSWindow: installs the ⌘Z routing and makes this
+            // controller current when the window becomes key.
+            .background(LayoutWindowAnchor(controller: controller))
             // `.focusable()` belongs on the OUTERMOST container and nowhere
             // else (CLAUDE.md § Keyboard Shortcuts): a `.focusable()` wrapper
             // around an AppKit text view swallows keys before the responder
             // chain sees them, which is why individual panes must never get
-            // one.
+            // one — a pane that wants keys registers a handler for the root
+            // to call instead (`LayoutController.setKeyHandler`).
             .focusable()
             .keyboardGuarded { press in handleCharacter(press) }
-            .onKeyPress(keys: ["z", "Z"]) { press in handleUndoChord(press) }
+            // Special keys, so `.onKeyPress` (CLAUDE.md's exception list): a
+            // focused text field keeps its own Return and Escape, and only
+            // an unclaimed one reaches here.
+            .onKeyPress(keys: [.return]) { _ in
+                controller.routeKeyToFocusedPane(.activate) ? .handled : .ignored
+            }
+            .onKeyPress(keys: [.escape]) { _ in
+                controller.routeKeyToFocusedPane(.leave) ? .handled : .ignored
+            }
+            // ⌥⌘Z / ⌥⇧⌘Z while the root has focus. Plain ⌘Z / ⇧⌘Z are Edit
+            // ▸ Undo / Redo's key equivalents, which AppKit handles before
+            // any key press: `LayoutWindowResponder` routes those (and these,
+            // when the root does not have focus).
+            .onKeyPress(keys: ["z", "Z"]) { press in handleArrangementChord(press) }
             // h / l pressed INSIDE a pane that claims them first (a hosted
             // domain view that answers them itself) reach the tree through
             // the host: PublicationManagerCore's `ChassisRootView` routes
@@ -204,12 +241,29 @@ public struct LayoutWindowView: View {
         } else {
             LayoutUnavailable(
                 "No Layout", systemImage: "rectangle.split.3x1",
-                message: controller.lastError ?? "This app has no layout yet.")
+                message: controller.treeError ?? "This app has no layout yet.")
+        }
+    }
+
+    /// A tree Rust holds that this build could not decode: the window shows
+    /// the last tree that did, and says so rather than looking current.
+    @ViewBuilder
+    private var treeErrorBanner: some View {
+        if controller.tree != nil, let treeError = controller.treeError {
+            Label(treeError, systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .lineLimit(2)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
+                .padding(.top, 6)
+                .allowsHitTesting(false)
         }
     }
 
     /// h / l over the tree — the same `TriageKeyGrammar` commands every list
-    /// surface returns `.ignored` for, because pane focus is window-scoped.
+    /// surface returns `.ignored` for, because pane focus is window-scoped —
+    /// and j / k, offered to the focused pane if it registered for them.
     private func handleCharacter(_ press: KeyPress) -> KeyPress.Result {
         guard press.modifiers.isEmpty else { return .ignored }
         switch TriageKeyGrammar.command(forCharacters: press.characters) {
@@ -219,32 +273,25 @@ public struct LayoutWindowView: View {
         case .focusPaneRight:
             controller.apply(.focusDirection(.right))
             return .handled
+        case .navigateDown:
+            return controller.routeKeyToFocusedPane(.down) ? .handled : .ignored
+        case .navigateUp:
+            return controller.routeKeyToFocusedPane(.up) ? .handled : .ignored
         default:
             return .ignored
         }
     }
 
-    /// ⌘Z / ⇧⌘Z / ⌥⌘Z / ⌥⇧⌘Z, routed by the focused leaf (ADR-0031 D7).
-    ///
-    /// Modified keys, so `.onKeyPress` is the right modifier here rather than
-    /// `.keyboardGuarded` (CLAUDE.md lists modified chords as the exception).
-    /// The session ring is NOT ours: when the focused pane is session-bearing
-    /// this returns `.ignored` and the editor's own undo manager gets the
-    /// chord through the responder chain.
-    private func handleUndoChord(_ press: KeyPress) -> KeyPress.Result {
-        guard press.modifiers.contains(.command) else { return .ignored }
-        let isRedo = press.modifiers.contains(.shift)
-        if press.modifiers.contains(.option) {
-            // The arrangement ring is always ours: it is the window's shape,
-            // which no editor has an opinion about.
-            if isRedo { controller.redoArrangement() } else { controller.undoArrangement() }
-            return .handled
+    /// ⌥⌘Z / ⌥⇧⌘Z: the window's arrangement ring (ADR-0031 D7), always the
+    /// tree's — the window's shape is nothing an editor has an opinion about.
+    private func handleArrangementChord(_ press: KeyPress) -> KeyPress.Result {
+        guard press.modifiers.contains(.command), press.modifiers.contains(.option) else {
+            return .ignored
         }
-        guard !controller.focusedPaneIsSessionBearing else { return .ignored }
-        if isRedo {
-            controller.redoInFocus()
+        if press.modifiers.contains(.shift) {
+            controller.redoArrangement()
         } else {
-            controller.undoInFocus()
+            controller.undoArrangement()
         }
         return .handled
     }
@@ -379,9 +426,17 @@ struct LayoutLinearSplit: View {
         }
     }
 
+    /// Children are identified by TILE ID, not position (SK-K11). After a
+    /// close, move or split the view at index i shows a different tile; by
+    /// position it kept that position's `@State` — a pane host's resolved
+    /// pane, a surface pane's model, a field's draft — and for one render
+    /// built tile B with tile A's view kind. Tile ids are unique within a
+    /// container, and this is not `.id(tile)` on the host: a session-bearing
+    /// pane keeps its host across siblings closing, which is the point of
+    /// ADR-0031 D6.
     @ViewBuilder
     private func laidOut(sizes: [CGFloat], axis: CGFloat, band: CGFloat) -> some View {
-        ForEach(Array(children.enumerated()), id: \.offset) { index, tile in
+        ForEach(Array(children.enumerated()), id: \.element) { index, tile in
             childView(
                 tile: tile, index: index,
                 size: sizes.indices.contains(index) ? sizes[index] : 0,
@@ -442,17 +497,13 @@ struct LayoutLinearSplit: View {
                         height: dir == .vertical ? dividerHitLength : nil
                     )
                     .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside {
-                            if dir == .horizontal {
-                                NSCursor.resizeLeftRight.push()
-                            } else {
-                                NSCursor.resizeUpDown.push()
-                            }
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                    // The system owns the cursor stack (SK-K25): a pointer
+                    // style has nothing to push or pop, so a drag that leaves
+                    // the 10 pt hit area keeps the resize cursor, and a
+                    // divider that vanishes under the pointer (⌃⌘S collapsing
+                    // its neighbour) cannot leave it stuck.
+                    .pointerStyle(
+                        .frameResize(position: dir == .horizontal ? .trailing : .bottom))
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .local)
                             .onChanged { value in
@@ -648,24 +699,31 @@ struct LayoutPaneHost: View {
     @Environment(\.viewKindRegistry) private var registry
 
     /// The pane as Rust resolved it — a query COMPILE, so it is fetched on
-    /// appear and when the tree or the pane's data changes, never inside
-    /// `body`.
+    /// appear and when RUST SAYS this pane is stale (its own refresh token),
+    /// never inside `body` and never because some other pane changed.
     @State private var resolved: SharedPane?
 
     var body: some View {
         Group {
-            if let resolved {
+            // `resolved.tile == tile`: this host's state must never render
+            // another tile's pane (SK-K11). Identity is by tile now, so it
+            // should always hold; if it ever does not, the pane waits for its
+            // own resolve rather than borrowing a neighbour's.
+            if let resolved, resolved.tile == tile {
                 registry.make(
                     PaneContext(
                         tile: tile, pane: resolved, spec: spec, controller: controller))
             } else {
                 LayoutUnavailable(
                     "Pane Unavailable", systemImage: "rectangle.dashed",
-                    message: controller.lastError ?? "This pane's query has not resolved yet.")
+                    message: controller.paneError(for: tile)
+                        ?? "Pane \(String(tile))'s query has not resolved yet.")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(focusRing)
+        // A view of its own, so a focus move re-evaluates the ring and not
+        // the pane's content.
+        .overlay(LayoutFocusRing(controller: controller, tile: tile))
         .contentShape(Rectangle())
         // `simultaneousGesture`, not `onTapGesture`: a click must focus the
         // pane AND still reach the row, the button or the text view it landed
@@ -676,22 +734,41 @@ struct LayoutPaneHost: View {
                 controller.apply(.focus(target: .id(tile)))
             }
         )
-        .onAppear { resolve() }
-        .onChange(of: controller.version) { _, _ in resolve() }
-        .onChange(of: controller.refreshToken) { _, _ in resolve() }
+        .onAppear { resolve("appeared") }
+        // THIS tile's token only (PH-H1 / SK-K6). It moves when a verb names
+        // the pane in `affected_panes`, when the feed invalidates it, or when
+        // the whole tree was reloaded — not on a focus, a resize, or a verb
+        // that changed another pane.
+        .onChange(of: controller.refreshToken(for: tile)) { _, _ in resolve("stale") }
+        // A maximize/restore can hand this position a different tile.
+        .onChange(of: tile) { _, _ in resolve("retargeted") }
     }
 
-    @ViewBuilder
-    private var focusRing: some View {
+    private func resolve(_ reason: String) {
+        resolved = controller.pane(tile)
+        LayoutPaneHost.resolveCount &+= 1
+        logInfo(
+            "layout pane \(tile) resolved (\(reason)) — \(resolved == nil ? "failed" : "ok")",
+            category: "layout")
+    }
+
+    /// How many pane resolves this process has run — the redraw counter the
+    /// wave-7 proof reads (a focus or a resize must not move it).
+    @MainActor static var resolveCount = 0
+}
+
+/// The focused pane's ring.
+@MainActor
+struct LayoutFocusRing: View {
+    let controller: LayoutController
+    let tile: UInt64
+
+    var body: some View {
         if controller.focused == tile {
             RoundedRectangle(cornerRadius: 3)
                 .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 2)
                 .allowsHitTesting(false)
         }
-    }
-
-    private func resolve() {
-        resolved = controller.pane(tile)
     }
 }
 #endif
