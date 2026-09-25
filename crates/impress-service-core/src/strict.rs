@@ -70,10 +70,26 @@ pub fn from_value<T: DeserializeOwned + schemars::JsonSchema>(value: Value) -> R
 /// the tool, so an agent reading only the message knows which call it was.
 ///
 /// The argument object is a method's whole parameter list, never free-form
-/// JSON: a method whose schema names no properties takes no arguments, so a
-/// key there is refused too (a free-form object deeper down stays free).
+/// JSON: a method whose schema is a plain object naming no properties takes
+/// no arguments, so a key there is refused too (a free-form object deeper
+/// down stays free, and an enum root is walked by [`check`]).
 pub fn args<T: DeserializeOwned>(tool: &str, value: Value, schema: &Value) -> Result<T, Refusal> {
-    if schema.get("properties").is_none() {
+    // Only a plain object schema that names nothing — an args struct with no
+    // fields. A schema that describes its object any other way (an enum's
+    // `oneOf`, a `$ref`, `additionalProperties`) is `check`'s to walk.
+    let names_nothing = schema.get("type").and_then(Value::as_str) == Some("object")
+        && [
+            "properties",
+            "additionalProperties",
+            "patternProperties",
+            "oneOf",
+            "anyOf",
+            "allOf",
+            "$ref",
+        ]
+        .iter()
+        .all(|key| schema.get(*key).is_none());
+    if names_nothing {
         if let Some(extra) = value.as_object().and_then(|m| m.keys().next()) {
             return Err(Refusal::invalid_argument(format!(
                 "unknown field '{extra}' (it takes no arguments)"
@@ -492,5 +508,20 @@ mod tests {
         assert_eq!(refused.code, "invalid-argument");
         assert!(refused.message.contains("'zzz'"), "{}", refused.message);
         assert!(args::<NoArgs>("x_y", serde_json::json!({}), &schema).is_ok());
+    }
+
+    /// An enum root (a `oneOf`) is not "no arguments": it is walked.
+    #[test]
+    fn an_enum_root_is_not_read_as_taking_no_arguments() {
+        let schema = serde_json::json!({ "oneOf": [
+            { "type": "object", "required": ["verb"],
+              "properties": { "verb": { "enum": ["focus"] }, "target": {} } }
+        ] });
+        let ok: Result<Value, _> = args(
+            "x_y",
+            serde_json::json!({ "verb": "focus", "target": 1 }),
+            &schema,
+        );
+        assert!(ok.is_ok(), "{ok:?}");
     }
 }
