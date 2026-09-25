@@ -84,6 +84,36 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
 
 - 2026-09-25 — Planned from the review. Tom approved all four contract groups. One review finding
   was rejected on verification (RS-S5: the out-of-process verb refusal holds, see the review).
+- 2026-09-25 — **T2 (surface coherence)**, branch `claude/wave7-t2-surface`. A surface runtime
+  is now a cache of the store: every call re-reads the surface row and the state row and reloads
+  whichever moved (content compare, so there is no stamp to race), under a per-instance async
+  lock; `SharedStore` owns one surface registry that every `SharedSurface` (panes, the HTTP
+  bridge, which now keeps one handle) shares, and the process's own store's registry is
+  `SessionRegistry::shared()` — RS-S1 = SK-K1 = AC-F1. Query sources re-run when a store write
+  names a kind they read, in-process or by the feed's own `data_version` poll; verb sources do
+  not, because nothing declares what a verb reads — RS-S2 = AC-F16. Event rows live under an id
+  derived from `(surface, host, seq)`, so the primary key refuses a second writer's copy and it
+  takes the next number: `seq` is unique and gap-free across connections; the cursor is the last
+  row read, `gap` reports pruning, wait is capped at 55 s — AC-F2 + RS-S23. Filtered reads with
+  the rare-kind hint, one state write per dispatch only when it changed — RS-S14. A failing source
+  backs off 5 s per argument set (a new verb host clears it) — RS-S15. A remembered pane is
+  re-checked against the layout, update keeps the row name, the publish-kind rule is in the
+  vocabulary — RS-S25. Surface rows carry `revision`; `surface_update` takes
+  `expected_revision` (`?expected_revision=` → 409 over HTTP) — AC-F22, narrowed: the check and
+  write are serialised in-process, across processes one store read apart (the store has no
+  conditional write). `render`/`dispatch`/`surface_http` are async UniFFI exports running on the
+  FFI's runtime; call sites (pane, automation route + bridge, kit-demo) updated, no sync names
+  kept — the FFI half of SK-K2/AC-F10. **Live** (impress from this branch, port 23151,
+  `IMPRESS_DEVICE_ID=w7-t2-proof`, own DerivedData): a surface created and shown from
+  `impress-cli`, updated from `impress-cli` with `expected_revision 1` → the pane re-rendered
+  0.3 s later showing the new spec, a second stale update refused `conflict:`; a note artifact
+  written by `impress-cli` reached the pane's query source ≈0.5 s later; a click whose `call`
+  ran a 4 s verb took 4.1 s while a main-actor layout route answered in 2–20 ms and all 765
+  main-thread samples sat in the event loop. Tier B 13/13 on 23151; surface self-test 15/15 (no
+  live tier). Throwaways (surface, note, pane) removed; the live layout row for device
+  `w7-t2-proof` remains (no verb deletes a live row). **Found:** a hard delete in another process
+  still reaches no feed (RL-L7's cursor, T1's); `layout::tests::a_verb_from_another_object…`
+  timed out once under a parallel `cargo test` and passed on rerun (T1's file).
 - 2026-09-25 — **T3 (Kit behaviour)**, branch `claude/wave7-t3-kit`. Swift only, no Rust or
   binding change.
   - **A verb redraws the panes Rust names (PH-H1 = SK-K6).** Each tile has its own refresh
@@ -130,3 +160,9 @@ off-main FFI) lands in T3 if T2 merged first, else in T5.
     with no assistive-access grant, and all 14 claims pass. osascript has no assistive
     access here, so impress's own UI (typing, ⌘N, the menu) was not driven from outside.
     Tier B on 23161: 13/13, 0 skipped.
+  - **Merged with T2 (#67):** the surface pane awaits T2's async `render`/`dispatch` and keeps
+    T2's in-order dispatch chain and generation tickets, plus T3's resubscribe, per-event trace,
+    effects decoding and "an identical tree is not adopted". SK-K15 stays narrowed: T2's
+    revisions are on the spec row (`expected_revision`), but neither the dispatch reply nor the
+    feed's `surfaces_changed(ids)` carries one, so the pane still cannot tell its own write's
+    echo from an agent's. The echo render now runs off the main actor, so it no longer blocks.

@@ -237,6 +237,13 @@ final class SurfacePaneModel {
     private(set) var effectFailure: String?
     private var subscribed = false
     private var everSubscribed = false
+    /// Bumped by every render and dispatch; a reply is shown only if no
+    /// newer call started after it, so a slow render cannot overwrite the
+    /// tree a later dispatch already showed.
+    private var generation = 0
+    /// The dispatch in flight, if any: the next one waits for it, so the
+    /// events reach Rust in the order the person made them.
+    private var lastDispatch: Task<Void, Never>?
 
     init(surface: SharedSurface, surfaceID: String, pane: UInt64) {
         self.surface = surface
@@ -279,6 +286,10 @@ final class SurfacePaneModel {
 
     /// The DISPLAY leg of the trace: re-read the resolved tree from Rust.
     ///
+    /// `SharedSurface.render` is async and runs its sources on Rust's own
+    /// runtime (wave 7, SK-K2): the main actor is suspended, not blocked,
+    /// while a slow verb runs.
+    ///
     /// A tree equal to the one on screen is not adopted, so the feed's echo
     /// of this pane's own dispatch — which the dispatch reply already
     /// rendered — redraws nothing (SK-K15). The FFI call itself still runs:
@@ -286,69 +297,106 @@ final class SurfacePaneModel {
     /// skipping it could hide the agent's.
     func render() {
         logDebug("surface pane \(pane): render requested for \(surfaceID)", category: "surface")
-        do {
-            let json = try surface.render(surfaceId: surfaceID, pane: pane)
-            let decoded = try RenderTree.decode(json)
-            lastError = nil
-            guard decoded != tree else {
-                logDebug("surface pane \(pane): render unchanged", category: "surface")
-                return
+        generation += 1
+        let ticket = generation
+        let (surface, surfaceID, pane) = (self.surface, self.surfaceID, self.pane)
+        Task { [weak self] in
+            do {
+                let json = try await surface.render(surfaceId: surfaceID, pane: pane)
+                let decoded = try RenderTree.decode(json)
+                guard let self, ticket == self.generation else { return }
+                self.lastError = nil
+                guard decoded != self.tree else {
+                    logDebug("surface pane \(pane): render unchanged", category: "surface")
+                    return
+                }
+                self.tree = decoded
+                logInfo(
+                    "surface pane \(pane) display: \(decoded.focusOrder.count) focusable widgets",
+                    category: "surface")
+            } catch {
+                guard let self, ticket == self.generation else { return }
+                self.lastError = String(describing: error)
+                logWarning(
+                    "surface pane \(pane): render failed — \(error)", category: "surface")
             }
-            tree = decoded
-            logInfo(
-                "surface pane \(pane) display: \(decoded.focusOrder.count) focusable widgets",
-                category: "surface")
-        } catch {
-            lastError = String(describing: error)
-            logWarning(
-                "surface pane \(pane): render failed — \(error)", category: "surface")
         }
     }
 
     /// The MUTATION leg (the request) and the SAVE leg (what Rust did,
     /// effects included) of the trace, as ONE line each; the reply's tree is
-    /// the DISPLAY leg.
+    /// the DISPLAY leg. Dispatches run in the order they were made, each
+    /// awaiting the one before it.
     func dispatch(_ event: SurfaceEvent) {
         let value = (try? event.value.jsonString()) ?? "?"
         logInfo(
             "surface pane \(pane): \(event.kind.rawValue) \(event.widget)=\(value.prefix(80))",
             category: "surface")
+        let eventJSON: String
         do {
-            let eventJSON = try event.jsonString()
-            let replyJSON = try surface.dispatch(
-                surfaceId: surfaceID, pane: pane, eventJson: eventJSON)
-            let reply = try SurfaceDispatchReply.decode(replyJSON)
-            let failed = reply.effects.filter { !$0.ok }
-            if let newTree = reply.tree {
-                lastError = nil
-                if newTree != tree { tree = newTree }
-            } else if !reply.ok {
-                lastError = reply.message
-            }
-            logInfo(
-                "surface pane \(pane): \(event.kind.rawValue) \(event.widget) → "
-                    + "\(reply.ok ? "ok" : "refused: \(reply.message)"), "
-                    + "\(reply.effects.count) effect(s), \(failed.count) failed, "
-                    + "\(tree?.focusOrder.count ?? 0) widgets",
-                category: "surface")
-            // Rust has run every effect already (none is left for the host);
-            // a failed one is reported, not retried (SK-K16).
-            for effect in failed {
-                logWarning(
-                    "surface pane \(pane): \(effect.kind) effect failed — \(effect.message)",
-                    category: "surface")
-            }
-            effectFailure =
-                failed.isEmpty
-                ? nil : failed.map { "\($0.kind) failed: \($0.message)" }.joined(separator: "; ")
+            eventJSON = try event.jsonString()
         } catch {
             lastError = String(describing: error)
             logWarning(
                 "surface pane \(pane): \(event.kind.rawValue) \(event.widget) failed — \(error)",
                 category: "surface")
+            return
+        }
+        generation += 1
+        let ticket = generation
+        let previous = lastDispatch
+        let (surface, surfaceID, pane) = (self.surface, self.surfaceID, self.pane)
+        let (kind, widget) = (event.kind.rawValue, event.widget)
+        lastDispatch = Task { [weak self] in
+            await previous?.value
+            do {
+                let replyJSON = try await surface.dispatch(
+                    surfaceId: surfaceID, pane: pane, eventJson: eventJSON)
+                let reply = try SurfaceDispatchReply.decode(replyJSON)
+                let failed = reply.effects.filter { !$0.ok }
+                logInfo(
+                    "surface pane \(pane): \(kind) \(widget) → "
+                        + "\(reply.ok ? "ok" : "refused: \(reply.message)"), "
+                        + "\(reply.effects.count) effect(s), \(failed.count) failed",
+                    category: "surface")
+                // Rust has run every effect already (none is left for the
+                // host); a failed one is reported, not retried (SK-K16). This
+                // is what Rust did, so it is said even if a newer call
+                // overtook the reply's tree.
+                for effect in failed {
+                    logWarning(
+                        "surface pane \(pane): \(effect.kind) effect failed — \(effect.message)",
+                        category: "surface")
+                }
+                guard let self else { return }
+                self.effectFailure =
+                    failed.isEmpty
+                    ? nil : failed.map { "\($0.kind) failed: \($0.message)" }.joined(separator: "; ")
+                guard ticket == self.generation else { return }
+                if let newTree = reply.tree {
+                    self.lastError = nil
+                    if newTree != self.tree { self.tree = newTree }
+                } else if !reply.ok {
+                    self.lastError = reply.message
+                }
+            } catch {
+                logWarning(
+                    "surface pane \(pane): \(kind) \(widget) failed — \(error)",
+                    category: "surface")
+                guard let self, ticket == self.generation else { return }
+                self.lastError = String(describing: error)
+            }
         }
     }
 }
+
+/// `SharedSurface` is an `Arc` over a Rust object that is `Send + Sync`
+/// (its registry and store are locked inside Rust), and its `render`,
+/// `dispatch` and `surfaceHttp` are async exports that run on Rust's own
+/// runtime — so a handle may be awaited from any task. UniFFI does not
+/// mark generated classes `Sendable`; this says what the Rust side
+/// guarantees.
+extension SharedSurface: @retroactive @unchecked Sendable {}
 
 /// `SharedSurfaceListener`'s callback arrives on the feed's own thread, never
 /// the caller's (mirrors `SharedLayoutListener`'s doc comment) — this class

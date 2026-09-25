@@ -78,7 +78,9 @@ enum Demo {
                            "payload": {"bins": "{{state.bins}}", "note": "{{state.note}}"}}}]}}
              ]}}
             """#
-        let created = surfaces.surfaceHttp(method: "POST", path: "/api/surface", body: spec)
+        let created = seedBeforeTheWindowOpens {
+            await surfaces.surfaceHttp(method: "POST", path: "/api/surface", body: spec)
+        }
         guard created.status < 300,
             let object = try? JSONSerialization.jsonObject(with: Data(created.body.utf8))
                 as? [String: Any],
@@ -138,6 +140,23 @@ enum Demo {
             say("scratch store removed; exiting")
             NSApp.terminate(nil)
         }
+    }
+
+    /// `surfaceHttp` is async (wave 7): it runs on Rust's own runtime and
+    /// never needs this thread, so waiting for it here cannot deadlock. The
+    /// demo seeds its surface in `App.init`, before the tree is opened, and
+    /// keeps that order rather than splitting a pane into an open window.
+    static func seedBeforeTheWindowOpens(
+        _ work: @escaping @Sendable () async -> SharedHttpReply
+    ) -> SharedHttpReply {
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = SharedHttpReply(status: 500, body: "{}")
+        Task.detached {
+            reply = await work()
+            done.signal()
+        }
+        done.wait()
+        return reply
     }
 
     static func say(_ line: String) {
@@ -223,7 +242,7 @@ enum Proof {
     // SK-K12: showing the select and date fields sent nothing.
     static func typedValueReachesTheButton(_ window: NSWindow) async {
         guard let id = Demo.surfaceID, let store = Demo.store else { return }
-        let before = fields(renderedBy: store, id)
+        let before = await fields(renderedBy: store, id)
         check("select bound to null stays null after render", before["mode"] == .null,
             "mode = \(String(describing: before["mode"]))")
         check("date-only value is not rewritten on render", before["day"] == .string("2026-09-25"),
@@ -302,14 +321,14 @@ enum Proof {
             }
         }
         await settle(1.0)
-        let events = self.events(store, id)
+        let events = await self.events(store, id)
         let note = events.last(where: { $0["name"] as? String == "bins-chosen" })
             .flatMap { ($0["payload"] as? [String: Any])?["note"] as? String }
         check("typed value reaches the button", note == "hello",
             "bins-chosen payload note = \(note.map { "\"\($0)\"" } ?? "none") "
                 + "(\(events.count) event(s)); still editing: \(window.firstResponder is NSText)")
 
-        let after = fields(renderedBy: store, id)
+        let after = await fields(renderedBy: store, id)
         Demo.say("state after the click: note = \(String(describing: after["note"]))")
         check("select still unchosen after the click", after["mode"] == .null,
             "mode = \(String(describing: after["mode"]))")
@@ -413,8 +432,8 @@ enum Proof {
 
     /// The surface's fields as a FRESH handle renders them: a new
     /// `SharedSurface` reads the store, not any handle's cache.
-    static func fields(renderedBy store: SharedStore, _ id: String) -> [String: LayoutJSONValue] {
-        let reply = SharedSurface.open(store: store, host: "")
+    static func fields(renderedBy store: SharedStore, _ id: String) async -> [String: LayoutJSONValue] {
+        let reply = await SharedSurface.open(store: store, host: "")
             .surfaceHttp(method: "GET", path: "/api/surface/\(id)/render", body: "")
         guard let tree = try? LayoutJSONValue.decode(reply.body) else { return [:] }
         var out: [String: LayoutJSONValue] = [:]
@@ -432,8 +451,8 @@ enum Proof {
         return out
     }
 
-    static func events(_ store: SharedStore, _ id: String) -> [[String: Any]] {
-        let reply = SharedSurface.open(store: store, host: "")
+    static func events(_ store: SharedStore, _ id: String) async -> [[String: Any]] {
+        let reply = await SharedSurface.open(store: store, host: "")
             .surfaceHttp(method: "GET", path: "/api/surface/\(id)/events", body: "")
         let object = try? JSONSerialization.jsonObject(with: Data(reply.body.utf8)) as? [String: Any]
         return object?["events"] as? [[String: Any]] ?? []
