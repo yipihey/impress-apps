@@ -79,10 +79,11 @@ pub use ai::{
     AiQueuedTurn, AiWorkerStatus, SharedAiStore,
 };
 pub use layout::{
-    cold_start_layout_json, compile_pane_query, kind_manifest_json, outline_cleared_verbs_json,
-    outline_row_verbs_json, outline_sections_json, pane_spec_json, section_bindings_json,
-    SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
-    SharedLayoutSnapshot, SharedPane, SharedWindow,
+    cold_start_layout_json, compile_pane_query, kind_manifest_json, layout_vocabulary_json,
+    outline_cleared_verbs_json, outline_row_verbs_json, outline_sections_json, pane_spec_json,
+    section_bindings_json, SharedAppliedVerb, SharedLayout, SharedLayoutError,
+    SharedLayoutListener, SharedLayoutRow, SharedLayoutSnapshot, SharedPane, SharedPaneRows,
+    SharedWindow,
 };
 pub use log_bridge::{install_log_sink, refusal_http_status, SharedLogSink};
 pub use surface::{

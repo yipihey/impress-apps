@@ -38,7 +38,7 @@ fn an_inventory_verb_lands_in_the_windows_session_and_tells_it() {
     // The window explores first: a step on the list pane's ring.
     layout
         .apply(
-            r#"{"verb":"set-query","target":{"ref":"role","role":"list"},
+            r#"{"verb":"set-query","target":{"role": "list"},
                 "query":{"kinds":["manuscript"]}}"#
                 .into(),
             "human".into(),
