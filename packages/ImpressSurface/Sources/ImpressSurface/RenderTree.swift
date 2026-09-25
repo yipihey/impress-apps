@@ -23,10 +23,14 @@
 //
 //  An unrecognised `kind` string decodes to `.placeholder(unknownKind:
 //  reason:)` rather than throwing — ADR-0033's "Defaults": "unknown widget
-//  kinds degrade to a placeholder that keeps the node". This is the ONE
-//  place besides Rust's own `resolve.rs` that rule has to be honoured: a
-//  surface authored against a newer vocabulary than this build still renders
-//  everything else.
+//  kinds degrade to a placeholder that keeps the node". So does a KNOWN kind
+//  whose fields do not decode (a renamed field, a string where a number was),
+//  and so does a child that is not a node at all: the failure is contained
+//  in the one node, with the reason in the placeholder, and the rest of the
+//  surface renders. This is the ONE place besides Rust's own `resolve.rs`
+//  that rule has to be honoured: a surface authored against a newer
+//  vocabulary than this build still renders everything else.
+//  `RenderTreeForwardCompatTests` pins it.
 //
 
 import Foundation
@@ -35,10 +39,13 @@ import Foundation
 
 /// An arbitrary JSON value — what a surface's `rows`, `spec`, `pairs`,
 /// `lines`, `value` and field `options` carry, since those are the AGENT's
-/// data, not this package's vocabulary. Mirrors `LayoutJSONValue`'s shape
-/// (`Chassis/Layout/LayoutModel.swift` in PublicationManagerCore) — the same
-/// idiom, kept as a separate type because this package must not depend on
-/// PublicationManagerCore (ADR-0033 D7: kit-grade).
+/// data, not this package's vocabulary.
+///
+/// The kit's ONE opaque JSON type. `ImpressLayout` spells it
+/// `LayoutJSONValue` (a typealias, since ImpressLayout already depends on
+/// this package) for what the layout keeps opaque — `query`, `view_state`,
+/// the verb builder's output. Until wave 7 (SK-K22) that was a second,
+/// identical enum, and the two had already grown different accessors.
 public enum SurfaceJSONValue: Codable, Hashable, Sendable {
     case null
     case bool(Bool)
@@ -114,6 +121,15 @@ public enum SurfaceJSONValue: Codable, Hashable, Sendable {
         }
     }
 
+    /// An integer, whether serde wrote it as one or as a whole double.
+    public var intValue: Int? {
+        switch self {
+        case .int(let value): return value
+        case .double(let value) where value == value.rounded(): return Int(value)
+        default: return nil
+        }
+    }
+
     public var isNull: Bool {
         if case .null = self { return true }
         return false
@@ -121,6 +137,11 @@ public enum SurfaceJSONValue: Codable, Hashable, Sendable {
 
     public subscript(key: String) -> SurfaceJSONValue? {
         objectValue?[key]
+    }
+
+    /// The strings of a JSON array of strings (`query.kinds`), or `[]`.
+    public var stringArrayValue: [String] {
+        arrayValue?.compactMap(\.stringValue) ?? []
     }
 
     /// Parse a JSON string (the FFI hands every opaque value over as one).
@@ -277,66 +298,140 @@ public enum RenderKind: Codable, Hashable, Sendable {
         case reason
     }
 
+    /// Decodes one node's kind, and NEVER throws for a node whose `kind` tag
+    /// it could read: a known kind with a missing, renamed or mistyped field
+    /// becomes `.placeholder(unknownKind: kind, reason: "undecodable …")`,
+    /// exactly as an unknown kind does (ADR-0033 Defaults: "unknown widget
+    /// kinds degrade to a placeholder … so a spec authored for a newer kit
+    /// still renders its rest"). Before wave 7 (SK-K17) such a throw
+    /// propagated through `[RenderNode]` and the pane replaced EVERY widget
+    /// with "Surface Unavailable".
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let kind = try container.decode(String.self, forKey: .kind)
+        do {
+            self = try RenderKind.decodeKnown(kind, from: container)
+        } catch {
+            self = .placeholder(
+                unknownKind: kind, reason: "undecodable \(kind): \(RenderKind.describe(error))")
+        }
+    }
+
+    /// `DecodingError`'s own description is a paragraph; the reason line a
+    /// placeholder shows wants the path and the complaint.
+    static func describe(_ error: Error) -> String {
+        guard let decoding = error as? DecodingError else { return String(describing: error) }
+        func path(_ context: DecodingError.Context) -> String {
+            let keys = context.codingPath.map { $0.intValue.map(String.init) ?? $0.stringValue }
+            return keys.isEmpty ? "" : " at \(keys.joined(separator: "."))"
+        }
+        switch decoding {
+        case .keyNotFound(let key, let context):
+            return "missing '\(key.stringValue)'\(path(context))"
+        case .typeMismatch(let type, let context):
+            return "expected \(type)\(path(context))"
+        case .valueNotFound(let type, let context):
+            return "null where \(type) was expected\(path(context))"
+        case .dataCorrupted(let context):
+            return context.debugDescription + path(context)
+        @unknown default:
+            return String(describing: decoding)
+        }
+    }
+
+    /// A container's children, each decoded on its own: a child that fails
+    /// even to be a node (no `id`, not an object) becomes a placeholder in its
+    /// place instead of taking its siblings down with it.
+    private static func decodeNodes(
+        _ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+    ) throws -> [RenderNode] {
+        var array = try container.nestedUnkeyedContainer(forKey: key)
+        var nodes: [RenderNode] = []
+        while !array.isAtEnd {
+            let index = nodes.count
+            if let node = try? array.decode(RenderNode.self) {
+                nodes.append(node)
+                continue
+            }
+            // `try?` did not advance the cursor; consume the element as raw
+            // JSON so the loop moves on, and keep its kind tag if it had one.
+            let raw = try array.decode(SurfaceJSONValue.self)
+            let tag = raw["kind"]?.stringValue
+            let id = raw["id"]?.stringValue ?? "\(key.stringValue).\(index)"
+            nodes.append(
+                RenderNode(
+                    id: id, label: nil, help: nil,
+                    node: .placeholder(
+                        unknownKind: tag,
+                        reason: "undecodable \(tag ?? "node") at \(key.stringValue)[\(index)]")))
+        }
+        return nodes
+    }
+
+    private static func decodeKnown(
+        _ kind: String, from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> RenderKind {
         switch kind {
         case "column":
-            self = .column(items: try container.decode([RenderNode].self, forKey: .items))
+            return .column(items: try decodeNodes(container, forKey: .items))
         case "row":
-            self = .row(items: try container.decode([RenderNode].self, forKey: .items))
+            return .row(items: try decodeNodes(container, forKey: .items))
         case "grid":
-            self = .grid(
-                columns: try container.decode(Int.self, forKey: .columns),
-                items: try container.decode([RenderNode].self, forKey: .items))
+            // `columns` is optional by nature: a renderer can choose.
+            return .grid(
+                columns: try container.decodeIfPresent(Int.self, forKey: .columns) ?? 1,
+                items: try decodeNodes(container, forKey: .items))
         case "section":
-            self = .section(
-                title: try container.decode(String.self, forKey: .title),
-                collapsed: try container.decode(Bool.self, forKey: .collapsed),
+            return .section(
+                title: try container.decodeIfPresent(String.self, forKey: .title) ?? "",
+                collapsed: try container.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false,
                 body: try container.decode(RenderNode.self, forKey: .body))
         case "tabs":
-            self = .tabs(tabs: try container.decode([RenderTab].self, forKey: .tabs))
+            return .tabs(tabs: try container.decode([RenderTab].self, forKey: .tabs))
         case "text":
-            self = .text(text: try container.decode(String.self, forKey: .text))
+            return .text(text: try container.decode(String.self, forKey: .text))
         case "table":
-            self = .table(
-                rows: try container.decode(SurfaceJSONValue.self, forKey: .rows),
+            return .table(
+                rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]),
                 columns: try container.decode([String].self, forKey: .columns))
         case "list":
-            self = .list(rows: try container.decode(SurfaceJSONValue.self, forKey: .rows))
+            return .list(
+                rows: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .rows) ?? .array([]))
         case "plot":
-            self = .plot(spec: try container.decode(SurfaceJSONValue.self, forKey: .spec))
+            return .plot(spec: try container.decode(SurfaceJSONValue.self, forKey: .spec))
         case "image":
-            self = .image(
+            return .image(
                 blob: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .blob),
                 url: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .url))
         case "field":
-            self = .field(
+            return .field(
                 field: try container.decode(SurfaceJSONValue.self, forKey: .field),
                 bind: try container.decodeIfPresent(String.self, forKey: .bind),
-                value: try container.decode(SurfaceJSONValue.self, forKey: .value))
+                value: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .value) ?? .null)
         case "button":
-            self = .button(label: try container.decode(String.self, forKey: .label))
+            return .button(label: try container.decode(String.self, forKey: .label))
         case "status":
-            self = .status(
-                level: try container.decode(String.self, forKey: .level),
+            return .status(
+                level: try container.decodeIfPresent(String.self, forKey: .level) ?? "info",
                 message: try container.decode(String.self, forKey: .message))
         case "log":
-            self = .log(lines: try container.decode(SurfaceJSONValue.self, forKey: .lines))
+            return .log(
+                lines: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .lines) ?? .array([]))
         case "kv":
-            self = .kv(pairs: try container.decode(SurfaceJSONValue.self, forKey: .pairs))
+            return .kv(
+                pairs: try container.decodeIfPresent(SurfaceJSONValue.self, forKey: .pairs) ?? .object([:]))
         case "divider":
-            self = .divider
+            return .divider
         case "spacer":
-            self = .spacer
+            return .spacer
         case "placeholder":
-            self = .placeholder(
+            return .placeholder(
                 unknownKind: try container.decodeIfPresent(String.self, forKey: .unknownKind),
                 reason: try container.decodeIfPresent(String.self, forKey: .reason))
         default:
             // Forward-compat: ADR-0033's rule applies even to a `kind` tag
             // this build has literally never heard of.
-            self = .placeholder(unknownKind: kind, reason: nil)
+            return .placeholder(unknownKind: kind, reason: nil)
         }
     }
 
