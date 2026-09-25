@@ -27,6 +27,10 @@ final class ImbibSidebarViewModel {
     // MARK: - Dependencies (set via configure())
 
     private(set) var libraryManager: LibraryManager?
+
+    /// Has `configure(…)` run? A host that keeps this view model across a
+    /// re-layout mounts it again without configuring it twice.
+    var isConfigured: Bool { libraryManager != nil }
     private(set) var libraryViewModel: LibraryViewModel?
     private(set) var searchViewModel: SearchViewModel?
 

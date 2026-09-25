@@ -98,12 +98,24 @@ struct ImbibSidebarColumn: View {
 ///
 /// `prepare` runs once, before `configure()`, for a host that has to set
 /// something on the view model before its first tree is built (the layout
-/// outline's section filter). `configured` runs after every `configure()`.
+/// outline's section filter). `configured` runs after `configure()`.
+///
+/// A view model is configured ONCE. The layout tree's outline keeps its view
+/// model across a re-layout (`LayoutOutlinePaneState`, review PH-M6), and a
+/// second `configure()` would select the default leaf again — under a user
+/// who had chosen another row. A mount over a configured model calls
+/// `remounted` instead.
 struct ImbibSidebarLifecycle: ViewModifier {
 
     let viewModel: ImbibSidebarViewModel
     var prepare: (ImbibSidebarViewModel) -> Void = { _ in }
     var configured: (ImbibSidebarViewModel) -> Void = { _ in }
+    var remounted: (ImbibSidebarViewModel) -> Void = { _ in }
+
+    /// The SciX library pull is per PROCESS: it refreshes one shared
+    /// repository, and a split that remounted the outline used to start
+    /// another one (PH-M6).
+    @MainActor private static var didStartSciXPull = false
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
@@ -130,6 +142,13 @@ struct ImbibSidebarLifecycle: ViewModifier {
         @Bindable var viewModel = viewModel
         return content
             .task {
+                if viewModel.isConfigured {
+                    // A kept view model mounting again (a split, a swap): its
+                    // selection, expansion and SciX state are all still there.
+                    remounted(viewModel)
+                    viewModel.refreshFlagCounts()
+                    return
+                }
                 // Thin-twin: apply the app-shell identity BEFORE configure() so the
                 // default section + section visibility reflect this app (imbib vs
                 // imprint). Idempotent across .task re-runs.
@@ -171,6 +190,8 @@ struct ImbibSidebarLifecycle: ViewModifier {
                 if adsKey != nil || scixKey != nil {
                     viewModel.hasSciXAPIKey = true
                     scixRepository.loadLibraries()
+                    guard !Self.didStartSciXPull else { return }
+                    Self.didStartSciXPull = true
                     viewModel.scixSyncing = true
                     viewModel.scixSyncError = nil
                     viewModel.bumpDataVersion()
