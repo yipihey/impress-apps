@@ -57,7 +57,14 @@ another app. The surface grew a text field, a select bound to null, a date store
 `"2026-09-25"`, and a button whose event carries the text.
 
 The window has to be key: the text-field guard and the menu's responder chain both
-start at `NSApp.keyWindow`. A bare executable launched from a background shell cannot
+start at `NSApp.keyWindow`. Before every typed key, the typing-time and tree Undo/Redo
+items and both clicks, the harness makes its window key in the active app with the
+field's editor first (`Proof.makeKey`), taking focus back from whatever app holds it, and
+sends nothing until that holds; if it cannot within ~10 s the claim FAILS naming the
+frontmost app. Keys still go through `window.sendEvent`, so the chord handler and its
+guard see every one. Without this, a key sent while another app held focus was a chord:
+"hello" typed as "eo" (wave 7 T5's finding 1, reproduced in wave 8 by launching a second
+KitDemo mid-run). A bare executable launched from a background shell cannot
 activate, so wrap it in a throwaway bundle and launch it through LaunchServices:
 
 ```bash
