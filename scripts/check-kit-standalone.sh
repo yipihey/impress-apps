@@ -22,6 +22,12 @@
 #     kit's contract, docs/agent-surfaces.md, which a surface test parses).
 #   * rust-toolchain.toml, .cargo/config.toml and Cargo.lock, so the pinned
 #     compiler and the locked versions are the ones this repo builds with.
+#   * crates/impress-workspace-hack as the STUB hakari prescribes for a crate
+#     that leaves: its Cargo.toml with the generated section emptied. The real
+#     section lists every third-party dependency of the whole suite, which a
+#     kit on its own neither needs nor could justify; the kit that left would
+#     run `cargo hakari generate` for its own. Every kit crate depends on the
+#     hack crate, so it is a member here, and docs/kit-manifest.md lists it.
 #
 # Dependencies are held to two standards:
 #   * A normal or build dependency on an uncopied workspace crate is a
@@ -66,6 +72,10 @@ STRICT = os.environ["KIT_STRICT"] == "1"
 KEEP = os.environ["KIT_KEEP"] == "1"
 MANIFEST = ROOT / "docs" / "kit-manifest.md"
 REACH = ["impress-core"]
+# The cargo-hakari crate (B4). Copied as the stub a leaving crate takes: the
+# generated section between these markers is emptied in the scratch copy.
+HAKARI = "impress-workspace-hack"
+HAKARI_MARKERS = ("### BEGIN HAKARI SECTION", "### END HAKARI SECTION")
 # Feature passes a crate needs beyond --all-targets, applied only when the
 # crate is in the scratch workspace (the FFI is what the apps link, with native).
 EXTRA_FEATURES = {"impress-store-ffi": "native"}
@@ -286,6 +296,20 @@ try:
         if (ROOT / f).exists():
             (scratch / f).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, scratch / f)
+
+    # The workspace-hack crate goes along as a stub (docs/kit-manifest.md,
+    # "What leaving would mean" step 4): the generated section is emptied, so
+    # the scratch workspace resolves the kit's own dependencies and no more.
+    if HAKARI in member_set:
+        hpath = scratch / "crates" / HAKARI / "Cargo.toml"
+        htext = hpath.read_text()
+        begin, end = HAKARI_MARKERS
+        if htext.count(begin) != 1 or htext.count(end) != 1:
+            fail(f"crates/{HAKARI}/Cargo.toml has no single {begin} … {end} section to stub")
+        head, rest = htext.split(begin, 1)
+        _, tail = rest.split(end, 1)
+        hpath.write_text(f"{head}{begin}\n{end}{tail}")
+        print(f"workspace-hack stubbed: {HAKARI} copied with its generated section emptied")
 
     # Documents a kit crate compiles in with include_str! (the kit's own
     # contract doc, docs/agent-surfaces.md, is parsed by a surface test). Only

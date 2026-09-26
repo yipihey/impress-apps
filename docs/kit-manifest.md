@@ -35,6 +35,7 @@ change with it. They do not keep a second list.
 | `impress-capabilities-kit` | store | The kit's slice of the linked `#[impress_service]` inventory (the four service crates above), so the FFI can link it without a package cycle. |
 | `impress-ai` | store | Provenance-first AI conversations and the provider registry, which the FFI binds (`ai.rs`, `ai_registry.rs`, ADR-0029). **Added in W6:** it reaches only `impress-core` (sqlite) once its `executor` feature (the impel task executors, and its one path to `impel-core`) is off, which it is for every kit consumer. |
 | `impress-store-ffi` | store | The UniFFI bindings the Swift side links (`ImpressRustCore`'s xcframework): store, layout, surface, and the AI conversation and registry bindings. |
+| `impress-workspace-hack` | pure | Dependency glue, no code: the cargo-hakari crate every workspace member depends on so every lane resolves one third-party feature set (plan-verb-pipeline-and-transport § Build cost, B4). In the table because every kit crate reaches it; it reaches no workspace crate. The standalone check copies it as the **stub** hakari prescribes for a crate that leaves (its generated section emptied), because the real one names the whole suite's dependencies. |
 <!-- kit-crates:end -->
 
 `impress-capabilities` (the whole suite's inventory) is **not** in the kit. It links
@@ -155,13 +156,17 @@ one surface pane.
    `surface-demo-service` → `imprint-core`, used by one test,
    `tests/plot_shape.rs`, which proves the demo's plot payload deserializes as imprint's
    `FfiPlotSpec`). That test stays behind or becomes a fixture.
-4. Copy the three Swift packages. `ImpressRustCore` points at the FFI's xcframework by
+4. Take `impress-workspace-hack` along as a stub: its `Cargo.toml` with the section
+   between `### BEGIN HAKARI SECTION` and `### END HAKARI SECTION` emptied, which is
+   what `cargo hakari disable` writes. The generated section lists the whole suite's
+   dependencies; the new repository runs `cargo hakari generate` for its own.
+5. Copy the three Swift packages. `ImpressRustCore` points at the FFI's xcframework by
    relative path, which moves with it.
-5. Afterwards this repository depends on the kit rather than containing it: the apps'
+6. Afterwards this repository depends on the kit rather than containing it: the apps'
    `ChassisRootView` registers their view kinds into `ViewKindRegistry`, and
    `impress-capabilities` depends on the kit's inventory crate.
 
-Steps 1–3 are exactly what `scripts/check-kit-standalone.sh` does in a scratch directory
+Steps 1–4 are exactly what `scripts/check-kit-standalone.sh` does in a scratch directory
 on every CI run, so "can leave" is a command. Until the store trait is generic,
 impress-core goes along and is the kit's one vendored dependency.
 
