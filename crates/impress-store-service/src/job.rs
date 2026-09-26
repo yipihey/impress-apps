@@ -197,9 +197,16 @@ where
                     if flag.load(Ordering::Relaxed) {
                         break;
                     }
-                    if job::cancel_requested(&store, id).unwrap_or(false) {
-                        flag.store(true, Ordering::Relaxed);
-                        break;
+                    match job::cancel_requested(&store, id) {
+                        Ok(true) => {
+                            flag.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        Ok(false) => {}
+                        // A store that cannot be read is not "no cancel":
+                        // say so, or a wedged read looks like a job that
+                        // will not stop.
+                        Err(e) => eprintln!("[job {id}] cancel poll failed: {e}"),
                     }
                 }
             })

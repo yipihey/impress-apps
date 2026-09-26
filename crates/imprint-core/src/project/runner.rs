@@ -7,6 +7,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -273,6 +274,22 @@ impl ProcessRunnerHost {
     }
 }
 
+/// Kill `child` and every process in its group (it was spawned as the
+/// group leader), then reap it. `/bin/kill` with a negative pid is the
+/// portable spelling of `killpg` that needs neither `libc` nor `unsafe`;
+/// the direct `kill()` after it covers a `kill` binary that is missing.
+fn kill_group(child: &mut std::process::Child) {
+    let group = format!("-{}", child.id());
+    let _ = Command::new("kill")
+        .args(["-9", "--", &group])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.is_file()
@@ -306,7 +323,14 @@ impl RunnerHost for ProcessRunnerHost {
             .env("PATH", self.path_env())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // Its own process group, so a kill reaches what it forked. A
+            // `sh -c` step's real work is a grandchild; killing only the
+            // shell left the grandchild holding the stdout/stderr pipes,
+            // and the reader threads waited for it — a cancelled 45 s step
+            // still took 45 s (P4's live proof), and a timed-out one would
+            // have too.
+            .process_group(0);
         for (k, v) in &request.env {
             cmd.env(k, v);
         }
@@ -338,14 +362,12 @@ impl RunnerHost for ProcessRunnerHost {
                 Ok(Some(status)) => break status.code(),
                 Ok(None) => {
                     if self.cancel_raised() {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        kill_group(&mut child);
                         cancelled = true;
                         break None;
                     }
                     if start.elapsed() >= request.timeout {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        kill_group(&mut child);
                         timed_out = true;
                         break None;
                     }
@@ -469,15 +491,19 @@ mod tests {
     }
 
     /// ADR-0034 D6: a raised cancel flag kills the running child within a
-    /// poll, and the output says `cancelled` — not `timed out`.
+    /// poll, and the output says `cancelled` — not `timed out`. The step
+    /// is a shell whose real work is a GRANDCHILD holding the output
+    /// pipes: the whole group dies, or `run` would sit in the reader
+    /// threads until the grandchild's own sleep ended (P4's live proof
+    /// found exactly that: a cancelled 45 s step took 45 s).
     #[test]
-    fn a_raised_cancel_flag_kills_the_child() {
+    fn a_raised_cancel_flag_kills_the_child_and_its_group() {
         let flag = Arc::new(AtomicBool::new(false));
         let host = ProcessRunnerHost::new().with_cancel(flag.clone());
         let raiser = {
             let flag = flag.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(150));
+                std::thread::sleep(Duration::from_millis(300));
                 flag.store(true, Ordering::Relaxed);
             })
         };
@@ -485,8 +511,8 @@ mod tests {
         let out = host
             .run(
                 &RunRequest::new("sh", std::env::temp_dir())
-                    .args(["-c", "sleep 10"])
-                    .timeout(Duration::from_secs(30)),
+                    .args(["-c", "sh -c 'sleep 20'; echo after"])
+                    .timeout(Duration::from_secs(60)),
             )
             .unwrap();
         raiser.join().unwrap();
@@ -494,8 +520,28 @@ mod tests {
         assert!(!out.timed_out);
         assert!(!out.ok());
         assert_eq!(out.summary(), "cancelled");
-        assert!(start.elapsed() < Duration::from_secs(5));
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the grandchild kept the pipes open: {:?}",
+            start.elapsed()
+        );
         assert!(host.cancel_requested());
+    }
+
+    /// The timeout path kills the group too.
+    #[test]
+    fn a_timed_out_step_does_not_wait_for_its_grandchild() {
+        let host = ProcessRunnerHost::new();
+        let start = Instant::now();
+        let out = host
+            .run(
+                &RunRequest::new("sh", std::env::temp_dir())
+                    .args(["-c", "sh -c 'sleep 20'"])
+                    .timeout(Duration::from_millis(300)),
+            )
+            .unwrap();
+        assert!(out.timed_out);
+        assert!(start.elapsed() < Duration::from_secs(5), "{:?}", start.elapsed());
     }
 
     #[test]
