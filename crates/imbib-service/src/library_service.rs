@@ -436,12 +436,18 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// a new library for a topic or project.
     #[impress_method]
     async fn create_library(&self, name: String) -> Option<LibraryRecord>;
+    /// Delete a library with its collections and memberships. The store hands
+    /// back an undo snapshot that this verb drops (plan-auto-gui finding S-2),
+    /// so on this path the deletion is not undoable: take a backup first.
     #[impress_method]
     async fn delete_library_undoable(&self, id: String) -> MutationResult;
+    /// Get the library new papers are filed into by default, if one is set.
     #[impress_method]
     async fn get_default_library(&self) -> Option<LibraryRecord>;
+    /// Make a library the default target for new papers.
     #[impress_method]
     async fn set_library_default(&self, id: String) -> MutationResult;
+    /// Get the Inbox library, where incoming papers land before filing.
     #[impress_method]
     async fn get_inbox_library(&self) -> Option<LibraryRecord>;
 
@@ -484,12 +490,18 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         limit: u32,
         offset: u32,
     ) -> Vec<PublicationSummary>;
+    /// Remove from a collection every paper that has been dismissed; the
+    /// result counts the memberships removed.
     #[impress_method]
     async fn purge_dismissed_from_collection(&self, collection_id: String) -> MutationResult;
 
     // ---- Paper queries ----
+    /// List papers across every library, paged by `limit` and `offset`
+    /// (a limit of 0 means 50).
     #[impress_method]
     async fn list_publications(&self, limit: u32, offset: u32) -> Vec<PublicationSummary>;
+    /// List the papers in one library, sorted by `sort_field` in the given
+    /// direction and paged (a limit of 0 means 50).
     #[impress_method]
     async fn query_publications(
         &self,
@@ -499,6 +511,8 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         limit: u32,
         offset: u32,
     ) -> Vec<PublicationSummary>;
+    /// List unread papers, optionally within one library or collection
+    /// (`parent_id`), sorted.
     #[impress_method]
     async fn query_unread(
         &self,
@@ -507,6 +521,8 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         ascending: bool,
         limit: u32,
     ) -> Vec<PublicationSummary>;
+    /// List starred papers, optionally within one library or collection
+    /// (`parent_id`), sorted.
     #[impress_method]
     async fn query_starred(
         &self,
@@ -515,10 +531,15 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         ascending: bool,
         limit: u32,
     ) -> Vec<PublicationSummary>;
+    /// List the most recently added papers, optionally within one library or
+    /// collection (`parent_id`).
     #[impress_method]
     async fn query_recent(&self, limit: u32, parent_id: Option<String>) -> Vec<PublicationSummary>;
+    /// Search paper metadata by free text, newest-added first, up to `limit`
+    /// results (0 means 50).
     #[impress_method]
     async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary>;
+    /// Get one paper's summary by id; null when there is no such paper.
     #[impress_method]
     async fn get_publication(&self, id: String) -> Option<PublicationSummary>;
     /// Get detailed information about a specific paper by its cite key.
@@ -531,10 +552,13 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// `imbib-tags-service_list-tags` it does not walk the whole tag vocabulary.
     #[impress_method]
     async fn count_publications(&self) -> u32;
+    /// Count unread papers, optionally within one library or collection.
     #[impress_method]
     async fn count_unread(&self, parent_id: Option<String>) -> u32;
+    /// Count starred papers, optionally within one library or collection.
     #[impress_method]
     async fn count_starred(&self, parent_id: Option<String>) -> u32;
+    /// Count flagged papers, optionally only those carrying one flag color.
     #[impress_method]
     async fn count_flagged(&self, color: Option<String>) -> u32;
 
@@ -560,18 +584,25 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// to the Dismissed library (imbib's trash) with imbib_add_to_library.
     #[impress_method]
     async fn delete_publications_undoable(&self, ids: Vec<String>) -> MutationResult;
+    /// Move papers into another library.
     #[impress_method]
     async fn move_publications(
         &self,
         publication_ids: Vec<String>,
         to_library_id: String,
     ) -> MutationResult;
+    /// Copy papers into another library; returns the ids of the new copies.
     #[impress_method]
     async fn duplicate_publications(&self, ids: Vec<String>, to_library_id: String) -> Vec<String>;
+    /// Merge duplicate papers within a library and hard-delete the duplicate
+    /// rows (not undoable); returns how many were removed.
     #[impress_method]
     async fn deduplicate_library(&self, library_id: String) -> u32;
 
     // ---- Dismissed/muted ----
+    /// Record a paper as dismissed by any of its identifiers so imports and
+    /// feeds skip it. Writes a tombstone only: nothing is moved or deleted,
+    /// and there is no un-dismiss verb.
     #[impress_method]
     async fn dismiss_paper(
         &self,
@@ -580,6 +611,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         bibcode: Option<String>,
         cite_key: Option<String>,
     ) -> Option<DismissedPaperRecord>;
+    /// Whether a paper with any of the given identifiers has been dismissed.
     #[impress_method]
     async fn is_paper_dismissed(
         &self,
@@ -588,10 +620,15 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         bibcode: Option<String>,
         cite_key: Option<String>,
     ) -> bool;
+    /// List the dismissed-paper tombstones, paged (a limit of 0 means 100).
     #[impress_method]
     async fn list_dismissed_papers(&self, limit: u32, offset: u32) -> Vec<DismissedPaperRecord>;
+    /// List the mute rules (an author, keyword or source value per rule) that
+    /// feeds and imports suppress.
     #[impress_method]
     async fn list_muted_items(&self) -> Vec<MutedItemRecord>;
+    /// Add a mute rule: `mute_type` names what is matched (for example
+    /// `author`), `value` is the text to match.
     #[impress_method]
     async fn create_muted_item(&self, mute_type: String, value: String) -> Option<MutedItemRecord>;
 
@@ -602,6 +639,8 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// to the target library/collection.
     #[impress_method]
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
+    /// Parse BibTeX and add each entry to a library as a paper; returns the
+    /// ids of the papers created.
     #[impress_method]
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String>;
     /// Import BibTeX and file every resulting paper into a collection. Papers
@@ -621,14 +660,19 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// bibliography files or inserting citations.
     #[impress_method]
     async fn export_bibtex(&self, ids: Vec<String>) -> String;
+    /// Export every paper in a library as one BibTeX string.
     #[impress_method]
     async fn export_all_bibtex(&self, library_id: String) -> String;
 
     // ---- Linked files / PDFs ----
+    /// List the files (PDFs and others) linked to a paper.
     #[impress_method]
     async fn list_linked_files(&self, publication_id: String) -> Vec<LinkedFileRecord>;
+    /// Count the PDFs linked to a paper.
     #[impress_method]
     async fn count_pdfs(&self, publication_id: String) -> u32;
+    /// Record a file already on disk as linked to a paper; nothing is copied
+    /// or fetched.
     #[impress_method]
     async fn add_linked_file(
         &self,

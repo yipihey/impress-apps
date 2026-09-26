@@ -40,7 +40,15 @@
 //! * A standalone async invoker `__impress_<service>_<method>_invoke`.
 //! * An `inventory::submit!` registering an `McpToolDescriptor`.
 //! * An `inventory::submit!` registering a `CliSubcommand`.
-//! * (Feature-gated) `#[uniffi::export]` and `#[pyo3::pyfunction]` shims.
+//!
+//! That is the whole output. No UniFFI or Python shim is generated here: the
+//! Swift bindings are hand-written `#[uniffi::export]` items in the FFI crates,
+//! and Python is decided in `docs/plan-verb-pipeline-and-transport.md`.
+//!
+//! Every `#[impress_method]` must carry a `///` doc comment: it is the
+//! description agents read, and a method without one is a compile error
+//! naming the method (plan-auto-gui-and-self-docs.md G-2 — 54 verbs once
+//! shipped `Invoke Service.method` because the macro accepted an empty doc).
 //!
 //! Anything more elaborate (custom DTOs, error mapping nuances) is deferred to
 //! Phase 1+.
@@ -62,19 +70,32 @@ use syn::{parse_macro_input, Ident, ItemTrait, TraitItem, Type};
 /// `///` comments inside `impress_service_impl! { methods = [...] }` were read,
 /// and 119 of 133 tools silently shipped `"Invoke Service.method"`.
 ///
-/// The heavy lifting (per-method invokers, inventory submissions, FFI shims) is
+/// The heavy lifting (per-method invokers, inventory submissions) is
 /// performed by [`impress_service_impl!`] against a concrete impl block,
 /// because that is where we know the concrete `Self` type to dispatch into.
+///
+/// A method marked `#[impress_method]` with no `///` doc comment is a compile
+/// error naming the method: the doc is the description agents read, and an
+/// empty one used to ship as `Invoke Service.method`.
 #[proc_macro_attribute]
 pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    let mut trait_item = parse_macro_input!(input as ItemTrait);
+    let trait_item = parse_macro_input!(input as ItemTrait);
+    match expand_service(trait_item) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
 
+/// The body of [`impress_service`], split out so the doc-comment rule can be
+/// unit-tested on a parsed trait without a compile-fail harness.
+fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
     let mut found_any_method = false;
     // (method_name, doc) for every #[impress_method], so `impress_service_impl!`
     // can use the trait's own doc comments as tool descriptions. Without this
     // the docs a developer writes on the trait are silently dropped and the
     // model gets "Invoke Service.method".
     let mut docs: Vec<(String, String)> = Vec::new();
+    let trait_name = trait_item.ident.to_string();
 
     for item in &mut trait_item.items {
         if let TraitItem::Fn(method) = item {
@@ -84,23 +105,32 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
                 .retain(|attr| !attr.path().is_ident("impress_method"));
             if method.attrs.len() != before {
                 found_any_method = true;
-                docs.push((method.sig.ident.to_string(), collect_doc(&method.attrs)));
+                let doc = collect_doc(&method.attrs);
+                if doc.is_empty() {
+                    let method_name = method.sig.ident.to_string();
+                    return Err(syn::Error::new_spanned(
+                        &method.sig.ident,
+                        format!(
+                            "#[impress_method] `{trait_name}::{method_name}` has no doc comment; \
+                             write a `///` line saying what the verb does — it is the description \
+                             agents read, and without it the tool would ship as \
+                             `Invoke {trait_name}.{method_name}`.",
+                        ),
+                    ));
+                }
+                docs.push((method.sig.ident.to_string(), doc));
             }
         }
     }
 
     if !found_any_method {
-        let trait_name = trait_item.ident.to_string();
-        let msg = format!(
-            "#[impress_service] trait `{trait_name}` has no #[impress_method] methods; \
-             add #[impress_method] to at least one method.",
-        );
-        let err = syn::Error::new_spanned(&trait_item.ident, msg).to_compile_error();
-        return quote! {
-            #trait_item
-            #err
-        }
-        .into();
+        return Err(syn::Error::new_spanned(
+            &trait_item.ident,
+            format!(
+                "#[impress_service] trait `{trait_name}` has no #[impress_method] methods; \
+                 add #[impress_method] to at least one method.",
+            ),
+        ));
     }
 
     // The trait has `async fn` methods, so it needs `#[async_trait::async_trait]`
@@ -115,7 +145,7 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let doc_entries = docs.iter().map(|(name, doc)| quote! { (#name, #doc) });
     let doc_count = docs.len();
 
-    quote! {
+    Ok(quote! {
         // `too_many_arguments`: a service method's parameter list *is* the
         // tool's input schema. Bundling arguments into a struct to please the
         // lint would change the schema agents see, so a 10-parameter method is
@@ -128,8 +158,7 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
         #[allow(non_upper_case_globals)]
         pub const #docs_const: [(&'static str, &'static str); #doc_count] =
             [#(#doc_entries),*];
-    }
-    .into()
+    })
 }
 
 /// `#[impress_method]` marker on a trait method.
@@ -572,5 +601,85 @@ fn validate_supported_ty(ty: &Type) -> syn::Result<()> {
         // that adventurous users can use custom DTOs that implement
         // `serde::Deserialize` + `schemars::JsonSchema`.
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The doc-comment rule (G-2) as a compile-fail test without trybuild:
+    //! `expand_service` is the whole attribute minus the `proc_macro` wrapper,
+    //! so a `syn::Error` here is exactly the diagnostic rustc prints.
+    use super::*;
+
+    fn expand(src: &str) -> syn::Result<TokenStream2> {
+        expand_service(syn::parse_str::<ItemTrait>(src).expect("parses"))
+    }
+
+    #[test]
+    fn method_without_doc_is_a_compile_error_naming_it() {
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Echo a message.
+                #[impress_method]
+                async fn echo(&self, message: String) -> String;
+                #[impress_method]
+                async fn shout(&self, message: String) -> String;
+            }
+            "#,
+        )
+        .expect_err("an undocumented #[impress_method] must not expand");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("EchoService::shout"),
+            "names the method: {msg}"
+        );
+        assert!(msg.contains("no doc comment"), "says why: {msg}");
+    }
+
+    #[test]
+    fn blank_doc_lines_count_as_no_doc() {
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                ///
+                #[impress_method]
+                async fn echo(&self, message: String) -> String;
+            }
+            "#,
+        )
+        .expect_err("a doc comment with no text is no doc comment");
+        assert!(err.to_string().contains("EchoService::echo"));
+    }
+
+    #[test]
+    fn documented_methods_expand_with_their_docs() {
+        let ts = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Echo a message
+                /// back.
+                #[impress_method]
+                async fn echo(&self, message: String) -> String;
+                /// Not a verb: no marker, so no doc is required.
+                async fn helper(&self);
+            }
+            "#,
+        )
+        .expect("documented trait expands");
+        let text = ts.to_string();
+        assert!(text.contains("__IMPRESS_SERVICE_DOCS_EchoService"));
+        assert!(text.contains("\"Echo a message back.\""), "{text}");
+        assert!(
+            !text.contains("impress_method"),
+            "the marker is stripped: {text}"
+        );
+    }
+
+    #[test]
+    fn trait_without_methods_is_a_compile_error() {
+        let err = expand("pub trait Empty: Send + Sync + 'static { async fn f(&self); }")
+            .expect_err("no #[impress_method] at all");
+        assert!(err.to_string().contains("`Empty` has no #[impress_method]"));
     }
 }
