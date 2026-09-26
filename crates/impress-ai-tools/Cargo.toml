@@ -29,3 +29,4 @@ imbib-service-http.workspace = true
 impart-service-http.workspace = true
 implore-service-http.workspace = true
 imprint-service-http.workspace = true
+impress-workspace-hack.workspace = true

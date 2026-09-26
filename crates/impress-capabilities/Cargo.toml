@@ -37,6 +37,7 @@ vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
 # direct dependencies here any more — they arrive transitively through
 # `impress-capabilities-kit`, so each is named in exactly one place.
 impress-capabilities-kit = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 # The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run

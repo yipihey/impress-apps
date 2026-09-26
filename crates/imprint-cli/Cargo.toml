@@ -22,3 +22,4 @@ impress-service-core = { workspace = true, features = ["cli"] }
 # through imprint-service.
 impress-store-service = { workspace = true }
 serde_json = { workspace = true }
+impress-workspace-hack.workspace = true

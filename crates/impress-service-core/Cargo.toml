@@ -35,6 +35,7 @@ sha2 = "0.10"
 uniffi = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 clap = { version = "4", features = ["std", "help", "usage", "error-context", "string"], default-features = false, optional = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 impress-service-macros = { path = "../impress-service-macros" }

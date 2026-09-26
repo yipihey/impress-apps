@@ -25,6 +25,7 @@ crate-type = ["lib"]
 
 [dependencies]
 uniffi = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
 
 [features]
 default = []

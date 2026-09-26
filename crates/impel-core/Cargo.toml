@@ -53,6 +53,7 @@ rusqlite = { workspace = true, optional = true }
 # Persona system dependencies
 toml = { workspace = true }
 dirs = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

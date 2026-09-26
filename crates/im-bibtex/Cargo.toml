@@ -41,6 +41,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 
 # Python bindings
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 proptest = "1.4"              # Property-based testing

@@ -20,5 +20,6 @@ thiserror = { workspace = true }
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]

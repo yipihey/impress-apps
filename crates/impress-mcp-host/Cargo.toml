@@ -12,3 +12,4 @@ impress-service-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+impress-workspace-hack.workspace = true
