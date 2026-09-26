@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 impress-service-core = { workspace = true }
 
 # One optional dependency per service crate, gated by the feature of the same

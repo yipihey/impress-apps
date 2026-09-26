@@ -14,13 +14,9 @@ reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
-chrono = { workspace = true }
-async-trait = { workspace = true }
-schemars = { workspace = true }
 
 [dev-dependencies]
 mockito = { workspace = true }

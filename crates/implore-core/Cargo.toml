@@ -31,7 +31,6 @@ lilaq = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib"]
 
 [dependencies]
 # Workspace crates
-impress-domain = { workspace = true }
 impress-collab = { workspace = true }
 impress-core = { workspace = true }
 
@@ -69,9 +68,6 @@ typst = { workspace = true, optional = true }
 typst-pdf = { workspace = true, optional = true }
 typst-svg = { workspace = true, optional = true }
 typst-as-lib = { workspace = true, optional = true }
-
-# Statistics (for histogram computation)
-implore-stats = { workspace = true }
 
 # A figure's rendered artifact: SVG → PNG (figure_artifact.rs)
 resvg = { workspace = true }

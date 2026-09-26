@@ -27,7 +27,7 @@ impl PubMedSource {
     /// Parse PubMed XML response (efetch format)
     pub fn parse_efetch_response(xml: &str) -> Result<Vec<SearchResult>, SourceError> {
         let mut reader = Reader::from_str(xml);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
 
         let mut results = Vec::new();
         let mut buf = Vec::new();
@@ -151,7 +151,7 @@ impl PubMedSource {
                 }
                 Ok(Event::Text(e)) => {
                     if in_article {
-                        let text = e.unescape().unwrap_or_default().to_string();
+                        let text = e.xml_content().unwrap_or_default().to_string();
                         match current_element.as_str() {
                             "PMID" if pmid.is_empty() => pmid = text,
                             "ArticleTitle" => title = text,
@@ -186,7 +186,7 @@ impl PubMedSource {
     /// Parse esearch response to get PMIDs
     pub fn parse_esearch_response(xml: &str) -> Result<Vec<String>, SourceError> {
         let mut reader = Reader::from_str(xml);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
 
         let mut pmids = Vec::new();
         let mut buf = Vec::new();
@@ -205,7 +205,7 @@ impl PubMedSource {
                     }
                 }
                 Ok(Event::Text(e)) if in_id => {
-                    let text = e.unescape().unwrap_or_default().to_string();
+                    let text = e.xml_content().unwrap_or_default().to_string();
                     pmids.push(text);
                 }
                 Ok(Event::Eof) => break,

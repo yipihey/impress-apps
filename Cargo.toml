@@ -149,7 +149,7 @@ repository = "https://github.com/yipihey/impress-apps"
 # Shared dependencies across crates
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
-thiserror = "1.0"
+thiserror = "2.0"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -171,7 +171,7 @@ async-trait = "0.1"
 # HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # XML parsing (arXiv Atom feed, PubMed)
-quick-xml = "0.31"
+quick-xml = "0.38"
 # HTTP mocking for source-client tests
 mockito = "1"
 
@@ -275,22 +275,18 @@ impel-server = { path = "crates/impel-server" }
 
 # impel dependencies
 rusqlite = { version = "0.32", features = ["bundled", "serde_json", "backup"] }
-mail-parser = "0.9"
-petgraph = "0.6"
 ratatui = "0.29"
 crossterm = "0.28"
-tui-textarea = "0.7"
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = "0.26"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Persona/config loading
 toml = "0.8"
-dirs = "5"
+dirs = "6"
 
 # impress-service-* (Phase 0 codegen pipeline)
 impress-service-core = { path = "crates/impress-service-core" }

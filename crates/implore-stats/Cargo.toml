@@ -11,9 +11,8 @@ default = []
 uniffi = ["dep:uniffi"]
 
 [dependencies]
-# Serialization and error handling
+# Serialization
 serde = { workspace = true }
-thiserror = { workspace = true }
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }
