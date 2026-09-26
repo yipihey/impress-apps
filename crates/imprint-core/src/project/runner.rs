@@ -8,7 +8,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// One process to run.
@@ -77,17 +78,20 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 /// What a process did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunOutput {
-    /// The exit code; `None` when killed (timeout or signal).
+    /// The exit code; `None` when killed (timeout, cancel or signal).
     pub status: Option<i32>,
     pub stdout: String,
     pub stderr: String,
     pub duration_ms: u64,
     pub timed_out: bool,
+    /// Killed because the host's cancel flag was raised (ADR-0034 D6) —
+    /// the person or agent asked the build to stop, not a hang.
+    pub cancelled: bool,
 }
 
 impl RunOutput {
     pub fn ok(&self) -> bool {
-        self.status == Some(0) && !self.timed_out
+        self.status == Some(0) && !self.timed_out && !self.cancelled
     }
 
     /// The tail of what it printed, for a one-line report.
@@ -98,11 +102,12 @@ impl RunOutput {
             &self.stderr
         };
         let last = text.lines().rev().find(|l| !l.trim().is_empty());
-        match (self.timed_out, self.status, last) {
-            (true, _, _) => "timed out".to_string(),
-            (false, Some(0), _) => "ok".to_string(),
-            (false, code, Some(line)) => format!("exit {:?}: {}", code, line.trim()),
-            (false, code, None) => format!("exit {code:?}"),
+        match (self.cancelled, self.timed_out, self.status, last) {
+            (true, _, _, _) => "cancelled".to_string(),
+            (false, true, _, _) => "timed out".to_string(),
+            (false, false, Some(0), _) => "ok".to_string(),
+            (false, false, code, Some(line)) => format!("exit {:?}: {}", code, line.trim()),
+            (false, false, code, None) => format!("exit {code:?}"),
         }
     }
 }
@@ -119,11 +124,75 @@ pub enum RunError {
     },
 }
 
-/// The port: something that can find and run programs.
+/// The port: something that can find and run programs — and, since the
+/// build is a job (ADR-0034 D6), the seam through which it reports each
+/// step and learns it should stop. The three hooks default to nothing, so
+/// a host that only runs programs is unchanged.
 pub trait RunnerHost: Send + Sync {
     /// Where `program` is, if this host can run it.
     fn which(&self, program: &str) -> Option<PathBuf>;
     fn run(&self, request: &RunRequest) -> Result<RunOutput, RunError>;
+
+    /// Has the caller asked the build to stop? `build` asks before each
+    /// step and before the document engine; a process host also asks in
+    /// its wait loop and kills the child.
+    fn cancel_requested(&self) -> bool {
+        false
+    }
+
+    /// A figure step is about to run (its source path and runner name).
+    fn step_started(&self, _source: &str, _runner: &str) {}
+
+    /// A figure step finished, however it finished.
+    fn step_finished(&self, _report: &super::build::StepReport) {}
+}
+
+/// A host over another host that forwards the three job hooks to
+/// closures — what `imprint-service` wraps a [`ProcessRunnerHost`] in to
+/// stream a build's steps into the job's event ring.
+pub struct ObservedHost<H: RunnerHost> {
+    inner: H,
+    on_step_started: Box<dyn Fn(&str, &str) + Send + Sync>,
+    on_step_finished: Box<dyn Fn(&super::build::StepReport) + Send + Sync>,
+    cancel: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl<H: RunnerHost> ObservedHost<H> {
+    pub fn new(
+        inner: H,
+        on_step_started: impl Fn(&str, &str) + Send + Sync + 'static,
+        on_step_finished: impl Fn(&super::build::StepReport) + Send + Sync + 'static,
+        cancel: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            inner,
+            on_step_started: Box::new(on_step_started),
+            on_step_finished: Box::new(on_step_finished),
+            cancel: Box::new(cancel),
+        }
+    }
+}
+
+impl<H: RunnerHost> RunnerHost for ObservedHost<H> {
+    fn which(&self, program: &str) -> Option<PathBuf> {
+        self.inner.which(program)
+    }
+
+    fn run(&self, request: &RunRequest) -> Result<RunOutput, RunError> {
+        self.inner.run(request)
+    }
+
+    fn cancel_requested(&self) -> bool {
+        (self.cancel)() || self.inner.cancel_requested()
+    }
+
+    fn step_started(&self, source: &str, runner: &str) {
+        (self.on_step_started)(source, runner);
+    }
+
+    fn step_finished(&self, report: &super::build::StepReport) {
+        (self.on_step_finished)(report);
+    }
 }
 
 /// Directories a GUI app's `PATH` lacks but a researcher's shell has:
@@ -141,6 +210,9 @@ pub const WELL_KNOWN_DIRS: &[&str] = &[
 /// killed at the timeout.
 pub struct ProcessRunnerHost {
     search: Vec<PathBuf>,
+    /// Raised by the job runner when a cancel is requested; the wait loop
+    /// kills the child within one poll (25 ms) of it going up.
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Default for ProcessRunnerHost {
@@ -164,11 +236,30 @@ impl ProcessRunnerHost {
             search.push(home.join(".local/bin"));
         }
         search.dedup();
-        Self { search }
+        Self {
+            search,
+            cancel: None,
+        }
     }
 
     pub fn with_search(search: Vec<PathBuf>) -> Self {
-        Self { search }
+        Self {
+            search,
+            cancel: None,
+        }
+    }
+
+    /// Kill whatever runs when `flag` goes up, and answer
+    /// `cancel_requested` from it.
+    pub fn with_cancel(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.cancel = Some(flag);
+        self
+    }
+
+    fn cancel_raised(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .is_some_and(|f| f.load(Ordering::Relaxed))
     }
 
     fn path_env(&self) -> String {
@@ -237,10 +328,17 @@ impl RunnerHost for ProcessRunnerHost {
             buf
         });
         let mut timed_out = false;
+        let mut cancelled = false;
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break status.code(),
                 Ok(None) => {
+                    if self.cancel_raised() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        cancelled = true;
+                        break None;
+                    }
                     if start.elapsed() >= request.timeout {
                         let _ = child.kill();
                         let _ = child.wait();
@@ -265,7 +363,12 @@ impl RunnerHost for ProcessRunnerHost {
             stderr,
             duration_ms: start.elapsed().as_millis() as u64,
             timed_out,
+            cancelled,
         })
+    }
+
+    fn cancel_requested(&self) -> bool {
+        self.cancel_raised()
     }
 }
 
@@ -359,6 +462,36 @@ mod tests {
 
         let missing = host.run(&RunRequest::new("no-such-program-xyz", &dir));
         assert!(matches!(missing, Err(RunError::NotFound { .. })));
+    }
+
+    /// ADR-0034 D6: a raised cancel flag kills the running child within a
+    /// poll, and the output says `cancelled` — not `timed out`.
+    #[test]
+    fn a_raised_cancel_flag_kills_the_child() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let host = ProcessRunnerHost::new().with_cancel(flag.clone());
+        let raiser = {
+            let flag = flag.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(150));
+                flag.store(true, Ordering::Relaxed);
+            })
+        };
+        let start = Instant::now();
+        let out = host
+            .run(
+                &RunRequest::new("sh", std::env::temp_dir())
+                    .args(["-c", "sleep 10"])
+                    .timeout(Duration::from_secs(30)),
+            )
+            .unwrap();
+        raiser.join().unwrap();
+        assert!(out.cancelled, "{out:?}");
+        assert!(!out.timed_out);
+        assert!(!out.ok());
+        assert_eq!(out.summary(), "cancelled");
+        assert!(start.elapsed() < Duration::from_secs(5));
+        assert!(host.cancel_requested());
     }
 
     #[test]

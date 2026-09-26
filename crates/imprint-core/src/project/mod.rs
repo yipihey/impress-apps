@@ -69,7 +69,8 @@ pub use outline::{
     citations_for_tree, reading_order, sections_for_tree, TreeCitation, TreeSection,
 };
 pub use runner::{
-    ProcessRunnerHost, RunError, RunOutput, RunRequest, RunnerHost, ScriptedRunnerHost,
+    ObservedHost, ProcessRunnerHost, RunError, RunOutput, RunRequest, RunnerHost,
+    ScriptedRunnerHost,
 };
 pub use scan::{scan, scan_text, DepEdge, DepKind, DependencyGraph, RawReference, Unresolved};
 #[cfg(feature = "typst-render")]
