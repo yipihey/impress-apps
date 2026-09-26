@@ -448,7 +448,13 @@ impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
         source: &str,
         options: CompileOptions,
     ) -> Result<CompileResult, ServiceError> {
-        Ok(compile_typst_dispatch(source, options))
+        // In-process Typst, seconds long: off the executor (LR-1).
+        let source = source.to_string();
+        Ok(
+            tokio::task::spawn_blocking(move || compile_typst_dispatch(&source, options))
+                .await
+                .map_err(|e| ServiceError::Internal(format!("compile task: {e}")))?,
+        )
     }
 
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>, ServiceError> {

@@ -2150,7 +2150,21 @@ impl DefaultImprintProjectService {
                 });
             }
         }
-        let outcome = compile_tree_dispatch(&tree, &target, &bibs, entry_override.as_deref());
+        // Typst compiles in-process and takes seconds: off the executor
+        // (LR-1), so the MCP loop and every other verb keep answering.
+        let outcome = {
+            let (tree, target, bibs, entry_override) = (
+                tree.clone(),
+                target.clone(),
+                bibs.clone(),
+                entry_override.clone(),
+            );
+            tokio::task::spawn_blocking(move || {
+                compile_tree_dispatch(&tree, &target, &bibs, entry_override.as_deref())
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("compile task: {e}")))
+        };
         match outcome {
             Err(message) => fail(target.id.clone(), "typst".into(), message),
             Ok(out) => {
