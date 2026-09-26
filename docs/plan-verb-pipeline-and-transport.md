@@ -256,9 +256,12 @@ when the app-side generic route (P5) gives impress and impel the full inventory 
 
 Measured separately (Tom's fourth addendum): `cargo --timings` cold and incremental, llvm-lines per
 `#[impress_method]`, build time per verb, and an evaluation of thin shims, one test binary per crate,
-sccache, feature trimming / hakari and `build-override` opt-level, with a CI budget check. The section
-lands in a follow-up commit on this branch from `scratchpad/build-cost-section.md`; its findings take
-ids `BC-*` and its work package is P9.
+sccache, feature trimming / hakari and `build-override` opt-level, with a CI budget check. The measured
+section is § Build cost as a measured budget below (findings `BC-*`, work packages B1–B6); the raw
+record is [`plan-verb-pipeline-build-cost.json`](plan-verb-pipeline-build-cost.json). Headline: a cold
+workspace build is 54.9 s wall (127 ms per verb), macro output is 33 % of the service crates' LLVM IR
+(1,713 lines per verb) but the service crates are 5.5 % of cold unit-time, so verb count is not the
+scaling limit; dependencies are 78 %.
 
 ## Findings
 
@@ -511,9 +514,231 @@ generated form and reference page come from the same descriptor. What a provider
 | **P7 Rules into construction** | `impress-core/build.rs` + `SchemaRef` newtype, `[workspace.lints]`, `clippy.toml`, the macro's doc/safety/since errors, the two golden tests, `check-kit-deps` fold | RC-1..3 | a misspelt schema ref fails to compile; an undocumented method fails to compile; `check-schema-refs.sh` reports 0 Rust literals | full gate; the scripts | P3, P4, P5 |
 | **P8 Runtime providers** | `impress-service-core::registry`, `POST /api/providers/register`, `provider@1.0.0`, the trust rule, the 10 direct inventory readers, a reference provider in the repo (a 40-line Julia or Python script registering one verb) | RP-1, completeness 8 | the reference provider's verb appears in `tools/list`, the CLI, the catalogue and `docs/verbs/`; its example runs in Tier B; killing the provider greys the verb and a surface naming it fails by name; an untrusted provider's `read-only` claim is effective `external` | full gate; a Tier B lane that starts the provider | after P5 |
 
-## Build cost
+## Build cost as a measured budget
 
-_Placeholder — the measured section is added in a follow-up commit (see § Measurements › Build cost)._
+**Measured:** 2026-09-26 on main at `3222f573`, a fresh worktree, nothing else building.
+**Raw numbers and every command:** [`plan-verb-pipeline-plan-verb-pipeline-build-cost.json`](plan-verb-pipeline-plan-verb-pipeline-build-cost.json) (this section quotes it; the JSON is the
+record). **Verb count:** 433 `#[impress_method]` in `crates/*-service/src` across 15 service
+crates (38 services, 16 linked crates — the inventory count). The naive
+`grep -rc "#\[impress_method" crates --include=*.rs` says 458: it also counts 22 doc-comment
+mentions, imprint-selftest's one verb and the two in `impress-service-core/examples/echo_demo.rs`.
+vw-service's 15 verbs expand inside `vw-impress-adapter`, where its `impress_service_impl!` lives.
+
+### Baseline
+
+| | Value |
+|---|---|
+| Machine | Mac17,6, Apple M5 Max, 18 cores (6P + 12E), 128 GB, macOS 26.7 (25G229); cargo `jobs=18` |
+| Toolchain | `rust-toolchain.toml` pin 1.98.1; `rustc 1.98.1 (48a229cea 2026-09-01)`, `cargo 1.98.1` |
+| Profile | `[profile.dev] debug = "line-tables-only"`, `[profile.dev.package."*"] debug = false` (as committed) |
+| Target dir | `CARGO_TARGET_DIR=$HOME/.cache/impress-build-cost-target/<run>`, one fresh dir per cold run; no sccache, no rustc-wrapper |
+| Tools added | `cargo binstall -y cargo-llvm-lines cargo-machete cargo-expand` into `~/.cargo/bin` (binaries, not compiled) |
+| Scripts | the measurement scripts were not committed; every command and its wall time is in the JSON (`commands`, `wall_s`) |
+
+Cold = `rm -rf` the target dir, then `cargo build … --timings`. Incremental = append
+`// build-cost probe` to one `lib.rs`, rebuild the same target, `git checkout --` the file. Every
+build ran serially. Two cold workspace runs differed by 6 % (54.9 s / 58.4 s); quote the first,
+treat ±6 % as noise.
+
+| Build (`--timings`) | Wall | Unit-time sum | Units | Critical path |
+|---|---|---|---|---|
+| `cargo build --workspace` cold | **54.9 s** (run 2: 58.4 s) | 714.8 s | 1034 | 42.2 s |
+| `cargo check --workspace` cold | 40.0 s | 520.1 s | 1089 | 28.8 s |
+| `cargo build -p impress-mcp` cold | **48.6 s** | 597.0 s | 925 | 35.2 s |
+| `cargo build -p impress-cli` cold | 40.6 s | 465.1 s | 761 | 42.2 s |
+| `cargo build -p impel-tools` cold | 32.2 s | 313.5 s | 549 | 34.8 s |
+| workspace, no-op rebuild | 0.5 s | — | 0 dirty | — |
+| workspace, touch `imbib-service/src/lib.rs` | **4.5 s** | 16.2 s | 12 dirty | 4.4 s |
+| workspace, touch `impress-service-core/src/lib.rs` | **7.2 s** | 27.6 s | 40 dirty | 8.0 s |
+| impress-mcp, touch imbib-service / service-core | 3.2 s / 5.7 s | 5.3 s / 14.4 s | | 3.2 s / 6.4 s |
+| impress-cli, touch imbib-service / service-core | 2.5 s / 4.7 s | 3.1 s / 11.2 s | | |
+| impel-tools, touch imbib-service / service-core | 1.6 s / 3.3 s | 1.8 s / 5.7 s | | |
+
+Where the cold workspace build goes (unit-time, 714.8 s): dependencies 561 s (78 %), workspace
+crates 153.5 s (21 %), of which the 15 service crates 39.2 s (5.5 %). Slowest units: `zstd-sys`
+build script 13.8 s, `typst-library` 13.2 s, `onig_sys` build script 10.9 s,
+`impress-store-service` 8.6 s, `imbib-core` 8.4 s, `impress-layout-service` 7.4 s, `automerge`
+7.1 s, `impress-core` 6.8 s. The critical path (42.2 s of the 54.9 s wall) is one chain:
+`libc → cc → onig_sys` build script (10.9 s) `→ tokenizers → fastembed → impress-embeddings →
+imbib-core` (8.4 s) `→ imbib-service → impress-app-client → imbib-service-http →
+impress-ai-tools → impel-taskd`. fastembed/onig reach every binary through `imbib-core`'s
+default `impress-embeddings` dependency, not through the `embedder` feature.
+
+The incremental paths are the ones the pipeline work will hit:
+- Service touch (4.5 s): `imbib-service` 1.0 s, then five binaries relink in parallel at
+  1.9–2.1 s each (`impress-mcp`, `impel-taskd`, `impress-cli`, `imprint-cli`, `imprint-selftest`).
+  Link time is the floor, not the service crate.
+- `impress-service-core` touch (7.2 s): a 10-hop serial chain, `service-core → store-service
+  1.1 → layout-service 0.9 → surface-service 0.6 → capabilities-kit → store-ffi 0.4 →
+  imprint-service 1.0 → app-client 0.5 → imprint-selftest 0.7 → capabilities → impress-mcp 2.1`.
+  Depth of the crate graph is the cost here, not verb count.
+
+### Per verb
+
+| Number (433 verbs) | ms / verb |
+|---|---|
+| Cold workspace wall | **127** (run 2: 135) |
+| Cold workspace unit-time | 1651 |
+| Cold `impress-mcp` wall | 112 |
+| Cold `impress-cli` / `impel-tools` wall | 94 / 74 |
+| Incremental, service touched, workspace / `impress-mcp` | **10.4** / 7.4 |
+| Incremental, service-core touched, workspace / `impress-mcp` | **16.6** / 13.2 |
+| Service crates' own cold unit-time (39.2 s) | 91 |
+
+Per service crate the cold lib compile ranges from 29 ms/verb (`imbib-service`, 150 verbs,
+4.3 s) to 210 ms/verb (`impress-surface-service`, 16 verbs, 4.0 s): the crates that are
+expensive are expensive for their domain code (`impress-store-service` 8.6 s,
+`impress-layout-service` 7.4 s, both > 10 k source lines), not for their verb count.
+
+### Macro output (`cargo llvm-lines`, 14 service crates, 418 verbs)
+
+| | Lines of LLVM IR | Per verb |
+|---|---|---|
+| Total across the 14 crates | 2,141,268 | 5,123 |
+| Attributable to `#[impress_method]` expansion | **716,103 (33.4 %)** | **1,713** |
+| · derived `Deserialize` for `__Impress_*_Args` (Visitor, `__Field`) | 389,337 | 931 |
+| · derived `JsonSchema` for the Args struct | 148,561 | 355 |
+| · `__impress_*_invoke` and its boxed async closure | 139,781 | 334 |
+| · `__impress_*_schema`, drop glue, other | 38,424 | 92 |
+
+Share per crate: 62 % in `impress-bridges-service`, 58 % `imbib-service`, 44–49 %
+`impart`/`ai`/`smart-search`, 21 % `store`/`layout`, 14 % `surface`, 12 % `surface-demo`.
+`cargo expand -p surface-demo-service` turns 577 source lines into 2,743; one method is
+361 expanded lines (Args struct + the two derives + schema fn + invoker + two
+`inventory::submit!`). Return-type `to_value` instantiations are on domain DTOs and not
+counted as macro output.
+
+Codegen is the smaller half of a service crate's compile: `imbib-service` 3.8 s frontend /
+0.5 s codegen, `imprint-service` 4.0 / 0.6, `impress-store-service` 4.7 / 3.9,
+`impress-layout-service` 5.3 / 2.1. The IR share therefore overstates the time share.
+
+### Findings
+
+- **BC-1 (verified)** Verb count is not the scaling limit today. The 433 verbs cost 39.2 s of
+  715 s cold unit-time and 1.0 s of a 4.5 s incremental; 78 % of a cold build is
+  dependencies, and the incremental floor is binary link time (five binaries × ~2 s) plus the
+  ten-hop chain under `impress-service-core`. Doubling the verb count would add ≈ 40 s
+  unit-time (≈ 2–3 s wall on 18 cores) to a cold build and ≈ 1 s to a service-touch rebuild.
+- **BC-2 (verified)** Macro output is 33 % of the service crates' IR, 1,713 lines/verb, and
+  over half of it (931) is the derived `Deserialize` for each Args struct, not the invoker
+  (334). A thin shim that keeps `#[derive(Deserialize, JsonSchema)]` removes at most the
+  invoker's ~20 % of macro output (≈ 7 % of service-crate IR). Removing the derives means
+  the shim deserialises fields itself from `serde_json::Value` through per-primitive-type
+  shared instantiations — that is what makes it "non-generic". Expected saving, bounded by
+  codegen time: ≤ 0.5 s unit-time for `imbib-service`, < 1 s wall for the workspace. Do it
+  for the invoker pipeline's sake (one runtime function to instrument), not for build time.
+- **BC-3 (verified)** `[profile.dev.build-override] opt-level = 3` is a loss: cold workspace
+  79.2 s (+21–24 s; `syn` 19.3 s, `uniffi_macros` 16.4 s, `darling_core` 14.1 s,
+  `serde_derive` 13.0 s, `async-trait` 12.5 s now sit on the critical path, 68.7 s), and the
+  service-touch incremental is unchanged (4.6 s vs 4.5 s). Measured with
+  `CARGO_PROFILE_DEV_BUILD_OVERRIDE_OPT_LEVEL=3`; `Cargo.toml` was never edited. Rejected;
+  `opt-level = 1` was not tried (the incremental shows nothing to gain).
+- **BC-4 (verified)** One test binary per `tests/*.rs`: 93 files in 24 crates; `imbib-core`
+  has 26 files → 24 integration binaries (two are helper modules). `cargo test -p imbib-core
+  --features native --no-run` after `cargo clean -p imbib-core`: 11.4 s wall, 70.1 s
+  unit-time, of which the 24 integration binaries are 52.5 s (2.2 s each, compile + link
+  against the whole `imbib-core` closure) against 10.7 s for the lib test target and 6.5 s
+  for the lib. One binary per crate (`tests/main.rs` with `mod` lines) would cut that to one
+  compile + one link: save ≈ 45 s unit-time / ≈ 8 s wall per `imbib-core` test build, and
+  proportionally across the other 23 crates. Note `cargo test -p imbib-core --no-run` without
+  `--features native` does not compile (166 errors) — the gate's spelling is the only one.
+- **BC-5 (verified, feature sets; saving estimated)** The two `rust-gate.sh` shards resolve 56
+  external crates with different feature sets (41.7 s of direct cold unit-time; they include
+  `serde_core`, `serde_json`, `indexmap`, `tracing`, `regex-automata`, `hashbrown`, so
+  everything above them rebuilds too — in effect a full dependency rebuild, ≈ 560 s
+  unit-time, ≈ 35–40 s wall). Plain `cargo build --workspace` differs from `rest` by 42
+  crates and from `imprint` by 26; `impress-mcp` from `impress-cli` by 32; a per-app lane
+  (`cargo test --features native` from `crates/imbib-core`) from `rest` by 53. CI already
+  keeps one persistent target dir per lane, so lanes do not thrash each other; the cost is
+  paid once per lane per dependency bump and on every developer who alternates a per-crate
+  command with the gate in one `target/`. A cargo-hakari workspace-hack crate pins one
+  feature set for every lane; expected saving is the dependency rebuild on each such switch.
+- **BC-6 (verified)** Duplicate dependency versions: 54 crates present in two or more versions
+  (`itertools` ×4, `getrandom`/`rand`/`hashbrown`/`rustix`/`sha2` ×3, `thiserror` 1+2,
+  `toml` 0.5+0.8, `strum`, `zerovec`/`icu_*` …); the extra copies cost 26.5 s cold unit-time
+  (3.7 %). `thiserror` 1→2, `itertools` and `toml` 0.5 are ours to fix; the ICU/zerovec pairs
+  come from `url`/`idna` vs typst and are not.
+- **BC-7 (verified)** `cargo machete`: 70 unused-dependency hits in 40 crates, but only 2 are
+  the sole user of the crate (`impel-server`→`tokio-tungstenite`, `impel-tui`→`tui-textarea`,
+  0.4 s together); the rest stay in the graph through another member. Several are false
+  positives (`pyo3`/`uniffi` behind features in `impress-service-core`, `darling` in the
+  macros crate). Worth a hygiene pass, worth nothing for build time.
+- **BC-8 (verified)** tokio `"full"` is inherited by 44 crates (`tokio = { workspace = true }`),
+  not 26; tokio itself is 3.4 s of cold unit-time and compiles once, because cargo unifies
+  features across the workspace. Trimming per-crate feature lists saves nothing in any
+  workspace or binary build while one member needs `full` (`impel-server`, `impel-taskd` do);
+  it only matters for `clippy-each-crate.sh` (each crate alone) and the kit standalone check.
+- **BC-9 (estimated)** sccache: dependencies are 561 s of the 715 s cold unit-time, identical
+  bytes across every agent worktree and the four self-hosted runners' `~/ci-cargo-target/*`
+  dirs on one Mac. With a warm local disk cache a cold workspace build drops to roughly the
+  workspace-crate chain (≈ 25–30 s wall; `imbib-core` 8.4 s → `imbib-service` → … is what
+  remains) and the per-lane dependency rebuild in BC-5 becomes a cache hit. Not measured;
+  `.cargo/config.toml` already says where the wrapper belongs (`~/.cargo/config.toml`, never
+  the repo, because the GitHub-hosted release runners lack the binary).
+- **BC-10 (verified)** `ort-sys`/fastembed did not need a network download on this machine
+  and did not block; `onig_sys`'s 10.9 s C build (via `tokenizers`) is on the critical path of
+  every binary through `imbib-core → impress-embeddings` (default feature, not `embedder`).
+
+### Work packages
+
+| WP | Wave | Owns | Does | Expected saving |
+|---|---|---|---|---|
+| **B1 Test binaries** | A | `crates/*/tests/` (start with `imbib-core`, `impress-core`, `imprint-core`, `impress-layout`, `impress-surface*`, `impress-layout-service`) | one `tests/main.rs` per crate with `mod` per former file; test names keep their module path | ≈ 45 s unit-time / ≈ 8 s wall per `imbib-core` test build; 93 → 24 link steps workspace-wide (BC-4) |
+| **B2 Local compile cache** | A | `~/.cargo/config.toml` on impress-mac and in the agent-worktree briefing; `docs/` note | install sccache, `[build] rustc-wrapper` in the *user* config only; verify the four runners share the cache dir; record hit rate after one week | dependency share of every cold lane and worktree, ≈ 78 % of cold unit-time (BC-9); measure before/after with `run-builds.sh` |
+| **B3 Dependency graph** | A | `Cargo.toml` (workspace + members), `Cargo.lock` | `thiserror` 1→2, `itertools` to one version, `toml` 0.8, the 2 sole-user machete hits, and the ~60 hygiene hits; do not touch tokio features (BC-8) | 26.5 s unit-time of duplicate copies (BC-6), minus the pairs that are upstream's |
+| **B4 Workspace-hack** | B | new `crates/impress-workspace-hack` (cargo-hakari), `rust-gate.sh`, `workspace-rust.yml`, `check-kit-standalone.sh` | one feature set for the two shards, the per-app lanes and plain `--workspace`; hakari's generated crate is checked in and verified in CI | the per-lane dependency rebuild on feature-set switch (BC-5); no change to a warm lane |
+| **B5 Build budget in CI** | B | `scripts/build-cost.sh`, `build-budget.json`, one job in `workspace-rust.yml` | see below | prevents regression; saves nothing itself |
+| **B6 Embeddings off the spine** | C | `crates/imbib-core/Cargo.toml`, `impress-embeddings` features, the store FFI | make `impress-embeddings`'s fastembed/`tokenizers` path opt-in for the binaries that never embed (`impress-cli`, `impel-tools`, `imprint-*`), or split the crate | up to 10.9 s (`onig_sys`) + `tokenizers` 3.7 s off the critical path of every binary (BC-10); ask-first, it changes what a binary can do |
+
+Order: B1 ∥ B2 ∥ B3 (disjoint files), then B4 (needs B3's lock to settle), then B5 with the
+budget re-measured after B1–B4. B6 is behaviour, not build hygiene, and goes through the
+verb-pipeline plan's ask-first list. The thin-shim rewrite is **not** a build-cost package:
+it is the invoker pipeline's own work, and BC-2 says to expect < 1 s from it.
+
+### The CI check (B5)
+
+A timing job is noisy (±6 % run to run here; more on a shared runner), so the budget has two
+halves: a deterministic one that fails the PR, and a measured one that records and fails
+only on a large step.
+
+1. **Deterministic, fails the PR** — `cargo llvm-lines -p <svc> --lib` for each service crate,
+   summed and divided by the strict verb count (`grep -rhE '^\s*#\[impress_method'
+   crates/*-service/src | wc -l`). Budget: macro-attributed lines ≤ 2,000/verb and total
+   service-crate IR ≤ 6,000/verb (today 1,713 and 5,123). `cargo llvm-lines` is
+   reproducible for a given toolchain, so this catches a heavier expansion the day it lands.
+2. **Measured, records; fails at +25 %** — on the `impress-mac` runner, in its own persistent
+   target dir: cold `cargo build -p impress-mcp --timings`, then the imbib-service touch and
+   the service-core touch, each divided by the verb count. Budgets from this baseline with
+   headroom for the runner: cold ≤ 150 ms/verb, service touch ≤ 12 ms/verb, service-core
+   touch ≤ 20 ms/verb. The job appends `{commit, verbs, cold_ms_per_verb, incr_service,
+   incr_core, unit_time_sum}` to a ledger artifact so the trend is visible; a single run
+   over budget re-runs once before failing.
+3. The budget file names the toolchain it was measured with. A toolchain bump re-baselines
+   in the same PR (ask-first, below), which keeps "the compiler got slower" separate from
+   "we generated more".
+
+`scripts/build-cost.sh` is `run-builds.sh` reduced to those three builds plus the llvm-lines
+loop; it must run with `CARGO_TARGET_DIR` outside the checkout like the other lanes.
+
+### Ask first
+
+- Changing the `rust-toolchain.toml` pin, or adopting any nightly-only flag (`-Zthreads`,
+  `-Zshare-generics` on stable are not options; the parallel frontend is nightly).
+- B6: making embeddings opt-in for any binary changes what that binary can do.
+- B4: cargo-hakari adds a generated crate every member depends on; it changes every
+  `Cargo.toml` and the kit manifest (`check-kit-deps.sh --strict` must learn it).
+- sccache's cache directory location and size on the shared runner Mac (B2).
+
+### Not measured
+
+- A full `cargo test --workspace --no-run` link-time inventory (only `imbib-core`'s).
+- sccache and hakari themselves (estimated from the timings and feature diffs, as briefed).
+- `build-override opt-level = 1`; and release-profile builds (the xcframework scripts) —
+  everything here is `dev`.
+- CI-runner timings: all numbers are this M5 Max; the `impress-mac` runners need their own
+  baseline before B5's measured budget is set.
+- The seven target dirs left under `~/.cache/impress-build-cost-target` total ≈ 50 GB and
+  can be deleted.
 
 ## Recommendation
 
@@ -540,3 +765,7 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   Rust and 116 Swift schema-ref literals); the descriptor's `&'static`/`fn`-pointer shape against runtime
   registration. Every subagent number used here was spot-checked against source. Split from the GUI plan
   per the addendum; ADR-0034 is this plan's, ADR-0035 the GUI plan's.
+- 2026-09-26 — **Build cost added** (orchestrator, from the fourth addendum's measurement agent): the
+  § Build cost section and its JSON record; the GUI plan's verb-count row now states the strict grep
+  that reproduces 433. Both agent worktrees' measurements were re-checked against the JSON before
+  the section was inserted (every quoted number matches).
