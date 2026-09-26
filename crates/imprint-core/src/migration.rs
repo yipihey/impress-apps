@@ -91,11 +91,11 @@ impl Default for SchemaVersion {
 #[derive(Debug, Error)]
 pub enum MigrationError {
     /// Version is newer than what this app supports
-    #[error("Document version {0} is newer than supported version {}", SchemaVersion::CURRENT.as_raw())]
+    #[error("Document version {0} is newer than supported version {current}", current = SchemaVersion::CURRENT.as_raw())]
     VersionTooNew(u32),
 
     /// Version is too old to migrate
-    #[error("Document version {0} is too old to migrate (minimum: {})", SchemaVersion::MINIMUM_READABLE.as_raw())]
+    #[error("Document version {0} is too old to migrate (minimum: {minimum})", minimum = SchemaVersion::MINIMUM_READABLE.as_raw())]
     VersionTooOld(u32),
 
     /// Unknown version number
