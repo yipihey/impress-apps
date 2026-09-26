@@ -35,29 +35,10 @@ enum LayoutPaneViewState {
         _ fields: [String: LayoutJSONValue], into tile: UInt64,
         controller: LayoutController, why: String
     ) -> Bool {
-        guard let pane = controller.pane(tile) else {
-            logWarning("pane \(tile) view_state: no such pane — \(why) not written", category: "layout")
+        guard let write = write(fields, into: tile, controller: controller, why: why) else {
             return false
         }
-        guard var spec = (try? LayoutJSONValue.decode(pane.specJson))?.objectValue else {
-            logWarning(
-                "pane \(tile) view_state: its spec did not decode — \(why) not written", category: "layout")
-            return false
-        }
-        var state = spec["view_state"]?.objectValue ?? [:]
-        let before = state
-        for (key, value) in fields { state[key] = value }
-        if state == before { return true }
-        spec["view_state"] = .object(state)
-        let verb = LayoutJSONValue.object([
-            "verb": .string("set-pane"),
-            "target": LayoutPaneRef.id(tile).json,
-            "spec": .object(spec),
-        ])
-        // 1. MUTATION
-        let summary = fields.keys.sorted().map { "\($0)=\(fields[$0].map(describe) ?? "?")" }
-            .joined(separator: ", ")
-        logInfo("pane \(tile) view_state: \(summary) — \(why)", category: "layout")
+        guard case .verb(let verb) = write else { return true }
         do {
             let applied = try controller.applyVerbJSON(verb.jsonString(), actor: LayoutController.guiActor)
             // 2. SAVE
@@ -68,6 +49,48 @@ enum LayoutPaneViewState {
             logWarning("pane \(tile) view_state refused: \(error) — \(why)", category: "layout")
             return false
         }
+    }
+
+    /// What writing `fields` into a pane's `view_state` takes.
+    enum Write: Equatable {
+        /// The pane already carries them: no verb, and no undo entry.
+        case unchanged
+        /// The `set-pane` that writes them, for the caller to apply — alone
+        /// (`merge`) or as part of one gesture (`LayoutController.applyAll`).
+        case verb(LayoutJSONValue)
+    }
+
+    /// The `set-pane` that merges `fields` into `tile`'s `view_state`, or
+    /// nil (logged) when the pane is gone or its spec does not decode. The
+    /// spec sent back is the one Rust returned, with only `view_state`
+    /// changed.
+    static func write(
+        _ fields: [String: LayoutJSONValue], into tile: UInt64,
+        controller: LayoutController, why: String
+    ) -> Write? {
+        guard let pane = controller.pane(tile) else {
+            logWarning("pane \(tile) view_state: no such pane — \(why) not written", category: "layout")
+            return nil
+        }
+        guard var spec = (try? LayoutJSONValue.decode(pane.specJson))?.objectValue else {
+            logWarning(
+                "pane \(tile) view_state: its spec did not decode — \(why) not written", category: "layout")
+            return nil
+        }
+        var state = spec["view_state"]?.objectValue ?? [:]
+        let before = state
+        for (key, value) in fields { state[key] = value }
+        if state == before { return .unchanged }
+        spec["view_state"] = .object(state)
+        // 1. MUTATION
+        let summary = fields.keys.sorted().map { "\($0)=\(fields[$0].map(describe) ?? "?")" }
+            .joined(separator: ", ")
+        logInfo("pane \(tile) view_state: \(summary) — \(why)", category: "layout")
+        return .verb(.object([
+            "verb": .string("set-pane"),
+            "target": LayoutPaneRef.id(tile).json,
+            "spec": .object(spec),
+        ]))
     }
 
     /// The pane showing `viewKind` on the same channel as `tile` (never
