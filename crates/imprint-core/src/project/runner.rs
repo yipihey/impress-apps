@@ -6,8 +6,8 @@
 //! printed, so a build report can show the researcher exactly what ran.
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -541,7 +541,11 @@ mod tests {
             )
             .unwrap();
         assert!(out.timed_out);
-        assert!(start.elapsed() < Duration::from_secs(5), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
