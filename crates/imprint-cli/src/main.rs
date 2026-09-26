@@ -26,29 +26,46 @@ const _IMPRINT_SERVICE_FORCE_LINK: fn() -> imprint_service::DefaultImprintTextSe
 const _IMPRINT_SELFTEST_FORCE_LINK: fn() -> imprint_selftest::DefaultImprintSelftestService =
     imprint_selftest::DefaultImprintSelftestService::default;
 
+/// Strip `--wait` (ADR-0034 D6): `project-build` answers with a job handle;
+/// with this flag the CLI streams the job's events to stderr and prints
+/// `{ok, job, result}` when it ends. Without it the handle is printed after
+/// the job has finished, since an inline job dies with its process.
+fn take_wait(args: Vec<String>) -> (Vec<String>, bool) {
+    let wait = args.iter().any(|a| a == "--wait");
+    (args.into_iter().filter(|a| a != "--wait").collect(), wait)
+}
+
 fn main() {
+    let (args, wait) = take_wait(std::env::args().collect());
     let app = cli::build_cli_from_inventory("imprint").about(
         "imprint service CLI — auto-generated from #[impress_service] traits in imprint-service.",
     ).after_help(
             "Exit status: 0 when the verb did what it was asked; 3 when it answered \
              `\"ok\": false` (the JSON on stdout says why); 1 when the verb could not be \
-             dispatched; 2 for a bad invocation.",
+             dispatched; 2 for a bad invocation.\n\nJobs: `project-build` answers at once \
+             with `{\"ok\", \"job\": {id, kind, state}}`; `--wait` streams its events to \
+             stderr and prints `{ok, job, result}` when it ends.",
         );
-    let matches = app.get_matches();
+    let matches = app.get_matches_from(args);
 
     match cli::dispatch_matches(&matches) {
-        Ok(value) => match serde_json::to_string_pretty(&value) {
-            Ok(s) => {
-                println!("{s}");
-                // A refusal is not a success (review AC-F12): the verb's own
-                // `ok: false` sets the status a script tests, as in `impress`.
-                std::process::exit(impress_service_core::refusal::exit_status(&value));
+        Ok(value) => {
+            // A job handle is streamed or drained before anything prints
+            // (ADR-0034 D6); a plain result passes through.
+            let value = impress_store_service::job::cli_finish(value, wait);
+            match serde_json::to_string_pretty(&value) {
+                Ok(s) => {
+                    println!("{s}");
+                    // A refusal is not a success (review AC-F12): the verb's own
+                    // `ok: false` sets the status a script tests, as in `impress`.
+                    std::process::exit(impress_service_core::refusal::exit_status(&value));
+                }
+                Err(e) => {
+                    eprintln!("error: failed to serialize result: {e}");
+                    std::process::exit(2);
+                }
             }
-            Err(e) => {
-                eprintln!("error: failed to serialize result: {e}");
-                std::process::exit(2);
-            }
-        },
+        }
         Err(e) => {
             eprintln!("error: {e}");
             std::process::exit(1);
