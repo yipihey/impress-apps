@@ -818,6 +818,8 @@ and `check-kit-standalone` must pass unchanged. A kit crate gaining a dependency
 
 ## Decisions needed from Tom (ask-first)
 
+**All approved by Tom on 2026-09-26** (D-R1–D-R13 as recommended; D-R2 amends ADR-0034's D-P3: the audit row is a `core/verb-call`, and the call id is stamped as `batch_id` on every operation the verb wrote). Phase 2 approved in the plan's order.
+
 - **D-R1. New record kinds:** `core/verb-call@1.0.0` (the call record), `impress/workflow@1.0.0`,
   `impress/scenario@1.0.0`, `impress/settings@1.0.0` (synced scope only). Each is registered in
   `schema-refs.json` and `impress-core/src/schemas` in its package's PR; none syncs except settings.

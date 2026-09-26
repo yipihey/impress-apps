@@ -1,6 +1,6 @@
 # ADR-0036 — The self-reflective layer: declared effects, a verb call log, workflows and scenarios as documents, declared registries
 
-**Status:** PROPOSED 2026-09-26
+**Status:** ACCEPTED (2026-09-26) 2026-09-26
 **Amends:** [ADR-0034](ADR-0034-verb-descriptor-pipeline-and-transport.md) D1 (the descriptor gains an
 effect set) and D2 (the audit layer writes a call record; approved decision D-P3's "one `core/operation`
 row per mutating verb" becomes "one `core/verb-call` row, and `batch_id` on every operation it wrote" —
