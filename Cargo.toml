@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/impress-workspace-hack",
     "crates/uniffi-bindgen",
     "crates/im-bibtex",
     "crates/im-identifiers",
@@ -146,6 +147,12 @@ license = "MIT"
 repository = "https://github.com/yipihey/impress-apps"
 
 [workspace.dependencies]
+# The cargo-hakari workspace-hack crate: every member depends on it so every
+# lane resolves one third-party feature set (plan-verb-pipeline-and-transport
+# § Build cost, B4). Generated; `cargo hakari generate` rewrites it and
+# `cargo hakari manage-deps` adds the line to a new member. Configured in
+# .config/hakari.toml.
+impress-workspace-hack = { path = "crates/impress-workspace-hack" }
 # Shared dependencies across crates
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

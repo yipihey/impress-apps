@@ -30,6 +30,7 @@ on:
       - 'schema-refs.json'
       - 'scripts/check-schema-refs.sh'
       - 'scripts/clippy-each-crate.sh'
+      - '.config/hakari.toml'
       - '.github/workflows/workspace-rust.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -86,6 +87,19 @@ jobs:
       # Needs no cache: fmt does not compile.
       - name: Check formatting
         run: ./scripts/rust-gate.sh fmt
+
+      # crates/impress-workspace-hack is generated (cargo-hakari, plan
+      # verb-pipeline-and-transport § Build cost B4) and checked in. A
+      # dependency change that was not followed by `cargo hakari generate`
+      # leaves the lanes resolving different feature sets again, silently;
+      # `generate --diff` exits non-zero and prints the difference. Metadata
+      # only, nothing compiles. The binary lives in the shared ~/.cargo/bin on
+      # the runner Mac; the install is for a fresh one. kit.yml runs the same
+      # check on a hosted runner, where it can block the PR.
+      - name: Workspace-hack crate is current
+        run: |
+          command -v cargo-hakari >/dev/null || cargo install cargo-hakari --locked
+          cargo hakari generate --diff
 
   # The floor's second shape: every crate built ALONE, with no features, which
   # is what a dependent crate and a per-app `cargo test -p` compile. The shards

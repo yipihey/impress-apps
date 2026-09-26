@@ -857,6 +857,33 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   Gates: fmt, clippy rest, clippy imprint, `cargo test --workspace --features native` (232 suites,
   4010 passed, 0 failed, 20 ignored), check-kit-deps --strict, check-kit-standalone,
   check-chassis-deps, check-uniffi-bindings — all clean.
+- 2026-09-26 — **B4 workspace-hack** (branch `claude/bc-b4-workspace-hack`, from main at ce225b75).
+  cargo-hakari 0.9.39 (`cargo binstall`, into `~/.cargo/bin`, which the four self-hosted runners
+  share). `crates/impress-workspace-hack` is generated and checked in: 418 lines of Cargo.toml,
+  no code, the union of every third-party feature any lane turns on for the five Apple triples
+  the xcframework scripts build (`.config/hakari.toml`; no lane compiles on Linux). Every member
+  depends on it (`impress-workspace-hack.workspace = true`, 76 manifests); `uniffi-bindgen` is
+  left out of the unification so uniffi's `cli` stays out of the facade, as the root Cargo.toml
+  and `rust-gate.sh` already intend. CI: `cargo hakari generate --diff` in workspace-rust.yml's
+  guards job and in kit.yml's deps job (hosted, blocks the PR). Kit: the hack crate joins the
+  kit-crates table as a pure crate (every kit crate reaches it; it reaches nothing), and
+  `check-kit-standalone.sh` copies it as the stub hakari prescribes for a crate that leaves
+  (generated section emptied), because the real section names the whole suite's dependencies.
+  **The switch, measured** (`cargo check` shard `rest` cold, then shard `imprint`, one
+  worktree-local target dir, M5 Max, dependencies in `~/.cargo`): before, `rest` 187 s then
+  `imprint` 89 s compiling 308 crates (259 third-party); after, `rest` 150 s then `imprint` 64 s
+  compiling 184 crates (131 third-party). The 128 third-party crates that no longer recompile
+  are BC-5's feature-set rebuild; the 131 that remain are the Typst tree `rest` never builds.
+  Two things BC-5 did not say: cargo keeps both feature variants in one target dir, so the
+  switch back (`imprint` → `rest`) was 2 s before as well as after — the cost is paid on the
+  first entry to each set and again after every lock change, not on every alternation; and a
+  per-app `cargo test -p` now compiles the hack crate's whole set the first time (a one-off
+  cost, then the same cache every other lane shares). Not measured: the xcframework release
+  builds and CI-runner timings. Gates: fmt, clippy rest, clippy imprint, `cargo test
+  --workspace --features native` (171 suites, 4000 passed, 0 failed, 20 ignored; the census
+  test needed a `docs/verb-coverage.md` row for the new crate), check-kit-deps --strict (13 kit
+  crates, self-test), check-kit-standalone --strict (14 crates), check-chassis-deps,
+  check-uniffi-bindings (7 match), check-verb-coverage, `cargo hakari verify` — all clean.
 - 2026-09-26 — **P1 descriptor** (branch `claude/pipeline-p1-descriptor`, from main at 197ee48e).
   One `VerbDescriptor` per verb in `impress-service-core::descriptor` (name, service, method,
   description, input and output schema, `safety {class, idempotent}`, `since`, `deprecated`,

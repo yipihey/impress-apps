@@ -23,6 +23,7 @@ vw-domain = { path = "../vw-domain" }
 serde_json = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5"] }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 base64 = "0.22"

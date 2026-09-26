@@ -24,6 +24,7 @@ tokio = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [features]
 # Manual probes are opt-in; see the note on the [[example]] blocks below.

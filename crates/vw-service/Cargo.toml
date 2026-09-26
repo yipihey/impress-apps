@@ -12,4 +12,5 @@ impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 schemars = { workspace = true }
+impress-workspace-hack.workspace = true
 

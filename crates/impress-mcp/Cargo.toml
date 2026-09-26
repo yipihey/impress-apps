@@ -72,6 +72,7 @@ impress-store-service = { workspace = true }
 # build, including ones that never wanted it) so this binary keeps the vector
 # tier it always had.
 impress-memory-service = { workspace = true, features = ["vector-embedder"] }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 # Isolated EmbeddingStore fixtures for the rebuild_chunk_index model-gating

@@ -20,3 +20,4 @@ async-trait = { workspace = true }
 # The proc macro emits `derive(schemars::JsonSchema)`, which needs schemars
 # resolvable as a top-level crate at the call site.
 schemars = { workspace = true }
+impress-workspace-hack.workspace = true
