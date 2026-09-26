@@ -2785,33 +2785,37 @@ impl DefaultImprintProjectService {
         });
         let manuscript = snapshot.manuscript_id;
         let store_for_job = store.clone();
-        impress_store_service::job::start_inline(store, PROJECT_BUILD_VERB, &args, move |ctx| async move {
-            let store = store_for_job;
-            let fail = |message: String| ProjectBuildResult {
-                ok: false,
-                build: None,
-                log: String::new(),
-                message,
-            };
-            ctx.progress(
+        impress_store_service::job::start_inline(
+            store,
+            PROJECT_BUILD_VERB,
+            &args,
+            move |ctx| async move {
+                let store = store_for_job;
+                let fail = |message: String| ProjectBuildResult {
+                    ok: false,
+                    build: None,
+                    log: String::new(),
+                    message,
+                };
+                ctx.progress(
                 "build",
                 serde_json::json!({ "build_id": row.id.to_string(), "target": target.id, "engine": target.engine.as_str() }),
             );
 
-            // The build runs processes: keep the executor free. The host
-            // streams each step into the ring and kills a running step
-            // when the job is cancelled.
-            let outcome = {
-                let tree = tree.clone();
-                let target = target.clone();
-                let bibs = bibs.clone();
-                let work_dir = work_dir.clone();
-                let entry_override = entry_override.clone();
-                let started = ctx.clone();
-                let finished = ctx.clone();
-                let cancel_ctx = ctx.clone();
-                let flag = ctx.cancel_flag();
-                tokio::task::spawn_blocking(move || {
+                // The build runs processes: keep the executor free. The host
+                // streams each step into the ring and kills a running step
+                // when the job is cancelled.
+                let outcome = {
+                    let tree = tree.clone();
+                    let target = target.clone();
+                    let bibs = bibs.clone();
+                    let work_dir = work_dir.clone();
+                    let entry_override = entry_override.clone();
+                    let started = ctx.clone();
+                    let finished = ctx.clone();
+                    let cancel_ctx = ctx.clone();
+                    let flag = ctx.cancel_flag();
+                    tokio::task::spawn_blocking(move || {
                     let host = imprint_core::project::ObservedHost::new(
                         imprint_core::project::ProcessRunnerHost::new().with_cancel(flag),
                         move |source, runner| {
@@ -2847,124 +2851,126 @@ impl DefaultImprintProjectService {
                     )
                 })
                 .await
-            };
-            let outcome = match outcome {
-                Ok(o) => o,
-                Err(e) => {
-                    record.status = BUILD_STATUS_FAILED.to_string();
-                    record.finished_ms = Some(chrono::Utc::now().timestamp_millis());
-                    record.message = Some(format!("build task: {e}"));
-                    let _ = mp::finish_build(&store, row.id, &record);
-                    let result = fail(format!("build task: {e}"));
-                    return JobOutcome::Failed {
-                        result: serde_json::to_value(&result).unwrap_or_default(),
-                        error: result.message,
-                    };
-                }
-            };
-
-            // What the steps produced becomes rows derived from their source.
-            let mut produced_rows = 0usize;
-            for p in &outcome.produced {
-                let role = mp::get_file(&store, manuscript, &p.path)
-                    .ok()
-                    .flatten()
-                    .map(|r| r.role)
-                    .unwrap_or_else(|| "output".into());
-                let put = PutFile::bytes(&p.path, &p.bytes).with_role(&role);
-                let written = mp::put_file(&store, &blobs, manuscript, put, &author).and_then(|_| {
-                    mp::record_derived(
-                        &store,
-                        manuscript,
-                        &p.path,
-                        &p.derived_from,
-                        &p.derived_from_hash,
-                    )
-                });
-                match written {
-                    Ok(_) => produced_rows += 1,
-                    Err(e) => log_err("project_build", &e),
-                }
-            }
-
-            // The document into the CAS, so the output outlives the directory.
-            let mut outputs: Vec<ProjectBuildOutputRecord> = Vec::new();
-            for o in &outcome.outputs {
-                let blob_ref = if o.kind == "pdf" || o.kind == "svg" {
-                    std::fs::read(&o.path)
-                        .ok()
-                        .and_then(|b| blobs.put(&b).ok())
-                        .map(|d| impress_core::blobs::blob_ref(&d))
-                } else {
-                    None
                 };
-                outputs.push(ProjectBuildOutputRecord {
-                    kind: o.kind.clone(),
-                    name: o.name.clone(),
-                    path: o.path.clone(),
-                    blob_ref,
-                    size: o.size,
-                });
-            }
-            let diagnostics = diagnostic_records(&outcome.diagnostics);
-            let steps = step_records(&outcome.steps);
-            record.status = if outcome.cancelled {
-                BUILD_STATUS_CANCELLED
-            } else if outcome.ok {
-                BUILD_STATUS_OK
-            } else {
-                BUILD_STATUS_FAILED
-            }
-            .to_string();
-            record.finished_ms = Some(chrono::Utc::now().timestamp_millis());
-            record.duration_ms = Some(outcome.duration_ms as i64);
-            record.outputs_json = serde_json::to_string(&outputs).ok();
-            record.diagnostics_json = serde_json::to_string(&diagnostics).ok();
-            record.steps_json = serde_json::to_string(&steps).ok();
-            record.message = Some(outcome.message.clone());
-            let row = match mp::finish_build(&store, row.id, &record) {
-                Ok(r) => r,
-                Err(e) => {
+                let outcome = match outcome {
+                    Ok(o) => o,
+                    Err(e) => {
+                        record.status = BUILD_STATUS_FAILED.to_string();
+                        record.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+                        record.message = Some(format!("build task: {e}"));
+                        let _ = mp::finish_build(&store, row.id, &record);
+                        let result = fail(format!("build task: {e}"));
+                        return JobOutcome::Failed {
+                            result: serde_json::to_value(&result).unwrap_or_default(),
+                            error: result.message,
+                        };
+                    }
+                };
+
+                // What the steps produced becomes rows derived from their source.
+                let mut produced_rows = 0usize;
+                for p in &outcome.produced {
+                    let role = mp::get_file(&store, manuscript, &p.path)
+                        .ok()
+                        .flatten()
+                        .map(|r| r.role)
+                        .unwrap_or_else(|| "output".into());
+                    let put = PutFile::bytes(&p.path, &p.bytes).with_role(&role);
+                    let written =
+                        mp::put_file(&store, &blobs, manuscript, put, &author).and_then(|_| {
+                            mp::record_derived(
+                                &store,
+                                manuscript,
+                                &p.path,
+                                &p.derived_from,
+                                &p.derived_from_hash,
+                            )
+                        });
+                    match written {
+                        Ok(_) => produced_rows += 1,
+                        Err(e) => log_err("project_build", &e),
+                    }
+                }
+
+                // The document into the CAS, so the output outlives the directory.
+                let mut outputs: Vec<ProjectBuildOutputRecord> = Vec::new();
+                for o in &outcome.outputs {
+                    let blob_ref = if o.kind == "pdf" || o.kind == "svg" {
+                        std::fs::read(&o.path)
+                            .ok()
+                            .and_then(|b| blobs.put(&b).ok())
+                            .map(|d| impress_core::blobs::blob_ref(&d))
+                    } else {
+                        None
+                    };
+                    outputs.push(ProjectBuildOutputRecord {
+                        kind: o.kind.clone(),
+                        name: o.name.clone(),
+                        path: o.path.clone(),
+                        blob_ref,
+                        size: o.size,
+                    });
+                }
+                let diagnostics = diagnostic_records(&outcome.diagnostics);
+                let steps = step_records(&outcome.steps);
+                record.status = if outcome.cancelled {
+                    BUILD_STATUS_CANCELLED
+                } else if outcome.ok {
+                    BUILD_STATUS_OK
+                } else {
+                    BUILD_STATUS_FAILED
+                }
+                .to_string();
+                record.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+                record.duration_ms = Some(outcome.duration_ms as i64);
+                record.outputs_json = serde_json::to_string(&outputs).ok();
+                record.diagnostics_json = serde_json::to_string(&diagnostics).ok();
+                record.steps_json = serde_json::to_string(&steps).ok();
+                record.message = Some(outcome.message.clone());
+                let row = match mp::finish_build(&store, row.id, &record) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log_err("project_build", &e);
+                        let result = ProjectBuildResult {
+                            ok: false,
+                            build: None,
+                            log: outcome.log,
+                            message: format!("record: {e}"),
+                        };
+                        return JobOutcome::Failed {
+                            result: serde_json::to_value(&result).unwrap_or_default(),
+                            error: result.message,
+                        };
+                    }
+                };
+                if let Err(e) = mp::compact_builds(&store, manuscript, BUILD_RETENTION) {
                     log_err("project_build", &e);
-                    let result = ProjectBuildResult {
-                        ok: false,
-                        build: None,
-                        log: outcome.log,
-                        message: format!("record: {e}"),
-                    };
-                    return JobOutcome::Failed {
-                        result: serde_json::to_value(&result).unwrap_or_default(),
-                        error: result.message,
-                    };
                 }
-            };
-            if let Err(e) = mp::compact_builds(&store, manuscript, BUILD_RETENTION) {
-                log_err("project_build", &e);
-            }
-            let result = ProjectBuildResult {
-                ok: outcome.ok,
-                build: Some(build_record(&row)),
-                log: outcome.log,
-                message: format!(
-                    "{} — {} step(s), {} produced row(s), {} output(s)",
-                    outcome.message,
-                    steps.len(),
-                    produced_rows,
-                    outputs.len()
-                ),
-            };
-            let value = serde_json::to_value(&result).unwrap_or_default();
-            if outcome.cancelled {
-                JobOutcome::Cancelled(value)
-            } else if outcome.ok {
-                JobOutcome::Done(value)
-            } else {
-                JobOutcome::Failed {
-                    result: value,
-                    error: outcome.message,
+                let result = ProjectBuildResult {
+                    ok: outcome.ok,
+                    build: Some(build_record(&row)),
+                    log: outcome.log,
+                    message: format!(
+                        "{} — {} step(s), {} produced row(s), {} output(s)",
+                        outcome.message,
+                        steps.len(),
+                        produced_rows,
+                        outputs.len()
+                    ),
+                };
+                let value = serde_json::to_value(&result).unwrap_or_default();
+                if outcome.cancelled {
+                    JobOutcome::Cancelled(value)
+                } else if outcome.ok {
+                    JobOutcome::Done(value)
+                } else {
+                    JobOutcome::Failed {
+                        result: value,
+                        error: outcome.message,
+                    }
                 }
-            }
-        })
+            },
+        )
     }
 
     async fn builds_impl(

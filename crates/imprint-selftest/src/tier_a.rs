@@ -160,7 +160,13 @@ impl ProjectWorld {
         use imprint_service::ImprintProjectService;
         let started = self
             .svc
-            .project_build(manuscript_id, target_id, allow_shell, entry_override, author)
+            .project_build(
+                manuscript_id,
+                target_id,
+                allow_shell,
+                entry_override,
+                author,
+            )
             .await;
         imprint_service::await_build(&self.store, &started, std::time::Duration::from_secs(120))
             .await

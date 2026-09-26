@@ -1451,7 +1451,9 @@ mod tests {
         let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
         let inner = ScriptedRunnerHost::new(&["sh"], |req| {
             std::fs::create_dir_all(req.cwd.join("figures")).unwrap();
-            let name = req.args[1].trim_start_matches("python figures/").trim_end_matches(".py");
+            let name = req.args[1]
+                .trim_start_matches("python figures/")
+                .trim_end_matches(".py");
             std::fs::write(req.cwd.join(format!("figures/{name}.png")), b"\x89PNG").unwrap();
             ScriptedRunnerHost::success()
         });

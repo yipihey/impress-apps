@@ -119,7 +119,13 @@ impl World {
     ) -> imprint_service::ProjectBuildResult {
         let started = self
             .svc
-            .project_build(manuscript_id, target_id, allow_shell, entry_override, author)
+            .project_build(
+                manuscript_id,
+                target_id,
+                allow_shell,
+                entry_override,
+                author,
+            )
             .await;
         imprint_service::await_build(&self.store, &started, std::time::Duration::from_secs(120))
             .await
@@ -1072,13 +1078,15 @@ async fn a_build_runs_stale_steps_records_a_row_and_keeps_produced_files() {
 
     // Allowed: the step runs in the materialised directory and its output
     // becomes a row derived from the source.
-    let built = w.build(
+    let built = w
+        .build(
             id.clone(),
             None,
             Some(true),
             None,
             Some("agent:build".into()),
-        ).await;
+        )
+        .await;
     assert!(built.ok, "{}: {}", built.message, built.log);
     let b = built.build.as_ref().unwrap();
     assert_eq!(b.steps[0].status, "ran", "{:?}", b.steps);
@@ -1185,13 +1193,15 @@ async fn a_typst_build_writes_the_pdf_and_keeps_it_in_the_cas() {
         .starts_with(b"%PDF"));
 
     // The live buffer builds instead of the stored entry.
-    let live = w.build(
+    let live = w
+        .build(
             id.clone(),
             None,
             None,
             Some("#set page(width: 10cm, height: 6cm)\n= Live".into()),
             None,
-        ).await;
+        )
+        .await;
     assert!(live.ok, "{}", live.message);
 }
 

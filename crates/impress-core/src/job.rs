@@ -140,12 +140,18 @@ pub fn create_job(
         field::task::STATE.into(),
         Value::String(TaskState::Running.as_str().into()),
     );
-    payload.insert(field::task::TASK_KIND.into(), Value::String(verb.to_string()));
+    payload.insert(
+        field::task::TASK_KIND.into(),
+        Value::String(verb.to_string()),
+    );
     payload.insert(
         field::task::ASSIGNED_TO.into(),
         Value::String(runner.to_string()),
     );
-    payload.insert(field::task::RUNNER.into(), Value::String(runner.to_string()));
+    payload.insert(
+        field::task::RUNNER.into(),
+        Value::String(runner.to_string()),
+    );
     payload.insert(field::task::ATTEMPTS.into(), Value::Int(1));
     payload.insert(field::task::VERB.into(), Value::String(verb.to_string()));
     payload.insert(field::task::ARGS.into(), Value::String(args_text));
@@ -269,8 +275,7 @@ pub fn finish_job(
     debug_assert!(to.is_terminal(), "finish_job takes a terminal state");
     let item = store.get(id)?.ok_or(JobError::NotFound(id))?;
     let transition = transition_op(&item, to, actor.into(), ActorKind::Agent, None)?;
-    let result_text =
-        serde_json::to_string(result).map_err(|e| JobError::Encode(e.to_string()))?;
+    let result_text = serde_json::to_string(result).map_err(|e| JobError::Encode(e.to_string()))?;
     let mut ops = vec![
         transition,
         set_payload(id, field::task::RESULT, Value::String(result_text), actor),
@@ -443,7 +448,10 @@ const ROW_ID_NAMESPACE: Uuid = Uuid::from_u128(0x2c9e_7b41_5f0a_4d83_9e6b_1a7f_3
 
 /// The one id event `seq` of `task` can be stored under.
 pub fn event_row_id(task: ItemId, seq: u64) -> ItemId {
-    Uuid::new_v5(&ROW_ID_NAMESPACE, format!("task-event|{task}|{seq}").as_bytes())
+    Uuid::new_v5(
+        &ROW_ID_NAMESPACE,
+        format!("task-event|{task}|{seq}").as_bytes(),
+    )
 }
 
 fn ring_rows(task: ItemId) -> ItemQuery {
@@ -518,7 +526,9 @@ mod tests {
         assert!(s.ready_tasks(10).unwrap().is_empty());
         // …and not an orphan (it has an assignee).
         let item = s.get(id).unwrap().unwrap();
-        assert!(matches!(item.payload.get("assigned_to"), Some(Value::String(a)) if a == "inline:1@t"));
+        assert!(
+            matches!(item.payload.get("assigned_to"), Some(Value::String(a)) if a == "inline:1@t")
+        );
     }
 
     #[test]
@@ -576,7 +586,15 @@ mod tests {
         // Idempotent.
         assert_eq!(request_cancel(&s, id, "t").unwrap(), TaskState::Running);
         // The executor finishes it.
-        finish_job(&s, id, TaskState::Cancelled, &json!({"ok": false}), None, "t").unwrap();
+        finish_job(
+            &s,
+            id,
+            TaskState::Cancelled,
+            &json!({"ok": false}),
+            None,
+            "t",
+        )
+        .unwrap();
         let row = get_job(&s, id).unwrap();
         assert_eq!(row.state, TaskState::Cancelled);
         assert_eq!(row.result_json.as_deref(), Some(r#"{"ok":false}"#));
@@ -591,8 +609,15 @@ mod tests {
     fn finish_writes_state_result_and_error_together() {
         let s = store();
         let id = create_job(&s, "v", &json!({}), "r", "t").unwrap();
-        finish_job(&s, id, TaskState::Failed, &json!({"ok": false, "message": "boom"}), Some("boom"), "t")
-            .unwrap();
+        finish_job(
+            &s,
+            id,
+            TaskState::Failed,
+            &json!({"ok": false, "message": "boom"}),
+            Some("boom"),
+            "t",
+        )
+        .unwrap();
         let row = get_job(&s, id).unwrap();
         assert_eq!(row.state, TaskState::Failed);
         assert_eq!(row.error.as_deref(), Some("boom"));
@@ -605,7 +630,12 @@ mod tests {
         let id = create_job(&s, "v", &json!({}), "r", "t").unwrap();
         append_event(&s, id, "x", &json!({}), "t").unwrap();
         let event = event_row_id(id, 1);
-        assert!(matches!(get_job(&s, event), Err(JobError::NotATask(_, k)) if k == TASK_EVENT_SCHEMA));
-        assert!(matches!(get_job(&s, Uuid::new_v4()), Err(JobError::NotFound(_))));
+        assert!(
+            matches!(get_job(&s, event), Err(JobError::NotATask(_, k)) if k == TASK_EVENT_SCHEMA)
+        );
+        assert!(matches!(
+            get_job(&s, Uuid::new_v4()),
+            Err(JobError::NotFound(_))
+        ));
     }
 }

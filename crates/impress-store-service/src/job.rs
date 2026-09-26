@@ -166,8 +166,13 @@ where
             "{verb}: the shared store could not be opened, so a job could not be recorded"
         )));
     }
-    let id = match job::create_job(&store, verb, args, &job::inline_runner_name(), RUNNER_AUTHOR)
-    {
+    let id = match job::create_job(
+        &store,
+        verb,
+        args,
+        &job::inline_runner_name(),
+        RUNNER_AUTHOR,
+    ) {
         Ok(id) => id,
         Err(e) => return JobStarted::refused(Refusal::store(format!("{verb}: {e}"))),
     };
@@ -406,10 +411,7 @@ pub fn cli_finish(value: Value, wait_and_stream: bool) -> Value {
             row.state
         );
         let mut value = value;
-        if let Some(state) = value
-            .get_mut("job")
-            .and_then(|j| j.get_mut("state"))
-        {
+        if let Some(state) = value.get_mut("job").and_then(|j| j.get_mut("state")) {
             *state = Value::String(row.state.as_str().into());
         }
         value
@@ -430,21 +432,32 @@ mod tests {
     async fn a_job_answers_at_once_and_finishes_behind_the_handle() {
         let store = store();
         let started = Instant::now();
-        let handle = start_inline(store.clone(), "t-service_slow", &json!({"n": 3}), |ctx| async move {
-            for i in 1..=3 {
-                ctx.progress("step", json!({"i": i}));
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-            JobOutcome::Done(json!({"ok": true, "n": 3}))
-        });
+        let handle = start_inline(
+            store.clone(),
+            "t-service_slow",
+            &json!({"n": 3}),
+            |ctx| async move {
+                for i in 1..=3 {
+                    ctx.progress("step", json!({"i": i}));
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                JobOutcome::Done(json!({"ok": true, "n": 3}))
+            },
+        );
         assert!(handle.ok, "{handle:?}");
-        assert!(started.elapsed() < Duration::from_millis(50), "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "{:?}",
+            started.elapsed()
+        );
         let id: ItemId = handle.job.as_ref().unwrap().id.parse().unwrap();
 
         let w = wait(&store, id, 0, Duration::from_secs(5)).await.unwrap();
         assert!(!w.timed_out);
         assert_eq!(w.events[0].name, "step");
-        let row = wait_until_done(&store, id, Duration::from_secs(5)).await.unwrap();
+        let row = wait_until_done(&store, id, Duration::from_secs(5))
+            .await
+            .unwrap();
         assert_eq!(row.state, TaskState::Done);
         assert_eq!(result_of(&row).unwrap()["n"], 3);
         let all = job::events_after(&store, id, 0, 0).unwrap();
@@ -457,23 +470,33 @@ mod tests {
     #[tokio::test]
     async fn a_cancel_request_reaches_the_body_and_the_row_says_cancelled() {
         let store = store();
-        let handle = start_inline(store.clone(), "t-service_loop", &json!({}), |ctx| async move {
-            let mut ticks = 0;
-            loop {
-                if ctx.cancel_requested() {
-                    return JobOutcome::Cancelled(json!({"ok": false, "ticks": ticks}));
+        let handle = start_inline(
+            store.clone(),
+            "t-service_loop",
+            &json!({}),
+            |ctx| async move {
+                let mut ticks = 0;
+                loop {
+                    if ctx.cancel_requested() {
+                        return JobOutcome::Cancelled(json!({"ok": false, "ticks": ticks}));
+                    }
+                    ticks += 1;
+                    if ticks > 500 {
+                        return JobOutcome::Done(json!({"ok": true, "ticks": ticks}));
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
-                ticks += 1;
-                if ticks > 500 {
-                    return JobOutcome::Done(json!({"ok": true, "ticks": ticks}));
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        });
+            },
+        );
         let id: ItemId = handle.job.unwrap().id.parse().unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
-        assert_eq!(job::request_cancel(&store, id, "t").unwrap(), TaskState::Running);
-        let row = wait_until_done(&store, id, Duration::from_secs(5)).await.unwrap();
+        assert_eq!(
+            job::request_cancel(&store, id, "t").unwrap(),
+            TaskState::Running
+        );
+        let row = wait_until_done(&store, id, Duration::from_secs(5))
+            .await
+            .unwrap();
         assert_eq!(row.state, TaskState::Cancelled);
         assert!(result_of(&row).unwrap()["ticks"].as_u64().unwrap() < 500);
     }
@@ -481,11 +504,18 @@ mod tests {
     #[tokio::test]
     async fn a_panicking_body_fails_the_job_instead_of_leaving_it_running() {
         let store = store();
-        let handle = start_inline(store.clone(), "t-service_boom", &json!({}), |_ctx| async move {
-            panic!("boom");
-        });
+        let handle = start_inline(
+            store.clone(),
+            "t-service_boom",
+            &json!({}),
+            |_ctx| async move {
+                panic!("boom");
+            },
+        );
         let id: ItemId = handle.job.unwrap().id.parse().unwrap();
-        let row = wait_until_done(&store, id, Duration::from_secs(5)).await.unwrap();
+        let row = wait_until_done(&store, id, Duration::from_secs(5))
+            .await
+            .unwrap();
         assert_eq!(row.state, TaskState::Failed);
         assert!(row.error.unwrap().contains("panicked"));
     }
@@ -493,14 +523,21 @@ mod tests {
     #[tokio::test]
     async fn waiting_on_a_finished_job_returns_at_once_with_the_cursor_unchanged() {
         let store = store();
-        let handle = start_inline(store.clone(), "t-service_quick", &json!({}), |_| async move {
-            JobOutcome::Done(json!({"ok": true}))
-        });
+        let handle = start_inline(
+            store.clone(),
+            "t-service_quick",
+            &json!({}),
+            |_| async move { JobOutcome::Done(json!({"ok": true})) },
+        );
         let id: ItemId = handle.job.unwrap().id.parse().unwrap();
-        wait_until_done(&store, id, Duration::from_secs(5)).await.unwrap();
+        wait_until_done(&store, id, Duration::from_secs(5))
+            .await
+            .unwrap();
         let last = job::max_seq(&store, id).unwrap();
         let started = Instant::now();
-        let w = wait(&store, id, last, Duration::from_secs(30)).await.unwrap();
+        let w = wait(&store, id, last, Duration::from_secs(30))
+            .await
+            .unwrap();
         assert!(started.elapsed() < Duration::from_secs(1));
         assert!(!w.timed_out);
         assert!(w.events.is_empty());

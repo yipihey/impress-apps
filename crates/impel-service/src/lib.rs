@@ -31,12 +31,12 @@ use serde::{Deserialize, Serialize};
 
 use impel_core::{TaskStoreApi, REVIEW_REQUEST_SCHEMA, TASK_SCHEMA};
 use impress_core::item::{ActorKind, Item, Value};
+use impress_core::job;
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_core::reference::EdgeType;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
-use impress_core::job;
 use impress_core::task::TaskState;
 use impress_service_core::refusal::Refusal;
 use impress_service_core::wire::{wire_version, WIRE_VERSION};
@@ -358,8 +358,12 @@ pub trait ImpelService: Send + Sync + 'static {
     /// oldest first, with `next_seq` to pass next time and `gap` when the
     /// ring (200 events) was pruned past the cursor. `limit` 0 = all.
     #[impress_method]
-    async fn job_events(&self, id: String, after_seq: Option<u64>, limit: Option<u32>)
-        -> JobEventsResult;
+    async fn job_events(
+        &self,
+        id: String,
+        after_seq: Option<u64>,
+        limit: Option<u32>,
+    ) -> JobEventsResult;
 
     /// Long-poll for the next event past `after_seq`, up to `timeout_ms`
     /// (at most 55000): returns as soon as one lands, at once when the job
@@ -367,8 +371,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// timeout with `timed_out: true` and the cursor unchanged. The loop an
     /// agent runs is `job_wait` from `next_seq` until `finished`.
     #[impress_method]
-    async fn job_wait(&self, id: String, after_seq: Option<u64>, timeout_ms: u64)
-        -> JobWaitResult;
+    async fn job_wait(&self, id: String, after_seq: Option<u64>, timeout_ms: u64) -> JobWaitResult;
 
     /// Ask a job to stop. Sets `cancel_requested` on a running job — the
     /// executor stops at its next check and the row goes `cancelled`, which
@@ -1078,7 +1081,10 @@ impl ImpelService for DefaultImpelService {
                 let message = if w.timed_out {
                     "timed out; nothing new".to_string()
                 } else if w.events.is_empty() {
-                    format!("job is {}; nothing past the cursor — read job_result", w.job.state)
+                    format!(
+                        "job is {}; nothing past the cursor — read job_result",
+                        w.job.state
+                    )
                 } else {
                     events_message(w.events.len(), w.gap)
                 };
@@ -1514,14 +1520,21 @@ mod tests {
     async fn job_cancel_stops_a_running_job_and_wait_reports_it_finished() {
         use impress_store_service::job::{start_inline, JobOutcome};
         let (svc, store) = service();
-        let handle = start_inline(store.clone(), "t-service_loop", &serde_json::json!({}), |ctx| async move {
-            loop {
-                if ctx.cancel_requested() {
-                    return JobOutcome::Cancelled(serde_json::json!({"ok": false, "stopped": true}));
+        let handle = start_inline(
+            store.clone(),
+            "t-service_loop",
+            &serde_json::json!({}),
+            |ctx| async move {
+                loop {
+                    if ctx.cancel_requested() {
+                        return JobOutcome::Cancelled(
+                            serde_json::json!({"ok": false, "stopped": true}),
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        });
+            },
+        );
         let id = handle.job.unwrap().id;
         let cancel = svc.job_cancel(id.clone()).await;
         assert!(cancel.ok, "{cancel:?}");
@@ -1548,9 +1561,13 @@ mod tests {
         let (svc, _store) = service();
         let bad = svc.job_status("nope".into()).await;
         assert_eq!(bad.code.as_deref(), Some("invalid-argument"));
-        let missing = svc.job_wait(uuid::Uuid::new_v4().to_string(), None, 10).await;
+        let missing = svc
+            .job_wait(uuid::Uuid::new_v4().to_string(), None, 10)
+            .await;
         assert_eq!(missing.code.as_deref(), Some("not-found"));
-        let missing = svc.job_events(uuid::Uuid::new_v4().to_string(), None, None).await;
+        let missing = svc
+            .job_events(uuid::Uuid::new_v4().to_string(), None, None)
+            .await;
         assert_eq!(missing.code.as_deref(), Some("not-found"));
     }
 
