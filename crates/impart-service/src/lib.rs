@@ -286,6 +286,11 @@ impress_service_impl! {
     service = ImpartService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [app("impart")],
+    },
     impl = DefaultImpartService,
     instance = service_instance,
     methods = [

@@ -166,7 +166,7 @@ pub trait ParsersService: Send + Sync + 'static {
     /// Which publisher owns a DOI, whether its PDF URL is predictable, and what
     /// to try. This is the table imbib's PDF auto-download consults, so the
     /// answer is what the app would do.
-    #[impress_method]
+    #[impress_method(effects(reach = [network]))]
     async fn resolve_publisher_pdf(&self, doi: String) -> PdfResolutionReport;
 
     /// The whole publisher rule table covering the astronomy and physics
@@ -320,6 +320,11 @@ impress_service_impl! {
     service = ParsersService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultParsersService,
     instance = || parsers_instance(),
     methods = [

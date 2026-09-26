@@ -422,7 +422,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// Pass `dry_run` first on anything you have not imported before: it
     /// writes nothing at all and reports exactly the counts the real run will.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-file@1.0.0", "watched-file@1.0.0"], writes = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
     async fn import_directory(
         &self,
         source_dir: String,
@@ -445,7 +445,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// `collection` scopes the scan to one manuscript collection by name;
     /// null scans every manuscript in the store.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript"], writes = ["manuscript"]))]
     async fn prune_empty_manuscripts(
         &self,
         collection: Option<String>,
@@ -474,7 +474,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// they have two file sets and two provenances.
     ///
     /// Nothing is scanned by this call. Discovery is `import_discovered`.
-    #[impress_method]
+    #[impress_method(effects(reads = ["watched-folder@1.0.0"], writes = ["watched-folder@1.0.0"], reach = [fs]))]
     async fn add_watched_folder(
         &self,
         path: String,
@@ -486,7 +486,7 @@ pub trait DocsImportService: Send + Sync + 'static {
 
     /// Every watched folder, optionally narrowed to one `kind_scope`, in path
     /// order — with its last-scan stats and its declared volume state.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["watched-folder@1.0.0"]))]
     async fn list_watched_folders(&self, kind_scope: Option<String>) -> WatchedFolderListResult;
 
     /// Change a watched folder's mutable facets. Every field is optional and a
@@ -497,7 +497,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// `"unindexed"`, `"scan-on-demand"` or `"unavailable"`. Setting it is how
     /// a folder on a Spotlight-less volume says so, instead of rendering as an
     /// honest-looking zero.
-    #[impress_method]
+    #[impress_method(effects(reads = ["watched-folder@1.0.0"], writes = ["watched-folder@1.0.0"]))]
     async fn update_watched_folder(
         &self,
         id: String,
@@ -553,7 +553,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// Bounded per ADR-0023 D7: paths are sorted and written in batches of 500,
     /// and at most 5000 files may be sent in one call. A bigger tree is paged.
-    #[impress_method]
+    #[impress_method(effects(reads = ["watched-folder@1.0.0", "watched-file@1.0.0", "manuscript"], writes = ["watched-file@1.0.0", "manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
     async fn import_discovered(
         &self,
         watched_folder_id: String,
@@ -609,7 +609,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// mean — a product decision, and therefore not one this crate makes. Pass
     /// `replace: false` to union instead, which is what an incremental append
     /// wants.
-    #[impress_method]
+    #[impress_method(effects(reads = ["watched-file@1.0.0"], writes = ["watched-file@1.0.0"]))]
     async fn record_produced_rows(
         &self,
         file_id: String,
@@ -626,7 +626,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///   its content has moved on since.
     ///
     /// One of the two is required.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["watched-file@1.0.0", "manuscript-file@1.0.0"]))]
     async fn list_watched_files(
         &self,
         watched_folder_id: Option<String>,
@@ -1662,6 +1662,11 @@ impress_service_impl! {
     service = DocsImportService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["watched-folder@1.0.0", "watched-file@1.0.0"],
+        writes: ["watched-folder@1.0.0", "watched-file@1.0.0"],
+        reach: [],
+    },
     impl = DefaultDocsImportService,
     instance = DefaultDocsImportService::new,
     methods = [

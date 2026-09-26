@@ -34,16 +34,16 @@ use impress_service_macros::impress_method;
 #[impress_service]
 pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// List every manuscript document.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript"]))]
     async fn list_documents(&self) -> Vec<DocumentSummary>;
 
     /// Fetch a single document by UUID.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
     async fn get_document(&self, id: String) -> Option<DocumentSummary>;
 
     /// Export a document in the given format. Returns the raw bytes.
     /// `format` is `"typst" | "latex" | "text"`.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
     async fn export_document(&self, id: String, format: String) -> Vec<u8>;
 
     // ---- Section CRUD ----
@@ -51,17 +51,17 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Returns section id, title, body (inline), sectionType, orderIndex,
     /// wordCount, and createdAt. Large content-addressed bodies are not
     /// rehydrated here — call `imprint-manuscript-service_get-section` for those.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
     async fn list_sections(&self, doc_id: String) -> Vec<SectionRecord>;
     /// Fetch a single manuscript section by its UUID. Body is rehydrated
     /// from content-addressed storage when needed. Use this after
     /// `imprint-manuscript-service_list-sections` to load the full body of a specific
     /// section.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
     async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord>;
     /// Create or replace one section's body and metadata in a manuscript;
     /// returns the section as stored.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-section"], writes = ["manuscript-section", "manuscript"]))]
     async fn put_section(
         &self,
         doc_id: String,
@@ -71,7 +71,7 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     ) -> Option<SectionRecord>;
     /// Remove a section (heading + body) from the document. Queues an
     /// operation; returns operationId.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-section"], writes = ["manuscript-section", "manuscript"]))]
     async fn delete_section(&self, doc_id: String, section_key: String) -> bool;
 
     // ---- Pure-text helpers ----
@@ -126,27 +126,27 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// imprint closed: the compiler is embedded. With imprint running the
     /// compile happens in its live engine instead; either way you get a path.
     /// A broken document comes back as `error`, not as a failed call.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult;
 
     // ---- LaTeX compile via embedded Tectonic (gated on tectonic-render) ----
     /// Compile LaTeX to PDF with the self-contained Tectonic engine. Returns
     /// PDF length + diagnostics (not raw bytes). `filesystem_root` resolves
     /// on-disk `\includegraphics`/`\input`; pass "" for none.
-    #[impress_method]
+    #[impress_method(effects(reach = [subprocess]))]
     async fn compile_latex(&self, source: String, filesystem_root: String)
         -> LatexCompileResultDto;
 
     // ---- Cross-document search ----
     /// Search for text in an imprint document. Returns positions of all
     /// matches.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto>;
 
     // ---- Replace within a section ----
     /// Replace every occurrence of `find` with `replace` in one stored
     /// section's body; returns the replacement count and the new body.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-section"], writes = ["manuscript-section"]))]
     async fn replace_in_section(
         &self,
         doc_id: String,
@@ -551,6 +551,11 @@ impress_service_impl! {
     service = ImprintManuscriptService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImprintManuscriptService,
     instance = || crate::backend::manuscript_service_instance(),
     methods = [

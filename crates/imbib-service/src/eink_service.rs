@@ -431,23 +431,23 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// Devices, counts (queued / on tablet / awaiting PDF / awaiting folder /
     /// stale / failed), which device puts markers on list rows, last sync.
     /// Start here before marking or syncing.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry", "imbib/eink-device", "imbib/eink-mirror"]))]
     async fn eink_status(&self) -> EinkStatusRecord;
     /// Every configured e-ink device.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/eink-device"]))]
     async fn eink_devices(&self) -> Vec<EinkDeviceRecord>;
     /// Create a device (no `id`) or change fields on one. Mode `individual`
     /// mirrors only marked papers and shows a marker in the list;
     /// `all` mirrors every paper that has a PDF/ePUB and shows no marker.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/eink-device"], writes = ["imbib/eink-device"]))]
     async fn eink_configure_device(&self, input: EinkDeviceInput) -> Option<EinkDeviceRecord>;
     /// Remove a device and its mirror rows (the tablet is untouched).
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], writes = ["imbib/eink-device", "imbib/eink-mirror"]))]
     async fn eink_remove_device(&self, device_id: String) -> MutationResult;
     /// Mark papers to be mirrored (individual mode). Papers without a local
     /// PDF/ePUB are reported in `awaiting_source`; the running imbib app
     /// fetches those, then the next sync sends them.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/eink-device", "imbib/eink-mirror", "imbib/linked-file"], writes = ["imbib/eink-mirror"]))]
     async fn eink_mark(
         &self,
         publication_ids: Vec<String>,
@@ -455,7 +455,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> EinkMarkResult;
     /// Stop mirroring papers. A copy already on the tablet stays there
     /// (nothing can delete over USB) and imbib stops touching it.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], writes = ["imbib/eink-mirror"]))]
     async fn eink_unmark(
         &self,
         publication_ids: Vec<String>,
@@ -463,7 +463,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> EinkMarkResult;
     /// Ask for mirror rows to be sent again (a stale copy, one removed on
     /// the tablet). The next sync uploads a fresh copy.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/eink-mirror"], writes = ["imbib/eink-mirror"]))]
     async fn eink_resend(&self, mirror_ids: Vec<String>) -> MutationResult;
     /// Mirror rows for a device, optionally filtered by state.
     #[impress_method(safety = read_only)]
@@ -480,26 +480,26 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> Vec<EinkAwaitingSourceRecord>;
     /// A two-second probe: is the tablet plugged in with its USB web
     /// interface on?
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device"], reach = [device]))]
     async fn eink_reachable(&self, device_id: Option<String>) -> bool;
     /// Dry run: list the tablet and report what a sync would do, including
     /// the folders the user must create on the tablet. Writes nothing.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file"], reach = [device]))]
     async fn eink_plan(&self, device_id: Option<String>) -> EinkSyncRecord;
     /// Sync now: upload queued papers into `imbib/<Library>/<Collection>`
     /// folders that exist on the tablet, record what changed there, and
     /// (with `import`) pull changed documents back. Needs the tablet plugged
     /// in; safe to repeat.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file"], writes = ["imbib/eink-mirror", "imbib/annotation", "imbib/linked-file"], reach = [device, fs]))]
     async fn eink_sync(&self, device_id: Option<String>, import: bool) -> EinkSyncRecord;
     /// The folders to create on the tablet by hand, parents first (the USB
     /// interface cannot create folders).
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], reach = [device]))]
     async fn eink_folder_checklist(&self, device_id: Option<String>) -> Vec<EinkFolderNeedRecord>;
     /// Pull annotated copies back without sending anything up. With
     /// `publication_id`, import that one paper now whether or not the
     /// tablet reports a change (after changing the import switches, say).
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file"], writes = ["imbib/annotation", "imbib/linked-file", "imbib/eink-mirror"], reach = [device, fs]))]
     async fn eink_import(
         &self,
         publication_id: Option<String>,
@@ -508,14 +508,14 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// Documents on the tablet that imbib did not put there — notebooks
     /// written on it, files copied in by hand — with the library and
     /// collection their folder names resolve to. Needs the tablet plugged in.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], reach = [device]))]
     async fn eink_list_unmatched(&self, device_id: Option<String>) -> Vec<EinkUnmatchedRecord>;
     /// Bring one such document into the store. `as_kind` `publication`
     /// (default: a notebook becomes a `@misc` entry with the rendered PDF as
     /// its file; a PDF/ePUB whose bytes match a file already here adopts
     /// that publication) or `note` (an `impress/artifact/note`). The
     /// library may be omitted for a document under `imbib/<Library>`.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror", "imbib/library", "imbib/bibliography-entry"], writes = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/eink-mirror", "impress/artifact/note"], reach = [device, fs]))]
     async fn eink_import_document(
         &self,
         remote_id: String,
@@ -526,13 +526,13 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> EinkDocumentImportRecord;
     /// Every row an e-ink import wrote for a publication (highlights with
     /// their text, typed text, ink groups with OCR text), in page order.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/annotation", "imbib/linked-file"]))]
     async fn eink_list_annotations(&self, publication_id: String) -> Vec<AnnotationRecord>;
     /// Say how an attempt to get a paper's PDF went, so a row waiting for
     /// its source can name the reason. Only something that can download
     /// (the app, an agent) knows this; the engine never does. `error`
     /// absent clears the last one.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], writes = ["imbib/eink-mirror"]))]
     async fn eink_note_source_error(
         &self,
         publication_id: String,
@@ -541,15 +541,15 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> MutationResult;
     /// Highlight, typed and OCR text from the tablet containing `query`
     /// (case-insensitive), newest first. `limit` 0 = 100.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/annotation"]))]
     async fn eink_search_annotations(&self, query: String, limit: u32) -> Vec<AnnotationRecord>;
     /// Ink rows whose handwriting has not been recognised yet, with the
     /// PNG to run OCR on. `publication_id` absent = everywhere.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/annotation", "imbib/linked-file"]))]
     async fn eink_pending_ocr(&self, publication_id: Option<String>) -> Vec<EinkOcrJobRecord>;
     /// Record an OCR result. `text` absent with a confidence still closes
     /// the job (nothing legible), so it is not retried forever.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/annotation"], writes = ["imbib/annotation"]))]
     async fn eink_complete_ocr(
         &self,
         annotation_id: String,
@@ -560,7 +560,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// as one dated block. A snapshot already appended is skipped unless
     /// `force`; rows that carry no text yet (handwriting awaiting
     /// recognition) are an error, not a silent no-op. Never runs on its own.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/annotation", "imbib/eink-mirror", "imbib/eink-device"], writes = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/annotation"]))]
     async fn eink_append_notes(&self, publication_id: String, force: bool) -> EinkAppendResult;
 }
 
@@ -981,6 +981,11 @@ impress_service_impl! {
     service = ImbibEinkService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["imbib/eink-mirror"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImbibEinkService,
     instance = || crate::backend::eink_service_instance(),
     methods = [

@@ -106,7 +106,7 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// tested — the common case on a fresh iOS device, where sync is off by
     /// default). A leading `@` is accepted and stripped, so a key lifted
     /// straight out of Typst source works.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library"]))]
     async fn resolve_cite_key(
         &self,
         cite_key: String,
@@ -145,13 +145,13 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     // ---- Smart search CRUD ----
     /// List saved smart searches. Pass the Exploration library's ID to
     /// enumerate the rows of imbib's Exploration sidebar section.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/smart-search"]))]
     async fn list_smart_searches(&self, library_id: Option<String>) -> Vec<SmartSearchRecord>;
     /// Fetch one smart search by UUID: its query string, owning library,
     /// result cap, and its feeds-to-inbox / auto-refresh settings. Use to
     /// inspect or confirm a search before changing or deleting it; find the
     /// UUID with `imbib-search-service_list-smart-searches`.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/smart-search"]))]
     async fn get_smart_search(&self, id: String) -> Option<SmartSearchRecord>;
     /// Save a query as a smart search (an Exploration sidebar row) in a
     /// library — the 'keep an eye on this topic' tool. To run a search ONCE
@@ -162,7 +162,7 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// default OFF, so turn them on only when the user explicitly asks for
     /// an ongoing feed rather than a saved query. List with
     /// `imbib-search-service_list-smart-searches`, remove with imbib_delete_smart_searches.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/smart-search"]))]
     async fn create_smart_search(
         &self,
         name: String,
@@ -492,6 +492,11 @@ impress_service_impl! {
     service = ImbibSearchService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImbibSearchService,
     instance = || crate::backend::search_service_instance(),
     methods = [

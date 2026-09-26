@@ -190,14 +190,14 @@ pub struct PhotoEvidenceSearchResult {
 pub trait VwDiagnosticService: Send + Sync + 'static {
     /// Describe supported vehicle scope, active curated knowledge, deterministic
     /// engine version, and the assistant's safety boundary.
-    #[impress_method]
+    #[impress_method(effects())]
     async fn get_capabilities(&self) -> VwCapabilities;
 
     /// Ingest a bus, engine, or part photo shared in this ChatGPT conversation
     /// as private, immutable user evidence. Use this when the user asks the
     /// expert to remember/analyze an attached VW photo or clearly supplies it
     /// as diagnostic evidence. Never use it for unrelated images.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["vw/diagnostic-session@1.0.0"], writes = ["vw/photo-evidence@1.0.0", "content-blob@1.0.0"], reach = [network, fs]))]
     async fn ingest_photo(
         &self,
         photo: ChatGptFile,
@@ -212,7 +212,7 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// Search private photos previously ingested as VW user evidence. Search
     /// titles, descriptions, component names, filenames, and tags; optionally
     /// constrain results to one diagnostic session.
-    #[impress_method]
+    #[impress_method(effects(reads = ["vw/photo-evidence@1.0.0"]))]
     async fn search_photos(
         &self,
         query: String,
@@ -222,30 +222,30 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// Retrieve one previously ingested VW user photo as MCP image content.
     /// Call search-photos first when the evidence id is unknown.
-    #[impress_method]
+    #[impress_method(effects(reads = ["vw/photo-evidence@1.0.0", "content-blob@1.0.0"]))]
     async fn get_photo(&self, evidence_id: String) -> PhotoEvidenceResult;
 
     /// Create a persistent diagnostic session pinned to the active knowledge
     /// pack. command_id makes retries idempotent.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["vw/vehicle@1.0.0", "vw/configuration@1.0.0", "vw/diagnostic-session@1.0.0"], writes = ["vw/diagnostic-session@1.0.0", "vw/vehicle@1.0.0", "vw/configuration@1.0.0", "vw/command-receipt@1.0.0"]))]
     async fn create_session(&self, request: CreateSessionRequest) -> SessionResult;
 
     /// Load one typed diagnostic session and its current optimistic revision.
-    #[impress_method]
+    #[impress_method(effects(reads = ["vw/diagnostic-session@1.0.0"]))]
     async fn get_session(&self, session_id: String) -> SessionResult;
 
     /// List recent diagnostic sessions without exposing raw store records.
-    #[impress_method]
+    #[impress_method(effects(reads = ["vw/diagnostic-session@1.0.0"]))]
     async fn list_sessions(&self, limit: u32) -> SessionListResult;
 
     /// Record a controlled observation. The command is rejected if its expected
     /// revision is stale and replayed safely if command_id was already applied.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/observation@1.0.0", "vw/command-receipt@1.0.0"]))]
     async fn record_observation(&self, command: RecordObservationCommand) -> SessionResult;
 
     /// Record a typed measurement with unit, acquisition method, conditions,
     /// and optional component/terminal context.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/measurement@1.0.0", "vw/command-receipt@1.0.0"]))]
     async fn record_measurement(&self, command: RecordMeasurementCommand) -> SessionResult;
 
     /// Evaluate published rules against an explicit session revision and return
@@ -267,21 +267,21 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// List published procedures applicable to the session's exact vehicle
     /// configuration.
-    #[impress_method]
+    #[impress_method(effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"]))]
     async fn list_applicable_procedures(&self, session_id: String) -> ProcedureListResult;
 
     /// Start a published procedure only after required hazards are explicitly
     /// acknowledged.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/procedure-run@1.0.0", "vw/command-receipt@1.0.0"]))]
     async fn start_procedure(&self, command: StartProcedureCommand) -> SessionResult;
 
     /// Record the result of exactly the procedure run's current step. The
     /// domain state machine selects the next legal step.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/procedure-run@1.0.0", "vw/command-receipt@1.0.0"]))]
     async fn record_procedure_step(&self, command: RecordProcedureStepCommand) -> SessionResult;
 
     /// Close a session with a durable outcome; closed sessions reject further
     /// evidence mutations.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0"], writes = ["vw/diagnostic-session@1.0.0", "vw/command-receipt@1.0.0"]))]
     async fn close_session(&self, command: CloseSessionCommand) -> SessionResult;
 }

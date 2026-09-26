@@ -276,6 +276,11 @@ impress_service_impl! {
     service = SurfaceDemoService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultSurfaceDemoService,
     instance = DefaultSurfaceDemoService::new,
     methods = [

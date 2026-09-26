@@ -343,7 +343,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// a paper, a run). Either may be empty. An id that does not resolve to a
     /// live item is kept in the record but silently skipped as a graph edge
     /// — it does not fail the write.
-    #[impress_method]
+    #[impress_method(effects(reads = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"], writes = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"]))]
     #[allow(clippy::too_many_arguments)]
     async fn remember(
         &self,
@@ -416,7 +416,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// a near-duplicate — call it directly only when you already hold the
     /// exact id (from a prior `recall` or `memory_brief`) and want to record
     /// that it still holds without restating the prose.
-    #[impress_method]
+    #[impress_method(effects(reads = ["memory/claim@1.0.0"], writes = ["memory/claim@1.0.0"]))]
     async fn confirm_claim(&self, id: String) -> ActionResult;
 
     /// Retract a memory by REPLACING it: writes a new memory of the SAME
@@ -434,7 +434,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// worth the sentence — it is the only place "why was this retracted"
     /// survives. This is NOT how to retire a memory that was never wrong but
     /// is simply unwanted or private; use `forget` for that instead.
-    #[impress_method]
+    #[impress_method(effects(reads = ["memory/claim@1.0.0"], writes = ["memory/claim@1.0.0"]))]
     async fn supersede_claim(
         &self,
         old_id: String,
@@ -450,7 +450,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// this only flips the flag every read path already honours, so the
     /// action is reversible by a direct store edit even though no verb here
     /// un-forgets it.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"], writes = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"]))]
     async fn forget(&self, id: String) -> ActionResult;
 
     /// Row counts per memory schema (heads and totals), plus which retrieval
@@ -1687,6 +1687,11 @@ impress_service_impl! {
     service = MemoryService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultMemoryService,
     instance = DefaultMemoryService::new,
     methods = [

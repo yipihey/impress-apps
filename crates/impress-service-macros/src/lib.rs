@@ -405,20 +405,26 @@ fn parse_reach_list(input: syn::parse::ParseStream) -> syn::Result<Vec<TokenStre
 }
 
 /// `effects(reads = […], writes = […], reach = […])` inside `#[impress_method(…)]`.
+/// `effects()` — every key absent — is a method that touches nothing under
+/// a service whose default touches something, so the parentheses may be
+/// empty (which `parse_nested_meta` would refuse).
 fn parse_effects_attr(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<EffectsDecl> {
     let mut decl = EffectsDecl::default();
-    meta.parse_nested_meta(|inner| {
-        let key = inner
-            .path
-            .get_ident()
-            .cloned()
-            .ok_or_else(|| inner.error("`reads`, `writes` or `reach`"))?;
-        let value = inner.value()?;
-        if !decl.take(&key, value)? {
-            return Err(inner.error("unknown effects key; `reads`, `writes` or `reach`"));
+    let content;
+    syn::parenthesized!(content in meta.input);
+    while !content.is_empty() {
+        let key: Ident = content.parse()?;
+        content.parse::<syn::Token![=]>()?;
+        if !decl.take(&key, &content)? {
+            return Err(syn::Error::new(
+                key.span(),
+                "unknown effects key; `reads`, `writes` or `reach`",
+            ));
         }
-        Ok(())
-    })?;
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
     Ok(decl)
 }
 

@@ -566,12 +566,12 @@ pub struct ProjectSnapshotRecord {
 #[impress_service]
 pub trait ImprintProjectService: Send + Sync + 'static {
     /// The whole project in one read: entry, every file row, targets.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "plot-spec"]))]
     async fn project_tree(&self, manuscript_id: String) -> ProjectTreeRecord;
 
     /// One file with its text; a binary file is written to a temp path for
     /// the caller. The entry path returns the manuscript body.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0"]))]
     async fn project_file(&self, manuscript_id: String, path: String) -> ProjectFileContentRecord;
 
     /// Create or replace a file. `content` is the text; `file_path` reads
@@ -609,7 +609,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     ) -> ProjectFileResult;
 
     /// Declare which path is the entry (the manuscript body's file name).
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript"], writes = ["manuscript"]))]
     async fn project_set_entry(
         &self,
         manuscript_id: String,
@@ -621,7 +621,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `[{id, name?, entry?, engine?, output_kind?, args?}]`; absent or empty
     /// restores the implicit single target. Engines: typst | tectonic |
     /// pdflatex | xelatex | lualatex | latexmk | markdown | none.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript"], writes = ["manuscript"]))]
     async fn project_set_targets(
         &self,
         manuscript_id: String,
@@ -644,7 +644,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// Declare how a `figure-source` makes its outputs:
     /// `{"runner":"impress-plot"|"implore"|"veusz"|"shell","outputs":[…],
     /// "inputs":[…],"args":{…}}`. Absent clears the declaration.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-file@1.0.0"]))]
     async fn project_set_figure_build(
         &self,
         manuscript_id: String,
@@ -655,7 +655,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// The derived build graph of a target (the first declared one when
     /// `target_id` is absent): edges, unresolved references, cite keys,
     /// figure steps with staleness, reachability, diagnostics.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "plot-spec"]))]
     async fn project_graph(
         &self,
         manuscript_id: String,
@@ -665,7 +665,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// The outline of the whole tree in reading order — every included
     /// file's sections spliced in where it is included — with the same ids
     /// the one-file outline uses.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0"]))]
     async fn project_outline(
         &self,
         manuscript_id: String,
@@ -676,7 +676,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// reading order) plus the papers collected for it in imbib, with the ones
     /// the author viewed most recently first. Cite keys imbib lacks are listed
     /// last with a null `publication_id`.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/collection"]))]
     async fn project_reading_list(
         &self,
         manuscript_id: String,
@@ -690,7 +690,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// imprint calls it before opening imbib's papers window, so the window's
     /// single scope shows the cited papers as well as the collected ones.
     /// Cite keys imbib lacks come back in `missing_cite_keys`.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/collection"]))]
     async fn project_sync_reading_collection(
         &self,
         manuscript_id: String,
@@ -702,7 +702,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// list, creating its imbib collection on first use — filed under the
     /// library holding most of the cited papers. `collection_name` defaults to
     /// "<manuscript title> — papers".
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/collection"]))]
     async fn project_collect(
         &self,
         manuscript_id: String,
@@ -711,7 +711,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     ) -> ProjectCollectRecord;
 
     /// Remove papers from the manuscript's reading list. The papers stay in imbib.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "imbib/collection"], writes = ["imbib/collection"]))]
     async fn project_uncollect(
         &self,
         manuscript_id: String,
@@ -720,7 +720,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// Every citation in the target's reachable files, with the file each
     /// sits in, plus the distinct keys.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry"]))]
     async fn project_citations(
         &self,
         manuscript_id: String,
@@ -732,7 +732,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// SVGs written to a cache path. `entry_override` replaces the entry's
     /// text (a live buffer). Not a recorded build — see `project-build`.
     /// LaTeX and Markdown targets report their engine and refuse until P4.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/library"], reach = [fs]))]
     async fn project_compile(
         &self,
         manuscript_id: String,
@@ -746,7 +746,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// directory's entry becomes its body through the document, so history
     /// keeps both — else a new manuscript titled `title` (default: the
     /// directory's name). Additive: rows the directory no longer has stay.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-file@1.0.0", "manuscript-change@1.0.0", "figure"], reach = [fs]))]
     async fn project_import_directory(
         &self,
         directory: String,
@@ -760,7 +760,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `bundle` (files plus `manifest.json`, the lossless form; default) or
     /// `standalone` (files only, for collaborators without imprint).
     /// Projected bibliographies are written as the `.bib` they resolved to.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
     async fn project_export(
         &self,
         manuscript_id: String,
@@ -773,7 +773,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// hash-compared and atomic, pruning only what an earlier run wrote.
     /// Default directory
     /// `<cache>/impress/imprint/project-build/<manuscript>/<target>/`.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
     async fn project_materialize(
         &self,
         manuscript_id: String,
@@ -784,7 +784,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// Snapshot the whole tree as a revision: a deterministic `.tar.zst`
     /// with the manifest, stored in the workspace CAS; `content_hash` is the
     /// input stamp; lineage shared with one-file revisions.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-revision", "manuscript"]))]
     async fn project_snapshot(
         &self,
         manuscript_id: String,
@@ -802,7 +802,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// outcome, the PDF goes to the workspace CAS, and what steps produced
     /// becomes `output` rows derived from their source. `entry_override`
     /// is the live buffer.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure"], writes = ["manuscript-build@1.0.0", "manuscript-file@1.0.0"], reach = [subprocess, fs]))]
     async fn project_build(
         &self,
         manuscript_id: String,
@@ -813,7 +813,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     ) -> JobStarted;
 
     /// Recorded builds, newest first (`limit` default 20).
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript-build@1.0.0"]))]
     async fn project_builds(
         &self,
         manuscript_id: String,
@@ -824,7 +824,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// One output of a build — the newest successful build of the target
     /// when `build_id` is absent — at a readable path (`kind` default
     /// `pdf`).
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript-build@1.0.0"], reach = [fs]))]
     async fn project_build_output(
         &self,
         manuscript_id: String,
@@ -839,7 +839,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// inspector's spec), `script` — and the build spec that renders it to
     /// `<stem>.svg`. The extension is added when `path` has none. Refuses an
     /// existing path.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-file@1.0.0", "figure", "manuscript"]))]
     async fn project_new_figure(
         &self,
         manuscript_id: String,
@@ -852,7 +852,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `force` — and record its outputs as `output` rows derived from the
     /// source. `shell` steps run only with `allow_shell`. `svg` is the first
     /// SVG output, for a look.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure"], writes = ["manuscript-file@1.0.0"], reach = [subprocess, fs]))]
     async fn project_render_figure(
         &self,
         manuscript_id: String,
@@ -864,7 +864,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// A look at one figure without writing anything: rendered into a
     /// scratch directory, the first SVG returned.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure"], reach = [subprocess, fs]))]
     async fn project_figure_preview(
         &self,
         manuscript_id: String,
@@ -876,7 +876,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// projected bibliographies written as the text they resolve to — and
     /// remember it as the manuscript's working copy (D11). Git, Veusz,
     /// lilook and a shell edit there; `project-checkin` brings it back.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript"], reach = [fs]))]
     async fn project_checkout(
         &self,
         manuscript_id: String,
@@ -886,7 +886,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// What differs between the rows and the working copy (`directory`
     /// defaults to the recorded one): changed, added, missing.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
     async fn project_status(
         &self,
         manuscript_id: String,
@@ -896,7 +896,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// Bring the working copy's changes in: the entry through the document
     /// (merged, never overwritten), the rest as rows keeping their roles.
     /// `paths` limits it; `prune` deletes the rows the directory dropped.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-file@1.0.0", "manuscript-change@1.0.0", "manuscript"], reach = [fs]))]
     async fn project_checkin(
         &self,
         manuscript_id: String,
@@ -3623,6 +3623,11 @@ impress_service_impl! {
     service = ImprintProjectService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["manuscript", "manuscript-file@1.0.0"],
+        writes: ["manuscript-file@1.0.0", "manuscript"],
+        reach: [],
+    },
     impl = DefaultImprintProjectService,
     instance = DefaultImprintProjectService::new,
     methods = [
