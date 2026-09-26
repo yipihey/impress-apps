@@ -4292,6 +4292,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rusqlite",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4721,6 +4722,7 @@ dependencies = [
  "darling 0.20.11",
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.114",
 ]
 
@@ -4924,6 +4926,7 @@ dependencies = [
  "impress-plot",
  "pulldown-cmark",
  "regex",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -8377,6 +8380,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

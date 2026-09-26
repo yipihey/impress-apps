@@ -50,6 +50,8 @@ fn selftest_instance() -> Arc<dyn ImprintSelftestService> {
 
 impress_service_impl! {
     service = ImprintSelftestService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImprintSelftestService,
     instance = || selftest_instance(),
     methods = [

@@ -46,6 +46,8 @@ impress_service_impl! {
     service = EchoService,
     impl = DemoEcho,
     instance = || DemoEcho,
+    safety = read_only,
+    since = "0.1.0",
     methods = [
         /// Echo a message back to the caller.
         echo(message: String) -> String,

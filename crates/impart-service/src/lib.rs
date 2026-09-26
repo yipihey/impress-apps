@@ -284,6 +284,8 @@ pub fn service_instance() -> Arc<dyn ImpartService> {
 
 impress_service_impl! {
     service = ImpartService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImpartService,
     instance = service_instance,
     methods = [

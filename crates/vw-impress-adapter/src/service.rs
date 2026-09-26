@@ -10,7 +10,7 @@ use vw_domain::{
     RepositoryError, SessionId, StartProcedureCommand,
 };
 use vw_service::{
-    __IMPRESS_SERVICE_DOCS_VwDiagnosticService, AssessmentResult, ChatGptFile, NextTestResult,
+    __IMPRESS_SERVICE_METHODS_VwDiagnosticService, AssessmentResult, ChatGptFile, NextTestResult,
     PhotoEvidenceResult, PhotoEvidenceSearchResult, ProcedureListResult, ServiceError,
     SessionListResult, SessionResult, VwCapabilities, VwDiagnosticService,
 };
@@ -435,6 +435,8 @@ impl VwDiagnosticService for DefaultVwDiagnosticService {
 
 impress_service_impl! {
     service = VwDiagnosticService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultVwDiagnosticService,
     instance = default_vw_service,
     methods = [

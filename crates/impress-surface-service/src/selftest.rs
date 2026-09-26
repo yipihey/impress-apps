@@ -73,6 +73,8 @@ fn selftest_instance() -> Arc<dyn SurfaceSelftestService> {
 
 impress_service_impl! {
     service = SurfaceSelftestService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultSurfaceSelftestService,
     instance = || selftest_instance(),
     methods = [

@@ -52,7 +52,7 @@ pub struct SectionMetadata {
 /// `body` is always the rehydrated Typst source. When the row holds a
 /// `content_hash` and the body was offloaded to the CAS, `get_section` reads
 /// the blob back so callers never have to chase the indirection themselves.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct SectionRecord {
     /// Stable id used as the item id in the shared store.
     pub item_id: Uuid,

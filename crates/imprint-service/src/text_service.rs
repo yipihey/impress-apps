@@ -138,6 +138,8 @@ fn parse_syntax(s: &str) -> CitationSyntax {
 //   MCP descriptor + CLI subcommand inventory entries.
 impress_service_impl! {
     service = ImprintTextService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImprintTextService,
     instance = || crate::backend::text_service_instance(),
     methods = [

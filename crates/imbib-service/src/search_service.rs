@@ -162,7 +162,7 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// default OFF, so turn them on only when the user explicitly asks for
     /// an ongoing feed rather than a saved query. List with
     /// `imbib-search-service_list-smart-searches`, remove with imbib_delete_smart_searches.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_smart_search(
         &self,
         name: String,
@@ -490,6 +490,8 @@ mod tests {
 
 impress_service_impl! {
     service = ImbibSearchService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImbibSearchService,
     instance = || crate::backend::search_service_instance(),
     methods = [

@@ -144,23 +144,23 @@ pub trait ImbibBackupService: Send + Sync + 'static {
     /// tags, collections, manuscripts and annotations — as a single SQLite
     /// file. Safe to run while imbib, imprint and impel are all writing.
     /// Pass an empty directory to use the default backups folder.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_backup(&self, directory: String, label: Option<String>) -> Vec<BackupRecord>;
 
     /// List backups in a directory, newest first. Pass an empty string for the
     /// default backups folder.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn list_backups(&self, directory: String) -> Vec<BackupRecord>;
 
     /// Validate a backup file without touching the live store: integrity
     /// check, required tables, and a digest match against its manifest.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn inspect_backup(&self, path: String) -> BackupInspection;
 
     /// Replace the whole library with a backup. **Requires the imbib app to be
     /// running**: it refuses while iCloud sync is on, and it must tell the UI
     /// that every cached row is gone. Both guarantees live in the app.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn restore_backup(&self, path: String) -> RestoreReport;
 
     /// Delete one backup file and its manifest sidecar.
@@ -297,6 +297,8 @@ impl ImbibBackupService for DefaultImbibBackupService {
 
 impress_service_impl! {
     service = ImbibBackupService,
+    safety = destructive,
+    since = "0.1.0",
     impl = DefaultImbibBackupService,
     instance = crate::backend::backup_service_instance,
     // NOTE: these `///` comments are the tool descriptions the model sees.

@@ -121,7 +121,7 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     /// Create a research artifact in imbib. Artifacts are non-paper items:
     /// notes, webpages, datasets, presentations, posters, media, code, or
     /// general files.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_artifact(
         &self,
         schema: String,
@@ -141,7 +141,7 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     ) -> Option<ArtifactRecord>;
     /// Update an artifact's metadata fields; a field left null keeps its
     /// current value.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn update_artifact(
         &self,
         id: String,
@@ -155,11 +155,11 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
         event_date: Option<String>,
     ) -> MutationResult;
     /// Delete a research artifact. This permanently removes it.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete_artifact(&self, id: String) -> MutationResult;
     /// Link a research artifact to a paper in the bibliography. Creates a
     /// bidirectional relationship.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn link_artifact_to_publication(
         &self,
         artifact_id: String,
@@ -355,6 +355,8 @@ impl ImbibArtifactsService for DefaultImbibArtifactsService {
 
 impress_service_impl! {
     service = ImbibArtifactsService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImbibArtifactsService,
     instance = || crate::backend::artifacts_service_instance(),
     methods = [

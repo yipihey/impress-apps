@@ -77,6 +77,8 @@ impl ImbibTextService for DefaultImbibTextService {
 
 impress_service_impl! {
     service = ImbibTextService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImbibTextService,
     instance = || DefaultImbibTextService,
     methods = [

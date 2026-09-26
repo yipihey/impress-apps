@@ -274,6 +274,8 @@ impl SurfaceDemoService for DefaultSurfaceDemoService {
 
 impress_service_impl! {
     service = SurfaceDemoService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultSurfaceDemoService,
     instance = DefaultSurfaceDemoService::new,
     methods = [

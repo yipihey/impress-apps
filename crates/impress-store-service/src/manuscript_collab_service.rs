@@ -108,7 +108,7 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
     /// `base_heads` diffs against the current text (last-writer for
     /// overlapping regions, no loss elsewhere). `author` labels the change in
     /// history (e.g. your agent id). Refused for watched-folder manuscripts.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn commit_manuscript_body(
         &self,
         id: String,
@@ -292,6 +292,8 @@ impl ManuscriptCollabService for DefaultManuscriptCollabService {
 
 impress_service_impl! {
     service = ManuscriptCollabService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultManuscriptCollabService,
     instance = DefaultManuscriptCollabService::new,
     methods = [

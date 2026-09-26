@@ -306,6 +306,8 @@ impl ImprintAppService for DefaultImprintAppService {
 
 impress_service_impl! {
     service = ImprintAppService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImprintAppService,
     instance = crate::backend::app_service_instance,
     methods = [

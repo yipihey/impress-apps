@@ -232,6 +232,7 @@ fn default_max_tokens() -> u32 {
 /// Coarse model family, mostly meaningful for local hosts that advertise it
 /// (oMLX `model_type`). Cloud catalogues report `Llm`/`Vlm` from their own
 /// capability tables.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelKind {
@@ -245,6 +246,7 @@ pub enum ModelKind {
 
 /// Where a model row came from: the static catalogue compiled into the crate,
 /// a live discovery call, or both (discovery merged over the catalogue row).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelSource {
@@ -254,6 +256,7 @@ pub enum ModelSource {
     Both,
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelSummary {
     pub id: String,

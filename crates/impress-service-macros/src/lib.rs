@@ -26,6 +26,8 @@
 //!     service = EchoService,
 //!     impl = DemoEcho,
 //!     instance = || DemoEcho,
+//!     safety = read_only,
+//!     since = "0.1.0",
 //!     methods = [
 //!         echo(message: String) -> String,
 //!     ],
@@ -38,8 +40,12 @@
 //!
 //! The macros emit, per method:
 //! * A standalone async invoker `__impress_<service>_<method>_invoke`.
-//! * An `inventory::submit!` registering an `McpToolDescriptor`.
-//! * An `inventory::submit!` registering a `CliSubcommand`.
+//! * An input-schema fn (the args struct) and an output-schema fn (the
+//!   return type, which must therefore implement `JsonSchema`).
+//! * One `static` `VerbDescriptor` (ADR-0034 D1) carrying name, service,
+//!   description, both schemas, safety, `since`, examples and the handler.
+//! * An `inventory::submit!` registering its `McpToolDescriptor` projection.
+//! * An `inventory::submit!` registering its `CliSubcommand` projection.
 //!
 //! That is the whole output. No UniFFI or Python shim is generated here: the
 //! Swift bindings are hand-written `#[uniffi::export]` items in the FFI crates,
@@ -49,6 +55,14 @@
 //! description agents read, and a method without one is a compile error
 //! naming the method (plan-auto-gui-and-self-docs.md G-2 — 54 verbs once
 //! shipped `Invoke Service.method` because the macro accepted an empty doc).
+//!
+//! Safety is declared once per service — `impress_service_impl! { safety =
+//! read_only, since = "0.1.0", … }` — with per-method exceptions on the trait,
+//! `#[impress_method(safety = destructive, idempotent = false)]`. The
+//! vocabulary is `read_only | mutating | destructive | external`
+//! (`impress_service_core::SafetyClass`), and `docs/verb-safety.md` is the
+//! table every declaration is checked against. Examples go beside the method
+//! as `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]`.
 //!
 //! Anything more elaborate (custom DTOs, error mapping nuances) is deferred to
 //! Phase 1+.
@@ -90,20 +104,45 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
 /// unit-tested on a parsed trait without a compile-fail harness.
 fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
     let mut found_any_method = false;
-    // (method_name, doc) for every #[impress_method], so `impress_service_impl!`
-    // can use the trait's own doc comments as tool descriptions. Without this
-    // the docs a developer writes on the trait are silently dropped and the
-    // model gets "Invoke Service.method".
-    let mut docs: Vec<(String, String)> = Vec::new();
+    // One `MethodMeta` per #[impress_method] — the doc, the safety override
+    // and the examples — so `impress_service_impl!` can read what was written
+    // on the trait. Without the doc half of this, the docs a developer writes
+    // on the trait were silently dropped and the model got
+    // "Invoke Service.method".
+    let mut metas: Vec<TokenStream2> = Vec::new();
     let trait_name = trait_item.ident.to_string();
 
     for item in &mut trait_item.items {
         if let TraitItem::Fn(method) = item {
-            let before = method.attrs.len();
-            method
+            let markers: Vec<syn::Attribute> = method
                 .attrs
-                .retain(|attr| !attr.path().is_ident("impress_method"));
-            if method.attrs.len() != before {
+                .iter()
+                .filter(|attr| attr.path().is_ident("impress_method"))
+                .cloned()
+                .collect();
+            let examples: Vec<syn::Attribute> = method
+                .attrs
+                .iter()
+                .filter(|attr| attr.path().is_ident("impress_example"))
+                .cloned()
+                .collect();
+            method.attrs.retain(|attr| {
+                !attr.path().is_ident("impress_method") && !attr.path().is_ident("impress_example")
+            });
+            if markers.is_empty() {
+                if let Some(example) = examples.first() {
+                    return Err(syn::Error::new_spanned(
+                        example,
+                        format!(
+                            "#[impress_example] on `{trait_name}::{}`, which is not an \
+                             #[impress_method]",
+                            method.sig.ident
+                        ),
+                    ));
+                }
+                continue;
+            }
+            {
                 found_any_method = true;
                 let doc = collect_doc(&method.attrs);
                 if doc.is_empty() {
@@ -118,7 +157,32 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         ),
                     ));
                 }
-                docs.push((method.sig.ident.to_string(), doc));
+                let method_name = method.sig.ident.to_string();
+                let overrides = parse_method_overrides(&markers)?;
+                let example_tokens = examples
+                    .iter()
+                    .map(parse_example)
+                    .collect::<syn::Result<Vec<_>>>()?;
+                let safety = match overrides.safety {
+                    Some(class) => {
+                        let variant = format_ident!("{class}");
+                        quote! { ::core::option::Option::Some(::impress_service_core::SafetyClass::#variant) }
+                    }
+                    None => quote! { ::core::option::Option::None },
+                };
+                let idempotent = match overrides.idempotent {
+                    Some(flag) => quote! { ::core::option::Option::Some(#flag) },
+                    None => quote! { ::core::option::Option::None },
+                };
+                metas.push(quote! {
+                    ::impress_service_core::MethodMeta {
+                        name: #method_name,
+                        doc: #doc,
+                        safety: #safety,
+                        idempotent: #idempotent,
+                        examples: &[#(#example_tokens),*],
+                    }
+                });
             }
         }
     }
@@ -138,12 +202,11 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
     // dyn-compatible vtables on Rust stable). We add it here so users don't
     // have to write the attribute themselves.
     // Emitted beside the trait so `impress_service_impl!` can resolve each
-    // method's description. A free const rather than an associated const:
-    // associated consts make a trait non-dyn-compatible, and every service is
-    // used as `Arc<dyn Trait>`.
-    let docs_const = format_ident!("__IMPRESS_SERVICE_DOCS_{}", trait_item.ident);
-    let doc_entries = docs.iter().map(|(name, doc)| quote! { (#name, #doc) });
-    let doc_count = docs.len();
+    // method's description, safety and examples. A free static rather than
+    // an associated const: associated consts make a trait non-dyn-compatible,
+    // and every service is used as `Arc<dyn Trait>`.
+    let meta_table = format_ident!("__IMPRESS_SERVICE_METHODS_{}", trait_item.ident);
+    let meta_count = metas.len();
 
     Ok(quote! {
         // `too_many_arguments`: a service method's parameter list *is* the
@@ -156,20 +219,138 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
 
         #[doc(hidden)]
         #[allow(non_upper_case_globals)]
-        pub const #docs_const: [(&'static str, &'static str); #doc_count] =
-            [#(#doc_entries),*];
+        pub static #meta_table: [::impress_service_core::MethodMeta; #meta_count] =
+            [#(#metas),*];
     })
 }
 
-/// `#[impress_method]` marker on a trait method.
+/// What `#[impress_method(safety = …, idempotent = …)]` declares.
+#[derive(Default)]
+struct MethodOverrides {
+    /// The `SafetyClass` variant name (`ReadOnly`, …), validated.
+    safety: Option<String>,
+    idempotent: Option<bool>,
+}
+
+/// `read_only` → `ReadOnly`, or `None` for anything outside the vocabulary.
+fn safety_variant(spelling: &str) -> Option<&'static str> {
+    match spelling {
+        "read_only" => Some("ReadOnly"),
+        "mutating" => Some("Mutating"),
+        "destructive" => Some("Destructive"),
+        "external" => Some("External"),
+        _ => None,
+    }
+}
+
+const SAFETY_VOCABULARY: &str = "`read_only`, `mutating`, `destructive` or `external`";
+
+fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverrides> {
+    let mut out = MethodOverrides::default();
+    for attr in markers {
+        if matches!(attr.meta, syn::Meta::Path(_)) {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("safety") {
+                let ident: Ident = meta.value()?.parse()?;
+                let spelling = ident.to_string();
+                let variant = safety_variant(&spelling).ok_or_else(|| {
+                    syn::Error::new(
+                        ident.span(),
+                        format!("unknown safety class `{spelling}`; one of {SAFETY_VOCABULARY}"),
+                    )
+                })?;
+                out.safety = Some(variant.to_string());
+                Ok(())
+            } else if meta.path.is_ident("idempotent") {
+                let flag: syn::LitBool = meta.value()?.parse()?;
+                out.idempotent = Some(flag.value);
+                Ok(())
+            } else {
+                Err(meta.error("unknown #[impress_method] key; `safety = …` or `idempotent = …`"))
+            }
+        })?;
+    }
+    Ok(out)
+}
+
+/// `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]` as
+/// an `impress_service_core::Example` literal. `args` and `expect` must be
+/// JSON text, and `args` an object: a typo here is a compile error, not a
+/// Tier A failure later.
+fn parse_example(attr: &syn::Attribute) -> syn::Result<TokenStream2> {
+    let mut name: Option<syn::LitStr> = None;
+    let mut args: Option<syn::LitStr> = None;
+    let mut expect: Option<syn::LitStr> = None;
+    attr.parse_nested_meta(|meta| {
+        let value: syn::LitStr = meta.value()?.parse()?;
+        if meta.path.is_ident("name") {
+            name = Some(value);
+        } else if meta.path.is_ident("args") {
+            match serde_json::from_str::<serde_json::Value>(&value.value()) {
+                Ok(serde_json::Value::Object(_)) => {}
+                Ok(_) => {
+                    return Err(syn::Error::new(
+                        value.span(),
+                        "`args` must be a JSON object",
+                    ));
+                }
+                Err(e) => {
+                    return Err(syn::Error::new(
+                        value.span(),
+                        format!("`args` is not JSON: {e}"),
+                    ));
+                }
+            }
+            args = Some(value);
+        } else if meta.path.is_ident("expect") {
+            if let Err(e) = serde_json::from_str::<serde_json::Value>(&value.value()) {
+                return Err(syn::Error::new(
+                    value.span(),
+                    format!("`expect` is not JSON: {e}"),
+                ));
+            }
+            expect = Some(value);
+        } else {
+            return Err(meta.error("unknown #[impress_example] key; `name`, `args` or `expect`"));
+        }
+        Ok(())
+    })?;
+    let name = name
+        .ok_or_else(|| syn::Error::new_spanned(attr, "#[impress_example] needs `name = \"…\"`"))?;
+    let args = args.ok_or_else(|| {
+        syn::Error::new_spanned(attr, "#[impress_example] needs `args = r#\"{…}\"#`")
+    })?;
+    let expect = match expect {
+        Some(e) => quote! { ::core::option::Option::Some(#e) },
+        None => quote! { ::core::option::Option::None },
+    };
+    Ok(quote! {
+        ::impress_service_core::Example { name: #name, args: #args, expect: #expect }
+    })
+}
+
+/// `#[impress_method]` marker on a trait method, optionally
+/// `#[impress_method(safety = destructive, idempotent = false)]` to depart
+/// from the service's declared default.
 ///
-/// At the moment this is a pure marker consumed by [`macro@impress_service`].
-/// Defining it as its own attribute macro lets users write the attribute on
-/// trait methods without the compiler complaining about an unknown attribute.
-/// If invoked directly on a free-standing item (which should not happen in
-/// normal use) it returns the item unchanged.
+/// This is a marker consumed by [`macro@impress_service`]. Defining it as its
+/// own attribute macro lets users write the attribute on trait methods
+/// without the compiler complaining about an unknown attribute. If invoked
+/// directly on a free-standing item (which should not happen in normal use)
+/// it returns the item unchanged.
 #[proc_macro_attribute]
 pub fn impress_method(_attr: TokenStream, input: TokenStream) -> TokenStream {
+    input
+}
+
+/// `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]` on an
+/// `#[impress_method]`: a named example call, stored on the verb's descriptor
+/// (`VerbDescriptor::examples`). Repeatable. A marker consumed by
+/// [`macro@impress_service`], like `impress_method`.
+#[proc_macro_attribute]
+pub fn impress_example(_attr: TokenStream, input: TokenStream) -> TokenStream {
     input
 }
 
@@ -188,6 +369,11 @@ struct ImplMacroInput {
     /// `impress_service_core::strict`. Opt-in per service, so a service whose
     /// callers send extra keys is not broken by another's contract.
     strict_args: bool,
+    /// `safety = read_only`: the service's default class; a method departs
+    /// from it with `#[impress_method(safety = …)]` on the trait.
+    safety: String,
+    /// `since = "0.1.0"`: the version every verb of the service appeared in.
+    since: syn::LitStr,
 }
 
 struct MethodDecl {
@@ -222,6 +408,8 @@ impl syn::parse::Parse for ImplMacroInput {
         let mut instance: Option<syn::Expr> = None;
         let mut methods: Option<Vec<MethodDecl>> = None;
         let mut strict_args = false;
+        let mut safety: Option<String> = None;
+        let mut since: Option<syn::LitStr> = None;
 
         while !input.is_empty() {
             // Accept both regular identifiers and keywords-as-identifiers
@@ -244,6 +432,29 @@ impl syn::parse::Parse for ImplMacroInput {
                 "strict_args" => {
                     let flag: syn::LitBool = input.parse()?;
                     strict_args = flag.value;
+                }
+                "safety" => {
+                    let ident: Ident = input.parse()?;
+                    let spelling = ident.to_string();
+                    let variant = safety_variant(&spelling).ok_or_else(|| {
+                        syn::Error::new(
+                            ident.span(),
+                            format!(
+                                "unknown safety class `{spelling}`; one of {SAFETY_VOCABULARY}"
+                            ),
+                        )
+                    })?;
+                    safety = Some(variant.to_string());
+                }
+                "since" => {
+                    let version: syn::LitStr = input.parse()?;
+                    if version.value().trim().is_empty() {
+                        return Err(syn::Error::new(
+                            version.span(),
+                            "`since` must name a version",
+                        ));
+                    }
+                    since = Some(version);
                 }
                 "methods" => {
                     let content;
@@ -277,6 +488,16 @@ impl syn::parse::Parse for ImplMacroInput {
             methods: methods
                 .ok_or_else(|| syn::Error::new(input.span(), "missing `methods = [...]`"))?,
             strict_args,
+            safety: safety.ok_or_else(|| {
+                syn::Error::new(
+                    input.span(),
+                    format!(
+                        "missing `safety = …` (the service's default class: {SAFETY_VOCABULARY})"
+                    ),
+                )
+            })?,
+            since: since
+                .ok_or_else(|| syn::Error::new(input.span(), "missing `since = \"<version>\"`"))?,
         })
     }
 }
@@ -402,7 +623,7 @@ fn expand_impl(input: ImplMacroInput) -> syn::Result<TokenStream2> {
 
     let mut emitted = Vec::new();
     for method in &input.methods {
-        emitted.push(expand_method(service, instance, method, input.strict_args)?);
+        emitted.push(expand_method(service, instance, method, &input)?);
     }
 
     Ok(quote! {
@@ -414,8 +635,9 @@ fn expand_method(
     service: &Ident,
     instance: &syn::Expr,
     method: &MethodDecl,
-    strict_args: bool,
+    input: &ImplMacroInput,
 ) -> syn::Result<TokenStream2> {
+    let strict_args = input.strict_args;
     let name = &method.name;
     let kebab_name = kebab(&name.to_string());
     let service_kebab = kebab(&service.to_string());
@@ -428,23 +650,28 @@ fn expand_method(
     // the model.
     let inline_doc = method.doc.clone();
     let fallback = format!("Invoke {service}.{name}");
-    let docs_const = format_ident!("__IMPRESS_SERVICE_DOCS_{}", service);
+    let meta_table = format_ident!("__IMPRESS_SERVICE_METHODS_{}", service);
     let method_name_str = name.to_string();
     let doc = quote! {
         ::impress_service_core::resolve_description(
             #inline_doc,
-            &#docs_const,
+            &#meta_table,
             #method_name_str,
             #fallback,
         )
     };
+    let default_safety = format_ident!("{}", input.safety);
+    let since = &input.since;
 
     let args_struct = format_ident!("__Impress_{}_{}_Args", service, name);
     let invoker_fn = format_ident!("__impress_{}_{}_invoke", service, name);
     let schema_fn = format_ident!("__impress_{}_{}_schema", service, name);
-    let mcp_submit = format_ident!("__IMPRESS_MCP_{}_{}", service, name);
-    let cli_submit = format_ident!("__IMPRESS_CLI_{}_{}", service, name);
-    let _ = (mcp_submit, cli_submit); // suppress unused if removed
+    let output_schema_fn = format_ident!("__impress_output_schema_{}_{}", service, name);
+    let verb_static = format_ident!("__IMPRESS_VERB_{}_{}", service, name);
+    let ret_ty: Type = match &method.ret {
+        Some(ty) => ty.clone(),
+        None => syn::parse_quote!(()),
+    };
 
     // Build the args struct fields and the deserialization → call expression.
     let mut struct_fields = Vec::new();
@@ -522,11 +749,21 @@ fn expand_method(
             #(#struct_fields)*
         }
 
-        // -- Schema function -------------------------------------------------
+        // -- Schema functions ------------------------------------------------
         #[doc(hidden)]
         #[allow(non_snake_case)]
         pub fn #schema_fn() -> ::impress_service_core::serde_json::Value {
             let schema = ::impress_service_core::schemars::schema_for!(#args_struct);
+            ::impress_service_core::serde_json::to_value(schema)
+                .unwrap_or(::impress_service_core::serde_json::Value::Null)
+        }
+
+        // The output schema is derived from the return type, which is why
+        // every result type implements `JsonSchema` (ADR-0034 D1).
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        pub fn #output_schema_fn() -> ::impress_service_core::serde_json::Value {
+            let schema = ::impress_service_core::schemars::schema_for!(#ret_ty);
             ::impress_service_core::serde_json::to_value(schema)
                 .unwrap_or(::impress_service_core::serde_json::Value::Null)
         }
@@ -549,25 +786,48 @@ fn expand_method(
             })
         }
 
-        // -- MCP descriptor inventory submission ----------------------------
-        ::impress_service_core::inventory::submit! {
-            ::impress_service_core::McpToolDescriptor {
+        // -- The verb descriptor (ADR-0034 D1) ------------------------------
+        #[doc(hidden)]
+        #[allow(non_upper_case_globals)]
+        pub static #verb_static: ::impress_service_core::VerbDescriptor =
+            ::impress_service_core::VerbDescriptor {
                 name: concat!(#service_kebab, "_", #kebab_name),
+                service: #service_kebab,
+                method: #kebab_name,
                 description: #doc,
                 input_schema: #schema_fn,
+                output_schema: #output_schema_fn,
+                safety: ::impress_service_core::Safety {
+                    class: ::impress_service_core::resolve_safety_class(
+                        &#meta_table,
+                        #method_name_str,
+                        ::impress_service_core::SafetyClass::#default_safety,
+                    ),
+                    idempotent: ::impress_service_core::resolve_idempotent(
+                        &#meta_table,
+                        #method_name_str,
+                        ::impress_service_core::resolve_safety_class(
+                            &#meta_table,
+                            #method_name_str,
+                            ::impress_service_core::SafetyClass::#default_safety,
+                        ),
+                    ),
+                },
+                since: #since,
+                deprecated: ::core::option::Option::None,
+                aliases: &[],
+                examples: ::impress_service_core::resolve_examples(&#meta_table, #method_name_str),
+                strict: #strict_args,
+                source: ::impress_service_core::Source::Linked,
                 handler: #invoker_fn,
-            }
-        }
+            };
 
-        // -- CLI subcommand inventory submission ----------------------------
+        // -- MCP and CLI projections into the inventory ---------------------
         ::impress_service_core::inventory::submit! {
-            ::impress_service_core::CliSubcommand {
-                name: #kebab_name,
-                qualified_name: concat!(#service_kebab, "_", #kebab_name),
-                description: #doc,
-                input_schema: #schema_fn,
-                apply: #invoker_fn,
-            }
+            ::impress_service_core::McpToolDescriptor::of(&#verb_static)
+        }
+        ::impress_service_core::inventory::submit! {
+            ::impress_service_core::CliSubcommand::of(&#verb_static)
         }
     })
 }
@@ -668,7 +928,7 @@ mod tests {
         )
         .expect("documented trait expands");
         let text = ts.to_string();
-        assert!(text.contains("__IMPRESS_SERVICE_DOCS_EchoService"));
+        assert!(text.contains("__IMPRESS_SERVICE_METHODS_EchoService"));
         assert!(text.contains("\"Echo a message back.\""), "{text}");
         assert!(
             !text.contains("impress_method"),
@@ -681,5 +941,116 @@ mod tests {
         let err = expand("pub trait Empty: Send + Sync + 'static { async fn f(&self); }")
             .expect_err("no #[impress_method] at all");
         assert!(err.to_string().contains("`Empty` has no #[impress_method]"));
+    }
+
+    /// The per-method safety override and an example land in the method
+    /// table as the `MethodMeta` fields `impress_service_impl!` resolves.
+    #[test]
+    fn safety_override_and_examples_are_captured() {
+        let ts = expand(
+            r##"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Delete it.
+                #[impress_method(safety = destructive, idempotent = true)]
+                #[impress_example(name = "one", args = r#"{"id": "x"}"#, expect = r#"{"ok": true}"#)]
+                async fn delete(&self, id: String) -> bool;
+                /// Read it.
+                #[impress_method]
+                async fn get(&self, id: String) -> String;
+            }
+            "##,
+        )
+        .expect("expands")
+        .to_string();
+        assert!(ts.contains("SafetyClass :: Destructive"), "{ts}");
+        assert!(
+            ts.contains("idempotent : :: core :: option :: Option :: Some (true)"),
+            "{ts}"
+        );
+        assert!(ts.contains("name : \"one\""), "{ts}");
+        assert!(
+            !ts.contains("impress_example"),
+            "the marker is stripped: {ts}"
+        );
+        // The undeclared method carries `None`s, not the other's values.
+        assert!(
+            ts.contains("safety : :: core :: option :: Option :: None"),
+            "{ts}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_safety_class_and_a_non_json_example_are_compile_errors() {
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method(safety = harmless)]
+                async fn echo(&self) -> String;
+            }
+            "#,
+        )
+        .expect_err("outside the vocabulary");
+        assert!(
+            err.to_string().contains("unknown safety class `harmless`"),
+            "{err}"
+        );
+
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method]
+                #[impress_example(name = "bad", args = "[1, 2]")]
+                async fn echo(&self) -> String;
+            }
+            "#,
+        )
+        .expect_err("args must be an object");
+        assert!(
+            err.to_string().contains("`args` must be a JSON object"),
+            "{err}"
+        );
+
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Doc.
+                #[impress_example(name = "stray", args = "{}")]
+                async fn helper(&self) -> String;
+                /// Doc.
+                #[impress_method]
+                async fn echo(&self) -> String;
+            }
+            "#,
+        )
+        .expect_err("an example on a non-verb");
+        assert!(
+            err.to_string().contains("not an #[impress_method]"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_impl_macro_requires_safety_and_since() {
+        let parse = |src: &str| syn::parse_str::<ImplMacroInput>(src);
+        let err = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, methods = [echo(m: String) -> String]",
+        )
+        .err()
+        .expect("no safety");
+        assert!(err.to_string().contains("missing `safety = …`"), "{err}");
+        let err = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, safety = read_only, methods = []",
+        )
+        .err()
+        .expect("no since");
+        assert!(err.to_string().contains("missing `since"), "{err}");
+        let ok = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, safety = mutating, since = \"0.1.0\", methods = []",
+        )
+        .unwrap_or_else(|e| panic!("both declared: {e}"));
+        assert_eq!(ok.safety, "Mutating");
+        assert_eq!(ok.since.value(), "0.1.0");
     }
 }

@@ -567,6 +567,8 @@ pub fn service_instance() -> Arc<dyn ImploreService> {
 
 impress_service_impl! {
     service = ImploreService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImploreService,
     instance = service_instance,
     methods = [

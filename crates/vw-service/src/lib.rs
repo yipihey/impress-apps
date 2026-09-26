@@ -197,7 +197,7 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// as private, immutable user evidence. Use this when the user asks the
     /// expert to remember/analyze an attached VW photo or clearly supplies it
     /// as diagnostic evidence. Never use it for unrelated images.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn ingest_photo(
         &self,
         photo: ChatGptFile,
@@ -227,7 +227,7 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// Create a persistent diagnostic session pinned to the active knowledge
     /// pack. command_id makes retries idempotent.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_session(&self, request: CreateSessionRequest) -> SessionResult;
 
     /// Load one typed diagnostic session and its current optimistic revision.
@@ -240,12 +240,12 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// Record a controlled observation. The command is rejected if its expected
     /// revision is stale and replayed safely if command_id was already applied.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn record_observation(&self, command: RecordObservationCommand) -> SessionResult;
 
     /// Record a typed measurement with unit, acquisition method, conditions,
     /// and optional component/terminal context.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn record_measurement(&self, command: RecordMeasurementCommand) -> SessionResult;
 
     /// Evaluate published rules against an explicit session revision and return
@@ -272,16 +272,16 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// Start a published procedure only after required hazards are explicitly
     /// acknowledged.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn start_procedure(&self, command: StartProcedureCommand) -> SessionResult;
 
     /// Record the result of exactly the procedure run's current step. The
     /// domain state machine selects the next legal step.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn record_procedure_step(&self, command: RecordProcedureStepCommand) -> SessionResult;
 
     /// Close a session with a durable outcome; closed sessions reject further
     /// evidence mutations.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn close_session(&self, command: CloseSessionCommand) -> SessionResult;
 }

@@ -857,6 +857,40 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   Gates: fmt, clippy rest, clippy imprint, `cargo test --workspace --features native` (232 suites,
   4010 passed, 0 failed, 20 ignored), check-kit-deps --strict, check-kit-standalone,
   check-chassis-deps, check-uniffi-bindings — all clean.
+- 2026-09-26 — **P1 descriptor** (branch `claude/pipeline-p1-descriptor`, from main at 197ee48e).
+  One `VerbDescriptor` per verb in `impress-service-core::descriptor` (name, service, method,
+  description, input and output schema, `safety {class, idempotent}`, `since`, `deprecated`,
+  `aliases`, `examples`, `strict`, `source`, handler); `McpToolDescriptor` and `CliSubcommand` are
+  `const fn of(&'static VerbDescriptor)` projections keeping their fields plus a `verb` pointer, so
+  the 40 files that read them compile unchanged and `VerbDescriptor::iter()` is the map over the MCP
+  collection. Declared: `safety =` and `since =` are required keys of `impress_service_impl!` (38
+  services), `#[impress_method(safety = …, idempotent = …)]` the per-method exception (146), and
+  `#[impress_example(name, args, expect)]` the storage G3 fills — all captured by
+  `#[impress_service]` into a `__IMPRESS_SERVICE_METHODS_<Trait>` static that replaces the docs
+  const. Derived: `output_schema = schema_for!(Ret)`, which forced the G2 derive half — 58
+  `JsonSchema` derive attributes across impress-ai-service, impel-service, smart-search, parsers,
+  imprint-selftest, imprint-service (handlers.rs, sections.rs) and their nested DTOs (a `schema`
+  feature on impress-ai and imprint-core, `uuid1` on schemars, `impress_core::Item` fields as
+  free-form JSON). Checks: `docs/verb-safety.md` (kit-manifest-style marker table seeded from
+  appendix A1's classes and A4's evidence: 172 read-only, 126 mutating, 32 destructive, 103
+  external) and `crates/impress-capabilities/tests/descriptor.rs` (class agrees with the table both
+  ways, `since` is a version, both schemas are objects, `delete-*`/`prune-*`/`forget` is destructive
+  or external, name is `<service>_<method>`, annotations follow the class; `dump` prints the table).
+  MCP `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) are
+  emitted from the descriptor in impress-mcp's flat and grouped listings and in impress-mcp-host,
+  pinned by `mcp_surface_parity`, inventory_bridge, surface.rs and the host's tests; external reads
+  conservatively (`destructiveHint` and `openWorldHint` both true). Narrowed: idempotency has no
+  per-verb table in the plan (only the 372 total), so it defaults from the class (read-only ⇒ true)
+  and is declared per method where it departs; `long_running` and `needs_app` wait for P2's
+  reachability layer; the four legacy MCP tools stay outside the inventory until P3. Build cost:
+  surface-demo-service 25,207 → 25,693 LLVM lines (+1.9 %), macro-attributed 2,967 → 2,991
+  (+12 lines/verb); the rest is `schema_for!` on return types, one instantiation per type.
+  Gates: fmt, clippy rest, clippy imprint, `cargo test --workspace --features native --no-fail-fast` (233 suites, 4035 passed, 20 ignored; two
+  load-only failures in untouched crates — `impel-service` `retention_report_…` on a zero-day
+  window boundary and `impress-core` `collab::large_body_commit_stays_fast` at 10.1 s against an
+  8 s wall-clock budget with 233 suites in flight — each passing 3/3 in isolation),
+  check-kit-deps --strict, check-kit-standalone, check-schema-refs (387 sites), check-verb-coverage
+  (38 services, marker tables unchanged), check-uniffi-bindings (7 match; no export changed).
 - 2026-09-26 — **P4 Jobs landed** (branch `claude/pipeline-p4-jobs`, on main at b5218fb4/197ee48e).
   The convention as D6 states it: `task-event@1.0.0` is a new record kind (D-P4) — a per-task ring
   with the surface ring's semantics, registered beside `task@1.0.0` in impress-core and written only
