@@ -58,13 +58,19 @@
 //! *invalidation delivery* waking SwiftUI while the window settles, and that
 //! rule is enforced where the invalidations are delivered — the FFI feed's
 //! grace period (`SharedLayout::set_startup_grace_secs`) — not here.
+//!
+//! [`OperationIntent`]: impress_core::operation::OperationIntent
+//! [`RetentionTier::Ephemeral`]: impress_core::operation::RetentionTier::Ephemeral
+//! [`OperationIntent::Routine`]: impress_core::operation::OperationIntent::Routine
+//! [`RetentionTier::Durable`]: impress_core::operation::RetentionTier::Durable
+//! [`OperationIntent::Editorial`]: impress_core::operation::OperationIntent::Editorial
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_core::operation::{OperationSpec, OperationType};
 use impress_core::pane_query::PaneQuery;
 use impress_core::query::ItemQuery;
 use impress_core::schemas::LAYOUT_SCHEMA_REF;
@@ -72,6 +78,9 @@ use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
 use impress_core::store::ItemStore;
 use impress_layout::{preset, Layout, ViewKindId};
 use impress_service_core::Refusal;
+
+pub use crate::authorship::actor_from;
+use crate::authorship::{author_for_service, Ephemerality};
 
 /// Payload field names. Spelled once, here, for the same reason the schema ref
 /// is: a reader that spells a field differently from its writer reads `None`
@@ -612,33 +621,6 @@ impl LayoutStore {
     }
 }
 
-/// Which side of the ADR-0031 D7 line a write is on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ephemerality {
-    /// A gesture: arrangement, content, selection. Coalesced and compacted.
-    Exploration,
-    /// A commit: a saved layout, a materialized binding. Kept forever.
-    Commit,
-}
-
-impl Ephemerality {
-    fn retention(self) -> RetentionTier {
-        match self {
-            Ephemerality::Exploration => RetentionTier::Ephemeral,
-            Ephemerality::Commit => RetentionTier::Durable,
-        }
-    }
-
-    fn intent(self) -> OperationIntent {
-        match self {
-            Ephemerality::Exploration => OperationIntent::Routine,
-            // A commit is a decision about how work is arranged, which is what
-            // `Editorial` means in the ADR-0003 vocabulary.
-            Ephemerality::Commit => OperationIntent::Editorial,
-        }
-    }
-}
-
 /// The three-column chassis as a value — what a cold start creates.
 pub fn cold_start_layout() -> Layout {
     preset::three_column(default_list_query(), ViewKindId::INFO)
@@ -652,33 +634,11 @@ pub fn default_list_query() -> PaneQuery {
     }
 }
 
-/// The author string written with an operation. `IMPRESS_AUTHOR` overrides it
-/// so a host that knows who the user is can say so; otherwise the actor kind
-/// is the whole of what is known, and saying that plainly beats inventing an
-/// identity.
+/// The author string this service writes with an operation
+/// (`human:layout-service`, or `IMPRESS_AUTHOR`); see
+/// [`crate::authorship::author_for_service`].
 pub fn author_for(actor: ActorKind) -> String {
-    if let Ok(author) = std::env::var("IMPRESS_AUTHOR") {
-        let author = author.trim();
-        if !author.is_empty() {
-            return author.to_string();
-        }
-    }
-    match actor {
-        ActorKind::Human => "human:layout-service".to_string(),
-        ActorKind::Agent => "agent:layout-service".to_string(),
-        ActorKind::System => "system:layout-service".to_string(),
-    }
-}
-
-/// Parse an actor argument. `None` means [`ActorKind::Agent`]: these verbs
-/// reach the store over MCP and the CLI, and an agent that forgets to say who
-/// it is must not be recorded as the user.
-pub fn actor_from(raw: Option<&str>) -> ActorKind {
-    match raw.map(|a| a.trim().to_ascii_lowercase()).as_deref() {
-        Some("human") | Some("user") | Some("person") => ActorKind::Human,
-        Some("system") => ActorKind::System,
-        _ => ActorKind::Agent,
-    }
+    author_for_service(actor, "layout-service")
 }
 
 fn is_live(item: &Item) -> bool {

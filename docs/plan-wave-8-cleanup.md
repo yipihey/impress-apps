@@ -22,3 +22,120 @@ worktree and branch per track, `IMPRESS_SKIP_INSTALL=1`, a per-track `IMPRESS_DE
 - **RL-L14, focus-only saves.** Still written on purpose: focus is how an agent knows what the user sees.
 
 ## Session log
+
+- 2026-09-25 — **U1 (surface store)**, branch `claude/wave8-u1-surface-store`. Rust plus the regenerated
+  store binding (doc comment only); no Swift source changed.
+  - **AC-F22 closed.** `SqliteItemStore::apply_operations_if_clock` is the batch form of the layout live row's
+    compare-and-swap: every operation lands, under one batch id, only if a guard row's `logical_clock` is the
+    one the caller read, check and writes in one `BEGIN IMMEDIATE`, and a batch that fails part-way writes
+    nothing. `SurfaceStore::update` reads the row, checks `expected_revision`, and writes spec, revision and
+    name guarded by the row's clock; a writer that finds the clock moved re-reads and is refused `conflict`
+    (or, with no `expected_revision`, bumps from the new revision, so no revision number is ever taken
+    twice). The static in-process mutex is gone. The reply is the row this write left, never a later
+    writer's: before, `update` re-read after writing and could hand its caller someone else's revision as
+    its own `expected_revision`. Proven by two `SurfaceStore` handles on one file racing 30 rounds from the
+    revision both read (one winner, one `conflict` each round) and three threads making 60 unguarded
+    updates (revisions 2..61, none shared); both fail with the unconditional batch put back.
+  - **Cross-process hard deletes reach the surface feed and the sources.** The feed tracks surface ids
+    (`ExternalPoll::track_deletes`, RL-L7's mechanism): a surface deleted elsewhere is reported `deleted`
+    and its runtimes are dropped. The kinds query sources read are too large to diff by id, so the domain
+    poll keeps each watched kind's row count (one indexed count per watched kind per `data_version` move)
+    and a count that moved re-runs that kind's sources. Both cursors are now taken in `subscribe`, before
+    the feed thread starts. Proven by a second handle deleting a paper (the papers source re-runs, the
+    next render drops the row) and then a surface (reported `deleted`); each half fails when taken out.
+  - **SK-K15.** Already closed in wave 7 T5 as asked here: the dispatch reply and `SharedSurfaceChange`
+    carry `revision` and `state_revision`, and the pane in `packages/ImpressLayout` skips a change with
+    nothing newer. **Found:** that only works when the reply arrives first, and the feed's echo is due
+    50 ms after the state write while the reply comes after effects and the re-render, so any dispatch
+    slower than the debounce was still rendered twice. The handle is the pane's own, so its feed now holds
+    a surface's changes while one of its dispatches runs and then drops the change that carries nothing
+    newer than the reply (no source invalidated, nothing deleted); other handles are still told. Proven
+    by a dispatch whose re-render waits 400 ms on a slow source: not echoed to its own pane, reported to a
+    second pane with the reply's `state_revision`. No exported signature changed.
+  - **Narrowed.** A delete of a watched kind in the SAME window as a foreign write of that kind is reported
+    through the write, and a delete made in this process is re-reported on the next foreign write (one
+    extra re-run, never a missed one). A kind is counted from the first poll after a source reads it, so a
+    foreign delete in the ≤250 ms before that is missed until the next write of the kind.
+  - **Found, not fixed (outside U1's files).** `ExternalPoll::baseline` leaves `reported` empty, so the
+    first foreign write after a feed starts replays every row under its prefix written in the 10 s overlap
+    before it (a surface created just before its pane subscribed arrives as a change). Harmless (a spurious
+    render) and it affects `layout.rs`'s feed too; seeding the window at baseline would instead miss a
+    write stamped before the baseline but committed after it, so it is left as is.
+  - **Gates.** `rust-gate.sh fmt` clean; `rust-gate.sh clippy auto` (rest) clean after one fix
+    (`type_complexity`); `cargo test -p impress-core --all-features` 652 passed; `cargo test -p
+    impress-surface-service -p impress-store-ffi -p impress-surface -p impress-layout-service` 336 passed;
+    `check-uniffi-bindings` 7 match; `check-schema-refs`, `check-kit-deps --strict` OK; ImpressSurface
+    18/18; ImpressLayout 79/0 (it reads `SharedSurfaceChange`). **Not run:** PublicationManagerCore's
+    `swift test`. The fresh worktree has no imbib-core, imprint-core, impress-helix or scix-client-ffi
+    xcframework, and neither copying them from the main checkout nor building them here was permitted in
+    this session. The binding differs from main only in one doc comment, so the orchestrator's PMC run
+    covers it.
+
+- 2026-09-25 — **U2 (one copy)**, branch `claude/wave8-u2-one-copy`. **RS-S21:** the inventory call
+  (`find`, `call`, `call_async`, `CallError`, `descriptors`) is `impress_service_core::call`; the kit
+  re-exports it, impress-capabilities re-exports the kit's, and the surface runtime's `call_verb`
+  only maps `CallError` onto a refusal with the same codes and text (a test pins both, through a
+  handler that errors). The kit cannot be the home: it depends on impress-surface-service. The
+  self-test report types are `impress_service_core::report`, re-exported as each crate's `report`;
+  a test pins the bytes. `Ephemerality`, `actor_from` and the author rule are
+  `impress_layout_service::authorship`, not service-core, which is on the kit's pure tier and may
+  not reach impress-core's types; each store keeps a one-line `author_for` naming its service, so
+  authors are unchanged. impress-capabilities held no copy. **T5 found (3):** T6b's `persisted`
+  had already logged save/apply/delete_layout and the preset verbs; two refusals still returned
+  unlogged (save_preset with `from_live: false`, a `commit` of an unmaterializable kind) and now go
+  through it. `tests/logging.rs` captures the `log` facade and pins all six lines, level and actor
+  (fails with the fix reverted). **RL-L14:** a service built `with_tree_in_results` (only the FFI's)
+  serializes the tree it left into `LayoutVerbResult::tree_json` under the lock the verb holds —
+  per-verb path, batch, save/apply layout, apply_preset, undo/redo. The field is `serde(skip)` and
+  `schemars(skip)`, so the wire is unchanged. `SharedLayout::verb` takes it and re-reads only for
+  `delete_layout`, which leaves no tree. Focus-only saves are unchanged.
+  - *Narrowed.* imprint-selftest keeps its own report: it has no `ok` field, so sharing would change
+    its `run-selftest` answer. The FFI's public signature is unchanged, so no regeneration.
+  - *Gates.* `rust-gate.sh fmt` ok; `rust-gate.sh clippy auto` ([rest]) ok; `cargo test -p
+    impress-service-core -p impress-capabilities-kit -p impress-capabilities -p
+    impress-layout-service -p impress-surface-service -p impress-store-ffi -p impress-cli` 270
+    passed, 0 failed; `check-kit-deps --strict`, `check-schema-refs`, `check-chassis-deps`,
+    `check-uniffi-bindings` (7 match) ok. `check-kit-standalone` fails, as it does on main at
+    9ff3eeb1: `impress-surface-service/tests/doc_wire.rs` `include_str!`s
+    `docs/agent-surfaces.md`, which the scratch workspace does not copy. That is left to whoever
+    owns that test or the script.
+
+- 2026-09-25 — **U3 Host** (`claude/wave8-u3-host`). Swift only: PMC, `packages/ImpressAutomation`,
+  impress's app target, `apps/kit-demo`. No Rust, `ImpressSurface` or `ImpressRustCore` touched.
+  - **PH-L5 closed.** A surface row with no `modified` or `created` (or none that parses) shows no
+    date instead of today: `KindTaggedRow.isDated` is false and the row renders with the mail-style
+    date column off (`mailStyleConfiguration`, which the registry's default row factory now passes).
+    `MailStyleItem.date` stays non-optional: eleven conformers (PMC, its tests, impart) and impress-iOS read
+    it. A row with only `created` keeps that date, as before. The mapping is written only from
+    `onAppear`/`onChange`, never in `body`; the formatters were already static.
+  - **impress `/api/status` reports the bound port.** `d5a84f00` had already moved it from the
+    table default to the `httpAutomationPort` setting; it now reports the local port the request
+    arrived on (`HTTPRequest.localPort`, stamped by `HTTPServer`, falling back to its new
+    `boundPort`), so a setting read later cannot disagree with the socket. Live: my build, launched
+    with `-httpAutomationPort 23241 -ApplePersistenceIgnoreState YES` and
+    `IMPRESS_DEVICE_ID=w8-u3-proof`, answered `"port": 23241, "serverPort": 23241` on
+    `/api/status` and `/status`; quit by pid afterwards. `~/Applications/impress.app` untouched
+    (13:14 mtime). The launch leaves a live layout row for device `w8-u3-proof` (no verb deletes one).
+  - **PH-M2 re-checked.** `applyAll` is one step and one undo entry: the outline already used it
+    (`d5a84f00`). The one PMC click that still applied verbs one by one was a list row's Open PDF
+    (select on the list, set-pane on the info pane, focus), two undo entries on two panes' rings. It
+    is one `applyAll` now, tab first so the step lands on the info pane's ring where focus ends; a
+    test shows one version, one ⌘Z taking back both selection and tab, and a refused select
+    applying none of it. **Narrowed:** a surface's clicks do not pass through PMC — `publish` and
+    `open` are effects Rust's surface runtime applies one by one (`impress-surface-service`
+    `run_effect`), so a spec with `[publish, open]` is still two undo entries (U1's crate). A list
+    row click (`PaneContext.select` in ImpressLayout) is focus + select as two verbs, but focus
+    records nothing, so it is already one undo entry.
+  - **kit-demo `--prove`.** Reproduced the loss: with a second KitDemo launched 5 s into the run,
+    the unfixed harness typed "eo" and failed 4 claims. The harness now makes its window key in the
+    active app with the field's editor first before every key, both Undo/Redo pairs and both
+    clicks, taking focus back if it must, and fails the claim naming the frontmost app if it
+    cannot. Keys still go through `window.sendEvent`. Runs: plain 19/19 twice; thief at 5 s 19/19
+    twice; thief at 8.5 s 19/19 (each run logged "window is not key … taking it back" and "key
+    again after 1 attempt").
+  - **Gates.** PMC `swift test`: 2159 XCTest, 0 failures (2 skipped) + 112 swift-testing;
+    ImpressAutomation 17 XCTest + 63 swift-testing, 0 failures; ImpressLayout 79 XCTest, 0
+    failures; impress `build-for-testing` with `IMPRESS_SKIP_INSTALL=1` and its own DerivedData
+    succeeded (`ImpressShellTests` is compiled, not run, as in CI: its host is the GUI app).
+    Frameworks were APFS clones of the main checkout's, whose bindings match this commit's byte for
+    byte.

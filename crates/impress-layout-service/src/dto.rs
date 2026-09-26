@@ -212,6 +212,16 @@ pub struct LayoutVerbResult {
     /// row (`save_layout`, `delete_layout`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<u64>,
+    /// The tree after the verb, as JSON — for an in-process host that
+    /// renders it (the FFI's `SharedLayout`), so it need not take the
+    /// registry lock again and clone the tree to read what the verb just
+    /// wrote (review RL-L14). Filled only by a service built
+    /// `with_tree_in_results`, only when the verb left a tree to show, and
+    /// never on the wire: MCP, the CLI and `/api/layout/*` answer exactly
+    /// what they did.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub tree_json: Option<String>,
 }
 
 impl LayoutVerbResult {
@@ -229,6 +239,7 @@ impl LayoutVerbResult {
             stack_pane: None,
             patch: None,
             revision: None,
+            tree_json: None,
         }
     }
 
@@ -253,6 +264,7 @@ impl LayoutVerbResult {
             stack_pane: None,
             patch: None,
             revision: None,
+            tree_json: None,
         }
     }
 
@@ -269,6 +281,7 @@ impl LayoutVerbResult {
             stack_pane: applied.stack.pane().map(TileId::raw),
             patch: Some(PatchSummary::from(&applied.patch)),
             revision: None,
+            tree_json: None,
         }
     }
 
@@ -307,6 +320,7 @@ impl LayoutVerbResult {
             stack_pane: stack.and_then(Stack::pane).map(TileId::raw),
             patch: patch.map(PatchSummary::from),
             revision: None,
+            tree_json: None,
         }
     }
 }

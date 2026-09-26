@@ -1,13 +1,12 @@
-//! Report types for the layout self-test.
+//! Report types for a service's self-test.
 //!
-//! Deliberately a copy of `imprint_selftest::report`'s two structs rather than
-//! a dependency on that crate: `imprint-selftest` pulls `imprint-service`,
-//! `imprint-core`, `reqwest` and the HTTP app client for its Tier B half, and
-//! a store-generic crate taking an app's whole stack as a dependency to reuse
-//! forty lines of `Serialize` structs is the wrong trade. When a third
-//! consumer appears, the shared `impress-selftest-core` the root briefing
-//! already anticipates is where all three should meet — the shapes are
-//! field-for-field identical so that extraction is a move, not a merge.
+//! One copy, used by `impress-layout-service` and `impress-surface-service`
+//! (each re-exports this module as its own `report`). They were two
+//! field-for-field copies until review RS-S21; this crate is the one both
+//! already depend on, and it needs nothing but serde for them.
+//!
+//! `imprint-selftest` still keeps its own, older shape: it has no `ok` field,
+//! so moving it here would change what its `run-selftest` answers.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,8 +14,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
-    /// Pure Rust against the `LayoutService` trait over an in-memory store —
-    /// fast, headless, no UI, no app.
+    /// Pure Rust against the service trait over an in-memory store — fast,
+    /// headless, no UI, no app.
     A,
     /// Drives a running app over its HTTP automation surface
     /// (`impress-layout-service`'s `tier_b`, which covers `/api/layout/*` and
@@ -114,5 +113,50 @@ impl SelfTestReport {
             .filter(|r| !r.pass && !r.skipped)
             .map(|r| r.id.as_str())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bytes both self-tests answered before their copies became this
+    /// one (review RS-S21): field names, their order and the tier's lowercase
+    /// spelling. An agent reading `run-selftest` sees no change.
+    #[test]
+    fn the_report_serializes_as_it_did_in_both_copies() {
+        let report = SelfTestReport::from_results(vec![
+            CapabilityResult {
+                id: "a.ok".into(),
+                description: "passes".into(),
+                tier: Tier::A,
+                pass: true,
+                detail: "saw it".into(),
+                duration_ms: 3,
+                skipped: false,
+            },
+            CapabilityResult {
+                id: "b.skip".into(),
+                description: "no app".into(),
+                tier: Tier::B,
+                pass: false,
+                detail: "app not reachable".into(),
+                duration_ms: 0,
+                skipped: true,
+            },
+        ]);
+        assert_eq!(
+            serde_json::to_string(&report).unwrap(),
+            concat!(
+                r#"{"ok":false,"results":["#,
+                r#"{"id":"a.ok","description":"passes","tier":"a","pass":true,"#,
+                r#""detail":"saw it","duration_ms":3,"skipped":false},"#,
+                r#"{"id":"b.skip","description":"no app","tier":"b","pass":false,"#,
+                r#""detail":"app not reachable","duration_ms":0,"skipped":true}],"#,
+                r#""total":2,"passed":1,"failed":0,"skipped":1,"duration_ms":3}"#,
+            )
+        );
+        assert_eq!(report.summary(), "1 passed, 0 failed, 1 skipped (3ms)");
+        assert!(!report.ok() && !report.all_skipped());
     }
 }

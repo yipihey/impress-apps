@@ -14,12 +14,12 @@
 //! # Where the linked inventory is reached
 //!
 //! `impress-capabilities` is the one crate meant to link every
-//! `#[impress_service]` trait — but this crate cannot depend on it: its
-//! `kit`/`surface` feature already depends on `impress-surface-service`
-//! itself, and a dependency back would be a cycle. [`call_verb`] is
-//! therefore the same body as `impress_capabilities::call_async`, copied
-//! rather than shared: it walks the process-wide `McpToolDescriptor`
-//! inventory and runs the matching handler future.
+//! `#[impress_service]` trait — but this crate cannot depend on it (nor on
+//! `impress-capabilities-kit`): both already depend on
+//! `impress-surface-service` itself, and a dependency back would be a cycle.
+//! [`call_verb`] therefore runs through `impress_service_core::call`, the one
+//! copy of "find the descriptor, run its handler" both of those re-export
+//! (review RS-S21), and only maps its error onto a [`Refusal`].
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -32,7 +32,7 @@ use impress_core::store::ItemStore;
 use impress_layout::{ChannelId, PaneSpec, ParamBinding, ParamSource, ViewKindId};
 use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
-use impress_service_core::McpToolDescriptor;
+use impress_service_core::call::{self, CallError};
 use impress_surface::{
     plan, reduce, resolve_with_source_errors, state_path, CachedSource, Effect, Event, PaneQuery,
     ParamDecl, RenderTree, Source, SourceCache, SourceRequestKind, SurfaceSpec,
@@ -57,16 +57,14 @@ fn layout_refused(code: Option<String>, message: String) -> Refusal {
 // The linked inventory
 // ---------------------------------------------------------------------------
 
-/// Run one linked verb by its MCP tool name. See the module docs for why
-/// this is a copy of `impress_capabilities::call_async` rather than a
-/// dependency on it.
+/// Run one linked verb by its MCP tool name, through
+/// `impress_service_core::call` (see the module docs). The message is
+/// [`CallError`]'s own text: `Unknown tool: {name}` or `{tool}: {error}`.
 pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
-    let descriptor = McpToolDescriptor::iter()
-        .find(|d| d.name == name)
-        .ok_or_else(|| Refusal::new("unknown-verb", format!("Unknown tool: {name}")))?;
-    (descriptor.handler)(args)
-        .await
-        .map_err(|e| Refusal::new(codes::VERB_FAILED, format!("{}: {}", descriptor.name, e)))
+    call::call_async(name, args).await.map_err(|e| match e {
+        CallError::UnknownTool(_) => Refusal::new("unknown-verb", e.to_string()),
+        CallError::Handler(_) => Refusal::new(codes::VERB_FAILED, e.to_string()),
+    })
 }
 
 /// Whether a verb name is in the linked inventory — what `surface_validate`
@@ -74,7 +72,7 @@ pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
 /// source or action that names a verb calls it through the
 /// `#[impress_service]` inventory in the host process").
 pub fn verb_exists(name: &str) -> bool {
-    McpToolDescriptor::iter().any(|d| d.name == name)
+    call::find(name).is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -1629,5 +1627,44 @@ mod publish_kind_tests {
     #[test]
     fn an_unknown_kind_is_left_alone() {
         assert_eq!(as_layout_kind("nobody/owns-this"), "nobody/owns-this");
+    }
+}
+
+#[cfg(test)]
+mod call_verb_tests {
+    use super::call_verb;
+    use impress_service_core::refusal::codes;
+    use impress_service_core::{McpToolDescriptor, ServiceFuture};
+    use serde_json::{json, Value};
+
+    const FAILING: &str = "call-verb-test_always-fails";
+
+    fn always_fails(_: Value) -> ServiceFuture {
+        Box::pin(async { Err("boom".into()) })
+    }
+
+    // A handler that errors: every real verb answers a refusal as an `ok:
+    // false` envelope, so none of them reaches the `Handler` arm.
+    impress_service_core::inventory::submit! {
+        McpToolDescriptor {
+            name: FAILING,
+            description: "test only: a handler that always errors",
+            input_schema: || json!({"type": "object"}),
+            handler: always_fails,
+        }
+    }
+
+    /// The texts and codes `impress_service_core::call` hands back are the
+    /// ones this crate's own copy used to write (review RS-S21): a source or
+    /// an effect reports them unchanged.
+    #[tokio::test]
+    async fn an_unknown_verb_and_a_failed_one_keep_their_codes_and_text() {
+        let unknown = call_verb("no-such-tool", json!({})).await.unwrap_err();
+        assert_eq!(unknown.code, "unknown-verb");
+        assert_eq!(unknown.message, "Unknown tool: no-such-tool");
+
+        let failed = call_verb(FAILING, json!({})).await.unwrap_err();
+        assert_eq!(failed.code, codes::VERB_FAILED);
+        assert_eq!(failed.message, format!("{FAILING}: boom"));
     }
 }
