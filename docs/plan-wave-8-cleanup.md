@@ -207,3 +207,23 @@ worktree and branch per track, `IMPRESS_SKIP_INSTALL=1`, a per-track `IMPRESS_DE
     (swiftformat not on PATH) built the store framework it links; the regenerated binding
     is byte-identical to the committed one. **Not run:** PublicationManagerCore's `swift
     test`, which needs xcframeworks this worktree does not have.
+- 2026-09-26 — **Integrated and verified by the orchestrator**, branch `claude/wave8-integrate` (main at 9ff3eeb1
+  plus U1–U4; the only conflicts were these log entries). Also on it: `check-kit-standalone.sh` copies the
+  `docs/` files a kit crate `include_str!`s — it failed on main too, because `doc_wire.rs` parses
+  `docs/agent-surfaces.md` and the scratch workspace had no `docs/`.
+  - **Gates on the merge of U1–U3:** `rust-gate.sh fmt` and `clippy auto`; `cargo test` for impress-core
+    (all features), -service-core, -capabilities-kit, -capabilities, -layout, -layout-service, -surface,
+    -surface-service, -store-ffi, -cli and imbib-core: 2138 passed, 0 failed; the store xcframework rebuilt
+    and `check-uniffi-bindings` 7 match; `check-kit-deps --strict`, `check-kit-packages`,
+    `check-kit-standalone`, `check-chassis-deps`, `check-schema-refs` all OK; `swift test` ImpressSurface
+    18, ImpressLayout 79, ImpressAutomation 17 + 63, PublicationManagerCore 2159 XCTest (2 skipped) + 112
+    swift-testing, 0 failures. **After U4:** the surface/layout/FFI/CLI tests 346 passed, the standalone
+    check and bindings again, PublicationManagerCore 2159 + 112, 0 failures.
+  - **Live** (impress built from this branch into its own DerivedData, launched with `IMPRESS_DEVICE_ID=
+    w8-int-proof -httpAutomationPort 23251`): `/api/status` answered `port: 23251` (U3's fix); **Tier B
+    14/14, 0 skipped**, and the surface self-test (`--tier all`) **18/18**, both through `impress` with
+    `IMPRESS_LAYOUT_SELFTEST_BASE_URL=http://127.0.0.1:23251`. The app was quit afterwards; its live layout
+    row for `w8-int-proof` stays (no verb deletes a live row).
+  - **Still open:** RL-L24 (a decision, above); U1's row-count delete detection (≤250 ms blind spot when a
+    source starts); U4's split-`open` undo sits on the surface pane's ring, not the new pane's.
+  - **Not published:** pushing, the PRs and the merge wait for Tom's go-ahead.
