@@ -162,11 +162,25 @@ impl Http {
         // never the right route — and asking macOS for the proxy config from
         // a sandboxed process can abort (see `impress-app-client`'s
         // `loopback_http_client`, which exists because of that crash).
-        let client = reqwest::Client::builder()
+        //
+        // The app bearer (P0, SEC-2): every `POST`/`DELETE` here mutates the
+        // running app's tree, which now needs the per-launch loopback token —
+        // `IMPRESS_APP_TOKEN`, else the file the app at `base`'s port wrote
+        // (`impress_core::loopback_token`, the contract both halves follow).
+        let mut builder = reqwest::Client::builder()
             .no_proxy()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .timeout(Duration::from_secs(10));
+        if let Some(token) = impress_core::loopback_token::client_token_for_url(base) {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(mut value) =
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            {
+                value.set_sensitive(true);
+                headers.insert(reqwest::header::AUTHORIZATION, value);
+                builder = builder.default_headers(headers);
+            }
+        }
+        let client = builder.build().unwrap_or_else(|_| reqwest::Client::new());
         Self {
             client,
             base: base.trim_end_matches('/').to_string(),

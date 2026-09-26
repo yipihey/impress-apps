@@ -2820,6 +2820,54 @@ pub fn rank_hybrid_search_results(
 /// The allowed `manuscript.format` payload values (single source of truth:
 /// `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
 /// app-side format enums can assert parity without duplicating the list.
+/// What `loopback_token_install` wrote: the file's path and the token in it.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct LoopbackTokenInstall {
+    pub path: String,
+    pub token: String,
+}
+
+/// Mint this launch's loopback token for the automation server bound to
+/// `port` and write it under `container_root` (the suite app-group container
+/// the app resolved). The path, name, format and mode are
+/// `impress_core::loopback_token`'s — Swift decides nothing here, it passes
+/// the container it can see and keeps the token to check bearers against.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn loopback_token_install(
+    container_root: String,
+    port: u16,
+) -> Result<LoopbackTokenInstall, SharedStoreError> {
+    impress_core::loopback_token::install(Path::new(&container_root), port)
+        .map(|installed| LoopbackTokenInstall {
+            path: installed.path.to_string_lossy().into_owned(),
+            token: installed.token,
+        })
+        .map_err(|error| SharedStoreError::Storage {
+            message: format!("loopback token for port {port}: {error}"),
+        })
+}
+
+/// Remove the token file for `port` under `container_root` (the server is
+/// stopping). A file that is already gone is not an error.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn loopback_token_remove(container_root: String, port: u16) -> Result<(), SharedStoreError> {
+    impress_core::loopback_token::remove(Path::new(&container_root), port).map_err(|error| {
+        SharedStoreError::Storage {
+            message: format!("loopback token for port {port}: {error}"),
+        }
+    })
+}
+
+/// Where the token file for `port` lives under `container_root` — for a
+/// status line or a log, never for Swift to write itself.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn loopback_token_path(container_root: String, port: u16) -> String {
+    impress_core::loopback_token::token_path_under(Path::new(&container_root), port)
+        .to_string_lossy()
+        .into_owned()
+}
+
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn supported_manuscript_formats() -> Vec<String> {
     impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS

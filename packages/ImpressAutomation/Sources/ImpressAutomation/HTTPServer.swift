@@ -29,9 +29,17 @@ public struct HTTPServerConfiguration: Sendable {
     /// behavior, byte-identical for every existing caller.
     public let allowNetworkAccess: Bool
 
-    /// Bearer token required from non-loopback peers. Loopback peers are
-    /// never asked for it. See `HTTPAuthPolicy`.
+    /// Bearer token required from non-loopback peers. Loopback peers present
+    /// the per-launch loopback token instead, on every non-GET — see
+    /// `HTTPAuthPolicy` and `LoopbackToken`. Network mode refuses to start
+    /// without this (SEC-5).
     public let authToken: String?
+
+    /// The address to bind in network mode — the user's tailnet address,
+    /// explicitly. Network mode refuses to start without it (SEC-5): the
+    /// listener used to bind every interface and rely on the bearer alone.
+    /// Ignored when `allowNetworkAccess` is false (loopback is bound).
+    public let bindAddress: String?
 
     public init(
         port: UInt16,
@@ -39,7 +47,8 @@ public struct HTTPServerConfiguration: Sendable {
         loggerCategory: String = "httpServer",
         logRequests: Bool = false,
         allowNetworkAccess: Bool = false,
-        authToken: String? = nil
+        authToken: String? = nil,
+        bindAddress: String? = nil
     ) {
         self.port = port
         self.loggerSubsystem = loggerSubsystem
@@ -47,6 +56,20 @@ public struct HTTPServerConfiguration: Sendable {
         self.logRequests = logRequests
         self.allowNetworkAccess = allowNetworkAccess
         self.authToken = authToken
+        self.bindAddress = bindAddress
+    }
+
+    /// Why network mode cannot start with this configuration, or nil when it
+    /// can. Pure, so the two refusals are unit-testable without a socket.
+    public var networkModeRefusal: String? {
+        guard allowNetworkAccess else { return nil }
+        if (authToken ?? "").isEmpty {
+            return "network access is on but no network token is configured"
+        }
+        if (bindAddress ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+            return "network access is on but no bind address is configured"
+        }
+        return nil
     }
 }
 
@@ -84,18 +107,30 @@ public actor HTTPServer<Router: HTTPRouter> {
         currentConfiguration = configuration
         logger = Logger(subsystem: configuration.loggerSubsystem, category: configuration.loggerCategory)
 
+        // SEC-5: network mode needs a token AND an explicit address, or it
+        // does not start at all. A server that is not listening is the safe
+        // failure; one listening on every interface with no bearer is not.
+        if let refusal = configuration.networkModeRefusal {
+            logger?.error("HTTP server not started: \(refusal)")
+            return
+        }
+
         let port = NWEndpoint.Port(rawValue: configuration.port)!
 
         do {
             let parameters = NWParameters.tcp
-            if configuration.allowNetworkAccess {
-                // Opt-in network mode: listen on ALL interfaces. Note the
-                // port-only listener form — pinning requiredLocalEndpoint
-                // to 0.0.0.0 makes NWListener unreachable from non-loopback
-                // peers (verified empirically); omitting the endpoint is the
-                // canonical any-interface bind. Non-loopback peers are gated
-                // per-request by HTTPAuthPolicy (bearer token).
-                listener = try NWListener(using: parameters, on: port)
+            if configuration.allowNetworkAccess, let address = configuration.bindAddress {
+                // Opt-in network mode: bind the ONE configured address (the
+                // tailnet address), never every interface. Non-loopback peers
+                // are then also gated per request by HTTPAuthPolicy (bearer).
+                // Loopback stays reachable through the loopback names the
+                // Host check admits only if the address is loopback itself;
+                // a caller on this machine dials the bound address.
+                parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
+                    host: NWEndpoint.Host(address.trimmingCharacters(in: .whitespaces)),
+                    port: port
+                )
+                listener = try NWListener(using: parameters)
             } else {
                 // Default: localhost only — the historical guarantee.
                 parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
@@ -137,8 +172,40 @@ public actor HTTPServer<Router: HTTPRouter> {
         connections.removeAll()
 
         isRunning = false
+        uninstallLoopbackToken()
         boundPort = nil
         logger?.info("HTTP server stopped")
+    }
+
+    // MARK: - Loopback token
+
+    /// This launch's loopback token, once the listener is ready. Nil before
+    /// that and after `stop()`; a nil here denies every loopback mutation
+    /// (`HTTPAuthPolicy`), so a failed install fails closed.
+    public private(set) var loopbackToken: String?
+
+    /// Mint and place the token for the port we actually bound (asked for
+    /// port 0, that is the one the system picked). Called from `.ready`.
+    private func installLoopbackToken(port: UInt16) {
+        do {
+            let installed = try LoopbackToken.install(port: port)
+            loopbackToken = installed.token
+            logger?.info("Loopback token for port \(port) at \(installed.path, privacy: .public)")
+        } catch {
+            loopbackToken = nil
+            logger?.error(
+                "Loopback token install failed for port \(port): \(error.localizedDescription, privacy: .public) — every loopback mutation will be refused")
+        }
+    }
+
+    private func uninstallLoopbackToken() {
+        loopbackToken = nil
+        guard let port = boundPort else { return }
+        do {
+            try LoopbackToken.remove(port: port)
+        } catch {
+            logger?.debug("Loopback token remove failed for port \(port): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Restart the server with a new configuration.
@@ -165,6 +232,7 @@ public actor HTTPServer<Router: HTTPRouter> {
             if let port = listener?.port {
                 boundPort = port.rawValue
                 logger?.info("HTTP server listening on port \(port.rawValue)")
+                installLoopbackToken(port: port.rawValue)
             }
         case .failed(let error):
             logger?.error("HTTP server listener failed: \(error.localizedDescription)")
@@ -295,11 +363,30 @@ extension HTTPServer {
 
         logger?.debug("HTTP \(request.method) \(request.path)")
 
-        // Access policy BEFORE routing: loopback peers pass untouched;
-        // non-loopback peers must present the configured bearer token.
+        // Host check BEFORE auth and routing (SEC-3): a `Host` that is not a
+        // spelling of this machine is a DNS-rebound page or a misdirected
+        // proxy, and gets 400 whatever it carries.
+        guard HTTPHostPolicy.isAllowed(
+            hostHeader: request.headers["host"],
+            bindAddress: currentConfiguration?.allowNetworkAccess == true
+                ? currentConfiguration?.bindAddress : nil)
+        else {
+            logger?.info(
+                "HTTP \(request.method) \(request.path) refused: Host \(request.headers["host"] ?? "<none>", privacy: .public)")
+            await sendResponse(
+                HTTPResponse.badRequest("Host header does not name this server"),
+                on: connection)
+            return
+        }
+
+        // Access policy BEFORE routing (SEC-2): a loopback peer's GET passes;
+        // its every other method must present this launch's loopback token;
+        // a non-loopback peer must present the configured network bearer.
         // Indeterminate peers count as remote (fail closed).
         let decision = HTTPAuthPolicy.evaluate(
+            method: request.method,
             peerIsLoopback: Self.isLoopbackPeer(connection),
+            loopbackToken: loopbackToken,
             allowNetworkAccess: currentConfiguration?.allowNetworkAccess ?? false,
             authToken: currentConfiguration?.authToken,
             authorizationHeader: request.headers["authorization"]

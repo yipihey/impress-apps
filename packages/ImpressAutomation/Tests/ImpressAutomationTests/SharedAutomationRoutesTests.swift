@@ -60,17 +60,14 @@ struct SharedAutomationRoutesTests {
 
     // MARK: - CORS
 
-    @Test("OPTIONS is answered with the 204 preflight all five routers copied")
+    @Test("OPTIONS is answered 204 with NO Access-Control headers (P0, SEC-1)")
     func corsPreflight() async throws {
         let response = try #require(
             await SharedAutomationRoutes.route(request("OPTIONS", "/api/anything")))
         #expect(response.status == 204)
-        #expect(response.headers["Access-Control-Allow-Origin"] == "*")
-        #expect(response.headers["Access-Control-Max-Age"] == "86400")
-        let methods = try #require(response.headers["Access-Control-Allow-Methods"])
-        for verb in ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] {
-            #expect(methods.contains(verb))
-        }
+        #expect(response.headers.keys.allSatisfy { !$0.hasPrefix("Access-Control-") })
+        let wire = String(data: response.toData(), encoding: .utf8) ?? ""
+        #expect(!wire.contains("Access-Control-"))
     }
 
     @Test("a router that owns OPTIONS itself can opt out")
@@ -155,21 +152,25 @@ struct SharedAutomationRoutesTests {
         }
     }
 
-    @Test("performance reset answers the richer body and accepts GET or POST")
+    @Test("performance reset answers the richer body on POST, and 405 on GET")
     func performanceReset() async throws {
         // imprint registered reset under POST, imbib under GET, and imbib's body
-        // omitted `reset`. The group accepts both and always answers both keys.
-        for method in ["GET", "POST"] {
-            PerfMetrics.shared.measure("search") { _ = (0..<10).reduce(0, +) }
-            let response = try #require(
-                await SharedAutomationRoutes.route(
-                    request(method, "/api/performance/reset")))
-            let body = try json(response)
-            #expect(body["status"] as? String == "ok")
-            #expect(body["reset"] as? Bool == true)
-            let snapshot = PerfMetrics.shared.snapshot()
-            #expect(snapshot.buckets.allSatisfy { $0.count == 0 })
-        }
+        // omitted `reset`. The group answers both keys — and, since P0 (SEC-6),
+        // takes POST only: a GET is told the method, not 404'd.
+        PerfMetrics.shared.measure("search") { _ = (0..<10).reduce(0, +) }
+        let response = try #require(
+            await SharedAutomationRoutes.route(request("POST", "/api/performance/reset")))
+        let body = try json(response)
+        #expect(body["status"] as? String == "ok")
+        #expect(body["reset"] as? Bool == true)
+        #expect(PerfMetrics.shared.snapshot().buckets.allSatisfy { $0.count == 0 })
+
+        PerfMetrics.shared.measure("search") { _ = (0..<10).reduce(0, +) }
+        let refused = try #require(
+            await SharedAutomationRoutes.route(request("GET", "/api/performance/reset")))
+        #expect(refused.status == 405)
+        #expect(refused.headers["Allow"] == "POST")
+        #expect(PerfMetrics.shared.snapshot().buckets.contains { $0.count > 0 })
     }
 
     // MARK: - /api/store-timings
@@ -211,18 +212,21 @@ struct SharedAutomationRoutesTests {
         #expect(callers.count == 2)
     }
 
-    @Test("store-timings reset accepts GET or POST and clears the counters")
+    @Test("store-timings reset clears the counters on POST, and refuses GET")
     func storeTimingsReset() async throws {
-        for method in ["GET", "POST"] {
-            StoreTimings.shared.measure("x") { _ = (0..<10).reduce(0, +) }
-            let response = try #require(
-                await SharedAutomationRoutes.route(
-                    request(method, "/api/store-timings/reset")))
-            let body = try json(response)
-            #expect(body["status"] as? String == "ok")
-            #expect(body["reset"] as? Bool == true)
-            #expect(StoreTimings.shared.snapshot().totalCalls == 0)
-        }
+        StoreTimings.shared.measure("x") { _ = (0..<10).reduce(0, +) }
+        let response = try #require(
+            await SharedAutomationRoutes.route(request("POST", "/api/store-timings/reset")))
+        let body = try json(response)
+        #expect(body["status"] as? String == "ok")
+        #expect(body["reset"] as? Bool == true)
+        #expect(StoreTimings.shared.snapshot().totalCalls == 0)
+
+        StoreTimings.shared.measure("x") { _ = (0..<10).reduce(0, +) }
+        let refused = try #require(
+            await SharedAutomationRoutes.route(request("GET", "/api/store-timings/reset")))
+        #expect(refused.status == 405)
+        #expect(StoreTimings.shared.snapshot().totalCalls == 1)
     }
 
     // MARK: - /api/status envelope

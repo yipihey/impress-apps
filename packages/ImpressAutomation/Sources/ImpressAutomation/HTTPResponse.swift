@@ -25,15 +25,16 @@ public struct HTTPResponse: Sendable {
     public func toData() -> Data {
         var responseString = "HTTP/1.1 \(status) \(statusText)\r\n"
 
-        // Add default headers
+        // Add default headers. NO `Access-Control-*` headers, deliberately
+        // (P0, SEC-1): `Access-Control-Allow-Origin: *` on every response let
+        // any web page read every route, and with a DNS-rebound `Host` drive
+        // them. No browser origin has ever been a client of these servers;
+        // if one is needed some day it is an app-owned allow-list plus a
+        // custom request header (so simple requests fail preflight), never a
+        // wildcard here.
         var allHeaders = headers
         allHeaders["Content-Length"] = String(body.count)
         allHeaders["Connection"] = "close"
-
-        // Add CORS headers for browser/tool requests
-        allHeaders["Access-Control-Allow-Origin"] = "*"
-        allHeaders["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        allHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
 
         for (key, value) in allHeaders {
             responseString += "\(key): \(value)\r\n"
@@ -132,8 +133,12 @@ public struct HTTPResponse: Sendable {
         case 201: return "Created"
         case 204: return "No Content"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
         case 403: return "Forbidden"
         case 404: return "Not Found"
+        case 405: return "Method Not Allowed"
+        case 409: return "Conflict"
+        case 422: return "Unprocessable Content"
         case 429: return "Too Many Requests"
         case 500: return "Internal Server Error"
         default: return "Unknown"

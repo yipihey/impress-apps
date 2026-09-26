@@ -3049,6 +3049,59 @@ a saved layout) and any preset by name, naming `reset-preset` as the preset's
 own undo; deleting a name that does not exist is `ok: false` with a message,
 never an error.
 
+#### Who may call (plan verb-pipeline P0, 2026-09-26)
+
+Every automation server in the suite (`ImpressAutomation.HTTPServer`, so all
+six apps) applies three checks in `processRequest`, before any router runs.
+They closed SEC-1..SEC-8 of [`plan-verb-pipeline-and-transport.md`](plan-verb-pipeline-and-transport.md):
+until then every response carried `Access-Control-Allow-Origin: *`, loopback
+was admitted on every route with no credential, and no `Host` was checked —
+so a web page, after DNS rebinding, could drive every route of every app.
+
+| Check | Rule | Refusal |
+|---|---|---|
+| **Host** (SEC-3) | `Host` must be `localhost`, `127.0.0.1`, `[::1]` (any port), or in network mode the one bound address | 400 `Host header does not name this server` |
+| **Loopback token** (SEC-2) | a loopback peer's `GET`/`HEAD`/`OPTIONS` needs nothing; every other method needs `Authorization: Bearer <this launch's loopback token>` | 401, `WWW-Authenticate: Bearer` |
+| **Network bearer** (SEC-4/5) | a non-loopback peer needs network mode on AND `Authorization: Bearer <network token>`; network mode binds the ONE configured address and refuses to start without both a token and an address | 401; or the server does not start (logged) |
+
+No response carries any `Access-Control-*` header (SEC-1); `OPTIONS` answers
+a bare 204, so a cross-origin preflight fails. If a browser origin is ever a
+real client, it gets an app-owned allow-list plus a custom request header,
+never a wildcard.
+
+**The loopback token contract is Rust's** — `impress_core::loopback_token`
+is the one definition, exported over UniFFI (`loopback_token_install` /
+`_remove` / `_path`) so Swift only maps:
+
+* **Where:** `<suite app-group container>/workspace/automation/loopback-<port>.token`
+  — `~/Library/Group Containers/QG3MEYVHMS.com.impress.suite/…` as a headless
+  process finds it, `SharedContainer.rootDirectory` as a sandboxed app does.
+  Keyed by the **bound port**, not the app name: a second instance under test
+  (`-httpAutomationPort 23261`) must not overwrite the running app's token,
+  and a client that knows only a base URL can find the file.
+* **What:** one line, 64 lowercase hex characters (256 bits), trailing
+  newline; mode `0600` in a `0700` directory; written atomically. Minted at
+  every launch when the listener is ready, removed when the server stops.
+* **Client side:** `IMPRESS_APP_TOKEN` (the one client variable, also the
+  network bearer for a remote caller) wins; else the file for the URL's port
+  (`client_token_for_url`). Every Rust client goes through
+  `impress_app_client::loopback_http_client_for` (the four `*-service-http`
+  crates, `imprint-selftest`) or reads the same function directly (the two
+  Tier B runners), so no client can forget it. The old `IMBIB_TOKEN` is gone.
+* **Settings:** the same six keys in every app
+  (`AutomationServerSettings.Keys`: enabled, port, log, allow network, network
+  token, bind address), edited by the shared `AutomationSettingsSection` and
+  built into `HTTPServerConfiguration(settings:loggerSubsystem:)`; imbib maps
+  its own record onto the same struct.
+
+Two GET mutations went with it (SEC-6): `GET /api/performance/reset` and
+`GET /api/store-timings/reset` answer 405 `Allow: POST`; impel's
+`GET /agents/{id}/next-thread?auto_claim=true` answers 405, and
+`POST /agents/{id}/next-thread` claims. `impress-ai-server` defaults to
+8787 (SEC-7). `impel-server`'s bearer middleware is wired, admits only a
+token `POST /agents` issued (returned once as `auth_token`), and its
+`impel-` prefix, `system` and no-header arms are deleted (SEC-8).
+
 ### What a pane LOOKS like (2026-09-21)
 
 L6's `list` and `outline` panes drew a hand-written two-line row — title and

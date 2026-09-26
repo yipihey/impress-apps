@@ -88,8 +88,16 @@ public actor ImpelHTTPRouter: HTTPRouter {
                 let remainderLower = remainder.lowercased()
 
                 if remainderLower.hasSuffix("/next-thread") {
+                    // A GET never claims (P0, SEC-6): `?auto_claim=true`
+                    // used to mutate here, exempt from the loopback token.
+                    if request.queryParams["auto_claim"] == "true" {
+                        return HTTPResponse(
+                            status: 405, statusText: "Method Not Allowed",
+                            headers: ["Allow": "GET, POST", "Content-Type": "application/json; charset=utf-8"],
+                            body: Data("{\"status\":\"error\",\"error\":\"claiming mutates; POST /agents/{id}/next-thread to claim\"}".utf8))
+                    }
                     let agentId = String(remainder.dropLast("/next-thread".count))
-                    return await handleNextThread(agentId: agentId, request: request)
+                    return await handleNextThread(agentId: agentId, claim: false)
                 }
                 if !remainder.contains("/") {
                     return await handleGetAgent(id: remainder)
@@ -145,6 +153,15 @@ public actor ImpelHTTPRouter: HTTPRouter {
             // Tasks
             if pathLower == "/api/tasks" {
                 return await handleCreateTask(request)
+            }
+
+            // Claim the next thread — the mutating half of `next-thread`
+            // (P0, SEC-6), so it sits behind the loopback token like every
+            // other POST.
+            if pathLower.hasPrefix("/agents/"), pathLower.hasSuffix("/next-thread") {
+                let remainder = String(path.dropFirst("/agents/".count))
+                let agentId = String(remainder.dropLast("/next-thread".count))
+                return await handleNextThread(agentId: agentId, claim: true)
             }
 
             // Journal pipeline submission (per ADR-0011 D6)
@@ -582,14 +599,13 @@ public actor ImpelHTTPRouter: HTTPRouter {
         ])
     }
 
-    /// GET /agents/{id}/next-thread
-    private func handleNextThread(agentId: String, request: HTTPRequest) async -> HTTPResponse {
+    /// GET /agents/{id}/next-thread (peek, `claim: false`) and
+    /// POST /agents/{id}/next-thread (claim, `claim: true`).
+    private func handleNextThread(agentId: String, claim autoClaim: Bool) async -> HTTPResponse {
         let state = await getState()
         guard state.agents.contains(where: { $0.id == agentId }) else {
             return .notFound("Agent not found: \(agentId)")
         }
-
-        let autoClaim = request.queryParams["auto_claim"] == "true"
 
         // Find highest-temperature available thread
         let available = state.threads
@@ -1019,7 +1035,8 @@ public actor ImpelHTTPRouter: HTTPRouter {
                 "GET /agents/{id}": "Agent detail",
                 "POST /agents": "Register agent (body: {agent_type})",
                 "DELETE /agents/{id}": "Unregister agent",
-                "GET /agents/{id}/next-thread": "Next available thread (param: auto_claim)",
+                "GET /agents/{id}/next-thread": "Peek at the next available thread (never claims)",
+                "POST /agents/{id}/next-thread": "Claim the next available thread (loopback token required)",
                 "GET /escalations": "List escalations (param: open_only)",
                 "GET /escalations/{id}": "Escalation detail",
                 "POST /escalations": "Create escalation",

@@ -14,8 +14,11 @@ use impress_core::sqlite_store::WalCheckpointMode;
 async fn main() {
     let access_token = std::env::var("IMPRESS_AI_ACCESS_TOKEN")
         .expect("IMPRESS_AI_ACCESS_TOKEN is required (minimum 24 characters)");
+    // 8787 is the service's row (`SiblingApp.Services.impressAIPort`, run.sh,
+    // docs/impress-ai-http.md). It defaulted to 23125 — impress's APP port —
+    // so a bare `impress-ai-server` fought the shell for its socket (P0, SEC-7).
     let bind: SocketAddr = std::env::var("IMPRESS_AI_BIND")
-        .unwrap_or_else(|_| "127.0.0.1:23125".into())
+        .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()
         .expect("IMPRESS_AI_BIND must be a socket address");
     let store_path = std::env::var_os("IMPRESS_STORE_PATH")

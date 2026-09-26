@@ -38,6 +38,10 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
     /// enable; regenerable in Settings. nil = never enabled.
     public var networkAuthToken: String?
 
+    /// The one interface address network mode binds (the tailnet address).
+    /// Network mode refuses to start without it (P0, SEC-5).
+    public var networkBindAddress: String?
+
     /// Default settings (automation enabled for MCP integration)
     /// HTTP server only accepts localhost connections for security.
     public static let `default` = AutomationSettings(
@@ -53,7 +57,8 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
         isHTTPServerEnabled: Bool = true,
         httpServerPort: UInt16 = SiblingApp.imbib.httpPort,
         allowNetworkAccess: Bool = false,
-        networkAuthToken: String? = nil
+        networkAuthToken: String? = nil,
+        networkBindAddress: String? = nil
     ) {
         self.isEnabled = isEnabled
         self.logRequests = logRequests
@@ -61,6 +66,7 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
         self.httpServerPort = httpServerPort
         self.allowNetworkAccess = allowNetworkAccess
         self.networkAuthToken = networkAuthToken
+        self.networkBindAddress = networkBindAddress
     }
 
     /// Lenient decoding: every field falls back to its default when absent.
@@ -80,6 +86,19 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
         self.allowNetworkAccess =
             try c.decodeIfPresent(Bool.self, forKey: .allowNetworkAccess) ?? false
         self.networkAuthToken = try c.decodeIfPresent(String.self, forKey: .networkAuthToken)
+        self.networkBindAddress = try c.decodeIfPresent(String.self, forKey: .networkBindAddress)
+    }
+
+    /// imbib's record mapped onto the shared shape every app's server is
+    /// configured from (P0, SEC-4).
+    public var serverSettings: AutomationServerSettings {
+        AutomationServerSettings(
+            httpEnabled: isHTTPServerEnabled,
+            port: httpServerPort,
+            logRequests: logRequests,
+            allowNetworkAccess: allowNetworkAccess,
+            networkAuthToken: networkAuthToken,
+            networkBindAddress: networkBindAddress)
     }
 }
 
@@ -187,6 +206,18 @@ public actor AutomationSettingsStore {
     /// The network bearer token, if one has ever been generated.
     public var networkAuthToken: String? {
         get async { await settings.networkAuthToken }
+    }
+
+    /// The one address network mode binds, if chosen (P0, SEC-5).
+    public var networkBindAddress: String? {
+        get async { await settings.networkBindAddress }
+    }
+
+    /// Choose the address network mode binds.
+    public func setNetworkBindAddress(_ address: String?) async {
+        var current = await settings
+        current.networkBindAddress = address?.trimmingCharacters(in: .whitespaces)
+        await update(current)
     }
 
     /// Enable/disable network access. First enable generates a token if none

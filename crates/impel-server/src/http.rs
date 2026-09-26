@@ -820,6 +820,11 @@ pub struct AgentDetail {
     pub last_active_at: String,
     pub threads_completed: u64,
     pub capabilities: Vec<String>,
+    /// The bearer this agent presents on every later request. Present ONLY
+    /// in the `POST /agents` answer — the one time it is shown; `GET` never
+    /// repeats it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<String>,
 }
 
 /// Response for agent list
@@ -874,6 +879,7 @@ pub async fn get_agent(
                     .into_iter()
                     .map(|c| c.name().to_string())
                     .collect(),
+                auth_token: None,
             })
         })
         .ok_or(StatusCode::NOT_FOUND)
@@ -928,12 +934,17 @@ pub async fn register_agent(
     .execute(&mut coord)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let agent = coord.agents().get(&agent_id).ok_or_else(|| {
+    // Issue the agent's bearer here, the one time it is shown. The auth
+    // middleware admits only a token a registered agent holds (SEC-8), so
+    // registration is where a token has to come from.
+    let token = crate::auth::generate_agent_token(&agent_id);
+    let agent = coord.agents_mut().get_mut(&agent_id).ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Agent not found after registration".to_string(),
         )
     })?;
+    agent.auth_token = Some(token.clone());
 
     Ok(Json(AgentDetail {
         id: agent.id.clone(),
@@ -949,6 +960,7 @@ pub async fn register_agent(
             .into_iter()
             .map(|c| c.name().to_string())
             .collect(),
+        auth_token: Some(token),
     }))
 }
 
@@ -1448,17 +1460,37 @@ pub struct NextThreadResponse {
     pub message: String,
 }
 
-/// Get and optionally claim the next available thread for an agent.
-///
-/// Returns the highest-temperature available thread. If auto_claim is true,
-/// the thread will be automatically claimed for the agent.
+/// `GET /agents/{id}/next-thread`: the highest-temperature available thread,
+/// WITHOUT claiming it. A `GET` never mutates (P0, SEC-6): `?auto_claim=true`
+/// used to claim here, and is now refused 405 pointing at the `POST`.
 pub async fn get_next_thread(
     State(state): State<Arc<AppState>>,
     Path(agent_id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<GetNextThreadQuery>,
 ) -> Result<Json<NextThreadResponse>, (StatusCode, String)> {
-    let auto_claim = query.auto_claim.unwrap_or(false);
+    if query.auto_claim == Some(true) {
+        return Err((
+            StatusCode::METHOD_NOT_ALLOWED,
+            "claiming mutates; POST /agents/{id}/next-thread to claim".to_string(),
+        ));
+    }
+    next_thread(state, agent_id, false).await
+}
 
+/// `POST /agents/{id}/next-thread`: claim the highest-temperature available
+/// thread for the agent. The mutating half of what was one `GET`.
+pub async fn claim_next_thread(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<NextThreadResponse>, (StatusCode, String)> {
+    next_thread(state, agent_id, true).await
+}
+
+async fn next_thread(
+    state: Arc<AppState>,
+    agent_id: String,
+    auto_claim: bool,
+) -> Result<Json<NextThreadResponse>, (StatusCode, String)> {
     // First, verify the agent exists and is not terminated
     {
         let coord = state.coordination.read().await;
@@ -1571,6 +1603,7 @@ pub async fn get_next_thread(
 /// Query parameters for get next thread
 #[derive(Debug, Deserialize)]
 pub struct GetNextThreadQuery {
-    /// Automatically claim the thread (default: false)
+    /// Retired: a `GET` never claims. `true` is refused 405; claim with
+    /// `POST /agents/{id}/next-thread`.
     pub auto_claim: Option<bool>,
 }

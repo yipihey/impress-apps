@@ -771,6 +771,42 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   § Build cost section and its JSON record; the GUI plan's verb-count row now states the strict grep
   that reproduces 433. Both agent worktrees' measurements were re-checked against the JSON before
   the section was inserted (every quoted number matches).
+- 2026-09-26 — **P0 Loopback and CORS landed** (branch `claude/pipeline-p0-loopback-cors`, from main
+  at 701a2573, merged with main at b5218fb4). SEC-1..8 closed as the table's mitigation column says,
+  with three narrowings recorded here: the loopback token file is keyed by the **bound port**
+  (`loopback-<port>.token`), not the app name, because a second instance under test
+  (`-httpAutomationPort 23261`) would otherwise overwrite the user's running app's token and a Tier B
+  runner that knows only a base URL could not find the file; network mode now needs a **bind
+  address** as well as a token (SEC-5's "explicitly" — the listener no longer binds every interface
+  behind the bearer alone; imbib's iOS pane picks it from the device's addresses); and impel-server's
+  `CorsLayer::permissive()` went with SEC-8, since a bearer-only loopback API has no browser origin
+  to admit (and `POST /agents` now mints and returns the agent's token once, which the wired
+  middleware needs to be usable at all). `IMBIB_TOKEN` is gone; `IMPRESS_APP_TOKEN` is the one
+  client variable. The contract is `impress_core::loopback_token`, exported over UniFFI; the binding
+  was regenerated (+3 functions, +1 record, nothing lost). **Proof** (impress built with its own
+  `IMPRESS_DERIVED`, launched with `-httpAutomationPort 23261 -ApplePersistenceIgnoreState YES`,
+  `IMPRESS_DEVICE_ID=p0-proof`, quit afterwards; the user's impress on its default port untouched):
+  `curl -H 'Origin: https://evil.example' -i …/api/status` → `200`, headers `Content-Length`,
+  `Connection: close`, `Content-Type` and nothing else (no `Access-Control-*`);
+  `POST /api/performance/reset` with no token → `401 Unauthorized`, `WWW-Authenticate: Bearer`;
+  `-H 'Host: attacker'` → `400 Bad Request`; the token file
+  `~/Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/automation/loopback-23261.token`
+  → `-rw-------`, 64 hex chars; the same POST with `Authorization: Bearer $(cat …)` → `200`
+  `{"reset": true, "status": "ok"}`; `GET /api/performance/reset` → `405`;
+  `IMPRESS_LAYOUT_SELFTEST_BASE_URL=http://127.0.0.1:23261 impress layout-selftest-service_run-selftest --tier b`
+  (the runner reading the token file itself, no env set) → `"passed": 14, "failed": 0, "skipped": 0,
+  "total": 14, "ok": true`. **Gates:** ImpressAutomation `swift test` 19 XCTest + 72 Swift Testing,
+  0 failures (new: the policy matrix, the Host parser, a real-socket gate test that proves the four
+  curls on a free port); PublicationManagerCore `swift test` 2159 XCTest (2 skipped) + 112 Swift
+  Testing, 0 failures; `rust-gate.sh fmt` and `clippy auto` (`rest`) clean; `cargo test -p
+  impress-ai-http -p impel-server -p impress-app-client -p impress-core --lib` green (impel-server
+  6 incl. the middleware driven with `tower::oneshot`: no header 401, `system`/`impel-` prefix 401,
+  registered token 200, `/status` open); `check-kit-deps --strict`, `check-schema-refs` (387 sites),
+  `check-chassis-deps`, `check-uniffi-bindings` (7/7) OK. Not run: Tier B on imprint, implore, impel
+  and impart from isolated builds (time); their servers share `HTTPServer`, whose gate the socket
+  test and the impress run prove, and each client reads the token through the one Rust function.
+  Noticed on main, not touched: b5218fb4 committed `target-standalone/` (3,021 cargo incremental
+  files).
 - 2026-09-26 — **B1 test binaries shipped** (branch `claude/bc-b1-test-binaries`, from main at
   701a2573, merged with b5218fb4). The 12 crates with more than one `tests/*.rs` (imbib-core 24
   files + `common`; impress-core 9; imprint-core 7; impress-surface, impress-surface-service and
