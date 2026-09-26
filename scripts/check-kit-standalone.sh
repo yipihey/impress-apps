@@ -28,7 +28,8 @@
 #     failure, named before cargo runs.
 #   * A dev-dependency on one (today: surface-demo-service -> imprint-core, for
 #     one test) is dropped from the copy. That crate is then checked without
-#     the targets that use it, and the output names them.
+#     the targets that use it (for a tests/main.rs binary, without the modules
+#     that use it), and the output names them.
 #
 # Crates under the manifest's `kit-open-findings` block are left out and
 # named. --strict keeps them in, so they fail the way they would if the kit
@@ -354,7 +355,35 @@ try:
             d = cdir / kind
             if not d.is_dir():
                 continue
-            for p in sorted(d.glob("*.rs")) + sorted(d.glob("*/main.rs")):
+            # With a tests/main.rs the crate sets autotests = false; a sibling file
+            # main.rs lists as a `mod` is that binary's module, not a target, and
+            # one it does not list is its own [[test]].
+            in_main = set()
+            if (d / "main.rs").is_file():
+                in_main = set(re.findall(r"^\s*(?:pub\s+)?mod\s+(\w+)\s*;", (d / "main.rs").read_text(), re.M))
+            top = [p for p in sorted(d.glob("*.rs")) if p.stem not in in_main]
+            for p in top + sorted(d.glob("*/main.rs")):
+                if p == d / "main.rs":
+                    # One binary per crate (plan-verb-pipeline-and-transport § Build
+                    # cost, B1): tests/main.rs declares a `mod` per former file. A
+                    # module that uses a dropped crate is unlisted in the scratch
+                    # copy, and the rest of the binary is still checked.
+                    kept, listed = [], 0
+                    for line in p.read_text().splitlines(keepends=True):
+                        m = re.match(r"\s*(?:pub\s+)?mod\s+(\w+)\s*;", line)
+                        if m:
+                            mod = m.group(1)
+                            src = [q for q in (d / f"{mod}.rs", d / mod / "mod.rs") if q.is_file()]
+                            src += list((d / mod).rglob("*.rs")) if (d / mod).is_dir() else []
+                            if any(mentions(s, l) for s in src for l in libs):
+                                skipped.append(f"{kind}/{mod}.rs")
+                                continue
+                            listed += 1
+                        kept.append(line)
+                    p.write_text("".join(kept))
+                    if listed:
+                        args += [flag, "main"]
+                    continue
                 name = p.stem if p.name != "main.rs" else p.parent.name
                 src = [p] if p.name != "main.rs" else list(p.parent.rglob("*.rs"))
                 if any(mentions(s, l) for s in src for l in libs):

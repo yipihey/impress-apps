@@ -2,7 +2,8 @@
 //! hands out an in-memory stand-in. A verb that writes must refuse with
 //! `store-unavailable` rather than answer `ok` into a store that vanishes.
 //!
-//! Its own test binary: the store path is process-global.
+//! Its own test binary (a second `[[test]]` beside `main`): the store path is
+//! process-global, and `contract` sets it to a real directory.
 
 use impress_layout_service::{DefaultLayoutService, LayoutService, PaneRefDto};
 

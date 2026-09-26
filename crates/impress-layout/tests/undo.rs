@@ -1,9 +1,7 @@
 //! The undo rings (ADR-0031 D7): arrangement on one ring, exploration on one
 //! ring per pane, focus on neither.
 
-mod common;
-
-use common::{scratch_pane, three_column, without_allocators};
+use crate::common::{scratch_pane, three_column, without_allocators};
 use impress_layout::{
     stack_for, ChannelId, Direction, LayoutError, LinearDir, PaneQuery, PaneRef, ParamSource, Role,
     StackKind, UndoRing, UndoStacks, Verb, ViewKindId,

@@ -10,9 +10,7 @@
 //! Deliberate divergences are listed per-section with the reason. An unlisted
 //! mismatch fails the build. There is no regeneration path.
 
-mod common;
-
-use common::fixtures::load_fixture;
+use crate::common::fixtures::load_fixture;
 use serde_json::Value;
 
 // ── Plumbing ────────────────────────────────────────────────────────────────

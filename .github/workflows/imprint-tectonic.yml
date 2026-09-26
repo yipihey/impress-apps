@@ -130,7 +130,7 @@ jobs:
           # Warm the bundle/format cache with retries before the real tests:
           # the first fetch is network-dependent and occasionally partial.
           for i in 1 2 3; do
-            if cargo test -p imprint-core --features tectonic-render --test tectonic_spike -- compiles_to_pdf_with_synctex; then
+            if cargo test -p imprint-core --features tectonic-render --test main -- tectonic_spike::compiles_to_pdf_with_synctex; then
               break
             fi
             echo "warm-up attempt $i failed; clearing format cache and retrying"

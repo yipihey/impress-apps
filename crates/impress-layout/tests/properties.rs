@@ -14,9 +14,7 @@
 //! 7. the focused leaf is visible: every `Tabs` ancestor's active child is on
 //!    its path.
 
-mod common;
-
-use common::{
+use crate::common::{
     assert_arena_is_sound, assert_focus_is_a_leaf, assert_focus_is_visible, scratch_pane,
     three_column, without_allocators,
 };

@@ -9,11 +9,9 @@
 //! Where a deliberate divergence exists it is listed in `KNOWN_DIVERGENCES`
 //! with the reason — an unlisted mismatch fails the build.
 
-mod common;
-
 use std::collections::BTreeMap;
 
-use common::fixtures::{fixture_path, load_fixture};
+use crate::common::fixtures::{fixture_path, load_fixture};
 use serde_json::Value;
 
 // ── Golden loading ───────────────────────────────────────────────────────────

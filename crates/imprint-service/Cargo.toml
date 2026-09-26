@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
 
 [lib]
 crate-type = ["lib"]
@@ -63,3 +64,10 @@ thiserror = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true }
 proptest = "1.4"
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"

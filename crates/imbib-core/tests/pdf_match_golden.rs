@@ -11,11 +11,9 @@
 //! `why` in the corpus is the argument for the number beside it, and changing
 //! a number means changing that argument in review.
 
-mod common;
-
 use std::collections::HashMap;
 
-use common::fixtures::load_fixture;
+use crate::common::fixtures::load_fixture;
 use imbib_core::attachments::{
     match_attachments_internal, AttachmentEntry, AttachmentMatch, AttachmentMatchReport,
     AttachmentSignal, AttachmentVerdict,
