@@ -61,7 +61,7 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord>;
     /// Create or replace one section's body and metadata in a manuscript;
     /// returns the section as stored.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn put_section(
         &self,
         doc_id: String,
@@ -71,7 +71,7 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     ) -> Option<SectionRecord>;
     /// Remove a section (heading + body) from the document. Queues an
     /// operation; returns operationId.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete_section(&self, doc_id: String, section_key: String) -> bool;
 
     // ---- Pure-text helpers ----
@@ -126,7 +126,7 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// imprint closed: the compiler is embedded. With imprint running the
     /// compile happens in its live engine instead; either way you get a path.
     /// A broken document comes back as `error`, not as a failed call.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult;
 
     // ---- LaTeX compile via embedded Tectonic (gated on tectonic-render) ----
@@ -146,7 +146,7 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     // ---- Replace within a section ----
     /// Replace every occurrence of `find` with `replace` in one stored
     /// section's body; returns the replacement count and the new body.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn replace_in_section(
         &self,
         doc_id: String,
@@ -549,6 +549,8 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
 
 impress_service_impl! {
     service = ImprintManuscriptService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImprintManuscriptService,
     instance = || crate::backend::manuscript_service_instance(),
     methods = [

@@ -68,16 +68,15 @@ public actor ImpressHTTPServer {
     /// Default port — THE sibling-app table's row for impress. Never a literal.
     public static let defaultPort: UInt16 = SiblingApp.impress.httpPort
 
-    private static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "httpAutomationEnabled")
+    /// The shared settings (P0, SEC-4): enabled, port, logging and the
+    /// network fields, the same six keys in every app.
+    static var settings: AutomationServerSettings {
+        AutomationServerSettings.load(defaultPort: defaultPort)
     }
 
     /// The port `start()` binds: the saved or launch-argument
     /// `httpAutomationPort`, else the table's default.
-    static var configuredPort: UInt16 {
-        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
-        return port > 0 ? UInt16(port) : defaultPort
-    }
+    static var configuredPort: UInt16 { settings.port }
 
     private let server: HTTPServer<ImpressHTTPRouter>
     private let router: ImpressHTTPRouter
@@ -90,17 +89,15 @@ public actor ImpressHTTPServer {
     public func start() async {
         let alreadyRunning = await server.running
         guard !alreadyRunning else { return }
-        guard Self.isEnabled else {
+        let settings = Self.settings
+        guard settings.httpEnabled else {
             httpLogger.info("HTTP server is disabled in settings")
             return
         }
         await server.start(
             configuration: HTTPServerConfiguration(
-                port: Self.configuredPort,
-                loggerSubsystem: "com.impress.impress",
-                loggerCategory: "httpServer",
-                logRequests: true))
-        httpLogger.info("HTTP server started on port \(Self.configuredPort)")
+                settings: settings, loggerSubsystem: "com.impress.impress"))
+        httpLogger.info("HTTP server started on port \(settings.port)")
     }
 
     public func stop() async { await server.stop() }

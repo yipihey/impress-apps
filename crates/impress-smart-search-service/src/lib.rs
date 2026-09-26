@@ -33,7 +33,7 @@ use impress_smart_search::{
 };
 
 /// Flattened classification result. Mirrors [`ClassifiedInput`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SearchIntentReport {
     /// `identifier` | `fielded` | `reference` | `freeText` | `url`
     pub kind: String,
@@ -63,7 +63,7 @@ impl From<ClassifiedInput> for SearchIntentReport {
 }
 
 /// Result of normalizing an ADS query.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AdsNormalizationReport {
     pub corrected_query: String,
     /// One human-readable line per rule that fired.
@@ -72,7 +72,7 @@ pub struct AdsNormalizationReport {
 }
 
 /// Result of rewriting free text into an ADS query.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct QueryRewriteReport {
     pub query: String,
     pub interpretation: String,
@@ -82,7 +82,7 @@ pub struct QueryRewriteReport {
 }
 
 /// An identifier scraped from a page or validated from a citation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IdentifierReport {
     /// `doi` | `arxiv` | `bibcode` | `pmid`.
     pub kind: String,
@@ -90,14 +90,14 @@ pub struct IdentifierReport {
 }
 
 /// Result of scraping a page's markup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PageExtractionReport {
     pub page_title: Option<String>,
     pub identifiers: Vec<IdentifierReport>,
 }
 
 /// A citation after invented identifiers have been stripped.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CitationReport {
     pub authors: Vec<String>,
     pub title: Option<String>,
@@ -337,6 +337,8 @@ fn smart_search_instance() -> DefaultSmartSearchService {
 
 impress_service_impl! {
     service = SmartSearchService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultSmartSearchService,
     instance = || smart_search_instance(),
     methods = [

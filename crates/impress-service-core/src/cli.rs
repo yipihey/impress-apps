@@ -631,22 +631,54 @@ mod collision_tests {
         Box::pin(async { Ok(serde_json::Value::Null) })
     }
 
+    const fn probe(
+        service: &'static str,
+        method: &'static str,
+        name: &'static str,
+    ) -> crate::VerbDescriptor {
+        crate::VerbDescriptor {
+            name,
+            service,
+            method,
+            description: "",
+            input_schema: schema,
+            output_schema: schema,
+            safety: crate::Safety {
+                class: crate::SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            since: "0.1.0",
+            deprecated: None,
+            aliases: &[],
+            examples: &[],
+            strict: false,
+            source: crate::Source::Linked,
+            handler: apply,
+        }
+    }
+    static ALPHA_COLLIDE: crate::VerbDescriptor = probe(
+        "alpha-service",
+        "probe-collide",
+        "alpha-service_probe-collide",
+    );
+    static BETA_COLLIDE: crate::VerbDescriptor = probe(
+        "beta-service",
+        "probe-collide",
+        "beta-service_probe-collide",
+    );
+    static ALPHA_UNIQUE: crate::VerbDescriptor = probe(
+        "alpha-service",
+        "probe-unique",
+        "alpha-service_probe-unique",
+    );
+
     // Two services that both declare `probe_collide`, and one that alone
     // declares `probe_unique` — submitted into the same process-wide
     // inventory the real services use, so this pins the rule on the real
     // path rather than a model of it.
-    inventory::submit! {
-        CliSubcommand { name: "probe-collide", qualified_name: "alpha-service_probe-collide",
-            description: "", input_schema: schema, apply }
-    }
-    inventory::submit! {
-        CliSubcommand { name: "probe-collide", qualified_name: "beta-service_probe-collide",
-            description: "", input_schema: schema, apply }
-    }
-    inventory::submit! {
-        CliSubcommand { name: "probe-unique", qualified_name: "alpha-service_probe-unique",
-            description: "", input_schema: schema, apply }
-    }
+    inventory::submit! { CliSubcommand::of(&ALPHA_COLLIDE) }
+    inventory::submit! { CliSubcommand::of(&BETA_COLLIDE) }
+    inventory::submit! { CliSubcommand::of(&ALPHA_UNIQUE) }
 
     /// A unique method keeps its short name; every party to a collision is
     /// exposed qualified, and the bare colliding name is exposed by nobody.

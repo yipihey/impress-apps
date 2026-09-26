@@ -299,7 +299,7 @@ dirs = "6"
 impress-service-core = { path = "crates/impress-service-core" }
 impress-service-macros = { path = "crates/impress-service-macros" }
 inventory = "0.3"
-schemars = "0.8"
+schemars = { version = "0.8", features = ["uuid1"] }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"

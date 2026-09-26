@@ -4108,6 +4108,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -4315,6 +4316,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rusqlite",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4396,6 +4398,7 @@ name = "impress-app-client"
 version = "0.1.0"
 dependencies = [
  "imbib-service",
+ "impress-core",
  "impress-workspace-hack",
  "imprint-service",
  "mockito",
@@ -4764,6 +4767,7 @@ dependencies = [
  "impress-workspace-hack",
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.114",
 ]
 
@@ -5079,6 +5083,7 @@ name = "imprint-cli"
 version = "0.1.0"
 dependencies = [
  "impress-service-core",
+ "impress-store-service",
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
@@ -5101,6 +5106,7 @@ dependencies = [
  "impress-workspace-hack",
  "pulldown-cmark",
  "regex",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -8557,6 +8563,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

@@ -18,5 +18,8 @@ imprint-service = { workspace = true }
 # Pulls the ImprintSelftestService inventory (run-selftest subcommand).
 imprint-selftest = { workspace = true }
 impress-service-core = { workspace = true, features = ["cli"] }
+# `--wait` and the inline-job drain (ADR-0034 D6); already in the tree
+# through imprint-service.
+impress-store-service = { workspace = true }
 serde_json = { workspace = true }
 impress-workspace-hack.workspace = true

@@ -163,6 +163,62 @@ fn the_capability_matrix_documents_every_store_generic_surface() {
     }
 }
 
+/// The MCP `annotations` (ADR-0034 D1, plan-verb-pipeline P1) are read off
+/// each descriptor's declared safety class, which `docs/verb-safety.md`
+/// pins. The store-generic surface is spelled out here so a class drifting
+/// on one of these tools is a diff in this file, not only in the table:
+/// the reads are read-only and idempotent, the writes neither, the one
+/// delete destructive, and nothing here leaves the process.
+#[test]
+fn store_generic_tools_carry_their_safety_annotations() {
+    use impress_service_core::SafetyClass;
+    let expected = |name: &str| -> SafetyClass {
+        match name {
+            "collection-service_tree"
+            | "collection-service_member-counts"
+            | "collection-service_migration-status"
+            | "store-query-service_search-all"
+            | "store-query-service_related-items"
+            | "store-query-service_get-item"
+            | "store-query-service_list-items" => SafetyClass::ReadOnly,
+            "collection-service_delete" | "collection-service_rollback" => SafetyClass::Destructive,
+            _ => SafetyClass::Mutating,
+        }
+    };
+    for name in COLLECTION_TOOLS
+        .iter()
+        .chain(TRIAGE_TOOLS.iter())
+        .chain(STORE_QUERY_TOOLS.iter())
+    {
+        let d = McpToolDescriptor::iter()
+            .find(|d| d.name == *name)
+            .unwrap_or_else(|| panic!("{name} is in the inventory"));
+        let class = expected(name);
+        assert_eq!(d.verb.safety.class, class, "{name}");
+        let a = d.verb.mcp_annotations();
+        assert_eq!(a["readOnlyHint"], class == SafetyClass::ReadOnly, "{name}");
+        assert_eq!(
+            a["destructiveHint"],
+            class == SafetyClass::Destructive,
+            "{name}"
+        );
+        assert_eq!(
+            a["idempotentHint"],
+            class == SafetyClass::ReadOnly,
+            "{name}"
+        );
+        assert_eq!(
+            a["openWorldHint"], false,
+            "{name}: nothing here leaves the process"
+        );
+        assert!(
+            (d.verb.output_schema)().is_object(),
+            "{name} has an output schema"
+        );
+        assert_eq!(d.verb.since, "0.1.0", "{name}");
+    }
+}
+
 /// Descriptions reach the model from the trait's doc comments. A tool
 /// describing itself as "Invoke Service.method" is one the model will misuse,
 /// and 119 of 133 tools were in that state once.

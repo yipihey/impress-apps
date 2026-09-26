@@ -50,9 +50,12 @@ public actor HTTPAutomationServer {
     /// volatile argument domain), which is how a second implore (a branch
     /// build under test) runs beside the user's without taking its socket.
     /// The same key and rule as impress's, imprint's and impel's servers.
-    public static var configuredPort: UInt16 {
-        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
-        return (1...Int(UInt16.max)).contains(port) ? UInt16(port) : defaultPort
+    public static var configuredPort: UInt16 { settings.port }
+
+    /// The shared settings (P0, SEC-4): enabled, port, logging and the
+    /// network fields, the same six keys in every app.
+    static var settings: AutomationServerSettings {
+        AutomationServerSettings.load(defaultPort: defaultPort)
     }
 
     // MARK: - State
@@ -78,20 +81,16 @@ public actor HTTPAutomationServer {
             return
         }
 
-        guard isEnabled else {
+        let settings = Self.settings
+        guard isEnabled, settings.httpEnabled else {
             logInfo("HTTP server is disabled", category: "http-server")
             return
         }
 
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.implore.app",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.implore.app")
 
         await server.start(configuration: configuration)
-        logInfo("HTTP server started on port \(Self.configuredPort)", category: "http-server")
+        logInfo("HTTP server started on port \(settings.port)", category: "http-server")
     }
 
     /// Stop the HTTP server.
@@ -102,12 +101,7 @@ public actor HTTPAutomationServer {
 
     /// Restart the server.
     public func restart() async {
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.implore.app",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.implore.app")
 
         await server.restart(configuration: configuration)
         logInfo("HTTP server restarted", category: "http-server")

@@ -1956,7 +1956,7 @@ store-direct verb surface — the CLI and MCP work with the app closed. Tier A:
 | export the tree once | `imprint-project-service_project-export` | ✅ headless (P3) | `layout` `bundle` (files + `manifest.json` PRODUCED from the tree, D2) or `standalone` (files only); projected `.bib` rows are written as the BibTeX they resolved to; a blob absent from this workspace is reported in `missing`, never written empty |
 | materialise for a toolchain | `imprint-project-service_project-materialize` | ✅ headless (P3) | Rust materialises (D5): hash-compared so unchanged files keep their mtimes, temp-name + rename, and pruning ONLY paths the `.impress-materialized` ledger says an earlier run wrote — a stranger's file in the directory survives; default `<cache>/impress/imprint/project-build/<manuscript>/<target>/`, the directory P4's LaTeX builds run in |
 | a revision of the whole tree | `imprint-project-service_project-snapshot` | ✅ headless (P3) | `imprint_core::project::pack` — a deterministic `.tar.zst` (path order, fixed metadata: an unchanged tree packs to the same bytes) with `manifest.json` first — stored in the workspace CAS, and a `manuscript-revision@1.0.0` row (`impress_core::manuscript_project::create_project_revision`) whose `source_archive_ref` is that blob, `bundle_manifest_json` the manifest and `content_hash` the input stamp; lineage (`Supersedes`, `current_revision_ref`) is shared with one-file revisions |
-| build a target and record it | `imprint-project-service_project-build` | ✅ headless (P4) | `imprint_core::project::build` — stale figure steps first (`shell` steps only with `allow_shell`; `veusz` through the host; the native `impress-plot`/`implore` runners are P5 and report `skipped`), then the document engine: Typst from memory, Markdown converted to Typst (`project::markdown`, D10: headings, lists, tables, footnotes, front matter, a small LaTeX-math table, pandoc citations → Typst citations), LaTeX through a materialised directory and `RunnerHost` (`tectonic` embedded or on PATH, else `latexmk`/`pdflatex` with the log parsed by the shared `latex::parse_log` — `pdflatex`/`xelatex`/`lualatex` get BibTeX/Biber and re-run passes when the aux asks). A `manuscript-build@1.0.0` row goes `running → ok/failed` with `outputs_json` (the PDF also in the workspace CAS as a blob ref), `diagnostics_json`, `steps_json`; files steps produced become `output` rows with `derived_from`/`derived_from_hash`; the last 20 builds are kept |
+| build a target and record it | `imprint-project-service_project-build` | ✅ headless (P4) | `imprint_core::project::build` — stale figure steps first (`shell` steps only with `allow_shell`; `veusz` through the host; the native `impress-plot`/`implore` runners are P5 and report `skipped`), then the document engine: Typst from memory, Markdown converted to Typst (`project::markdown`, D10: headings, lists, tables, footnotes, front matter, a small LaTeX-math table, pandoc citations → Typst citations), LaTeX through a materialised directory and `RunnerHost` (`tectonic` embedded or on PATH, else `latexmk`/`pdflatex` with the log parsed by the shared `latex::parse_log` — `pdflatex`/`xelatex`/`lualatex` get BibTeX/Biber and re-run passes when the aux asks). **A job (ADR-0034 D6, plan P4):** the verb answers in milliseconds with `{ok, job: {id, kind, state}}` — a `task@1.0.0` handle — and builds behind it, streaming a `step` event per figure step into the job's `task-event@1.0.0` ring; `impel-service_job-wait` follows it, `job-result` answers the old `ProjectBuildResult`, `job-cancel` stops it at the next step boundary or kills the step's process, and `--wait` on the CLI streams it. A `manuscript-build@1.0.0` row goes `running → ok/failed/cancelled` with `outputs_json` (the PDF also in the workspace CAS as a blob ref), `diagnostics_json`, `steps_json`; files steps produced become `output` rows with `derived_from`/`derived_from_hash`; the last 20 builds are kept |
 | the recorded builds | `imprint-project-service_project-builds` | ✅ headless (P4) | newest first, per target when asked |
 | an output of a build | `imprint-project-service_project-build-output` | ✅ headless (P4) | the build's own file while it is unchanged on disk, else a copy from the CAS (`pdf`/`svg` outputs are kept; `log`/`synctex` are not) |
 | the Files inspector (imprint) | — | ✅ GUI (P2) | `ProjectFilesSidePanel`: rows grouped by role, the entry marked, graph badges (unresolved / stale / unreferenced), add files, import a folder, rename, delete, insert a reference at the caret, edit a text file in its own session (`ManuscriptSessionRegistry.fileSession`: the file's own Automerge document; compiles build the tree with that buffer substituted) |
@@ -3048,6 +3048,59 @@ channels.
 a saved layout) and any preset by name, naming `reset-preset` as the preset's
 own undo; deleting a name that does not exist is `ok: false` with a message,
 never an error.
+
+#### Who may call (plan verb-pipeline P0, 2026-09-26)
+
+Every automation server in the suite (`ImpressAutomation.HTTPServer`, so all
+six apps) applies three checks in `processRequest`, before any router runs.
+They closed SEC-1..SEC-8 of [`plan-verb-pipeline-and-transport.md`](plan-verb-pipeline-and-transport.md):
+until then every response carried `Access-Control-Allow-Origin: *`, loopback
+was admitted on every route with no credential, and no `Host` was checked —
+so a web page, after DNS rebinding, could drive every route of every app.
+
+| Check | Rule | Refusal |
+|---|---|---|
+| **Host** (SEC-3) | `Host` must be `localhost`, `127.0.0.1`, `[::1]` (any port), or in network mode the one bound address | 400 `Host header does not name this server` |
+| **Loopback token** (SEC-2) | a loopback peer's `GET`/`HEAD`/`OPTIONS` needs nothing; every other method needs `Authorization: Bearer <this launch's loopback token>` | 401, `WWW-Authenticate: Bearer` |
+| **Network bearer** (SEC-4/5) | a non-loopback peer needs network mode on AND `Authorization: Bearer <network token>`; network mode binds the ONE configured address and refuses to start without both a token and an address | 401; or the server does not start (logged) |
+
+No response carries any `Access-Control-*` header (SEC-1); `OPTIONS` answers
+a bare 204, so a cross-origin preflight fails. If a browser origin is ever a
+real client, it gets an app-owned allow-list plus a custom request header,
+never a wildcard.
+
+**The loopback token contract is Rust's** — `impress_core::loopback_token`
+is the one definition, exported over UniFFI (`loopback_token_install` /
+`_remove` / `_path`) so Swift only maps:
+
+* **Where:** `<suite app-group container>/workspace/automation/loopback-<port>.token`
+  — `~/Library/Group Containers/QG3MEYVHMS.com.impress.suite/…` as a headless
+  process finds it, `SharedContainer.rootDirectory` as a sandboxed app does.
+  Keyed by the **bound port**, not the app name: a second instance under test
+  (`-httpAutomationPort 23261`) must not overwrite the running app's token,
+  and a client that knows only a base URL can find the file.
+* **What:** one line, 64 lowercase hex characters (256 bits), trailing
+  newline; mode `0600` in a `0700` directory; written atomically. Minted at
+  every launch when the listener is ready, removed when the server stops.
+* **Client side:** `IMPRESS_APP_TOKEN` (the one client variable, also the
+  network bearer for a remote caller) wins; else the file for the URL's port
+  (`client_token_for_url`). Every Rust client goes through
+  `impress_app_client::loopback_http_client_for` (the four `*-service-http`
+  crates, `imprint-selftest`) or reads the same function directly (the two
+  Tier B runners), so no client can forget it. The old `IMBIB_TOKEN` is gone.
+* **Settings:** the same six keys in every app
+  (`AutomationServerSettings.Keys`: enabled, port, log, allow network, network
+  token, bind address), edited by the shared `AutomationSettingsSection` and
+  built into `HTTPServerConfiguration(settings:loggerSubsystem:)`; imbib maps
+  its own record onto the same struct.
+
+Two GET mutations went with it (SEC-6): `GET /api/performance/reset` and
+`GET /api/store-timings/reset` answer 405 `Allow: POST`; impel's
+`GET /agents/{id}/next-thread?auto_claim=true` answers 405, and
+`POST /agents/{id}/next-thread` claims. `impress-ai-server` defaults to
+8787 (SEC-7). `impel-server`'s bearer middleware is wired, admits only a
+token `POST /agents` issued (returned once as `auth_token`), and its
+`impel-` prefix, `system` and no-header arms are deleted (SEC-8).
 
 ### What a pane LOOKS like (2026-09-21)
 

@@ -422,7 +422,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// Pass `dry_run` first on anything you have not imported before: it
     /// writes nothing at all and reports exactly the counts the real run will.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn import_directory(
         &self,
         source_dir: String,
@@ -445,7 +445,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// `collection` scopes the scan to one manuscript collection by name;
     /// null scans every manuscript in the store.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn prune_empty_manuscripts(
         &self,
         collection: Option<String>,
@@ -486,7 +486,7 @@ pub trait DocsImportService: Send + Sync + 'static {
 
     /// Every watched folder, optionally narrowed to one `kind_scope`, in path
     /// order — with its last-scan stats and its declared volume state.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn list_watched_folders(&self, kind_scope: Option<String>) -> WatchedFolderListResult;
 
     /// Change a watched folder's mutable facets. Every field is optional and a
@@ -518,7 +518,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// `delete_file_rows` additionally removes the folder's `watched-file`
     /// index entries. Leave it false to keep the provenance readable.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn remove_watched_folder(
         &self,
         id: String,
@@ -626,7 +626,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///   its content has moved on since.
     ///
     /// One of the two is required.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn list_watched_files(
         &self,
         watched_folder_id: Option<String>,
@@ -1660,6 +1660,8 @@ fn shellexpand_home(path: &str) -> String {
 
 impress_service_impl! {
     service = DocsImportService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultDocsImportService,
     instance = DefaultDocsImportService::new,
     methods = [

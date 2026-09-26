@@ -99,7 +99,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Cite a paper inside a specific section rather than at the end of the
     /// document. Section writes are compare-and-set, so this cannot clobber a
     /// concurrent edit the way a whole-document append can.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn cite_in_section(
         &self,
         cite_key: String,
@@ -153,7 +153,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Pull paper identifiers — DOIs, arXiv ids, ISBNs — out of arbitrary text.
     /// Useful on an email body, a reviewer's note, a README. Finds candidates;
     /// it does not import them.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn extract_papers_from_text(&self, text: String) -> Vec<ExtractedIdentifier>;
 
     /// The same extraction over every message in an impart conversation.
@@ -199,22 +199,22 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// artifacts — in the one store they share. Reads the store directly, so it
     /// works with every app closed. The right opener when you do not yet know
     /// which app owns what you are looking for.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn search_all(&self, query: String, limit: u32) -> Vec<StoreItem>;
 
     /// One item from the shared store by id, whichever app wrote it.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_item(&self, item_id: String) -> Option<StoreItem>;
 
     /// Items linked to this one. NOTE: the store's edges are BIDIRECTIONAL, so
     /// this answers "what is connected?" and never "what does this depend on?".
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_related(&self, item_id: String, limit: u32) -> Vec<StoreItem>;
 
     /// Resolve an `impress://` URI to whatever it names — an imbib paper, an
     /// imprint document, an impart conversation — so a reference can be passed
     /// between apps without the caller knowing which app owns it.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn resolve_artifact(&self, uri: String) -> Option<StoreItem>;
 }
 
@@ -258,6 +258,9 @@ fn open_store() -> Option<impress_core::sqlite_store::SqliteItemStore> {
         }
     }
 }
+
+/// How many (newest) rows `search_all` scans (LR-1's "a limit").
+const SEARCH_ALL_SCAN_LIMIT: usize = 5_000;
 
 fn to_store_item(item: &impress_core::item::Item) -> StoreItem {
     let payload_json = serde_json::to_string(&item.payload).unwrap_or_else(|_| "{}".into());
@@ -643,7 +646,20 @@ impl ImpressBridgesService for DefaultImpressBridgesService {
         let Some(store) = open_store() else {
             return vec![];
         };
-        let q = impress_core::query::ItemQuery::default();
+        // Bounded (LR-1): this is a substring scan over payloads in Rust,
+        // and unbounded it walked every row on the device — millions of
+        // operation rows included. The newest SEARCH_ALL_SCAN_LIMIT items
+        // are the window; a store-side search is `search_ops`' job.
+        let q = impress_core::query::ItemQuery {
+            sort: vec![impress_core::query::SortDescriptor {
+                field: "modified".into(),
+                ascending: false,
+            }],
+            limit: Some(SEARCH_ALL_SCAN_LIMIT),
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        };
         let needle = query.to_lowercase();
         match store.query(&q) {
             Ok(items) => items
@@ -714,6 +730,8 @@ impl ImpressBridgesService for DefaultImpressBridgesService {
 
 impress_service_impl! {
     service = ImpressBridgesService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImpressBridgesService,
     instance = DefaultImpressBridgesService::new,
     methods = [

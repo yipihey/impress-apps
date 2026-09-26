@@ -223,7 +223,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// `binding` is `imbib` | `manuscript` | `figure` | `generic`. Build the
     /// tree from each row's `parent_id` (null = root). Start here: every other
     /// method takes ids this returns.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn tree(&self, binding: String) -> CollectionListResult;
 
     /// Create a collection under `parent_id` (null = a new root).
@@ -266,7 +266,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// Delete a collection. Members are NEVER deleted — only the membership
     /// goes away, so the papers/manuscripts/figures survive. Deleting a
     /// collection that does not exist is an error, not a no-op.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete(&self, binding: String, id: String) -> CollectionMutationResult;
 
     /// File items into a collection. Idempotent per item; returns how many
@@ -294,7 +294,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// Member count per collection, aligned index-for-index with
     /// `collection_ids`. Unknown ids count 0 rather than failing the batch, so
     /// a stale id cannot break a whole sidebar refresh.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn member_counts(
         &self,
         binding: String,
@@ -305,7 +305,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// (ADR-0022 WP G7): the `collections.unified` flag, how many rows are
     /// still under each legacy schema, and how many generic rows exist per
     /// `kind_scope`. Read-only and always safe. Start here before `migrate`.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn migration_status(&self) -> MigrationStatusResult;
 
     /// Converge the three legacy collection schemas onto `collection@1.0.0`.
@@ -333,7 +333,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// after the migration carry no provenance, are left strictly alone, and
     /// are reported separately — nothing is deleted, but post-migration edits
     /// to pre-migration rows do not survive. Check `migration_status` first.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn rollback(&self) -> RollbackReportResult;
 }
 
@@ -808,6 +808,8 @@ impl CollectionService for DefaultCollectionService {
 
 impress_service_impl! {
     service = CollectionService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultCollectionService,
     instance = DefaultCollectionService::new,
     methods = [

@@ -41,3 +41,6 @@ tracing-subscriber = { workspace = true }
 # UUID
 uuid = { workspace = true }
 impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }

@@ -44,31 +44,31 @@ impl ImbibClient {
         Self::with_base_url(Url::parse(DEFAULT_BASE_URL).expect("default URL parses"))
     }
 
-    /// Build with an explicit base URL (no trailing path).
+    /// Build with an explicit base URL (no trailing path). The bearer is the
+    /// suite-wide one (`crate::loopback_http_client_for`): `IMPRESS_APP_TOKEN`,
+    /// else imbib's per-launch loopback token file. The old `IMBIB_TOKEN`
+    /// variable is gone — one client, one variable.
     pub fn with_base_url(base_url: Url) -> Self {
-        Self::with_base_url_and_token(base_url, std::env::var("IMBIB_TOKEN").ok())
+        let http = crate::loopback_http_client_for(
+            &base_url,
+            Client::builder().timeout(Duration::from_secs(30)),
+        );
+        Self::with_http(base_url, http)
     }
 
-    /// Client with a bearer token attached to every request.
-    ///
-    /// imbib's automation server accepts unauthenticated calls from loopback
-    /// only. Reaching it across a Tailnet — a Mac driving the imbib on the
-    /// user's phone — requires the token from Settings > Automation. Without
-    /// this, every remote call returns 401 and the tools look broken rather
-    /// than unauthorised.
+    /// Client with an explicit bearer token attached to every request — for
+    /// a caller that already holds one (a remote client across a tailnet
+    /// with the network bearer from Settings > Automation, or a test).
     pub fn with_base_url_and_token(base_url: Url, token: Option<String>) -> Self {
         let mut builder = Client::builder().timeout(Duration::from_secs(30));
         if let Some(token) = token.filter(|t| !t.is_empty()) {
-            let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(mut value) =
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
-            {
-                value.set_sensitive(true);
-                headers.insert(reqwest::header::AUTHORIZATION, value);
-                builder = builder.default_headers(headers);
-            }
+            builder = crate::with_bearer(builder, &token);
         }
         let http = crate::loopback_http_client(builder);
+        Self::with_http(base_url, http)
+    }
+
+    fn with_http(base_url: Url, http: Client) -> Self {
         Self {
             base_url,
             http,

@@ -26,13 +26,12 @@ struct HTTPResponseBuilderTests {
         #expect(string.contains("Content-Length: \(body.count)"))
     }
 
-    @Test("CORS headers are present")
-    func corsHeaders() {
+    @Test("No CORS headers are emitted (P0, SEC-1)")
+    func noCorsHeaders() {
         let response = HTTPResponse(status: 200, statusText: "OK")
         let data = response.toData()
         let string = String(data: data, encoding: .utf8)!
-        #expect(string.contains("Access-Control-Allow-Origin: *"))
-        #expect(string.contains("Access-Control-Allow-Methods:"))
+        #expect(!string.contains("Access-Control-"))
     }
 
     // MARK: - Factory methods

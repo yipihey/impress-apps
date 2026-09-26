@@ -375,7 +375,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// FTS/recency position. Off, or against a store with no memory-item
     /// vectors embedded yet, results are byte-identical to the FTS-only
     /// tier.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn recall(
         &self,
         query: String,
@@ -401,7 +401,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// `text` is ready to paste or inject directly into a system prompt;
     /// read `sections` instead when the structured fields (id, confidence,
     /// confirmations) matter more than prose.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn memory_brief(
         &self,
         topic: String,
@@ -450,7 +450,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// this only flips the flag every read path already honours, so the
     /// action is reversible by a direct store edit even though no verb here
     /// un-forgets it.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn forget(&self, id: String) -> ActionResult;
 
     /// Row counts per memory schema (heads and totals), plus which retrieval
@@ -465,7 +465,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// [`StatusResult::vector_tier`]) and `embedding_coverage` is a real
     /// fraction whenever the tier is at least configured; this call never
     /// pays for a model load itself, so it is always cheap to check.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn memory_status(&self) -> StatusResult;
 }
 
@@ -1685,6 +1685,8 @@ impl DefaultMemoryService {
 
 impress_service_impl! {
     service = MemoryService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultMemoryService,
     instance = DefaultMemoryService::new,
     methods = [

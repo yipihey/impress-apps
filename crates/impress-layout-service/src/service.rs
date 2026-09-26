@@ -390,7 +390,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// same verb with a different `as_kind` and arrives with the implore and
     /// preset work (L7); asking for one now is refused rather than
     /// approximated.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn commit(
         &self,
         app_id: String,
@@ -403,7 +403,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Save the current arrangement under a name, durably. Re-saving an
     /// existing name overwrites it.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn save_layout(
         &self,
         app_id: String,
@@ -426,7 +426,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Window geometry is dropped on the way in: the logical tree is what
     /// ports between devices, and a 27" frame has no business landing on a
     /// laptop (ADR-0019 D2).
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn apply_layout(
         &self,
         app_id: String,
@@ -441,7 +441,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// is not a saved layout) and any preset (`reset-preset` is how a preset
     /// goes back to shipped); deleting a name that does not exist is `ok:
     /// false` with a message, never an error.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete_layout(
         &self,
         app_id: String,
@@ -483,7 +483,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// The whole live tree for this scope: windows, the tile arena, channel
     /// state. Creates the three-column preset on a cold start, so a caller
     /// never has to ask whether a layout exists.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_layout(&self, app_id: String, device: Option<String>) -> LayoutResult;
 
     /// One pane: its spec, its query COMPILED against the record-kind manifest
@@ -493,7 +493,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// The compiled `item_query` is literally what the store will be asked —
     /// which is how "why is this pane empty?" becomes a question with an
     /// answer instead of a debugging session.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_pane(
         &self,
         app_id: String,
@@ -503,7 +503,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// What a channel currently carries, per record kind, and which panes it
     /// drives. `channel` is `1`–`8` or `follow`.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_channel(
         &self,
         app_id: String,
@@ -514,7 +514,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// What a pane reference resolves to right now — "which pane is `right`?"
     /// answered without doing anything to it.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn resolve_reference(
         &self,
         app_id: String,
@@ -526,7 +526,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// Their ordinals are OFFSET by the app's presets, which come first in
     /// the union `apply_layout(ordinal:)` recalls — see `list_presets`.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn list_layouts(&self, app_id: String) -> LayoutListResult;
 
     // --------------------------------------------------------------- presets
@@ -540,7 +540,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// chords: presets first, then named layouts. The answer also carries the
     /// sections this app permits that are NOT expressible as queries, with
     /// the reason (ADR-0031 D2).
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn list_presets(&self, app_id: String) -> PresetListResult;
 
     /// Apply a preset: the live arrangement becomes its tree, and the live
@@ -551,7 +551,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Window geometry is dropped on the way in, exactly as `apply_layout`
     /// drops it: the logical tree is what ports between devices (ADR-0019
     /// D2).
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn apply_preset(
         &self,
         app_id: String,
@@ -569,7 +569,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// rather than approximated. Editing a shipped preset leaves its
     /// `version` alone, so "the user edited Triage" stays distinguishable
     /// from "we shipped a newer Triage" and `reset_preset` can undo it.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn save_preset(
         &self,
         app_id: String,
@@ -584,7 +584,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// Refused for a name the suite does not ship: there would be nothing to
     /// restore it to, and the refusal names what IS shipped.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn reset_preset(
         &self,
         app_id: String,
@@ -2698,6 +2698,8 @@ impl SubtreeResolver for CollectionSubtrees {
 
 impress_service_impl! {
     service = LayoutService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultLayoutService,
     instance = DefaultLayoutService::new,
     // A field the input schema does not name is refused with

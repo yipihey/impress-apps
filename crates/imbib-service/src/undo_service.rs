@@ -41,7 +41,7 @@ impl From<&imbib_core::unified::store_api::UndoGroupRow> for UndoGroupRecord {
 #[impress_service]
 pub trait ImbibUndoService: Send + Sync + 'static {
     /// List the most recent undoable operation groups, newest first.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn recent_undo_groups(&self, max_entries: u32) -> Vec<UndoGroupRecord>;
     /// Undo a single operation by id.
     #[impress_method]
@@ -111,6 +111,8 @@ impl ImbibUndoService for DefaultImbibUndoService {
 
 impress_service_impl! {
     service = ImbibUndoService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultImbibUndoService,
     instance = || crate::backend::undo_service_instance(),
     methods = [

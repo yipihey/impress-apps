@@ -59,7 +59,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
     async fn get_scix_library(&self, id: String) -> Option<SciXLibraryRecord>;
     /// Create imbib's local record of a SciX library, keyed by its remote id.
     /// This does not create the library on SciX.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_scix_library(
         &self,
         remote_id: String,
@@ -71,7 +71,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
     ) -> Option<SciXLibraryRecord>;
     /// Add papers to a mirrored SciX library's local membership; pushing the
     /// change to SciX is the app's sync, not this verb.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn add_to_scix_library(
         &self,
         publication_ids: Vec<String>,
@@ -79,7 +79,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
     ) -> MutationResult;
     /// Remove papers from a mirrored SciX library's local membership; the
     /// papers themselves are untouched.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn remove_from_scix_library(
         &self,
         publication_ids: Vec<String>,
@@ -233,6 +233,8 @@ impl ImbibScixService for DefaultImbibScixService {
 
 impress_service_impl! {
     service = ImbibScixService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImbibScixService,
     instance = || crate::backend::scix_service_instance(),
     methods = [

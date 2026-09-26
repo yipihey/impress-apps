@@ -610,6 +610,26 @@ the table; the table does not move to match a server.
 
 Query parameters: `limit`, `offset`, `level` (comma-separated), `category`, `search`, `after` (ISO8601).
 
+**A GET needs no token; every other method from loopback needs this launch's
+loopback token** (plan verb-pipeline P0, SEC-2). The app writes it at launch to
+`~/Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/automation/loopback-<port>.token`
+(mode 0600, one line; the contract is `impress_core::loopback_token`, see
+docs/chassis-capability-matrix.md § HTTP automation → "Who may call"):
+
+```bash
+# read-only: no token
+curl 'http://localhost:23125/api/status'
+# a mutation: the token file for the port you are dialling
+TOKEN=$(cat ~/Library/Group\ Containers/QG3MEYVHMS.com.impress.suite/workspace/automation/loopback-23125.token)
+curl -X POST -H "Authorization: Bearer $TOKEN" 'http://localhost:23125/api/performance/reset'
+# without it: 401. With `Host: attacker`: 400. No response carries Access-Control-*.
+```
+
+The Rust clients (`impress-app-client`, the `*-service-http` crates, the Tier B
+runners, the `impress` CLI) read that file themselves; set `IMPRESS_APP_TOKEN`
+to override it, which is also how a non-loopback caller passes the network
+bearer.
+
 The MCP server (`crates/impress-mcp`) also exposes `imbib-app-service_get-logs` and
 `impart-service_get-logs` for AI agent access — generated from the service traits,
 like every other tool.

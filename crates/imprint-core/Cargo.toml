@@ -44,6 +44,9 @@ crate-type = ["lib"]
 [features]
 default = []
 uniffi = ["dep:uniffi"]
+# Derive `schemars::JsonSchema` on the DTOs imprint-service returns from a
+# verb, so they carry an output schema (ADR-0034 D1).
+schema = ["dep:schemars"]
 # Enable Typst rendering support (requires typst dependencies)
 typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:impress-plot", "dep:implore-io", "dep:implore-core"]
 # Full native build with both UniFFI and Typst
@@ -60,6 +63,7 @@ impress-bibtex = { workspace = true }
 # The project model shares the bundle manifest's role vocabulary and the
 # manuscript-format grammar table (ADR-0030 D2). No features: pure data.
 impress-core = { workspace = true }
+schemars = { workspace = true, optional = true }
 
 # CRDT support
 

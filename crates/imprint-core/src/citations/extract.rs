@@ -73,6 +73,7 @@ impl CitationSyntax {
 /// The Swift code throws this away (it only collects the set of keys), but
 /// we surface it so a downstream view layer can distinguish parenthetical
 /// from in-text citations without re-scanning the source.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CiteCommand {
     /// `\cite{...}` (LaTeX, natbib).
@@ -98,6 +99,7 @@ pub enum CiteCommand {
 }
 
 /// One occurrence of a cite key in source.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CiteKeyUsage {
     /// The cite key as written (post comma-split for grouped LaTeX cites).

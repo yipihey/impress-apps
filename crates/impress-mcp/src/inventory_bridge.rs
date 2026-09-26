@@ -20,7 +20,11 @@ use serde_json::{json, Value};
 /// Build the `tools/list` JSON for every inventory-registered descriptor.
 ///
 /// The shape matches the MCP protocol's tool descriptor:
-/// `{ "name", "description", "inputSchema" }`.
+/// `{ "name", "description", "inputSchema", "annotations" }` — the
+/// annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+/// `openWorldHint`) are read off the verb's declared safety class
+/// (`VerbDescriptor::mcp_annotations`, ADR-0034 D1), the same record every
+/// other interface reads.
 pub fn inventory_tool_definitions() -> Vec<Value> {
     impress_capabilities::descriptors()
         .map(|d| {
@@ -28,6 +32,7 @@ pub fn inventory_tool_definitions() -> Vec<Value> {
                 "name": d.name,
                 "description": d.description,
                 "inputSchema": (d.input_schema)(),
+                "annotations": d.verb.mcp_annotations(),
             })
         })
         .collect()
@@ -97,7 +102,48 @@ mod tests {
             assert!(d.get("name").is_some(), "missing name in {d}");
             assert!(d.get("description").is_some(), "missing description in {d}");
             assert!(d.get("inputSchema").is_some(), "missing inputSchema in {d}");
+            for hint in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(
+                    d["annotations"][hint].is_boolean(),
+                    "missing annotations.{hint} in {d}"
+                );
+            }
         }
+    }
+
+    /// The annotations come from `docs/verb-safety.md`'s classes through the
+    /// descriptor: a read, a write, a delete and an app-only verb each
+    /// advertise what they are.
+    #[test]
+    fn annotations_follow_the_safety_table() {
+        let defs = inventory_tool_definitions();
+        let of = |name: &str| {
+            defs.iter()
+                .find(|d| d["name"] == name)
+                .unwrap_or_else(|| panic!("{name} is listed"))["annotations"]
+                .clone()
+        };
+        assert_eq!(
+            of("collection-service_tree"),
+            json!({"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false})
+        );
+        assert_eq!(
+            of("collection-service_create"),
+            json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false})
+        );
+        assert_eq!(
+            of("collection-service_delete"),
+            json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false})
+        );
+        assert_eq!(
+            of("imbib-app-service_delete-annotation"),
+            json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true})
+        );
     }
 
     #[test]

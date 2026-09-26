@@ -1,5 +1,9 @@
 pub mod event;
 pub mod item;
+/// The per-launch loopback token the automation servers require on a
+/// mutating request (P0, SEC-2): the path convention, the file format and
+/// the client-side read, in one place for both halves of the suite.
+pub mod loopback_token;
 pub mod maintenance;
 pub mod operation;
 /// The pane query algebra (ADR-0031 D2): what a pane shows, compiled to an
@@ -30,6 +34,11 @@ pub mod collab;
 pub mod collection_migration;
 #[cfg(feature = "sqlite")]
 pub mod collection_ops;
+/// A long-running verb is a job on the task kernel (ADR-0034 D6): the
+/// `task@1.0.0` handle, its `task-event@1.0.0` progress ring, the
+/// `cancel_requested` flag executors poll, and the stored result.
+#[cfg(feature = "sqlite")]
+pub mod job;
 /// The manuscript-format grammar table. Pure data + text heuristics, so it is
 /// available without the `sqlite` feature (wasm/UI-only builds read it too).
 pub mod manuscript_format;

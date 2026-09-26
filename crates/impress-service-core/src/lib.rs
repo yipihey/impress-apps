@@ -2,15 +2,15 @@
 //!
 //! This crate provides the building blocks used by the
 //! [`impress-service-macros`](../impress_service_macros/index.html) procedural
-//! macros to turn a single trait declaration into:
+//! macros to turn a single trait declaration into one [`VerbDescriptor`] per
+//! method (ADR-0034 D1), projected as:
 //!
-//! * an `#[uniffi::export]` adapter (Swift binding),
-//! * a `#[pyfunction]` wrapper (Python binding),
 //! * an [`McpToolDescriptor`] registered via [`inventory`] (MCP server pickup),
 //! * a [`CliSubcommand`] registered via [`inventory`] (CLI binary pickup).
 //!
-//! Phase 0 deliberately keeps the surface area small: enough to demonstrate the
-//! generation pipeline end-to-end with the `echo_demo` example.
+//! The Swift bindings are hand-written `#[uniffi::export]` items in the FFI
+//! crates and Python is one generic binding (plan-verb-pipeline P6); neither
+//! is generated here.
 
 #![forbid(unsafe_code)]
 
@@ -20,12 +20,18 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod call;
+pub mod descriptor;
+pub mod job;
 pub mod refusal;
 pub mod report;
 pub mod runtime;
 pub mod strict;
 pub mod wire;
 
+pub use descriptor::{
+    method_meta, resolve_examples, resolve_idempotent, resolve_safety_class, Deprecation, Example,
+    MethodMeta, Safety, SafetyClass, Source, VerbDescriptor,
+};
 pub use refusal::Refusal;
 
 #[cfg(feature = "cli")]
@@ -118,7 +124,7 @@ impl ServiceError for BasicServiceError {
 ///
 /// 1. a `///` comment inside `impress_service_impl! { methods = [...] }`, or
 /// 2. the `///` comment on the trait method, captured by `#[impress_service]`
-///    into a `__IMPRESS_SERVICE_DOCS_*` table.
+///    into a `__IMPRESS_SERVICE_METHODS_*` table ([`MethodMeta`]).
 ///
 /// Only (1) used to be read, so any service that documented its trait — which
 /// is where a Rust developer naturally writes it, and where every service but
@@ -129,25 +135,21 @@ impl ServiceError for BasicServiceError {
 /// `const fn` because `inventory::submit!` builds a `static`.
 pub const fn resolve_description(
     inline_doc: &'static str,
-    trait_docs: &'static [(&'static str, &'static str)],
+    table: &'static [MethodMeta],
     method: &'static str,
     fallback: &'static str,
 ) -> &'static str {
     if !inline_doc.is_empty() {
         return inline_doc;
     }
-    let mut i = 0;
-    while i < trait_docs.len() {
-        if const_str_eq(trait_docs[i].0, method) && !trait_docs[i].1.is_empty() {
-            return trait_docs[i].1;
-        }
-        i += 1;
+    match method_meta(table, method) {
+        Some(meta) if !meta.doc.is_empty() => meta.doc,
+        _ => fallback,
     }
-    fallback
 }
 
 /// `&str` equality usable in a const context.
-const fn const_str_eq(a: &str, b: &str) -> bool {
+pub(crate) const fn const_str_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     if a.len() != b.len() {
         return false;
@@ -162,11 +164,14 @@ const fn const_str_eq(a: &str, b: &str) -> bool {
     true
 }
 
-/// Descriptor for a single MCP tool exposed by a service method.
+/// The MCP projection of a [`VerbDescriptor`].
 ///
-/// Generated `inventory::submit!` blocks register one of these per method,
-/// and the MCP server simply iterates [`McpToolDescriptor::iter`] to publish
-/// `tools/list` and dispatch `tools/call`.
+/// Generated `inventory::submit!` blocks register one of these per method
+/// (built by [`McpToolDescriptor::of`] from the method's `static`
+/// descriptor), and the MCP server simply iterates [`McpToolDescriptor::iter`]
+/// to publish `tools/list` and dispatch `tools/call`. The fields repeat the
+/// descriptor's so the readers that predate ADR-0034 D1 compile unchanged;
+/// `verb` is the whole record (safety, output schema, `since`, examples).
 pub struct McpToolDescriptor {
     /// Tool name as seen by the MCP client (kebab-case method ident).
     pub name: &'static str,
@@ -176,9 +181,23 @@ pub struct McpToolDescriptor {
     pub input_schema: fn() -> serde_json::Value,
     /// Async handler: takes a JSON args object, returns a JSON result.
     pub handler: fn(serde_json::Value) -> ServiceFuture,
+    /// The descriptor this projects.
+    pub verb: &'static VerbDescriptor,
 }
 
 impl McpToolDescriptor {
+    /// Project a descriptor. `const` because `inventory::submit!` builds a
+    /// `static`.
+    pub const fn of(verb: &'static VerbDescriptor) -> Self {
+        Self {
+            name: verb.name,
+            description: verb.description,
+            input_schema: verb.input_schema,
+            handler: verb.handler,
+            verb,
+        }
+    }
+
     /// Iterate all descriptors registered in this binary via `inventory`.
     pub fn iter() -> impl Iterator<Item = &'static McpToolDescriptor> {
         inventory::iter::<McpToolDescriptor>.into_iter()
@@ -241,11 +260,11 @@ pub fn envelope_structured_content(value: serde_json::Value) -> serde_json::Valu
     }
 }
 
-/// Descriptor for a single CLI subcommand exposed by a service method.
+/// The CLI projection of a [`VerbDescriptor`].
 ///
-/// Generated `inventory::submit!` blocks register one of these per method.
-/// A CLI binary collects them at startup and builds the `clap::Command` tree
-/// dynamically.
+/// Generated `inventory::submit!` blocks register one of these per method
+/// (built by [`CliSubcommand::of`]). A CLI binary collects them at startup and
+/// builds the `clap::Command` tree dynamically.
 pub struct CliSubcommand {
     /// Subcommand name (kebab-case method ident) — the spelling the CLI uses
     /// unless another linked service declares the same method name.
@@ -263,9 +282,24 @@ pub struct CliSubcommand {
     /// return a JSON result. Same shape as `McpToolDescriptor::handler` so the
     /// two paths share generated code.
     pub apply: fn(serde_json::Value) -> ServiceFuture,
+    /// The descriptor this projects.
+    pub verb: &'static VerbDescriptor,
 }
 
 impl CliSubcommand {
+    /// Project a descriptor. `const` because `inventory::submit!` builds a
+    /// `static`.
+    pub const fn of(verb: &'static VerbDescriptor) -> Self {
+        Self {
+            name: verb.method,
+            qualified_name: verb.name,
+            description: verb.description,
+            input_schema: verb.input_schema,
+            apply: verb.handler,
+            verb,
+        }
+    }
+
     pub fn iter() -> impl Iterator<Item = &'static CliSubcommand> {
         inventory::iter::<CliSubcommand>.into_iter()
     }

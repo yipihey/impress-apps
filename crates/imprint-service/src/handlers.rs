@@ -51,7 +51,7 @@ use crate::sections::{SectionMetadata, SectionRecord, SectionStore};
 ///
 /// Document-level metadata lives in the Swift `ManuscriptStoreAdapter`; this
 /// DTO is named here so the Swift bridge has a Rust target type.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DocumentSummary {
     pub id: Uuid,
     pub title: String,
@@ -74,7 +74,7 @@ pub enum ExportFormat {
 }
 
 /// One heading extracted from a Typst source.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct OutlineEntry {
     /// Heading depth (1 for `=`, 2 for `==`, …).
     pub level: u32,
@@ -87,13 +87,13 @@ pub struct OutlineEntry {
 }
 
 /// Result of an outline extraction.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct Outline {
     pub entries: Vec<OutlineEntry>,
 }
 
 /// One `@citekey` usage extracted from a Typst source.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct CitationUsage {
     pub cite_key: String,
     /// Byte position of the `@` character.
@@ -136,7 +136,7 @@ pub enum PageSize {
 }
 
 /// Outcome of a Typst compile request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CompileResult {
     /// PDF bytes if compilation succeeded; absent on error.
     ///
@@ -219,7 +219,7 @@ pub fn compile_latex_dispatch(
 }
 
 /// Outcome of a text search-and-replace inside a single section.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct ReplaceResult {
     /// Number of replacements made.
     pub replacements: u32,
@@ -228,7 +228,7 @@ pub struct ReplaceResult {
 }
 
 /// One match returned by `search_in_text`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct TextMatch {
     pub position: u32,
     pub length: u32,
@@ -448,7 +448,11 @@ impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
         source: &str,
         options: CompileOptions,
     ) -> Result<CompileResult, ServiceError> {
-        Ok(compile_typst_dispatch(source, options))
+        // In-process Typst, seconds long: off the executor (LR-1).
+        let source = source.to_string();
+        tokio::task::spawn_blocking(move || compile_typst_dispatch(&source, options))
+            .await
+            .map_err(|e| ServiceError::Internal(format!("compile task: {e}")))
     }
 
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>, ServiceError> {

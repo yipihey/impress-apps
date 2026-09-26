@@ -911,6 +911,7 @@ struct IOSAutomationSettingsView: View {
     @State private var httpServerPort: UInt16 = HTTPAutomationServer.defaultPort
     @State private var networkAccessEnabled = false
     @State private var networkToken: String?
+    @State private var networkBindAddress: String?
     @State private var deviceAddresses: [String] = []
     @State private var tokenCopied = false
 
@@ -977,14 +978,33 @@ struct IOSAutomationSettingsView: View {
                         }
                     }
 
+                    // The address the server BINDS (P0, SEC-5): one, chosen
+                    // here, never every interface. Network mode does not
+                    // start until one is picked.
                     ForEach(deviceAddresses, id: \.self) { addr in
-                        HStack {
-                            Text(addr.hasPrefix("100.") ? "Tailscale" : "Local")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("\(addr):\(String(httpServerPort))")
-                                .font(.caption.monospaced())
+                        Button {
+                            Task {
+                                await AutomationSettingsStore.shared.setNetworkBindAddress(addr)
+                                networkBindAddress = addr
+                                await HTTPAutomationServer.shared.restart()
+                            }
+                        } label: {
+                            HStack {
+                                Text(addr.hasPrefix("100.") ? "Tailscale" : "Local")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(addr):\(String(httpServerPort))")
+                                    .font(.caption.monospaced())
+                                Image(systemName: networkBindAddress == addr ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(networkBindAddress == addr ? .green : .secondary)
+                            }
                         }
+                        .buttonStyle(.plain)
+                    }
+                    if networkBindAddress == nil {
+                        Text("Pick the address to bind — the server stays off until one is chosen.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                 }
             } header: {
@@ -1028,6 +1048,7 @@ struct IOSAutomationSettingsView: View {
             httpServerPort = await AutomationSettingsStore.shared.httpServerPort
             networkAccessEnabled = await AutomationSettingsStore.shared.allowNetworkAccess
             networkToken = await AutomationSettingsStore.shared.networkAuthToken
+            networkBindAddress = await AutomationSettingsStore.shared.networkBindAddress
             deviceAddresses = DeviceAddresses.nonLoopbackIPv4()
         }
         .onChange(of: networkAccessEnabled) { _, newValue in
