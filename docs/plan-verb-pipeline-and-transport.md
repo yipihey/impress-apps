@@ -484,6 +484,8 @@ generated form and reference page come from the same descriptor. What a provider
 
 ## Decisions needed from Tom (ask-first)
 
+**All approved by Tom on 2026-09-26** (D-G5 as "make them undoable, keep the names"; D-P6 as recommended: a provider's safety claim is a floor until trusted). The list is kept as the record of what was asked.
+
 - **D-P1.** P0's mitigations change the automation servers' contract for every local caller (a token on
   non-GET from loopback). Approve the token file mechanism and the `Host` check.
 - **D-P2.** Actor becomes derived from caller identity; the `actor` argument on 24 layout verbs becomes

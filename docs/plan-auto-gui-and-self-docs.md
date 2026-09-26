@@ -631,6 +631,8 @@ reason.
 
 ## Decisions needed from Tom (ask-first)
 
+**All approved by Tom on 2026-09-26** (D-G5 as "make them undoable, keep the names"; D-P6 as recommended: a provider's safety claim is a floor until trusted). The list is kept as the record of what was asked.
+
 - **D-G1.** `strict_args = true` becomes the macro default (36 services flip; § Strictness).
 - **D-G2.** Three new verbs: `capabilities-service_list-verbs`, `perf-service_summary`,
   `perf-service_trace` (read-only; the catalogue and the profiler GUI cannot exist without them).
