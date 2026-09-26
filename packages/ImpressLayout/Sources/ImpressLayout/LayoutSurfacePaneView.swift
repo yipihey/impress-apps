@@ -227,25 +227,33 @@ public struct LayoutSurfacePaneView: View {
 /// `@Observable` so the view re-renders when `tree`/`lastError` change,
 /// exactly the way `LayoutController` drives `LayoutWindowView` — the same
 /// idiom, one level down.
+///
+/// Public since plan-self-reflective-layer R1: a host that shows a surface
+/// OUTSIDE the layout tree (imbib's generated settings pane, a `Settings`
+/// scene section) drives the same model with `pane: nil` — Rust then binds
+/// no pane parameters and the rest is identical, so there is one render /
+/// dispatch / echo discipline, not a second copy in the host.
 @MainActor
 @Observable
-final class SurfacePaneModel {
+public final class SurfacePaneModel {
 
-    let surface: SharedSurface
-    let surfaceID: String
-    let pane: UInt64
+    public let surface: SharedSurface
+    public let surfaceID: String
+    /// The layout tile this surface is shown in, or nil when it is hosted
+    /// outside the tree (no pane parameters are bound).
+    public let pane: UInt64?
     /// Where the window root's j / k / ⏎ / ⎋ arrive for this surface.
-    let keyInput = SurfaceKeyInput()
+    public let keyInput = SurfaceKeyInput()
 
-    private(set) var tree: RenderTree?
-    private(set) var lastError: String?
+    public private(set) var tree: RenderTree?
+    public private(set) var lastError: String?
     /// The spec and state revisions of the last reply this pane adopted —
     /// what a feed notification is compared with to tell this pane's own
     /// write's echo from anyone else's (review SK-K15).
     private var seenRevision: UInt64 = 0
     private var seenStateRevision: UInt64 = 0
     /// The most recent dispatch's failed effects, until dismissed.
-    private(set) var effectFailure: String?
+    public private(set) var effectFailure: String?
     private var subscribed = false
     private var everSubscribed = false
     /// Bumped by every render and dispatch; a reply is shown only if no
@@ -256,15 +264,18 @@ final class SurfacePaneModel {
     /// events reach Rust in the order the person made them.
     private var lastDispatch: Task<Void, Never>?
 
-    init(surface: SharedSurface, surfaceID: String, pane: UInt64) {
+    public init(surface: SharedSurface, surfaceID: String, pane: UInt64?) {
         self.surface = surface
         self.surfaceID = surfaceID
         self.pane = pane
     }
 
+    /// `pane N` in log lines, or `pane -` for a surface hosted outside the tree.
+    private var paneLabel: String { pane.map(String.init) ?? "-" }
+
     /// Render, then subscribe. Idempotent; a pane that appears again after
     /// being hidden re-renders (it may have missed writes) and resubscribes.
-    func start() {
+    public func start() {
         render()
         guard !subscribed else { return }
         do {
@@ -274,24 +285,24 @@ final class SurfacePaneModel {
                 })
             subscribed = true
             logInfo(
-                "surface pane \(pane): \(everSubscribed ? "resubscribed" : "subscribed") to \(surfaceID)",
+                "surface pane \(paneLabel): \(everSubscribed ? "resubscribed" : "subscribed") to \(surfaceID)",
                 category: "surface")
             everSubscribed = true
         } catch {
             lastError = String(describing: error)
             logWarning(
-                "surface pane \(pane): subscribe failed — \(error)", category: "surface")
+                "surface pane \(paneLabel): subscribe failed — \(error)", category: "surface")
         }
     }
 
-    func stop() {
+    public func stop() {
         guard subscribed else { return }
         surface.unsubscribe()
         subscribed = false
-        logInfo("surface pane \(pane): unsubscribed from \(surfaceID)", category: "surface")
+        logInfo("surface pane \(paneLabel): unsubscribed from \(surfaceID)", category: "surface")
     }
 
-    func dismissEffectFailure() {
+    public func dismissEffectFailure() {
         effectFailure = nil
     }
 
@@ -300,12 +311,12 @@ final class SurfacePaneModel {
     /// its reply carried — is not rendered again: the reply already drew it.
     /// Anything newer (an agent's update or state write, another pane's
     /// dispatch) is.
-    func changed(_ change: SharedSurfaceChange) {
+    public func changed(_ change: SharedSurfaceChange) {
         let newerSpec = (change.revision ?? 0) > seenRevision
         let newerState = (change.stateRevision ?? 0) > seenStateRevision
         guard change.sourcesChanged || change.deleted || newerSpec || newerState else {
             logDebug(
-                "surface pane \(pane): echo of its own write (revision \(seenRevision), "
+                "surface pane \(paneLabel): echo of its own write (revision \(seenRevision), "
                     + "state \(seenStateRevision)) — not re-rendered",
                 category: "surface")
             return
@@ -327,11 +338,11 @@ final class SurfacePaneModel {
     ///
     /// The feed's echo of this pane's own dispatch never gets here (see
     /// `changed`), and a tree equal to the one on screen is not adopted.
-    func render() {
-        logDebug("surface pane \(pane): render requested for \(surfaceID)", category: "surface")
+    public func render() {
+        logDebug("surface pane \(paneLabel): render requested for \(surfaceID)", category: "surface")
         generation += 1
         let ticket = generation
-        let (surface, surfaceID, pane) = (self.surface, self.surfaceID, self.pane)
+        let (surface, surfaceID, pane, paneLabel) = (self.surface, self.surfaceID, self.pane, self.paneLabel)
         Task { [weak self] in
             do {
                 let json = try await surface.render(surfaceId: surfaceID, pane: pane)
@@ -340,25 +351,25 @@ final class SurfacePaneModel {
                 guard reply.ok, let decoded = reply.tree else {
                     self.lastError = reply.message
                     logWarning(
-                        "surface pane \(pane): render refused [\(reply.code ?? "?")] — \(reply.message)",
+                        "surface pane \(paneLabel): render refused [\(reply.code ?? "?")] — \(reply.message)",
                         category: "surface")
                     return
                 }
                 self.lastError = nil
                 self.saw(revision: reply.revision, stateRevision: reply.stateRevision)
                 guard decoded != self.tree else {
-                    logDebug("surface pane \(pane): render unchanged", category: "surface")
+                    logDebug("surface pane \(paneLabel): render unchanged", category: "surface")
                     return
                 }
                 self.tree = decoded
                 logInfo(
-                    "surface pane \(pane) display: \(decoded.focusOrder.count) focusable widgets",
+                    "surface pane \(paneLabel) display: \(decoded.focusOrder.count) focusable widgets",
                     category: "surface")
             } catch {
                 guard let self, ticket == self.generation else { return }
                 self.lastError = String(describing: error)
                 logWarning(
-                    "surface pane \(pane): render failed — \(error)", category: "surface")
+                    "surface pane \(paneLabel): render failed — \(error)", category: "surface")
             }
         }
     }
@@ -367,10 +378,10 @@ final class SurfacePaneModel {
     /// effects included) of the trace, as ONE line each; the reply's tree is
     /// the DISPLAY leg. Dispatches run in the order they were made, each
     /// awaiting the one before it.
-    func dispatch(_ event: SurfaceEvent) {
+    public func dispatch(_ event: SurfaceEvent) {
         let value = (try? event.value.jsonString()) ?? "?"
         logInfo(
-            "surface pane \(pane): \(event.kind.rawValue) \(event.widget)=\(value.prefix(80))",
+            "surface pane \(paneLabel): \(event.kind.rawValue) \(event.widget)=\(value.prefix(80))",
             category: "surface")
         let eventJSON: String
         do {
@@ -378,14 +389,14 @@ final class SurfacePaneModel {
         } catch {
             lastError = String(describing: error)
             logWarning(
-                "surface pane \(pane): \(event.kind.rawValue) \(event.widget) failed — \(error)",
+                "surface pane \(paneLabel): \(event.kind.rawValue) \(event.widget) failed — \(error)",
                 category: "surface")
             return
         }
         generation += 1
         let ticket = generation
         let previous = lastDispatch
-        let (surface, surfaceID, pane) = (self.surface, self.surfaceID, self.pane)
+        let (surface, surfaceID, pane, paneLabel) = (self.surface, self.surfaceID, self.pane, self.paneLabel)
         let (kind, widget) = (event.kind.rawValue, event.widget)
         lastDispatch = Task { [weak self] in
             await previous?.value
@@ -399,7 +410,7 @@ final class SurfacePaneModel {
                 let reply = try SurfaceDispatchReply.decode(replyJSON)
                 let failed = reply.effects.filter { !$0.ok }
                 logInfo(
-                    "surface pane \(pane): \(kind) \(widget) → "
+                    "surface pane \(paneLabel): \(kind) \(widget) → "
                         + "\(reply.ok ? "ok" : "not ok [\(reply.code ?? "?")]: \(reply.message)"), "
                         + "\(reply.effects.count) effect(s), \(failed.count) failed",
                     category: "surface")
@@ -409,7 +420,7 @@ final class SurfacePaneModel {
                 // overtook the reply's tree.
                 for effect in failed {
                     logWarning(
-                        "surface pane \(pane): \(effect.kind) effect failed "
+                        "surface pane \(paneLabel): \(effect.kind) effect failed "
                             + "[\(effect.code ?? "?")] — \(effect.message)",
                         category: "surface")
                 }
@@ -427,7 +438,7 @@ final class SurfacePaneModel {
                 }
             } catch {
                 logWarning(
-                    "surface pane \(pane): \(kind) \(widget) failed — \(error)",
+                    "surface pane \(paneLabel): \(kind) \(widget) failed — \(error)",
                     category: "surface")
                 guard let self, ticket == self.generation else { return }
                 self.lastError = String(describing: error)

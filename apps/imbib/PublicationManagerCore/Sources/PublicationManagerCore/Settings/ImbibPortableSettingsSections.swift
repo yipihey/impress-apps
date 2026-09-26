@@ -54,6 +54,12 @@ public enum ImbibPortableSettingsSections {
         SettingsSectionFactory(section: .enrichment) { context in
             AnyView(ImbibEnrichmentSettingsPane(presentation: context.presentation))
         },
+        // The registry's `imbib.retention` section as a GENERATED surface
+        // (ADR-0036 D5, plan-self-reflective-layer R1): the same document
+        // on both platforms, so it is portable by construction.
+        SettingsSectionFactory(section: .retention) { _ in
+            AnyView(SettingsSurfacePane(section: "imbib.retention"))
+        },
     ]
 }
 

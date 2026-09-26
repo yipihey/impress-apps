@@ -339,6 +339,21 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   keychain (apps push them into Rust memory; daemons read the same items via `security`).
   `IMPRESS_<PROVIDER>_URL` / `IMPRESS_AI_PROVIDER` / `IMPRESS_AI_MODEL` are explicit
   overrides, not the source of truth.
+- **Settings are declared once, in Rust** (ADR-0036 D5): every setting is a
+  `setting!` in `crates/impress-settings` (key, type, default, scope, the
+  legacy `UserDefaults` keys, doc) and lives in `<workspace>/settings/<scope>.json`
+  (device, app, library) or one `impress/settings@1.0.0` row (synced) —
+  the `ai/preferences.json` discipline, one file per scope. Swift reads it
+  through `ImpressSettings` / `@ImpressSetting("imbib.retention.inbox_days")`
+  in `ImpressKit`, which replaces `@AppStorage` at the call site: the type and
+  default are the registry's, a misspelt key is a logged error answering zero
+  (never a guessed default), and a legacy value is copied in on the first read
+  and **never removed** from `UserDefaults` (D-R5). The verbs are
+  `settings-service_{schema,list,get,set,reset,surface}`; a settings pane is
+  the generated surface `surface` returns (imbib's Retention pane is the
+  first), not a Swift form. Add a key to the registry, never a new
+  `@AppStorage`; the census in plan-self-reflective-layer.md table RG-S is the
+  list of what has not moved yet.
 - **A tool's own surface shows its own domain** (ADR-0032): when one app needs
   another's domain, it asks for that app's surface instead of rebuilding it.
   A manuscript's papers are an imbib collection and imbib shows them — imprint
