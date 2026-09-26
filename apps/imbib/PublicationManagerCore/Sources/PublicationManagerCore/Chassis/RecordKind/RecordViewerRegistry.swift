@@ -67,14 +67,15 @@ public struct RecordViewerFactory: Identifiable, Sendable {
     /// The whole list|detail section for a scope of this kind.
     public let makeSectionView: @MainActor @Sendable (RecordSectionContext) -> AnyView
     /// One heterogeneous-list row. Defaults to the shared mail-style chrome,
-    /// which is what every kind renders today.
+    /// which is what every kind renders today — with the row's own
+    /// configuration, so an undated row shows no date.
     public let makeListRow: @MainActor @Sendable (KindTaggedRow) -> AnyView
 
     public init(
         kind: RecordKindID,
         makeSectionView: @escaping @MainActor @Sendable (RecordSectionContext) -> AnyView,
         makeListRow: @escaping @MainActor @Sendable (KindTaggedRow) -> AnyView = {
-            AnyView(MailStyleRow(item: $0))
+            AnyView(MailStyleRow(item: $0, configuration: $0.mailStyleConfiguration))
         }
     ) {
         self.kind = kind

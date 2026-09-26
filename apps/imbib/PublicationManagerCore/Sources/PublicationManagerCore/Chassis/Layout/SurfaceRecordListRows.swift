@@ -39,10 +39,14 @@ struct SurfaceRecordListRows: View {
     @State private var selection = Set<String>()
     /// The mapping, memoized by the JSON it came from (PH-L5): it decoded the
     /// rows, re-encoded every payload and decoded it again on every render.
-    @State private var mapped: (json: String, rows: [KindTaggedRow]?)?
+    /// Written only by `remap()`, from `onAppear` and `onChange` — never
+    /// computed in `body`. Between a new `rowsJSON` and its `onChange` the
+    /// previous mapping stays on screen for that one pass.
+    @State private var mapped: Mapping?
 
-    private var mappedRows: [KindTaggedRow]? {
-        mapped?.json == rowsJSON ? mapped?.rows : Self.map(rowsJSON)
+    struct Mapping: Equatable {
+        let json: String
+        let rows: [KindTaggedRow]?
     }
 
     var body: some View {
@@ -53,12 +57,16 @@ struct SurfaceRecordListRows: View {
 
     private func remap() {
         guard mapped?.json != rowsJSON else { return }
-        mapped = (rowsJSON, Self.map(rowsJSON))
+        mapped = Mapping(json: rowsJSON, rows: Self.map(rowsJSON))
     }
 
     @ViewBuilder
     private var content: some View {
-        if let rows = mappedRows, !rows.isEmpty {
+        if mapped == nil {
+            // Not mapped yet: `onAppear` maps it. A
+            // zero-height view, not `EmptyView`, so there is a view to appear.
+            Color.clear.frame(height: 0)
+        } else if let rows = mapped?.rows, !rows.isEmpty {
             // A stack, not a `List`: the column the surface lays this in is
             // already a ScrollView, and a List inside it either collapses to
             // nothing or scrolls inside a fixed floor — six rows in a 240 pt
@@ -93,7 +101,7 @@ struct SurfaceRecordListRows: View {
         if let factory = viewerRegistry[row.kind] {
             factory.makeListRow(row)
         } else {
-            MailStyleRow(item: row)
+            MailStyleRow(item: row, configuration: row.mailStyleConfiguration)
         }
     }
 
@@ -110,27 +118,29 @@ struct SurfaceRecordListRows: View {
             guard let object = item.objectValue,
                 let schema = object["schema"]?.stringValue,
                 LayoutPaneRowMapper.layoutKind(forSchemaRef: schema) != nil,
-                let shared = sharedItemRow(object, schema: schema, undated: &undated),
-                let mapped = LayoutPaneRowMapper.kindTaggedRow(shared)
+                let envelope = sharedItemRow(object, schema: schema),
+                let mapped = LayoutPaneRowMapper.kindTaggedRow(envelope.row, isDated: envelope.isDated)
             else { return nil }
+            if !envelope.isDated { undated += 1 }
             rows.append(mapped)
         }
         if undated > 0 {
-            // The mail-style row has no "no date" (its date is not optional),
-            // so an undated row still shows one — say which, once per list.
             logInfo(
                 "surface list: \(undated) of \(rows.count) row(s) carry no modified or created date — "
-                    + "their date column shows when they were read, not a date of theirs",
+                    + "shown with no date",
                 category: "surface")
         }
         return rows
     }
 
     /// The envelope columns `LayoutPaneRowMapper` reads, recovered from the
-    /// flattened row. Anything absent takes the value a fresh item has.
+    /// flattened row, and whether the row has a date of its own. Anything
+    /// absent takes the value a fresh item has; a row with neither
+    /// `modified` nor `created` gets the epoch as a placeholder and is
+    /// marked undated, never "now" (PH-L5).
     private static func sharedItemRow(
-        _ object: [String: LayoutJSONValue], schema: String, undated: inout Int
-    ) -> SharedItemRow? {
+        _ object: [String: LayoutJSONValue], schema: String
+    ) -> (row: SharedItemRow, isDated: Bool)? {
         guard let id = object["id"]?.stringValue else { return nil }
         let payload = LayoutJSONValue.object(object)
         guard let payloadJSON = try? payload.jsonString() else { return nil }
@@ -138,19 +148,18 @@ struct SurfaceRecordListRows: View {
             ?? object["flag"]?.stringValue
         let created = millis(object["created"])
         let modified = millis(object["modified"])
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        if created == nil && modified == nil { undated += 1 }
-        return SharedItemRow(
+        let row = SharedItemRow(
             id: id,
             schemaRef: schema,
             payloadJson: payloadJSON,
-            createdMs: created ?? modified ?? now,
-            modifiedMs: modified ?? created ?? now,
+            createdMs: created ?? modified ?? 0,
+            modifiedMs: modified ?? created ?? 0,
             parentId: object["parent"]?.stringValue,
             isRead: object["is_read"]?.boolValue ?? true,
             isStarred: object["is_starred"]?.boolValue ?? false,
             tags: object["tags"]?.stringArrayValue ?? [],
             flagColor: flag)
+        return (row, modified != nil || created != nil)
     }
 
     /// A row's ISO-8601 date in milliseconds, or nil when it has none —
