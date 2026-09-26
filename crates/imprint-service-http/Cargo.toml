@@ -13,3 +13,4 @@ impress-app-client = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
+impress-workspace-hack.workspace = true

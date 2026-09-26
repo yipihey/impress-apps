@@ -66,6 +66,7 @@ chrono = { workspace = true }
 
 # SQLite for provenance event store
 rusqlite = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

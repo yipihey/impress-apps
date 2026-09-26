@@ -24,3 +24,4 @@ serde_json = { workspace = true }
 async-trait = { workspace = true }
 schemars = { workspace = true }
 dirs = { workspace = true }
+impress-workspace-hack.workspace = true

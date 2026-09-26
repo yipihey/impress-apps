@@ -30,6 +30,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # The inline job runner (ADR-0034 D6): a long-running verb spawns its work on
 # the shared service runtime and answers with the handle.
 tokio = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

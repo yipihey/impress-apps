@@ -22,6 +22,7 @@ dirs = { workspace = true }
 
 # The e-ink verbs run the blocking mirror engine off the async executor.
 tokio = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 # The service trait is async; its tests need a runtime to drive it.

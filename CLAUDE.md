@@ -267,6 +267,15 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   for months, and a lint in a *dependency's* test target is invisible to an
   app-scoped gate. `.github/workflows/workspace-rust.yml` is the floor that
   catches this; the per-app workflows keep their app-specific steps.
+  A dependency change (any `Cargo.toml` or `Cargo.lock` edit) ends with
+  `cargo hakari generate`, and a new crate with `cargo hakari manage-deps`:
+  `crates/impress-workspace-hack` is the generated cargo-hakari crate every
+  member depends on so the shards, the per-app lanes and a lone `cargo check
+  -p` resolve one third-party feature set instead of rebuilding the
+  dependencies on every switch (plan-verb-pipeline-and-transport § Build cost,
+  B4). CI runs `cargo hakari generate --diff` and fails on drift; the settings
+  are in `.config/hakari.toml`, and `cargo binstall cargo-hakari` installs the
+  tool.
 - **Definition of done — UniFFI exports**: adding a `#[uniffi::export]` is not
   done until the crate's committed Swift binding is regenerated and committed in
   the same PR. Nothing regenerates these at build time — they are checked-in
