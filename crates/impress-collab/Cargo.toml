@@ -12,7 +12,6 @@ uniffi = ["dep:uniffi"]
 
 [dependencies]
 serde = { workspace = true }
-thiserror = { workspace = true }
 uniffi = { workspace = true, optional = true }
 bitflags = { version = "2", features = ["serde"] }
 chrono = { workspace = true }

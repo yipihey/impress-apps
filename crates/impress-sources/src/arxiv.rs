@@ -109,7 +109,7 @@ impl ArxivSource {
 
     fn parse_atom_feed(xml: &str) -> Result<Vec<PaperMetadata>, SourceError> {
         let mut reader = Reader::from_str(xml);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
 
         let mut buf = Vec::new();
         let mut items: Vec<PaperMetadata> = Vec::new();
@@ -193,7 +193,7 @@ impl ArxivSource {
                     handle_start(&name, e.attributes(), &mut current, &mut path, true);
                 }
                 Ok(Event::Text(t)) => {
-                    let text = t.unescape().map(|c| c.into_owned()).unwrap_or_default();
+                    let text = t.xml_content().map(|c| c.into_owned()).unwrap_or_default();
                     if let (Some(entry), Some(tag)) = (current.as_mut(), path.last()) {
                         match tag.as_str() {
                             "id" => {

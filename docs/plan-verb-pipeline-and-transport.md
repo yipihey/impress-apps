@@ -803,3 +803,21 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   check-kit-standalone (13 crates OK), check-schema-refs (387 call sites) — all green. Noticed
   while merging: 3f743650 (G1) committed `target-standalone/` (3,021 build-product files) to main;
   not touched here.
+- 2026-09-26 — **B3 dependency graph** (branch `claude/bc-b3-dependency-graph`, from main at
+  701a2573). Three commits, Cargo.toml/Cargo.lock only plus the six source lines the bumps forced:
+  `thiserror` 2 everywhere ours (two imprint-core error messages named their extra format argument);
+  `quick-xml` 0.31→0.38 and `dirs` 5→6 (`trim_text` onto `config_mut()`, `unescape()`→`xml_content()`
+  in the arXiv/PubMed parsers); 42 unused dependency lines dropped after grepping each and building
+  `--all-targets`, among them the two sole users (`tokio-tungstenite`, `tui-textarea`) and two BC-7
+  had not counted as sole (`mail-parser`, `petgraph`, impel-core's alone), so seven lock entries left.
+  Multi-version packages in `cargo tree -d --features native`: 55 → 52 (`dirs`, `dirs-sys`,
+  `quick-xml` gone). What BC-6 named as ours and is not: every `itertools` copy (0.12 tantivy, 0.13
+  ratatui, 0.14 rav1e/tokenizers, 0.15 automerge/pdfium) and `toml` 0.5 (uniffi_bindgen) reach the
+  graph only through upstream crates; `thiserror` 1 stays through uniffi's cargo_metadata, tantivy,
+  russh and scix-client. Left alone on purpose: `nom` 7 (askama/imap/tantivy keep it), `png` 0.17
+  (krilla/typst keep it), `darling` 0.20 (derive_builder keeps it), the ICU/zerovec/rand/rustix
+  pairs. The 28 machete hits kept are the inventory links, the `schemars::`/`serde_json::` paths
+  the service macro expands to, and feature-gated optionals; no tokio feature list changed (BC-8).
+  Gates: fmt, clippy rest, clippy imprint, `cargo test --workspace --features native` (232 suites,
+  4010 passed, 0 failed, 20 ignored), check-kit-deps --strict, check-kit-standalone,
+  check-chassis-deps, check-uniffi-bindings — all clean.

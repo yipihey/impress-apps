@@ -13,7 +13,6 @@ uniffi = ["dep:uniffi"]
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 uniffi = { workspace = true, optional = true }

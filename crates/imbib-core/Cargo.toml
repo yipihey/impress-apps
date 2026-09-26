@@ -40,7 +40,6 @@ wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 
 [dependencies]
 # Shared impress crates
-impress-domain = { workspace = true }
 impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
 impress-flags = { workspace = true }
@@ -77,8 +76,7 @@ encoding_rs = "0.8"
 unicode-segmentation = "1"
 
 # Parsing
-nom = { workspace = true }
-quick-xml = "0.31"
+quick-xml = { workspace = true }
 
 # Regex for identifier extraction
 regex = { workspace = true }
@@ -99,9 +97,6 @@ serde_json = { workspace = true }
 
 # UUID generation for domain models
 uuid = { workspace = true, features = ["js", "v5"] }
-
-# Plist encoding/decoding for BibDesk file references
-plist = "1.6"
 
 # Base64 encoding for Bdsk-File fields
 base64 = "0.22"

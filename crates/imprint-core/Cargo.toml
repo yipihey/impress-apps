@@ -57,7 +57,6 @@ tectonic-render = ["dep:tectonic", "dep:tectonic_status_base", "dep:tectonic_err
 # Workspace crates
 impress-domain = { workspace = true }
 impress-bibtex = { workspace = true }
-impress-identifiers = { workspace = true }
 # The project model shares the bundle manifest's role vocabulary and the
 # manuscript-format grammar table (ADR-0030 D2). No features: pure data.
 impress-core = { workspace = true }
@@ -76,7 +75,7 @@ url = "2"
 urlencoding = "2"
 
 # Directory paths for user data
-dirs = "5"
+dirs = { workspace = true }
 
 # Citation extraction (Phase 2A) — LaTeX `\cite{...}` matcher.
 regex = { workspace = true }

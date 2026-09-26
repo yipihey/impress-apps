@@ -31,7 +31,6 @@ native = ["uniffi", "sqlite"]
 
 [dependencies]
 # Workspace crates
-impress-domain = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite"] }
 
 # Serialization and error handling
@@ -41,15 +40,9 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 
-# Email message parsing
-mail-parser = { workspace = true }
-
 # Task kernel (ADR-0015): async executor contract + scheduler loop
 async-trait = { workspace = true }
 tokio = { workspace = true }
-
-# Graph structures for thread relationships
-petgraph = { workspace = true }
 
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }

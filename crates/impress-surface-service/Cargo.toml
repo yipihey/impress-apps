@@ -38,7 +38,6 @@ schemars = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true }
-thiserror = { workspace = true }
 # `surface_wait` long-polls the event ring every 250ms (ADR-0033 D6) —
 # `tokio::time::sleep`, so this is a real dependency, not dev-only.
 tokio = { workspace = true }
