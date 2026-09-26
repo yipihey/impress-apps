@@ -51,10 +51,14 @@ impl From<&imbib_core::unified::shaped_queries::SciXLibraryRow> for SciXLibraryR
 
 #[impress_service]
 pub trait ImbibScixService: Send + Sync + 'static {
+    /// List the SciX (ADS) libraries mirrored in imbib.
     #[impress_method]
     async fn list_scix_libraries(&self) -> Vec<SciXLibraryRecord>;
+    /// Get one mirrored SciX library by its imbib id.
     #[impress_method]
     async fn get_scix_library(&self, id: String) -> Option<SciXLibraryRecord>;
+    /// Create imbib's local record of a SciX library, keyed by its remote id.
+    /// This does not create the library on SciX.
     #[impress_method]
     async fn create_scix_library(
         &self,
@@ -65,18 +69,23 @@ pub trait ImbibScixService: Send + Sync + 'static {
         permission_level: String,
         owner_email: Option<String>,
     ) -> Option<SciXLibraryRecord>;
+    /// Add papers to a mirrored SciX library's local membership; pushing the
+    /// change to SciX is the app's sync, not this verb.
     #[impress_method]
     async fn add_to_scix_library(
         &self,
         publication_ids: Vec<String>,
         scix_library_id: String,
     ) -> MutationResult;
+    /// Remove papers from a mirrored SciX library's local membership; the
+    /// papers themselves are untouched.
     #[impress_method]
     async fn remove_from_scix_library(
         &self,
         publication_ids: Vec<String>,
         scix_library_id: String,
     ) -> MutationResult;
+    /// List the papers in a mirrored SciX library, sorted and paged.
     #[impress_method]
     async fn query_scix_library_publications(
         &self,
@@ -86,6 +95,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
         limit: u32,
         offset: u32,
     ) -> Vec<PublicationSummary>;
+    /// Count the papers in a mirrored SciX library.
     #[impress_method]
     async fn count_scix_library_publications(&self, scix_library_id: String) -> u32;
 }

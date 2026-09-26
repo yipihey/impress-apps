@@ -123,6 +123,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         linked_file_id: String,
         page_number: Option<i32>,
     ) -> Vec<AnnotationRecord>;
+    /// Count the PDF annotations on one linked file.
     #[impress_method]
     async fn count_annotations(&self, linked_file_id: String) -> u32;
     /// Add a PDF annotation to a paper. Supports highlights, underlines,
@@ -149,6 +150,8 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     /// discussions.
     #[impress_method]
     async fn list_comments(&self, publication_id: String) -> Vec<CommentRecord>;
+    /// List the comments on an item written after a store clock value, for
+    /// following a thread incrementally.
     #[impress_method]
     async fn list_comments_since(&self, item_id: String, since_clock: u64) -> Vec<CommentRecord>;
     /// Add a comment to a paper. Can be a top-level comment or a reply to

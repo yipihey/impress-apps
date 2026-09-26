@@ -12,6 +12,11 @@ name: kit - the layout + surface kit can leave
 #   standalone  scripts/check-kit-standalone.sh: the kit crates plus
 #               impress-core, copied into a scratch workspace with nothing else
 #               from this repository, pass `cargo check --all-targets`.
+#   coverage    scripts/check-verb-coverage.sh: every workspace crate has a
+#               verdict in docs/verb-coverage.md and every service an
+#               `impress_service_impl!` block has a row (plan-auto-gui G0).
+#               The per-service counts need the whole inventory linked and
+#               are checked by `cargo test -p impress-capabilities` instead.
 #
 # HOSTED RUNNERS, deliberately, unlike workspace-rust.yml. This lane has to
 # block a pull request: W6's proof is the lane green on its PR, and a kit break
@@ -40,7 +45,9 @@ on:
       - 'rust-toolchain.toml'
       - '.cargo/config.toml'
       - 'scripts/check-kit-*.sh'
+      - 'scripts/check-verb-coverage.sh'
       - 'docs/kit-manifest.md'
+      - 'docs/verb-coverage.md'
       - 'packages/ImpressLayout/**'
       - 'packages/ImpressSurface/**'
       - 'packages/ImpressRustCore/**'
@@ -55,7 +62,9 @@ on:
       - 'rust-toolchain.toml'
       - '.cargo/config.toml'
       - 'scripts/check-kit-*.sh'
+      - 'scripts/check-verb-coverage.sh'
       - 'docs/kit-manifest.md'
+      - 'docs/verb-coverage.md'
       - 'packages/ImpressLayout/**'
       - 'packages/ImpressSurface/**'
       - 'packages/ImpressRustCore/**'
@@ -104,6 +113,17 @@ jobs:
 
       - name: Kit plus impress-core in a scratch workspace
         run: ./scripts/check-kit-standalone.sh --strict
+
+  coverage:
+    name: Every crate has a verb-coverage verdict
+    # Text only: Cargo.toml, the crate sources and docs/verb-coverage.md. The
+    # counts that need the inventory linked are the census test's job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verb coverage table is complete (plan-auto-gui G0)
+        run: ./scripts/check-verb-coverage.sh
 
   packages:
     name: Kit Swift packages depend only on kit-grade packages
