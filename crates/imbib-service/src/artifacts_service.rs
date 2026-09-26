@@ -115,6 +115,7 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     /// Get detailed information about a specific research artifact by ID.
     #[impress_method]
     async fn get_artifact(&self, id: String) -> Option<ArtifactRecord>;
+    /// Count research artifacts, optionally only those of one schema.
     #[impress_method]
     async fn count_artifacts(&self, schema_filter: Option<String>) -> u32;
     /// Create a research artifact in imbib. Artifacts are non-paper items:
@@ -138,6 +139,8 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
         event_date: Option<String>,
         tags: Vec<String>,
     ) -> Option<ArtifactRecord>;
+    /// Update an artifact's metadata fields; a field left null keeps its
+    /// current value.
     #[impress_method]
     async fn update_artifact(
         &self,
@@ -162,6 +165,7 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
         artifact_id: String,
         publication_id: String,
     ) -> MutationResult;
+    /// List the relationships an artifact has to papers and other items.
     #[impress_method]
     async fn get_artifact_relations(&self, id: String) -> Vec<ArtifactRelationRecord>;
 }

@@ -188,7 +188,7 @@ fn format_field_value(prefix: &str, value: &str) -> String {
 /// Parse arXiv Atom XML feed to SearchResults (internal)
 fn parse_atom_feed_internal(xml: &str) -> Result<Vec<SearchResult>, SourceError> {
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
 
     let mut results = Vec::new();
     let mut buf = Vec::new();
@@ -302,7 +302,7 @@ fn parse_atom_feed_internal(xml: &str) -> Result<Vec<SearchResult>, SourceError>
             }
             Ok(Event::Text(e)) => {
                 if in_entry {
-                    let text = e.unescape().unwrap_or_default().to_string();
+                    let text = e.xml_content().unwrap_or_default().to_string();
                     match current_element.as_str() {
                         "id" => entry_id = text,
                         "title" => entry_title = clean_title(&text),

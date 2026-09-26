@@ -86,6 +86,8 @@ pub struct CiteKeyResolution {
 #[impress_service]
 pub trait ImbibSearchService: Send + Sync + 'static {
     // ---- Identifier lookups ----
+    /// Find the paper with a cite key, optionally within one library; null on
+    /// a miss (`resolve_cite_key` says why a lookup missed).
     #[impress_method]
     async fn find_by_cite_key(
         &self,
@@ -110,12 +112,17 @@ pub trait ImbibSearchService: Send + Sync + 'static {
         cite_key: String,
         library_id: Option<String>,
     ) -> CiteKeyResolution;
+    /// Find the papers carrying a DOI.
     #[impress_method]
     async fn find_by_doi(&self, doi: String) -> Vec<PublicationSummary>;
+    /// Find the papers carrying an arXiv id.
     #[impress_method]
     async fn find_by_arxiv(&self, arxiv_id: String) -> Vec<PublicationSummary>;
+    /// Find the papers carrying an ADS bibcode.
     #[impress_method]
     async fn find_by_bibcode(&self, bibcode: String) -> Vec<PublicationSummary>;
+    /// Find every paper matching any of the given DOIs, arXiv ids or bibcodes
+    /// in one query.
     #[impress_method]
     async fn find_by_identifiers_batch(
         &self,
