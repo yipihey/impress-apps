@@ -1179,10 +1179,7 @@ extension HTTPResponse {
         HTTPResponse(
             status: 200,
             statusText: "OK",
-            headers: [
-                "Content-Type": "image/svg+xml; charset=utf-8",
-                "Access-Control-Allow-Origin": "*",
-            ],
+            headers: ["Content-Type": "image/svg+xml; charset=utf-8"],
             body: content.data(using: .utf8) ?? Data()
         )
     }

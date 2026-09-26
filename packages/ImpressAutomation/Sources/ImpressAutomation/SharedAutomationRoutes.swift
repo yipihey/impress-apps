@@ -54,8 +54,15 @@
 //       `serverPort` and silently received `None`. Emitting both keeps every
 //       existing reader working and fixes the latent mismatch.
 //    2. `statusPayload` always includes `app`. imbib's status had no `app` key.
-//    3. The reset routes answer `{"status":"ok","reset":true}` and accept GET or
-//       POST — the union of what imprint and imbib each accepted.
+//    3. The reset routes answer `{"status":"ok","reset":true}`. They accepted
+//       GET or POST (the union of what imprint and imbib each accepted) until
+//       P0 (SEC-6): a reset is a mutation, and GET is the token-free method,
+//       so they are POST only now and a GET answers 405 naming the POST.
+//
+//  AUTH AND CORS (P0, 2026-09-26). This group answers nothing about who may
+//  call: `HTTPServer.processRequest` checks the `Host` header, then the
+//  loopback token on every non-GET, before any router runs. And nothing here
+//  emits `Access-Control-*` any more — see `corsPreflight()`.
 //
 //  The `/api/logs` shape is untouched, which matters more than it looks: all
 //  four Rust `get_logs` implementations read `data.entries[]` with a top-level
@@ -122,15 +129,18 @@ public enum SharedAutomationRoutes {
             guard method == "GET" else { return nil }
             return storeTimings(request)
 
-        // Reset accepts GET or POST: imprint registered POST, imbib registered
-        // GET, and an agent that learned one against the wrong app got a 404.
+        // Reset is POST only (P0, SEC-6). It accepted GET too — imbib had
+        // registered it that way — which made a mutation reachable from an
+        // `<img src>` and exempt from the loopback token, since GET is the
+        // read-only, token-free method. A GET here is 405 naming the POST,
+        // not a 404, so an agent that learned the old spelling is told.
         case "/api/performance/reset":
-            guard method == "GET" || method == "POST" else { return nil }
+            guard method == "POST" else { return method == "GET" ? mutationOnGET(path) : nil }
             PerfMetrics.shared.reset()
             return .json(["status": "ok", "reset": true])
 
         case "/api/store-timings/reset":
-            guard method == "GET" || method == "POST" else { return nil }
+            guard method == "POST" else { return method == "GET" ? mutationOnGET(path) : nil }
             StoreTimings.shared.reset()
             return .json(["status": "ok", "reset": true])
 
@@ -158,19 +168,29 @@ public enum SharedAutomationRoutes {
         return String(lower.dropLast())
     }
 
-    // MARK: - CORS
+    // MARK: - OPTIONS
 
-    /// The 204 preflight answer all five routers carried privately.
+    /// The answer to any `OPTIONS` request: 204 with NO `Access-Control-*`
+    /// headers (P0, SEC-1). The five routers used to carry a private copy of
+    /// a wildcard preflight — `Allow-Origin: *`, every method, `Authorization`
+    /// allowed — which told every browser origin it was welcome. Without
+    /// those headers a cross-origin preflight fails, which is the point: no
+    /// web page is a client of these servers. The name is kept so the five
+    /// mount points did not have to change.
     public static func corsPreflight() -> HTTPResponse {
+        HTTPResponse(status: 204, statusText: "No Content")
+    }
+
+    /// 405 for a mutation asked over GET, naming the method it takes.
+    static func mutationOnGET(_ path: String) -> HTTPResponse {
         HTTPResponse(
-            status: 204,
-            statusText: "No Content",
-            headers: [
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400",
-            ]
+            status: 405,
+            statusText: "Method Not Allowed",
+            headers: ["Allow": "POST", "Content-Type": "application/json; charset=utf-8"],
+            body: (try? JSONSerialization.data(withJSONObject: [
+                "status": "error",
+                "error": "\(path) mutates; use POST (a GET is never a mutation)",
+            ], options: [.sortedKeys])) ?? Data()
         )
     }
 
