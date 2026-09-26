@@ -152,10 +152,14 @@ pub trait RunnerHost: Send + Sync {
 /// stream a build's steps into the job's event ring.
 pub struct ObservedHost<H: RunnerHost> {
     inner: H,
-    on_step_started: Box<dyn Fn(&str, &str) + Send + Sync>,
-    on_step_finished: Box<dyn Fn(&super::build::StepReport) + Send + Sync>,
-    cancel: Box<dyn Fn() -> bool + Send + Sync>,
+    on_step_started: StepStartedHook,
+    on_step_finished: StepFinishedHook,
+    cancel: CancelHook,
 }
+
+type StepStartedHook = Box<dyn Fn(&str, &str) + Send + Sync>;
+type StepFinishedHook = Box<dyn Fn(&super::build::StepReport) + Send + Sync>;
+type CancelHook = Box<dyn Fn() -> bool + Send + Sync>;
 
 impl<H: RunnerHost> ObservedHost<H> {
     pub fn new(
