@@ -59,6 +59,8 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// section.
     #[impress_method]
     async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord>;
+    /// Create or replace one section's body and metadata in a manuscript;
+    /// returns the section as stored.
     #[impress_method]
     async fn put_section(
         &self,
@@ -73,10 +75,16 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     async fn delete_section(&self, doc_id: String, section_key: String) -> bool;
 
     // ---- Pure-text helpers ----
+    /// Parse Typst source you pass in into its heading outline. Pure text:
+    /// nothing is read from the store.
     #[impress_method]
     async fn document_outline(&self, source: String) -> Outline;
+    /// List the citation keys used in Typst source you pass in, with where
+    /// each occurs. Pure text: nothing is read from the store.
     #[impress_method]
     async fn document_citations(&self, source: String) -> Vec<CitationUsage>;
+    /// Find every match of `query` in Typst source you pass in, with
+    /// positions. Pure text: nothing is read from the store.
     #[impress_method]
     async fn search_in_text(
         &self,
@@ -136,6 +144,8 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto>;
 
     // ---- Replace within a section ----
+    /// Replace every occurrence of `find` with `replace` in one stored
+    /// section's body; returns the replacement count and the new body.
     #[impress_method]
     async fn replace_in_section(
         &self,

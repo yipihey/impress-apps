@@ -689,6 +689,28 @@ crates) is real and is held, not closed, by this plan.
   policy, lifecycle, long-running work, transport, Python, rules-into-construction and runtime providers
   split into `plan-verb-pipeline-and-transport.md` / ADR-0034, on which this plan depends. Not measured:
   nothing was blocked; the `ort-sys` block did not occur. Measurement tests were not committed.
+- 2026-09-26 — **G0 landed** on a worktree of main at 701a2573, branch `claude/gui-g0-g1-census-macro`.
+  `crates/impress-capabilities/tests/census.rs` walks the linked `full` inventory and checks it against
+  `docs/verb-coverage.md` (three marker tables: per-service counts, argument shapes, one verdict per
+  workspace crate), printing the replacement row on any drift; `scripts/check-verb-coverage.sh` is the
+  source-only half (every member has a verdict, every `impress_service_impl!` block has a row, the
+  `should-be-verb` ceiling read from the test) and runs as the `coverage` job of `kit.yml`. Re-measured:
+  433 verbs, 38 services, 16 verb crates, 1001 arguments (668 required), 50 described, 51 strict; 74
+  members with a verdict, 20 `should-be-verb`, C-2's two crates recorded. Shapes: 900 scalar, 49
+  array-of-scalars, 40 ref-object, 4 inline-object, 3 array-of-objects, 3 other, 2 map — the plan's one
+  `tagged-union` was an `Option<Dto>` and is folded into `ref-object`. A verb's crate is the one holding
+  its impl block (so `vw-diagnostic-service` is `vw-impress-adapter`'s), and strictness is read from the
+  sources, since the descriptor carries neither. The `internal` binding-tell is G6's, not done here.
+- 2026-09-26 — **G1 landed** on the same branch. `#[impress_service]` refuses an `#[impress_method]`
+  whose `///` doc is empty with a `syn::Error` on the method's ident naming `Trait::method`; the rule is
+  pinned by unit tests on the extracted `expand_service` (an equivalent compile-fail test: the error
+  asserted is the diagnostic rustc prints; trybuild would have needed a new dev-dependency and a
+  dev-dependency cycle on `impress-service-core`). The 54 verbs that shipped `Invoke X.y` got one-line
+  descriptions written from their handlers (imbib-library 28, imbib-scix 7, imbib-search 5,
+  imbib-tags 4, imbib-artifacts 3, imbib-annotations 2, imprint-manuscript 5), so "real description"
+  is now 433 of 433 and the census pins it. The module doc's uniffi/pyo3 claim (G-3) and the crate's
+  Cargo description ("Swift/Python/MCP/CLI bindings") are gone. `strict_args` was **not** flipped —
+  D-G1 is G5's, after the pipeline (P2) owns argument validation. The invoker is unchanged.
 
 ## Appendix A1 — every verb
 
