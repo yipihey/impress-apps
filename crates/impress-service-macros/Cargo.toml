@@ -14,3 +14,4 @@ syn = { workspace = true, features = ["full", "extra-traits"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 darling = { workspace = true }
+impress-workspace-hack.workspace = true

@@ -19,3 +19,4 @@ imprint-service = { workspace = true }
 imprint-selftest = { workspace = true }
 impress-service-core = { workspace = true, features = ["cli"] }
 serde_json = { workspace = true }
+impress-workspace-hack.workspace = true

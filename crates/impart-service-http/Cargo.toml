@@ -16,3 +16,4 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
+impress-workspace-hack.workspace = true

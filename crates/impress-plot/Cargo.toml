@@ -8,6 +8,7 @@ description = "Native, Typst-first plotting: declarative plot specs → Typst so
 
 [dependencies]
 png = "0.17"
+impress-workspace-hack.workspace = true
 
 # No [dev-dependencies]. The Typst compile-verification test used to live here
 # behind `imprint-core = { features = ["native"] }`, which made

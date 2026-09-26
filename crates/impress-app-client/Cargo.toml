@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 mockito = { workspace = true }

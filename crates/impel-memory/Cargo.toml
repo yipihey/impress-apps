@@ -33,6 +33,7 @@ sha2 = "0.10"
 # same way `classify_llm` and `llm_drafter` do.
 tokio = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5"] }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -27,6 +27,7 @@ tokio.workspace = true
 tokio-stream = "0.1"
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 url.workspace = true
+impress-workspace-hack.workspace = true
 
 [features]
 # The impel TaskExecutor impls (`executor.rs`) and the only reason this crate

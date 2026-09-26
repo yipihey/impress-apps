@@ -1,0 +1,52 @@
+# Settings for `cargo hakari` (plan-verb-pipeline-and-transport § Build cost, B4).
+#
+# crates/impress-workspace-hack is a generated crate with no code: a list of
+# every third-party dependency with the union of the features any lane turns
+# on. Every member depends on it, so `cargo check -p one-crate`, the two
+# `rust-gate.sh` shards, plain `--workspace` and a per-app `cargo test
+# --features native` from crates/imbib-core all resolve the same feature set
+# and share one compiled copy of serde, tokio, regex-automata and the rest
+# instead of rebuilding them on every switch (BC-5: ≈ 560 s unit-time per
+# switch before this crate existed).
+#
+# The crate is checked in. `cargo hakari generate` rewrites it after any
+# dependency change; workspace-rust.yml runs `cargo hakari generate --diff`
+# and fails when the checked-in copy has drifted. `cargo hakari manage-deps`
+# adds the dependency line to a new member.
+#
+# See https://docs.rs/cargo-hakari/latest/cargo_hakari/config for the options.
+
+hakari-package = "impress-workspace-hack"
+
+# Format version for hakari's output. Version 4 requires cargo-hakari 0.9.22 or above.
+dep-format-version = "4"
+
+# The root Cargo.toml sets resolver = "2"; hakari must simulate the same.
+resolver = "2"
+
+# Every triple a framework build or a gate compiles for. The unified set is the
+# union across these; a triple missing here would resolve a different set when
+# build-xcframework.sh targets it and thrash the framework builds instead of
+# sharing them. No lane compiles on Linux (kit.yml's ubuntu job runs `cargo
+# tree`, which builds nothing).
+platforms = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+    "x86_64-apple-ios",
+]
+
+# Members spell every internal dependency `name = { workspace = true }`, and
+# the root [workspace.dependencies] carries the path. The hack crate is spelled
+# the same way.
+workspace-hack-line-style = "workspace-dotted"
+
+[traversal-excludes]
+# uniffi-bindgen is the one crate that turns on uniffi's `cli` feature, which
+# links the whole generator stack (askama, goblin, cargo_metadata, clap) into
+# every library that enables `uniffi`; the root Cargo.toml keeps `cli` out of
+# the facade for that reason and rust-gate.sh excludes the crate from its
+# `rest` shard for the same one. Left out of the unification so the hack crate
+# does not put it back.
+workspace-members = ["uniffi-bindgen"]
