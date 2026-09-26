@@ -20,7 +20,9 @@ tokio.workspace = true
 # impel/memory (the daemon hosting this IS impel) and no `kit` — the layout
 # and surface verbs are the app's, not a local model's; the store-generic
 # services still come through `impress-store-service` directly.
-impress-capabilities = { workspace = true, default-features = false, features = [
+# A path dependency, not the workspace alias: the alias keeps `full` on, and
+# `default-features = false` on a workspace dependency is ignored.
+impress-capabilities = { path = "../impress-capabilities", default-features = false, features = [
     "imbib", "impart", "implore", "imprint", "ai", "bridges", "parsers", "smart-search", "vw",
 ] }
 impress-store-service.workspace = true
