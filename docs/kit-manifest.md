@@ -28,8 +28,10 @@ change with it. They do not keep a second list.
 | `impress-pane-query` | pure | The ADR-0031 D2 pane-query algebra (`PaneQuery`, scopes, filters, sorts), moved out of impress-core by S0. |
 | `impress-layout` | pure | The layout tree as pure values: panes, containers, channels, the D8 verbs, patches and undo rings. |
 | `impress-surface` | pure | Surfaces as pure values: spec, JSON schema, plan / resolve / reduce, `RenderTree`. |
+| `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
+| `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
 | `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities-kit`. |
-| `impress-store-service` | store | Store-generic verbs (the collection kernel, triage), with no app dependency. **Added in W6:** `impress-layout-service` calls its `store_instance()` to share the one store connection, and `impress-capabilities-kit` links it. |
+| `impress-store-service` | store | Store-generic verbs (the collection kernel, triage, the settings registry's `settings-service`), with no app dependency. **Added in W6:** `impress-layout-service` calls its `store_instance()` to share the one store connection, and `impress-capabilities-kit` links it. |
 | `impress-layout-service` | store | The layout verbs over a store-backed live layout (`impress/ui/layout@1.0.0` rows), plus the Tier-B catalogue. |
 | `impress-surface-service` | store | The surface verbs, surface records and the runtime that executes a surface's effects. |
 | `impress-capabilities-kit` | store | The kit's slice of the linked `#[impress_service]` inventory (the four service crates above), so the FFI can link it without a package cycle. |
