@@ -608,14 +608,14 @@ pub trait LayoutService: Send + Sync + 'static {
 pub struct DefaultLayoutService {
     store: Option<Arc<SqliteItemStore>>,
     sessions: Option<Arc<SessionRegistry>>,
+    /// Put the tree in every verb result that has one
+    /// ([`LayoutVerbResult::tree_json`]). Off unless asked for.
+    tree_in_results: bool,
 }
 
 impl DefaultLayoutService {
     pub fn new() -> Self {
-        Self {
-            store: None,
-            sessions: None,
-        }
+        Self::default()
     }
 
     /// An instance over an explicit store, with a private session registry.
@@ -634,7 +634,45 @@ impl DefaultLayoutService {
         Self {
             store: Some(store),
             sessions: Some(sessions),
+            tree_in_results: false,
         }
+    }
+
+    /// Answer every verb that leaves a tree with that tree, serialized once
+    /// under the lock the verb already holds ([`LayoutVerbResult::tree_json`],
+    /// review RL-L14) — what the FFI renders from. Costs a serialization per
+    /// verb, so only the host that draws the tree asks for it.
+    pub fn with_tree_in_results(mut self) -> Self {
+        self.tree_in_results = true;
+        self
+    }
+
+    /// The tree for [`LayoutVerbResult::tree_json`], when this instance was
+    /// asked for it. A tree that does not serialize is left out, and the
+    /// reader falls back to reading it (and reports why).
+    fn tree_for_result(&self, layout: &impress_layout::Layout) -> Option<String> {
+        if !self.tree_in_results {
+            return None;
+        }
+        serde_json::to_string(layout)
+            .map_err(|e| log::error!(target: "layout", "the tree does not encode: {e}"))
+            .ok()
+    }
+
+    /// [`Self::with_session_for_write`] for a verb that answers with a
+    /// [`LayoutVerbResult`]: the tree it leaves goes in the result.
+    fn verb_for_write(
+        &self,
+        app_id: &str,
+        device: Option<String>,
+        actor: ActorKind,
+        f: impl FnOnce(&mut LayoutSession, &LayoutStore) -> Result<LayoutVerbResult, Refusal>,
+    ) -> Result<LayoutVerbResult, Refusal> {
+        self.with_session_for_write(app_id, device, actor, |session, store| {
+            let mut result = f(session, store)?;
+            result.tree_json = self.tree_for_result(&session.layout);
+            Ok(result)
+        })
     }
 
     /// The registry this instance's sessions live in.
@@ -791,10 +829,14 @@ impl DefaultLayoutService {
                     // Nothing changed (focus on the focused pane, restore
                     // with nothing maximized): nothing to write, and no
                     // write for every other reader of the row to wake on.
-                    return Ok(Some((intent, applied, session.revision)));
+                    let tree = self.tree_for_result(&session.layout);
+                    return Ok(Some((intent, applied, session.revision, tree)));
                 }
                 match session.save(&store, actor_kind, &intent) {
-                    Ok(()) => Ok(Some((intent, applied, session.revision))),
+                    Ok(()) => {
+                        let tree = self.tree_for_result(&session.layout);
+                        Ok(Some((intent, applied, session.revision, tree)))
+                    }
                     // Lost the race: the session is stale and reloads on
                     // the next touch — the retry below.
                     Err(_) if session.is_stale() => Ok(None),
@@ -802,7 +844,7 @@ impl DefaultLayoutService {
                 }
             });
             match flatten(outcome) {
-                Ok(Some((intent, applied, revision))) => {
+                Ok(Some((intent, applied, revision, tree))) => {
                     log::info!(
                         target: "layout",
                         "{app_id}/{device}: {} {intent} (revision {revision:?}, {} pane(s) affected{})",
@@ -810,10 +852,10 @@ impl DefaultLayoutService {
                         applied.affected.len(),
                         if applied.patch.is_empty() { ", nothing changed" } else { "" }
                     );
-                    return with_notices(
-                        LayoutVerbResult::applied(intent, &applied).with_revision(revision),
-                        &notices,
-                    );
+                    let mut result =
+                        LayoutVerbResult::applied(intent, &applied).with_revision(revision);
+                    result.tree_json = tree;
+                    return with_notices(result, &notices);
                 }
                 Ok(None) => continue,
                 Err(refusal) => {
@@ -886,26 +928,30 @@ impl DefaultLayoutService {
                     .apply_all(verbs)
                     .map_err(|e| layout_refusal(e).context(&label))?;
                 if applied.patch.is_empty() {
-                    return Ok(Some((intent, applied, session.revision)));
+                    let tree = self.tree_for_result(&session.layout);
+                    return Ok(Some((intent, applied, session.revision, tree)));
                 }
                 match session.save(&store, actor_kind, &intent) {
-                    Ok(()) => Ok(Some((intent, applied, session.revision))),
+                    Ok(()) => {
+                        let tree = self.tree_for_result(&session.layout);
+                        Ok(Some((intent, applied, session.revision, tree)))
+                    }
                     Err(_) if session.is_stale() => Ok(None),
                     Err(e) => Err(e),
                 }
             });
             match flatten(outcome) {
-                Ok(Some((intent, applied, revision))) => {
+                Ok(Some((intent, applied, revision, tree))) => {
                     log::info!(
                         target: "layout",
                         "{app_id}/{device}: {} {intent} (revision {revision:?}, {} pane(s) affected)",
                         actor_name(actor_kind),
                         applied.affected.len(),
                     );
-                    return with_notices(
-                        LayoutVerbResult::applied(intent, &applied).with_revision(revision),
-                        &notices,
-                    );
+                    let mut result =
+                        LayoutVerbResult::applied(intent, &applied).with_revision(revision);
+                    result.tree_json = tree;
+                    return with_notices(result, &notices);
                 }
                 Ok(None) => continue,
                 Err(refusal) => {
@@ -1890,7 +1936,7 @@ impl LayoutService for DefaultLayoutService {
         actor: Option<String>,
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
-        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.verb_for_write(&app_id, device, actor_kind, |session, store| {
             let intent = format!("committed the arrangement as '{}'", name.trim());
             let row = store.save_named(
                 &session.app_id,
@@ -1934,7 +1980,7 @@ impl LayoutService for DefaultLayoutService {
             (None, Some(ordinal)) => format!("ordinal {ordinal}"),
             (None, None) => "nothing".to_string(),
         };
-        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.verb_for_write(&app_id, device, actor_kind, |session, store| {
             check_expected(session, expected_revision)?;
             // An ordinal spans the SAME union `list_presets` numbers: this
             // app's presets, then its named layouts (`presets::ordinal_targets`).
@@ -2307,7 +2353,7 @@ impl LayoutService for DefaultLayoutService {
         expected_revision: Option<u64>,
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
-        let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
+        let outcome = self.verb_for_write(&app_id, device, actor_kind, |session, store| {
             check_expected(session, expected_revision)?;
             let presets = PresetStore::new(store.store().clone());
             presets.ensure_shipped(&session.app_id)?;
@@ -2466,7 +2512,7 @@ impl DefaultLayoutService {
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
         let mut notice = None;
-        let outcome = self.with_session_for_write(app_id, device, actor_kind, |session, store| {
+        let outcome = self.verb_for_write(app_id, device, actor_kind, |session, store| {
             notice = session.take_notice();
             if notice.is_some() {
                 // Reloaded on this very touch: the rings this ⌘Z was aimed at

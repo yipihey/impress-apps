@@ -387,3 +387,97 @@ async fn several_verbs_apply_as_one_gesture_and_one_undo_step() {
         before
     );
 }
+
+/// RL-L14: a service built `with_tree_in_results` answers every verb that
+/// leaves a tree with that tree, so the FFI never takes the lock again to
+/// read it. The tree is never on the wire, and an instance that did not ask
+/// for it pays nothing.
+#[tokio::test]
+async fn a_verb_answers_with_its_tree_only_for_the_host_that_asked() {
+    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let host = DefaultLayoutService::with_store(store.clone()).with_tree_in_results();
+    let current = || async {
+        let layout = host.get_layout(APP.into(), device()).await.layout.unwrap();
+        serde_json::to_string(&layout).unwrap()
+    };
+    let layout = host.get_layout(APP.into(), device()).await.layout.unwrap();
+    let window = layout.current_window().unwrap();
+    let list = layout
+        .resolve(window, &PaneRef::role(impress_layout::Role::LIST))
+        .unwrap();
+
+    let one = host.apply_verb_as(APP, device(), ActorKind::Human, None, |_| {
+        Ok(Verb::SetViewKind {
+            target: PaneRef::id(list),
+            view_kind: ViewKindId::INFO,
+        })
+    });
+    assert!(one.ok, "{}", one.message);
+    assert_eq!(one.tree_json.as_deref(), Some(current().await.as_str()));
+    let wire = serde_json::to_value(&one).unwrap();
+    assert!(wire.get("tree_json").is_none(), "never on the wire: {wire}");
+
+    // A verb that changed nothing still answers with the tree it read.
+    let same = host.apply_verb_as(APP, device(), ActorKind::Human, None, |_| {
+        Ok(Verb::SetViewKind {
+            target: PaneRef::id(list),
+            view_kind: ViewKindId::INFO,
+        })
+    });
+    assert!(same.ok, "{}", same.message);
+    assert_eq!(same.tree_json.as_deref(), Some(current().await.as_str()));
+
+    let batch = host.apply_verbs_as(
+        APP,
+        device(),
+        ActorKind::Human,
+        None,
+        vec![Verb::SetViewKind {
+            target: PaneRef::id(list),
+            view_kind: ViewKindId::LIST,
+        }],
+    );
+    assert!(batch.ok, "{}", batch.message);
+    assert_eq!(batch.tree_json.as_deref(), Some(current().await.as_str()));
+
+    let undone = host
+        .undo(
+            APP.into(),
+            device(),
+            "exploration".into(),
+            Some(PaneRefDto::tile(list)),
+            None,
+            None,
+        )
+        .await;
+    assert!(undone.ok, "{}", undone.message);
+    assert_eq!(undone.tree_json.as_deref(), Some(current().await.as_str()));
+
+    let saved = host
+        .save_layout(APP.into(), device(), "Tree".into(), None, None)
+        .await;
+    assert!(saved.ok, "{}", saved.message);
+    assert_eq!(saved.tree_json.as_deref(), Some(current().await.as_str()));
+
+    let applied = host
+        .apply_layout(APP.into(), device(), Some("Tree".into()), None, None, None)
+        .await;
+    assert!(applied.ok, "{}", applied.message);
+    assert_eq!(applied.tree_json.as_deref(), Some(current().await.as_str()));
+
+    // Deleting a saved layout leaves the live tree alone: nothing to carry.
+    let deleted = host.delete_layout(APP.into(), "Tree".into(), None).await;
+    assert!(deleted.ok, "{}", deleted.message);
+    assert_eq!(deleted.tree_json, None);
+
+    // The same verb on an instance that did not ask carries no tree.
+    let plain = DefaultLayoutService::with_store(store);
+    let quiet = plain.apply_verb_as(APP, device(), ActorKind::Agent, None, |_| {
+        Ok(Verb::SetViewKind {
+            target: PaneRef::id(list),
+            view_kind: ViewKindId::INFO,
+        })
+    });
+    assert!(quiet.ok, "{}", quiet.message);
+    assert_eq!(quiet.tree_json, None);
+}
