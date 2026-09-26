@@ -543,6 +543,121 @@ fn interleaved_writers_on_two_connections_never_share_a_seq() {
     );
 }
 
+// ─── AC-F22, across processes ─────────────────────────────────────────────
+
+/// Two store handles on one file — two processes, as far as SQLite is
+/// concerned; nothing in this crate serialises them any more — race
+/// `surface_update` with the revision they both read. Every round has exactly
+/// one winner and one `conflict`, and the revision moves by one per round:
+/// the check and the write are one conditional transaction, not a read then
+/// a write with a window between them.
+#[test]
+fn two_processes_updating_from_one_revision_cannot_both_win() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("revision.sqlite");
+    let a = SurfaceStore::new(Arc::new(SqliteItemStore::open(&path).unwrap()));
+    let b = SurfaceStore::new(Arc::new(SqliteItemStore::open(&path).unwrap()));
+    let surface = a
+        .create(&text_spec("round 0"), None, &[], ActorKind::Agent)
+        .unwrap()
+        .id;
+
+    const ROUNDS: u64 = 30;
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    // Each thread records (revision read, revision written or the refusal
+    // code) and asserts nothing itself: a panic inside would strand the
+    // other thread on the barrier.
+    let run = |store: SurfaceStore, who: &'static str| {
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            let mut rounds = Vec::new();
+            for round in 0..ROUNDS {
+                let read = store.get(surface).unwrap().unwrap().revision;
+                barrier.wait();
+                let outcome = store
+                    .update(
+                        surface,
+                        &text_spec(&format!("{who} {round}")),
+                        None,
+                        Some(read),
+                        ActorKind::Agent,
+                    )
+                    .map(|row| row.revision)
+                    .map_err(|refusal| refusal.code);
+                rounds.push((read, outcome));
+                // Both have written or been refused before the next read.
+                barrier.wait();
+            }
+            rounds
+        })
+    };
+    let (ta, tb) = (run(a.clone(), "a"), run(b.clone(), "b"));
+    let (ra, rb) = (ta.join().unwrap(), tb.join().unwrap());
+    for (round, ((read_a, a), (read_b, b))) in ra.iter().zip(rb.iter()).enumerate() {
+        let expected = round as u64 + 1;
+        assert_eq!((*read_a, *read_b), (expected, expected), "round {round}");
+        let won = [a, b].iter().filter(|o| o.is_ok()).count();
+        assert_eq!(
+            won, 1,
+            "round {round}: exactly one writer wins: {a:?} {b:?}"
+        );
+        for outcome in [a, b] {
+            match outcome {
+                Ok(revision) => assert_eq!(*revision, expected + 1, "round {round}"),
+                Err(code) => assert_eq!(code, "conflict", "round {round}"),
+            }
+        }
+    }
+    let row = b.get(surface).unwrap().unwrap();
+    assert_eq!(row.revision, ROUNDS + 1);
+}
+
+/// With no `expected_revision` an update is last writer wins — but it never
+/// loses a revision number: two handles on one file bumping at once end at
+/// exactly one plus the number of updates.
+#[test]
+fn concurrent_updates_on_two_connections_never_share_a_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bumps.sqlite");
+    let a = SurfaceStore::new(Arc::new(SqliteItemStore::open(&path).unwrap()));
+    let b = SurfaceStore::new(Arc::new(SqliteItemStore::open(&path).unwrap()));
+    let surface = a
+        .create(&text_spec("bump"), None, &[], ActorKind::Agent)
+        .unwrap()
+        .id;
+
+    const PER_WRITER: u64 = 20;
+    let mut threads = Vec::new();
+    for (store, who) in [(a.clone(), "a"), (b.clone(), "b"), (a.clone(), "a2")] {
+        threads.push(std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            for i in 0..PER_WRITER {
+                let row = store
+                    .update(
+                        surface,
+                        &text_spec(&format!("{who} {i}")),
+                        None,
+                        None,
+                        ActorKind::Agent,
+                    )
+                    .expect("an unguarded update always lands");
+                seen.push(row.revision);
+            }
+            seen
+        }));
+    }
+    let mut revisions: Vec<u64> = threads
+        .into_iter()
+        .flat_map(|t| t.join().unwrap())
+        .collect();
+    revisions.sort_unstable();
+    assert_eq!(
+        revisions,
+        (2..=(3 * PER_WRITER + 1)).collect::<Vec<_>>(),
+        "two updates took one revision"
+    );
+}
+
 /// The cursor is the last row read. An event appended right after a read is
 /// the whole of the next read — before, `next_seq` came from a second query,
 /// and an event landing between the two was counted but never returned.

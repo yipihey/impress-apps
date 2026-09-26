@@ -12344,7 +12344,10 @@ public func FfiConverterTypeSharedSkippedFile_lower(_ value: SharedSkippedFile) 
  * the feed's echo of its own write from anyone else's (review SK-K15): it
  * compares `revision` and `state_revision` with the ones its last render or
  * dispatch reply carried, and skips the render when neither is newer and
- * `sources_changed` is false.
+ * `sources_changed` is false. The handle's feed already makes that
+ * comparison for its own dispatches, holding a surface's changes while one
+ * runs, so the echo of a dispatch made through this handle is not
+ * delivered at all; the pane's own check covers a render's reply.
  */
 public struct SharedSurfaceChange {
     public var id: String
