@@ -41,11 +41,13 @@
 use std::future::Future;
 use std::time::Instant;
 
+pub mod authorship;
 pub mod device;
 pub mod dto;
 pub mod outline;
 pub mod presets;
-pub mod report;
+/// The self-test report types: one copy, in `impress-service-core` (RS-S21).
+pub use impress_service_core::report;
 pub mod selftest;
 pub mod service;
 pub mod session;

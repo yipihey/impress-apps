@@ -21,6 +21,7 @@ use std::pin::Pin;
 
 pub mod call;
 pub mod refusal;
+pub mod report;
 pub mod runtime;
 pub mod strict;
 pub mod wire;
