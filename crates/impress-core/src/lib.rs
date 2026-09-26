@@ -33,6 +33,11 @@ pub mod collection_ops;
 /// The manuscript-format grammar table. Pure data + text heuristics, so it is
 /// available without the `sqlite` feature (wasm/UI-only builds read it too).
 pub mod manuscript_format;
+/// A long-running verb is a job on the task kernel (ADR-0034 D6): the
+/// `task@1.0.0` handle, its `task-event@1.0.0` progress ring, the
+/// `cancel_requested` flag executors poll, and the stored result.
+#[cfg(feature = "sqlite")]
+pub mod job;
 #[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
 /// A manuscript is a project (ADR-0030): the file rows and build rows under
