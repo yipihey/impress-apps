@@ -7,6 +7,7 @@
 //  and PMC deliberately cannot link an app target.
 //
 
+import ImpressAutomation
 import ImpressKit
 import PublicationManagerCore
 import XCTest
@@ -118,6 +119,21 @@ final class ImpressShellTests: XCTestCase {
         XCTAssertEqual(ImpressHTTPServer.defaultPort, SiblingApp.impress.httpPort)
         XCTAssertEqual(SiblingApp.impress.httpPort, 23125)
         XCTAssertEqual(SiblingApp.app(forHTTPPort: 23125), .impress)
+    }
+
+    /// `/api/status` says the port the request ARRIVED on, not the table's:
+    /// launched with `-httpAutomationPort 23201` it said 23125 (plan wave 7
+    /// T5's finding 4), which sends a caller probing a second impress back
+    /// to the first.
+    func testStatusReportsThePortTheRequestArrivedOn() throws {
+        var request = HTTPRequest(method: "GET", path: "/api/status")
+        request.localPort = 23201
+        let response = ImpressHTTPRouter.status(for: request)
+        let body = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+        XCTAssertEqual(body["app"] as? String, "impress")
+        XCTAssertEqual(body["port"] as? Int, 23201)
+        XCTAssertEqual(body["serverPort"] as? Int, 23201)
     }
 
     /// The two settings families must agree that this app exists, and the

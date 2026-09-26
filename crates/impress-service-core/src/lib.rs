@@ -19,7 +19,9 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
+pub mod call;
 pub mod refusal;
+pub mod report;
 pub mod runtime;
 pub mod strict;
 pub mod wire;

@@ -192,8 +192,9 @@ enum Proof {
             check("setup", false, "no controller or window")
             return
         }
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        if !(await makeKey(window, editing: nil)) {
+            Demo.say("the window is not key at the start — \(focusReport(window))")
+        }
         await settle()
         snapshot(window, name: "kit-demo-window.png")
         await redrawCounter(controller)
@@ -268,6 +269,13 @@ enum Proof {
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
         }
+        // A click into an inactive window only activates it: the person's
+        // click lands in a key window, so this one must too.
+        guard await makeKey(window, editing: nil) else {
+            check("one select is one publish", false,
+                "the window could not be made key: \(focusReport(window))")
+            return
+        }
         // A table's mouse-down runs a tracking loop that takes the mouse-up
         // from the queue: queue it first, then deliver the mouse-down.
         if let down = mouse(.leftMouseDown), let up = mouse(.leftMouseUp) {
@@ -298,9 +306,20 @@ enum Proof {
             check("typed value reaches the button", false, "no text field found")
             return
         }
-        window.makeFirstResponder(field)
-        await settle(0.3)
+        // Every key goes through the window's real path (`sendEvent`, so the
+        // tree's chord handler and its text-field guard both see it), and
+        // only while this window is key with the field's editor first: the
+        // guard reads `NSApp.keyWindow`, so a key sent while another app
+        // held focus was a chord — "h" and "l" of "hello" moved pane focus
+        // (wave 7 T5's finding 1). The check and the send run on the main
+        // thread with no suspension between them, so focus cannot move in
+        // between.
         for character in "hello" {
+            guard await makeKey(window, editing: field) else {
+                check("typed value reaches the button", false,
+                    "the window could not be made key with the field editing: \(focusReport(window))")
+                return
+            }
             let text = String(character)
             if let event = NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [],
@@ -316,8 +335,15 @@ enum Proof {
         Demo.say("typed into the Note field: \"\(shown)\" (first responder is a text view: "
             + "\(window.firstResponder is NSText))")
 
-        // D7: ⌘Z while typing is the typing's own undo, not the tree's.
-        if let (menu, index) = menuItem(action: NSSelectorFromString("undo:")) {
+        // D7: ⌘Z while typing is the typing's own undo, not the tree's. The
+        // menu's target is found from the key window, so it must still be ours.
+        let undoItem = menuItem(action: NSSelectorFromString("undo:"))
+        let keyForUndo = await makeKey(window, editing: field)
+        if undoItem != nil, !keyForUndo {
+            check("Edit ▸ Undo while typing undoes the typing, not the tree", false,
+                "the window could not be made key with the field editing: \(focusReport(window))")
+        }
+        if let (menu, index) = undoItem, keyForUndo {
             let version = LayoutTreeRuntime.shared.controller?.version
             let editor = window.firstResponder as? NSTextView
             Demo.say("while typing: undo target "
@@ -333,7 +359,9 @@ enum Proof {
                 undone.count < shown.count && LayoutTreeRuntime.shared.controller?.version == version,
                 "\"\(shown)\" → \"\(undone)\", tree version unchanged: "
                     + "\(LayoutTreeRuntime.shared.controller?.version == version)")
-            if let (redoMenu, redoIndex) = menuItem(action: NSSelectorFromString("redo:")) {
+            if let (redoMenu, redoIndex) = menuItem(action: NSSelectorFromString("redo:")),
+                await makeKey(window, editing: field)
+            {
                 redoMenu.update()
                 redoMenu.performActionForItem(at: redoIndex)
                 await settle(0.3)
@@ -355,6 +383,11 @@ enum Proof {
         let below = picker.convert(picker.bounds, to: nil)
         let leading = field.convert(field.bounds, to: nil).minX
         let point = NSPoint(x: leading + 16, y: below.minY - 19)
+        guard await makeKey(window, editing: field) else {
+            check("typed value reaches the button", false,
+                "the window could not be made key with the field editing: \(focusReport(window))")
+            return
+        }
         Demo.say("clicking at \(point) — hit view: "
             + "\(window.contentView?.hitTest(point).map { String(describing: type(of: $0)) } ?? "none")")
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -416,6 +449,13 @@ enum Proof {
             check("Edit ▸ Undo", false, "no Edit ▸ Undo item in the main menu")
             return
         }
+        // The menu's target is found from the key window: it must be ours
+        // when the item fires (nothing suspends between here and there).
+        guard await makeKey(window, editing: nil) else {
+            check("Edit ▸ Undo undoes the focused pane's selection", false,
+                "the window could not be made key: \(focusReport(window))")
+            return
+        }
         menu.update()
         let item = menu.items[index]
         Demo.say("responder chain: \(chain(from: window))")
@@ -431,6 +471,11 @@ enum Proof {
             "selection \(selected.count) → \(after.count)")
 
         if let (redoMenu, redoIndex) = menuItem(action: NSSelectorFromString("redo:")) {
+            guard await makeKey(window, editing: nil) else {
+                check("Edit ▸ Redo puts it back", false,
+                    "the window could not be made key: \(focusReport(window))")
+                return
+            }
             redoMenu.update()
             redoMenu.performActionForItem(at: redoIndex)
             await settle()
@@ -476,6 +521,53 @@ enum Proof {
     }
 
     // MARK: Helpers
+
+    /// Make `window` the key window of the ACTIVE app and, when `field` is
+    /// given, put its field editor first — what a person typing into it has.
+    /// The text-field guard (`TextFieldFocusDetection`) and the menu's
+    /// responder chain both start at `NSApp.keyWindow`, which is nil while
+    /// another app is active; a key sent then is not typing, it is a chord.
+    ///
+    /// Returns true only with that state in place and nothing awaited after
+    /// the last look at it, so a caller that sends right away sends into it.
+    /// Retries for up to ~10 s, then false: the caller reports that as a
+    /// failure of the harness, never as a pass.
+    static func makeKey(_ window: NSWindow, editing field: NSTextField?) async -> Bool {
+        for attempt in 0..<40 {
+            if isKey(window, editing: field) {
+                if attempt > 0 { Demo.say("window key again after \(attempt) attempt(s)") }
+                return true
+            }
+            if attempt == 0 { Demo.say("window is not key — \(focusReport(window)); taking it back") }
+            if !NSApp.isActive {
+                // Cooperative `activate()` is refused while another app is
+                // frontmost, which is exactly the case here.
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
+            if let field, !isEditing(field, in: window) { window.makeFirstResponder(field) }
+            await settle(0.25)
+        }
+        return isKey(window, editing: field)
+    }
+
+    private static func isKey(_ window: NSWindow, editing field: NSTextField?) -> Bool {
+        NSApp.isActive && NSApp.keyWindow === window && window.isKeyWindow
+            && (field.map { isEditing($0, in: window) } ?? true)
+    }
+
+    /// The field is being edited: its field editor is the window's first
+    /// responder.
+    private static func isEditing(_ field: NSTextField, in window: NSWindow) -> Bool {
+        guard let editor = field.currentEditor() else { return false }
+        return window.firstResponder === editor
+    }
+
+    static func focusReport(_ window: NSWindow) -> String {
+        "active: \(NSApp.isActive), key window is this one: \(NSApp.keyWindow === window), "
+            + "first responder: \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "none"), "
+            + "frontmost app: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "none")"
+    }
 
     /// The window as drawn, into `$TMPDIR` — in-process, so no
     /// screen-recording grant is involved.

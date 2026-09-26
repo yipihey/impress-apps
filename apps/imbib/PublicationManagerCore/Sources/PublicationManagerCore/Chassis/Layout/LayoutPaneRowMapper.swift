@@ -100,8 +100,11 @@ enum LayoutPaneRowMapper {
     /// store-search surface uses, and the same reason: a row the chassis
     /// cannot identify cannot be selected, and a row that cannot be selected
     /// in a list that publishes selection is worse than absent.
+    ///
+    /// `isDated` false says the envelope's timestamps are placeholders (a
+    /// surface row that named none): the row then shows no date.
     @MainActor
-    static func kindTaggedRow(_ row: SharedItemRow) -> KindTaggedRow? {
+    static func kindTaggedRow(_ row: SharedItemRow, isDated: Bool = true) -> KindTaggedRow? {
         guard let id = UUID(uuidString: row.id) else { return nil }
 
         let kind = BuiltinRecordKinds.registry.kind(forStoreSchemaRef: row.schemaRef)
@@ -128,7 +131,8 @@ enum LayoutPaneRowMapper {
             isStarred: row.isStarred,
             hasAttachment: fields.bool("has_pdf_downloaded") || fields.bool("has_attachments"),
             flag: flag(from: row.flagColor),
-            tagDisplays: row.tags.map(tagDisplay))
+            tagDisplays: row.tags.map(tagDisplay),
+            isDated: isDated)
     }
 
     /// `SharedItemRow.flag_color` is the envelope's own spelling — the same

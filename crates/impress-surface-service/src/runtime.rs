@@ -14,12 +14,12 @@
 //! # Where the linked inventory is reached
 //!
 //! `impress-capabilities` is the one crate meant to link every
-//! `#[impress_service]` trait — but this crate cannot depend on it: its
-//! `kit`/`surface` feature already depends on `impress-surface-service`
-//! itself, and a dependency back would be a cycle. [`call_verb`] is
-//! therefore the same body as `impress_capabilities::call_async`, copied
-//! rather than shared: it walks the process-wide `McpToolDescriptor`
-//! inventory and runs the matching handler future.
+//! `#[impress_service]` trait — but this crate cannot depend on it (nor on
+//! `impress-capabilities-kit`): both already depend on
+//! `impress-surface-service` itself, and a dependency back would be a cycle.
+//! [`call_verb`] therefore runs through `impress_service_core::call`, the one
+//! copy of "find the descriptor, run its handler" both of those re-export
+//! (review RS-S21), and only maps its error onto a [`Refusal`].
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -29,10 +29,12 @@ use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{Bindings, ItemRef, KindManifest, PaneQueryError, Scope};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
-use impress_layout::{ChannelId, PaneSpec, ParamBinding, ParamSource, ViewKindId};
+use impress_layout::{
+    ChannelId, LinearDir, PaneRef, PaneSpec, ParamBinding, ParamSource, TileId, Verb, ViewKindId,
+};
 use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
-use impress_service_core::McpToolDescriptor;
+use impress_service_core::call::{self, CallError};
 use impress_surface::{
     plan, reduce, resolve_with_source_errors, state_path, CachedSource, Effect, Event, PaneQuery,
     ParamDecl, RenderTree, Source, SourceCache, SourceRequestKind, SurfaceSpec,
@@ -57,16 +59,14 @@ fn layout_refused(code: Option<String>, message: String) -> Refusal {
 // The linked inventory
 // ---------------------------------------------------------------------------
 
-/// Run one linked verb by its MCP tool name. See the module docs for why
-/// this is a copy of `impress_capabilities::call_async` rather than a
-/// dependency on it.
+/// Run one linked verb by its MCP tool name, through
+/// `impress_service_core::call` (see the module docs). The message is
+/// [`CallError`]'s own text: `Unknown tool: {name}` or `{tool}: {error}`.
 pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
-    let descriptor = McpToolDescriptor::iter()
-        .find(|d| d.name == name)
-        .ok_or_else(|| Refusal::new("unknown-verb", format!("Unknown tool: {name}")))?;
-    (descriptor.handler)(args)
-        .await
-        .map_err(|e| Refusal::new(codes::VERB_FAILED, format!("{}: {}", descriptor.name, e)))
+    call::call_async(name, args).await.map_err(|e| match e {
+        CallError::UnknownTool(_) => Refusal::new("unknown-verb", e.to_string()),
+        CallError::Handler(_) => Refusal::new(codes::VERB_FAILED, e.to_string()),
+    })
 }
 
 /// Whether a verb name is in the linked inventory — what `surface_validate`
@@ -74,7 +74,7 @@ pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
 /// source or action that names a verb calls it through the
 /// `#[impress_service]` inventory in the host process").
 pub fn verb_exists(name: &str) -> bool {
-    McpToolDescriptor::iter().any(|d| d.name == name)
+    call::find(name).is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -147,28 +147,23 @@ pub trait Executor: Send + Sync {
         decls: &[ParamDecl],
         bindings: &Bindings,
     ) -> Result<Value>;
-    /// Publish a selection on `pane`'s channel — `layout-service_select`.
-    async fn publish(
-        &self,
-        pane: &PaneHandle,
-        kind: &str,
-        ids: Value,
-        actor: ActorKind,
-    ) -> Result<()>;
-    /// Open a query in a pane — composes `layout-service` verbs exactly as
-    /// `surface_show` does (see [`show_in_pane`]), so "a surface can drive
-    /// the layout tree, not just itself" (`docs/agent-surfaces.md`) is the
-    /// same code path either way.
+    /// Apply one gesture's layout verbs in `pane`'s layout (its app and
+    /// device): all of them or none, as ONE layout step with one undo entry
+    /// (`impress_layout_service::DefaultLayoutService::apply_verbs_as`,
+    /// review PH-M2).
+    ///
+    /// The `publish` and `open` effects of a dispatch are compiled into
+    /// these verbs by the runtime ([`SurfaceRuntime::dispatch`] says which
+    /// effects share a gesture), so one click that publishes and opens is
+    /// one ⌘Z. A refusal is the layout's own, code and message.
     ///
     /// `actor` is whoever caused the dispatch — the human clicking in the
     /// pane, or an agent — and is the actor the layout verbs record, so a
     /// person's click lands on the person's undo ring (review AC-F5).
-    async fn open(
+    async fn apply_layout(
         &self,
-        pane: Option<&PaneHandle>,
-        query: Value,
-        view_kind: &str,
-        target: Option<&str>,
+        pane: &PaneHandle,
+        verbs: Vec<Verb>,
         actor: ActorKind,
     ) -> Result<()>;
     /// Append an event row, attributed to `actor`, and return its `seq`.
@@ -436,79 +431,28 @@ impl Executor for DefaultExecutor {
         Ok(flatten_payloads(rows))
     }
 
-    async fn publish(
+    async fn apply_layout(
         &self,
         pane: &PaneHandle,
-        kind: &str,
-        ids: Value,
+        mut verbs: Vec<Verb>,
         actor: ActorKind,
     ) -> Result<()> {
-        let id_strings: Vec<String> = match ids {
-            Value::Array(items) => items
-                .into_iter()
-                .map(|v| match v {
-                    Value::String(s) => s,
-                    other => other.to_string(),
-                })
-                .collect(),
-            Value::String(s) => vec![s],
-            Value::Null => Vec::new(),
-            other => vec![other.to_string()],
+        let device = Some(pane.device.clone());
+        // A gesture of one verb goes through the one-verb path, so a lone
+        // `publish` or `open` is logged and recorded exactly as before.
+        let result = if verbs.len() == 1 {
+            let verb = verbs.remove(0);
+            self.layout
+                .apply_verb_as(&pane.app_id, device, actor, None, move |_| Ok(verb))
+        } else {
+            self.layout
+                .apply_verbs_as(&pane.app_id, device, actor, None, verbs)
         };
-        let result = self
-            .layout
-            .select(
-                pane.app_id.clone(),
-                Some(pane.device.clone()),
-                LayoutPaneRefDto::tile(impress_layout::TileId::new(pane.tile)),
-                kind.to_string(),
-                id_strings,
-                Some(actor_name(actor).to_string()),
-                None,
-            )
-            .await;
         if result.ok {
             Ok(())
         } else {
             Err(layout_refused(result.code, result.message))
         }
-    }
-
-    async fn open(
-        &self,
-        pane: Option<&PaneHandle>,
-        query: Value,
-        view_kind: &str,
-        target: Option<&str>,
-        actor: ActorKind,
-    ) -> Result<()> {
-        let Some(pane) = pane else {
-            return Err(Refusal::new(
-                "no-pane",
-                "this surface instance has no pane yet (surface_show has not run) — nothing to \
-                 open a query beside",
-            ));
-        };
-        let query: PaneQuery = serde_json::from_value(query)
-            .map_err(|e| Refusal::invalid_argument(format!("open: query: {e}")))?;
-        let show_target = match target {
-            Some(role) => ShowTarget::Pane(LayoutPaneRefDto::role(role)),
-            None => ShowTarget::Split {
-                direction: "vertical".to_string(),
-            },
-        };
-        show_in_pane(
-            &self.layout,
-            &pane.app_id,
-            Some(pane.device.clone()),
-            query,
-            view_kind,
-            &show_target,
-            None,
-            Some(actor_name(actor).to_string()),
-        )
-        .await
-        .map(|_| ())
     }
 
     async fn emit(
@@ -586,17 +530,18 @@ impl Executor for DefaultExecutor {
 const SURFACE_VIEW_KIND: &str = "surface";
 
 // ---------------------------------------------------------------------------
-// Composing layout verbs — shared by `surface_show` (service.rs) and
-// `DefaultExecutor::open`
+// Composing layout verbs — `surface_show` (service.rs), and the verbs a
+// `publish`/`open` effect compiles to
 // ---------------------------------------------------------------------------
 
 /// Put a query+view-kind in the pane [`ShowTargetDto`] names, creating it
 /// (a split) when the target says so. Returns `(tile, focused, affected_panes)`
 /// — the same trio every layout verb answers with.
 ///
-/// This is the one place `surface_show` and an `{"open": …}` action agree on
-/// what "put this in a pane" means — see this crate's module docs and
-/// `docs/agent-surfaces.md`'s "`open`" row.
+/// `surface_show`'s path. An `{"open": …}` action means the same thing but
+/// is compiled to verbs by [`open_verbs`] instead, so it can share one step
+/// with the rest of its click; the two must agree on what "put this in a
+/// pane" means (`docs/agent-surfaces.md`'s "`open`" row).
 ///
 /// `params`, when given, become the pane's parameters: the pane then
 /// resolves one binding per name, which is what a surface's own params are
@@ -686,6 +631,68 @@ pub(crate) async fn show_in_pane(
         return Err(layout_refused(set.code, set.message));
     }
     Ok((tile, set.focused == Some(tile), set.affected_panes))
+}
+
+/// The verbs an `{"open": …}` effect is: with a `target` role, that pane's
+/// query and view kind are replaced (its role, channel, params and session
+/// kept — what [`show_in_pane`] does with one `set_pane`); with none, the
+/// focused pane is split vertically and the new pane, which takes focus,
+/// shows the query. Pane references are resolved when the gesture applies,
+/// against the tree as the verbs before them left it.
+fn open_verbs(query: Value, view_kind: &str, target: Option<&str>) -> Result<Vec<Verb>> {
+    let query: PaneQuery = serde_json::from_value(query)
+        .map_err(|e| Refusal::invalid_argument(format!("open: query: {e}")))?;
+    let view_kind = ViewKindId::from(view_kind.to_string());
+    Ok(match target {
+        Some(role) => {
+            let target = LayoutPaneRefDto::role(role)
+                .to_pane_ref()
+                .map_err(Refusal::invalid_argument)?;
+            vec![
+                Verb::SetQuery {
+                    target: target.clone(),
+                    query,
+                },
+                Verb::SetViewKind { target, view_kind },
+            ]
+        }
+        None => vec![Verb::Split {
+            target: PaneRef::Focused,
+            dir: LinearDir::Vertical,
+            after: true,
+            new: Some(PaneSpec::new(query, view_kind)),
+        }],
+    })
+}
+
+/// The verb a `{"publish": …}` effect is: a selection of `ids` under `kind`
+/// on `pane`'s channel — what `layout-service_select` builds.
+fn publish_verb(pane: &PaneHandle, kind: &str, ids: Value) -> Result<Verb> {
+    let id_strings: Vec<String> = match ids {
+        Value::Array(items) => items
+            .into_iter()
+            .map(|v| match v {
+                Value::String(s) => s,
+                other => other.to_string(),
+            })
+            .collect(),
+        Value::String(s) => vec![s],
+        Value::Null => Vec::new(),
+        other => vec![other.to_string()],
+    };
+    let ids = id_strings
+        .iter()
+        .map(|id| {
+            id.trim()
+                .parse::<ItemId>()
+                .map_err(|e| Refusal::invalid_argument(format!("'{id}' is not an item id: {e}")))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Verb::Select {
+        target: PaneRef::id(TileId::new(pane.tile)),
+        kind: kind.trim().to_string(),
+        ids,
+    })
 }
 
 /// The pane parameters a surface's declared `params` become when it is
@@ -1087,6 +1094,32 @@ impl SurfaceRuntime {
     /// (RS-S14): once after `reduce`, before any effect runs — so an agent
     /// woken by an `emit` reads the state that produced it — and again only
     /// if a `call … into` changed it after that.
+    ///
+    /// # One click, one layout step (review PH-M2)
+    ///
+    /// Effects run in the order `reduce` gave them, except that a run of
+    /// consecutive `publish`/`open` effects is ONE layout gesture: their
+    /// verbs are gathered and applied together by
+    /// [`Executor::apply_layout`] when the run ends, as one revision of the
+    /// layout row and one undo entry, all or none. `[publish, open]` is one
+    /// ⌘Z. A run ends at a `call` or an `emit`, which runs after the gesture
+    /// before it has landed and before the one after it starts, so
+    /// `[publish, call, open]` is two steps with the call between them —
+    /// exactly the order it had when each effect was its own step. (No
+    /// later effect reads a `call`'s result within one dispatch — `reduce`
+    /// resolved them all up front — but a verb may read or change the
+    /// layout, and an agent woken by an `emit` reads it.) A `refresh` ends
+    /// nothing. The undo entry lands on the ring
+    /// `impress_layout::UndoStacks::apply_all` picks: the first recorded
+    /// verb's, so a gesture that starts with a `publish` lands on the
+    /// surface pane's own ring.
+    ///
+    /// Every effect still reports its own outcome, in order. A gesture
+    /// member refused before anything applied (no pane, a query that does
+    /// not parse, an id that is not one) reports its refusal as before, and
+    /// every other member of the gesture reports `not applied`, with that
+    /// refusal's code. A gesture the layout refuses reports the layout's
+    /// refusal on every member. Either way the layout is untouched.
     pub async fn dispatch(
         &mut self,
         executor: &dyn Executor,
@@ -1102,8 +1135,69 @@ impl SurfaceRuntime {
         self.persist_state(surfaces, actor)?;
 
         let mut outcomes = Vec::with_capacity(effects.len());
+        // Consecutive `publish`/`open` effects are one layout gesture (one
+        // step, one undo entry, all or none); see this method's docs.
+        let mut gesture: Option<Gesture> = None;
         for effect in effects {
-            let outcome = self.run_effect(executor, effect, actor).await;
+            match effect {
+                Effect::Publish { .. } | Effect::Open { .. } => {
+                    let index = outcomes.len();
+                    let kind = effect_kind(&effect);
+                    match self.layout_effect(executor, effect).await {
+                        Ok((pane, verbs, done)) => {
+                            // A gesture is one layout's: an effect whose
+                            // pane is in another (the pane moved apps
+                            // mid-dispatch) starts its own.
+                            if gesture
+                                .as_ref()
+                                .and_then(|g| g.pane.as_ref())
+                                .is_some_and(|p| p.app_id != pane.app_id || p.device != pane.device)
+                            {
+                                flush_gesture(executor, gesture.take(), &mut outcomes, actor).await;
+                            }
+                            let pending = gesture.get_or_insert_with(Gesture::default);
+                            pending.pane.get_or_insert(pane);
+                            pending.verbs.extend(verbs);
+                            pending.members.push(index);
+                            outcomes.push(match &pending.refused {
+                                Some((by, refusal)) => not_applied(kind, by, refusal),
+                                None => EffectOutcomeDto::done(kind, done),
+                            });
+                        }
+                        Err(refusal) => {
+                            // Refused before anything applied, so the whole
+                            // gesture is refused with it: what came before
+                            // it in this click, and what comes after.
+                            let pending = gesture.get_or_insert_with(Gesture::default);
+                            if pending.refused.is_none() {
+                                for &member in &pending.members {
+                                    let was = outcomes[member].kind.clone();
+                                    outcomes[member] = not_applied(&was, kind, &refusal);
+                                }
+                                pending.refused = Some((kind.to_string(), refusal.clone()));
+                            }
+                            pending.members.push(index);
+                            outcomes.push(EffectOutcomeDto::failed(kind, refusal));
+                        }
+                    }
+                }
+                effect => {
+                    // `call` and `emit` reach past this surface — a verb
+                    // that may read or change the layout, an agent woken by
+                    // the event — so each sees the layout the effects before
+                    // it left: the gesture so far lands first, and the
+                    // layout effects after it are a gesture of their own.
+                    // `refresh` only drops a cached source; it ends nothing.
+                    if !matches!(effect, Effect::Refresh { .. }) {
+                        flush_gesture(executor, gesture.take(), &mut outcomes, actor).await;
+                    }
+                    let outcome = self.run_effect(executor, effect, actor).await;
+                    outcomes.push(outcome);
+                }
+            }
+        }
+        flush_gesture(executor, gesture.take(), &mut outcomes, actor).await;
+        for outcome in &outcomes {
             if outcome.ok {
                 log::debug!(
                     target: "surface",
@@ -1124,7 +1218,6 @@ impl SurfaceRuntime {
                     outcome.message
                 );
             }
-            outcomes.push(outcome);
         }
         self.persist_state(surfaces, actor)?;
 
@@ -1204,24 +1297,6 @@ impl SurfaceRuntime {
                 }
                 Err(e) => EffectOutcomeDto::failed("call", e),
             },
-            Effect::Publish { ids } => {
-                let Some(pane) = self.pane_or_lookup(executor).await else {
-                    return EffectOutcomeDto::failed(
-                        "publish",
-                        Refusal::new(
-                            "no-pane",
-                            "no pane shows this surface yet (surface_show has not run)",
-                        ),
-                    );
-                };
-                let (kind, ids) = publish_kind_and_ids(&self.spec, ids);
-                match executor.publish(&pane, &kind, ids, actor).await {
-                    Ok(()) => {
-                        EffectOutcomeDto::done("publish", format!("published on kind '{kind}'"))
-                    }
-                    Err(e) => EffectOutcomeDto::failed("publish", e),
-                }
-            }
             Effect::Emit { name, payload } => {
                 match executor
                     .emit(self.surface_id, &self.host, &name, payload, actor)
@@ -1233,22 +1308,6 @@ impl SurfaceRuntime {
                     Err(e) => EffectOutcomeDto::failed("emit", e),
                 }
             }
-            Effect::Open {
-                query,
-                view_kind,
-                target,
-            } => {
-                let pane = self.pane_or_lookup(executor).await;
-                match executor
-                    .open(pane.as_ref(), query, &view_kind, target.as_deref(), actor)
-                    .await
-                {
-                    Ok(()) => {
-                        EffectOutcomeDto::done("open", format!("opened a '{view_kind}' pane"))
-                    }
-                    Err(e) => EffectOutcomeDto::failed("open", e),
-                }
-            }
             Effect::Refresh { source } => {
                 self.cache.remove(&source);
                 self.failed.remove(&source);
@@ -1257,7 +1316,133 @@ impl SurfaceRuntime {
                     format!("'{source}' will re-fetch on next render"),
                 )
             }
+            // Compiled by `layout_effect` and applied as a gesture by
+            // `dispatch`; never run one by one.
+            effect @ (Effect::Publish { .. } | Effect::Open { .. }) => {
+                let kind = effect_kind(&effect);
+                EffectOutcomeDto::failed(
+                    kind,
+                    Refusal::internal(format!("a '{kind}' effect is applied as a layout gesture")),
+                )
+            }
         }
+    }
+
+    /// A `publish` or `open` effect, compiled: the pane whose layout it
+    /// changes, the layout verbs it is, and the message it reports when the
+    /// gesture it joins lands. Refused, as before, when no pane shows this
+    /// surface or the effect's own arguments do not make a verb.
+    async fn layout_effect(
+        &mut self,
+        executor: &dyn Executor,
+        effect: Effect,
+    ) -> Result<(PaneHandle, Vec<Verb>, String)> {
+        match effect {
+            Effect::Publish { ids } => {
+                let Some(pane) = self.pane_or_lookup(executor).await else {
+                    return Err(Refusal::new(
+                        "no-pane",
+                        "no pane shows this surface yet (surface_show has not run)",
+                    ));
+                };
+                let (kind, ids) = publish_kind_and_ids(&self.spec, ids);
+                let verb = publish_verb(&pane, &kind, ids)?;
+                Ok((pane, vec![verb], format!("published on kind '{kind}'")))
+            }
+            Effect::Open {
+                query,
+                view_kind,
+                target,
+            } => {
+                let Some(pane) = self.pane_or_lookup(executor).await else {
+                    return Err(Refusal::new(
+                        "no-pane",
+                        "this surface instance has no pane yet (surface_show has not run) — \
+                         nothing to open a query beside",
+                    ));
+                };
+                let verbs = open_verbs(query, &view_kind, target.as_deref())?;
+                Ok((pane, verbs, format!("opened a '{view_kind}' pane")))
+            }
+            other => Err(Refusal::internal(format!(
+                "a '{}' effect is not a layout verb",
+                effect_kind(&other)
+            ))),
+        }
+    }
+}
+
+/// The layout effects of one dispatch that land together: one step in one
+/// layout, all or none (review PH-M2). See [`SurfaceRuntime::dispatch`].
+#[derive(Default)]
+struct Gesture {
+    /// The pane whose layout (app and device) the gesture changes — `None`
+    /// only while every member so far was refused before it had one.
+    pane: Option<PaneHandle>,
+    verbs: Vec<Verb>,
+    /// Which of the dispatch's outcomes are this gesture's, by index.
+    members: Vec<usize>,
+    /// The member refused before anything applied, and why: set, nothing
+    /// in the gesture is applied.
+    refused: Option<(String, Refusal)>,
+}
+
+/// Apply a gathered gesture, and when the layout refuses it, report that on
+/// every member: none of them happened.
+async fn flush_gesture(
+    executor: &dyn Executor,
+    gesture: Option<Gesture>,
+    outcomes: &mut [EffectOutcomeDto],
+    actor: ActorKind,
+) {
+    let Some(Gesture {
+        pane: Some(pane),
+        verbs,
+        members,
+        refused: None,
+    }) = gesture
+    else {
+        return;
+    };
+    if verbs.is_empty() {
+        return;
+    }
+    if let Err(refusal) = executor.apply_layout(&pane, verbs, actor).await {
+        let together = members.len() > 1;
+        for member in members {
+            let kind = outcomes[member].kind.clone();
+            let mut refusal = refusal.clone();
+            if together {
+                refusal.message = format!("{} (one gesture: none of it applied)", refusal.message);
+            }
+            outcomes[member] = EffectOutcomeDto::failed(&kind, refusal);
+        }
+    }
+}
+
+/// A member of a gesture another member's refusal kept from applying. It
+/// carries that refusal's code, so a caller branching on codes sees why.
+fn not_applied(kind: &str, refused_kind: &str, refusal: &Refusal) -> EffectOutcomeDto {
+    EffectOutcomeDto::failed(
+        kind,
+        Refusal::new(
+            refusal.code.clone(),
+            format!(
+                "not applied: the '{refused_kind}' in the same gesture was refused: {}",
+                refusal.message
+            ),
+        ),
+    )
+}
+
+/// An effect's `kind`, as its outcome names it.
+fn effect_kind(effect: &Effect) -> &'static str {
+    match effect {
+        Effect::Call { .. } => "call",
+        Effect::Publish { .. } => "publish",
+        Effect::Emit { .. } => "emit",
+        Effect::Open { .. } => "open",
+        Effect::Refresh { .. } => "refresh",
     }
 }
 
@@ -1629,5 +1814,44 @@ mod publish_kind_tests {
     #[test]
     fn an_unknown_kind_is_left_alone() {
         assert_eq!(as_layout_kind("nobody/owns-this"), "nobody/owns-this");
+    }
+}
+
+#[cfg(test)]
+mod call_verb_tests {
+    use super::call_verb;
+    use impress_service_core::refusal::codes;
+    use impress_service_core::{McpToolDescriptor, ServiceFuture};
+    use serde_json::{json, Value};
+
+    const FAILING: &str = "call-verb-test_always-fails";
+
+    fn always_fails(_: Value) -> ServiceFuture {
+        Box::pin(async { Err("boom".into()) })
+    }
+
+    // A handler that errors: every real verb answers a refusal as an `ok:
+    // false` envelope, so none of them reaches the `Handler` arm.
+    impress_service_core::inventory::submit! {
+        McpToolDescriptor {
+            name: FAILING,
+            description: "test only: a handler that always errors",
+            input_schema: || json!({"type": "object"}),
+            handler: always_fails,
+        }
+    }
+
+    /// The texts and codes `impress_service_core::call` hands back are the
+    /// ones this crate's own copy used to write (review RS-S21): a source or
+    /// an effect reports them unchanged.
+    #[tokio::test]
+    async fn an_unknown_verb_and_a_failed_one_keep_their_codes_and_text() {
+        let unknown = call_verb("no-such-tool", json!({})).await.unwrap_err();
+        assert_eq!(unknown.code, "unknown-verb");
+        assert_eq!(unknown.message, "Unknown tool: no-such-tool");
+
+        let failed = call_verb(FAILING, json!({})).await.unwrap_err();
+        assert_eq!(failed.code, codes::VERB_FAILED);
+        assert_eq!(failed.message, format!("{FAILING}: boom"));
     }
 }

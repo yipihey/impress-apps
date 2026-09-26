@@ -18,6 +18,8 @@
 #     every [workspace.dependencies] path entry for an uncopied crate removed.
 #     Everything else (registry versions, [workspace.package], profiles) is
 #     the real file, so `workspace = true` resolves exactly as it does here.
+#   * docs/<file> for each document a copied crate include_str!s (today the
+#     kit's contract, docs/agent-surfaces.md, which a surface test parses).
 #   * rust-toolchain.toml, .cargo/config.toml and Cargo.lock, so the pinned
 #     compiler and the locked versions are the ones this repo builds with.
 #
@@ -283,6 +285,23 @@ try:
         if (ROOT / f).exists():
             (scratch / f).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, scratch / f)
+
+    # Documents a kit crate compiles in with include_str! (the kit's own
+    # contract doc, docs/agent-surfaces.md, is parsed by a surface test). Only
+    # files under docs/ are copied: a crate reaching anywhere else is a finding.
+    for rs in scratch.glob("crates/*/**/*.rs"):
+        for rel in re.findall(r'include_str!\(\s*"([^"]+)"', rs.read_text()):
+            target = (rs.parent / rel).resolve()
+            try:
+                inside = target.relative_to(scratch.resolve())
+            except ValueError:
+                fail(f"{rs.relative_to(scratch)} includes {rel}, outside the workspace")
+            if target.exists() or inside.parts[0] != "docs":
+                continue
+            if not (ROOT / inside).is_file():
+                fail(f"{rs.relative_to(scratch)} includes {rel}, which does not exist")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / inside, target)
 
     # Root manifest: the real one, members replaced, uncopied path entries removed.
     text = re.sub(r"(?ms)^members\s*=\s*\[.*?^\]",

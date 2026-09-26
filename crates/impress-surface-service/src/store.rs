@@ -30,6 +30,11 @@
 //! hard-deleted by pruning, so they carry no operation at all — the same
 //! reasoning the layout store gives for why a row's *creation* is a plain
 //! insert.
+//!
+//! [`RetentionTier::Durable`]: impress_core::operation::RetentionTier::Durable
+//! [`OperationIntent::Editorial`]: impress_core::operation::OperationIntent::Editorial
+//! [`RetentionTier::Ephemeral`]: impress_core::operation::RetentionTier::Ephemeral
+//! [`OperationIntent::Routine`]: impress_core::operation::OperationIntent::Routine
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -42,14 +47,16 @@ use chrono::{DateTime, Utc};
 // constructions below.
 use impress_core::item::Value as ItemValue;
 use impress_core::item::{ActorKind, Item, ItemId, Priority, Visibility};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_core::operation::{OperationSpec, OperationType};
 use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_core::schemas::{
     SURFACE_EVENT_SCHEMA_REF, SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF,
 };
-use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::sqlite_store::{GuardedBatch, SqliteItemStore};
 use impress_core::store::ItemStore;
 use impress_core::store::StoreError;
+pub use impress_layout_service::authorship::actor_from;
+use impress_layout_service::authorship::{author_for_service, Ephemerality};
 use impress_service_core::Refusal;
 use impress_surface::SurfaceSpec;
 use serde_json::Value;
@@ -211,19 +218,30 @@ impl SurfaceStore {
     }
 
     /// Replace a surface's spec and bump its revision, in one store
-    /// transaction (`apply_operation_batch`), so a reader never sees the new
-    /// spec under the old revision. `Durable` + `Editorial`: this is a
-    /// commit, like `save_named` on a layout.
+    /// transaction, so a reader never sees the new spec under the old
+    /// revision. `Durable` + `Editorial`: this is a commit, like
+    /// `save_named` on a layout.
     ///
     /// The row's `name` is KEPT unless `name` is given (RS-S25): it may be a
     /// create-time override, which re-deriving it from `spec.name` silently
     /// threw away.
     ///
-    /// `expected_revision` is optimistic concurrency (AC-F22): when given and
-    /// the row has moved past it, nothing is written and the error starts
-    /// with `conflict:`. The check and the write are serialised within this
-    /// process; across processes the window between them is one store read,
-    /// because the store has no conditional write to close it with.
+    /// # Atomic across processes (AC-F22)
+    ///
+    /// `expected_revision` is optimistic concurrency: when given and the row
+    /// has moved past it, nothing is written and the error starts with
+    /// `conflict:`. The write is conditional on the row's `logical_clock` as
+    /// this call read it (`SqliteItemStore::apply_operations_if_clock`, the
+    /// primitive the layout live row's compare-and-swap uses): the clock
+    /// check and the spec, revision and name writes are one `BEGIN
+    /// IMMEDIATE` transaction, so two writers — two processes on one store
+    /// file, or two threads in one — that both read revision N cannot both
+    /// write N + 1. The loser's write finds the clock moved, re-reads, and is
+    /// refused `conflict` if it named a revision, or bumps from the new one
+    /// if it did not (an update with no `expected_revision` is last writer
+    /// wins, but never loses a revision number). A write that moved the row
+    /// without changing its revision (a tag) is not a conflict: the re-read
+    /// sees the same revision and the update goes ahead.
     pub fn update(
         &self,
         id: ItemId,
@@ -232,20 +250,70 @@ impl SurfaceStore {
         expected_revision: Option<u64>,
         actor: ActorKind,
     ) -> Result<SurfaceRow> {
-        static UPDATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _serialised = UPDATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let existing = self
-            .row_item(id)?
-            .ok_or_else(|| Refusal::not_found(format!("no surface {id}")))?;
-        let current = revision_of(&existing);
-        if let Some(expected) = expected_revision {
-            if expected != current {
-                return Err(Refusal::conflict(format!(
-                    "conflict: surface {id} is at revision {current}, not {expected} — someone \
-                     else updated it; read it again (surface_get) and apply your change to that"
-                )));
+        // Each retry means another writer committed to this row between our
+        // read and our write, so the bound is how many writers can race one
+        // update, not a timeout.
+        const MAX_ATTEMPTS: usize = 64;
+        for _ in 0..MAX_ATTEMPTS {
+            let existing = self
+                .row_item(id)?
+                .ok_or_else(|| Refusal::not_found(format!("no surface {id}")))?;
+            let current = revision_of(&existing);
+            if let Some(expected) = expected_revision {
+                if expected != current {
+                    return Err(Refusal::conflict(format!(
+                        "conflict: surface {id} is at revision {current}, not {expected} — \
+                         someone else updated it; read it again (surface_get) and apply your \
+                         change to that"
+                    )));
+                }
+            }
+            let ops = self.update_ops(id, spec, name, current + 1, actor)?;
+            match self
+                .store
+                .apply_operations_if_clock(ops, id, existing.logical_clock)
+                .map_err(|e| Refusal::store(format!("write surface: {e}")))?
+            {
+                // The row as THIS write left it, not a re-read: a writer that
+                // lands right after us must not hand our caller its revision
+                // as if it were ours — the caller's next `expected_revision`
+                // would then overwrite that write unseen.
+                GuardedBatch::Applied { .. } => {
+                    let written = current + 1;
+                    if let Some(row) = self.get(id)?.filter(|r| r.revision == written) {
+                        return Ok(row);
+                    }
+                    let mut row = surface_row_of(&existing)?;
+                    row.revision = written;
+                    row.spec = spec.clone();
+                    row.spec_text = spec_json(spec)?;
+                    if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
+                        row.name = name.to_string();
+                    }
+                    row.modified = Utc::now();
+                    return Ok(row);
+                }
+                GuardedBatch::Moved { clock: None } => {
+                    return Err(Refusal::not_found(format!("no surface {id}")));
+                }
+                GuardedBatch::Moved { clock: Some(_) } => continue,
             }
         }
+        Err(Refusal::internal(format!(
+            "update surface {id}: {MAX_ATTEMPTS} other writers changed it first"
+        )))
+    }
+
+    /// The operations of one update: the spec, the revision, and the name
+    /// when one is given.
+    fn update_ops(
+        &self,
+        id: ItemId,
+        spec: &SurfaceSpec,
+        name: Option<&str>,
+        revision: u64,
+        actor: ActorKind,
+    ) -> Result<Vec<OperationSpec>> {
         let mut ops = vec![
             self.op(
                 id,
@@ -258,7 +326,7 @@ impl SurfaceStore {
             self.op(
                 id,
                 field::surface::REVISION,
-                ItemValue::Int((current + 1) as i64),
+                ItemValue::Int(revision as i64),
                 actor,
                 "bumped the revision",
                 Ephemerality::Commit,
@@ -274,11 +342,7 @@ impl SurfaceStore {
                 Ephemerality::Commit,
             ));
         }
-        self.store
-            .apply_operation_batch(ops)
-            .map_err(|e| Refusal::store(format!("write surface: {e}")))?;
-        self.get(id)?
-            .ok_or_else(|| Refusal::store("surface vanished mid-update"))
+        Ok(ops)
     }
 
     pub fn get(&self, id: ItemId) -> Result<Option<SurfaceRow>> {
@@ -766,59 +830,12 @@ fn revision_of(item: &Item) -> u64 {
     int_field(item, field::surface::REVISION).unwrap_or(1)
 }
 
-/// Which side of the ADR-0031 D7 line a write is on — the same distinction
-/// `impress-layout-service/src/store.rs`'s `Ephemerality` makes, copied
-/// rather than shared because the two stores are otherwise unrelated and a
-/// dependency just for one private enum would be the wrong trade.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ephemerality {
-    Exploration,
-    Commit,
-}
-
-impl Ephemerality {
-    fn retention(self) -> RetentionTier {
-        match self {
-            Ephemerality::Exploration => RetentionTier::Ephemeral,
-            Ephemerality::Commit => RetentionTier::Durable,
-        }
-    }
-
-    fn intent(self) -> OperationIntent {
-        match self {
-            Ephemerality::Exploration => OperationIntent::Routine,
-            Ephemerality::Commit => OperationIntent::Editorial,
-        }
-    }
-}
-
-/// The author string written with an operation — `IMPRESS_AUTHOR` overrides,
-/// same as `impress-layout-service::store::author_for`, copied for the same
-/// reason `Ephemerality` is.
+/// The author string this service writes with an operation
+/// (`agent:surface-service`, or `IMPRESS_AUTHOR`). `Ephemerality`,
+/// `actor_from` and the rule itself are layout-service's
+/// (`impress_layout_service::authorship`, review RS-S21).
 pub fn author_for(actor: ActorKind) -> String {
-    if let Ok(author) = std::env::var("IMPRESS_AUTHOR") {
-        let author = author.trim();
-        if !author.is_empty() {
-            return author.to_string();
-        }
-    }
-    match actor {
-        ActorKind::Human => "human:surface-service".to_string(),
-        ActorKind::Agent => "agent:surface-service".to_string(),
-        ActorKind::System => "system:surface-service".to_string(),
-    }
-}
-
-/// Parse an actor argument the same way `impress-layout-service` does:
-/// `None` means [`ActorKind::Agent`], because these verbs reach the store
-/// over MCP and the CLI and an agent that forgets to say who it is must not
-/// be recorded as the user.
-pub fn actor_from(raw: Option<&str>) -> ActorKind {
-    match raw.map(|a| a.trim().to_ascii_lowercase()).as_deref() {
-        Some("human") | Some("user") | Some("person") => ActorKind::Human,
-        Some("system") => ActorKind::System,
-        _ => ActorKind::Agent,
-    }
+    author_for_service(actor, "surface-service")
 }
 
 fn string_field(item: &Item, field: &str) -> Option<String> {

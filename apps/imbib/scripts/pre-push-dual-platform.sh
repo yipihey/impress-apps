@@ -68,10 +68,14 @@ if command -v cargo >/dev/null 2>&1; then
     fi
 fi
 
-# Detect changes since the upstream HEAD. If no upstream, diff against
-# the local HEAD~1 as a best-effort fallback.
+# Detect changes since the upstream HEAD. A branch's first push has no
+# upstream: diff against where it left origin/main, so every commit the push
+# carries is checked. (HEAD~1 was the fallback, and a new branch whose last
+# commit touched only docs skipped every gate below, on 2026-09-26.)
 if git -C "$REPO_ROOT" rev-parse --abbrev-ref @{u} >/dev/null 2>&1; then
     BASE="@{u}"
+elif BASE=$(git -C "$REPO_ROOT" merge-base HEAD origin/main 2>/dev/null); then
+    :
 else
     BASE="HEAD~1"
 fi

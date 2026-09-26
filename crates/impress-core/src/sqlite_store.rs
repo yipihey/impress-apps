@@ -251,6 +251,20 @@ pub enum GuardedWrite {
     Moved { clock: Option<u64> },
 }
 
+/// What [`SqliteItemStore::apply_operations_if_clock`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuardedBatch {
+    /// The guard row's clock matched; every operation is written, in order.
+    /// `clock` is the guard row's new `logical_clock`.
+    Applied {
+        operation_ids: Vec<ItemId>,
+        clock: u64,
+    },
+    /// The guard row moved (or is gone, `None`) since the caller read it.
+    /// Nothing was written.
+    Moved { clock: Option<u64> },
+}
+
 /// One applied operation, between the write and its announcement.
 struct AppliedOperation {
     operation_id: ItemId,
@@ -2036,6 +2050,77 @@ impl SqliteItemStore {
         let operation_id = self.announce_operation(&spec, applied)?;
         Ok(GuardedWrite::Applied {
             operation_id,
+            clock,
+        })
+    }
+
+    /// [`Self::apply_operation_if_clock`] for several operations: every spec
+    /// is applied, sharing one batch id, **only if** `guard`'s
+    /// `logical_clock` is still `expected_clock` — for a writer whose one
+    /// logical change is several fields that must move together (a surface's
+    /// spec and its revision counter, review AC-F22).
+    ///
+    /// The check and every operation are one `BEGIN IMMEDIATE` transaction,
+    /// so no connection in any process commits between the check and the
+    /// last write, and a failure part-way (a missing target, an immutable
+    /// row) rolls the whole batch back. On success `clock` is `guard`'s new
+    /// `logical_clock`, read inside the transaction. An empty batch is
+    /// refused: it would report a write that never happened.
+    pub fn apply_operations_if_clock(
+        &self,
+        specs: Vec<OperationSpec>,
+        guard: ItemId,
+        expected_clock: u64,
+    ) -> Result<GuardedBatch, StoreError> {
+        if specs.is_empty() {
+            return Err(StoreError::Validation(
+                "a guarded batch needs at least one operation".into(),
+            ));
+        }
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| StoreError::Storage(format!("begin guarded batch: {e}")))?;
+        let read_clock = |tx: &rusqlite::Transaction<'_>| {
+            tx.query_row(
+                "SELECT logical_clock FROM items WHERE id = ?1",
+                params![guard.to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("read clock: {e}")))
+        };
+        match read_clock(&tx)? {
+            Some(clock) if clock as u64 == expected_clock => {}
+            other => {
+                // Dropping the transaction rolls it back; nothing was written.
+                return Ok(GuardedBatch::Moved {
+                    clock: other.map(|c| c as u64),
+                });
+            }
+        }
+        let batch_id = Uuid::new_v4().to_string();
+        let mut applied = Vec::with_capacity(specs.len());
+        for mut spec in specs {
+            spec.batch_id = Some(batch_id.clone());
+            let done = self.apply_operation_on(&tx, &spec)?;
+            applied.push((spec, done));
+        }
+        let clock = read_clock(&tx)?
+            .map(|c| c as u64)
+            .ok_or(StoreError::NotFound(guard))?;
+        tx.commit()
+            .map_err(|e| StoreError::Storage(format!("commit guarded batch: {e}")))?;
+        drop(conn);
+        let mut operation_ids = Vec::with_capacity(applied.len());
+        for (spec, done) in applied {
+            operation_ids.push(self.announce_operation(&spec, done)?);
+        }
+        Ok(GuardedBatch::Applied {
+            operation_ids,
             clock,
         })
     }
@@ -7322,6 +7407,101 @@ mod tests {
                 )
                 .unwrap(),
             GuardedWrite::Moved { clock: None }
+        );
+    }
+
+    /// Review AC-F22: two fields that must move together (a surface's spec
+    /// and its revision) land as one guarded batch, and a second connection
+    /// on the same file — another process, as far as SQLite is concerned —
+    /// that read the row before the first batch committed is refused, with
+    /// nothing written.
+    #[test]
+    fn a_guarded_batch_is_all_or_nothing_across_connections() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("guarded_batch.sqlite");
+        let first = SqliteItemStore::open(&path).unwrap();
+        let second = SqliteItemStore::open(&path).unwrap();
+        let id = first.insert(make_item("test", "Target")).unwrap();
+        let set = |field: &str, value: Value| OperationSpec {
+            target_id: id,
+            op_type: OperationType::SetPayload(field.into(), value),
+            intent: OperationIntent::Editorial,
+            reason: None,
+            batch_id: None,
+            author: "test-user".into(),
+            author_kind: ActorKind::Agent,
+            retention: RetentionTier::Durable,
+        };
+        let batch = |title: &str, n: i64| {
+            vec![
+                set("title", Value::String(title.into())),
+                set("n", Value::Int(n)),
+            ]
+        };
+
+        // Both read the same clock.
+        let read_first = first.logical_clock_of(id).unwrap().unwrap();
+        let read_second = second.logical_clock_of(id).unwrap().unwrap();
+        assert_eq!(read_first, read_second);
+
+        let won = first
+            .apply_operations_if_clock(batch("first", 2), id, read_first)
+            .unwrap();
+        let GuardedBatch::Applied {
+            operation_ids,
+            clock,
+        } = won
+        else {
+            panic!("a matching clock writes: {won:?}");
+        };
+        assert_eq!(operation_ids.len(), 2);
+        assert_eq!(second.logical_clock_of(id).unwrap(), Some(clock));
+        let ops: Vec<Item> = operation_ids
+            .iter()
+            .map(|op| second.get(*op).unwrap().unwrap())
+            .collect();
+        assert!(
+            ops[0].batch_id.is_some() && ops[0].batch_id == ops[1].batch_id,
+            "one batch"
+        );
+
+        let lost = second
+            .apply_operations_if_clock(batch("second", 2), id, read_second)
+            .unwrap();
+        assert_eq!(lost, GuardedBatch::Moved { clock: Some(clock) });
+        let row = second.get(id).unwrap().unwrap();
+        assert_eq!(
+            row.payload.get("title"),
+            Some(&Value::String("first".into()))
+        );
+        assert_eq!(row.payload.get("n"), Some(&Value::Int(2)));
+
+        // A batch that fails part-way writes none of it.
+        let broken = vec![
+            set("title", Value::String("half".into())),
+            OperationSpec {
+                target_id: uuid::Uuid::new_v4(),
+                ..set("n", Value::Int(3))
+            },
+        ];
+        assert!(matches!(
+            second.apply_operations_if_clock(broken, id, clock),
+            Err(StoreError::NotFound(_))
+        ));
+        assert_eq!(second.logical_clock_of(id).unwrap(), Some(clock));
+        let row = first.get(id).unwrap().unwrap();
+        assert_eq!(
+            row.payload.get("title"),
+            Some(&Value::String("first".into()))
+        );
+
+        // An empty batch is refused, a gone guard is moved with no clock.
+        assert!(second.apply_operations_if_clock(vec![], id, clock).is_err());
+        assert_eq!(
+            second
+                .apply_operations_if_clock(batch("x", 9), uuid::Uuid::new_v4(), clock)
+                .unwrap(),
+            GuardedBatch::Moved { clock: None }
         );
     }
 

@@ -399,10 +399,13 @@ impl SharedLayout {
     pub fn open(store: Arc<SharedStore>, app_id: String, device: Option<String>) -> Arc<Self> {
         let core = store.core();
         Arc::new(SharedLayout {
+            // Every verb answers with the tree it left, so `verb` below
+            // never re-reads it (review RL-L14).
             service: DefaultLayoutService::with_store_and_sessions(
                 core.clone(),
                 store.layout_sessions(),
-            ),
+            )
+            .with_tree_in_results(),
             store: core,
             device_tag: resolve_device(device.as_deref()),
             app_id,
@@ -880,9 +883,15 @@ impl SharedLayout {
     /// ring, a save) bumps nothing (review RL-L9). The revision it produced
     /// is recorded under the same lock the feed compares under, so the feed
     /// never reports this verb back as someone else's change.
+    ///
+    /// The tree comes back in the verb's own result, serialized under the
+    /// lock the verb held (review RL-L14): no second registry lock, no clone,
+    /// and it is the tree this verb left rather than whatever a verb from the
+    /// surface executor made of it in between. Only a verb that leaves no tree
+    /// (`delete_layout`) reads it again.
     fn verb(&self, call: impl FnOnce() -> LayoutVerbResult) -> Result<SharedAppliedVerb> {
         let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
-        let result = call();
+        let mut result = call();
         if !result.ok {
             return Err(SharedLayoutError::refused(result.code, result.message));
         }
@@ -894,7 +903,10 @@ impl SharedLayout {
         } else {
             self.version.load(Ordering::SeqCst)
         };
-        let layout = self.read_layout()?;
+        let layout_json = match result.tree_json.take() {
+            Some(json) => json,
+            None => serde_json::to_string(&self.read_layout()?).map_err(SharedLayoutError::json)?,
+        };
         drop(told);
         let changed_tiles = result
             .patch
@@ -906,7 +918,7 @@ impl SharedLayout {
             focused: result.focused,
             affected_panes: result.affected_panes,
             changed_tiles,
-            layout_json: serde_json::to_string(&layout).map_err(SharedLayoutError::json)?,
+            layout_json,
             revision: result.revision.or(revision),
         })
     }
@@ -2160,6 +2172,40 @@ mod tests {
             .delete_layout("Triage".into(), "human".into())
             .expect("delete");
         assert!(layout.list_layouts().expect("list").is_empty());
+    }
+
+    /// RL-L14: a verb's `layout_json` is the tree it left, carried in its
+    /// own result — and still the tree for the verb that leaves none
+    /// (`delete_layout`), which reads it instead.
+    #[test]
+    fn a_verbs_tree_is_the_tree_a_snapshot_reads() {
+        let (_store, layout) = open();
+        let tree = || layout.snapshot().expect("snapshot").layout_json;
+        let list = role_of(&layout, "list");
+
+        let focused = layout
+            .apply(
+                format!(r#"{{"verb":"focus","target":{{"id":{list}}}}}"#),
+                "human".into(),
+            )
+            .expect("focus");
+        assert_eq!(focused.layout_json, tree());
+        let stepped = layout
+            .focus_direction("right".into(), "human".into())
+            .expect("step");
+        assert_eq!(stepped.layout_json, tree());
+        let saved = layout
+            .save_layout("Kept".into(), None, "human".into())
+            .expect("save");
+        assert_eq!(saved.layout_json, tree());
+        let recalled = layout
+            .apply_layout("Kept".into(), "human".into())
+            .expect("recall");
+        assert_eq!(recalled.layout_json, tree());
+        let deleted = layout
+            .delete_layout("Kept".into(), "human".into())
+            .expect("delete");
+        assert_eq!(deleted.layout_json, tree());
     }
 
     #[test]

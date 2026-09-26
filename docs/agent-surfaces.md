@@ -103,7 +103,10 @@ action's schema): `impress.surface.surface-get`, `impress.surface.surface-list`,
    something that emits, or on timeout with `timed_out: true`.
 7. **React**: `surface_update` `{id, spec, expected_revision}` to change what
    the person sees (validated like create; pass the `revision` you last read,
-   and a write someone else made since is refused with `conflict`), or call a
+   and a write someone else made since is refused with `conflict` — in this
+   process or any other on the store, because the check and the write are
+   one conditional store transaction, so two writers that read one revision
+   cannot both win), or call a
    domain verb with what they chose. An open pane shows an update on its next
    render. Then `surface_wait` again from `next_seq`.
 
@@ -351,9 +354,10 @@ A renderer event is `{"widget": id, "kind": "change"|"click"|"select"|"submit",
 | `{ "query": PaneQuery }` | An ADR-0031 pane query, run the way a pane's query runs; its rows are flattened (a record's payload fields beside its envelope). |
 
 A source is exactly one of the three. Sources are cached by their resolved
-arguments and re-run when an argument changes, when a store write touches a
-record kind a query source reads (in this process or, through the app's
-250 ms poll, another one such as `impress-mcp`), or when an action
+arguments and re-run when an argument changes, when a store write or delete
+touches a record kind a query source reads (in this process or, through the
+app's 250 ms poll, another one such as `impress-mcp` — a hard delete there
+is seen as the kind's row count moving), or when an action
 `refresh`es them. A `verb` source declares nothing it reads, so it re-runs
 only on an argument change or a `refresh`. A source that failed is not asked
 again with the same arguments for 5 seconds.
@@ -382,6 +386,14 @@ selection of any kind — a channel is keyed by kind — but a pane follows only
 the kind its param declares, so a spec that publishes and declares no param is
 a validation warning. An `open`'s `view_kind` must be one the layout knows
 (`layout_vocabulary_json`), or validation says which it does.
+
+**One click is one layout step.** Consecutive `publish` and `open` actions
+in one event's list change the layout together: one revision of the layout,
+one undo entry (⌘Z in the pane takes the whole click back), and all or none —
+if the layout refuses any of them, none is applied, the refused one reports
+why and each other one reports `not applied` with the same code. A `call` or
+`emit` between them runs between them, so `[publish, call, open]` is two
+layout steps with the call in the middle, in that order.
 
 `each` fans a `call`/`emit` out over an array: a literal path (never a
 `{{…}}` template) whose root is `state`, `param`, `source` or `event`, which
@@ -461,7 +473,10 @@ re-rendering does not fail the dispatch; it is listed in `source_errors`.
 
 `revision` is the spec's and `state_revision` the state row's, as the answer
 was built. A pane compares them with the feed's notifications and does not
-render its own write's echo again.
+render its own write's echo again. The pane's own `SharedSurface` feed holds
+a surface's notifications while that handle's dispatch runs and drops the
+echo once it replies, so a dispatch slower than the feed's debounce (a slow
+effect or source) is not drawn twice either.
 
 ## HTTP
 
