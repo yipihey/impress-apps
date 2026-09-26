@@ -1864,11 +1864,20 @@ impl LayoutService for DefaultLayoutService {
                     ))
                 }
             }
-            other => LayoutVerbResult::refused(Refusal::invalid_argument(format!(
-                "cannot commit the current bindings as a '{other}' yet — only 'layout' and \
-                 'preset' are materializable today. Committing a figure or a collection is the \
-                 same verb with a different `as_kind` and arrives with the implore work."
-            ))),
+            other => {
+                let refusal = Refusal::invalid_argument(format!(
+                    "cannot commit the current bindings as a '{other}' yet — only 'layout' and \
+                     'preset' are materializable today. Committing a figure or a collection is \
+                     the same verb with a different `as_kind` and arrives with the implore work."
+                ));
+                self.persisted(
+                    "commit",
+                    &app_id,
+                    actor_from(actor.as_deref()),
+                    &format!("'{}' as '{other}'", name.trim()),
+                    Err(refusal),
+                )
+            }
         }
     }
 
@@ -2322,14 +2331,20 @@ impl LayoutService for DefaultLayoutService {
         from_live: bool,
         actor: Option<String>,
     ) -> PresetResult {
-        if !from_live {
-            return PresetResult::refused(Refusal::invalid_argument(
-                "save_preset builds a preset from the LIVE arrangement, so `from_live` must be \
-                 true. Building one from a saved layout or from another preset is a different \
-                 verb and does not exist yet.",
-            ));
-        }
         let actor_kind = actor_from(actor.as_deref());
+        if !from_live {
+            return self.persisted_preset(
+                "save_preset",
+                &app_id,
+                actor_kind,
+                &format!("'{}'", name.trim()),
+                Err(Refusal::invalid_argument(
+                    "save_preset builds a preset from the LIVE arrangement, so `from_live` must \
+                     be true. Building one from a saved layout or from another preset is a \
+                     different verb and does not exist yet.",
+                )),
+            );
+        }
         let outcome = self.with_session_for_write(&app_id, device, actor_kind, |session, store| {
             let presets = PresetStore::new(store.store().clone());
             presets.ensure_shipped(&session.app_id)?;
