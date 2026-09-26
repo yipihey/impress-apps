@@ -103,7 +103,10 @@ action's schema): `impress.surface.surface-get`, `impress.surface.surface-list`,
    something that emits, or on timeout with `timed_out: true`.
 7. **React**: `surface_update` `{id, spec, expected_revision}` to change what
    the person sees (validated like create; pass the `revision` you last read,
-   and a write someone else made since is refused with `conflict`), or call a
+   and a write someone else made since is refused with `conflict` — in this
+   process or any other on the store, because the check and the write are
+   one conditional store transaction, so two writers that read one revision
+   cannot both win), or call a
    domain verb with what they chose. An open pane shows an update on its next
    render. Then `surface_wait` again from `next_seq`.
 
