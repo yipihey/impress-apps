@@ -434,18 +434,18 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// Create a new library in imbib. Libraries are top-level containers
     /// for papers, separate from collections. Use this when asked to create
     /// a new library for a topic or project.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_library(&self, name: String) -> Option<LibraryRecord>;
     /// Delete a library with its collections and memberships. The store hands
     /// back an undo snapshot that this verb drops (plan-auto-gui finding S-2),
     /// so on this path the deletion is not undoable: take a backup first.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete_library_undoable(&self, id: String) -> MutationResult;
     /// Get the library new papers are filed into by default, if one is set.
     #[impress_method]
     async fn get_default_library(&self) -> Option<LibraryRecord>;
     /// Make a library the default target for new papers.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn set_library_default(&self, id: String) -> MutationResult;
     /// Get the Inbox library, where incoming papers land before filing.
     #[impress_method]
@@ -458,7 +458,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn list_collections(&self, library_id: String) -> Vec<CollectionRecord>;
     /// Create a new collection to organize papers. Collections can be
     /// regular (manual) or smart (auto-populated by predicate).
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_collection(
         &self,
         name: String,
@@ -467,14 +467,14 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         query: Option<String>,
     ) -> Option<CollectionRecord>;
     /// Add papers to an existing collection.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn add_to_collection(
         &self,
         publication_ids: Vec<String>,
         collection_id: String,
     ) -> MutationResult;
     /// Remove papers from a collection (does not delete them).
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn remove_from_collection(
         &self,
         publication_ids: Vec<String>,
@@ -492,7 +492,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> Vec<PublicationSummary>;
     /// Remove from a collection every paper that has been dismissed; the
     /// result counts the memberships removed.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn purge_dismissed_from_collection(&self, collection_id: String) -> MutationResult;
 
     // ---- Paper queries ----
@@ -564,14 +564,14 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
 
     // ---- Paper mutations ----
     /// Mark papers as read or unread. Useful for tracking reading progress.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn set_read(&self, ids: Vec<String>, read: bool) -> MutationResult;
     /// Toggle the starred status of papers.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn set_starred(&self, ids: Vec<String>, starred: bool) -> MutationResult;
     /// Set or clear a colored flag on papers. Flags are visual markers for
     /// workflow status. Set color to null to clear the flag.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn set_flag(&self, ids: Vec<String>, color: Option<String>) -> MutationResult;
     /// Delete papers from the imbib library. DESTRUCTIVE AND NOT UNDOABLE:
     /// this route removes the rows outright and writes nothing to the
@@ -582,28 +582,28 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// with the user first. To take papers out of the user's way without
     /// destroying them, prefer `imbib-library-service_remove-from-collection`, or move them
     /// to the Dismissed library (imbib's trash) with imbib_add_to_library.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete_publications_undoable(&self, ids: Vec<String>) -> MutationResult;
     /// Move papers into another library.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn move_publications(
         &self,
         publication_ids: Vec<String>,
         to_library_id: String,
     ) -> MutationResult;
     /// Copy papers into another library; returns the ids of the new copies.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn duplicate_publications(&self, ids: Vec<String>, to_library_id: String) -> Vec<String>;
     /// Merge duplicate papers within a library and hard-delete the duplicate
     /// rows (not undoable); returns how many were removed.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn deduplicate_library(&self, library_id: String) -> u32;
 
     // ---- Dismissed/muted ----
     /// Record a paper as dismissed by any of its identifiers so imports and
     /// feeds skip it. Writes a tombstone only: nothing is moved or deleted,
     /// and there is no un-dismiss verb.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn dismiss_paper(
         &self,
         doi: Option<String>,
@@ -629,7 +629,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn list_muted_items(&self) -> Vec<MutedItemRecord>;
     /// Add a mute rule: `mute_type` names what is matched (for example
     /// `author`), `value` is the text to match.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_muted_item(&self, mute_type: String, value: String) -> Option<MutedItemRecord>;
 
     // ---- BibTeX import/export ----
@@ -637,11 +637,11 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// ID, bibcode, or other identifiers. Automatically fetches metadata
     /// from external sources. If papers already exist, they are still added
     /// to the target library/collection.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
     /// Parse BibTeX and add each entry to a library as a paper; returns the
     /// ids of the papers created.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String>;
     /// Import BibTeX and file every resulting paper into a collection. Papers
     /// that already exist — including ones filed in a different library — are
@@ -673,7 +673,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn count_pdfs(&self, publication_id: String) -> u32;
     /// Record a file already on disk as linked to a paper; nothing is copied
     /// or fetched.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn add_linked_file(
         &self,
         publication_id: String,
@@ -1287,6 +1287,8 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
 
 impress_service_impl! {
     service = ImbibLibraryService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImbibLibraryService,
     instance = || crate::backend::library_service_instance(),
     methods = [

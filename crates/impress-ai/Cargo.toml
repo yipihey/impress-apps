@@ -19,6 +19,8 @@ impress-core = { workspace = true, features = ["sqlite"] }
 regex.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
+# Optional: `schema` derives `JsonSchema` on the DTOs impress-ai-service returns.
+schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
@@ -35,6 +37,9 @@ url.workspace = true
 # no longer reaches a domain core (ADR-0033 D7; decided by Tom 2026-09-24 in
 # wave 6's W6). impel-taskd, the executors' one user, turns it on.
 executor = ["dep:impel-core"]
+# Derive `schemars::JsonSchema` on the DTOs that cross a verb boundary, so
+# impress-ai-service's result types carry an output schema (ADR-0034 D1).
+schema = ["dep:schemars"]
 
 [dev-dependencies]
 mockito.workspace = true

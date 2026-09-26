@@ -281,6 +281,8 @@ impl ImbibManuscriptsService for DefaultImbibManuscriptsService {
 
 impress_service_impl! {
     service = ImbibManuscriptsService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImbibManuscriptsService,
     instance = crate::backend::manuscripts_service_instance,
     methods = [

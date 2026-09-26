@@ -160,6 +160,8 @@ impl TriageService for DefaultTriageService {
 
 impress_service_impl! {
     service = TriageService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultTriageService,
     instance = DefaultTriageService::new,
     methods = [

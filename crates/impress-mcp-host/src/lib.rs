@@ -406,14 +406,26 @@ mod tests {
 
     // A test-only inventory entry: this crate deliberately links no service
     // crates, so give `tools/call` something real to dispatch to.
-    impress_service_core::inventory::submit! {
-        McpToolDescriptor {
-            name: "allowed-fixture_echo-arguments",
-            description: "Test fixture: echoes the argument object it was handed.",
-            input_schema: fixture_schema,
-            handler: fixture_echo,
-        }
-    }
+    static FIXTURE: impress_service_core::VerbDescriptor = impress_service_core::VerbDescriptor {
+        name: "allowed-fixture_echo-arguments",
+        service: "allowed-fixture",
+        method: "echo-arguments",
+        description: "Test fixture: echoes the argument object it was handed.",
+        input_schema: fixture_schema,
+        output_schema: fixture_schema,
+        safety: impress_service_core::Safety {
+            class: impress_service_core::SafetyClass::ReadOnly,
+            idempotent: true,
+        },
+        since: "0.1.0",
+        deprecated: None,
+        aliases: &[],
+        examples: &[],
+        strict: false,
+        source: impress_service_core::Source::Linked,
+        handler: fixture_echo,
+    };
+    impress_service_core::inventory::submit! { McpToolDescriptor::of(&FIXTURE) }
 
     fn fixture_schema() -> Value {
         json!({ "type": "object" })

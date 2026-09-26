@@ -790,7 +790,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Resolve one structured citation by UUID, including exact locator and
     /// immutable source hash.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_citation(&self, citation_id: String) -> SourceRecordResult;
 
     /// Store immutable extractor/OCR identity, input hash, output hash,
@@ -810,13 +810,13 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Resolve one selected search hit. Search stays compact; this operation
     /// returns the complete extracted chunk and its citation link on demand.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_content_chunk(&self, chunk_id: String) -> SourceRecordResult;
 
     /// Search extracted source text while preserving page/figure/table
     /// locators and extraction lineage. An optional source UUID confines the
     /// results to one asset; pass null to search all ingested sources.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn search_content_chunks(
         &self,
         query: String,
@@ -826,7 +826,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Render one complete cited PDF page as MCP image content. Identify the
     /// page by zero-based physical index or displayed label, never by a path.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn get_page_image(
         &self,
         source_item_id: String,
@@ -839,7 +839,7 @@ pub trait SourceService: Send + Sync + 'static {
     /// Resolve a stored figure boundary and return its crop as MCP image
     /// content. Use this for a cited figure; use get-page-image for context.
     /// Uncertain boundaries return the complete page as an explicit fallback.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn get_figure_image(
         &self,
         citation_id: Option<String>,
@@ -1620,6 +1620,8 @@ fn source_query_terms(query: &str) -> Vec<String> {
 
 impress_service_impl! {
     service = SourceService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultSourceService,
     instance = DefaultSourceService::new,
     methods = [

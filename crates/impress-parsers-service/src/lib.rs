@@ -34,7 +34,7 @@ use imbib_core::{mbox, publishers};
 /// base64 preview cap rather than inline bytes: an mbox of a library export
 /// carries whole PDFs, and an agent that asked for the message list should not
 /// receive megabytes of base64 it did not ask for.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MboxAttachmentReport {
     pub filename: String,
     pub content_type: String,
@@ -44,7 +44,7 @@ pub struct MboxAttachmentReport {
 }
 
 /// One message from an mbox archive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MboxMessageReport {
     pub from: String,
     pub subject: String,
@@ -62,7 +62,7 @@ pub struct MboxMessageReport {
 }
 
 /// The result of parsing a whole archive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MboxParseReport {
     pub message_count: u64,
     pub messages: Vec<MboxMessageReport>,
@@ -71,7 +71,7 @@ pub struct MboxParseReport {
 }
 
 /// A publisher resolution rule.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PublisherRuleReport {
     pub id: String,
     pub name: String,
@@ -108,7 +108,7 @@ impl From<&publishers::PublisherRule> for PublisherRuleReport {
 }
 
 /// Everything known about resolving one DOI to a PDF.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PdfResolutionReport {
     pub doi: String,
     /// `null` when no rule's DOI prefix matches.
@@ -120,7 +120,7 @@ pub struct PdfResolutionReport {
 }
 
 /// The result of scraping landing-page markup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LandingPageReport {
     /// Which strategy ran, e.g. `iop`, `elsevier`, `generic`.
     pub parser_id: String,
@@ -318,6 +318,8 @@ fn parsers_instance() -> DefaultParsersService {
 
 impress_service_impl! {
     service = ParsersService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultParsersService,
     instance = || parsers_instance(),
     methods = [

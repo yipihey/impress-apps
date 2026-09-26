@@ -54,7 +54,7 @@ use impress_service_macros::{impress_service, impress_service_impl};
 /// `pending`/`running`/`done`, impel's GRDB bridge mirrors rows spelled
 /// `queued`/`completed`. Counting one spelling silently under-reports the
 /// other population, so each bucket sums both.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskStateCounts {
     pub pending: u64,
     pub running: u64,
@@ -64,7 +64,7 @@ pub struct TaskStateCounts {
 }
 
 /// Worker liveness, read from the daemon's status file beside the store.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkerReport {
     /// `starting` | `settling` | `ready` | `stopping` | `failed`.
     pub state: String,
@@ -88,7 +88,7 @@ pub struct WorkerReport {
 }
 
 /// Everything the scheduler knows about itself in one answer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SchedulerStatusReport {
     pub tasks: TaskStateCounts,
     /// Tasks by `task_kind`, most numerous first.
@@ -105,7 +105,7 @@ pub struct SchedulerStatusReport {
 }
 
 /// What a retention sweep of finished task rows would reclaim.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RetentionReport {
     /// The age window the counts were taken against, in days.
     pub window_days: u32,
@@ -129,14 +129,14 @@ pub struct RetentionReport {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct KindCount {
     pub task_kind: String,
     pub count: u64,
 }
 
 /// One terminally-failed task, with the reason it failed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FailedTaskReport {
     pub id: String,
     pub task_kind: String,
@@ -153,7 +153,7 @@ pub struct FailedTaskReport {
 }
 
 /// One unresolved human checkpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PendingReviewReport {
     /// Review id — pass to `resolve-review`.
     pub id: String,
@@ -167,7 +167,7 @@ pub struct PendingReviewReport {
 }
 
 /// Outcome of a state-changing verb.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ActionReport {
     pub ok: bool,
     pub message: String,
@@ -213,7 +213,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// silently applying nothing.
     ///
     /// The suspended task resumes on the scheduler's next pass.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn resolve_review(&self, review_id: String, resolution: String) -> ActionReport;
 
     /// Cancel a task that has not started, and every pending task
@@ -221,7 +221,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// `running` task — cancelling work mid-flight needs the executor's
     /// cooperation, which the kernel does not yet have — and refuses a
     /// terminal one, since `done`/`failed`/`cancelled` admit no transition.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn cancel_task(&self, task_id: String) -> ActionReport;
 
     /// How much of the store is finished task bookkeeping, and how much a
@@ -813,6 +813,8 @@ fn impel_instance() -> DefaultImpelService {
 
 impress_service_impl! {
     service = ImpelService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImpelService,
     instance = || impel_instance(),
     methods = [

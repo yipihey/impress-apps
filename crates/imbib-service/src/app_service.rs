@@ -382,6 +382,8 @@ impl ImbibAppService for DefaultImbibAppService {
 
 impress_service_impl! {
     service = ImbibAppService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultImbibAppService,
     instance = crate::backend::app_service_instance,
     methods = [

@@ -30,6 +30,7 @@ const LOCK_FILE: &str = "preferences.lock";
 /// Helper pseudo-models that must never survive as a selection.
 const HELPER_MODEL_IDS: &[&str] = &["markitdown"];
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelRef {
     pub provider: String,
@@ -51,6 +52,7 @@ impl ModelRef {
     }
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CategoryAssignment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -71,6 +73,7 @@ impl Default for CategoryAssignment {
     }
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AiPreferences {
     pub version: u32,

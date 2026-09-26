@@ -19,7 +19,7 @@ use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ModelsResult {
     /// The provider the rows belong to (the resolved default when the caller
     /// named none).
@@ -28,7 +28,7 @@ pub struct ModelsResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CredentialFieldRow {
     pub id: String,
     pub label: String,
@@ -40,7 +40,7 @@ pub struct CredentialFieldRow {
     pub source: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProviderRow {
     pub id: String,
     pub display_name: String,
@@ -63,7 +63,7 @@ pub struct ProviderRow {
     pub has_dynamic_catalogue: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProvidersResult {
     pub providers: Vec<ProviderRow>,
     /// The device selection, if one is pinned.
@@ -72,7 +72,7 @@ pub struct ProvidersResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AiPreferencesResult {
     pub preferences: Option<AiPreferences>,
     /// Where the device-local file lives (`<workspace>/ai/preferences.json`).
@@ -80,33 +80,35 @@ pub struct AiPreferencesResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProviderHealthResult {
     pub provider: Option<String>,
     pub health: Option<ProviderHealth>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConversationsResult {
+    /// Canonical graph rows (`impress_core::Item` carries no schema).
+    #[schemars(with = "Vec<serde_json::Value>")]
     pub conversations: Vec<impress_core::Item>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConversationResult {
     pub conversation: Option<ConversationSnapshot>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConversationMutationResult {
     pub success: bool,
     pub conversation_id: Option<Uuid>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct QueuedMessageResult {
     pub success: bool,
     pub conversation_id: Option<Uuid>,
@@ -115,19 +117,19 @@ pub struct QueuedMessageResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskStatusResult {
     pub task: Option<TaskProgress>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProvenanceResult {
     pub provenance: Option<RunProvenance>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AiHealthResult {
     /// False when the daemon is unreachable (fields then default to zero).
     pub daemon_reachable: bool,
@@ -146,7 +148,7 @@ pub struct AiHealthResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PairingLinkResult {
     /// Single-use link against the loopback origin. When the Mac is fronted
     /// by an HTTPS proxy (tailscale serve), replace the origin and keep the
@@ -162,12 +164,12 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// List models for `provider` (or the device's resolved default provider
     /// when omitted): the static catalogue merged with live discovery,
     /// including load state, context limit, modalities and the helper flag.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn list_models(&self, provider: Option<String>) -> ModelsResult;
 
     /// Every catalogued AI provider with this device's endpoint, readiness
     /// and credential status (which fields are set — never their values).
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn list_providers(&self) -> ProvidersResult;
 
     /// The device-local AI preferences: selected provider/model, endpoint
@@ -177,12 +179,12 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Pin the device's provider and (optionally) model. Every app and daemon
     /// on the device follows it. Helper pseudo-models are rejected.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn select_model(&self, provider: String, model: Option<String>) -> AiPreferencesResult;
 
     /// Override (or, with `None`, reset) a provider's endpoint — e.g. an
     /// oMLX host reached over Tailscale. Secrets never go here.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn set_provider_endpoint(
         &self,
         provider: String,
@@ -192,7 +194,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// Passive reachability probe for `provider` (or the resolved default):
     /// never launches a host. For oMLX it reports version, loaded/total
     /// models and memory.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult;
 
     /// List durable AI conversations from the shared Impress item graph.
@@ -206,7 +208,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Create a durable conversation. Enabled tools are stable capability ids
     /// such as `scix`, `impress-mcp`, and `web`.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     #[allow(clippy::too_many_arguments)]
     async fn create_conversation(
         &self,
@@ -223,7 +225,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Atomically append a user message and queue its offline-capable response
     /// task. Attachment ids must already identify content-blob items.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn queue_message(
         &self,
         conversation_id: String,
@@ -232,7 +234,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
     ) -> QueuedMessageResult;
 
     /// Replace the conversation's enabled tool-capability policy.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn set_enabled_tools(
         &self,
         conversation_id: String,
@@ -255,13 +257,13 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// Store-hygiene health from the AI daemon: db/WAL/freelist sizes, the
     /// maintenance lease, last verb outcomes, and the trailing-24h op rate.
     /// `daemon_reachable: false` (never an error) when it isn't running.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn ai_health(&self) -> AiHealthResult;
 
     /// Mint a single-use browser pairing link for the AI daemon (15-minute
     /// expiry). Requires the local keychain bearer (`com.impress.ai-http`),
     /// so this works on the Mac that runs the daemon, not remotely.
-    #[impress_method]
+    #[impress_method(safety = external)]
     async fn mint_pairing_link(&self) -> PairingLinkResult;
 }
 
@@ -760,6 +762,8 @@ fn service_instance() -> Arc<DefaultImpressAiService> {
 
 impress_service_impl! {
     service = ImpressAiService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImpressAiService,
     instance = || service_instance(),
     methods = [
