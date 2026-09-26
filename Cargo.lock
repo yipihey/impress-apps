@@ -4496,7 +4496,6 @@ dependencies = [
  "impress-surface-service",
  "serde_json",
  "surface-demo-service",
- "thiserror 1.0.69",
 ]
 
 [[package]]
