@@ -92,7 +92,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// nothing is stored; warnings are stored and listed. `name` overrides
     /// the row's label (the spec's own `name` is untouched); `tags` are
     /// free-text labels shown by `surface_list`.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn surface_create(
         &self,
         spec: SpecArg,
@@ -104,7 +104,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// its `revision`. The row's `name` is kept unless `name` is given. Pass
     /// the `revision` you last read as `expected_revision` to be refused
     /// (`conflict`) instead of overwriting a change someone else made since.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn surface_update(
         &self,
         id: String,
@@ -123,7 +123,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     async fn surface_list(&self) -> SurfaceListResult;
 
     /// Delete a surface and every state/event row that belongs to it.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn surface_delete(&self, id: String) -> SurfaceDeleteResult;
 
     /// Put a surface in a pane of `app_id`'s window on `device` (this device
@@ -132,7 +132,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// new pane beside the focused one). Composes ordinary `layout-service`
     /// verbs — a surface pane is not a special case of the layout tree
     /// (ADR-0033 D1).
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn surface_show(
         &self,
         id: String,
@@ -162,7 +162,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// Overwrite the working state of one `(surface, host)` instance
     /// directly (bypassing `reduce` — for seeding a surface's state, not
     /// for an ordinary field edit, which goes through `surface_dispatch`).
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn surface_state_set(
         &self,
         id: String,
@@ -174,7 +174,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// the resulting state, run every effect it produced, and re-render —
     /// as the agent. `ok` only when every effect happened. `params` as for
     /// `surface_render`.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn surface_dispatch(
         &self,
         id: String,
@@ -1129,6 +1129,8 @@ fn impress_surface_service_instance() -> Arc<dyn ImpressSurfaceService> {
 
 impress_service_impl! {
     service = ImpressSurfaceService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImpressSurfaceService,
     instance = || impress_surface_service_instance(),
     strict_args = true,

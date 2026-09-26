@@ -68,6 +68,8 @@ fn selftest_instance() -> Arc<dyn LayoutSelftestService> {
 
 impress_service_impl! {
     service = LayoutSelftestService,
+    safety = external,
+    since = "0.1.0",
     impl = DefaultLayoutSelftestService,
     instance = || selftest_instance(),
     methods = [

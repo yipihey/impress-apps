@@ -99,6 +99,7 @@ pub async fn collect_stream(mut stream: EventStream) -> Result<Completion> {
 
 /// Reachability of a provider as observed from this device right now. It is
 /// never persisted: two devices can legitimately disagree at the same moment.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum HealthState {
@@ -136,6 +137,7 @@ impl HealthState {
     }
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderHealth {
     pub state: HealthState,

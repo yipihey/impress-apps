@@ -575,6 +575,8 @@ impl StoreQueryService for DefaultStoreQueryService {
 
 impress_service_impl! {
     service = StoreQueryService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultStoreQueryService,
     instance = DefaultStoreQueryService::new,
     methods = [

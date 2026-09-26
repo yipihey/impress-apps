@@ -101,12 +101,12 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
         -> Option<ThroughlineInfoDto>;
 
     /// Fetch a document's throughline, or None if it has none.
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_throughline(&self, doc_id: String) -> Option<ThroughlineInfoDto>;
 
     /// Replace the narrative source. The ledger is untouched — edited
     /// paragraphs derive `throughline-ahead` until a sync is accepted.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn update_throughline_source(
         &self,
         doc_id: String,
@@ -115,15 +115,15 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
 
     /// Remove a document's throughline (deactivation). Returns whether one
     /// existed.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn delete_throughline(&self, doc_id: String) -> bool;
 
     /// Derived anchor states (empty when the document has no throughline).
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_anchor_states(&self, doc_id: String) -> Vec<AnchorStateDto>;
 
     /// Coverage report (ADR-0016 D7).
-    #[impress_method]
+    #[impress_method(safety = read_only)]
     async fn get_coverage(&self, doc_id: String) -> CoverageDto;
 
     /// Anchor a paragraph label to section keys, baselining ledger hashes.
@@ -291,6 +291,8 @@ impl ImprintThroughlineService for DefaultImprintThroughlineService {
 
 impress_service_impl! {
     service = ImprintThroughlineService,
+    safety = mutating,
+    since = "0.1.0",
     impl = DefaultImprintThroughlineService,
     instance = || crate::backend::throughline_service_instance(),
     methods = [

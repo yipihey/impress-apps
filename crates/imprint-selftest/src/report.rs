@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Which layer a capability exercises.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
     /// Pure Rust against the `imprint-service` traits — fast, headless, no UI.
@@ -19,7 +19,7 @@ pub enum Tier {
 }
 
 /// Outcome of a single capability check.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CapabilityResult {
     pub id: String,
     pub description: String,
@@ -35,7 +35,7 @@ pub struct CapabilityResult {
 }
 
 /// The full self-test outcome.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SelfTestReport {
     pub results: Vec<CapabilityResult>,
     pub total: usize,

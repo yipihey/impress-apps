@@ -1832,14 +1832,31 @@ mod call_verb_tests {
 
     // A handler that errors: every real verb answers a refusal as an `ok:
     // false` envelope, so none of them reaches the `Handler` arm.
-    impress_service_core::inventory::submit! {
-        McpToolDescriptor {
-            name: FAILING,
-            description: "test only: a handler that always errors",
-            input_schema: || json!({"type": "object"}),
-            handler: always_fails,
-        }
+    fn object_schema() -> Value {
+        json!({"type": "object"})
     }
+
+    static FAILING_VERB: impress_service_core::VerbDescriptor =
+        impress_service_core::VerbDescriptor {
+            name: FAILING,
+            service: "call-verb-test",
+            method: "always-fails",
+            description: "test only: a handler that always errors",
+            input_schema: object_schema,
+            output_schema: object_schema,
+            safety: impress_service_core::Safety {
+                class: impress_service_core::SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            since: "0.1.0",
+            deprecated: None,
+            aliases: &[],
+            examples: &[],
+            strict: false,
+            source: impress_service_core::Source::Linked,
+            handler: always_fails,
+        };
+    impress_service_core::inventory::submit! { McpToolDescriptor::of(&FAILING_VERB) }
 
     /// The texts and codes `impress_service_core::call` hands back are the
     /// ones this crate's own copy used to write (review RS-S21): a source or

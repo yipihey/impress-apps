@@ -128,7 +128,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     async fn count_annotations(&self, linked_file_id: String) -> u32;
     /// Add a PDF annotation to a paper. Supports highlights, underlines,
     /// strikethroughs, notes, and free text.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_annotation(
         &self,
         linked_file_id: String,
@@ -156,7 +156,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     async fn list_comments_since(&self, item_id: String, since_clock: u64) -> Vec<CommentRecord>;
     /// Add a comment to a paper. Can be a top-level comment or a reply to
     /// an existing comment.
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_comment(
         &self,
         publication_id: String,
@@ -167,7 +167,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     ) -> Option<CommentRecord>;
     /// Add a comment to any item by UUID (publication, artifact, or other
     /// item type).
-    #[impress_method]
+    #[impress_method(safety = mutating)]
     async fn create_comment_on_item(
         &self,
         item_id: String,
@@ -177,7 +177,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         parent_comment_id: Option<String>,
     ) -> Option<CommentRecord>;
     /// Edit the text of an existing comment.
-    #[impress_method]
+    #[impress_method(safety = destructive)]
     async fn update_comment(&self, id: String, text: String) -> MutationResult;
 }
 
@@ -331,6 +331,8 @@ impl ImbibAnnotationsService for DefaultImbibAnnotationsService {
 
 impress_service_impl! {
     service = ImbibAnnotationsService,
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultImbibAnnotationsService,
     instance = || crate::backend::annotations_service_instance(),
     methods = [

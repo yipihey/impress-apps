@@ -87,13 +87,20 @@ pub struct QueuedTurn {
     pub task_id: ItemId,
 }
 
+// The items are canonical graph rows (`impress_core::Item` has no schema);
+// a schema reader sees them as free-form JSON.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSnapshot {
+    #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
     pub conversation: Item,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<serde_json::Value>"))]
     pub messages: Vec<Item>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<serde_json::Value>"))]
     pub pending_tasks: Vec<Item>,
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TaskProgress {
     pub task_id: ItemId,
@@ -108,12 +115,18 @@ pub struct TaskProgress {
 /// Complete durable lineage for one model run. The DTO intentionally carries
 /// canonical graph items rather than flattened copies so every caller sees
 /// the same ids, references, timestamps, and actor attribution.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunProvenance {
+    #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
     pub run: Item,
+    #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
     pub task: Item,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<serde_json::Value>"))]
     pub inputs: Vec<Item>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<serde_json::Value>"))]
     pub tool_invocations: Vec<Item>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<serde_json::Value>"))]
     pub outputs: Vec<Item>,
 }
 

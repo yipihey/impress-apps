@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-impress-ai.workspace = true
+impress-ai = { workspace = true, features = ["schema"] }
 impress-core = { workspace = true, features = ["sqlite"] }
 impress-service-core.workspace = true
 impress-service-macros.workspace = true
