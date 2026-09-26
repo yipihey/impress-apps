@@ -37,15 +37,6 @@ pub enum App {
 }
 
 impl App {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            App::Imbib => "imbib",
-            App::Imprint => "imprint",
-            App::Implore => "implore",
-            App::Impart => "impart",
-        }
-    }
-
     fn parse(name: &str) -> Option<App> {
         match name {
             "imbib" => Some(App::Imbib),
@@ -109,7 +100,8 @@ pub fn current() -> Reachable {
     reachable()
 }
 
-/// The app a tool needs, if it needs one at all.
+/// The app a tool needs, if it needs one at all (the layer's table).
+#[cfg(test)]
 pub fn required_app(tool_name: &str) -> Option<App> {
     layer::gated_app(tool_name).and_then(App::parse)
 }
