@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Unified item protocol for the impress research suite"
+autotests = false
 
 [features]
 default = []
@@ -41,3 +42,10 @@ base64 = { version = "0.22", optional = true }
 [dev-dependencies]
 proptest = "1.4"
 tempfile = "3.10"
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"

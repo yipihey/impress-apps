@@ -1,9 +1,7 @@
 //! ADR-0031 D6: which pane holds which session. One test per rule in
 //! `src/sessions.rs`.
 
-mod common;
-
-use common::{assert_arena_is_sound, publication_query};
+use crate::common::{assert_arena_is_sound, publication_query};
 use impress_layout::preset::{self, ThreeColumn};
 use impress_layout::{
     Layout, LinearDir, PaneRef, PaneSpec, Placement, Role, SessionId, TileId, UndoStacks, Verb,

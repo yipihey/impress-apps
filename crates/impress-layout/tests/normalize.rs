@@ -1,9 +1,7 @@
 //! Normalization (ADR-0031 D4): the tree is brought back to canonical shape
 //! after every mutation, and doing it twice changes nothing.
 
-mod common;
-
-use common::{assert_arena_is_sound, assert_focus_is_a_leaf, scratch_pane, three_column};
+use crate::common::{assert_arena_is_sound, assert_focus_is_a_leaf, scratch_pane, three_column};
 use impress_layout::{
     Container, ContainerKind, Layout, LinearDir, PaneRef, PaneSpec, Placement, TileId, Verb,
     ViewKindId, Window, WindowId,

@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
 
 [dependencies]
 # `sqlite`: this crate owns the store side of the layout tree (the
@@ -55,3 +56,16 @@ tempfile = "3"
 # `impress-cli` itself (whose ONNX dependency cannot be fetched on every
 # machine).
 impress-service-core = { workspace = true, features = ["cli"] }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+# Its own process: it pins the process-global store path to a directory that
+# does not exist, which `contract` (in main) sets to a real one.
+[[test]]
+name = "fallback_store"
+path = "tests/fallback_store.rs"

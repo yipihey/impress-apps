@@ -12,6 +12,7 @@ repository.workspace = true
 # overlay is needed here (unlike Windows). Mirrors tectonic's own manifest.
 # Usage: `cargo vcpkg build --manifest-path crates/imprint-core/Cargo.toml`
 # then build with VCPKG_ROOT=target/vcpkg TECTONIC_DEP_BACKEND=vcpkg.
+autotests = false
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
 rev = "a62ce77d56ee07513b4b67de1ec2daeaebfae51a"
@@ -56,7 +57,6 @@ tectonic-render = ["dep:tectonic", "dep:tectonic_status_base", "dep:tectonic_err
 # Workspace crates
 impress-domain = { workspace = true }
 impress-bibtex = { workspace = true }
-impress-identifiers = { workspace = true }
 # The project model shares the bundle manifest's role vocabulary and the
 # manuscript-format grammar table (ADR-0030 D2). No features: pure data.
 impress-core = { workspace = true }
@@ -75,7 +75,7 @@ url = "2"
 urlencoding = "2"
 
 # Directory paths for user data
-dirs = "5"
+dirs = { workspace = true }
 
 # Citation extraction (Phase 2A) — LaTeX `\cite{...}` matcher.
 regex = { workspace = true }
@@ -144,3 +144,10 @@ tectonic_bundles = { version = ">=0.4, <0.4.2", optional = true }
 [dev-dependencies]
 tempfile = "3"
 
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"

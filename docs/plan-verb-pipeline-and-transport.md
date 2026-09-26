@@ -726,7 +726,7 @@ loop; it must run with `CARGO_TARGET_DIR` outside the checkout like the other la
 
 - Changing the `rust-toolchain.toml` pin, or adopting any nightly-only flag (`-Zthreads`,
   `-Zshare-generics` on stable are not options; the parallel frontend is nightly).
-- B6: making embeddings opt-in for any binary changes what that binary can do.
+- B6: making embeddings opt-in for any binary changes what that binary can do. **Declined by Tom, 2026-09-26**: the binaries keep embeddings; B6 is not done. B4 (cargo-hakari) approved the same day.
 - B4: cargo-hakari adds a generated crate every member depends on; it changes every
   `Cargo.toml` and the kit manifest (`check-kit-deps.sh --strict` must learn it).
 - sccache's cache directory location and size on the shared runner Mac (B2).
@@ -807,3 +807,53 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   test and the impress run prove, and each client reads the token through the one Rust function.
   Noticed on main, not touched: b5218fb4 committed `target-standalone/` (3,021 cargo incremental
   files).
+- 2026-09-26 — **B1 test binaries shipped** (branch `claude/bc-b1-test-binaries`, from main at
+  701a2573, merged with b5218fb4). The 12 crates with more than one `tests/*.rs` (imbib-core 24
+  files + `common`; impress-core 9; imprint-core 7; impress-surface, impress-surface-service and
+  impress-layout 6 each; impress-layout-service 5; imprint-service and impress-sources 4;
+  surface-demo-service, impress-mcp and impel-core 2) each get a `tests/main.rs` that declares a
+  `mod` per former file, with `autotests = false` and one `[[test]] name = "main"` in the manifest;
+  test names keep the file as their module path. Reconciled: `mod common;` is declared once
+  (`use crate::common::…`); `#![cfg(feature = …)]`, `#[path]` and `include_str!`/`include_bytes!`
+  resolve relative to the file and needed no change; insta names a snapshot by full module path,
+  so imbib-core's 21 `.snap` files gained the `main__` prefix (contents unchanged);
+  imprint-tectonic.yml's warm-up filter names its test through the module; `check-kit-standalone.sh`
+  unlists just the `mod` lines whose module uses a dropped dev-dependency instead of skipping the
+  whole binary (surface-demo-service's `plot_shape` over imprint-core). One exception was forced by
+  process-global state: impress-layout-service's `fallback_store` pins the store path to a missing
+  directory while `contract` sets a real one, so it stays its own `[[test]]` beside `main` — 93
+  files → 13 test binaries (12 `main` + that one). Workspace test count: main 4030 (4010 pass, 20
+  ignored); branch 4020 (4000 pass, 0 fail, 20 ignored) = 4030 − 18 + 8, the 18 being the 3
+  `common::fixtures::tests` unit tests that ran in each of imbib-core's 7 binaries that declared
+  `mod common` and now run once, the 8 being main's G0/G1 tests merged in; every other test name
+  is the same. **Measured, not as BC-4 estimated:** a clean `cargo test -p imbib-core --features
+  native --no-run` (deps warm, worktree-local `CARGO_TARGET_DIR`, 18-core impress-mac at load
+  48–75 from a neighbouring `swift-test`) goes from 25 executables at 68 CPU-s (55 user + 14 sys),
+  13–17 s wall, to 2 executables at 46 CPU-s (42 + 4), 24–40 s wall. The unit-time saving is
+  real (≈ 22 s, a third) but the wall time got *longer* on this machine: one binary is one
+  single-threaded rustc front end on the critical path, where 24 small binaries filled the cores.
+  The wall estimate in BC-4 (≈ 8 s saved) assumed the link steps were on the critical path; they
+  were not. The gain lands on CI's smaller runners and on unit-time budgets (B5), not on a warm
+  18-core desktop. Gates: fmt, clippy `imprint` and `rest` (both run explicitly; `auto` diffs
+  against `@{u}` and picks one shard on a branch that has not been pushed), workspace test,
+  check-kit-standalone (13 crates OK), check-schema-refs (387 call sites) — all green. Noticed
+  while merging: 3f743650 (G1) committed `target-standalone/` (3,021 build-product files) to main;
+  not touched here.
+- 2026-09-26 — **B3 dependency graph** (branch `claude/bc-b3-dependency-graph`, from main at
+  701a2573). Three commits, Cargo.toml/Cargo.lock only plus the six source lines the bumps forced:
+  `thiserror` 2 everywhere ours (two imprint-core error messages named their extra format argument);
+  `quick-xml` 0.31→0.38 and `dirs` 5→6 (`trim_text` onto `config_mut()`, `unescape()`→`xml_content()`
+  in the arXiv/PubMed parsers); 42 unused dependency lines dropped after grepping each and building
+  `--all-targets`, among them the two sole users (`tokio-tungstenite`, `tui-textarea`) and two BC-7
+  had not counted as sole (`mail-parser`, `petgraph`, impel-core's alone), so seven lock entries left.
+  Multi-version packages in `cargo tree -d --features native`: 55 → 52 (`dirs`, `dirs-sys`,
+  `quick-xml` gone). What BC-6 named as ours and is not: every `itertools` copy (0.12 tantivy, 0.13
+  ratatui, 0.14 rav1e/tokenizers, 0.15 automerge/pdfium) and `toml` 0.5 (uniffi_bindgen) reach the
+  graph only through upstream crates; `thiserror` 1 stays through uniffi's cargo_metadata, tantivy,
+  russh and scix-client. Left alone on purpose: `nom` 7 (askama/imap/tantivy keep it), `png` 0.17
+  (krilla/typst keep it), `darling` 0.20 (derive_builder keeps it), the ICU/zerovec/rand/rustix
+  pairs. The 28 machete hits kept are the inventory links, the `schemars::`/`serde_json::` paths
+  the service macro expands to, and feature-gated optionals; no tokio feature list changed (BC-8).
+  Gates: fmt, clippy rest, clippy imprint, `cargo test --workspace --features native` (232 suites,
+  4010 passed, 0 failed, 20 ignored), check-kit-deps --strict, check-kit-standalone,
+  check-chassis-deps, check-uniffi-bindings — all clean.

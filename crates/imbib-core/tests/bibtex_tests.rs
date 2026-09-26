@@ -2,9 +2,7 @@
 //!
 //! Ported from Swift BibTeXParserTests.swift
 
-mod common;
-
-use common::fixtures::load_bibtex_fixture;
+use crate::common::fixtures::load_bibtex_fixture;
 use imbib_core::bibtex::{parse, BibTeXEntryType};
 
 // === Basic Parsing ===

@@ -20,18 +20,6 @@ impress-helix = { workspace = true }
 # TUI framework
 ratatui = { workspace = true }
 crossterm = { workspace = true }
-tui-textarea = { workspace = true }
-
-# Async runtime
-tokio = { workspace = true }
-
-# Serialization
-serde = { workspace = true }
-serde_json = { workspace = true }
-
-# Error handling
-thiserror = { workspace = true }
 
 # Logging
-tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

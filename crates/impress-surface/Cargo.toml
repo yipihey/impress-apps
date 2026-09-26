@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
 
 [features]
 default = []
@@ -24,7 +25,6 @@ impress-pane-query = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true, features = ["v4", "serde"] }
 schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -33,3 +33,10 @@ schemars = { workspace = true, optional = true }
 # than asserted (review AC-F8, RS-S24). Test-only: no kit crate links it.
 jsonschema = { version = "0.33", default-features = false }
 schemars = { workspace = true }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"

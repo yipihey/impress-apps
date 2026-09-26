@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
 
 [[bin]]
 name = "impress-mcp"
@@ -76,3 +77,10 @@ impress-memory-service = { workspace = true, features = ["vector-embedder"] }
 # Isolated EmbeddingStore fixtures for the rebuild_chunk_index model-gating
 # tests. Same version pin as impress-embeddings' own dev-dependency.
 tempfile = "3.10"
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
