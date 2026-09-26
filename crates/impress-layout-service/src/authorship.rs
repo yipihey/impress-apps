@@ -60,10 +60,41 @@ pub fn author_for_service(actor: ActorKind, service: &str) -> String {
     format!("{kind}:{service}")
 }
 
-/// Parse an actor argument. `None` means [`ActorKind::Agent`]: these verbs
-/// reach the store over MCP and the CLI, and an agent that forgets to say who
-/// it is must not be recorded as the user.
+/// The actor a verb records: derived from the caller identity the pipeline
+/// established (ADR-0034 D3, plan-verb-pipeline D-P2), never from the
+/// `actor` argument.
+///
+/// Under a pipeline call context the argument is **ignored**: the person
+/// is whoever the transport said the person is, and an `actor: "human"`
+/// sent over MCP or HTTP by an agent is recorded as the agent it came from
+/// (PL-3), with a warning naming the claim. The argument stays on the 24
+/// layout verbs until P3 removes it. Outside a call context — a direct
+/// Rust call from a test or a host — the argument is still read the way it
+/// always was: `None` means [`ActorKind::Agent`], because a caller that
+/// forgets to say who it is must not be recorded as the user.
 pub fn actor_from(raw: Option<&str>) -> ActorKind {
+    let claimed = claimed_actor(raw);
+    match impress_service_core::pipeline::context::current() {
+        Some(context) => {
+            let derived = impress_core::call_context::actor_kind_of(&context.caller);
+            if raw.is_some_and(|r| !r.trim().is_empty()) && claimed != derived {
+                log::warn!(
+                    target: "layout",
+                    "{}: actor argument {raw:?} ignored — the caller is {} (ADR-0034 D3; \
+                     the argument is derived since P2 and removed in P3)",
+                    context.verb,
+                    context.caller,
+                );
+            }
+            derived
+        }
+        None => claimed,
+    }
+}
+
+/// The `actor` argument as written: `human` | `user` | `person`, `system`,
+/// anything else (or nothing) an agent.
+pub fn claimed_actor(raw: Option<&str>) -> ActorKind {
     match raw.map(|a| a.trim().to_ascii_lowercase()).as_deref() {
         Some("human") | Some("user") | Some("person") => ActorKind::Human,
         Some("system") => ActorKind::System,
@@ -102,5 +133,36 @@ mod tests {
         assert_eq!(actor_from(Some("robot")), ActorKind::Agent);
         assert_eq!(actor_from(Some(" User ")), ActorKind::Human);
         assert_eq!(actor_from(Some("system")), ActorKind::System);
+    }
+
+    /// PL-3, D-P2: under a call the argument is a claim the pipeline
+    /// ignores. An agent saying `human` is an agent; the person saying
+    /// nothing is the person.
+    #[test]
+    fn under_a_call_the_actor_is_the_caller_not_the_argument() {
+        use impress_service_core::pipeline::context::{sync_scope, CallContext};
+        use impress_service_core::pipeline::CallerIdentity;
+        use std::sync::Arc;
+        let context = |caller: CallerIdentity| {
+            Arc::new(CallContext {
+                call_id: "c".into(),
+                trace_id: "t".into(),
+                parent_call: None,
+                caller,
+                verb: "layout-service_split",
+                store_override: None,
+            })
+        };
+        sync_scope(context(CallerIdentity::agent("mcp")), || {
+            assert_eq!(actor_from(Some("human")), ActorKind::Agent);
+            assert_eq!(actor_from(None), ActorKind::Agent);
+        });
+        sync_scope(context(CallerIdentity::Person), || {
+            assert_eq!(actor_from(None), ActorKind::Human);
+            assert_eq!(actor_from(Some("agent")), ActorKind::Human);
+        });
+        sync_scope(context(CallerIdentity::system("impel-taskd")), || {
+            assert_eq!(actor_from(Some("human")), ActorKind::System);
+        });
     }
 }

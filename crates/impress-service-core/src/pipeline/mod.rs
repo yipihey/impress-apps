@@ -49,7 +49,7 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::descriptor::{SafetyClass, VerbDescriptor};
-use crate::{BoxError, ServiceFuture};
+use crate::BoxError;
 pub use context::CallContext;
 pub use identity::CallerIdentity;
 
@@ -312,13 +312,14 @@ pub async fn invoke_on<S: std::any::Any + Send + Sync>(
 /// Run the chain around `work` as the handler step — for a path whose
 /// handler is not the descriptor's `fn` (the surface HTTP mirror runs the
 /// verb on the FFI's own service instance).
-pub async fn invoke_with<F>(
+pub async fn invoke_with<F, Fut>(
     verb: &'static VerbDescriptor,
     call: Call,
     work: F,
 ) -> Result<Value, PipelineError>
 where
-    F: FnOnce(Value) -> ServiceFuture,
+    F: FnOnce(Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, BoxError>>,
 {
     let prepared = match prepare(verb, call)? {
         Ok(prepared) => prepared,
@@ -369,6 +370,7 @@ pub fn invoke_blocking(verb: &'static VerbDescriptor, call: Call) -> Result<Valu
 mod tests {
     use super::*;
     use crate::descriptor::{Safety, Source};
+    use crate::ServiceFuture;
     use serde_json::json;
     use std::sync::Mutex;
 

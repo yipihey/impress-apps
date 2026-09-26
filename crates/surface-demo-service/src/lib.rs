@@ -299,7 +299,11 @@ mod tests {
         let tool = McpToolDescriptor::iter()
             .find(|t| t.name == name)
             .unwrap_or_else(|| panic!("{name} should be registered in the inventory"));
-        runtime::block_on((tool.handler)(args)).unwrap_or_else(|e| panic!("{name} failed: {e}"))
+        impress_service_core::pipeline::invoke_blocking(
+            tool.verb,
+            impress_service_core::pipeline::Call::agent("test", args),
+        )
+        .unwrap_or_else(|e| panic!("{name} failed: {e}"))
     }
 
     // ------------------------------------------------------------- series

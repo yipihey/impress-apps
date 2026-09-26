@@ -31,8 +31,10 @@ use impress_core::item::{ActorKind, ItemId};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::{resolve_device, DefaultLayoutService};
 use impress_service_core::async_trait;
+use impress_service_core::pipeline::{self, Call};
+use impress_service_core::refusal::codes;
 use impress_service_core::wire::WIRE_VERSION;
-use impress_service_core::{McpToolDescriptor, Refusal};
+use impress_service_core::{McpToolDescriptor, Refusal, VerbDescriptor};
 use impress_service_macros::{impress_service, impress_service_impl};
 
 #[allow(unused_imports)]
@@ -1236,26 +1238,36 @@ pub async fn call_verb_on(
     } else {
         args
     };
-    // The same strict parse the MCP tool of this name runs
-    // (`impress_service_core::strict`): its published input schema decides
-    // which fields exist, nested ones included.
+    // The pipeline the MCP tool of this name runs (plan-verb-pipeline P2:
+    // this mirror was one of the two bypasses): the same strict check
+    // against the published input schema, nested fields included, the same
+    // policy, span and audit — with THIS service instance as the handler
+    // step, so the FFI's verb host, executor and app reach the verb.
     let tool = format!("impress-surface-service_{}", method.replace('_', "-"));
-    let schema = McpToolDescriptor::iter()
-        .find(|d| d.name == tool)
-        .map(|d| (d.input_schema)())
-        .unwrap_or(Value::Null);
+    let descriptor = VerbDescriptor::find(&tool)?;
+    let call = Call::agent("http", args);
     macro_rules! verb {
         ($tool:literal, $args:ident, |$a:ident| $call:expr) => {{
-            let $a: $args = match impress_service_core::strict::args(&tool, args, &schema) {
-                Ok(parsed) => parsed,
-                Err(refusal) => return Some(impress_service_core::strict::refusal_value(&refusal)),
-            };
-            let out = $call.await;
-            Some(serde_json::to_value(out).unwrap_or_else(|e| {
-                serde_json::to_value(SurfaceResult::refused(Refusal::internal(format!(
-                    "encode {}: {e}",
-                    $tool
-                ))))
+            let answer = pipeline::invoke_with(descriptor, call, |args| async move {
+                let $a: $args = match serde_json::from_value(args) {
+                    Ok(parsed) => parsed,
+                    Err(e) => return Ok(impress_service_core::strict::parse_refusal(&tool, e)),
+                };
+                let out = $call.await;
+                Ok(serde_json::to_value(out).unwrap_or_else(|e| {
+                    serde_json::to_value(SurfaceResult::refused(Refusal::internal(format!(
+                        "encode {}: {e}",
+                        $tool
+                    ))))
+                    .unwrap_or(Value::Null)
+                }))
+            })
+            .await;
+            Some(answer.unwrap_or_else(|e| {
+                serde_json::to_value(SurfaceResult::refused(Refusal::new(
+                    codes::VERB_FAILED,
+                    e.to_string(),
+                )))
                 .unwrap_or(Value::Null)
             }))
         }};

@@ -52,7 +52,10 @@ pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
         let method = request["method"].as_str().unwrap_or("");
 
         let response = match method {
-            "initialize" => handle_initialize(&id),
+            "initialize" => {
+                remember_client(&request);
+                handle_initialize(&id)
+            }
             // MCP requires a prompt empty result for pings; a client may use
             // them as a liveness probe at any time.
             "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
@@ -72,6 +75,28 @@ pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// The MCP client's name from `initialize` (`params.clientInfo.name`), the
+/// agent identity every call from this session runs as (ADR-0034 D3).
+static CLIENT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn remember_client(request: &Value) {
+    let name = request
+        .pointer("/params/clientInfo/name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or("mcp");
+    let _ = CLIENT_NAME.set(format!("mcp:{name}"));
+}
+
+/// `mcp:<client>`, or `mcp` before `initialize` was seen.
+pub fn client_name() -> String {
+    CLIENT_NAME
+        .get()
+        .cloned()
+        .unwrap_or_else(|| "mcp".to_string())
 }
 
 fn handle_initialize(id: &Value) -> Value {
@@ -671,10 +696,10 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
     }
 
     // A gated tool called anyway (a stale client list, or a guess) gets a
-    // clear error rather than an empty success.
-    if let Some(reason) = crate::reachability::unavailable_reason(tool_name) {
-        return wrap_text_result(id, Err(reason));
-    }
+    // clear error rather than an empty success — the pipeline's
+    // reachability layer refuses it, with the same words this server always
+    // used, before the handler runs (`crate::reachability` installs the
+    // probe's record as the layer's configuration).
 
     // Fall through to the inventory of `#[impress_service]`-generated tools.
     if is_inventory_tool(tool_name) {

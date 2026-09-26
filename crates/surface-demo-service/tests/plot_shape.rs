@@ -41,10 +41,13 @@ fn histogram_plot_also_deserializes_reached_through_the_inventory() {
     let tool = McpToolDescriptor::iter()
         .find(|t| t.name == "surface-demo-service_histogram")
         .expect("surface-demo-service_histogram should be registered");
-    let result = runtime::block_on((tool.handler)(json!({
-        "values": [0.0, 1.0, 2.0, 3.0, 4.0],
-        "bins": 5
-    })))
+    let result = impress_service_core::pipeline::invoke_blocking(
+        tool.verb,
+        impress_service_core::pipeline::Call::agent(
+            "test",
+            json!({ "values": [0.0, 1.0, 2.0, 3.0, 4.0], "bins": 5 }),
+        ),
+    )
     .expect("histogram should succeed");
 
     let plot = result.get("plot").expect("result has a plot field").clone();

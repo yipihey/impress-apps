@@ -11,7 +11,7 @@ use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout_service::dto::PaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
-use impress_service_core::{runtime::block_on, McpToolDescriptor};
+use impress_service_core::McpToolDescriptor;
 use impress_surface::{Event, EventKind, Severity};
 use impress_surface_service::dto::{ShowTargetDto, SpecArg, SplitTargetDto};
 use impress_surface_service::{DefaultImpressSurfaceService, ImpressSurfaceService};
@@ -33,7 +33,11 @@ fn call(tool: &str, args: Value) -> Value {
     let descriptor = McpToolDescriptor::iter()
         .find(|d| d.name == tool)
         .unwrap_or_else(|| panic!("{tool} is not in the inventory"));
-    block_on((descriptor.handler)(args)).expect("a strict verb never fails in transport")
+    impress_service_core::pipeline::invoke_blocking(
+        descriptor.verb,
+        impress_service_core::pipeline::Call::agent("test", args),
+    )
+    .expect("a strict verb never fails in transport")
 }
 
 fn split() -> ShowTargetDto {
@@ -479,9 +483,13 @@ fn every_surface_verb_answers_with_wire_version_one() {
         McpToolDescriptor::iter().filter(|d| d.name.starts_with("impress-surface-service_"))
     {
         // Arguments that are wrong on purpose still get an envelope.
-        let answer = block_on((descriptor.handler)(
-            json!({ "id": "not-an-id", "no_such_argument": 0 }),
-        ))
+        let answer = impress_service_core::pipeline::invoke_blocking(
+            descriptor.verb,
+            impress_service_core::pipeline::Call::agent(
+                "test",
+                json!({ "id": "not-an-id", "no_such_argument": 0 }),
+            ),
+        )
         .unwrap();
         assert_eq!(answer["wire_version"], 1, "{}: {answer}", descriptor.name);
         assert_eq!(answer["ok"], false, "{}: {answer}", descriptor.name);

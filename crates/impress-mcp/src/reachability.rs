@@ -14,19 +14,19 @@
 //!
 //! So the honest fix is not to advertise them. A tool the model cannot
 //! successfully call is worse than an absent one, because it spends a turn
-//! discovering that and may believe the empty answer. This mirrors
-//! `impel-tools::list_available_tools`, which makes the same call for the same
-//! reason.
+//! discovering that and may believe the empty answer.
+//!
+//! Since plan-verb-pipeline P2 the *rule* — which namespaces need which app —
+//! lives once, in `impress_service_core::pipeline::reachability`, and is the
+//! pipeline's reachability layer on every path. This module keeps what is
+//! this server's: the startup probe's record, installed as the layer's
+//! configuration (store fallback on: an owned namespace that is not
+//! app-gated runs against the shared store, as this server always did), and
+//! the listing-time questions `tools/list` asks.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-/// Namespaces that only work while their app is running, and the app each needs.
-const APP_GATED: &[(&str, App)] = &[
-    ("imbib-app-service", App::Imbib),
-    ("imprint-app-service", App::Imprint),
-    ("implore-service", App::Implore),
-    ("impart-service", App::Impart),
-];
+use impress_service_core::pipeline::reachability as layer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum App {
@@ -43,6 +43,16 @@ impl App {
             App::Imprint => "imprint",
             App::Implore => "implore",
             App::Impart => "impart",
+        }
+    }
+
+    fn parse(name: &str) -> Option<App> {
+        match name {
+            "imbib" => Some(App::Imbib),
+            "imprint" => Some(App::Imprint),
+            "implore" => Some(App::Implore),
+            "impart" => Some(App::Impart),
+            _ => None,
         }
     }
 }
@@ -68,13 +78,30 @@ impl Reachable {
 
 static REACHABLE: OnceLock<Reachable> = OnceLock::new();
 
-/// Record what the startup probes found. Call once, before serving.
+/// Record what the startup probes found, and install it as the pipeline's
+/// reachability configuration. Call once, before serving.
 pub fn record(reachable: Reachable) {
     let _ = REACHABLE.set(reachable);
+    install();
 }
 
 fn reachable() -> Reachable {
     REACHABLE.get().copied().unwrap_or_default()
+}
+
+/// The layer's configuration for this process: the recorded probe (nothing
+/// recorded means every app down — refusing by default is the safe
+/// direction), the shared store as the fallback for owned namespaces, and
+/// `IMPRESS_MCP_LIST_ALL=1` disabling the gate for introspection.
+fn install() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        layer::install(layer::Config {
+            probe: Arc::new(|app: &str| App::parse(app).is_some_and(|app| reachable().has(app))),
+            store_fallback: true,
+            list_all: list_all(),
+        });
+    });
 }
 
 /// What the startup probes found, for reporting (`--help`).
@@ -84,11 +111,7 @@ pub fn current() -> Reachable {
 
 /// The app a tool needs, if it needs one at all.
 pub fn required_app(tool_name: &str) -> Option<App> {
-    let namespace = tool_name.split_once('_')?.0;
-    APP_GATED
-        .iter()
-        .find(|(ns, _)| *ns == namespace)
-        .map(|(_, app)| *app)
+    layer::gated_app(tool_name).and_then(App::parse)
 }
 
 /// Whether this tool should be advertised and dispatched right now.
@@ -97,13 +120,8 @@ pub fn required_app(tool_name: &str) -> Option<App> {
 /// ledger, a capability audit — needs the full inventory, and it must not
 /// depend on which apps happened to be open when it ran.
 pub fn is_available(tool_name: &str) -> bool {
-    if list_all() {
-        return true;
-    }
-    match required_app(tool_name) {
-        Some(app) => reachable().has(app),
-        None => true,
-    }
+    install();
+    layer::is_available(tool_name)
 }
 
 fn list_all() -> bool {
@@ -112,15 +130,8 @@ fn list_all() -> bool {
 
 /// Why a tool was withheld, for the `tools/call` error.
 pub fn unavailable_reason(tool_name: &str) -> Option<String> {
-    let app = required_app(tool_name)?;
-    if list_all() || reachable().has(app) {
-        return None;
-    }
-    Some(format!(
-        "{app} is not running, so {tool_name} is unavailable. This capability \
-         lives in the app rather than the shared store. Open {app} and try again.",
-        app = app.as_str(),
-    ))
+    install();
+    layer::unavailable_reason(tool_name)
 }
 
 #[cfg(test)]
@@ -164,6 +175,9 @@ mod tests {
     /// the safe direction.
     #[test]
     fn nothing_recorded_means_gated_tools_are_withheld() {
+        if list_all() {
+            return;
+        }
         assert!(!is_available("implore-service_status"));
         assert!(is_available("imbib-library-service_list-libraries"));
         assert!(unavailable_reason("implore-service_status")
