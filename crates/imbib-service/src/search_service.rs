@@ -146,6 +146,7 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// List saved smart searches. Pass the Exploration library's ID to
     /// enumerate the rows of imbib's Exploration sidebar section.
     #[impress_method(effects(reads = ["imbib/smart-search"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_smart_searches(&self, library_id: Option<String>) -> Vec<SmartSearchRecord>;
     /// Fetch one smart search by UUID: its query string, owning library,
     /// result cap, and its feeds-to-inbox / auto-refresh settings. Use to

@@ -343,12 +343,12 @@ impress_service_impl! {
     methods = [
         list_annotations(linked_file_id: String, page_number: Option<i32>) -> Vec<AnnotationRecord>,
         count_annotations(linked_file_id: String) -> u32,
-        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, contents: Option<String>, selected_text: Option<String>, author_name: Option<String>) -> Option<AnnotationRecord>,
+        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, #[impress_private] contents: Option<String>, selected_text: Option<String>, author_name: Option<String>) -> Option<AnnotationRecord>,
         list_comments_for_item(item_id: String) -> Vec<CommentRecord>,
         list_comments(publication_id: String) -> Vec<CommentRecord>,
         list_comments_since(item_id: String, since_clock: u64) -> Vec<CommentRecord>,
-        create_comment(publication_id: String, text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
-        create_comment_on_item(item_id: String, text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
-        update_comment(id: String, text: String) -> MutationResult,
+        create_comment(publication_id: String, #[impress_private] text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
+        create_comment_on_item(item_id: String, #[impress_private] text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
+        update_comment(id: String, #[impress_private] text: String) -> MutationResult,
     ],
 }

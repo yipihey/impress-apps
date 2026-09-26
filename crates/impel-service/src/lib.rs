@@ -306,6 +306,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// with a live worker means the queue is waiting on you, while a stale
     /// worker means nothing is running at all.
     #[impress_method(effects(reads = ["task@1.0.0", "review-request@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn scheduler_status(&self) -> SchedulerStatusReport;
 
     /// Terminally-failed tasks, newest first, each with the recorded error
@@ -315,6 +316,7 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// `limit` 0 means the default (50).
     #[impress_method(effects(reads = ["task@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
     async fn list_failed_tasks(&self, limit: i64) -> Vec<FailedTaskReport>;
 
     /// The human review queue: unresolved checkpoints, oldest first,
@@ -324,6 +326,7 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// `limit` 0 means the default (50).
     #[impress_method(effects(reads = ["review-request@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
     async fn list_pending_reviews(&self, limit: i64) -> Vec<PendingReviewReport>;
 
     /// Answer one review checkpoint. `resolution` is `approved` (apply the
@@ -398,6 +401,7 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// `window_days` 0 means the default (90).
     #[impress_method(effects(reads = ["task@1.0.0", "review-request@1.0.0", "core/operation"]))]
+    #[impress_example(name = "default", args = r#"{"window_days": 30}"#)]
     async fn retention_status(&self, window_days: i64) -> RetentionReport;
 }
 

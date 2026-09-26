@@ -303,7 +303,7 @@ impress_service_impl! {
     instance = DefaultManuscriptCollabService::new,
     methods = [
         manuscript_heads(id: String) -> CollabHeadsResult,
-        commit_manuscript_body(id: String, base_heads: Vec<String>, body: String, author: String) -> CollabCommitResult,
+        commit_manuscript_body(id: String, base_heads: Vec<String>, #[impress_private] body: String, author: String) -> CollabCommitResult,
         manuscript_change_history(id: String) -> CollabHistoryResult,
         manuscript_text_at(id: String, heads: Vec<String>) -> CollabTextAtResult,
     ],

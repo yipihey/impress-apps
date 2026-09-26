@@ -38,6 +38,18 @@ vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
 # `impress-capabilities-kit`, so each is named in exactly one place.
 impress-capabilities-kit = { workspace = true, optional = true }
 
+# The effects test (`tests/effects.rs`, ADR-0036 D1) runs every headless
+# verb's examples and the three Tier A catalogues under impress-core's store
+# spy. Dev-dependencies only: this crate's library still depends on the
+# service crates alone.
+[dev-dependencies]
+impress-core = { workspace = true, features = ["sqlite", "effects-spy"] }
+impress-store-service = { workspace = true }
+impress-layout-service = { workspace = true }
+impress-surface-service = { workspace = true }
+imprint-selftest = { workspace = true }
+tokio = { workspace = true }
+
 [features]
 # `full`: every capability the suite has, for the two binaries that must see
 # everything (impress-mcp, impress-cli). `kit`: the ADR-0033 D7 standalone

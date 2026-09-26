@@ -424,17 +424,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     // ---- Library lifecycle ----
     /// List all libraries in imbib. Libraries are top-level containers for
     /// papers.
-    #[impress_method(effects(reads = ["imbib/library"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_libraries(&self) -> Vec<LibraryRecord>;
     /// What the sidebar shows, as one structured value: every library with
     /// its unread/starred badges, collections and feeds, plus artifact and
     /// flag counts — the same snapshot the app's sidebar renders from.
     #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/smart-search", "imbib/collection", prefix("impress/artifact/")]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn sidebar_view(&self) -> SidebarView;
     /// Create a new library in imbib. Libraries are top-level containers
     /// for papers, separate from collections. Use this when asked to create
     /// a new library for a topic or project.
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/library"]))]
+    #[impress_example(name = "default", args = r#"{"name": "Effects example"}"#)]
     async fn create_library(&self, name: String) -> Option<LibraryRecord>;
     /// Delete a library with its collections and memberships. The store hands
     /// back an undo snapshot that this verb drops (plan-auto-gui finding S-2),
@@ -443,12 +446,14 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn delete_library_undoable(&self, id: String) -> MutationResult;
     /// Get the library new papers are filed into by default, if one is set.
     #[impress_method(effects(reads = ["imbib/library"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn get_default_library(&self) -> Option<LibraryRecord>;
     /// Make a library the default target for new papers.
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/library"]))]
     async fn set_library_default(&self, id: String) -> MutationResult;
     /// Get the Inbox library, where incoming papers land before filing.
     #[impress_method(effects(reads = ["imbib/library"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn get_inbox_library(&self) -> Option<LibraryRecord>;
 
     // ---- Collection lifecycle ----
@@ -499,6 +504,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// List papers across every library, paged by `limit` and `offset`
     /// (a limit of 0 means 50).
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"limit": 5, "offset": 0}"#)]
     async fn list_publications(&self, limit: u32, offset: u32) -> Vec<PublicationSummary>;
     /// List the papers in one library, sorted by `sort_field` in the given
     /// direction and paged (a limit of 0 means 50).
@@ -534,6 +540,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// List the most recently added papers, optionally within one library or
     /// collection (`parent_id`).
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
     async fn query_recent(&self, limit: u32, parent_id: Option<String>) -> Vec<PublicationSummary>;
     /// Search paper metadata by free text, newest-added first, up to `limit`
     /// results (0 means 50).
@@ -551,15 +558,19 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// is far cheaper than listing and lengthing the result, and unlike
     /// `imbib-tags-service_list-tags` it does not walk the whole tag vocabulary.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn count_publications(&self) -> u32;
     /// Count unread papers, optionally within one library or collection.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn count_unread(&self, parent_id: Option<String>) -> u32;
     /// Count starred papers, optionally within one library or collection.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn count_starred(&self, parent_id: Option<String>) -> u32;
     /// Count flagged papers, optionally only those carrying one flag color.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn count_flagged(&self, color: Option<String>) -> u32;
 
     // ---- Paper mutations ----
@@ -613,6 +624,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> Option<DismissedPaperRecord>;
     /// Whether a paper with any of the given identifiers has been dismissed.
     #[impress_method(effects(reads = ["imbib/dismissed-paper"]))]
+    #[impress_example(name = "default", args = r#"{"doi": "10.1000/effects-example"}"#)]
     async fn is_paper_dismissed(
         &self,
         doi: Option<String>,
@@ -626,6 +638,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// List the mute rules (an author, keyword or source value per rule) that
     /// feeds and imports suppress.
     #[impress_method(effects(reads = ["imbib/muted-item"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_muted_items(&self) -> Vec<MutedItemRecord>;
     /// Add a mute rule: `mute_type` names what is matched (for example
     /// `author`), `value` is the text to match.

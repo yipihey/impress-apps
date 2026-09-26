@@ -306,6 +306,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// still under each legacy schema, and how many generic rows exist per
     /// `kind_scope`. Read-only and always safe. Start here before `migrate`.
     #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn migration_status(&self) -> MigrationStatusResult;
 
     /// Converge the three legacy collection schemas onto `collection@1.0.0`.

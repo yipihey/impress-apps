@@ -191,6 +191,7 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// Describe supported vehicle scope, active curated knowledge, deterministic
     /// engine version, and the assistant's safety boundary.
     #[impress_method(effects())]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn get_capabilities(&self) -> VwCapabilities;
 
     /// Ingest a bus, engine, or part photo shared in this ChatGPT conversation
@@ -236,6 +237,7 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// List recent diagnostic sessions without exposing raw store records.
     #[impress_method(effects(reads = ["vw/diagnostic-session@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
     async fn list_sessions(&self, limit: u32) -> SessionListResult;
 
     /// Record a controlled observation. The command is rejected if its expected

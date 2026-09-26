@@ -793,7 +793,7 @@ impress_service_impl! {
         ) -> ConversationMutationResult,
         queue_message(
             conversation_id: String,
-            body: String,
+            #[impress_private] body: String,
             attachment_ids: Vec<String>
         ) -> QueuedMessageResult,
         set_enabled_tools(

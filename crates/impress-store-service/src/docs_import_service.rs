@@ -487,6 +487,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// Every watched folder, optionally narrowed to one `kind_scope`, in path
     /// order — with its last-scan stats and its declared volume state.
     #[impress_method(safety = read_only, effects(reads = ["watched-folder@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_watched_folders(&self, kind_scope: Option<String>) -> WatchedFolderListResult;
 
     /// Change a watched folder's mutable facets. Every field is optional and a

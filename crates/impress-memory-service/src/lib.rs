@@ -376,6 +376,10 @@ pub trait MemoryService: Send + Sync + 'static {
     /// vectors embedded yet, results are byte-identical to the FTS-only
     /// tier.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "default",
+        args = r#"{"query": "effects", "limit": 5, "include_superseded": false, "subject_ref": "effects-example"}"#
+    )]
     async fn recall(
         &self,
         query: String,
@@ -466,6 +470,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// fraction whenever the tier is at least configured; this call never
     /// pays for a model load itself, so it is always cheap to check.
     #[impress_method(safety = read_only)]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn memory_status(&self) -> StatusResult;
 }
 
@@ -1698,7 +1703,7 @@ impress_service_impl! {
         remember(
             kind: String,
             title: String,
-            body: String,
+            #[impress_private] body: String,
             claim_type: String,
             confidence: f64,
             subject_refs: Vec<String>,

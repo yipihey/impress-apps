@@ -817,6 +817,7 @@ pub trait SourceService: Send + Sync + 'static {
     /// locators and extraction lineage. An optional source UUID confines the
     /// results to one asset; pass null to search all ingested sources.
     #[impress_method(safety = read_only)]
+    #[impress_example(name = "default", args = r#"{"query": "effects", "limit": 5}"#)]
     async fn search_content_chunks(
         &self,
         query: String,

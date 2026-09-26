@@ -4422,13 +4422,18 @@ dependencies = [
  "impress-ai-service",
  "impress-bridges-service",
  "impress-capabilities-kit",
+ "impress-core",
+ "impress-layout-service",
  "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
+ "impress-store-service",
+ "impress-surface-service",
  "imprint-selftest",
  "imprint-service",
  "serde_json",
+ "tokio",
  "vw-impress-adapter",
 ]
 

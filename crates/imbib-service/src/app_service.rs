@@ -406,7 +406,7 @@ impress_service_impl! {
             search: Option<String>
         ) -> Vec<LogEntry>,
         get_notes(cite_key: String) -> Option<String>,
-        update_notes(cite_key: String, notes: String) -> bool,
+        update_notes(cite_key: String, #[impress_private] notes: String) -> bool,
         delete_annotation(annotation_id: String) -> bool,
         delete_comment(comment_id: String) -> bool,
         delete_collection(collection_id: String) -> bool,

@@ -483,7 +483,14 @@ pub trait LayoutService: Send + Sync + 'static {
     /// The whole live tree for this scope: windows, the tile arena, channel
     /// state. Creates the three-column preset on a cold start, so a caller
     /// never has to ask whether a layout exists.
-    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    // Mutating, not read-only: on a device with no live row this writes the
+    // default layout (the store spy observed it, plan self-reflective-layer
+    // E1); idempotent thereafter.
+    #[impress_method(safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"app_id": "impress", "device": "effects-device"}"#
+    )]
     async fn get_layout(&self, app_id: String, device: Option<String>) -> LayoutResult;
 
     /// One pane: its spec, its query COMPILED against the record-kind manifest
@@ -526,7 +533,11 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// Their ordinals are OFFSET by the app's presets, which come first in
     /// the union `apply_layout(ordinal:)` recalls — see `list_presets`.
-    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    // Mutating, not read-only: the first call on a store seeds the shipped
+    // presets (the store spy observed the write, plan self-reflective-layer
+    // E1); idempotent thereafter.
+    #[impress_method(safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
     async fn list_layouts(&self, app_id: String) -> LayoutListResult;
 
     // --------------------------------------------------------------- presets
@@ -541,6 +552,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// sections this app permits that are NOT expressible as queries, with
     /// the reason (ADR-0031 D2).
     #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
     async fn list_presets(&self, app_id: String) -> PresetListResult;
 
     /// Apply a preset: the live arrangement becomes its tree, and the live

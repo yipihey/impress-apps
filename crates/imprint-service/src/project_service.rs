@@ -802,7 +802,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// outcome, the PDF goes to the workspace CAS, and what steps produced
     /// becomes `output` rows derived from their source. `entry_override`
     /// is the live buffer.
-    #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure"], writes = ["manuscript-build@1.0.0", "manuscript-file@1.0.0"], reach = [subprocess, fs]))]
+    #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure", "task@1.0.0", "task-event@1.0.0"], writes = ["manuscript-build@1.0.0", "manuscript-file@1.0.0", "task@1.0.0", "task-event@1.0.0"], reach = [subprocess, fs]))]
     async fn project_build(
         &self,
         manuscript_id: String,

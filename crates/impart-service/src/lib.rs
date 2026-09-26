@@ -306,7 +306,7 @@ impress_service_impl! {
         ) -> bool,
         add_message(
             conversation_id: String,
-            content: String,
+            #[impress_private] content: String,
             role: Option<String>
         ) -> Option<MessageRecord>,
         record_decision(

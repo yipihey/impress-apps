@@ -117,6 +117,7 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     async fn get_artifact(&self, id: String) -> Option<ArtifactRecord>;
     /// Count research artifacts, optionally only those of one schema.
     #[impress_method(effects(reads = [prefix("impress/artifact/")]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn count_artifacts(&self, schema_filter: Option<String>) -> u32;
     /// Create a research artifact in imbib. Artifacts are non-paper items:
     /// notes, webpages, datasets, presentations, posters, media, code, or

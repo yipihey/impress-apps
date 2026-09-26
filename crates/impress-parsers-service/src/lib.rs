@@ -155,12 +155,14 @@ pub trait ParsersService: Send + Sync + 'static {
     /// header value, honouring the declared charset. Useful for reading a
     /// `Subject:` or a `filename=` parameter as a human would see it.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"value": "=?utf-8?q?hello?="}"#)]
     async fn decode_mime_header(&self, value: String) -> String;
 
     /// Decode a quoted-printable body. `charset` is the `charset=` parameter
     /// from the part's `Content-Type` — pass `UTF-8` when absent. Invalid
     /// sequences fall back to Latin-1 rather than yielding an empty string.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"encoded": "a=3Db", "charset": "utf-8"}"#)]
     async fn decode_quoted_printable(&self, encoded: String, charset: String) -> String;
 
     /// Which publisher owns a DOI, whether its PDF URL is predictable, and what
@@ -175,6 +177,7 @@ pub trait ParsersService: Send + Sync + 'static {
     /// `rule_table_is_complete` pins the reported ids against `DEFAULT_RULES`
     /// itself, so growth is free and a lost row goes red.)
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_publisher_rules(&self) -> Vec<PublisherRuleReport>;
 
     /// Extract the PDF link from a publisher landing page's HTML, using that

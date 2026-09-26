@@ -35,6 +35,7 @@ use impress_service_macros::impress_method;
 pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// List every manuscript document.
     #[impress_method(effects(reads = ["manuscript"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_documents(&self) -> Vec<DocumentSummary>;
 
     /// Fetch a single document by UUID.
@@ -78,14 +79,20 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Parse Typst source you pass in into its heading outline. Pure text:
     /// nothing is read from the store.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"source": "= Title\n== Section"}"#)]
     async fn document_outline(&self, source: String) -> Outline;
     /// List the citation keys used in Typst source you pass in, with where
     /// each occurs. Pure text: nothing is read from the store.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"source": "As shown by @abel2026."}"#)]
     async fn document_citations(&self, source: String) -> Vec<CitationUsage>;
     /// Find every match of `query` in Typst source you pass in, with
     /// positions. Pure text: nothing is read from the store.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"source": "alpha beta", "query": "beta", "case_sensitive": false}"#
+    )]
     async fn search_in_text(
         &self,
         source: String,

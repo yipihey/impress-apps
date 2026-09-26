@@ -53,6 +53,7 @@ impl From<&imbib_core::unified::shaped_queries::SciXLibraryRow> for SciXLibraryR
 pub trait ImbibScixService: Send + Sync + 'static {
     /// List the SciX (ADS) libraries mirrored in imbib.
     #[impress_method(effects(reads = ["imbib/scix-library"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_scix_libraries(&self) -> Vec<SciXLibraryRecord>;
     /// Get one mirrored SciX library by its imbib id.
     #[impress_method(effects(reads = ["imbib/scix-library"]))]

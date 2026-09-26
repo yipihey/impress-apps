@@ -76,6 +76,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// say — templates, widget ids, problem paths, params — so an agent
     /// authoring in a chat never has to read Rust source (ADR-0033 D8).
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn surface_schema(&self) -> SurfaceSchemaResult;
 
     /// Every problem with a spec, by JSON pointer and severity: structure
@@ -120,6 +121,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// Every stored surface, oldest first, without their specs (see
     /// `surface_get` for the full document).
     #[impress_method(effects(reads = ["impress/ui/surface@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn surface_list(&self) -> SurfaceListResult;
 
     /// Delete a surface and every state/event row that belongs to it.
@@ -210,6 +212,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// then the paper-triage surface over the user's own unread papers — so
     /// an agent can start from a spec that already validates.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn surface_examples(&self) -> SurfaceExamplesResult;
 }
 

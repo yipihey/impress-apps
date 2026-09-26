@@ -72,11 +72,13 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// need to attach a tag, just call `imbib-tags-service_add-tag`, which creates missing
     /// tags on the fly.
     #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags(&self) -> Vec<TagRecord>;
     /// List every tag with the number of papers carrying it. As expensive as
     /// `imbib-tags-service_list-tags`: each count is recomputed, so on a large
     /// vocabulary prefer `imbib-tags-service_count-by-tag` for one tag.
     #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
     /// Create a tag in the library's tag vocabulary, optionally with
     /// light/dark display colors. Paths are hierarchical with '/' (e.g.
@@ -85,6 +87,7 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// reach for this tool only when the user wants a category to exist up
     /// front or wants to give a brand-new tag a color.
     #[impress_method(effects(reads = ["imbib/tag-definition"], writes = ["imbib/tag-definition"]))]
+    #[impress_example(name = "default", args = r#"{"path": "effects/example"}"#)]
     async fn create_tag(
         &self,
         path: String,
@@ -146,6 +149,7 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// Count the papers carrying a tag, optionally within one library or
     /// collection.
     #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{"tag_path": "effects/example"}"#)]
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32;
 }
 

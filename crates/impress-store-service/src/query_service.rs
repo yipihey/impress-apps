@@ -219,6 +219,10 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// Items with `status: "dismissed"` are deliberately withheld; everything
     /// else, archived included, stays findable.
     #[impress_method(effects(reads = [any("searches every kind")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"query": "effects", "limit_per_schema": 3}"#
+    )]
     async fn search_all(&self, query: String, limit_per_schema: i64) -> SearchResult;
 
     /// Everything connected to one item, in BOTH directions, across ALL edge
@@ -271,6 +275,10 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// Nothing is withheld here — dismissed items included. Unlike a search,
     /// a browse that silently omits rows makes its own counts a lie.
     #[impress_method(effects(reads = [any("the schema_ref argument names the kind")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"schema_ref": "manuscript", "limit": 5, "offset": 0}"#
+    )]
     async fn list_items(&self, schema_ref: String, limit: i64, offset: i64) -> ItemListResult;
 }
 

@@ -432,9 +432,11 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// stale / failed), which device puts markers on list rows, last sync.
     /// Start here before marking or syncing.
     #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry", "imbib/eink-device", "imbib/eink-mirror"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_status(&self) -> EinkStatusRecord;
     /// Every configured e-ink device.
     #[impress_method(safety = read_only, effects(reads = ["imbib/eink-device"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_devices(&self) -> Vec<EinkDeviceRecord>;
     /// Create a device (no `id`) or change fields on one. Mode `individual`
     /// mirrors only marked papers and shows a marker in the list;
@@ -467,6 +469,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     async fn eink_resend(&self, mirror_ids: Vec<String>) -> MutationResult;
     /// Mirror rows for a device, optionally filtered by state.
     #[impress_method(safety = read_only)]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_list_mirrored(
         &self,
         device_id: Option<String>,
@@ -474,6 +477,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> Vec<EinkMirrorRecord>;
     /// Marked papers that still need their PDF/ePUB fetched.
     #[impress_method(safety = read_only)]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_awaiting_source(
         &self,
         device_id: Option<String>,
@@ -546,6 +550,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// Ink rows whose handwriting has not been recognised yet, with the
     /// PNG to run OCR on. `publication_id` absent = everywhere.
     #[impress_method(safety = read_only, effects(reads = ["imbib/annotation", "imbib/linked-file"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_pending_ocr(&self, publication_id: Option<String>) -> Vec<EinkOcrJobRecord>;
     /// Record an OCR result. `text` absent with a confidence still closes
     /// the job (nothing legible), so it is not retried forever.
