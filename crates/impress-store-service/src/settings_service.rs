@@ -376,34 +376,34 @@ pub trait SettingsService: Send + Sync + 'static {
     /// The registry as data: every declared setting (key, type, default,
     /// scope, section, legacy `UserDefaults` keys, doc, choices) and the
     /// sections, without values. What a settings UI or an agent reads first.
-    #[impress_method(safety = "read_only", since = "2026-09-26")]
+    #[impress_method(safety = read_only)]
     async fn schema(&self) -> SettingsSchemaResult;
 
     /// Every setting with its current value — stored, else the registry
     /// default — optionally narrowed to one section (`imbib.retention`).
-    #[impress_method(safety = "read_only", since = "2026-09-26")]
+    #[impress_method(safety = read_only)]
     async fn list(&self, section: Option<String>) -> SettingListResult;
 
     /// One setting's current value and where it came from.
-    #[impress_method(safety = "read_only", since = "2026-09-26")]
+    #[impress_method(safety = read_only)]
     async fn get(&self, key: String) -> SettingResult;
 
     /// Store a value. The value must have the declared type; a choice's
     /// label (`"1 Month"`) or the string spelling of a number or bool is
     /// accepted, anything else is refused and nothing changes. Writes the
     /// scope's file (or the synced row) so every app sees it.
-    #[impress_method(safety = "mutating", idempotent = true, since = "2026-09-26")]
+    #[impress_method(safety = mutating, idempotent = true)]
     async fn set(&self, key: String, value: Value) -> SettingResult;
 
     /// Forget the stored value so the key answers its registry default.
-    #[impress_method(safety = "mutating", idempotent = true, since = "2026-09-26")]
+    #[impress_method(safety = mutating, idempotent = true)]
     async fn reset(&self, key: String) -> SettingResult;
 
     /// The generated settings pane for one section: a `SurfaceSpec` with one
     /// typed field per setting, seeded with the current values, whose
     /// `on_change` calls `settings-service_set`. Store it with
     /// `impress-surface-service_surface-create` to show it in a pane.
-    #[impress_method(safety = "read_only", since = "2026-09-26")]
+    #[impress_method(safety = read_only)]
     async fn surface(&self, section: String) -> SettingsSurfaceResult;
 }
 
@@ -551,6 +551,9 @@ impl SettingsService for DefaultSettingsService {
 
 impress_service_impl! {
     service = SettingsService,
+    // Four of six read; `set` and `reset` override to `mutating` on the trait.
+    safety = read_only,
+    since = "0.1.0",
     impl = DefaultSettingsService,
     instance = DefaultSettingsService::new,
     strict_args = true,

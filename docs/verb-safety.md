@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 172 read-only, 126 mutating,
-32 destructive, 103 external — 433 verbs.
+Counts today: 176 read-only, 128 mutating,
+32 destructive, 103 external — 439 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -68,6 +68,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `manuscript-collab-service` | read_only | 4 | 1 |
 | `memory-service` | mutating | 7 | 4 |
 | `parsers-service` | read_only | 6 | 0 |
+| `settings-service` | read_only | 6 | 2 |
 | `smart-search-service` | read_only | 10 | 0 |
 | `source-service` | mutating | 9 | 5 |
 | `store-query-service` | read_only | 4 | 0 |
@@ -473,6 +474,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `parsers-service_list-publisher-rules` | read_only | name/doc |
 | `parsers-service_parse-mbox` | read_only | name/doc |
 | `parsers-service_resolve-publisher-pdf` | read_only | name/doc |
+| `settings-service_get` | read_only | name/doc |
+| `settings-service_list` | read_only | name/doc |
+| `settings-service_reset` | mutating | `settings_service.rs` — forgets a stored value in a scope file; the default stands and the file is rewritten atomically |
+| `settings-service_schema` | read_only | name/doc |
+| `settings-service_set` | mutating | `settings_service.rs` — writes one key into `<workspace>/settings/<scope>.json` (or the synced row) under a flock |
+| `settings-service_surface` | read_only | name/doc |
 | `smart-search-service_build-ads-query` | read_only | name/doc |
 | `smart-search-service_classify-search-input` | read_only | name/doc |
 | `smart-search-service_clean-ads-query` | read_only | name/doc |

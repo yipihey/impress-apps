@@ -92,9 +92,9 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `array-of-scalars` | 49 |
 | `inline-object` | 4 |
 | `map` | 2 |
-| `other` | 3 |
+| `other` | 4 |
 | `ref-object` | 40 |
-| `scalar` | 909 |
+| `scalar` | 914 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
