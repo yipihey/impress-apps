@@ -16,6 +16,9 @@
 //!   (D6, `impress_core::search_ops`), cross-kind relations (D8,
 //!   `impress_core::related_ops`), and the generic get/browse pair (G6) that
 //!   lets an agent open and page through records of any kind.
+//! * [`SettingsService`] — the settings registry's verbs (ADR-0036 D5):
+//!   schema, list, get, set, reset and the generated pane per section, over
+//!   `impress_settings::SettingsStore`'s files and the one synced row.
 //! * [`DocsImportService`] — a directory of markdown files becomes a named
 //!   manuscript collection, idempotently (deterministic UUIDv5 ids from the
 //!   source path), plus the companion verb that clears out the empty
@@ -38,6 +41,7 @@ pub mod figure_detection;
 pub mod job;
 pub mod manuscript_collab_service;
 pub mod query_service;
+pub mod settings_service;
 pub mod source_assets;
 pub mod source_service;
 pub mod store;
@@ -80,6 +84,11 @@ pub use query_service::{
     DefaultStoreQueryService, ItemEnvelopeDto, ItemListResult, ItemResult, RelatedItemDto,
     RelatedResult, SearchHitDto, SearchResult, StoreQueryService, DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT, MAX_PAYLOAD_BYTES,
+};
+pub use settings_service::{
+    install_settings, resolved_dto, set_settings_workspace, setting_dto, settings_instance,
+    ChoiceDto, DefaultSettingsService, SectionDto, SettingDto, SettingListResult, SettingResult,
+    SettingsSchemaResult, SettingsService, SettingsSurfaceResult, StoreSyncedBackend,
 };
 pub use source_assets::{
     default_source_asset_root, install_source_pdf, set_source_asset_root, set_source_cache_root,
@@ -165,6 +174,13 @@ mod inventory_tests {
             "docs-import-service_finish-watched-scan",
             "docs-import-service_record-produced-rows",
             "docs-import-service_list-watched-files",
+            // ADR-0036 D5: the settings registry's verbs.
+            "settings-service_schema",
+            "settings-service_list",
+            "settings-service_get",
+            "settings-service_set",
+            "settings-service_reset",
+            "settings-service_surface",
         ] {
             assert!(
                 names.contains(&expected),
@@ -177,9 +193,10 @@ mod inventory_tests {
     /// a bare `{"type": "object"}` with no `properties` key. Kept as an
     /// explicit list rather than a relaxed assertion: a tool losing its
     /// arguments to a refactor should still fail this test loudly.
-    const NO_ARGUMENT_TOOLS: [&str; 2] = [
+    const NO_ARGUMENT_TOOLS: [&str; 3] = [
         "collection-service_migration-status",
         "collection-service_rollback",
+        "settings-service_schema",
     ];
 
     /// Descriptions come from the trait's doc comments. A tool that ships
