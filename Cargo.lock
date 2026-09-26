@@ -4095,6 +4095,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -4369,6 +4370,7 @@ name = "impress-app-client"
 version = "0.1.0"
 dependencies = [
  "imbib-service",
+ "impress-core",
  "imprint-service",
  "mockito",
  "reqwest",
@@ -4878,6 +4880,7 @@ name = "imprint-cli"
 version = "0.1.0"
 dependencies = [
  "impress-service-core",
+ "impress-store-service",
  "imprint-selftest",
  "imprint-service",
  "serde_json",

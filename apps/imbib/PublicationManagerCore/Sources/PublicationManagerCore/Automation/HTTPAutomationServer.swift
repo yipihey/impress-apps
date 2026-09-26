@@ -75,13 +75,7 @@ public actor HTTPAutomationServer {
         }
 
         let configuration = HTTPServerConfiguration(
-            port: settings.httpServerPort,
-            loggerSubsystem: "com.imbib.app",
-            loggerCategory: "httpServer",
-            logRequests: settings.logRequests,
-            allowNetworkAccess: settings.allowNetworkAccess,
-            authToken: settings.networkAuthToken
-        )
+            settings: settings.serverSettings, loggerSubsystem: "com.imbib.app")
 
         await server.start(configuration: configuration)
     }
@@ -96,13 +90,7 @@ public actor HTTPAutomationServer {
         let settings = await AutomationSettingsStore.shared.settings
 
         let configuration = HTTPServerConfiguration(
-            port: settings.httpServerPort,
-            loggerSubsystem: "com.imbib.app",
-            loggerCategory: "httpServer",
-            logRequests: settings.logRequests,
-            allowNetworkAccess: settings.allowNetworkAccess,
-            authToken: settings.networkAuthToken
-        )
+            settings: settings.serverSettings, loggerSubsystem: "com.imbib.app")
 
         await server.restart(configuration: configuration)
     }

@@ -1,8 +1,6 @@
 //! One test per ADR-0031 D8 verb, plus the reference-resolution rules.
 
-mod common;
-
-use common::{
+use crate::common::{
     assert_arena_is_sound, assert_focus_is_a_leaf, assert_focus_is_visible, scratch_pane,
     three_column,
 };

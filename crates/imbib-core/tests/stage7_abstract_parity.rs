@@ -13,9 +13,7 @@
 //! positively in a companion test. An unlisted mismatch fails the build. There
 //! is no regeneration path.
 
-mod common;
-
-use common::fixtures::load_fixture;
+use crate::common::fixtures::load_fixture;
 use serde_json::Value;
 
 use imbib_core::text::{abstract_contains_math, mathml_to_latex, parse_abstract};

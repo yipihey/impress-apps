@@ -130,6 +130,16 @@ fn install_app_backend(matches: &clap::ArgMatches) {
     }
 }
 
+/// Strip `--wait` (ADR-0034 D6): a long-running verb answers with a job
+/// handle; with this flag the CLI streams the job's events to stderr as
+/// they land and prints the stored result — `{ok, job, result}` — on
+/// stdout, exiting by the job's outcome. Without it the handle is printed,
+/// after the job has finished, since an inline job dies with its process.
+fn take_wait(args: Vec<String>) -> (Vec<String>, bool) {
+    let wait = args.iter().any(|a| a == "--wait");
+    (args.into_iter().filter(|a| a != "--wait").collect(), wait)
+}
+
 fn main() {
     // The real reference into `impress-capabilities` this file's top comment
     // promises: `cli::build_cli_from_inventory`/`dispatch_matches` below read
@@ -142,7 +152,7 @@ fn main() {
     // `force_link` doc comment.
     impress_capabilities::force_link();
 
-    let args = take_store_path(std::env::args().collect());
+    let (args, wait) = take_wait(take_store_path(std::env::args().collect()));
 
     let app = cli::build_cli_from_inventory("impress")
         .about(
@@ -159,24 +169,32 @@ fn main() {
              status: 0 when the verb did what it was asked; 3 when it answered `\"ok\": \
              false` (the JSON on stdout says why, with a machine-readable `code`); 1 when \
              the verb could not be dispatched; 2 for a bad invocation or an unreachable \
-             store.",
+             store.\n\nJobs: a long-running verb (`project-build`, …) answers at once with \
+             `{\"ok\", \"job\": {id, kind, state}}`; `--wait` streams its events to stderr and \
+             prints `{ok, job, result}` when it ends. Read a job later with `job-status`, \
+             `job-events`, `job-wait`, `job-result`; stop it with `job-cancel`.",
         );
     let matches = app.get_matches_from(args);
     install_app_backend(&matches);
 
     match cli::dispatch_matches(&matches) {
-        Ok(value) => match serde_json::to_string_pretty(&value) {
-            Ok(s) => {
-                println!("{s}");
-                // A refusal is not a success (review AC-F12): the verb's
-                // own `ok: false` sets the status a script tests.
-                std::process::exit(impress_service_core::refusal::exit_status(&value));
+        Ok(value) => {
+            // A job handle is streamed or drained before anything prints
+            // (ADR-0034 D6); a plain result passes through.
+            let value = impress_store_service::job::cli_finish(value, wait);
+            match serde_json::to_string_pretty(&value) {
+                Ok(s) => {
+                    println!("{s}");
+                    // A refusal is not a success (review AC-F12): the verb's
+                    // own `ok: false` sets the status a script tests.
+                    std::process::exit(impress_service_core::refusal::exit_status(&value));
+                }
+                Err(e) => {
+                    eprintln!("error: failed to serialize result: {e}");
+                    std::process::exit(2);
+                }
             }
-            Err(e) => {
-                eprintln!("error: failed to serialize result: {e}");
-                std::process::exit(2);
-            }
-        },
+        }
         Err(e) => {
             eprintln!("error: {e}");
             std::process::exit(1);

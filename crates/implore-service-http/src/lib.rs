@@ -40,8 +40,10 @@ impl ImploreClient {
     }
 
     pub fn with_base_url(base_url: Url) -> Self {
-        // no_proxy + no panic: see impress_app_client::loopback_http_client.
-        let http = impress_app_client::loopback_http_client(
+        // no_proxy + no panic + the app bearer: see
+        // impress_app_client::loopback_http_client_for.
+        let http = impress_app_client::loopback_http_client_for(
+            &base_url,
             reqwest::Client::builder().timeout(Duration::from_secs(30)),
         );
         Self { base_url, http }

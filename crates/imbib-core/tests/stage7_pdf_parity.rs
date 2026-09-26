@@ -9,9 +9,7 @@
 //! companion test asserting the corrected value positively. An unlisted mismatch
 //! fails the build. There is no regeneration path.
 
-mod common;
-
-use common::fixtures::load_fixture;
+use crate::common::fixtures::load_fixture;
 use serde_json::Value;
 
 // ── Plumbing (file-local copies, as in stage7_parser_parity.rs) ──────────────

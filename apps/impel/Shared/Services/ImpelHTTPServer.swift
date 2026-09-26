@@ -40,13 +40,10 @@ public actor ImpelHTTPServer {
 
     // MARK: - Settings
 
-    private static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "httpAutomationEnabled")
-    }
-
-    private static var configuredPort: UInt16 {
-        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
-        return port > 0 ? UInt16(port) : defaultPort
+    /// The shared settings (P0, SEC-4): enabled, port, logging and the
+    /// network fields, the same six keys in every app.
+    private static var settings: AutomationServerSettings {
+        AutomationServerSettings.load(defaultPort: defaultPort)
     }
 
     // MARK: - State
@@ -71,20 +68,16 @@ public actor ImpelHTTPServer {
             return
         }
 
-        guard Self.isEnabled else {
+        let settings = Self.settings
+        guard settings.httpEnabled else {
             httpLogger.info("HTTP server is disabled in settings")
             return
         }
 
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.impress.impel",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.impress.impel")
 
         await server.start(configuration: configuration)
-        httpLogger.info("HTTP server started on port \(Self.configuredPort)")
+        httpLogger.info("HTTP server started on port \(settings.port)")
     }
 
     /// Stop the HTTP server.
@@ -94,12 +87,7 @@ public actor ImpelHTTPServer {
 
     /// Restart the server (e.g., after port change).
     public func restart() async {
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.impress.impel",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.impress.impel")
 
         await server.restart(configuration: configuration)
     }

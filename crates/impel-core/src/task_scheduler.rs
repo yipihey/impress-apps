@@ -145,6 +145,21 @@ impl Scheduler {
         // review, or a crash left it running).
         let suspended_targets = self.store.unresolved_review_targets()?;
         for task in self.store.running_tasks(&self.config.actor)? {
+            // ADR-0034 D6: a cancel asked for while the task ran (or while
+            // it sat suspended on a review) is honoured before any re-run.
+            if matches!(
+                task.payload.get("cancel_requested"),
+                Some(Value::Bool(true))
+            ) {
+                self.store.transition(
+                    task.id,
+                    TaskState::Cancelled,
+                    &self.config.actor,
+                    Some(OperationIntent::Routine),
+                )?;
+                report.cancelled += 1;
+                continue;
+            }
             if suspended_targets.contains(&task.id) {
                 report.suspended += 1;
                 continue;

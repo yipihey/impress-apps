@@ -778,3 +778,39 @@ async fn spawned_tasks_record_their_rule_and_trigger() {
         .unwrap();
     assert!(!plain_task.payload.contains_key("spawned_by"));
 }
+
+/// ADR-0034 D6: a cancel asked for while a task sits suspended on a review
+/// is honoured on the next resume pass — the row goes `cancelled`, and the
+/// executor is never re-run.
+#[tokio::test]
+async fn a_cancel_requested_on_a_suspended_task_is_honoured_on_resume() {
+    let s = store();
+    let ids = create_task_dag(
+        s.as_ref(),
+        &[TaskSpec {
+            kind: "careful".into(),
+            description: None,
+            depends_on: vec![],
+            operates_on: None,
+            output_schema: None,
+        }],
+        "spawner",
+    )
+    .unwrap();
+    let mut sched = scheduler(s.clone());
+    sched.register(Scripted::new(
+        "careful",
+        vec![Step::Complete, Step::Suspend("keep these tags?")],
+    ));
+    let r1 = sched.run_once().await.unwrap();
+    assert_eq!(r1.suspended, 1, "{r1:?}");
+
+    assert_eq!(
+        impress_core::job::request_cancel(&s, ids[0], "tom").unwrap(),
+        TaskState::Running
+    );
+    let r2 = sched.run_once().await.unwrap();
+    assert_eq!(r2.cancelled, 1, "{r2:?}");
+    assert_eq!(r2.resumed, 0, "{r2:?}");
+    assert_eq!(state_of(&s, ids[0]), TaskState::Cancelled);
+}

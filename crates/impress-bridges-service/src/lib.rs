@@ -259,6 +259,9 @@ fn open_store() -> Option<impress_core::sqlite_store::SqliteItemStore> {
     }
 }
 
+/// How many (newest) rows `search_all` scans (LR-1's "a limit").
+const SEARCH_ALL_SCAN_LIMIT: usize = 5_000;
+
 fn to_store_item(item: &impress_core::item::Item) -> StoreItem {
     let payload_json = serde_json::to_string(&item.payload).unwrap_or_else(|_| "{}".into());
     let title = match item.payload.get("title") {
@@ -643,7 +646,20 @@ impl ImpressBridgesService for DefaultImpressBridgesService {
         let Some(store) = open_store() else {
             return vec![];
         };
-        let q = impress_core::query::ItemQuery::default();
+        // Bounded (LR-1): this is a substring scan over payloads in Rust,
+        // and unbounded it walked every row on the device — millions of
+        // operation rows included. The newest SEARCH_ALL_SCAN_LIMIT items
+        // are the window; a store-side search is `search_ops`' job.
+        let q = impress_core::query::ItemQuery {
+            sort: vec![impress_core::query::SortDescriptor {
+                field: "modified".into(),
+                ascending: false,
+            }],
+            limit: Some(SEARCH_ALL_SCAN_LIMIT),
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        };
         let needle = query.to_lowercase();
         match store.query(&q) {
             Ok(items) => items

@@ -308,6 +308,14 @@ fn task_schema_matches_adr_field_table() {
             // WP C4: impel's SharedTaskBridge mirror provenance.
             "source_app",
             "external_id",
+            // ADR-0034 D6 (plan P4): a long-running verb is a job on this
+            // row — the cancel flag executors poll, what started it, and
+            // the result `job_result` answers. All optional.
+            "cancel_requested",
+            "verb",
+            "args",
+            "result",
+            "runner",
         ]
     );
     let required: Vec<&str> = s

@@ -263,6 +263,11 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impart-service_status` | external | name/doc |
 | `impart-service_update-conversation` | external | E/M: name/doc |
 | `impel-service_cancel-task` | destructive | crates/impel-service/src/lib.rs:660 TaskStoreApi::transition(Cancelled) (impel-core/src/task_store.rs:233 apply_operation on the shared SQLite store) then :674-699 walks dependents and cancels each pending one; cancel… |
+| `impel-service_job-cancel` | destructive | crates/impel-service/src/lib.rs job_cancel → impress_core::job::request_cancel sets cancel_requested; the running executor stops the step (ADR-0034 D6) |
+| `impel-service_job-events` | read_only | name/doc; reads task-event@1.0.0 rows |
+| `impel-service_job-result` | read_only | name/doc |
+| `impel-service_job-status` | read_only | name/doc |
+| `impel-service_job-wait` | read_only | name/doc; long-poll over task-event@1.0.0, writes nothing |
 | `impel-service_list-failed-tasks` | read_only | name/doc |
 | `impel-service_list-pending-reviews` | read_only | name/doc |
 | `impel-service_resolve-review` | mutating | name/doc |

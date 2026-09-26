@@ -8456,6 +8456,78 @@ public func FfiConverterTypeGuardedUpsertOutcome_lower(_ value: GuardedUpsertOut
 
 
 /**
+ * The allowed `manuscript.format` payload values (single source of truth:
+ * `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
+ * app-side format enums can assert parity without duplicating the list.
+ * What `loopback_token_install` wrote: the file's path and the token in it.
+ */
+public struct LoopbackTokenInstall {
+    public var path: String
+    public var token: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, token: String) {
+        self.path = path
+        self.token = token
+    }
+}
+
+
+
+extension LoopbackTokenInstall: Equatable, Hashable {
+    public static func ==(lhs: LoopbackTokenInstall, rhs: LoopbackTokenInstall) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.token != rhs.token {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(token)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLoopbackTokenInstall: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoopbackTokenInstall {
+        return
+            try LoopbackTokenInstall(
+                path: FfiConverterString.read(from: &buf), 
+                token: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LoopbackTokenInstall, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.token, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackTokenInstall_lift(_ buf: RustBuffer) throws -> LoopbackTokenInstall {
+    return try FfiConverterTypeLoopbackTokenInstall.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackTokenInstall_lower(_ value: LoopbackTokenInstall) -> RustBuffer {
+    return FfiConverterTypeLoopbackTokenInstall.lower(value)
+}
+
+
+/**
  * What one verb changed — the renderer's whole input (ADR-0019 D3).
  */
 public struct SharedAppliedVerb {
@@ -17735,6 +17807,44 @@ public func layoutVocabularyJson() -> String {
 })
 }
 /**
+ * Mint this launch's loopback token for the automation server bound to
+ * `port` and write it under `container_root` (the suite app-group container
+ * the app resolved). The path, name, format and mode are
+ * `impress_core::loopback_token`'s — Swift decides nothing here, it passes
+ * the container it can see and keeps the token to check bearers against.
+ */
+public func loopbackTokenInstall(containerRoot: String, port: UInt16)throws  -> LoopbackTokenInstall {
+    return try  FfiConverterTypeLoopbackTokenInstall.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_func_loopback_token_install(
+        FfiConverterString.lower(containerRoot),
+        FfiConverterUInt16.lower(port),$0
+    )
+})
+}
+/**
+ * Where the token file for `port` lives under `container_root` — for a
+ * status line or a log, never for Swift to write itself.
+ */
+public func loopbackTokenPath(containerRoot: String, port: UInt16) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_loopback_token_path(
+        FfiConverterString.lower(containerRoot),
+        FfiConverterUInt16.lower(port),$0
+    )
+})
+}
+/**
+ * Remove the token file for `port` under `container_root` (the server is
+ * stopping). A file that is already gone is not an error.
+ */
+public func loopbackTokenRemove(containerRoot: String, port: UInt16)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_func_loopback_token_remove(
+        FfiConverterString.lower(containerRoot),
+        FfiConverterUInt16.lower(port),$0
+    )
+}
+}
+/**
  * What the tree does when the outline's selected library or collection is
  * deleted, decided in Rust (`impress_layout_service::outline_cleared_verbs`,
  * plan wave 6 W5): the navigator's channel stops carrying the dead row and
@@ -17854,11 +17964,6 @@ public func sectionBindingsJson(appId: String) -> String {
     )
 })
 }
-/**
- * The allowed `manuscript.format` payload values (single source of truth:
- * `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
- * app-side format enums can assert parity without duplicating the list.
- */
 public func supportedManuscriptFormats() -> [String] {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_impress_store_ffi_fn_func_supported_manuscript_formats($0
@@ -17917,6 +18022,15 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_layout_vocabulary_json() != 20433) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_func_loopback_token_install() != 3871) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_loopback_token_path() != 56973) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_loopback_token_remove() != 19591) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_func_outline_cleared_verbs_json() != 18137) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17938,7 +18052,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_section_bindings_json() != 33769) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {
+    if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 7918) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_surface_example_json() != 30608) {

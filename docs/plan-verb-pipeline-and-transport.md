@@ -726,7 +726,7 @@ loop; it must run with `CARGO_TARGET_DIR` outside the checkout like the other la
 
 - Changing the `rust-toolchain.toml` pin, or adopting any nightly-only flag (`-Zthreads`,
   `-Zshare-generics` on stable are not options; the parallel frontend is nightly).
-- B6: making embeddings opt-in for any binary changes what that binary can do.
+- B6: making embeddings opt-in for any binary changes what that binary can do. **Declined by Tom, 2026-09-26**: the binaries keep embeddings; B6 is not done. B4 (cargo-hakari) approved the same day.
 - B4: cargo-hakari adds a generated crate every member depends on; it changes every
   `Cargo.toml` and the kit manifest (`check-kit-deps.sh --strict` must learn it).
 - sccache's cache directory location and size on the shared runner Mac (B2).
@@ -771,6 +771,74 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   § Build cost section and its JSON record; the GUI plan's verb-count row now states the strict grep
   that reproduces 433. Both agent worktrees' measurements were re-checked against the JSON before
   the section was inserted (every quoted number matches).
+- 2026-09-26 — **P0 Loopback and CORS landed** (branch `claude/pipeline-p0-loopback-cors`, from main
+  at 701a2573, merged with main at b5218fb4). SEC-1..8 closed as the table's mitigation column says,
+  with three narrowings recorded here: the loopback token file is keyed by the **bound port**
+  (`loopback-<port>.token`), not the app name, because a second instance under test
+  (`-httpAutomationPort 23261`) would otherwise overwrite the user's running app's token and a Tier B
+  runner that knows only a base URL could not find the file; network mode now needs a **bind
+  address** as well as a token (SEC-5's "explicitly" — the listener no longer binds every interface
+  behind the bearer alone; imbib's iOS pane picks it from the device's addresses); and impel-server's
+  `CorsLayer::permissive()` went with SEC-8, since a bearer-only loopback API has no browser origin
+  to admit (and `POST /agents` now mints and returns the agent's token once, which the wired
+  middleware needs to be usable at all). `IMBIB_TOKEN` is gone; `IMPRESS_APP_TOKEN` is the one
+  client variable. The contract is `impress_core::loopback_token`, exported over UniFFI; the binding
+  was regenerated (+3 functions, +1 record, nothing lost). **Proof** (impress built with its own
+  `IMPRESS_DERIVED`, launched with `-httpAutomationPort 23261 -ApplePersistenceIgnoreState YES`,
+  `IMPRESS_DEVICE_ID=p0-proof`, quit afterwards; the user's impress on its default port untouched):
+  `curl -H 'Origin: https://evil.example' -i …/api/status` → `200`, headers `Content-Length`,
+  `Connection: close`, `Content-Type` and nothing else (no `Access-Control-*`);
+  `POST /api/performance/reset` with no token → `401 Unauthorized`, `WWW-Authenticate: Bearer`;
+  `-H 'Host: attacker'` → `400 Bad Request`; the token file
+  `~/Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/automation/loopback-23261.token`
+  → `-rw-------`, 64 hex chars; the same POST with `Authorization: Bearer $(cat …)` → `200`
+  `{"reset": true, "status": "ok"}`; `GET /api/performance/reset` → `405`;
+  `IMPRESS_LAYOUT_SELFTEST_BASE_URL=http://127.0.0.1:23261 impress layout-selftest-service_run-selftest --tier b`
+  (the runner reading the token file itself, no env set) → `"passed": 14, "failed": 0, "skipped": 0,
+  "total": 14, "ok": true`. **Gates:** ImpressAutomation `swift test` 19 XCTest + 72 Swift Testing,
+  0 failures (new: the policy matrix, the Host parser, a real-socket gate test that proves the four
+  curls on a free port); PublicationManagerCore `swift test` 2159 XCTest (2 skipped) + 112 Swift
+  Testing, 0 failures; `rust-gate.sh fmt` and `clippy auto` (`rest`) clean; `cargo test -p
+  impress-ai-http -p impel-server -p impress-app-client -p impress-core --lib` green (impel-server
+  6 incl. the middleware driven with `tower::oneshot`: no header 401, `system`/`impel-` prefix 401,
+  registered token 200, `/status` open); `check-kit-deps --strict`, `check-schema-refs` (387 sites),
+  `check-chassis-deps`, `check-uniffi-bindings` (7/7) OK. Not run: Tier B on imprint, implore, impel
+  and impart from isolated builds (time); their servers share `HTTPServer`, whose gate the socket
+  test and the impress run prove, and each client reads the token through the one Rust function.
+  Noticed on main, not touched: b5218fb4 committed `target-standalone/` (3,021 cargo incremental
+  files).
+- 2026-09-26 — **B1 test binaries shipped** (branch `claude/bc-b1-test-binaries`, from main at
+  701a2573, merged with b5218fb4). The 12 crates with more than one `tests/*.rs` (imbib-core 24
+  files + `common`; impress-core 9; imprint-core 7; impress-surface, impress-surface-service and
+  impress-layout 6 each; impress-layout-service 5; imprint-service and impress-sources 4;
+  surface-demo-service, impress-mcp and impel-core 2) each get a `tests/main.rs` that declares a
+  `mod` per former file, with `autotests = false` and one `[[test]] name = "main"` in the manifest;
+  test names keep the file as their module path. Reconciled: `mod common;` is declared once
+  (`use crate::common::…`); `#![cfg(feature = …)]`, `#[path]` and `include_str!`/`include_bytes!`
+  resolve relative to the file and needed no change; insta names a snapshot by full module path,
+  so imbib-core's 21 `.snap` files gained the `main__` prefix (contents unchanged);
+  imprint-tectonic.yml's warm-up filter names its test through the module; `check-kit-standalone.sh`
+  unlists just the `mod` lines whose module uses a dropped dev-dependency instead of skipping the
+  whole binary (surface-demo-service's `plot_shape` over imprint-core). One exception was forced by
+  process-global state: impress-layout-service's `fallback_store` pins the store path to a missing
+  directory while `contract` sets a real one, so it stays its own `[[test]]` beside `main` — 93
+  files → 13 test binaries (12 `main` + that one). Workspace test count: main 4030 (4010 pass, 20
+  ignored); branch 4020 (4000 pass, 0 fail, 20 ignored) = 4030 − 18 + 8, the 18 being the 3
+  `common::fixtures::tests` unit tests that ran in each of imbib-core's 7 binaries that declared
+  `mod common` and now run once, the 8 being main's G0/G1 tests merged in; every other test name
+  is the same. **Measured, not as BC-4 estimated:** a clean `cargo test -p imbib-core --features
+  native --no-run` (deps warm, worktree-local `CARGO_TARGET_DIR`, 18-core impress-mac at load
+  48–75 from a neighbouring `swift-test`) goes from 25 executables at 68 CPU-s (55 user + 14 sys),
+  13–17 s wall, to 2 executables at 46 CPU-s (42 + 4), 24–40 s wall. The unit-time saving is
+  real (≈ 22 s, a third) but the wall time got *longer* on this machine: one binary is one
+  single-threaded rustc front end on the critical path, where 24 small binaries filled the cores.
+  The wall estimate in BC-4 (≈ 8 s saved) assumed the link steps were on the critical path; they
+  were not. The gain lands on CI's smaller runners and on unit-time budgets (B5), not on a warm
+  18-core desktop. Gates: fmt, clippy `imprint` and `rest` (both run explicitly; `auto` diffs
+  against `@{u}` and picks one shard on a branch that has not been pushed), workspace test,
+  check-kit-standalone (13 crates OK), check-schema-refs (387 call sites) — all green. Noticed
+  while merging: 3f743650 (G1) committed `target-standalone/` (3,021 build-product files) to main;
+  not touched here.
 - 2026-09-26 — **B3 dependency graph** (branch `claude/bc-b3-dependency-graph`, from main at
   701a2573). Three commits, Cargo.toml/Cargo.lock only plus the six source lines the bumps forced:
   `thiserror` 2 everywhere ours (two imprint-core error messages named their extra format argument);
@@ -823,3 +891,53 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   8 s wall-clock budget with 233 suites in flight — each passing 3/3 in isolation),
   check-kit-deps --strict, check-kit-standalone, check-schema-refs (387 sites), check-verb-coverage
   (38 services, marker tables unchanged), check-uniffi-bindings (7 match; no export changed).
+- 2026-09-26 — **P4 Jobs landed** (branch `claude/pipeline-p4-jobs`, on main at b5218fb4/197ee48e).
+  The convention as D6 states it: `task-event@1.0.0` is a new record kind (D-P4) — a per-task ring
+  with the surface ring's semantics, registered beside `task@1.0.0` in impress-core and written only
+  by `impress_core::job`; the task schema gained `cancel_requested`, `verb`, `args`, `result`,
+  `runner`. A job row is born `running` and assigned to its runner (`inline:<pid>@<host>`), so the
+  scheduler never acquires it. `impress-service-core::job::JobStarted` is the one wire shape;
+  `impress-store-service::job::start_inline` is the inline runner (shared service runtime, cancel
+  poller, a panic is a failed job, `wait` with the cursor rule, `cli_finish` for `--wait`/drain).
+  `impel-service` gained `job_status / job_events / job_wait / job_cancel / job_result`;
+  `cancel_task` on a running task sets the flag instead of refusing, and the scheduler honours the
+  flag on its resume pass. The first gate (LR-1's three one-liners): `get-page-image`'s osascript
+  under a 60 s deadline, `compile-typst`/`project-compile` under `spawn_blocking`, `search-all`
+  bounded to the newest 5,000 rows. `imprint-core`'s `RunnerHost` gained cancel/step hooks
+  (`ObservedHost`), `build()` stops at a step boundary and `ProcessRunnerHost::with_cancel` kills the
+  step — and, found by the live proof, kills its whole process group: `kill()` on a `sh -c` left the
+  grandchild holding the pipes, so a cancelled 45 s step still took 45 s (the timeout path had the
+  same latent hang). **Converted (D-P5):** `imprint-project-service_project-build` — the proof set;
+  every Rust caller (integration tests, Tier A `project.build_records`) goes through `await_build`;
+  no Swift or HTTP mirror called the verb (the app's ⌘B runs `project_build_tree` through the FFI).
+  **Kept synchronous, deliberately:** the other 52 long-running verbs. 26 run inside a running app
+  over the `*-service-http` adapters and will move with P5's transport (a job wrapping an HTTP call
+  in the MCP process is the wrong seat); `surface-wait`/`-render`/`-dispatch` are the surface loop
+  itself (the wait is the primitive; a source needs its value); the 5 AI probes are cached and
+  bounded; `get-page-image`/`get-figure-image` return `_mcp_content` image blocks a caller wants
+  inline (now bounded); the imports, backups, e-ink verbs, `compile-*`, `run-selftest` ×3 and
+  `search-all` return counts/reports their CLI, Swift or Tier B callers read at once — each is a
+  result-shape change with callers to migrate and is one `start_inline` call away once its caller
+  is ready. The machinery does not care which verb; the migration is per caller.
+  Docs: `docs/agent-surfaces.md` § Jobs, the MCP guide's "Long-running verbs are jobs", the matrix
+  row, `docs/verb-coverage.md` counts (438 verbs), the job-monitor example surface, `schema-refs.json`.
+  **Proof (impress-mcp on a scratch store, flat tools, debug build, this Mac under three concurrent
+  release framework builds):** `project-build` handle in 26.6 ms cold (28–34 ms across runs) and
+  2–17 ms warm; `scheduler-status` answered in 2.9 ms while the job ran (the serial loop was never
+  held); `job_wait` streamed `build` → `step running` in 0.7/100 ms, then timed out at 2 s with the
+  cursor unchanged; `job_cancel` answered in 2.1 ms and the job read `cancelled` 210 ms later with
+  the `sh figures/slow.sh` process gone and the `manuscript-build` row `cancelled`; `job_result`
+  answered the old `ProjectBuildResult`. CLI: `impress project-build … --wait` streamed
+  `[1] build … [4] finished {"ok":true,"state":"done"}` to stderr and printed `{ok, job, result}`.
+  Surface: the job-monitor surface rendered the status bound to the job, a dispatched Cancel click
+  called `job-cancel` and emitted `job-cancel-requested`, which `surface_wait` returned in 0.7 ms;
+  the job ended `cancelled`; a Refresh click re-read the source (`cancelled: cancelled`) — a verb
+  source re-runs only on refresh, as documented. Not done, on purpose: MCP `notifications/progress`
+  (the loop is polled through `job_wait`); a heartbeat for a job whose process died (its row stays
+  `running` — the CLI drains for that reason).
+  Gates: fmt, clippy imprint + rest, `cargo test` on every touched crate plus impel-taskd,
+  impress-mcp, impress-cli, imprint-cli (all green), check-schema-refs (81 canonical refs),
+  check-kit-deps --strict, check-kit-standalone (13 crates), check-uniffi-bindings (7 match, no
+  export changed), check-verb-coverage and the census. Tier A imprint 25/25. Tier B on imprint 8/8 (built into this worktree's own DerivedData and its own
+  xcframeworks, launched with `-httpAutomationPort 23271`, quit afterwards; the user's imprint on
+  23121 and their impel-taskd were never touched — the CLI/MCP proof ran on a scratch store).

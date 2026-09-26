@@ -47,6 +47,13 @@ pub const TASK_SCHEMA: &str = "task@1.0.0";
 /// `impel_core::TaskStoreApi::record_agent_run` and impel's `SharedTaskBridge`.
 pub const AGENT_RUN_SCHEMA: &str = "agent-run@1.0.0";
 
+/// The canonical task-event ref (ADR-0034 D6). **VERSIONED**, like the two
+/// kinds above it. One row per progress event a job emitted, pruned to the
+/// last [`crate::job::EVENT_RING_CAPACITY`] per task — the surface event
+/// ring's shape (`seq`, gap-free, bounded) applied to a `task@1.0.0` row.
+/// Written and read ONLY by `impress_core::job`.
+pub const TASK_EVENT_SCHEMA: &str = "task-event@1.0.0";
+
 /// Schema for task items — units of work assigned to humans or agents.
 pub fn task_schema() -> Schema {
     Schema {
@@ -99,6 +106,32 @@ pub fn task_schema() -> Schema {
                 "Stable id of the AUTHORITATIVE record this row mirrors (impel's \
                  GRDB task id). Present ⇒ some other system owns this task's \
                  lifecycle.",
+            ),
+            // ── Jobs (ADR-0034 D6): a long-running verb IS a task row ──
+            described(
+                field("cancel_requested", FieldType::Bool, false),
+                "Set by `job_cancel` / `cancel_task` on a RUNNING task. The \
+                 executor polls it and moves the task running → cancelled at \
+                 its next check; the kernel never interrupts a thread.",
+            ),
+            described(
+                optional_string("verb"),
+                "For a job: the qualified verb name that started it \
+                 (`imprint-project-service_project-build`).",
+            ),
+            described(
+                optional_string("args"),
+                "For a job: the verb's arguments, as JSON text.",
+            ),
+            described(
+                optional_string("result"),
+                "For a finished job: the verb's own result, as JSON text — \
+                 what `job_result` answers.",
+            ),
+            described(
+                optional_string("runner"),
+                "For a job: where it ran — `inline:<pid>@<host>` for a verb \
+                 that ran its job in its own process, or the daemon's actor.",
             ),
         ],
         expected_edges: vec![
@@ -200,11 +233,55 @@ pub fn agent_run_schema() -> Schema {
     }
 }
 
+/// Schema for task-event items — one progress event of a job (ADR-0034 D6).
+///
+/// The ring's `seq` is gap-free per task (see `crate::job::append_event`),
+/// so a reader treats a jump past its cursor as pruning, exactly as it does
+/// on the surface ring.
+pub fn task_event_schema() -> Schema {
+    Schema {
+        id: TASK_EVENT_SCHEMA.into(),
+        name: "Task Event".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            described(
+                required_string("task"),
+                "The `task@1.0.0` row this event belongs to (its item id).",
+            ),
+            described(
+                field("seq", FieldType::Int, true),
+                "1-based, gap-free per task; the cursor `job_events` / \
+                 `job_wait` hand back.",
+            ),
+            described(
+                required_string("name"),
+                "What happened: `step`, `progress`, `message`, `finished`, …",
+            ),
+            described(
+                required_string("payload"),
+                "The event's payload as JSON text (an object).",
+            ),
+            described(required_string("at"), "RFC 3339 timestamp of the append."),
+        ],
+        expected_edges: vec![],
+        inherits: None,
+    }
+}
+
 /// Register all task-related schemas into the registry.
 ///
-/// This is the ONLY registration of these two ids in the workspace;
-/// `impel_core::schemas::register_impel_schemas` delegates here.
+/// This is the ONLY registration of these three ids in the workspace;
+/// `impel_core::schemas::register_impel_schemas` delegates here for the
+/// pair impel writes (`task-event@1.0.0` is written by `impress_core::job`,
+/// the job runner in every process, so impress-core registers it alone).
 pub fn register_task_schemas(registry: &mut SchemaRegistry) {
+    register_task_pair(registry);
+    registry
+        .register(task_event_schema())
+        .expect("task-event@1.0.0 schema registration");
+}
+
+fn register_task_pair(registry: &mut SchemaRegistry) {
     registry
         .register(task_schema())
         .expect("task@1.0.0 schema registration");
@@ -219,7 +296,7 @@ pub fn register_task_schemas(registry: &mut SchemaRegistry) {
 /// is fine; the thing C4 removed was two definitions.
 pub fn register_task_schemas_if_absent(registry: &mut SchemaRegistry) {
     if registry.get(TASK_SCHEMA).is_none() && registry.get(AGENT_RUN_SCHEMA).is_none() {
-        register_task_schemas(registry);
+        register_task_pair(registry);
     }
 }
 
@@ -265,6 +342,37 @@ mod tests {
         register_task_schemas(&mut reg);
         assert!(reg.get(TASK_SCHEMA).is_some());
         assert!(reg.get(AGENT_RUN_SCHEMA).is_some());
+        assert!(reg.get(TASK_EVENT_SCHEMA).is_some());
+        assert_eq!(task_event_schema().id, "task-event@1.0.0");
+    }
+
+    /// impel's entry point registers the pair impel writes and nothing
+    /// else — the event ring is impress-core's own writer, and a second
+    /// registration point for it would be the drift C4 removed.
+    #[test]
+    fn the_if_absent_entry_point_registers_only_the_pair() {
+        let mut reg = SchemaRegistry::new();
+        register_task_schemas_if_absent(&mut reg);
+        assert!(reg.get(TASK_SCHEMA).is_some());
+        assert!(reg.get(TASK_EVENT_SCHEMA).is_none());
+        // And it composes with the full registration in either order.
+        register_task_schemas_if_absent(&mut reg);
+        let mut full = SchemaRegistry::new();
+        register_task_schemas(&mut full);
+        register_task_schemas_if_absent(&mut full);
+        assert!(full.get(TASK_EVENT_SCHEMA).is_some());
+    }
+
+    /// The job fields a `task@1.0.0` row carries (ADR-0034 D6) are
+    /// declared, so `validate` reads a job row as a task, not as a row with
+    /// unknown keys.
+    #[test]
+    fn task_schema_declares_the_job_fields() {
+        let schema = task_schema();
+        let names: Vec<&str> = schema.fields.iter().map(|f| f.name.as_str()).collect();
+        for key in ["cancel_requested", "verb", "args", "result", "runner"] {
+            assert!(names.contains(&key), "job runner writes {key:?}");
+        }
     }
 
     /// The ids ARE the refs writers emit — the whole point of C4. A rename

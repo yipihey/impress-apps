@@ -47,13 +47,15 @@ final class HTTPResponseTests: XCTestCase {
         XCTAssertEqual(String(data: response.body, encoding: .utf8), "Hello, World!")
     }
 
-    func testToDataIncludesCorsHeaders() {
+    func testToDataEmitsNoCorsHeaders() {
+        // P0, SEC-1: no `Access-Control-*` on any response, ever.
         let response = HTTPResponse.ok()
         let data = response.toData()
         let string = String(data: data, encoding: .utf8) ?? ""
 
-        XCTAssertTrue(string.contains("Access-Control-Allow-Origin: *"))
-        XCTAssertTrue(string.contains("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS"))
+        XCTAssertFalse(string.contains("Access-Control-"))
+        XCTAssertTrue(string.contains("Content-Length: "))
+        XCTAssertTrue(string.contains("Connection: close"))
     }
 
     func testJsonCodableWithDateStrategy() {

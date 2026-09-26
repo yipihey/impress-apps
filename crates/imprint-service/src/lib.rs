@@ -52,16 +52,17 @@ pub use handlers::{
 };
 pub use project_bib::StoreBibliographyResolver;
 pub use project_service::{
-    graph_record, tree_from_snapshot, DefaultImprintProjectService, ImprintProjectService,
-    ProjectBibliographyRecord, ProjectBuildOutputRecord, ProjectBuildOutputResult,
-    ProjectBuildRecord, ProjectBuildResult, ProjectBuildsRecord, ProjectCheckinRecord,
-    ProjectCheckoutRecord, ProjectCitationRecord, ProjectCitationsRecord, ProjectCollectRecord,
-    ProjectCompileRecord, ProjectDiagnosticRecord, ProjectEdgeRecord, ProjectExportRecord,
-    ProjectFigureRenderRecord, ProjectFigureResult, ProjectFileContentRecord, ProjectFileRecord,
-    ProjectFileResult, ProjectGraphRecord, ProjectImportRecord, ProjectMutationResult,
-    ProjectOutlineRecord, ProjectReadingListRecord, ProjectReadingListRow, ProjectSectionRecord,
-    ProjectSnapshotRecord, ProjectStatusRecord, ProjectStepRecord, ProjectStepReportRecord,
-    ProjectTargetRecord, ProjectTreeRecord, ProjectUnresolvedRecord,
+    await_build, graph_record, tree_from_snapshot, DefaultImprintProjectService,
+    ImprintProjectService, ProjectBibliographyRecord, ProjectBuildOutputRecord,
+    ProjectBuildOutputResult, ProjectBuildRecord, ProjectBuildResult, ProjectBuildsRecord,
+    ProjectCheckinRecord, ProjectCheckoutRecord, ProjectCitationRecord, ProjectCitationsRecord,
+    ProjectCollectRecord, ProjectCompileRecord, ProjectDiagnosticRecord, ProjectEdgeRecord,
+    ProjectExportRecord, ProjectFigureRenderRecord, ProjectFigureResult, ProjectFileContentRecord,
+    ProjectFileRecord, ProjectFileResult, ProjectGraphRecord, ProjectImportRecord,
+    ProjectMutationResult, ProjectOutlineRecord, ProjectReadingListRecord, ProjectReadingListRow,
+    ProjectSectionRecord, ProjectSnapshotRecord, ProjectStatusRecord, ProjectStepRecord,
+    ProjectStepReportRecord, ProjectTargetRecord, ProjectTreeRecord, ProjectUnresolvedRecord,
+    PROJECT_BUILD_VERB,
 };
 pub use search::{ManuscriptSearchIndex, SearchHit};
 pub use sections::{SectionMetadata, SectionRecord, SectionStore, SECTION_SCHEMA_REF};
