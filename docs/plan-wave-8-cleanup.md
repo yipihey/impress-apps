@@ -139,3 +139,71 @@ worktree and branch per track, `IMPRESS_SKIP_INSTALL=1`, a per-track `IMPRESS_DE
     succeeded (`ImpressShellTests` is compiled, not run, as in CI: its host is the GUI app).
     Frameworks were APFS clones of the main checkout's, whose bindings match this commit's byte for
     byte.
+
+- 2026-09-25 — **U4 (one click, one step)**, branch `claude/wave8-u4-one-click` off
+  `claude/wave8-integrate`. Rust only (`impress-surface-service`) plus a paragraph in
+  `docs/agent-surfaces.md`; no exported signature changed.
+  - **PH-M2, surface half, closed.** `SurfaceRuntime::dispatch` used to send each `publish`
+    and `open` to the `Executor` separately, so `[publish, open]` was a `select` and then a
+    `set_pane`/`split`: two writes of the layout row, two undo entries, and a refused `open`
+    left the `publish` applied. Now the runtime compiles both effects into layout verbs and
+    gathers a run of consecutive ones into one gesture, which the Executor's one layout method,
+    `apply_layout(pane, verbs, actor)`, applies with `apply_verbs_as`: one write, one undo
+    entry on the ring `UndoStacks::apply_all` picks (the first recorded verb's, so a gesture
+    that starts with `publish` lands on the surface pane's ring, where focus is), all or none.
+    A one-verb gesture goes through `apply_verb_as`, so a lone effect is logged and recorded
+    exactly as before.
+  - **Design, and why.** Of the two options the plan named, compiling effects to verbs is
+    the less invasive. A collect-then-flush mode on the executor would put per-dispatch state
+    in an object shared by every dispatch in the process (`DefaultExecutor` is cloned into
+    the FFI, HTTP and each pane), and would still need the verbs built somewhere. Compiling
+    keeps the executor stateless: the trait loses `publish` and `open` and gains
+    `apply_layout`; the gathering lives in `dispatch`, next to the ordering it has to respect.
+    The verbs are the ones the layout verbs already build: `publish` is `Select` on the
+    surface's tile; `open` with a target role is `SetQuery` + `SetViewKind` on that role
+    (resolved when the gesture applies, keeping the pane's role, channel, params and session,
+    which is what the old read-then-`set_pane` kept); `open` with none is `Split` of the
+    focused pane with the new spec. `surface_show` still uses `show_in_pane`, unchanged.
+  - **Mixed sequences.** Effects run in `reduce`'s order. A `call` or an `emit` ends the
+    run: the gesture so far is applied first, then the call or emit runs, and the layout
+    effects after it are a new gesture. So `[publish, open]` is one step; `[publish, call,
+    open]` and `[publish, emit, open]` are two, with the call or emit between them, the order
+    they had when every effect was its own step. Nothing in a dispatch reads a `call`'s result
+    from a later effect (`reduce` resolved every effect's arguments up front; `into` only
+    reaches state and the next render), but a verb may read or change the layout, and an
+    agent woken by an `emit` reads it, so neither may run ahead of a layout change the click
+    made before it. `refresh` only drops a cached source and does not end a run.
+  - **Outcomes.** Still one per effect, in order, with the same success messages. A member
+    refused before the layout sees it (no pane, a query that does not parse, an id that is not
+    one) reports its own refusal as before; every other member of that gesture, before or
+    after it, reports `not applied: the '<kind>' in the same gesture was refused: …` with the
+    same code. A gesture the layout refuses reports the layout's refusal on every member,
+    with "(one gesture: none of it applied)" appended when there is more than one. Either way
+    nothing is written.
+  - **Tests.** `tests/gesture.rs` (a service whose executor's layout sessions are the ones the
+    test reads and undoes on): `[publish, open]` is one write of the layout row, focus stays
+    on the surface, one undo on its pane restores selection and detail pane, and a second undo
+    changes nothing; an `open` of a role no pane holds leaves the layout and channels exactly
+    as they were and both effects report the refusal; an invalid id in a second `publish`
+    keeps the first `open` from applying; an `emit` between them makes two writes. The first
+    three fail against the old runtime (2 writes; the publish landed; the open landed). The
+    layout row's `revision` is a clock, not a counter, so "one revision" is counted as layout
+    row writes on the store's mutation feed.
+  - **Narrowed.** An `open` with no target splits and moves focus to the new pane, while a
+    gesture that starts with `publish` is recorded on the surface pane's ring; so after
+    `[publish, open]` with a split, ⌘Z with focus on the new pane finds nothing on that pane's
+    ring (⌘Z back in the surface pane takes the whole click back). Before, the split was on
+    the arrangement ring and the select on the surface's, so it was never one ⌘Z either.
+    Which ring a gesture belongs on is `UndoStacks::apply_all`'s rule, shared with PMC's
+    clicks, and not changed here. Pane lookups for a gesture's members happen before any of
+    it applies, so an `open` that replaces the surface's own pane followed by a `publish`
+    publishes from that tile rather than refusing `no-pane` as it used to.
+  - **Gates.** `rust-gate.sh fmt` clean; `rust-gate.sh clippy auto` ([rest]) clean; `cargo test
+    -p impress-surface-service -p impress-store-ffi -p impress-layout-service -p
+    impress-surface -p impress-cli` 346 passed, 0 failed (includes `coherence.rs` and
+    `doc_wire.rs`); `check-kit-deps --strict`, `check-schema-refs` OK; `check-uniffi-bindings`
+    7 match. ImpressSurface `swift test` 18/18; ImpressLayout 79 XCTest, 0 failures, after
+    `IMPRESS_SKIP_X86=1 IMPRESS_SKIP_IOS=1 crates/impress-store-ffi/build-xcframework.sh`
+    (swiftformat not on PATH) built the store framework it links; the regenerated binding
+    is byte-identical to the committed one. **Not run:** PublicationManagerCore's `swift
+    test`, which needs xcframeworks this worktree does not have.

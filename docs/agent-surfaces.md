@@ -387,6 +387,14 @@ the kind its param declares, so a spec that publishes and declares no param is
 a validation warning. An `open`'s `view_kind` must be one the layout knows
 (`layout_vocabulary_json`), or validation says which it does.
 
+**One click is one layout step.** Consecutive `publish` and `open` actions
+in one event's list change the layout together: one revision of the layout,
+one undo entry (⌘Z in the pane takes the whole click back), and all or none —
+if the layout refuses any of them, none is applied, the refused one reports
+why and each other one reports `not applied` with the same code. A `call` or
+`emit` between them runs between them, so `[publish, call, open]` is two
+layout steps with the call in the middle, in that order.
+
 `each` fans a `call`/`emit` out over an array: a literal path (never a
 `{{…}}` template) whose root is `state`, `param`, `source` or `event`, which
 must name an array at reduce time; an empty array runs the action zero times.

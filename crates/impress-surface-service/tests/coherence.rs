@@ -270,21 +270,10 @@ impl Executor for Counting {
         self.queries.fetch_add(1, Ordering::SeqCst);
         self.inner.run_query(query, decls, bindings).await
     }
-    async fn publish(
+    async fn apply_layout(
         &self,
         _: &PaneHandle,
-        _: &str,
-        _: Value,
-        _: ActorKind,
-    ) -> Result<(), Refusal> {
-        Ok(())
-    }
-    async fn open(
-        &self,
-        _: Option<&PaneHandle>,
-        _: Value,
-        _: &str,
-        _: Option<&str>,
+        _: Vec<impress_layout::Verb>,
         _: ActorKind,
     ) -> Result<(), Refusal> {
         Ok(())
