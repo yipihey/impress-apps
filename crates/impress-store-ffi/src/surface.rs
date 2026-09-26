@@ -223,7 +223,10 @@ fn error_reply(code: &str, message: impl Into<String>) -> SharedHttpReply {
 /// the feed's echo of its own write from anyone else's (review SK-K15): it
 /// compares `revision` and `state_revision` with the ones its last render or
 /// dispatch reply carried, and skips the render when neither is newer and
-/// `sources_changed` is false.
+/// `sources_changed` is false. The handle's feed already makes that
+/// comparison for its own dispatches, holding a surface's changes while one
+/// runs, so the echo of a dispatch made through this handle is not
+/// delivered at all; the pane's own check covers a render's reply.
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedSurfaceChange {
@@ -397,9 +400,96 @@ pub struct SharedSurface {
     feed: Mutex<Option<Feed>>,
 }
 
+/// This handle's own dispatches, as its feed sees them (review SK-K15).
+///
+/// A dispatch writes the state row at once, then runs its effects and
+/// re-renders — sources included — before it replies. The feed's echo of
+/// that write is due one debounce (50 ms) after it, so for any dispatch
+/// slower than that the echo reached the pane BEFORE the reply it would
+/// have been compared with, and the pane rendered its own write a second
+/// time. The handle is the pane's own (one per pane), so the feed can do the
+/// comparison itself: while a dispatch of this handle's is running, changes
+/// to that surface are held; once it has replied, a change that carries
+/// nothing newer than the reply's `revision` and `state_revision` — and
+/// invalidates no source and deletes nothing — is this handle's own echo
+/// and is dropped. Another handle (another pane, the HTTP bridge) is still
+/// told, because it did not draw the reply.
+/// `(revision, state_revision)` as a dispatch reply carried them.
+type ReplyRevisions = (Option<u64>, Option<u64>);
+
+#[derive(Default)]
+struct OwnWrites {
+    /// Surface id → dispatches of this handle's still running.
+    in_flight: Mutex<std::collections::HashMap<String, usize>>,
+    /// Surface id → the `(revision, state_revision)` the last reply carried.
+    replied: Mutex<std::collections::HashMap<String, ReplyRevisions>>,
+}
+
+impl OwnWrites {
+    fn begin(self: &Arc<Self>, surface_id: &str) -> InFlight {
+        *lock(&self.in_flight)
+            .entry(surface_id.to_string())
+            .or_default() += 1;
+        InFlight {
+            own: self.clone(),
+            surface_id: surface_id.to_string(),
+        }
+    }
+
+    fn replied(&self, surface_id: &str, revision: Option<u64>, state_revision: Option<u64>) {
+        let mut replied = lock(&self.replied);
+        let entry = replied.entry(surface_id.to_string()).or_default();
+        entry.0 = entry.0.max(revision);
+        entry.1 = entry.1.max(state_revision);
+    }
+
+    fn is_running(&self, surface_id: &str) -> bool {
+        lock(&self.in_flight).contains_key(surface_id)
+    }
+
+    /// Whether `change` is only the echo of a reply this handle drew.
+    fn is_echo(&self, change: &SharedSurfaceChange) -> bool {
+        if change.sources_changed || change.deleted {
+            return false;
+        }
+        let Some((revision, state_revision)) = lock(&self.replied).get(&change.id).copied() else {
+            return false;
+        };
+        change.revision.is_none_or(|r| Some(r) <= revision)
+            && change
+                .state_revision
+                .is_none_or(|s| Some(s) <= state_revision)
+    }
+}
+
+/// One running dispatch; dropping it (the reply is out, or the dispatch
+/// failed) lets the feed deliver that surface's held changes.
+struct InFlight {
+    own: Arc<OwnWrites>,
+    surface_id: String,
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        let mut running = lock(&self.own.in_flight);
+        if let Some(n) = running.get_mut(&self.surface_id) {
+            *n -= 1;
+            if *n == 0 {
+                running.remove(&self.surface_id);
+            }
+        }
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Everything a call needs, cheap to clone into the task that runs it.
 #[derive(Clone)]
 struct SurfaceCore {
+    /// See [`OwnWrites`]: shared with this handle's feed.
+    own: Arc<OwnWrites>,
     store: Arc<SqliteItemStore>,
     surfaces: SurfaceStore,
     executor: DefaultExecutor,
@@ -448,6 +538,7 @@ impl SharedSurface {
                 .with_app(app_id.clone());
         Arc::new(SharedSurface {
             core: SurfaceCore {
+                own: Arc::default(),
                 surfaces: SurfaceStore::new(core.clone()),
                 // The HTTP routes run the verbs through this service, which
                 // runs sources, effects and `surface_show` through the SAME
@@ -632,6 +723,7 @@ impl SharedSurface {
             surfaces: self.core.surfaces.clone(),
             host: self.core.host.clone(),
             registry: self.core.registry.clone(),
+            own: self.core.own.clone(),
             debounce: Duration::from_millis(self.debounce_ms.load(Ordering::SeqCst)),
             grace: Duration::from_secs(self.startup_grace_secs.load(Ordering::SeqCst)),
             external_poll: Duration::from_millis(self.external_poll_ms.load(Ordering::SeqCst)),
@@ -735,6 +827,9 @@ impl SurfaceCore {
     ) -> Result<String> {
         let id = parse_surface_id(surface_id)?;
         let event: Event = serde_json::from_str(event_json).map_err(SharedSurfaceError::json)?;
+        // Held until the reply's revisions are recorded (see `OwnWrites`).
+        let key = id.to_string();
+        let _running = self.own.begin(&key);
         let executor = self.executor.clone();
         let writer = self.surfaces.clone();
         let outcome = match self.pane_handle(pane) {
@@ -757,6 +852,8 @@ impl SurfaceCore {
         };
         let dto = match outcome {
             Ok((tree, effects, source_errors, revisions)) => {
+                self.own
+                    .replied(&key, revisions.revision, revisions.state_revision);
                 SurfaceDispatchResult::dispatched(tree, effects, source_errors, revisions)
             }
             Err(e) => SurfaceDispatchResult::refused(e),
@@ -1015,6 +1112,8 @@ struct SurfaceFeed {
     /// query sources read a kind that was written (RS-S2) and reports those
     /// surfaces as changed.
     registry: Arc<SessionRegistry>,
+    /// This handle's own dispatches: what its feed holds and drops.
+    own: Arc<OwnWrites>,
     debounce: Duration,
     grace: Duration,
     external_poll: Duration,
@@ -1117,8 +1216,21 @@ impl SurfaceFeed {
                 grace_over = true;
             }
             if grace_over && !held.is_empty() {
-                let changes: Vec<SharedSurfaceChange> =
-                    std::mem::take(&mut held).into_values().collect();
+                // A surface this handle is dispatching to waits for the
+                // reply; its own echo is then dropped (see `OwnWrites`).
+                let mut changes: Vec<SharedSurfaceChange> = Vec::new();
+                held.retain(|id, change| {
+                    if self.own.is_running(id) {
+                        return true;
+                    }
+                    if !self.own.is_echo(change) {
+                        changes.push(change.clone());
+                    }
+                    false
+                });
+                if changes.is_empty() {
+                    continue;
+                }
                 log::debug!(
                     target: "surface",
                     "feed: {} surface(s) changed: {:?}",
@@ -2307,23 +2419,34 @@ mod tests {
         assert_eq!(listed["surfaces"], serde_json::json!([]));
     }
 
+    /// Records every batch a feed delivers.
+    struct ChangeRecorder(mpsc::Sender<Vec<SharedSurfaceChange>>);
+    impl SharedSurfaceListener for ChangeRecorder {
+        fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+            let _ = self.0.send(changes);
+        }
+    }
+
+    fn listen(surface: &SharedSurface) -> mpsc::Receiver<Vec<SharedSurfaceChange>> {
+        surface.set_debounce_ms(20);
+        let (tx, rx) = mpsc::channel();
+        surface.subscribe(Box::new(ChangeRecorder(tx))).unwrap();
+        rx
+    }
+
     /// SK-K15: a dispatch's reply carries the state revision it wrote, and
-    /// the feed reports that same revision for the write — so the pane can
-    /// tell its own echo from an agent's. An event appended by the same
+    /// the feed reports that same revision for the write to every OTHER
+    /// handle — another pane on the surface is told. The dispatching
+    /// handle's own feed drops it: its pane drew the reply already. A newer
+    /// write by anyone else reaches it. An event appended by the same
     /// dispatch is not reported at all.
     #[test]
     fn the_feed_reports_the_state_revision_the_dispatch_reply_carried() {
         let (store, surface) = open();
-        surface.set_debounce_ms(20);
         let id = create(&store, &publish_spec());
-        let (tx, rx) = mpsc::channel::<Vec<SharedSurfaceChange>>();
-        struct Recorder(mpsc::Sender<Vec<SharedSurfaceChange>>);
-        impl SharedSurfaceListener for Recorder {
-            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
-                let _ = self.0.send(changes);
-            }
-        }
-        surface.subscribe(Box::new(Recorder(tx))).unwrap();
+        let mine = listen(&surface);
+        let second_pane = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
+        let theirs = listen(&second_pane);
 
         let reply: serde_json::Value = serde_json::from_str(
             &surface
@@ -2332,11 +2455,18 @@ mod tests {
         )
         .unwrap();
         let written = reply["state_revision"].as_u64().expect("a state revision");
-        let changes = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        let changes = theirs
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
         assert_eq!(changes.len(), 1, "{changes:?}");
         assert_eq!(changes[0].id, id);
         assert_eq!(changes[0].state_revision, Some(written), "{changes:?}");
         assert!(!changes[0].sources_changed);
+        assert!(
+            mine.recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "the dispatching pane is not told about its own write"
+        );
 
         // Another writer's state is newer than what the pane last saw.
         let other = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
@@ -2345,9 +2475,67 @@ mod tests {
             format!("/api/surface/{id}/state"),
             r#"{"state": {"clicked": false}}"#.into(),
         );
-        let changes = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        let changes = mine
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
         assert!(changes[0].state_revision.unwrap() > written, "{changes:?}");
         surface.unsubscribe();
+        second_pane.unsubscribe();
+    }
+
+    /// SK-K15, the race: a dispatch whose re-render waits on a slow source
+    /// replies long after the feed's echo of its state write was due. The
+    /// echo used to reach the pane first, carrying a state revision newer
+    /// than anything the pane had adopted, so the pane rendered its own
+    /// write again. The feed now holds that surface's changes until the
+    /// reply is out and then drops the echo.
+    #[test]
+    fn a_slow_dispatch_is_not_echoed_to_its_own_pane() {
+        let (store, surface) = open();
+        store.set_verb_host(Box::new(SlowVerbHost));
+        let spec: SurfaceSpec = serde_json::from_value(serde_json::json!({
+            "surface": "1.0", "name": "Slow source", "state": { "n": 1 },
+            "sources": { "echo": { "verb": FAKE_VERB, "args": { "x": "{{state.n}}" } } },
+            "root": { "column": [
+                { "field": { "number": {} }, "label": "N", "bind": "state.n", "id": "n" },
+                { "text": "{{source.echo.echoed.x}}", "id": "echoed" }
+            ] }
+        }))
+        .unwrap();
+        let id = create(&store, &spec);
+        surface.render_now(id.clone(), None).unwrap();
+        let mine = listen(&surface);
+        let second_pane = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
+        let theirs = listen(&second_pane);
+
+        let started = std::time::Instant::now();
+        let reply: serde_json::Value = serde_json::from_str(
+            &surface
+                .dispatch_now(
+                    id.clone(),
+                    None,
+                    r#"{"widget":"n","kind":"change","value":5}"#.into(),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            started.elapsed() >= std::time::Duration::from_millis(400),
+            "the re-render waited on the slow source"
+        );
+        assert_eq!(reply["ok"], true, "{reply}");
+        let written = reply["state_revision"].as_u64().unwrap();
+        assert!(
+            mine.recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "the dispatching pane is not told about its own write"
+        );
+        let changes = theirs
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(changes[0].state_revision, Some(written), "{changes:?}");
+        surface.unsubscribe();
+        second_pane.unsubscribe();
     }
 
     /// RS-S4: the pane a render comes from is recorded in THIS handle's app.

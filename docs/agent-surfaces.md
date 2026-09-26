@@ -465,7 +465,10 @@ re-rendering does not fail the dispatch; it is listed in `source_errors`.
 
 `revision` is the spec's and `state_revision` the state row's, as the answer
 was built. A pane compares them with the feed's notifications and does not
-render its own write's echo again.
+render its own write's echo again. The pane's own `SharedSurface` feed holds
+a surface's notifications while that handle's dispatch runs and drops the
+echo once it replies, so a dispatch slower than the feed's debounce (a slow
+effect or source) is not drawn twice either.
 
 ## HTTP
 
