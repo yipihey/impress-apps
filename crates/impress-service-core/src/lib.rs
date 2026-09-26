@@ -29,8 +29,9 @@ pub mod strict;
 pub mod wire;
 
 pub use descriptor::{
-    method_meta, resolve_examples, resolve_idempotent, resolve_safety_class, Deprecation, Example,
-    MethodMeta, Safety, SafetyClass, Source, VerbDescriptor,
+    method_meta, resolve_effects, resolve_examples, resolve_idempotent, resolve_safety_class,
+    Deprecation, Effects, Example, Kind, MethodMeta, Reach, Safety, SafetyClass, Source,
+    VerbDescriptor,
 };
 pub use refusal::Refusal;
 
@@ -146,6 +147,31 @@ pub const fn resolve_description(
         Some(meta) if !meta.doc.is_empty() => meta.doc,
         _ => fallback,
     }
+}
+
+/// Mark the named properties of an input schema `"x-private": true`
+/// (ADR-0036 D2's privacy rule, hook H-P1-2): the call log stores such an
+/// argument as a length and a hash, never by value. The macro calls this on
+/// the generated schema for every `#[impress_private]` argument, so the
+/// schema — not a second list — is what the log reads.
+pub fn mark_private(mut schema: serde_json::Value, private: &[&str]) -> serde_json::Value {
+    if private.is_empty() {
+        return schema;
+    }
+    if let Some(props) = schema
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for name in private {
+            if let Some(prop) = props
+                .get_mut(*name)
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                prop.insert("x-private".to_string(), serde_json::Value::Bool(true));
+            }
+        }
+    }
+    schema
 }
 
 /// `&str` equality usable in a const context.
