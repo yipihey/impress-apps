@@ -37,7 +37,12 @@ if [ "$MODE" = "fmt" ]; then exec cargo fmt --all --check; fi
 pick_shards() {
     if [ "$SHARD" != "auto" ]; then echo "$SHARD"; return; fi
     local base changed
-    base="$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null || echo HEAD~1)"
+    # An unpushed branch has no upstream: compare with where it left
+    # origin/main, so every commit it carries picks its shard (HEAD~1 made
+    # a docs-last branch run one shard for a change in the other).
+    base="$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null \
+        || git merge-base HEAD origin/main 2>/dev/null \
+        || echo HEAD~1)"
     changed="$(git diff --name-only "$base" 2>/dev/null || true)"
     [ -z "$changed" ] && { echo "imprint rest"; return; }
     local want=""
