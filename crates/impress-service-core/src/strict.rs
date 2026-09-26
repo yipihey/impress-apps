@@ -74,6 +74,16 @@ pub fn from_value<T: DeserializeOwned + schemars::JsonSchema>(value: Value) -> R
 /// no arguments, so a key there is refused too (a free-form object deeper
 /// down stays free, and an enum root is walked by [`check`]).
 pub fn args<T: DeserializeOwned>(tool: &str, value: Value, schema: &Value) -> Result<T, Refusal> {
+    check_args(tool, &value, schema)?;
+    serde_json::from_value(value)
+        .map_err(|e| Refusal::invalid_argument(e.to_string()).context(tool))
+}
+
+/// The schema half of [`args`] alone — what the pipeline's strict-args
+/// layer runs for every verb of a `strict_args` service before its
+/// generated handler parses the object (plan-verb-pipeline P2). Same rule,
+/// same message, naming the tool.
+pub fn check_args(tool: &str, value: &Value, schema: &Value) -> Result<(), Refusal> {
     // Only a plain object schema that names nothing — an args struct with no
     // fields. A schema that describes its object any other way (an enum's
     // `oneOf`, a `$ref`, `additionalProperties`) is `check`'s to walk.
@@ -97,9 +107,15 @@ pub fn args<T: DeserializeOwned>(tool: &str, value: Value, schema: &Value) -> Re
             .context(tool));
         }
     }
-    check(&value, schema).map_err(|r| r.context(tool))?;
-    serde_json::from_value(value)
-        .map_err(|e| Refusal::invalid_argument(e.to_string()).context(tool))
+    check(value, schema).map_err(|r| r.context(tool))
+}
+
+/// The refusal a strict service's generated handler answers when its
+/// argument object does not deserialize (a type error): the same
+/// `invalid-argument`, naming the tool, that [`args`] produced when the
+/// parse lived in the invoker.
+pub fn parse_refusal(tool: &str, error: impl std::fmt::Display) -> Value {
+    refusal_value(&Refusal::invalid_argument(error.to_string()).context(tool))
 }
 
 /// The result a strict invoker answers for a refused argument: the envelope
