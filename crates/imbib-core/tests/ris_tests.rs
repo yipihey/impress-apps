@@ -2,9 +2,7 @@
 //!
 //! Ported from Swift RIS*Tests.swift files
 
-mod common;
-
-use common::fixtures::load_ris_fixture;
+use crate::common::fixtures::load_ris_fixture;
 use imbib_core::bibtex::{BibTeXEntry, BibTeXEntryType};
 use imbib_core::ris::{format_entry, from_bibtex, parse, to_bibtex, RISEntry, RISType};
 
