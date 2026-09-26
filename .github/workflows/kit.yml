@@ -44,6 +44,7 @@ on:
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - '.cargo/config.toml'
+      - '.config/hakari.toml'
       - 'scripts/check-kit-*.sh'
       - 'scripts/check-verb-coverage.sh'
       - 'docs/kit-manifest.md'
@@ -61,6 +62,7 @@ on:
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - '.cargo/config.toml'
+      - '.config/hakari.toml'
       - 'scripts/check-kit-*.sh'
       - 'scripts/check-verb-coverage.sh'
       - 'docs/kit-manifest.md'
@@ -99,6 +101,19 @@ jobs:
 
       - name: Kit dependency line (ADR-0033 D7)
         run: ./scripts/check-kit-deps.sh --strict
+
+      # Every kit crate depends on crates/impress-workspace-hack, the generated
+      # cargo-hakari crate (plan verb-pipeline-and-transport § Build cost B4).
+      # This job already blocks the PR and builds nothing, so it is where a
+      # dependency change that was not followed by `cargo hakari generate` is
+      # caught before it merges; workspace-rust.yml repeats the check after.
+      - name: Install cargo-hakari
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+
+      - name: Workspace-hack crate is current
+        run: cargo hakari generate --diff
 
   standalone:
     name: Kit builds without the rest of the repository
