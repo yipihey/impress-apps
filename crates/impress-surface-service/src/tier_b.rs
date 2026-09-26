@@ -107,12 +107,23 @@ fn scratch_spec() -> Value {
 
 pub async fn run() -> Vec<CapabilityResult> {
     let base = configured_base_url();
+    // The app bearer (P0, SEC-2): the create/dispatch calls below mutate the
+    // running app, which needs the per-launch loopback token —
+    // `IMPRESS_APP_TOKEN`, else the file the app at `base`'s port wrote
+    // (`impress_core::loopback_token`).
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(15));
+    if let Some(token) = impress_core::loopback_token::client_token_for_url(&base) {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Ok(mut value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")) {
+            value.set_sensitive(true);
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+            builder = builder.default_headers(headers);
+        }
+    }
     let http = Http {
-        client: reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new()),
+        client: builder.build().unwrap_or_else(|_| reqwest::Client::new()),
         base: base.trim_end_matches('/').to_string(),
     };
     if http.call("GET", "/api/surface", None).await.is_err() {

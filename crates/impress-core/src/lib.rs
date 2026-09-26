@@ -1,5 +1,9 @@
 pub mod event;
 pub mod item;
+/// The per-launch loopback token the automation servers require on a
+/// mutating request (P0, SEC-2): the path convention, the file format and
+/// the client-side read, in one place for both halves of the suite.
+pub mod loopback_token;
 pub mod maintenance;
 pub mod operation;
 /// The pane query algebra (ADR-0031 D2): what a pane shows, compiled to an

@@ -4423,6 +4423,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "imbib-service",
+ "impress-core",
  "imprint-service",
  "mockito",
  "reqwest",

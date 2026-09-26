@@ -9,10 +9,18 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../ImpressKit"),
-        .package(path: "../ImpressLogging")
+        .package(path: "../ImpressLogging"),
+        // The loopback-token contract (P0, SEC-2) is Rust's
+        // (`impress_core::loopback_token`, exported by `impress-store-ffi`);
+        // `HTTPServer` calls it to mint and place this launch's token and
+        // decides nothing about the path or the format itself.
+        .package(path: "../ImpressRustCore")
     ],
     targets: [
-        .target(name: "ImpressAutomation", dependencies: ["ImpressKit", "ImpressLogging"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(
+            name: "ImpressAutomation",
+            dependencies: ["ImpressKit", "ImpressLogging", "ImpressRustCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "ImpressAutomationTests", dependencies: ["ImpressAutomation"], swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )

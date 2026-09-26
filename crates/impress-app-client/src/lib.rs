@@ -36,6 +36,48 @@ pub fn loopback_http_client(builder: reqwest::ClientBuilder) -> reqwest::Client 
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
+/// [`loopback_http_client`] with the app's bearer attached to every request
+/// (P0, SEC-2/SEC-4): `IMPRESS_APP_TOKEN` when set — the one client-side
+/// variable, which is also the network bearer for a non-loopback caller —
+/// else the per-launch loopback token file the app at `base_url`'s port
+/// wrote (`impress_core::loopback_token`). Without either the client sends
+/// no `Authorization` header: reads still work, and a mutating call is
+/// refused 401 by the app, which is the right failure to see.
+///
+/// Every Rust client of an app's automation port builds its client here, so
+/// the token is read in one place and no client can forget it.
+pub fn loopback_http_client_for(
+    base_url: &url::Url,
+    builder: reqwest::ClientBuilder,
+) -> reqwest::Client {
+    loopback_http_client(with_app_bearer(base_url, builder))
+}
+
+/// Attach the app bearer for `base_url` as a default header, when there is one.
+pub fn with_app_bearer(
+    base_url: &url::Url,
+    builder: reqwest::ClientBuilder,
+) -> reqwest::ClientBuilder {
+    match impress_core::loopback_token::client_token_for_url(base_url.as_str()) {
+        Some(token) => with_bearer(builder, &token),
+        None => builder,
+    }
+}
+
+/// Attach `token` as `Authorization: Bearer` on every request (marked
+/// sensitive so `reqwest`'s debug output does not print it).
+pub fn with_bearer(builder: reqwest::ClientBuilder, token: &str) -> reqwest::ClientBuilder {
+    let mut headers = reqwest::header::HeaderMap::new();
+    match reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")) {
+        Ok(mut value) => {
+            value.set_sensitive(true);
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+            builder.default_headers(headers)
+        }
+        Err(_) => builder,
+    }
+}
+
 pub mod error;
 pub mod imbib;
 pub mod imprint;

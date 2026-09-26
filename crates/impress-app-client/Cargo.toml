@@ -10,6 +10,9 @@ description = "Typed Rust HTTP client for the impress macOS apps' automation API
 # Reuse all the DTOs from imbib-service so the client surface matches the trait surface 1:1.
 imbib-service = { workspace = true }
 imprint-service = { workspace = true }
+# The loopback-token contract (`impress_core::loopback_token`): where the
+# app's per-launch bearer lives and how a client reads it. No store feature.
+impress-core = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
