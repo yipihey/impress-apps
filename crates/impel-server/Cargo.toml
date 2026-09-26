@@ -40,3 +40,6 @@ tracing-subscriber = { workspace = true }
 
 # UUID
 uuid = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
