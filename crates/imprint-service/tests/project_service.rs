@@ -106,6 +106,26 @@ fn insert_item(
         .unwrap()
 }
 
+impl World {
+    /// `project_build` is a job (ADR-0034 D6): start it and wait for the
+    /// result the synchronous verb used to answer with.
+    async fn build(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+        allow_shell: Option<bool>,
+        entry_override: Option<String>,
+        author: Option<String>,
+    ) -> imprint_service::ProjectBuildResult {
+        let started = self
+            .svc
+            .project_build(manuscript_id, target_id, allow_shell, entry_override, author)
+            .await;
+        imprint_service::await_build(&self.store, &started, std::time::Duration::from_secs(120))
+            .await
+    }
+}
+
 fn world() -> World {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
@@ -1042,10 +1062,7 @@ async fn a_build_runs_stale_steps_records_a_row_and_keeps_produced_files() {
     assert!(targets.ok, "{}", targets.message);
 
     // Shell steps are off unless asked for: the step is skipped, the build ok.
-    let quiet = w
-        .svc
-        .project_build(id.clone(), None, None, None, None)
-        .await;
+    let quiet = w.build(id.clone(), None, None, None, None).await;
     assert!(quiet.ok, "{}", quiet.message);
     let b = quiet.build.as_ref().unwrap();
     assert_eq!(b.status, "ok");
@@ -1055,16 +1072,13 @@ async fn a_build_runs_stale_steps_records_a_row_and_keeps_produced_files() {
 
     // Allowed: the step runs in the materialised directory and its output
     // becomes a row derived from the source.
-    let built = w
-        .svc
-        .project_build(
+    let built = w.build(
             id.clone(),
             None,
             Some(true),
             None,
             Some("agent:build".into()),
-        )
-        .await;
+        ).await;
     assert!(built.ok, "{}: {}", built.message, built.log);
     let b = built.build.as_ref().unwrap();
     assert_eq!(b.steps[0].status, "ran", "{:?}", b.steps);
@@ -1090,10 +1104,7 @@ async fn a_build_runs_stale_steps_records_a_row_and_keeps_produced_files() {
     // The graph now sees the step as fresh; a third build does nothing.
     let graph = w.svc.project_graph(id.clone(), None).await;
     assert!(graph.steps.iter().all(|s| !s.stale), "{:?}", graph.steps);
-    let again = w
-        .svc
-        .project_build(id.clone(), None, Some(true), None, None)
-        .await;
+    let again = w.build(id.clone(), None, Some(true), None, None).await;
     assert!(again.ok, "{}", again.message);
     assert_eq!(again.build.unwrap().steps[0].status, "fresh");
 
@@ -1137,10 +1148,7 @@ async fn a_typst_build_writes_the_pdf_and_keeps_it_in_the_cas() {
         .await;
     assert!(put.ok, "{}", put.message);
 
-    let built = w
-        .svc
-        .project_build(id.clone(), None, None, None, None)
-        .await;
+    let built = w.build(id.clone(), None, None, None, None).await;
     assert!(built.ok, "{}: {}", built.message, built.log);
     let b = built.build.unwrap();
     assert_eq!(b.engine, "typst");
@@ -1177,16 +1185,13 @@ async fn a_typst_build_writes_the_pdf_and_keeps_it_in_the_cas() {
         .starts_with(b"%PDF"));
 
     // The live buffer builds instead of the stored entry.
-    let live = w
-        .svc
-        .project_build(
+    let live = w.build(
             id.clone(),
             None,
             None,
             Some("#set page(width: 10cm, height: 6cm)\n= Live".into()),
             None,
-        )
-        .await;
+        ).await;
     assert!(live.ok, "{}", live.message);
 }
 
@@ -1200,10 +1205,7 @@ async fn a_markdown_manuscript_builds_through_typst() {
         "---\ntitle: Notes\n---\n\n# Heading\n\nSome *text* with $x^2$.\n\n- a\n- b\n",
         false,
     );
-    let built = w
-        .svc
-        .project_build(id.clone(), None, None, None, None)
-        .await;
+    let built = w.build(id.clone(), None, None, None, None).await;
     assert!(built.ok, "{}: {}", built.message, built.log);
     let b = built.build.unwrap();
     assert_eq!(b.engine, "markdown");
@@ -1400,7 +1402,7 @@ async fn a_native_figure_renders_into_output_rows_and_previews_without_writing()
     assert_eq!(forced.status, "ran");
 
     // The whole document builds with the figure in place.
-    let built = w.svc.project_build(id, None, None, None, None).await;
+    let built = w.build(id, None, None, None, None).await;
     assert!(built.ok, "{}: {}", built.message, built.log);
 }
 

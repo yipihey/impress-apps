@@ -52,7 +52,8 @@ pub use handlers::{
 };
 pub use project_bib::StoreBibliographyResolver;
 pub use project_service::{
-    graph_record, tree_from_snapshot, DefaultImprintProjectService, ImprintProjectService,
+    await_build, graph_record, tree_from_snapshot, DefaultImprintProjectService,
+    ImprintProjectService, PROJECT_BUILD_VERB,
     ProjectBibliographyRecord, ProjectBuildOutputRecord, ProjectBuildOutputResult,
     ProjectBuildRecord, ProjectBuildResult, ProjectBuildsRecord, ProjectCheckinRecord,
     ProjectCheckoutRecord, ProjectCitationRecord, ProjectCitationsRecord, ProjectCollectRecord,
