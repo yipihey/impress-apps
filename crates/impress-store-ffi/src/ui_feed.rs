@@ -225,6 +225,20 @@ impl ExternalPoll {
     }
 }
 
+/// How many rows one schema has — an indexed count (`idx_items_schema`),
+/// for delete detection on kinds too large to diff by id. A hard delete
+/// leaves no row to read; what it does leave is one row fewer.
+pub(crate) fn count_of(store: &SqliteItemStore, schema_ref: &str) -> Result<i64, String> {
+    store
+        .query_raw(
+            "SELECT COUNT(*) FROM items WHERE schema_ref = ?1",
+            &[&schema_ref],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|rows| rows.first().copied().unwrap_or(0))
+        .map_err(|e| e.to_string())
+}
+
 /// Every id of one schema — a light projection, for delete detection.
 fn ids_of(store: &SqliteItemStore, schema_ref: &str) -> Result<HashSet<ItemId>, String> {
     store

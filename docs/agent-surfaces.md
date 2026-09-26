@@ -354,9 +354,10 @@ A renderer event is `{"widget": id, "kind": "change"|"click"|"select"|"submit",
 | `{ "query": PaneQuery }` | An ADR-0031 pane query, run the way a pane's query runs; its rows are flattened (a record's payload fields beside its envelope). |
 
 A source is exactly one of the three. Sources are cached by their resolved
-arguments and re-run when an argument changes, when a store write touches a
-record kind a query source reads (in this process or, through the app's
-250 ms poll, another one such as `impress-mcp`), or when an action
+arguments and re-run when an argument changes, when a store write or delete
+touches a record kind a query source reads (in this process or, through the
+app's 250 ms poll, another one such as `impress-mcp` — a hard delete there
+is seen as the kind's row count moving), or when an action
 `refresh`es them. A `verb` source declares nothing it reads, so it re-runs
 only on an argument change or a `refresh`. A source that failed is not asked
 again with the same arguments for 5 seconds.

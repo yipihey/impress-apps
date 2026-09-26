@@ -54,6 +54,12 @@
 //! SURFACE ids changed — resolved from a `surface-state`/`surface-event`
 //! row's own `surface` field when the mutated row is one of those, since the
 //! row's own id is not the surface's id there.
+//!
+//! A hard delete in another process leaves no row to read, so the feed
+//! looks for the absence instead: a surface row by diffing the (few) surface
+//! ids whenever `data_version` moves (reported `deleted`), and a kind a
+//! query source reads by its row count (the sources that read it re-run) —
+//! see `DomainPoll`.
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -612,8 +618,15 @@ impl SharedSurface {
             .map_err(SharedSurfaceError::internal)?;
 
         let running = Arc::new(AtomicBool::new(true));
+        // Both cursors start HERE, before the thread does: a write or a
+        // delete made after `subscribe` returns is one the feed reports.
+        let store = &self.core.store;
+        let external = ExternalPoll::baseline(store).track_deletes(store, SURFACE_SCHEMA_REF);
+        let domain = DomainPoll::baseline(store, &self.core.registry.watched_refs());
         let worker = SurfaceFeed {
             running: running.clone(),
+            external,
+            domain,
             listener: Arc::from(listener),
             store: self.core.store.clone(),
             surfaces: self.core.surfaces.clone(),
@@ -986,6 +999,12 @@ fn percent_decode(s: &str) -> String {
 
 struct SurfaceFeed {
     running: Arc<AtomicBool>,
+    /// Other connections' `impress/ui/surface*` writes, and hard deletes
+    /// of surface rows (by id diff: there are few).
+    external: ExternalPoll,
+    /// Other connections' writes and deletes of the kinds query sources
+    /// read.
+    domain: DomainPoll,
     listener: Arc<dyn SharedSurfaceListener>,
     store: Arc<SqliteItemStore>,
     /// To read a surface row's revision for a change.
@@ -1002,7 +1021,7 @@ struct SurfaceFeed {
 }
 
 impl SurfaceFeed {
-    fn run(self, rx: std::sync::mpsc::Receiver<StoreMutation>) {
+    fn run(mut self, rx: std::sync::mpsc::Receiver<StoreMutation>) {
         let started = Instant::now();
         let mut pending: Vec<StoreMutation> = Vec::new();
         // Schema refs of non-surface records written since the last flush —
@@ -1017,8 +1036,6 @@ impl SurfaceFeed {
             std::collections::BTreeMap::new();
         let mut grace_over = self.grace.is_zero();
 
-        let mut external = ExternalPoll::baseline(&self.store);
-        let mut external_domain = DomainPoll::baseline(&self.store);
         let mut last_external_poll = Instant::now();
 
         while self.running.load(Ordering::SeqCst) {
@@ -1041,12 +1058,13 @@ impl SurfaceFeed {
 
             if last_external_poll.elapsed() >= self.external_poll {
                 last_external_poll = Instant::now();
-                let mutations = external.check(&self.store, SURFACE_UI_PREFIX);
+                let mutations = self.external.check(&self.store, SURFACE_UI_PREFIX);
                 if !mutations.is_empty() {
                     pending.extend(mutations);
                     touched = true;
                 }
-                let refs = external_domain.check(&self.store, &self.registry.watched_refs());
+                let watched = self.registry.watched_refs();
+                let refs = self.domain.check(&self.store, &watched);
                 if !refs.is_empty() {
                     pending_refs.extend(refs);
                     touched = true;
@@ -1068,6 +1086,11 @@ impl SurfaceFeed {
             if (!pending.is_empty() || !pending_refs.is_empty()) && (quiet || overdue) {
                 for mutation in pending.drain(..) {
                     if let Some(change) = self.change_of(&mutation) {
+                        if change.deleted {
+                            // Gone in another process too: its runtimes go
+                            // now, not on their next (refused) call.
+                            self.registry.forget_surface(mutation.item_id);
+                        }
                         merge(&mut held, change);
                     }
                 }
@@ -1110,24 +1133,58 @@ impl SurfaceFeed {
 
 /// The cross-process half of RS-S2: which of the schema refs some live query
 /// source reads did ANOTHER connection (another app, `impress-mcp`) write
-/// since the last look. Its own cursor, separate from [`ExternalPoll`]'s
-/// (which watches only `impress/ui/surface*` rows), advanced only after
-/// every read succeeded so a failed read is retried, not lost.
+/// OR DELETE from since the last look. Its own cursor, separate from
+/// [`ExternalPoll`]'s (which watches only `impress/ui/surface*` rows),
+/// advanced only after every read succeeded so a failed read is retried,
+/// not lost.
+///
+/// # Deletes
+///
+/// A hard delete leaves no row for `items_modified_since` to find (wave 7
+/// found it: a paper deleted by another process stayed in a query source
+/// until something else re-ran it). A kind is read by id diff nowhere here
+/// — a library's worth of ids per poll is the wrong price — but by its row
+/// count ([`ui_feed::count_of`], one indexed count per watched kind per
+/// `data_version` move). A delete with nothing of that kind written in the
+/// same window changes the count; a delete WITH a write of the kind in the
+/// window is reported through the write. Either way the kind's sources
+/// re-run. A kind is counted from the moment a source starts reading it.
 struct DomainPoll {
     last_data_version: Option<i64>,
     high_water_mark: i64,
+    /// Rows per watched kind as of the last successful look.
+    counts: std::collections::BTreeMap<String, i64>,
 }
 
 impl DomainPoll {
-    fn baseline(store: &SqliteItemStore) -> Self {
-        DomainPoll {
+    fn baseline(store: &SqliteItemStore, watched: &BTreeSet<String>) -> Self {
+        let mut poll = DomainPoll {
             last_data_version: store.data_version().ok(),
             high_water_mark: chrono::Utc::now().timestamp_millis(),
+            counts: Default::default(),
+        };
+        poll.count_new_kinds(store, watched);
+        poll
+    }
+
+    /// Start counting every watched kind not counted yet, and stop counting
+    /// the ones no source reads any more. Run before the `data_version`
+    /// shortcut, so a kind's first count is taken as soon as a source reads
+    /// it, not after the delete it should have caught.
+    fn count_new_kinds(&mut self, store: &SqliteItemStore, watched: &BTreeSet<String>) {
+        self.counts.retain(|kind, _| watched.contains(kind));
+        for kind in watched {
+            if !self.counts.contains_key(kind) {
+                if let Ok(n) = ui_feed::count_of(store, kind) {
+                    self.counts.insert(kind.clone(), n);
+                }
+            }
         }
     }
 
     fn check(&mut self, store: &SqliteItemStore, watched: &BTreeSet<String>) -> BTreeSet<String> {
         let mut written = BTreeSet::new();
+        self.count_new_kinds(store, watched);
         let Ok(dv) = store.data_version() else {
             return written;
         };
@@ -1135,6 +1192,7 @@ impl DomainPoll {
             return written;
         }
         let mut mark = self.high_water_mark;
+        let mut counts = std::collections::BTreeMap::new();
         for schema in watched {
             let Ok(items) = store.items_modified_since(schema, self.high_water_mark) else {
                 return BTreeSet::new();
@@ -1143,7 +1201,18 @@ impl DomainPoll {
                 written.insert(item.schema.clone());
                 mark = mark.max(item.modified.timestamp_millis());
             }
+            let Ok(now) = ui_feed::count_of(store, schema) else {
+                return BTreeSet::new();
+            };
+            // A delete made in THIS process moves the count too, and is
+            // reported again here on the next foreign write: one extra
+            // re-run, never a missed one.
+            if self.counts.get(schema).is_some_and(|before| *before != now) {
+                written.insert(schema.clone());
+            }
+            counts.insert(schema.clone(), now);
         }
+        self.counts = counts;
         self.last_data_version = Some(dv);
         // Nothing watched: move the mark to now, so a source that appears
         // later is not told about writes from before it existed.
@@ -1672,7 +1741,7 @@ mod tests {
         .unwrap()
     }
 
-    fn insert_paper(store: &SqliteItemStore, title: &str) {
+    fn insert_paper(store: &SqliteItemStore, title: &str) -> ItemId {
         let mut payload = std::collections::BTreeMap::new();
         payload.insert("title".to_string(), ItemValue::String(title.into()));
         let now = chrono::Utc::now();
@@ -1701,7 +1770,7 @@ mod tests {
                 references: vec![],
                 parent: None,
             })
-            .unwrap();
+            .unwrap()
     }
 
     /// RS-S2 / AC-F16 through the feed: a paper written in this process, and
@@ -1732,7 +1801,7 @@ mod tests {
         }
         surface.subscribe(Box::new(Recorder(tx))).unwrap();
 
-        insert_paper(&store.core(), "In process");
+        let _ = insert_paper(&store.core(), "In process");
         let told = rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("the feed reports the surface whose query reads papers");
@@ -1741,7 +1810,7 @@ mod tests {
         assert!(shown.contains("In process"), "{shown}");
 
         let other = SharedStore::open(path.to_str().unwrap().into()).unwrap();
-        insert_paper(&other.core(), "Another process");
+        let _ = insert_paper(&other.core(), "Another process");
         let told = rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("another connection's paper is seen by the poll");
@@ -1761,6 +1830,82 @@ mod tests {
                 ..placeholder_item()
             })
             .unwrap();
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(300))
+            .is_err());
+        surface.unsubscribe();
+    }
+
+    /// Wave 7's finding, closed: a hard delete made in ANOTHER process
+    /// leaves no row to read, and reached neither the surface feed nor the
+    /// query sources. Now a paper deleted over there re-runs the source that
+    /// reads papers (and the next render no longer shows it), and a surface
+    /// deleted over there is reported `deleted`.
+    #[test]
+    fn a_hard_delete_in_another_process_reaches_the_feed_and_the_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("u1_deletes.sqlite");
+        let store = SharedStore::open(path.to_str().unwrap().into()).unwrap();
+        let surface = SharedSurface::open(store.clone(), "test-host".into(), "impress".into());
+        surface.set_debounce_ms(20);
+        surface.set_external_poll_ms(20);
+        let surfaces = SurfaceStore::new(store.core());
+        let papers = surfaces
+            .create(&papers_spec(), None, &[], ActorKind::Agent)
+            .unwrap()
+            .id
+            .to_string();
+        let doomed_surface = surfaces
+            .create(&publish_spec(), None, &[], ActorKind::Agent)
+            .unwrap()
+            .id;
+        let _ = insert_paper(&store.core(), "Kept paper");
+        let doomed = insert_paper(&store.core(), "Doomed paper");
+        let shown = surface.render_now(papers.clone(), None).unwrap();
+        assert!(shown.contains("Doomed paper"), "{shown}");
+
+        let (tx, rx) = mpsc::channel::<Vec<SharedSurfaceChange>>();
+        struct Recorder(mpsc::Sender<Vec<SharedSurfaceChange>>);
+        impl SharedSurfaceListener for Recorder {
+            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+                let _ = self.0.send(changes);
+            }
+        }
+        surface.subscribe(Box::new(Recorder(tx))).unwrap();
+
+        // Another process deletes a paper: nothing of that kind is written,
+        // only one row fewer.
+        let other = SharedStore::open(path.to_str().unwrap().into()).unwrap();
+        other.core().delete(doomed).unwrap();
+        let told = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the other process's delete re-runs the papers source");
+        // The first foreign write also replays the surface rows written in
+        // the poll's 10 s overlap before the feed started (`ExternalPoll`
+        // reports a row it has not seen once, whenever it was stamped), so
+        // the batch may name both surfaces; only `papers` re-runs a source.
+        let rerun: Vec<&SharedSurfaceChange> = told.iter().filter(|c| c.sources_changed).collect();
+        assert_eq!(rerun.len(), 1, "{told:?}");
+        assert_eq!(rerun[0].id, papers);
+        assert!(told.iter().all(|c| !c.deleted), "{told:?}");
+        let shown = surface.render_now(papers.clone(), None).unwrap();
+        assert!(!shown.contains("Doomed paper"), "{shown}");
+        assert!(shown.contains("Kept paper"), "{shown}");
+
+        // Another process deletes a surface.
+        assert!(SurfaceStore::new(other.core())
+            .delete(doomed_surface)
+            .unwrap());
+        let told = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the other process's surface delete reaches the feed");
+        let change = told
+            .iter()
+            .find(|c| c.id == doomed_surface.to_string())
+            .unwrap_or_else(|| panic!("{told:?}"));
+        assert!(change.deleted && change.revision.is_none(), "{change:?}");
+
+        // Nothing else moved: no further notification.
         assert!(rx
             .recv_timeout(std::time::Duration::from_millis(300))
             .is_err());
