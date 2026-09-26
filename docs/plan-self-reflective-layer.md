@@ -1,0 +1,1423 @@
+# Plan: the self-reflective layer — declared effects, the verb call log, workflows, scenarios and registries
+
+**Status:** PROPOSED 2026-09-26 — an evaluation and a plan, no production code. Measured on a
+worktree of main at 60833ea1 (P0, G0, G1, B1, B3 merged), with the in-flight P1 (`claude/pipeline-p1-descriptor`
+at bdddeb14) and P4 (`claude/pipeline-p4-jobs` at 87f4b9c4) branches read for the shapes they add;
+every number is from code, with the file:line or the command beside it.
+**Decision record:** [ADR-0036-self-reflective-layer.md](ADR-0036-self-reflective-layer.md).
+**Builds on:** [ADR-0034](ADR-0034-verb-descriptor-pipeline-and-transport.md) / [plan-verb-pipeline-and-transport.md](plan-verb-pipeline-and-transport.md)
+(the one descriptor, the one pipeline, jobs, transport) and [ADR-0035](ADR-0035-generated-verb-surfaces-and-docs.md) /
+[plan-auto-gui-and-self-docs.md](plan-auto-gui-and-self-docs.md) (examples as tests, the generated form,
+the census). Nothing here designs a second descriptor or a second pipeline: effects are fields on P1's
+`VerbDescriptor`, the call log is P2's audit layer, and § Hooks says exactly what this plan needs from each.
+**Order:** E (effects) → L (call log) → S (scenarios) → W (workflows); R (registries) runs beside them and
+needs the Mac. E1 can start on P1's branch the day it merges; L needs P2; S needs P2 and the examples
+of G3; W needs P4's jobs and L.
+**Ids:** `EF` (effects), `CL` (call log), `WF` (workflows), `SC` (scenarios), `RG` (registries).
+
+## Goal (Tom)
+
+Make the environment able to say what each action touches, what happened and why, what will happen,
+and whether it is still right — by turning five things still written as code (a verb's effects, the
+record of a call, a background service, a Tier B test, a setting or a chord) into declared or stored
+documents that pure Rust interprets and anyone can test headlessly, the way ADR-0033 did for GUIs.
+
+## What "self-reflective" means (testable)
+
+1. **Every verb says what it touches.** Every `#[impress_method]` in the linked inventory carries an
+   effect set — the record kinds it reads, the kinds it writes, and whether it reaches outside the
+   process — and a test that runs the verb's examples under a store spy fails on any kind the verb
+   touched but did not declare. Today: nothing is declared; the static census (table EF-1) names kinds
+   on the call path of 241 of 433 verbs and can say nothing certain about the rest.
+2. **A verb source refreshes when what it reads changes.** A surface `verb` source re-runs when a write
+   names a kind in the verb's declared reads (review finding RS-S2, narrowed in wave 7, closed here).
+   Today: `runtime.rs:960-966` — "what a verb reads is not declared anywhere".
+3. **Every mutating call is on the record, joined to its operations.** A call record with caller, trace,
+   argument summary, outcome, duration and the observed effect set; every `core/operation` row written
+   during the call carries the call's id as its `batch_id`; "why did this item change" is one query.
+   Today: `batch_id` is set only by the batch APIs and multi-mutation updates, never from a verb
+   (table CL-2); the one audit row (`tool-invocation@1.0.0`) links to nothing it wrote.
+4. **A background service is a stored document with a trigger.** A workflow is validated, dry-run and
+   run by a pure planner; the 90-second startup rule is the runtime's `start_delay`, not a Swift
+   convention. Today: 31 Swift services, 20 gated, 11 not, 3 of those mutating the store (table WF-1);
+   the Rust daemon has no schedule trigger (table WF-2).
+5. **A test is data.** A scenario — seed, calls and human events, expectations — runs headlessly against
+   a scratch store (Tier A) or a running app (Tier B) from the same document, and a recorded session
+   becomes one. Today: 79 Tier A and 25 Tier B entries, all Rust closures; the runner is copied three
+   times (table SC-1).
+6. **A setting or a chord is declared once.** Rust owns the registry; the settings UI, CLI/MCP access
+   and the docs are projections; a test proves every GUI action has a chord or a palette entry, and no
+   two chords collide in one context. Today: tables RG-S and RG-K.
+7. **It fails loudly.** An undeclared effect fails CI; a call the log could not write is counted and
+   shown, never silently dropped; a workflow whose verb is gone is refused by name at validation and
+   at run; a scenario whose expectation is unmet names the step and the path.
+8. **Nothing is measured twice.** The effect set is the one place a verb's footprint is described; the
+   spy, the invalidation, the conflict check, the impact analysis and the safety consistency test all
+   read it. The call log is the one record of a call; the span (ADR-0035 D5) carries timing and the
+   log carries provenance, and the two share the trace id.
+
+## Measurements
+
+### How
+
+The verb inventory was read from source with the same strict grep G0 pins
+(`grep -rhE '^\s*#\[impress_method' crates/*-service/src | wc -l` = **433**; `docs/verb-coverage.md`
+says the same for the linked `full` inventory). Effects were measured by a throwaway static walker
+(`effects_census.py`, not committed — § Table EF-1 says why): it finds each verb's default
+implementation in the `impl <Trait> for <Impl>` block, then follows every call it can resolve by name
+into workspace crates (the `*-service-http` adapters, clients and binaries excluded), to three hops,
+and collects the canonical schema refs (constants and literals from `schema-refs.json`) named on that
+path, the store-API markers (`query`/`count`/`get_*` vs `insert`/`update`/`delete`/`apply_operation`/
+`update_with_undo`/…) and the reach markers (`reqwest`, `BackendSlot`, `std::fs`, `Command::new`,
+reMarkable). The result is joined to P1's `docs/verb-safety.md` (433 = 433, no unmatched). The
+operation log, the background services, the catalogues, the settings keys and the chords were each
+measured by a read-only subagent over this worktree with the commands recorded in its section, and
+every headline number was re-run by the author before use (the session log lists the checks).
+
+### Re-verified starting facts
+
+| Fact in the brief | Measured 2026-09-26 on 60833ea1 | Where |
+|---|---|---|
+| Descriptors carry name, description, input_schema, handler; 467 `#[impress_method]`s in 20 crates | On main, yes. On P1 (bdddeb14) `VerbDescriptor` carries `name, service, method, description, input_schema, output_schema, safety {class, idempotent}, since, deprecated, aliases, examples, strict, source, handler` and `McpToolDescriptor`/`CliSubcommand` are projections with a `verb` pointer. **433** verbs, 38 services, 16 crates; 467 is a loose grep | `crates/impress-service-core/src/descriptor.rs` (P1 branch); `docs/verb-coverage.md` |
+| RS-S2 open: a `verb` source declares nothing it reads | Confirmed: `SurfaceRuntime::query_refs` collects refs from `Source::Query` only; `invalidate_sources` leaves `verb` and `value` sources alone | `crates/impress-surface-service/src/runtime.rs:948-966` |
+| The store keeps an operation log with intent, batch_id, author, retention, time travel | Confirmed, with one correction: there is **no `operations` table** — an operation is an `items` row with `schema_ref = 'core/operation'` and `op_target_id` set (`sqlite_store.rs:2221-2244`); the join index is `idx_items_op_target (op_target_id, logical_clock)` and `idx_items_batch (batch_id)` (`:866-867`) | table CL-1 |
+| `batch_id` may be the natural join key | It is the only candidate: set today only by `apply_operation_batch`/`apply_operations_if_clock` (fresh Uuid), by `update`/`update_with_undo` when one call carries > 1 mutation, `undo_batch` and `memory_ops.rs:635`; ~170 call sites pass `None`. Nothing sets it from a verb | table CL-2 |
+| Wave 7 results carry ok/code/message, wire_version 1, actor | Confirmed (51 layout/surface verbs); the P2 envelope layer makes it universal (D-G6 approved) | `plan-auto-gui-and-self-docs.md` R-2 |
+| Action vocabulary and reducer in `impress-surface`; runtime in `impress-surface-service` | Confirmed: `Action::{Set, Call{each}, Publish, Emit{each}, Open, Refresh}`, `Source::{Value, Verb, Query}`, `EventKind::{Change, Click, Select, Submit}` | `crates/impress-surface/src/spec.rs:88,272,366` |
+| Tier A/B catalogues exist; Tier B entries hand-coded | **3 catalogues, 79 Tier A, 25 Tier B**, every entry a Rust closure; no imbib/impel/implore/impart catalogue | table SC-1 |
+| Swift: 86 UserDefaults keys, 85 @AppStorage keys | table RG-S | |
+| 81 Swift files declare `keyboardShortcut` | table RG-K | |
+| 39 Swift files reference the startup gate or scheduled runs | **Does not reproduce as one pattern**: `performAutomatic` 9 files (6 non-test), `StartupGate` 19 (11), `startupGrace|startupDelay` 21 (12); the union is 27 non-test files, 38 with `seconds(90)`/`= 90` lines (which include a rotation angle and a `threeMonths = 90`). The count that matters is **31 background services** (table WF-1) | `rg -l` over `apps packages`, per pattern |
+| impel has task records and a task daemon | Confirmed: `task@1.0.0`, five states, `SchedulerConfig { start_delay: 90 s, poll_interval: 5 s }`, retry 45 s·3ⁿ; triggers are store-change only (three hard-coded spawn rules), **no schedule trigger** | table WF-2 |
+| AI preferences are the precedent for a Rust-owned file | Confirmed: `PreferencesStore::open(workspace).load()/save()` over `<workspace>/ai/preferences.json` with an `fs_lock`; Swift reads it through `SharedAiRegistry::open(workspace_path)` (`impress-store-ffi/src/ai_registry.rs:845`) | `crates/impress-ai/src/preferences.rs:24-27,161-217` |
+
+### Table EF-1 — effects, as far as source can say (static, ≤ 3 hops)
+
+| A4 class (P1 `docs/verb-safety.md`) | ≥ 1 kind named on the call path | Store markers, no kind resolved ("dynamic") | Reach markers only | Nothing found | Total |
+|---|---:|---:|---:|---:|---:|
+| `read_only` | 104 | 34 | 3 | 31 | 172 |
+| `mutating` | 90 | 31 | 0 | 5 | 126 |
+| `destructive` | 24 | 7 | 1 | 0 | 32 |
+| `external` | 23 | 4 | 1 | 75 | 103 |
+| **Total** | **241** | **76** | **5** | **111** | **433** |
+
+Per service (verbs / with a kind / kinds named): `collection-service` 12/12 (10 kinds), `docs-import`
+10/10, `imbib-annotations` 9/9, `imbib-app` 17/**0** (every verb is an HTTP backend call),
+`imbib-artifacts` 9/5, `imbib-backup` 6/0 (files), `imbib-eink` 22/21, `imbib-library` 44/38,
+`imbib-manuscripts` 7/0 (HTTP), `imbib-scix` 7/6, `imbib-search` 10/10, `imbib-tags` 10/10,
+`imbib-text` 5/0 (pure), `imbib-undo` 3/3, `impart` 10/0 (HTTP), `impel` 6/6, `implore` 20/0 (HTTP),
+`impress-ai` 16/0 (the walker did not find the impl body; by reading: `conversation@1.0.0`,
+`chat-message`, `task@1.0.0`, the preferences file, the provider), `impress-bridges` 18/10,
+`impress-surface` 15/11, `imprint-app` 15/0 (HTTP), `imprint-manuscript` 17/3, `imprint-project`
+30/28, `imprint-text` 5/0 (pure), `imprint-throughline` 9/7, `layout` 36/14, `manuscript-collab` 4/4,
+`memory` 7/7, `parsers` 6/0 (pure), `smart-search` 10/0 (index files), `source` 9/9, `store-query`
+4/2, `surface-demo` 2/0, `triage` 5/5, `vw-diagnostic` 15/8. Reach markers: fs 142, network 37,
+subprocess 25, device 24. Kinds named by any verb: **66 of the 80** canonical refs; never named on a
+verb path: `annotation`, `dataset`, `git-project`, `imbib/activity-record`, `imbib/assignment`,
+`imbib/recommendation-profile`, `mail-account`, `mail-folder`, `manuscript-submission`, `review`,
+`revision-note`, `tool-invocation@1.0.0`, `veusz-plot`, `vw/knowledge-pack@1.0.0` (Swift-only writers,
+or written by daemons rather than verbs). Appendix A has the row for every verb.
+
+What the table proves, and what it cannot:
+
+- **The kind a verb touches is often not in its code.** `triage-service_set-starred` is
+  `store.update(parse_id(id)?, vec![FieldMutation::SetStarred(starred)])` (`impress-core/src/triage_ops.rs:41-43`):
+  it writes *the kind of whatever `id` names*. 76 verbs are like this (store markers, no kind): their
+  effect is **dynamic** — a function of an argument — and no static declaration can be a list of
+  literals. This is the first design decision (§ Effects: `writes: [target(id)]`).
+- **Name resolution over- and under-approximates.** At one hop the walker finds a kind for 113
+  verbs; at three hops 241, but `collection-service_delete` then "reads" six kinds because
+  `collection_ops` shares helpers with the sidebar, and `triage-service` "touches"
+  `impress/ui/surface@1.0.0` because `.update(` also resolves to the surface store. A static tool
+  can seed the declarations (appendix A is that seed) and cannot verify them. **The measurement
+  that counts is the spy** (§ Effects), which is why the walker is not committed.
+- **83 verbs (`needs_app`) and most `external` verbs cannot be spied in Tier A** — their default
+  implementation refuses or forwards. Their effects are declared from the app-side implementation
+  and verified where the call actually runs: by the call log's observed effect set (§ Call log),
+  which is the same check made at run time on every path.
+
+### Table CL-1 — the operation log, as it is
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Where operations live | `items` rows, `schema_ref = 'core/operation'`, `op_target_id` NOT NULL FK → `items` **ON DELETE CASCADE**; payload `{target_id, intent, reason?, op_type, op_data, prev?}`; `author`, `author_kind ∈ {human, agent, system}`, `logical_clock` (HLC), `origin`, `batch_id`, `retention ∈ {durable, compactable, ephemeral}`; `produced_by` always NULL | `sqlite_store.rs:799-824,2221-2244`; `operation.rs:113-123,348-372` |
+| Indexes for a join | `idx_items_op_target (op_target_id, logical_clock)`, `idx_items_batch (batch_id) WHERE batch_id IS NOT NULL`, `idx_items_schema_created (schema_ref, created)`; **none on `author`** | `sqlite_store.rs:863-899` |
+| What writes an operation row | `update` (one Compactable Routine op per non-noop mutation, `:5111`), `update_with_undo` (Durable, `:4218`), `update_with_retention`, the four `apply_operation*` (`:1994,2016,2069,2294`), `undo_*` | table below |
+| What does **not** | `insert`/`insert_batch` (`:5041,5059`), `delete` (`:5142` — writes a tombstone and **deletes the target's existing ops**), `set_origin`, `set_canonical_id`, `record_recent`, `sweep_terminal_tasks`, the migrations, sync apply (op rows never sync: `sync.rs:347`) | `sqlite_store.rs` |
+| Transactions | `apply_operation` runs in autocommit — op row, clock and field UPDATE are separate commits; only the `_if_clock` and `_batch` variants are one `BEGIN IMMEDIATE` | `:1994-2014` vs `:2016,2069,2294` |
+| Prod callers of `apply_operation*` | impress-core 13, impel-core 4, impress-layout-service 5, impress-surface-service 2, impress-store-ffi 1, imbib-core 1 (`store_api.rs:440`), impel-service 1, impel-taskd 3; `update_with_undo` imbib-core 12 | `grep -rn` split prod/test |
+| Retention and compaction | `compact_operations(window_days)` folds compactable/ephemeral ops older than the window into a durable `custom:snapshot` op per target and deletes the range; `compact_undo_history(keep)`; `demote_routine_operations` (one-time); run **only by the impress-ai-http daemon**: demote every 300 s, compaction every 24 h with `IMPRESS_COMPACT_WINDOW_DAYS` (default 30), an op-rate warning at `IMPRESS_OPS_RATE_BUDGET` (default 100 k/day) | `sqlite_store.rs:4836-4999,5765,488-516`; `impress-ai-http/src/main.rs:89,130,165-217,360` |
+| The 23 M-row backlog | Commit `0238eb0a` (2026-08-06): store 16.8 GB (13.5 GB WAL), **23.0 M `core/operation` rows** against ~50 MB of content, every one a durable `system:local` routine op minted by mechanical re-upserts of unchanged fields; one dangling `op_target_id` aborted every compaction. Fixes: `filter_noop_mutations`, `update` mints Compactable, demotion, the orphan sweep, WAL checkpoint; `79868ede` made `citation-usage` ops Ephemeral and added the rate telemetry. Recovery: 19,961,462 ops compacted, 2.5 GB | `git show 0238eb0a`; `sqlite_store.rs:5115-5118` |
+| Time travel | `effective_state(id, StateAsOf::{Current, LogicalClock, Timestamp})` replays ops by `(logical_clock, created, id)` from the newest snapshot; `EffectiveState` holds tags, flag, read, starred, priority, visibility, payload, parent; `patch_payload` and references are **not** replayed | `sqlite_store.rs:3139,3213,3563`; `operation.rs:128-148` |
+| The one per-call audit row today | `tool-invocation@1.0.0` (`impress-ai/src/store.rs:1247`): `tool, provider, state, arguments (full values), result?, result_summary?, error?, started_at, finished_at (both = now at record time), duration_ms?`; parent/produced_by = run; **links to none of the ops it caused** | `impress-core/src/schemas/ai.rs:76-99` |
+| Trace ids | None in the store or the verb path. `correlation_id` exists on impel events (own `events` table) and impart provenance; `items.batch_id` and `items.produced_by` are the only columns that could carry one | `grep -rn 'trace_id\|traceparent\|correlation'` |
+
+### Table CL-2 — `batch_id` today: who sets it
+
+| Site | Value | Meaning |
+|---|---|---|
+| `apply_operation_batch` (`:2306`), `apply_operations_if_clock` (`:2105`) | fresh `Uuid` per call | "these ops came from one store call" |
+| `update`, `update_with_undo`, `update_with_retention` (`:5120,4224,5017`) | fresh `Uuid` **only when > 1 non-noop mutation** | same |
+| `undo_batch` (`:2542`), `memory_ops.rs:635` | the batch undone / a sweep id | |
+| ~170 `batch_id: None` literals across 18 crates (63 in impress-core) | NULL | nothing |
+
+No caller passes an externally meaningful id. A verb that makes three store calls leaves three
+unrelated (or NULL) batch ids. The join upward does not exist; the column and its index do.
+
+### Table WF-1 — background, scheduled and triggered work in Swift (31 services)
+
+Gate: Y = 90 s, Y120 = 120 s, N = none. Rust: writes through UniFFI into the shared store, or pure Swift.
+
+| # | Service | App | Trigger | Interval | Gate | Mutates | Rust |
+|---|---|---|---|---|---|---|---|
+| 1 | `FeedScheduler` (`PMC/Inbox/FeedScheduler.swift:194-207`, started by `InboxCoordinator.start` `:57,82-87`) | imbib | interval | 60 s check, per-feed due | Y (+ `BackgroundOperationQueue` grace) | publications, smart-search `last_executed` via `performAutomatic` | UniFFI |
+| 2 | `InboxScheduler` (`Inbox/InboxScheduler.swift:190-201`) | imbib | interval | 60 s | Y | as 1 | deprecated, not started (`InboxCoordinator.swift:40`) |
+| 3 | `GroupFeedRefreshService` (`:177,230`) | imbib | user event, 2 s stagger | — | via queue | publications (`importBibTeX` `:419`) | UniFFI |
+| 4 | **`RetentionCleanupService`** (`Inbox/RetentionCleanupService.swift:54-97`, from `InboxCoordinator.swift:97`) | imbib | startup, once per process | once | Y (`EInkStartupGate`) | deletes inbox, exploration and feed publications (`store.deleteItem`) | UniFFI |
+| 5 | Enrichment `BackgroundScheduler` (`Enrichment/BackgroundScheduler.swift:215-237`) | imbib | interval | 3600 s | Y120 | publication fields (doi, arxiv_id, citation_count, abstract) | UniFFI; stands down when impel is the authority (`EnrichmentCoordinator.swift:118-127`) |
+| 6 | Watched folders `FolderWatchService` (`Chassis/WatchedFolders/FolderWatchService.swift:331-361`) + ingest coordinator | imbib | FSEvents + startup gather | event | Y (`FolderWatchStartupGate`) | publications, `watched-folder@1.0.0` rows | UniFFI |
+| 7 | Exploration cleanup, macOS (`apps/imbib/imbib/imbib/imbibApp.swift:580,620-631` → `Library/LibraryManager.swift:485-515`) | imbib | startup | once | **N on macOS** (Y on iOS `imbib-iOS/imbibApp.swift:164,175`) | deletes exploration collections and their publications | UniFFI; **duplicates #4's `cleanupExplorations`** |
+| 8 | `EInkSyncCoordinator` (`EInk/EInkSyncCoordinator.swift:167-224`) | imbib | notification, connection events | event | Y | `imbib/eink-mirror`, `imbib/eink-device` | UniFFI (planner/executor in `imbib-core/src/eink`) |
+| 9 | `EInkSourceFetcher` (`:96-140`) | imbib | store change + launch sweep | event | Y | PDF fetch, `einkNoteSourceError` | UniFFI |
+| 10 | `EInkOCRPass` (`:53-105`) | imbib | startup sweep | once | Y | `einkCompleteOCR` | UniFFI (Vision) |
+| 11 | `EInkConnectionMonitor` (`:65-229`) | imbib | interval | 25 s → 300 s | N (reads) | none | reads |
+| 12 | `SidebarSnapshotMaintainer` (`Persistence/…:54-93`) | imbib | store change | 2 s throttle | N | in-memory | reads |
+| 13 | `StoreMutationObserver` (`Persistence/StoreMutationObserver.swift:35-77`) | imbib | Darwin `com.impress.suite.store.mutated` | 0.75 s coalesce | Y (first refresh) | `dataVersion` | pure |
+| 14 | `CloudSyncEngine` (`Sync/CloudSyncEngine.swift:436-475`) | imbib | startup, store events, timer | 60 s | Y120 | sync metadata, pulled rows | UniFFI; flagged off |
+| 15 | PDF health check (`imbibApp.swift:583-587`) | imbib | startup | once | Y | reads | reads |
+| 16 | Spotlight sync (`imbibApp.swift:597-620`; imprint `ImprintApp.swift:232`; impart `:62`; implore `:92`) | 4 apps | startup + store events | event | Y | Spotlight index | reads |
+| 17 | `EmbeddingService` observers (`Recommendation/EmbeddingService.swift:724-737`) | imbib | `.rustStoreDidMutate` | event | N | in-memory stale flag | pure |
+| 18 | `LibraryFilesMigrationRunner` (`Files/…:36-50`) | imbib | startup | once | N | files | pure |
+| 19 | Heartbeat loops (`imbibApp.swift:676`, `ImploreApp.swift:84`, `ImpressApp.swift:57`, `ImpelApp.swift:357`) | all | interval | 25 s | N | none | pure |
+| 20 | `ImpartStoreBackfill` (`MessageManagerCore/…/ImpartStoreBackfill.swift:56-83`) | impart | startup, resumable | once | Y | mail records from Core Data | UniFFI |
+| 21 | `StoreMirrorKernel` buffer (`packages/ImpressStoreKit/…:303-324`) | impart | write-behind | one flush | Y | mail records | UniFFI |
+| 22 | `GitSyncCoordinator` (`packages/ImpressGit/…:33,199-225`) | imprint | interval | per project | Y | git pull | pure |
+| 23 | `EMLFolderWatcher` (`apps/impel/Packages/CounselEngine/…:40-60`) | impel | DispatchSource + poll | 30 s | **N** | GRDB message store | pure |
+| 24 | `StandingOrderScheduler` (`…/StandingOrders/StandingOrderScheduler.swift:21-30`) | impel | interval | 60 s | **N** | counsel loop, GRDB | pure; **no caller found** |
+| 25 | `JournalPipeline` (`…/CounselEngine/JournalPipeline.swift:100-162`) | impel | Darwin `manuscriptStatusChanged` | event | 60 s | manuscript snapshots | mixed |
+| 26 | impel status poll (`ImpelApp.swift:423-431`, `ImpelCore.swift:361-366`) | impel | interval | 2 s | N | UI state | pure |
+| 27 | `AIAvailability` (`packages/ImpressAI/…:165-171`) | all | interval | 60 s | N | none | reads |
+| 28 | `SyncStatusModel` (`Sync/…:211-216`) | imbib | interval while pane open | 5 s | N | none | reads |
+| 29 | `CollaborationService` (`apps/imprint/macOS/Services/…:186`) | imprint | timer | 5 s | N | presence | pure |
+| 30 | `BackgroundOperationQueue` (`packages/ImpressStoreKit/…:172-225`) | shared | queue; refuses work in grace | — | Y (`:182`) | what it wraps | infrastructure |
+| 31 | Layout grace (`packages/ImpressLayout/…/LayoutTreeRuntime.swift:61`, `LayoutController.swift:385`) | shared | invalidation feed | — | Y | render guard | UniFFI |
+
+Counts: 31 services; **20 gated** (≥ 60 s), **11 not**; ungated *and* mutating the store: **3**
+(#7 exploration cleanup on macOS, #23, #24). `performAutomatic` wraps 5 (#1, #3, #6, #8, #11).
+The 90-second rule is remembered per service in Swift; it has no single owner, and #7 shows what
+that costs (a duplicate of #4 with the gate forgotten on one platform). On macOS
+`InboxCoordinator.start` runs at t≈0 (`imbibApp.swift:538`) and relies on every inner gate; on iOS
+the whole start is inside one 90 s block (`imbib-iOS/imbibApp.swift:164-171`).
+
+### Table WF-2 — the Rust task model, and what a trigger can be today
+
+| Piece | What exists | Evidence |
+|---|---|---|
+| Task record | `task@1.0.0`; states `pending/running/done/failed/cancelled` (+ `queued/completed` compat); transitions `pending → running \| cancelled`, `running → done \| failed \| cancelled \| pending`; `transition_op` is the one legal writer | `impress-core/src/task.rs:15-46,74-146,179` |
+| Creation | a `SpawnRule` names a `trigger_schema()` and returns `TaskSpec`s; `create_task_dag_from` writes `pending` rows with `task_kind`, `DependsOn`/`OperatesOn` edges, `spawned_by` | `impel-core/src/task_spawn.rs:43-72,102,160` |
+| Task kinds | `metadata-resolve`, `keyword-tag` (impel-enrichment), `throughline-sync` (impel-throughline), `impress.ai.respond`, `impress.ai.suggest-title` (impress-ai), `impress.memory.embed`/`.consolidate` (impel-memory, env-gated); registered in `impel-taskd/src/main.rs:825-948`. P4 adds jobs: a task row created `running` with `verb`, `args`, `result`, `cancel_requested`, `runner` (`impress-core/src/job.rs` on the P4 branch) and `task-event@1.0.0` (200-row ring per task) | |
+| Scheduler | `SchedulerConfig { batch 8, start_delay 90 s, poll_interval 5 s, retry base 45 s }`; `run_once`: re-pend orphans → resume own `running` (unless behind a `review-request@1.0.0`) → `ready_tasks` (pending, deps done, past `next_attempt_at`, per-kind `readiness()` with a 60 s negative cache) → `acquire_task` (state, `assigned_to`, `attempts+1` in one transaction) → run under a 20-min timeout; retry `45 s·3ⁿ⁻¹` capped 30 min, else `failed` with Escalation | `impel-core/src/task_scheduler.rs:28-52,123-197,269-320`; `task_store.rs:136` |
+| Daemon loop | every `--poll` s (5): `max_rowid()` moved? + drain `ItemEvent::Created` → page `items_arrived_after(bibliography-entry, cursor)` into `EnrichmentSpawnRule`; keyset scans of sections/throughlines into two more rules; `plan_memory_tasks` sweep; **hard-coded hourly** review expiry; then `scheduler.run_once()`. Cursors persisted (`impel-taskd.cursors.v1`). Started by launchd `com.impress.impel-taskd` or from the app sandbox (`ImpressModelWorkerController.swift:74`) | `impel-taskd/src/main.rs:87,351,965-1305,1362` |
+| Trigger kinds today | **store change** (created via event bus + rowid cursor; modified via keyset scan) — three rules, all hand-written in `main.rs`; **schedule: none** (no cron, no `next_run`, no recurring record; the memory sweeps are "recurring sweeps with no trigger", `impel-memory/src/spawn.rs:13`); **job finished: none** (a task's `done` produces no event beyond `ItemEvent::OperationApplied`); **message arrived: none** in Rust (impel's `EMLFolderWatcher` is Swift) | |
+| The store's own signals | in-process `subscribe_mutations` / `subscribe(query)` (`sqlite_store.rs:5356-5381`); cross-process a throttled payload-free Darwin note `com.impress.suite.store.mutated` (`:31,90-119`) and `PRAGMA data_version` polled every 250 ms by the FFI feed (`ui_feed.rs:42-45,101-223`) | |
+
+What the workflow idea already has: a durable, retried, reviewable task with an executor registry,
+a daemon with the 90-second `start_delay` built in, store-change detection with persisted cursors, and
+(P4) a job handle with progress and cancel. What it lacks: a **trigger as data** (the three rules are
+code), a **schedule** trigger, a **job-finished** trigger, a **step language** (each executor is
+Rust), and any way for the apps to run the same thing when no daemon is present.
+
+### Table SC-1 — the self-test catalogues
+
+| Catalogue | Entry type | Tier A | Tier B | Runner | Report |
+|---|---|---:|---:|---|---|
+| imprint (`crates/imprint-selftest/src/{lib,report,service,tier_a,tier_b}.rs`) | `CapabilityResult {id, description, tier, pass, detail, duration_ms, skipped}` (`report.rs:22-35`, its own copy) | 25 | 8 | `check(id, desc, tier, \|\| async {…})` + `skipped()` (`lib.rs:34-68`); `skipped` sets `pass: true` | `SelfTestReport` without `ok` |
+| layout (`crates/impress-layout-service/src/{selftest,tier_a,tier_b}.rs`) | shared `impress_service_core::report` | 39 | 14 (13 in `CATALOGUE` + `layout.restored`) | the same closure pattern, copied (`lib.rs:91-127`); `skipped` sets `pass: false` | `ok = failed == 0 && skipped == 0 && total > 0` |
+| surface (`crates/impress-surface-service/src/{selftest,tier_a,tier_b}.rs`) | shared | 15 | 3 | copied again (`lib.rs:64-101`); one table-driven block (`tier_b.rs:168-211`) | shared |
+| **Total** | | **79** | **25** | 3 copies of `check`/`skipped`, of `run_selftest`, of the Tier B HTTP client, of the base-URL rule, of the skip-all path | tier strings parsed three ways |
+
+Every Tier B entry, classified (the full table with calls and assertions is in appendix B):
+**(i) a pure sequence of calls and assertions: 20** (11 need a value captured from a previous
+response; #18 and #20 need "wait for a log line"); **(ii) a human/GUI event: 1**
+(`layout.outline_collection_row` — calls `outline_row_verbs_json` in-process to stand in for a
+click, then asserts on rendering through `/api/logs`); **(iii) app state a verb could set: 1**
+(`manuscripts.detail_and_history` — needs real manuscripts, skips if none); **(iv) platform: 3**
+(`store.wal_health` reads another daemon's health; `layout.reading_pdf_pane` and `layout.reading_preset`
+read the live store in-process for a paper with a PDF on disk). Tier A: 41 of 79 are pure verb
+sequences today (imprint 15, layout 11, surface 15); 32 more fit with a seed-fixture step (5) or a
+"read the persisted row" step (27); 6 do not fit (FFI-direct, blob store, typst package cache).
+Already data: a human surface event is `impress_surface::Event {widget, kind, value}` dispatched by
+`surface_dispatch` and recorded with its actor (`spec.rs:351-371`, `docs/agent-surfaces.md:233-237`);
+a human layout gesture is a serde-tagged `impress_layout::Verb` applied by `SharedLayout.apply(verb_json,
+actor)` (`impress-store-ffi/src/layout.rs:590-600`); the imbib golden corpus is JSON `scenarios[{name,
+inputs}]` (`imbib-core/tests/golden_parity.rs:19-28`). No recorder, macro or session concept exists.
+One constraint for Tier A as data: the generic `call_async(name, args)` (`service-core/src/call.rs:55-66`)
+dispatches against the process-wide store, set once (`impress-store-service/src/store.rs:42-57`,
+`IMPRESS_STORE_PATH`); Tier A entries inject a scratch store through `with_store`.
+
+### Table RG-S — settings in Swift (production code, tests excluded)
+
+Method: an extractor over the 1,738 `.swift` files under `apps/` and `packages/` (`.build`,
+`DerivedData`, checkouts excluded) that strips comments, matches every `<receiver>.<get|set>(…
+forKey: EXPR)` with balanced parentheses, keeps the call when the receiver is a `UserDefaults`
+(`standard`, a suite, `forCurrentEnvironment`, `localStore`), routes `SyncedSettingsStore` receivers
+to the iCloud-KVS column, reads `register(defaults:)` dictionaries, and resolves `EXPR` through
+same-file constants, globally unique constants and a hand-built table for the parameterised stores
+(`ReadingPositionStore`, `ListViewStateStore`, `WatchedFolderBookmarkStore`, `EInkSettingsMigration.legacyKeys`,
+`SharedDefaults` …). A prefix key (`reading_position_<uuid>`) counts once. Cross-check:
+`rg -n '(?i)(defaults|standard|suite|localStore)\??\.\w+\(.*forKey'` found 0 call sites the
+extractor missed; `rg -o '@AppStorage\("([^"]+)"'` finds 83 distinct literal keys (the other 4 are
+keys spelled through a constant).
+
+| Unit | `UserDefaults` keys | `@AppStorage` keys | In both | Union |
+|---|---:|---:|---:|---:|
+| imbib (app) | 12 | 8 | 0 | 20 |
+| imbib/PublicationManagerCore (linked by **all six apps**) | 88 | 26 | 6 | 108 |
+| imprint | 18 | 33 | 4 | 47 |
+| imprint/ImprintCore | 1 | 0 | 0 | 1 |
+| impel | 7 | 10 | 0 | 17 |
+| impel/CounselEngine | 3 | 0 | 0 | 3 |
+| impart | 10 | 5 | 2 | 13 |
+| impart/MessageManagerCore | 2 | 0 | 0 | 2 |
+| implore | 1 | 5 | 0 | 6 |
+| impress | 3 | 1 | 0 | 4 |
+| ImpressAI | 7 | 0 | 0 | 7 |
+| ImpressAutomation | 6 | 6 | 6 | 6 |
+| ImpressGit | 1 | 3 | 0 | 4 |
+| ImpressHelixCore | 3 | 0 | 0 | 3 |
+| ImpressKit | 3 | 0 | 0 | 3 |
+| ImpressProgress | 3 | 0 | 0 | 3 |
+| ImpressSidebar | 9 | 0 | 0 | 9 |
+| ImpressSpotlight | 1 | 0 | 0 | 1 |
+| ImpressTheme | 0 | 1 | 0 | 1 |
+| **Distinct across units** | **159** | **87** | **22** | **224** |
+
+Plus a **third store**: iCloud KVS through `SyncedSettingsStore` (`PMC/Settings/SyncedSettingsStore.swift:13-71`),
+**29 `sync.*` keys** (28 live; `sync.recommendation.engineType` is declared and never saved,
+`RecommendationSettings.swift:280`), not in the 224. Call sites: 339 `UserDefaults` in production
+(58 in tests), 112 KVS, 120 `@AppStorage` declarations. **No `@AppStorage` names a `store:`**, so every
+one lives in the per-app standard domain — and because PMC is linked by all six apps, each of its 108
+keys exists six times, once per app domain.
+
+| Finding | Evidence |
+|---|---|
+| The brief's 86 / 85 (overlapping) is a literal count; resolved through constants it is 159 / 87, 22 overlapping, 224 distinct, plus 29 KVS | above |
+| 24 keys are read by more than one unit, each copy in its own domain: `httpAutomationEnabled`/`Port` in five units (each `register(defaults:)` with its own port, `ImpelApp.swift:26`, `ImprintApp.swift:366`, `ImpressApp.swift:28`, `ImpartApp.swift:27`), and `SimpleAutomationSettingsView` declares `@AppStorage(… port) = 23100` (`AutomationSettingsView.swift:141`) — a port literal outside `SiblingApp.descriptors`; `appearanceMode` in five units; `NSQuitAlwaysKeepsWindows` in three; `editorAppearance` in PMC and imprint; 15 imbib↔PMC and 3 impel↔CounselEngine pairs | |
+| Four app-group suites are in use: `QG3MEYVHMS.com.impress.suite` (`SharedDefaults.suite`, git projects, impel/impart widgets, share extensions), `group.com.imbib.app` (imbib widgets, Safari), `QG3MEYVHMS.com.impress.imbib` (`ShareExtensionService.swift:35`), `QG3MEYVHMS.com.impress.shared` (a container) | |
+| Helix/modal editing is stored under three unrelated keys: `modalEditing.isEnabled` (`ModalEditingSettings.swift:39`), `helixModeEnabled` (`NotesTab.swift:341`), `imprint.helix.isEnabled` (`SourceEditorView.swift:37`) | |
+| **Split brain in imbib import settings:** the settings UI writes `@AppStorage("autoGenerateCiteKeys")`, `"defaultEntryType"`, `"exportPreserveRawBibTeX"` (`SettingsView.swift:1440-1442`, `IOSImportExportSettingsView.swift:16-18`) while `ImportExportSettingsStore` reads the KVS keys `sync.import.*`/`sync.export.*` (`:106-108`); no production code reads the plain keys (only `FirstRunManager.swift:149` removes them); `SyncedSettingsStore.migrateFromUserDefaults` (`:422`) has no callers | |
+| Group keys with a missing half: `widget.impel.*`, `widget.impart.*`, `widget.suite.<id>.running` are read (`CounselActivityWidget.swift:48-51`, `SuiteStatusWidget.swift:51`, `UnreadMessagesWidget.swift:48-51`) and written by nothing; `share.imprint.pending*`/`share.impart.pending*` are written (`ShareViewController.swift:61-72`, `:70-90`) and read by nothing | |
+| Legacy keys still live: `remarkable.*` still declared as `@AppStorage` (`RemarkableSettingsStore.swift:35-79`) while `EInkSettingsMigration` deletes the same names (`:38-52`); `AITaskCategoryStorage` still writes `impressai.taskCategoryAssignments` (`AITaskCategoryManager.swift:237-270`, tests only) | |
+| The precedent works as described: `PreferencesStore` re-parses on mtime/length change, writes temp + `fsync` + rename under a flock, refuses a newer or corrupt file, has `changed_since(ms)`, and a one-time `import_legacy_swift`; Swift never opens the JSON — `RustAIBridge` calls `SharedAiRegistry.open(workspacePath: SharedWorkspace.workspaceDirectory)` and changes propagate in-process by `Notification.impressAIPreferencesDidChange`; **`preferencesChanged(since:)` has no callers, so there is no cross-process watch** | `preferences.rs`; `RustAIBridge.swift:22,43`; `AIProviderManager.swift:199,508`; `AIPreferencesMigration.swift:33-107` |
+| Existing tests freeze `@AppStorage` literals per pane by source scan (`ImprintSettingsPersistenceTests` 5, `Phase2SettingsPersistenceTests` 9, `ImpressThemeTests:44`, `KeyboardShortcutCatalogParityTests`); nothing enumerates keys across apps or checks overlap | |
+
+### Table RG-K — keybindings in Swift
+
+Method: `rg -l --type swift '\.keyboardShortcut\(' apps packages` = 79 files, 303 hits; minus 2 files
+and 4 lines that match only in comments (`PaneLayoutCommandsTests.swift`, `ImprintIOSApp.swift:435`)
+= **77 files, 299 call sites** (the brief's 81 is not reproduced by any counting rule; 80 counts a
+markdown file, 90 counts every mention of the word). Each site was walked back ≤ 25 lines to its
+`Button` label and the first call in its closure; handlers were resolved through their `handleKey`
+helpers; the mapping gap was classified against the 419 distinct `#[impress_method]` names
+(`rg -A4 '#\[impress_method' crates | rg -o 'fn \w+'`; 433 verbs, 14 names shared across services).
+
+| App / package | Files | `.keyboardShortcut(` sites | `.keyboardGuarded` | `.onKeyPress` | Palette commands |
+|---|---:|---:|---:|---:|---|
+| imbib | 42 | 172 | 8 | 33 | 50 `CommandRegistry.register(…)`, 46 with a chord |
+| imprint | 15 | 65 | 0 | 0 | 0 |
+| impart | 9 | 25 | 0 | 0 | 0 |
+| implore | 3 | 17 | 2 | 0 | 0 |
+| impel | 2 | 8 | 2 | 0 | 0 |
+| impress | 1 | 2 | 0 | 0 | 0 |
+| ImpressGit / ImpressLogging | 4 / 1 | 9 / 1 | 0 | 0 | — |
+| ImpressLayout / ImpressSurface / ImpressFTUI / ImpressCommandPalette / ImpressKeyboard | 0 | 0 | 1 / 1 / 0 / 0 / (def.) | 3 / 2 / 10 / 4 / 1 | — |
+| **Total** | **77** | **299** | **14** | **53** | |
+
+| Class of site | Sites | Meaning |
+|---|---:|---|
+| D — dialog, sheet, form keys (`.cancelAction`, `.defaultAction`, ⏎, Esc) | 117 | not commands |
+| E — standard Cut/Copy/Paste/Select All | 16 | system |
+| A — routed to a Rust verb today | 4 (≈ 12 chords per app after `ForEach`) | only `PaneLayoutChordRouter` → `LayoutController.apply(.setCollapsed / .applyLayout)` (`PaneLayoutCommands.swift:137,216-226`, `LayoutController.swift:846`); imbib's pre-chassis window hits Swift `PaneLayoutState` instead; **no chord goes through `ImpressVerbHost`** |
+| B — a verb exists, not routed (name-level match) | ≈ 44 (imbib 26, imprint 17, implore 1) | Toggle Read → `set_read`, Dismiss → `dismiss_paper`, collections → `add_to_collection`/`remove_from_collection`, Delete → `delete_publications_undoable`, Import/Export → `import_bibtex`/`export_bibtex`, Mirror → `eink_mark`, annotate → `create_annotation`, Copy as Citation → `get_citation`, Undo History → `recent_undo_groups`; imprint Compile → `compile_manuscript`, Build → `project_build`, Insert Citation → `compose_citation`, Papers → `open_manuscript_papers`, Comment → `create_comment`, Headings → `compose_heading`, Commit → `project_checkin`, Export PDF → `export_document`; implore Export Figure → `export_figure` |
+| C — Swift-only (window, selection, view mode, navigation) | ≈ 118 | no verb |
+
+Of the 166 command-level sites, **2 % are verb-routed, 27 % have a verb they could route to, 71 % are
+Swift-only.** Three chord lists exist for imbib alone — the menu (`imbibApp.swift`), `CommandRegistry`
+(the live palette; `packages/ImpressCommandPalette` is **linked by no app** — `import
+ImpressCommandPalette` appears only in its own tests — and has no registry type) and the Settings
+table (`ShortcutCatalog.resolve(profile)` → `KeyboardShortcutsStore`, `KeyboardShortcutsSettings.swift:410`),
+and they have drifted:
+
+| Finding | Evidence |
+|---|---|
+| **imbib ⇧⌘F has three claimants on macOS**: Paper ▸ Share… (`imbibApp.swift:1300`), the hidden Filter button (`ContentView.swift:293`), the store-search command (`FindCoordinator.swift:114`, not mounted by imbib); the docs say "Focus search" (`keyboard-grammar.md:25`) and Share (`:96`) | the live collision is Share vs Filter |
+| imbib ⌘S is registered twice for the same action (`imbibApp.swift:1106`, `ContentView.swift:287`) | |
+| **The collision test scans `imbibApp.swift` only** (`PaneLayoutCommandsTests.swift:260`, a regex over one file); it cannot see `ContentView.swift`'s hidden buttons | |
+| iOS and macOS disagree: ⌘5/⌘6 are BibTeX/Notes on iOS (`IOSContentView.swift:1113-1125`) and Notes/BibTeX on macOS (`imbibApp.swift:1152-1162`); ⇧⌘R is Refresh Metadata on iOS, Open References on macOS; **`CommandRegistry` still says ⌘5 BibTeX / ⌘6 Notes** while the menu and `keyboard-grammar.md:69-71` say the reverse — the parity test checks the Settings table, not the registry | |
+| Console: impart and impress bind both ⌃⌘C (menu) and ⇧⌘C (the `Window` scene, `ImpartApp.swift:305,325`, `ImpressApp.swift:70,115`); imprint uses ⇧⌘C only (`ImprintApp.swift:980`) while the docs say ⌃⌘C "as in impress and impart" (`keyboard-grammar.md:110-113`); imbib removed the scene chord for this reason | |
+| Rule-4 exposures (unverified live): Shift-only menu equivalents ⇧P/⇧N/⇧I/⇧B/⇧F (`imbibApp.swift:1496-1516`); `HelpBrowserView.swift:134` binds `"/"` with no modifiers and `:84` an unguarded `.onKeyPress("/")`; triage `.onKeyPress("s")`/`("*")` gated on `isInputOverlayActive` not `TextFieldFocusDetection` (`UnifiedPublicationListWrapper.swift:2114-2119`) | |
+| `imbib/api/commands` (`HTTPAutomationRouter.swift:1766`) serves `KeyboardShortcutsSettings.defaults`, not `CommandRegistry`, so an agent's view of the palette is a fourth list | |
+| **No Rust crate declares a GUI chord.** `implore-core/src/input.rs:517 default_shortcuts()` is a real key→command table that is dead (tests only, no export) and disagrees with Swift (⌘D SelectNone vs ⇧⌘A; binds unmodified R F O A G C M L); `impress-helix/src/keymap.rs` is the editor keytrie (exported), not app chords; `TriageKeyGrammar.swift:52-61` (j k n s e d o / h l) is the one shared single-key grammar and `ShortcutCatalogTests` pins it | |
+
+Findings from the two tables:
+
+- **RG-1** 224 distinct keys in three stores (standard, four group suites, KVS), PMC's 108 written
+  into six domains, 24 keys read by more than one unit, none declared anywhere but at a call site.
+  *Fix:* R1's registry; the census table is the migration list.
+- **RG-2** imbib's import settings are written to keys nothing reads (split brain); `migrateFromUserDefaults`
+  has no callers. *Fix:* R1 declares the three keys once with both legacy spellings; the split
+  ends when the UI reads the registry.
+- **RG-3** The precedent has no cross-process watch (`preferencesChanged(since:)` unused). *Fix:* R1's
+  `SharedSettings` feed rides the FFI's 250 ms poll (mtime), so a CLI `set` reaches the pane.
+- **RG-4** Chords are declared in three lists for imbib and none for the other apps; the collision
+  test reads one file; the lists disagree (⌘5/⌘6, ⇧⌘F ×3, ⌘S ×2, the console chord). *Fix:* R2's
+  registry and the coverage test over the registry, not over a source file.
+- **RG-5** 2 % of command chords reach Rust; 44 could today. *Fix:* R2 binds `Verb(name, args)` where
+  the verb exists (the first 44 are the list above) and `Command(id)` otherwise; the test holds that
+  every command has a chord or a palette entry either way.
+- **RG-6** A dead Rust chord table (`implore-core/src/input.rs:517`) disagrees with Swift. *Fix:*
+  R2 replaces it with the registry (implore in R3) or deletes it; recorded so it is not copied.
+
+## Findings
+
+- **EF-1** No verb declares what it touches; the descriptor (P1) has safety and no effect set. *Fix:*
+  E1 adds `effects` to `VerbDescriptor` and the macro; appendix A seeds the declarations.
+- **EF-2** 76 verbs' effects are dynamic — the kind of an argument's target (`triage_ops.rs:41`,
+  `collection_ops`, `update_with_undo` sites). A literal list cannot describe them. *Fix:* the effect
+  vocabulary has `target(arg)`; the spy resolves it the same way the verb does.
+- **EF-3** A static walker cannot verify a declaration (table EF-1's over-approximation). *Fix:* E2's
+  store spy over the examples in Tier A, and L2's observed effect set on every path at run time.
+- **EF-4** RS-S2 is open because `query_refs()` reads only `Source::Query` (`runtime.rs:948`). *Fix:*
+  E3 folds the declared reads of each `verb` source in.
+- **EF-5** 14 canonical kinds are touched by no verb path; they are written by Swift or daemons. *Fix:*
+  recorded in the coverage table (G6) as `swift-only-writer`; not this plan's to close.
+- **CL-1** A verb leaves no record: `batch_id` is a store-call id, never a call id (table CL-2);
+  `produced_by` on op rows is always NULL. *Fix:* L1 — the pipeline's audit layer sets a call context
+  the store reads to stamp `batch_id`.
+- **CL-2** `insert`, `insert_batch` and `delete` write no op row, so a verb that creates or deletes
+  records is invisible to time travel and to any join. *Fix:* L1 records the call's observed
+  `inserted`/`deleted` ids on the call row (the mutation feed already reports them), so the call log
+  covers what the op log does not; making `insert`/`delete` mint ops is ask-first D-R7.
+- **CL-3** `ItemStore::delete` cascades the target's op history (`:5230`), so "why did this item
+  change" cannot be asked about a deleted item. *Fix:* the call row survives (it is not an op of the
+  target); L1 records the tombstone id.
+- **CL-4** `apply_operation` is not transactional (`:1994-2014`). *Fix:* not this plan's; recorded
+  for the store owner (a call's ops can be partially written on crash; the call row is written last).
+- **CL-5** The only audit row stores full argument values and `started_at = finished_at`
+  (`impress-ai/src/store.rs:1271-1273`). *Fix:* L1's privacy rule and real timestamps; `tool-invocation@1.0.0`
+  becomes a projection of the call record for AI runs (D-R4).
+- **CL-6** Compaction deletes op rows after 30 days; a call row that outlives its ops joins to
+  nothing. *Fix:* the call row carries the op ids' count and the kinds written, so the answer degrades
+  from "these operations" to "this call wrote N ops to these kinds"; call rows follow the same window.
+- **WF-1** 11 of 31 background services have no startup gate; 3 of those mutate the store; one is a
+  platform-forgotten duplicate (#7). *Fix:* W3 migrates #4 and deletes #7; the rule becomes
+  `start_delay` in one runtime.
+- **WF-2** The daemon has no schedule trigger and no job-finished trigger; its three store-change rules
+  are code. *Fix:* W1's trigger vocabulary and W2's planner in `impel-taskd`.
+- **WF-3** The apps have no way to run a trigger when the daemon is absent (the daemon is opt-in,
+  `install-services.sh`). *Fix:* W2 runs the same planner inline in the app under the same
+  `start_delay` (P4's inline runner is the precedent).
+- **SC-1** 25 Tier B entries and 79 Tier A entries are closures; three copies of the runner disagree on
+  what `skipped` means and how `tier` is parsed. *Fix:* S1's `impress-scenario` interpreter and one
+  runner; the three catalogues keep their ids.
+- **SC-2** A data-driven Tier A needs a store per scenario and the pipeline dispatches against the
+  process-wide store. *Fix:* hook H-P2-3 (a per-call store override) or a subprocess per scenario;
+  decision D-R9.
+- **SC-3** Nothing records a session. *Fix:* the call log is the recorder; S3 turns a trace range into a
+  scenario.
+- **RG-1..6** are stated under tables RG-S and RG-K.
+
+## Design
+
+### Hooks: what this plan needs from P1, P2, P4, P5 and G3 (and nothing else)
+
+| Id | Owner | Hook | Why |
+|---|---|---|---|
+| H-P1-1 | P1 (in flight) | `VerbDescriptor.effects: Effects` and `MethodMeta.effects: Option<Effects>`; `impress_service_impl! { effects = … }` service default and `#[impress_method(effects(reads = […], writes = […], reach = […]))]` per method; `resolve_effects` beside `resolve_safety_class` | E1 declares here; a second table would be a second descriptor |
+| H-P1-2 | P1 | `#[impress_private]` on an argument → `"x-private": true` in the input schema | the call log's privacy rule reads the schema, not a second list |
+| H-P2-1 | P2 (queued) | `Call { args, caller, trace: TraceParent, parent: Option<CallId> }` — the trace id is generated by the pipeline when absent and propagated on `Call` effects and workflow steps | one id joins a surface click, its verb, the job it started and the ops it wrote |
+| H-P2-2 | P2 | the audit layer sets `impress_core::call_context::CURRENT` (a task-local `{call_id, trace_id, caller}`) around invoke and subscribes to `subscribe_mutations` for the call's duration; the store stamps `batch_id = call_id` on every `OperationSpec` with `batch_id: None` while a context is set | CL-1; nothing else changes at the ~170 `None` sites |
+| H-P2-3 | P2 | `Pipeline::invoke_on(store: Arc<SqliteItemStore>, …)` — a per-call store override used only by Tier A scenario runs | SC-2; the process-wide store stays the default |
+| H-P2-4 | P2 | the audit layer writes the call record (§ Call log) **instead of** a bare `core/operation` row per mutating verb (D-P3 as approved says one op row; § Decisions D-R2 explains why the row cannot be an operation) | one audit record, not two |
+| H-P4-1 | P4 (in flight) | `JobRow.verb/args` and `task-event@1.0.0` as they are; the call record carries `job_id` when the verb answered with a handle; a job's terminal transition writes one `task-event {name: "finished"}` | the `job` trigger and "what happened" for long verbs |
+| H-P5-1 | P5 (queued) | `POST /api/verb/<name>` carries `traceparent`; the Tier B scenario runner uses it | S2 |
+| H-G3-1 | G3 (queued) | examples on the descriptor (`#[impress_example]`, already in P1) | the spy runs them; a verb with no example is on the exception list by construction |
+| H-P3-1 | P3 (queued) | the rename pass also visits `impress/workflow@1.0.0` and `impress/scenario@1.0.0` documents | they name verbs |
+
+None of these change P1's or P2's shape; each is a field, a task-local or a parameter. If P2 lands
+without H-P2-2, L1 adds it in P2's files with P2's owner's review (the session log will say).
+
+### Effects
+
+**Shape** (in `impress-service-core::descriptor`, pure):
+
+```
+Effects {
+  reads:  &'static [Kind],      // record kinds read
+  writes: &'static [Kind],      // record kinds written (insert, update, delete, apply_operation)
+  reach:  &'static [Reach],     // outside the process
+}
+Kind  = Ref(SchemaRef)          // a canonical ref from schema-refs.json ("imbib/bibliography-entry")
+      | Target(arg)             // the kind of the record the argument names (id, ids, publication_ids …)
+      | Children(arg)           // the kinds parented under the record the argument names (collections)
+      | Prefix("impress/ui/")   // every kind under a prefix (the layout/surface services)
+      | Any                     // declared "any kind" — allowed only with a reason, listed in the exception table
+Reach = App(id) | Network | Fs | Subprocess | Device | Provider
+```
+
+Declared once per service (`impress_service_impl! { effects = { reads: [...], writes: [...] } }`)
+with per-method exceptions on the trait (`#[impress_method(effects(writes = [Target(id)]))]`), the
+way P1 does safety. `Kind::Ref` takes a `SchemaRef` constant once P7 generates them; until then a
+string the macro checks against `schema-refs.json` at compile time (a `build.rs` in `impress-service-macros`
+reading the manifest — the same read P7 makes; a misspelt ref is a compile error, which is what the
+manifest rule exists for).
+
+**Derived where it can be.** The macro derives `reach: [App(service_app)]` for a service whose
+`instance` is a `BackendSlot`-backed default (the `needs_app` derivation P1 already makes) and
+`reads: [Target(id)]` for any verb whose only store markers are on its id arguments is *not*
+derived — reads are declared, because deriving them from code is what table EF-1 showed cannot be
+trusted. The declaration is short: for 313 of 433 verbs the set is one to three kinds (appendix A).
+
+**Verified by a spy, not by reading.** `impress_core::store::SpyStore` wraps an `ItemStore` and
+records, per call, `{reads: BTreeSet<SchemaRef>, writes: BTreeSet<SchemaRef>, inserted, deleted}`
+— reads from `query`/`count`/`get`/`neighbors` by the query's schema or the row's, writes from the
+mutation feed (`subscribe_mutations`, which every write already emits, `sqlite_store.rs:5381`). The
+Tier A test `crates/impress-capabilities/tests/effects.rs` runs every example of every linked verb
+against a scratch store under the spy through the pipeline and asserts `observed ⊆ declared` after
+resolving `Target`/`Children`/`Prefix` against the scratch store; a verb whose examples observed
+strictly less than it declared is printed as *under-exercised* (a warning table, not a failure —
+the declaration may be right for arguments the example did not use). A verb with no example, a
+`needs_app` verb, or an `external` verb whose default implementation refuses is on the **exception
+table** in `docs/verb-effects.md` (marker-table style, D-G4's precedent), with the reason column
+filled by the test, so the list cannot be edited by hand to hide a verb. The exception table is
+expected to start at ~180 rows (83 `needs_app` + the external verbs with no Tier A path + verbs
+without examples until G3 lands) and shrink as G3 writes examples; the test fails when it grows.
+
+**Verified again at run time, everywhere.** The call log (below) records the observed effect set
+of every mutating call on every path, including the app's. A mismatch is not a refusal (the verb
+has already run) — it is a `core/verb-call` row with `effects_mismatch: true` and a counter the
+`history-service_health` verb and the Console show. This is how the 83 `needs_app` verbs' declarations
+are checked: by the calls people actually make, in the process where the verb actually runs.
+
+**What effects feed:**
+
+| Consumer | How | Closes |
+|---|---|---|
+| Surface invalidation | `SurfaceRuntime::query_refs()` unions each `Source::Verb`'s `descriptor.effects.reads` (resolving `Target(arg)` against the source's resolved args at plan time); `invalidate_sources` then treats a verb source like a query source | RS-S2 |
+| Safety consistency | a test over the linked inventory: `read_only ⇒ writes = ∅ ∧ reach ⊆ {}`; `writes ≠ ∅ ⇒ class ≠ read_only`; `reach ≠ ∅ ⇒ class = external` (or an explicit `external = false` with reason) | S-1's second half |
+| Conflict detection | the policy layer keeps the set of in-flight calls; a new call whose `writes ∩ (writes ∪ reads)` of an in-flight call from a *different* caller is non-empty on a resolved `Target` id is answered `{ok: false, code: "conflict", message: "<verb> by <caller> is writing <kind> <id>"}` for destructive verbs and logged (`conflict_with: call_id`) for mutating ones; wave 7's `expected_revision` remains the fine-grained mechanism | the concurrent-agents case |
+| Impact analysis | `capabilities-service_impact {kind?} {verb?}`: for a kind, every verb reading or writing it (by declaration), every stored surface, workflow and scenario naming one of those verbs; for a verb, the same documents plus the kinds it touches — the input to P3's rename pass and to "what breaks if this is renamed" | |
+| MCP | no new annotation (MCP has none for effects); the reference page (G3) prints the set | |
+
+**Fails loudly:** an undeclared write in Tier A fails the build naming the verb, the kind and the
+example; a service with no `effects` fails the descriptor test once E1 lands (as `since` does on P1);
+an effects mismatch at run time is counted and shown; a `Kind::Any` needs a reason or the test fails.
+
+**Coverage reachable:** 433 of 433 declared (the macro refuses a service without `effects` after
+the seeding pass, the same construction as `safety`); verified in Tier A: every verb with an
+example whose default implementation runs headless — 250 of 433 by table 4's `needs_app` (83) and
+appendix A4's headless-external count, rising with G3; verified at run time: every verb ever called
+after L1. The remainder is listed in `docs/verb-effects.md` with the reason the test wrote.
+
+### Call log
+
+**Record** — one new kind, `core/verb-call@1.0.0` (ask-first D-R1), an `items` row like an operation
+but with no `op_target_id`:
+
+```
+{
+  "verb": "imbib-tags-service_add-tag", "since": "0.9",   // the descriptor's name and version
+  "caller": {"kind": "agent", "name": "mcp:agent-a"},     // CallerIdentity from the pipeline (never an argument)
+  "trace_id": "…", "parent_call": "…"?, "surface": "…"?, "workflow_run": "…"?, "job": "…"?, "scenario": "…"?,
+  "args": {…},                    // the privacy-filtered summary (below)
+  "ok": true, "code": null, "message_len": 42,
+  "started_at": "…", "duration_ms": 12,
+  "effects": {"reads": ["imbib/bibliography-entry"], "writes": ["imbib/bibliography-entry"],
+              "inserted": [], "deleted": [], "ops": 1, "effects_mismatch": false},
+  "conflict_with": null,
+  "wire_version": 1
+}
+```
+
+`author`/`author_kind` on the row are the caller (`agent:mcp:agent-a` / `agent`; `human:<device>` /
+`human`; `system:<daemon>` / `system`), so the existing `ops_minted_since_by_author` telemetry and
+`author_kind` readers work unchanged. `retention: compactable`. `batch_id` on the call row is the
+call's own id, and every op row written during the call carries the same id (H-P2-2), so:
+
+- **the join down** is `SELECT … FROM items WHERE batch_id = :call AND op_target_id IS NOT NULL`
+  (index `idx_items_batch`);
+- **the join up** ("why did this item change") is `ops_for(item) → batch_id → call → parent_call …`
+  (index `idx_items_op_target`, then the call row by id).
+
+**Privacy rule** (the default is ids and sizes; values only where replay needs them and the verb
+allows it):
+
+| Argument shape (from the input schema) | Stored as |
+|---|---|
+| an id, or a field named `id`/`*_id`/`ids`/`*_ids`/`cite_key(s)` | the value(s), up to 64 ids then `{"len": n, "first": […8]}` |
+| a scalar ≤ 64 chars whose field is not `x-private` | the value |
+| a longer string, or any field marked `#[impress_private]` (H-P1-2) | `{"len": n, "sha256_8": "…"}` |
+| an object or array of objects | `{"len": n, "keys": […]}` |
+| whole values | only when the verb declares `#[impress_method(replay = full)]` **and** the args carry no `x-private` field and serialise under 16 KB — the 51 layout and surface verbs qualify today; `search-*`, `*-text-*`, `import-*` and everything carrying a body do not |
+
+**Off the hot path.** The audit layer builds the record after the envelope and hands it to a bounded
+channel (4,096) drained by one writer task per process that writes in batches inside one
+transaction; on overflow the record is dropped and `history-service_health` reports `dropped: n` (a
+dropped record is never silent — the counter is also in `/api/health`). Read-only calls are **not**
+recorded by default (their timing is the span aggregator's, ADR-0035 D5); they are recorded when a
+trace asks (`Call.trace.record_reads`) or when `IMPRESS_CALL_LOG=all` is set for a session. Cost:
+one row per mutating verb — at the op-rate budget's 100 k/day the log adds at most that many rows,
+and the 2026-08-06 backlog was 23 M rows of *ops*, not of calls; the per-day cap is the same budget
+(`IMPRESS_OPS_RATE_BUDGET`), and the compaction daemon's window (`IMPRESS_COMPACT_WINDOW_DAYS`, 30)
+applies to call rows in the same pass: a call older than the window whose ops were compacted is
+reduced to `{verb, caller, started_at, effects.writes, ops}` — still an answer to "who wrote to this
+kind that month", no longer to "with which arguments". Never durable, never synced (like the surface
+ring and `task-event`).
+
+**History verbs** (`history-service`, a new `*-service` in `impress-store-service`, store tier):
+
+| Verb | Class | Answers |
+|---|---|---|
+| `history-service_calls {since?, until?, verb?, caller?, trace_id?, limit}` | read_only | what happened |
+| `history-service_why {id}` | read_only | the ops on an item, each joined to its call and the call's parent chain (surface → verb → job), newest first; degrades per CL-6 |
+| `history-service_trace {trace_id}` | read_only | every call, job and op under one trace, as a tree |
+| `history-service_replay {call_ids | trace_id, dry_run: bool}` | mutating | re-invokes the recorded calls through the pipeline as `Agent("replay:<caller>")`; only calls with full args replay; `dry_run` lists what would run and refuses `not-replayable` calls by name |
+| `history-service_save-macro {call_ids, name}` | mutating | writes an `impress/workflow@1.0.0` with `trigger: manual` whose steps are the calls (§ Workflows) |
+| `history-service_health {}` | read_only | rows, dropped, mismatches, oldest, the writer's lag |
+
+Over MCP and the CLI these are ordinary generated tools; a surface (G4's generator) gives the human
+"Why did this change?" as a form on any record.
+
+**Tested:** a Tier A test writes three ops through two verbs under one trace and asserts `why` returns
+both calls in order with `batch_id` equal on every op; a test fills the channel and asserts the
+`dropped` counter and that the calling verb's latency did not move; a test that a `#[impress_private]`
+argument never appears in a row byte-for-byte; the compaction test runs the window pass and asserts
+the reduced shape. **Fails loudly:** dropped counter; `effects_mismatch`; a `replay` of a
+non-replayable call refuses by name.
+
+### Workflows
+
+**Spec** — one new kind, `impress/workflow@1.0.0` (ask-first D-R1), a document the pure crate
+`impress-workflow` (kit, `pure`) validates, plans and reduces by **reusing** `impress_surface::reduce`:
+a workflow is a `SurfaceSpec` with no `root`, whose events come from a trigger instead of a widget.
+
+```
+{
+  "wire_version": 1, "name": "imbib.retention-cleanup", "description": "…",
+  "state": "enabled" | "disabled" | "proposed",              // proposed: written by an agent, not yet reviewed
+  "author": {"kind": "agent", "name": "…"},
+  "trigger": {"schedule": {"every": "24h", "at": "03:00"?}}   // exactly one of:
+           | {"store": {"kinds": ["imbib/bibliography-entry"], "ops": ["insert", "update"], "debounce_ms": 5000}}
+           | {"job": {"verb": "imprint-project-service_project-build", "state": "done"}}
+           | {"message": {"kind": "email-message", "folder": "…"?}}   // = a store trigger on that kind, named for readers
+           | {"call": {"verb": "…"}}                                  // after a verb ran (from the call log's feed)
+           | {"manual": {}}                                           // a macro
+  "guards": {"not_before_startup_s": 90, "max_runs_per_hour": 4, "requires": ["app:imbib"]?},
+  "params": [...], "sources": {...},   // the surface vocabulary, unchanged
+  "steps": [ {"call": …, "each": "state.stale"}, {"set": …}, {"emit": …} ],   // Action, unchanged
+  "review": {"required": true}         // an agent-proposed workflow cannot be enabled without a Person
+}
+```
+
+No new action kinds: `call`, `each`, `set`, `emit`, `refresh` (and `publish`/`open`, which a
+workflow without a pane refuses at validation). A step's `call` is a verb call through the pipeline
+with `caller = System("workflow:<name>")`, `trace_id` = the run's, `parent_call` = the run; `emit`
+writes a `task-event` on the run's job. The trigger payload is the event: `{"widget": "trigger",
+"kind": "submit", "value": {…the store event, the job row, the schedule tick…}}`, so `on_submit`
+is the step list and nothing in `reduce` changes.
+
+**Who runs it.** A run is a P4 job: a `task@1.0.0` of kind `impress.workflow.run` with `verb =
+"workflow-service_run"`, so it has the handle, the event ring, cancel, retry and the review
+suspension the kernel already has. The **planner** (`impress-workflow::plan`, pure) turns
+`(workflows, clock, store events since cursor, finished jobs since cursor, calls since cursor)` into
+run specs; it is called from one place per host:
+
+- **impel-taskd** — a fourth spawn rule beside the three (`main.rs:1091-1260`), reading workflow
+  rows instead of code; `SchedulerConfig::start_delay` (90 s) is the startup rule and the planner
+  never produces a run before it;
+- **the app**, when no daemon holds the worker lease — `SharedStore` ticks the same planner from
+  the FFI feed's existing 250 ms poll (`ui_feed.rs`) under the same `start_delay`, and runs the job
+  inline (P4's inline runner). A workflow whose steps need the app (`reach: App(imbib)`) runs only
+  here; the guard `requires: ["app:imbib"]` says so and the daemon skips it.
+
+The 90-second rule therefore has one owner: `start_delay` on the runtime that plans runs. A Swift
+service that becomes a workflow loses its own gate because the runtime has it; the test
+`no_run_before_start_delay` in `impress-workflow` holds it.
+
+**Dry run and validation.** `workflow-service_validate {spec}` returns the surface validator's
+problems plus the workflow's: unknown verb (by name, from the inventory), a step calling a verb
+whose `effects.writes` intersect a kind the trigger listens to without `debounce_ms` (a feedback
+loop), a `schedule` under 60 s, `publish`/`open` present. `workflow-service_dry-run {id, event?}`
+runs plan → resolve → reduce with the sources evaluated and every `call` effect **returned, not
+executed**, as `{would_call: [{verb, args, effects, safety}]}` — the same thing a review surface
+shows.
+
+**Review.** An agent may `workflow-service_create` only with `state: proposed`; `workflow-service_enable`
+is policy `Review` for an agent (ADR-0034 D3), so it becomes the workflow's review surface (the
+generated form with the dry run's `would_call` table), and the person's confirm re-enters as
+`Person`. `history-service_propose-workflows {since, min_repeats}` (W4, last) mines the call log for
+repeated mutating sequences by one caller (an n-gram over `verb` with argument shapes abstracted to
+`Target`) and writes them as `proposed` workflows with `trigger: manual`; nothing runs from it
+without the review.
+
+**The proof: `RetentionCleanupService` (#4)** becomes `imbib.retention-cleanup`: trigger `schedule
+every 24h` plus a run at enable; source `stale = {query: inbox publications older than the retention
+window, not starred}` (the retention window is a registry setting, § Registries); steps `each
+state.stale → call imbib-library-service_delete-publications-undoable` (which D-G5 makes undoable);
+guard `requires: app:imbib` is *not* needed (the verb runs on the store), so the daemon or the app
+may run it. The Swift service and #7's duplicate are deleted; the call log shows each run as a job
+with its calls, which is the first time this cleanup is on the record. Runners-up when W3 is
+green: #5 enrichment (executors exist; an hourly sweep replaces the Swift loop) and #1 the feed
+scheduler (harder: Swift source plugins with battery and network checks).
+
+**Tested:** the planner is pure — property tests over clocks, cursors and guard combinations; the
+validator's every refusal has a fixture; the reducer is `impress-surface`'s and needs no new test;
+Tier A: a workflow with a `store` trigger on a scratch store runs when a row is inserted and not
+before `start_delay`; Tier B: `imbib.retention-cleanup` on an isolated imbib with a throwaway
+library. **Fails loudly:** validation names the verb or the loop; a run whose step refuses ends the
+job `failed` with the refusal in `task-event`; a workflow naming a verb that has since been removed
+is `state: broken` after P3's rename pass and shown so.
+
+### Scenarios
+
+**Spec** — one new kind, `impress/scenario@1.0.0` (ask-first D-R1), the pure crate `impress-scenario`
+(kit, `pure`) validates and interprets over an abstract `Caller` trait:
+
+```
+{
+  "wire_version": 1, "id": "layout.saved_round_trip", "description": "…", "tier": "a" | "b",
+  "requires": {"app": "impress"?, "preset": "…"?, "kinds_present": ["manuscript"]?},   // skip, not fail, when unmet
+  "seed": [ {"kind": "imbib/bibliography-entry", "payload": {…}, "as": "paper"} ],  // Tier A: rows in the scratch store
+  "steps": [
+    {"call": "layout-service_save-layout", "args": {"name": "{{uuid}}"}, "as": "person",
+     "expect": {"ok": true, "fields": [{"path": "revision", "gte": 1}]}, "capture": {"name": "$.name"}},
+    {"event": {"surface": "{{s}}", "widget": "bins", "kind": "change", "value": 17}},            // a human surface event
+    {"gesture": {"verb": "split", "target": {"role": "detail"}, "direction": "right"}},           // a human layout verb
+    {"wait": {"job": "{{job}}", "state": "done", "timeout_ms": 30000}},
+    {"wait": {"log": {"category": "layout", "contains": "pane {{pane}} display", "timeout_ms": 3000}}},
+    {"call": "…", "expect": {"ok": false, "code": "conflict", "status": 409}}
+  ],
+  "teardown": [ {"call": "layout-service_delete-layout", "args": {"name": "{{name}}"}} ],
+  "expect_effects": {"writes": ["impress/ui/layout@1.0.0"]}?           // the spy checks the whole scenario
+}
+```
+
+Templates are the surface's `{{…}}` resolver (`impress_surface::resolve`, reused), extended with
+`{{uuid}}` and captures; expectations are a small closed set (`equals`, `contains`, `gte`, `lte`,
+`within {value, tol}`, `len`, `present`, `absent`) evaluated on JSON paths — no expressions, as
+ADR-0033 D3 requires of a spec. `as` names the caller identity the step runs under (`person`,
+`agent:<name>`), which is what makes a scenario able to test policy (`review-pending`) and
+attribution.
+
+**Runners.** One interpreter, two `Caller`s: **Tier A** — the pipeline with a scratch store per
+scenario (H-P2-3; without it, one subprocess per scenario with `IMPRESS_STORE_PATH` — D-R9) and
+the effects spy on; **Tier B** — `POST /api/verb/<name>` over the transport (P5; until then, the
+layout Tier B `Http` helper lifted into `impress-scenario-service` as the one client, with the
+loopback token from `impress_core::loopback_token`), `event` → `/api/surface/{id}/dispatch`,
+`gesture` → `/api/layout/verb`, `wait.log` → `/api/logs?after=`. Reports are the shared
+`impress_service_core::report` with `skipped` meaning `pass: false` (layout's rule; imprint's copy
+retires). The three `run_selftest` verbs keep their names and ids and run the scenarios stored under
+their catalogue, so nothing an agent calls today changes; `scenario-service_run {id | tier |
+catalogue}` is the generic verb, `scenario-service_validate`, `_list`, `_create` (agents author
+scenarios like surfaces), `_record {trace_id | since, until, as}` (S3).
+
+**Generation from the call log.** `scenario-service_record` takes a trace or a time window of one
+caller's calls, keeps the replayable ones (full args), turns each into a `call` step with `expect
+{ok, code}` from the recorded outcome and `capture` for every id that a later call used as an
+argument (matched by value), turns recorded surface dispatches into `event` steps, and writes the
+document as `tier: b` with `requires.app` from the calls' `reach`. The person edits it once
+(`expect.fields` are not guessed) and stores it.
+
+**The proof:** three layout Tier B entries become scenarios — `layout.apply_preset`,
+`layout.saved_round_trip` (needs `capture`) and `layout.wire_contract` (needs `status`/`code`
+expectations) — plus `surface.http.routes` (already table-driven); and one scenario is recorded from
+a live session (a person triaging three papers in impress on an isolated port), stored, and run in
+Tier B. Class (ii) `layout.outline_collection_row` becomes a `gesture` step; class (iv) entries stay
+code, marked `platform` in the catalogue with the reason.
+
+**Tested:** the interpreter is pure — fixtures for every expectation kind and every refusal; a
+scenario that expects an effect the spy did not see fails naming the kind; Tier A runs the four
+converted scenarios and the recorded one; Tier B runs them on an isolated impress. **Fails loudly:**
+a failed step names the step index, the verb, the path and both values; an unmet `requires` is
+`skipped` with the requirement, never `pass`.
+
+### Registries
+
+**Settings.** A new pure kit crate `impress-settings` declares the registry as data in Rust:
+
+```
+setting! {
+  key = "imbib.retention.inbox_days", ty = u32, default = 30, scope = Device,
+  legacy = ["inboxRetentionDays"],          // the UserDefaults key(s) to migrate from
+  doc = "Days an unread inbox paper is kept before the daily cleanup removes it."
+}
+Scope = Device | App(id) | Library | Synced
+```
+
+The store is `<workspace>/settings/<scope>.json` (one file per scope; `Device` and `App(id)` files
+are per device; `Synced` rides the store as one `impress/settings@1.0.0` row (D-R1) so the sync
+engine carries it) through a `SettingsStore` with the same `fs_lock`, `load`/`save` and version
+field as `impress_ai::preferences` (the precedent, `preferences.rs:24-27,161-217`). `settings-service`
+(store tier, in `impress-store-service`) exposes `settings-service_{schema, list, get, set, reset}`
+with `set` mutating and effects `writes: [impress/settings@1.0.0]` for the synced scope. Swift reads
+through one UniFFI object `SharedSettings` (`impress-store-ffi`) with a change feed the FFI's existing
+poll drives (file mtime, 250 ms), and one property wrapper `@ImpressSetting("imbib.retention.inbox_days")
+var days` in `ImpressKit` that replaces `@AppStorage` at the call sites — the value's type and default
+come from the registry, so a misspelt key is a runtime error at the wrapper's first read, logged
+under `settings` with the three-point trace, and a test (`SharedSettings.knownKeys` against the
+Swift call sites, grep-based like `check-schema-refs.sh`) makes it a CI error. **Migration without
+loss:** on first read of a key whose file has no value, the wrapper asks `UserDefaults` (and the app
+group suite) for each `legacy` key in order, writes the first value found into the file, logs
+`migrated <legacy> → <key> = <value>`, and **never removes the UserDefaults value** (D-R5: deleting
+is a later, separate decision once no build reads the old key); a key with no `legacy` and no value
+answers the default. The generated settings UI is ADR-0035's generator over `settings-service_schema`:
+one `SurfaceSpec` per section, fields typed from the registry, `set` on change — a settings pane is
+then a surface view kind on any app, and the Swift `Settings` scenes shrink to the platform-only
+sections (keychain, permissions). Which keys move first: imbib's retention (needed by W3) and the
+automation section (P0 already shares it across apps); the census table says which keys are
+device-wide by their readers.
+
+**Keybindings.** A new pure kit crate `impress-keymap`: `Chord {key, modifiers}` (the
+`docs/keyboard-grammar.md` grammar as a parser, `"⌘⇧R"` ⇄ struct), `Binding {chord, action: Verb(name,
+args) | Command(id), context: App(id) | Pane(view_kind) | Global, since}`, declared per app in Rust
+(`keymap! { … }`), exported as `keymap_json` the way `layout_vocabulary_json` is. Swift's
+`.keyboardShortcut(...)` sites read the chord from the registry (`Keymap.chord("imbib.paper.star")`)
+instead of writing it; a command in `ImpressCommandPalette` registers with its registry id so the
+palette and the menu are two projections of one binding. The **coverage test** (`impress-keymap`,
+CI): every `Command(id)` registered by an app has a chord or a palette entry; no two enabled
+bindings in one context share a chord; every `Verb` binding names a verb in the inventory with
+literal args valid against its schema (the surface validator's check, reused); and a Swift test
+pins the app's palette registry to `keymap_json`. `docs/keyboard.md` is generated from the registry
+and CI diffs it; Settings ▸ Keyboard reads the same JSON. User overrides are a `Device`-scope
+setting (`keymap.overrides`) the registry applies on load, so the coverage test runs on the shipped
+map and the override path is one function.
+
+**Tested:** registry round-trips (declare → JSON → Swift decode) pinned by a Swift test as
+`ViewKindId::KNOWN` is; migration: a test seeds `UserDefaults` in a scratch suite, reads through the
+wrapper, asserts the file value and that the old key is still there; the coverage test above.
+**Fails loudly:** an unknown key or chord id is an error at first read and in CI; a chord collision
+fails CI naming both bindings; a `Verb` binding to a removed verb fails after P3's rename pass.
+
+### Crates and kit tiers
+
+| Crate | Tier | Depends on | Holds |
+|---|---|---|---|
+| `impress-service-core` (existing, pure) | pure | — | `Effects`, `Kind`, `Reach`; the call record type and the audit layer (P2's) |
+| `impress-core` (outside the kit) | — | — | `call_context` task-local, `SpyStore`, `batch_id` stamping, `core/verb-call` compaction |
+| `impress-workflow` (new) | pure | `impress-surface`, `impress-service-core` | spec, validate, plan, dry-run |
+| `impress-scenario` (new) | pure | `impress-surface` (resolve), `impress-service-core` (report) | spec, validate, interpret over `Caller` |
+| `impress-settings` (new) | pure | — (`serde`, `fs_lock` lifted from `impress-ai` into `impress-core`? no: copied 60 lines, or `impress-ai::fs_lock` moves to a pure `impress-fs-lock` — D-R8) | registry, `SettingsStore`, `setting!` |
+| `impress-keymap` (new) | pure | `impress-service-core` (verb names) | `Chord`, `Binding`, `keymap!`, the coverage test |
+| `impress-store-service` (existing, store) | store | as today | `history-service`, `settings-service` |
+| `impress-workflow-service`, `impress-scenario-service` (new) | store | `impress-core` (sqlite), the pure crates, `impel-core`? **no** — the job is created through `impress-core::job` (P4), so neither reaches impel | the verbs, the store rows, the runners |
+| `impress-store-ffi` (existing, store) | store | as today | `SharedSettings`, `Keymap`, the in-app planner tick |
+
+Every new crate goes into `docs/kit-manifest.md`'s table with its tier; `check-kit-deps --strict`
+and `check-kit-standalone` must pass unchanged. A kit crate gaining a dependency is ask-first
+(D-R8 lists the one candidate).
+
+## Decisions needed from Tom (ask-first)
+
+**All approved by Tom on 2026-09-26** (D-R1–D-R13 as recommended; D-R2 amends ADR-0034's D-P3: the audit row is a `core/verb-call`, and the call id is stamped as `batch_id` on every operation the verb wrote). Phase 2 approved in the plan's order.
+
+- **D-R1. New record kinds:** `core/verb-call@1.0.0` (the call record), `impress/workflow@1.0.0`,
+  `impress/scenario@1.0.0`, `impress/settings@1.0.0` (synced scope only). Each is registered in
+  `schema-refs.json` and `impress-core/src/schemas` in its package's PR; none syncs except settings.
+- **D-R2. The audit row is a call record, not an operation** (amends approved D-P3). A `core/operation`
+  row needs an `op_target_id` (NOT NULL, FK, `sqlite_store.rs:820`) and one target; a verb call has
+  zero or many. The approved "one `core/operation` row per mutating verb" cannot be written for a
+  verb that inserts, deletes or touches several rows without inventing a target. Proposal: P2's
+  audit layer writes one `core/verb-call` row (H-P2-4) and stamps `batch_id` on the ops the verb
+  wrote, which gives every op its attribution (D-P3's intent) without a second row. If Tom prefers
+  both, the op row's `target_id` would be the call row itself — recorded here as the rejected shape.
+- **D-R3. Read-only calls are not logged by default** (counted by the span aggregator only); logged
+  under `IMPRESS_CALL_LOG=all` or a trace's request. Alternative: log everything at 10× the volume.
+- **D-R4. `tool-invocation@1.0.0` becomes a projection of the call record** for AI-run tool calls
+  (impress-ai writes it today with full argument values; after L1 it would carry `call_id` and drop
+  `arguments`). Its 13 live rows are not migrated.
+- **D-R5. Migration never deletes a UserDefaults value.** The registry copies on first read and
+  leaves the old key; a later plan removes them once no build reads them. Alternative: remove on
+  migration and lose the value if the new build is rolled back.
+- **D-R6. `state: proposed` workflows from agents; `enable` is a review for an agent** — a policy
+  rule on top of ADR-0034 D3's matrix (a mutating verb an agent may otherwise run).
+- **D-R7. Should `insert`/`insert_batch`/`delete` mint operation rows?** Not needed for this plan
+  (the call row records inserted/deleted ids), but without it time travel cannot see creation or
+  deletion. Recommendation: no, not now — the 23 M-row lesson says every new op source needs its
+  retention decided first; recorded for the store owner.
+- **D-R8. One kit dependency:** `impress-settings` needs a file lock; `impress_ai::fs_lock` is in a
+  store-tier crate. Options: move `fs_lock` into `impress-core` (pure crates cannot reach it),
+  duplicate ~60 lines, or a new 60-line pure crate `impress-fs-lock` both use. Recommendation: the
+  new pure crate.
+- **D-R9. Tier A store injection:** H-P2-3 (`Pipeline::invoke_on(store, …)`, a P2 parameter) or a
+  subprocess per scenario. Recommendation: H-P2-3; it also gives the effects spy its store without
+  a global.
+- **D-R10. The first migrated service is `RetentionCleanupService`**, and #7 (the ungated macOS
+  duplicate) is deleted with it. It deletes user data by design (already does); the workflow calls
+  the undoable verb.
+- **D-R11. Conflict detection refuses destructive verbs only** (`conflict` when a resolved target is
+  being written by another caller) and logs for mutating ones. Alternative: refuse both.
+- **D-R12. Where settings files live:** `<workspace>/settings/` beside `ai/preferences.json`
+  (device, app scopes) and one store row for the synced scope. Alternative: everything in the store
+  (then the daemon cannot read a setting without opening the store, which `impress-ai` avoided).
+- **D-R13. Chord overrides are a device setting**, not per app; the coverage test runs on the shipped
+  map only.
+
+## Work packages
+
+| WP | Owns | Closes | Proof | Gates | Parallel with |
+|---|---|---|---|---|---|
+| **E1 Effects declared** | `impress-service-core/src/descriptor.rs` (`Effects`, `Kind`, `Reach`, `resolve_effects`), `impress-service-macros` (the attribute, the manifest check in `build.rs`), every service crate's `impress_service_impl!`/trait (the seeding pass from appendix A), `docs/verb-effects.md`, `crates/impress-capabilities/tests/effects.rs` (declaration test) | EF-1, EF-2 | every linked verb has an effect set or the test names it; `read_only ⇒ writes = ∅` holds; a misspelt ref fails to compile | full gate; `descriptor.rs` test on P1 | R1, R2 (after P1 merges) |
+| **E2 The spy** | `impress-core/src/store/spy.rs`, the Tier A runner in `effects.rs` over examples, the exception table's generated column | EF-3 | `observed ⊆ declared` for every example; the under-exercised table prints; removing a declared kind from `triage-service_set-starred` fails the build naming the example | `cargo test -p impress-capabilities`; kit checks | E3 |
+| **E3 Invalidation, consistency, impact** | `impress-surface-service/src/runtime.rs` (`query_refs`, `invalidate_sources`), the safety-consistency test, `capabilities-service_impact`, the policy layer's in-flight set (P2's file, with P2's owner) | EF-4, RS-S2, D-R11 | Tier A: a `verb` source over `triage-service_set-starred` re-renders after a write to `imbib/bibliography-entry` (the T2 live proof repeated, now for a verb source); `impact {kind}` lists the verbs; two agents' destructive calls on one id → `conflict` | surface Tier A/B; Tier B on impress | E2 |
+| **L1 The call record** | `impress-core/src/call_context.rs`, `sqlite_store.rs` (`batch_id` stamping, the writer task, compaction of call rows), `schemas/call.rs`, `schema-refs.json`, P2's audit layer body (H-P2-2/4), the privacy filter in `impress-service-core` | CL-1, CL-2, CL-3, CL-5, CL-6 | two verbs under one trace → ops with equal `batch_id`; the channel-full test; the private-argument test; `/api/health` shows `dropped` | full gate; `check-schema-refs`; the P2 bench (≤ 5 µs + the async hand-off) | S1 |
+| **L2 History verbs** | `impress-store-service/src/history_service.rs`, the `why`/`trace`/`replay`/`save-macro`/`health` verbs, `impress-capabilities` link, `docs/verb-coverage.md` row, the generated "why did this change" surface | goals 3; the "what happened / why / replay / macro" list | `history-service_why` on a paper tagged from impress-cli names the call, its caller and the surface it came from, over MCP and the CLI; `replay --dry-run` lists it; `save-macro` writes a workflow that `workflow-service_dry-run` accepts | full gate; Tier B on impress | S1 |
+| **S1 Scenario crate and runner** | new `crates/impress-scenario`, `crates/impress-scenario-service`, the shared Tier B client, H-P2-3, `docs/kit-manifest.md` rows, `docs/agent-surfaces.md` § Scenarios | SC-1, SC-2 | the four converted entries run as scenarios in Tier A (layout ones on a scratch store) and Tier B; the three `run_selftest` verbs report the same ids; the interpreter's fixtures | full gate; kit checks; Tier B on impress | L1, L2 |
+| **S2 Convert the catalogues** | `impress-layout-service/src/tier_b.rs`, `impress-surface-service/src/tier_b.rs`, `imprint-selftest/src/tier_b.rs`, the stored scenario documents | SC-1's copies (one runner) | 20 class-(i) entries as documents; `layout.outline_collection_row` as a `gesture`; the 4 platform entries marked; `imprint`'s report copy deleted | Tier B ×3 catalogues | W1 |
+| **S3 Record a session** | `scenario-service_record`, the capture matcher | SC-3 | a live session on an isolated impress (three papers triaged) is recorded, stored, edited once and runs in Tier B | Tier B on impress | W1 |
+| **W1 Workflow crate and verbs** | new `crates/impress-workflow`, `crates/impress-workflow-service`, `impress/workflow@1.0.0`, the validator, dry run, `docs/kit-manifest.md`, `docs/agent-surfaces.md` § Workflows | WF-2's vocabulary; D-R6 | validator fixtures; `dry-run` returns `would_call`; an agent's `create` stores `proposed`; `enable` from an agent → `review-pending` | full gate; kit checks | S2, S3 |
+| **W2 The planner in both hosts** | `impel-taskd/src/main.rs` (the fourth rule), `impress-store-ffi` (the in-app tick), `impress-workflow::plan`, the `job` and `call` triggers' cursors | WF-2, WF-3, goal 4's runtime rule | Tier A: no run before `start_delay`; a `store` trigger fires once per debounce; a `job` trigger fires on `done`; the daemon and the app never both run one workflow (the lease) | `cargo test -p impel-taskd -p impress-workflow`; Tier B | R3 |
+| **W3 First migration** | `apps/imbib/PublicationManagerCore/…/Inbox/RetentionCleanupService.swift` (deleted), `imbibApp.swift:580-631` + `LibraryManager.swift:485-515` (#7 deleted), `InboxCoordinator.swift:97`, the stored `imbib.retention-cleanup` workflow, the retention settings in the registry (R1) | WF-1 (#4, #7), D-R10 | on an isolated imbib with a throwaway library: the workflow runs 90 s after launch and not before (`/api/logs` shows the job), removes the throwaway stale papers and not the starred one, and `history-service_why` on a removed paper names the run | PMC `swift test`; Tier B imbib; the `log show … SHKSharingServicePicker` check = 0 | R2 |
+| **W4 Proposed workflows** | `history-service_propose-workflows`, the n-gram miner | the loop's last arc | a recorded session of three identical triage sequences yields one `proposed` workflow; nothing runs from it | `cargo test` | last |
+| **R1 Settings registry** | new `crates/impress-settings` (+ `impress-fs-lock` per D-R8), `settings-service`, `SharedSettings` in `impress-store-ffi` (+ regenerated bindings), `@ImpressSetting` in `ImpressKit`, the migration, the first keys (imbib retention, automation), the generated settings surface | RG-1..3 | the migration test; imbib's retention pane is the generated surface reading the registry; `impress settings-service_get imbib.retention.inbox_days` over the CLI and MCP matches the pane | PMC + ImpressKit `swift test`; `check-uniffi-bindings`; kit checks; Tier B imbib | E1..E3 (Mac) |
+| **R2 Keymap registry** | new `crates/impress-keymap`, `keymap_json` in `impress-store-ffi`, `ImpressCommandPalette` registry ids, the first app's `.keyboardShortcut` sites (imbib), `docs/keyboard.md` generated, the coverage test in CI | RG-4..6 | the coverage test passes for imbib and fails when a chord is duplicated in a fixture; Settings ▸ Keyboard shows the registry; the palette and the menu agree by test | PMC `swift test`; the new CI job | R1 |
+| **R3 Second app** | imprint's settings and chords through the registries | the "one app" done-criterion becomes two | as R1/R2 for imprint | | after R1, R2 |
+
+Order: E1 → E2 → E3 (E1 the day P1 merges); L1 → L2 after P2; S1 after L1 and H-P2-3, S2 ∥ S3 after S1;
+W1 after P4 and L2, W2 after W1, W3 after W2 and R1, W4 last; R1 ∥ R2 beside everything (Mac), R3 after
+both. Parallel sets with disjoint files: {E1, R1, R2}, {E2, E3}, {L1, S1 (crate half)}, {S2, S3, W1},
+{W2, R3}.
+
+## Ask-first list (stop that thread, write the question in the PR, continue elsewhere)
+
+Everything under § Decisions needed, and in Phase 2 any of: a new record kind or schema ref beyond
+D-R1; renaming or removing a verb or changing its arguments (`replay = full` is a descriptor field,
+not an argument); a new action kind in the surface vocabulary (none is planned — `trigger` is an
+event, not an action); a kit crate gaining a dependency beyond D-R8; deleting user data beyond what
+`RetentionCleanupService` already deletes; a setting migration that could lose a value (D-R5 says
+none can); changing what a preset contains; any change to impel's task model beyond P4's fields and
+the `impress.workflow.run` kind.
+
+## Recommendation
+
+**Go, in the order E → L → S → W with R beside them, and with E1 written against P1's branch now.**
+The measurements settle the two questions the brief left open. Effects must be *declared* (76 verbs'
+effects are a function of an argument, and a static reading over-approximates the rest) and
+*verified by a spy* — at build time over the examples, and at run time by the call log on every path,
+which is the only way the 83 app-bound verbs are ever checked. The call log's join key is `batch_id`,
+which exists, is indexed and is set by nothing meaningful today; one task-local in the store gives
+every op its call without touching 170 call sites. The workflow runtime already exists in the daemon
+(durable tasks, retry, review, `start_delay`) and lacks only a trigger as data, so W1/W2 are a planner
+and a fourth rule, not a scheduler; the first migration deletes a duplicate that forgot the gate on
+one platform, which is the argument for the rule having one owner. Scenarios reuse the surface's
+resolver and the wave-7 report, and 20 of 25 Tier B entries are already sequences of calls. The
+registries are the independent half and need the Mac; their first keys are the ones W3 needs.
+**First work package: E1**, because every other package reads the effect set.
+
+## Appendix A — every verb's static effects (the seed for E1, not a verification)
+
+Columns: the A4 class P1's `docs/verb-safety.md` declares; the canonical kinds named anywhere on the
+call path within three hops (over-approximate, see table EF-1); `r`/`w` when store read/write markers
+were seen on that path; reach markers; and whether the walker found a kind at all (`static`), only
+store markers (`dynamic` — declare `Target(arg)`), only reach (`reach-only`), or nothing (`none` —
+pure computation or an HTTP backend). Generated by the walker on 60833ea1 + P1's table.
+
+| Verb | A4 class (docs/verb-safety.md, P1) | Kinds named on the call path (≤ 3 hops) | Store markers | Reach markers | Static coverage |
+|---|---|---|---|---|---|
+| `collection-service_add-members` | mutating | collection, figure, figure-collection, imbib/collection, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | fs | static |
+| `collection-service_create` | mutating | collection, figure, figure-collection, imbib/collection, manuscript, manuscript-collection | w | — | static |
+| `collection-service_delete` | destructive | collection, figure, figure-collection, imbib/collection, manuscript, manuscript-collection | rw | — | static |
+| `collection-service_member-counts` | read_only | collection, figure, figure-collection, imbib/collection, manuscript, manuscript-collection | r | — | static |
+| `collection-service_migrate` | mutating | collection, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, task@1.0.0 | rw | fs, network | static |
+| `collection-service_migration-status` | read_only | collection, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | fs, network | static |
+| `collection-service_remove-members` | mutating | collection, figure, figure-collection, imbib/collection, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | fs | static |
+| `collection-service_rename` | mutating | collection, figure, figure-collection, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | fs | static |
+| `collection-service_reorder` | mutating | collection, figure, figure-collection, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | fs | static |
+| `collection-service_reparent` | mutating | collection, figure, figure-collection, imbib/collection, manuscript, manuscript-collection | rw | — | static |
+| `collection-service_rollback` | destructive | collection, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | fs, network | static |
+| `collection-service_tree` | read_only | collection, figure, figure-collection, imbib/collection, manuscript, manuscript-collection | r | — | static |
+| `docs-import-service_add-watched-folder` | mutating | impress/ui/surface@1.0.0, watched-folder@1.0.0 | rw | fs | static |
+| `docs-import-service_finish-watched-scan` | mutating | impress/ui/surface@1.0.0, watched-file@1.0.0, watched-folder@1.0.0 | rw | fs | static |
+| `docs-import-service_import-directory` | destructive | manuscript | rw | fs | static |
+| `docs-import-service_import-discovered` | mutating | watched-file@1.0.0, watched-folder@1.0.0 | rw | fs | static |
+| `docs-import-service_list-watched-files` | read_only | manuscript-file@1.0.0, watched-file@1.0.0 | r | — | static |
+| `docs-import-service_list-watched-folders` | read_only | watched-folder@1.0.0 | r | — | static |
+| `docs-import-service_prune-empty-manuscripts` | destructive | manuscript | rw | — | static |
+| `docs-import-service_record-produced-rows` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0, watched-file@1.0.0 | rw | fs, network | static |
+| `docs-import-service_remove-watched-folder` | destructive | watched-file@1.0.0, watched-folder@1.0.0 | rw | — | static |
+| `docs-import-service_update-watched-folder` | mutating | impress/ui/surface@1.0.0, watched-folder@1.0.0 | rw | fs | static |
+| `imbib-annotations-service_count-annotations` | read_only | imbib/annotation | r | — | static |
+| `imbib-annotations-service_create-annotation` | mutating | imbib/annotation | w | — | static |
+| `imbib-annotations-service_create-comment` | mutating | imbib/comment | w | — | static |
+| `imbib-annotations-service_create-comment-on-item` | mutating | imbib/comment | w | — | static |
+| `imbib-annotations-service_list-annotations` | read_only | imbib/annotation | r | — | static |
+| `imbib-annotations-service_list-comments` | read_only | imbib/comment | r | — | static |
+| `imbib-annotations-service_list-comments-for-item` | read_only | imbib/comment | r | — | static |
+| `imbib-annotations-service_list-comments-since` | read_only | imbib/comment | r | — | static |
+| `imbib-annotations-service_update-comment` | destructive | impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-app-service_add-to-library` | external | — | — | — | none |
+| `imbib-app-service_delete-annotation` | external | — | — | — | none |
+| `imbib-app-service_delete-collection` | external | — | — | — | none |
+| `imbib-app-service_delete-comment` | external | — | — | — | none |
+| `imbib-app-service_delete-smart-searches` | external | — | — | — | none |
+| `imbib-app-service_download-pdfs` | external | — | — | — | none |
+| `imbib-app-service_get-logs` | external | — | — | — | none |
+| `imbib-app-service_get-notes` | external | — | — | — | none |
+| `imbib-app-service_open-manuscript-papers` | external | — | — | — | none |
+| `imbib-app-service_recent-activity` | external | — | — | — | none |
+| `imbib-app-service_resolve-identifier` | external | — | — | — | none |
+| `imbib-app-service_search-sources` | external | — | — | — | none |
+| `imbib-app-service_status` | external | — | — | — | none |
+| `imbib-app-service_sync-nudge` | external | — | — | — | none |
+| `imbib-app-service_sync-status` | external | — | — | — | none |
+| `imbib-app-service_tag-artifact` | external | — | — | — | none |
+| `imbib-app-service_update-notes` | external | — | — | — | none |
+| `imbib-artifacts-service_count-artifacts` | read_only | impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage | r | — | static |
+| `imbib-artifacts-service_create-artifact` | mutating | imbib/tag-definition | rw | — | static |
+| `imbib-artifacts-service_delete-artifact` | destructive | — | w | — | dynamic |
+| `imbib-artifacts-service_get-artifact` | read_only | imbib/tag-definition | r | — | static |
+| `imbib-artifacts-service_get-artifact-relations` | read_only | — | r | — | dynamic |
+| `imbib-artifacts-service_link-artifact-to-publication` | mutating | — | w | — | dynamic |
+| `imbib-artifacts-service_list-artifacts` | read_only | imbib/tag-definition, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage | r | — | static |
+| `imbib-artifacts-service_search-artifacts` | read_only | imbib/tag-definition | r | — | static |
+| `imbib-artifacts-service_update-artifact` | mutating | — | w | — | dynamic |
+| `imbib-backup-service_create-backup` | mutating | — | w | fs | dynamic |
+| `imbib-backup-service_delete-backup` | destructive | — | — | fs | reach-only |
+| `imbib-backup-service_inspect-backup` | read_only | — | — | fs | reach-only |
+| `imbib-backup-service_list-backups` | read_only | — | r | fs | dynamic |
+| `imbib-backup-service_prune-backups` | destructive | — | r | fs | dynamic |
+| `imbib-backup-service_restore-backup` | external | — | — | — | none |
+| `imbib-eink-service_eink-append-notes` | mutating | imbib/annotation, imbib/linked-file, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | device | static |
+| `imbib-eink-service_eink-awaiting-source` | read_only | imbib/eink-mirror | r | — | static |
+| `imbib-eink-service_eink-complete-ocr` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-eink-service_eink-configure-device` | mutating | imbib/eink-device | — | — | static |
+| `imbib-eink-service_eink-devices` | read_only | imbib/eink-device | r | — | static |
+| `imbib-eink-service_eink-folder-checklist` | external | — | — | subprocess | reach-only |
+| `imbib-eink-service_eink-import` | external | ai-import-ledger@1.0.0, imbib/eink-device | rw | subprocess | static |
+| `imbib-eink-service_eink-import-document` | external | imbib/bibliography-entry, imbib/eink-device, imbib/eink-mirror, imbib/library, imbib/linked-file, impress/artifact/note | rw | device, fs, subprocess | static |
+| `imbib-eink-service_eink-list-annotations` | read_only | imbib/annotation, imbib/linked-file | r | — | static |
+| `imbib-eink-service_eink-list-mirrored` | read_only | imbib/eink-mirror | r | — | static |
+| `imbib-eink-service_eink-list-unmatched` | external | imbib/eink-device, imbib/eink-mirror | rw | fs, network, subprocess | static |
+| `imbib-eink-service_eink-mark` | mutating | imbib/bibliography-entry, imbib/eink-device, imbib/eink-mirror, imbib/linked-file, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-eink-service_eink-note-source-error` | mutating | imbib/eink-device, imbib/eink-mirror, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-eink-service_eink-pending-ocr` | read_only | imbib/annotation, imbib/linked-file | r | fs | static |
+| `imbib-eink-service_eink-plan` | external | imbib/eink-device | rw | subprocess | static |
+| `imbib-eink-service_eink-reachable` | external | imbib/eink-device | — | fs, network, subprocess | static |
+| `imbib-eink-service_eink-remove-device` | destructive | imbib/eink-device, imbib/eink-mirror | rw | — | static |
+| `imbib-eink-service_eink-resend` | mutating | imbib/eink-mirror, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-eink-service_eink-search-annotations` | read_only | imbib/annotation | r | — | static |
+| `imbib-eink-service_eink-status` | read_only | imbib/bibliography-entry, imbib/eink-device, imbib/eink-mirror | r | device | static |
+| `imbib-eink-service_eink-sync` | external | imbib/eink-device | rw | subprocess | static |
+| `imbib-eink-service_eink-unmark` | mutating | imbib/eink-device, imbib/eink-mirror, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-library-service_add-linked-file` | mutating | imbib/linked-file | w | — | static |
+| `imbib-library-service_add-to-collection` | mutating | — | w | — | dynamic |
+| `imbib-library-service_count-flagged` | read_only | imbib/bibliography-entry | r | — | static |
+| `imbib-library-service_count-pdfs` | read_only | imbib/linked-file | r | — | static |
+| `imbib-library-service_count-publications` | read_only | imbib/bibliography-entry | r | — | static |
+| `imbib-library-service_count-starred` | read_only | imbib/bibliography-entry | r | — | static |
+| `imbib-library-service_count-unread` | read_only | imbib/bibliography-entry | r | — | static |
+| `imbib-library-service_create-collection` | mutating | — | w | — | dynamic |
+| `imbib-library-service_create-library` | mutating | imbib/library | w | — | static |
+| `imbib-library-service_create-muted-item` | mutating | imbib/muted-item | w | — | static |
+| `imbib-library-service_deduplicate-library` | destructive | imbib/bibliography-entry | rw | — | static |
+| `imbib-library-service_delete-library-undoable` | destructive | imbib/bibliography-entry | rw | — | static |
+| `imbib-library-service_delete-publications-undoable` | destructive | — | rw | — | dynamic |
+| `imbib-library-service_dismiss-paper` | mutating | imbib/dismissed-paper | w | — | static |
+| `imbib-library-service_duplicate-publications` | mutating | — | w | fs | dynamic |
+| `imbib-library-service_export-all-bibtex` | read_only | imbib/bibliography-entry, imbib/linked-file | rw | — | static |
+| `imbib-library-service_export-bibtex` | read_only | imbib/linked-file | rw | — | static |
+| `imbib-library-service_get-default-library` | read_only | imbib/bibliography-entry, imbib/library | r | — | static |
+| `imbib-library-service_get-inbox-library` | read_only | imbib/bibliography-entry, imbib/library | r | — | static |
+| `imbib-library-service_get-publication` | read_only | imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_get-publication-detail` | read_only | imbib/linked-file, imbib/tag-definition | rw | — | static |
+| `imbib-library-service_import-bibtex` | mutating | imbib/bibliography-entry | rw | network | static |
+| `imbib-library-service_import-papers` | mutating | imbib/bibliography-entry, imbib/dismissed-paper | rw | fs, network | static |
+| `imbib-library-service_is-paper-dismissed` | read_only | imbib/dismissed-paper | r | — | static |
+| `imbib-library-service_list-collection-members` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_list-collections` | read_only | — | r | — | dynamic |
+| `imbib-library-service_list-dismissed-papers` | read_only | imbib/dismissed-paper | r | — | static |
+| `imbib-library-service_list-libraries` | read_only | imbib/bibliography-entry, imbib/library | r | — | static |
+| `imbib-library-service_list-linked-files` | read_only | imbib/linked-file | r | — | static |
+| `imbib-library-service_list-muted-items` | read_only | imbib/muted-item | r | — | static |
+| `imbib-library-service_list-publications` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_move-publications` | mutating | core/operation | w | — | static |
+| `imbib-library-service_purge-dismissed-from-collection` | mutating | imbib/bibliography-entry, imbib/dismissed-paper | rw | — | static |
+| `imbib-library-service_query-publications` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_query-recent` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_query-starred` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_query-unread` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_remove-from-collection` | mutating | — | w | — | dynamic |
+| `imbib-library-service_search-publications` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/library, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-library-service_set-flag` | mutating | core/operation, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-library-service_set-library-default` | mutating | imbib/library, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-library-service_set-read` | mutating | core/operation, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-library-service_set-starred` | mutating | core/operation, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-library-service_sidebar-view` | read_only | imbib/bibliography-entry, imbib/library, imbib/smart-search, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage | r | — | static |
+| `imbib-manuscripts-service_compile-manuscript` | external | — | — | — | none |
+| `imbib-manuscripts-service_create-manuscript` | external | — | — | — | none |
+| `imbib-manuscripts-service_create-manuscript-from-template` | external | — | — | — | none |
+| `imbib-manuscripts-service_get-manuscript` | external | — | — | — | none |
+| `imbib-manuscripts-service_list-manuscripts` | external | — | — | — | none |
+| `imbib-manuscripts-service_list-templates` | external | — | — | — | none |
+| `imbib-manuscripts-service_write-manuscript-body` | external | — | — | — | none |
+| `imbib-scix-service_add-to-scix-library` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-scix-service_count-scix-library-publications` | read_only | imbib/bibliography-entry | r | — | static |
+| `imbib-scix-service_create-scix-library` | mutating | imbib/scix-library | w | — | static |
+| `imbib-scix-service_get-scix-library` | read_only | imbib/scix-library | r | — | static |
+| `imbib-scix-service_list-scix-libraries` | read_only | imbib/scix-library | r | — | static |
+| `imbib-scix-service_query-scix-library-publications` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-scix-service_remove-from-scix-library` | mutating | — | w | — | dynamic |
+| `imbib-search-service_create-smart-search` | mutating | imbib/smart-search | w | — | static |
+| `imbib-search-service_find-by-arxiv` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-search-service_find-by-bibcode` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-search-service_find-by-cite-key` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-search-service_find-by-doi` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-search-service_find-by-identifiers-batch` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-search-service_full-text-search` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-search-service_get-smart-search` | read_only | imbib/smart-search | r | — | static |
+| `imbib-search-service_list-smart-searches` | read_only | imbib/smart-search | r | — | static |
+| `imbib-search-service_resolve-cite-key` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/library, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-tags-service_add-tag` | mutating | core/operation, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-tags-service_count-by-tag` | read_only | imbib/bibliography-entry | r | — | static |
+| `imbib-tags-service_create-tag` | mutating | imbib/tag-definition | w | — | static |
+| `imbib-tags-service_delete-tag-undoable` | destructive | imbib/bibliography-entry, imbib/tag-definition | rw | — | static |
+| `imbib-tags-service_list-tags` | read_only | imbib/tag-definition | rw | — | static |
+| `imbib-tags-service_list-tags-with-counts` | read_only | imbib/bibliography-entry, imbib/tag-definition | r | — | static |
+| `imbib-tags-service_query-by-tag` | read_only | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device | static |
+| `imbib-tags-service_remove-tag` | mutating | core/operation, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-tags-service_rename-tag` | mutating | imbib/bibliography-entry, imbib/tag-definition, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-tags-service_update-tag` | mutating | imbib/tag-definition, impress/ui/surface@1.0.0 | rw | fs | static |
+| `imbib-text-service_decode-latex` | read_only | — | — | — | none |
+| `imbib-text-service_expand-journal-macro` | read_only | — | — | — | none |
+| `imbib-text-service_generate-cite-key` | read_only | — | — | — | none |
+| `imbib-text-service_normalize-tag-path` | read_only | — | — | — | none |
+| `imbib-text-service_normalize-tag-segment` | read_only | — | — | — | none |
+| `imbib-undo-service_recent-undo-groups` | read_only | core/operation | rw | — | static |
+| `imbib-undo-service_undo-batch` | mutating | citation-usage, core/operation, manuscript-change@1.0.0, manuscript-revision | rw | device, fs | static |
+| `imbib-undo-service_undo-operation` | mutating | core/operation, manuscript-change@1.0.0, manuscript-revision | w | fs | static |
+| `impart-service_add-message` | external | — | — | — | none |
+| `impart-service_branch-conversation` | external | — | — | — | none |
+| `impart-service_create-conversation` | external | — | — | — | none |
+| `impart-service_get-conversation` | external | — | — | — | none |
+| `impart-service_get-logs` | external | — | — | — | none |
+| `impart-service_list-conversations` | external | — | — | — | none |
+| `impart-service_record-artifact` | external | — | — | — | none |
+| `impart-service_record-decision` | external | — | — | — | none |
+| `impart-service_status` | external | — | — | — | none |
+| `impart-service_update-conversation` | external | — | — | — | none |
+| `impel-service_cancel-task` | destructive | core/operation, manuscript-change@1.0.0, manuscript-revision, task@1.0.0 | rw | fs | static |
+| `impel-service_list-failed-tasks` | read_only | task@1.0.0 | r | — | static |
+| `impel-service_list-pending-reviews` | read_only | review-request@1.0.0 | r | — | static |
+| `impel-service_resolve-review` | mutating | citation-usage, core/operation, impress/ui/preset@1.0.0, impress/ui/surface-event@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-revision, review-request@1.0.0, task@1.0.0 | rw | fs | static |
+| `impel-service_retention-status` | read_only | core/operation, review-request@1.0.0, task@1.0.0 | — | — | static |
+| `impel-service_scheduler-status` | read_only | review-request@1.0.0, task@1.0.0 | r | fs | static |
+| `implore-service_create-figure` | external | — | — | — | none |
+| `implore-service_export-figure` | external | — | — | — | none |
+| `implore-service_get-dataset` | external | — | — | — | none |
+| `implore-service_get-figure` | external | — | — | — | none |
+| `implore-service_get-logs` | external | — | — | — | none |
+| `implore-service_list-datasets` | external | — | — | — | none |
+| `implore-service_list-figures` | external | — | — | — | none |
+| `implore-service_plot-histogram` | external | — | — | — | none |
+| `implore-service_plot-series` | external | — | — | — | none |
+| `implore-service_rg-batch` | external | — | — | — | none |
+| `implore-service_rg-cascade-plot` | external | — | — | — | none |
+| `implore-service_rg-colormaps` | external | — | — | — | none |
+| `implore-service_rg-control` | external | — | — | — | none |
+| `implore-service_rg-load` | external | — | — | — | none |
+| `implore-service_rg-slice-png` | external | — | — | — | none |
+| `implore-service_rg-slice-raw` | external | — | — | — | none |
+| `implore-service_rg-slice-save` | external | — | — | — | none |
+| `implore-service_rg-state` | external | — | — | — | none |
+| `implore-service_rg-statistics` | external | — | — | — | none |
+| `implore-service_status` | external | — | — | — | none |
+| `impress-ai-service_ai-health` | external | — | — | — | none |
+| `impress-ai-service_ai-preferences` | read_only | — | — | — | none |
+| `impress-ai-service_create-conversation` | mutating | — | — | — | none |
+| `impress-ai-service_get-conversation` | read_only | — | — | — | none |
+| `impress-ai-service_list-conversations` | read_only | — | — | — | none |
+| `impress-ai-service_list-models` | external | — | — | — | none |
+| `impress-ai-service_list-providers` | external | — | — | — | none |
+| `impress-ai-service_mint-pairing-link` | external | — | — | — | none |
+| `impress-ai-service_provider-health` | external | — | — | — | none |
+| `impress-ai-service_queue-message` | mutating | — | — | — | none |
+| `impress-ai-service_run-provenance` | read_only | — | — | — | none |
+| `impress-ai-service_select-model` | mutating | — | — | — | none |
+| `impress-ai-service_set-enabled-tools` | mutating | — | — | — | none |
+| `impress-ai-service_set-provider-endpoint` | mutating | — | — | — | none |
+| `impress-ai-service_task-provenance` | read_only | — | — | — | none |
+| `impress-ai-service_task-status` | read_only | — | — | — | none |
+| `impress-bridges-service_add-papers-from-conversation` | external | conversation@1.0.0, imbib/bibliography-entry, imbib/dismissed-paper, imbib/library, task@1.0.0 | rw | fs, network | static |
+| `impress-bridges-service_cite-in-section` | mutating | extraction-run@1.0.0, imbib/bibliography-entry, imbib/tag-definition, manuscript, manuscript-section | rw | fs | static |
+| `impress-bridges-service_cite-multiple` | external | imbib/bibliography-entry, imbib/library, imbib/tag-definition | rw | — | static |
+| `impress-bridges-service_cite-paper` | external | imbib/bibliography-entry, imbib/library | rw | — | static |
+| `impress-bridges-service_conversation-decisions` | external | chat-message, conversation@1.0.0, task@1.0.0 | r | fs | static |
+| `impress-bridges-service_conversation-to-outline` | external | chat-message, conversation@1.0.0, task@1.0.0 | rw | fs, network | static |
+| `impress-bridges-service_embed-figure` | external | — | rw | fs | dynamic |
+| `impress-bridges-service_embed-figure-reference` | external | — | rw | — | dynamic |
+| `impress-bridges-service_export-conversation-citations` | external | conversation@1.0.0, imbib/bibliography-entry, imbib/eink-mirror, imbib/library, imbib/linked-file, imbib/tag-definition, task@1.0.0 | rw | device, fs, network | static |
+| `impress-bridges-service_extract-papers-from-conversation` | external | chat-message, conversation@1.0.0, task@1.0.0 | rw | fs, network | static |
+| `impress-bridges-service_extract-papers-from-text` | read_only | — | rw | fs, network | dynamic |
+| `impress-bridges-service_get-citation-suggestions` | external | imbib/bibliography-entry, imbib/eink-mirror, imbib/linked-file, imbib/tag-definition | rw | device, fs | static |
+| `impress-bridges-service_get-item` | read_only | — | w | fs | dynamic |
+| `impress-bridges-service_get-related` | read_only | — | rw | fs | dynamic |
+| `impress-bridges-service_list-available-figures` | external | — | r | fs | dynamic |
+| `impress-bridges-service_resolve-artifact` | read_only | conversation@1.0.0, imbib/bibliography-entry, imbib/library, imbib/tag-definition, manuscript, manuscript-section, task@1.0.0 | rw | fs, network, subprocess | static |
+| `impress-bridges-service_search-all` | read_only | — | rw | fs | dynamic |
+| `impress-bridges-service_sync-figure` | external | — | r | fs | dynamic |
+| `impress-surface-service_surface-create` | mutating | collection, figure, figure-collection, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | network | static |
+| `impress-surface-service_surface-delete` | destructive | — | w | — | dynamic |
+| `impress-surface-service_surface-dispatch` | mutating | agent-run@1.0.0, chat-message, collection, email-message, figure, figure-collection, imbib/bibliography-entry, imbib/collection, imbib/eink-device, imbib/library, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface-state@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-collection, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0, task@1.0.0 | rw | fs, subprocess | static |
+| `impress-surface-service_surface-events` | read_only | imbib/eink-device, impress/ui/surface-event@1.0.0, impress/ui/surface@1.0.0 | rw | subprocess | static |
+| `impress-surface-service_surface-examples` | read_only | — | — | — | none |
+| `impress-surface-service_surface-get` | read_only | — | w | — | dynamic |
+| `impress-surface-service_surface-list` | read_only | impress/ui/surface@1.0.0 | rw | — | static |
+| `impress-surface-service_surface-render` | read_only | agent-run@1.0.0, chat-message, collection, email-message, figure, figure-collection, imbib/bibliography-entry, imbib/collection, imbib/eink-device, imbib/library, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface-state@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-collection, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0, task@1.0.0 | rw | fs, subprocess | static |
+| `impress-surface-service_surface-schema` | read_only | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | — | — | static |
+| `impress-surface-service_surface-show` | mutating | agent-run@1.0.0, chat-message, collection, email-message, figure, figure-collection, imbib/bibliography-entry, imbib/collection, imbib/eink-device, imbib/library, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface-state@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-collection, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0, task@1.0.0 | rw | fs, subprocess | static |
+| `impress-surface-service_surface-state-get` | read_only | imbib/eink-device | rw | subprocess | static |
+| `impress-surface-service_surface-state-set` | mutating | agent-run@1.0.0, chat-message, collection, email-message, figure, figure-collection, imbib/bibliography-entry, imbib/collection, imbib/eink-device, imbib/library, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface-state@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-collection, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0, task@1.0.0 | rw | fs, subprocess | static |
+| `impress-surface-service_surface-update` | mutating | core/operation, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0, manuscript-change@1.0.0, manuscript-revision, vw/command-receipt@1.0.0 | rw | fs, network | static |
+| `impress-surface-service_surface-validate` | read_only | — | rw | subprocess | dynamic |
+| `impress-surface-service_surface-wait` | read_only | imbib/eink-device, impress/ui/surface-event@1.0.0, impress/ui/surface@1.0.0 | rw | subprocess | static |
+| `imprint-app-service_create-comment` | external | — | — | — | none |
+| `imprint-app-service_create-document` | external | — | — | — | none |
+| `imprint-app-service_delete-comment` | external | — | — | — | none |
+| `imprint-app-service_delete-text` | external | — | — | — | none |
+| `imprint-app-service_get-bibliography` | external | — | — | — | none |
+| `imprint-app-service_get-content` | external | — | — | — | none |
+| `imprint-app-service_get-logs` | external | — | — | — | none |
+| `imprint-app-service_get-pdf` | external | — | — | — | none |
+| `imprint-app-service_insert-text` | external | — | — | — | none |
+| `imprint-app-service_list-comments` | external | — | — | — | none |
+| `imprint-app-service_replace` | external | — | — | — | none |
+| `imprint-app-service_status` | external | — | — | — | none |
+| `imprint-app-service_update-comment` | external | — | — | — | none |
+| `imprint-app-service_update-document` | external | — | — | — | none |
+| `imprint-app-service_update-metadata` | external | — | — | — | none |
+| `imprint-manuscript-service_compile-latex` | read_only | — | — | subprocess | reach-only |
+| `imprint-manuscript-service_compile-typst` | mutating | — | rw | fs | dynamic |
+| `imprint-manuscript-service_delete-section` | destructive | — | w | — | dynamic |
+| `imprint-manuscript-service_document-citations` | read_only | — | — | — | none |
+| `imprint-manuscript-service_document-outline` | read_only | — | — | — | none |
+| `imprint-manuscript-service_export-document` | read_only | — | — | — | none |
+| `imprint-manuscript-service_get-document` | read_only | — | r | — | dynamic |
+| `imprint-manuscript-service_get-section` | read_only | — | r | fs | dynamic |
+| `imprint-manuscript-service_list-documents` | read_only | — | r | device, network | dynamic |
+| `imprint-manuscript-service_list-sections` | read_only | bibliography-entry, chat-message, manuscript-section | rw | — | static |
+| `imprint-manuscript-service_presentation-outline` | read_only | — | rw | — | dynamic |
+| `imprint-manuscript-service_put-section` | mutating | extraction-run@1.0.0, impress/ui/surface@1.0.0, manuscript-section | rw | fs | static |
+| `imprint-manuscript-service_reorder-presentation-slide` | read_only | — | rw | — | dynamic |
+| `imprint-manuscript-service_replace-in-section` | destructive | extraction-run@1.0.0, manuscript-section | rw | fs | static |
+| `imprint-manuscript-service_search` | read_only | — | r | — | dynamic |
+| `imprint-manuscript-service_search-in-text` | read_only | — | r | — | dynamic |
+| `imprint-manuscript-service_set-presentation-slide-beat` | read_only | — | rw | — | dynamic |
+| `imprint-project-service_project-build` | external | extraction-run@1.0.0, figure, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, manuscript, manuscript-build@1.0.0, manuscript-file@1.0.0 | rw | fs, network, subprocess | static |
+| `imprint-project-service_project-build-output` | read_only | manuscript-build@1.0.0 | r | fs | static |
+| `imprint-project-service_project-builds` | read_only | manuscript-build@1.0.0 | r | — | static |
+| `imprint-project-service_project-checkin` | mutating | extraction-run@1.0.0, figure, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, manuscript, manuscript-change@1.0.0, manuscript-file@1.0.0 | rw | fs, network | static |
+| `imprint-project-service_project-checkout` | destructive | manuscript | rw | fs, network | static |
+| `imprint-project-service_project-citations` | read_only | manuscript, manuscript-file@1.0.0, watched-file@1.0.0 | rw | — | static |
+| `imprint-project-service_project-collect` | mutating | imbib/bibliography-entry | w | — | static |
+| `imprint-project-service_project-compile` | read_only | imbib/bibliography-entry, imbib/library, manuscript, manuscript-file@1.0.0, watched-file@1.0.0 | rw | fs | static |
+| `imprint-project-service_project-delete-file` | destructive | manuscript-file@1.0.0 | w | — | static |
+| `imprint-project-service_project-export` | destructive | — | rw | fs | dynamic |
+| `imprint-project-service_project-figure-preview` | external | extraction-run@1.0.0, figure, manuscript, manuscript-file@1.0.0 | rw | fs, network, subprocess | static |
+| `imprint-project-service_project-file` | read_only | manuscript, manuscript-file@1.0.0, watched-file@1.0.0 | rw | fs | static |
+| `imprint-project-service_project-graph` | read_only | manuscript, manuscript-file@1.0.0, plot-spec, watched-file@1.0.0 | rw | — | static |
+| `imprint-project-service_project-import-directory` | mutating | extraction-run@1.0.0, figure, imbib/tag-definition, manuscript, manuscript-change@1.0.0, manuscript-file@1.0.0 | rw | fs, network | static |
+| `imprint-project-service_project-materialize` | mutating | — | rw | fs | dynamic |
+| `imprint-project-service_project-move-file` | mutating | impress/ui/surface@1.0.0, manuscript, manuscript-file@1.0.0, watched-file@1.0.0 | rw | fs, network | static |
+| `imprint-project-service_project-new-figure` | mutating | extraction-run@1.0.0, figure, manuscript, manuscript-file@1.0.0 | rw | fs, network | static |
+| `imprint-project-service_project-outline` | read_only | manuscript, manuscript-file@1.0.0, watched-file@1.0.0 | rw | — | static |
+| `imprint-project-service_project-put-file` | destructive | extraction-run@1.0.0, figure, impress/ui/surface@1.0.0, manuscript, manuscript-file@1.0.0 | rw | fs, network | static |
+| `imprint-project-service_project-reading-list` | read_only | imbib/bibliography-entry | rw | — | static |
+| `imprint-project-service_project-render-figure` | external | extraction-run@1.0.0, figure, manuscript, manuscript-file@1.0.0 | rw | fs, network, subprocess | static |
+| `imprint-project-service_project-set-bibliography` | mutating | impress/ui/surface@1.0.0, manuscript-file@1.0.0 | rw | fs | static |
+| `imprint-project-service_project-set-entry` | mutating | manuscript, manuscript-file@1.0.0 | rw | network | static |
+| `imprint-project-service_project-set-figure-build` | mutating | impress/ui/surface@1.0.0, manuscript-file@1.0.0 | rw | fs | static |
+| `imprint-project-service_project-set-targets` | mutating | manuscript, manuscript-file@1.0.0, plot-spec, watched-file@1.0.0 | rw | network | static |
+| `imprint-project-service_project-snapshot` | mutating | extraction-run@1.0.0, impress/ui/surface@1.0.0, manuscript, manuscript-revision | rw | fs, network | static |
+| `imprint-project-service_project-status` | read_only | manuscript | r | fs | static |
+| `imprint-project-service_project-sync-reading-collection` | mutating | imbib/bibliography-entry, imbib/library | rw | — | static |
+| `imprint-project-service_project-tree` | read_only | manuscript, manuscript-file@1.0.0, plot-spec, watched-file@1.0.0 | rw | — | static |
+| `imprint-project-service_project-uncollect` | mutating | imbib/bibliography-entry | rw | — | static |
+| `imprint-selftest-service_run-selftest` | external | figure, imbib/bibliography-entry, imbib/library, manuscript | rw | fs | static |
+| `imprint-text-service_compose-citation` | read_only | — | — | — | none |
+| `imprint-text-service_compose-heading` | read_only | — | — | — | none |
+| `imprint-text-service_extract-cite-key-usages` | read_only | — | — | — | none |
+| `imprint-text-service_extract-cite-keys` | read_only | — | w | — | dynamic |
+| `imprint-text-service_format-latex` | read_only | — | — | — | none |
+| `imprint-throughline-service_create-throughline` | mutating | throughline | rw | — | static |
+| `imprint-throughline-service_delete-throughline` | destructive | — | rw | fs | dynamic |
+| `imprint-throughline-service_get-anchor-states` | read_only | bibliography-entry, chat-message, manuscript-section | rw | — | static |
+| `imprint-throughline-service_get-coverage` | read_only | bibliography-entry, chat-message, manuscript-section | rw | — | static |
+| `imprint-throughline-service_get-throughline` | read_only | — | r | fs | dynamic |
+| `imprint-throughline-service_mark-supporting` | mutating | throughline | rw | — | static |
+| `imprint-throughline-service_remove-anchor` | mutating | throughline | rw | — | static |
+| `imprint-throughline-service_set-anchor` | mutating | bibliography-entry, chat-message, manuscript-section, throughline | rw | — | static |
+| `imprint-throughline-service_update-throughline-source` | destructive | throughline | rw | — | static |
+| `layout-selftest-service_run-selftest` | external | collection | rw | network | static |
+| `layout-service_apply-layout` | destructive | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | fs | static |
+| `layout-service_apply-preset` | destructive | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | fs | static |
+| `layout-service_bind-param` | mutating | — | rw | fs | dynamic |
+| `layout-service_close` | mutating | — | rw | fs | dynamic |
+| `layout-service_commit` | destructive | collection, figure, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0, manuscript | rw | fs | static |
+| `layout-service_delete-layout` | destructive | impress/ui/layout@1.0.0 | rw | — | static |
+| `layout-service_detach` | mutating | — | rw | fs | dynamic |
+| `layout-service_focus` | mutating | — | rw | fs | dynamic |
+| `layout-service_focus-direction` | mutating | — | rw | fs | dynamic |
+| `layout-service_get-channel` | read_only | imbib/eink-device | rw | fs, network, subprocess | static |
+| `layout-service_get-layout` | read_only | — | rw | — | dynamic |
+| `layout-service_get-pane` | read_only | agent-run@1.0.0, chat-message, collection, core/operation, email-message, figure, figure-collection, imbib/bibliography-entry, imbib/collection, imbib/library, impress/artifact/code, impress/artifact/dataset, impress/artifact/general, impress/artifact/media, impress/artifact/note, impress/artifact/poster, impress/artifact/presentation, impress/artifact/webpage, impress/ui/surface@1.0.0, manuscript, manuscript-collection, task@1.0.0 | rw | — | static |
+| `layout-service_list-layouts` | read_only | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | fs | static |
+| `layout-service_list-presets` | read_only | collection, figure, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, manuscript | rw | fs | static |
+| `layout-service_maximize` | mutating | — | rw | fs | dynamic |
+| `layout-service_move-tile` | mutating | — | rw | fs | dynamic |
+| `layout-service_redo` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0 | rw | fs | static |
+| `layout-service_reset-preset` | destructive | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | fs | static |
+| `layout-service_resize` | mutating | — | rw | fs | dynamic |
+| `layout-service_resolve-reference` | read_only | imbib/eink-device | rw | fs | static |
+| `layout-service_restore` | mutating | — | rw | fs | dynamic |
+| `layout-service_save-layout` | destructive | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | — | static |
+| `layout-service_save-preset` | destructive | collection, core/operation, figure, imbib/eink-device, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, manuscript, manuscript-change@1.0.0, manuscript-revision | rw | fs | static |
+| `layout-service_select` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-channel` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-collapsed` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-container-kind` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-default-channel` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-pane` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-query` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-role` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-view-kind` | mutating | — | rw | fs | dynamic |
+| `layout-service_set-window-geometry` | mutating | — | rw | fs | dynamic |
+| `layout-service_split` | mutating | — | rw | fs | dynamic |
+| `layout-service_swap` | mutating | — | rw | fs | dynamic |
+| `layout-service_undo` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, impress/ui/surface@1.0.0 | rw | fs | static |
+| `manuscript-collab-service_commit-manuscript-body` | mutating | manuscript, manuscript-change@1.0.0, manuscript-file@1.0.0 | rw | fs | static |
+| `manuscript-collab-service_manuscript-change-history` | read_only | manuscript, manuscript-change@1.0.0, manuscript-file@1.0.0 | rw | fs | static |
+| `manuscript-collab-service_manuscript-heads` | read_only | manuscript, manuscript-change@1.0.0, manuscript-file@1.0.0 | rw | fs | static |
+| `manuscript-collab-service_manuscript-text-at` | read_only | manuscript, manuscript-change@1.0.0, manuscript-file@1.0.0 | rw | fs | static |
+| `memory-service_confirm-claim` | mutating | core/operation, manuscript-change@1.0.0, manuscript-revision, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | w | fs | static |
+| `memory-service_forget` | destructive | citation-usage, core/operation, manuscript-change@1.0.0, manuscript-revision, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | w | fs | static |
+| `memory-service_memory-brief` | read_only | memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | rw | — | static |
+| `memory-service_memory-status` | read_only | memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | r | — | static |
+| `memory-service_recall` | read_only | memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | rw | — | static |
+| `memory-service_remember` | mutating | memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | rw | — | static |
+| `memory-service_supersede-claim` | mutating | core/operation, manuscript-change@1.0.0, manuscript-revision, memory/claim@1.0.0, memory/episode@1.0.0, memory/instruction@1.0.0 | w | fs | static |
+| `parsers-service_decode-mime-header` | read_only | — | — | — | none |
+| `parsers-service_decode-quoted-printable` | read_only | — | — | — | none |
+| `parsers-service_extract-landing-page-pdf` | read_only | — | — | — | none |
+| `parsers-service_list-publisher-rules` | read_only | — | — | — | none |
+| `parsers-service_parse-mbox` | read_only | — | rw | — | dynamic |
+| `parsers-service_resolve-publisher-pdf` | read_only | — | — | network | reach-only |
+| `smart-search-service_build-ads-query` | read_only | — | rw | — | dynamic |
+| `smart-search-service_classify-search-input` | read_only | — | r | network, subprocess | dynamic |
+| `smart-search-service_clean-ads-query` | read_only | — | r | — | dynamic |
+| `smart-search-service_extract-page-identifiers` | read_only | — | rw | fs, network | dynamic |
+| `smart-search-service_free-text-extraction-prompt` | read_only | — | — | — | none |
+| `smart-search-service_normalize-ads-query` | read_only | — | — | — | none |
+| `smart-search-service_reference-parse-prompt` | read_only | — | — | — | none |
+| `smart-search-service_rewrite-free-text-query` | read_only | — | — | — | none |
+| `smart-search-service_split-reference-blocks` | read_only | — | — | — | none |
+| `smart-search-service_validate-parsed-reference` | read_only | — | r | network | dynamic |
+| `source-service_get-citation` | read_only | figure-region@1.0.0, source-citation@1.0.0 | rw | — | static |
+| `source-service_get-content-chunk` | read_only | content-chunk@1.0.0, figure-region@1.0.0 | rw | — | static |
+| `source-service_get-figure-image` | external | collection, content-chunk@1.0.0, extraction-run@1.0.0, figure, figure-collection, figure-region@1.0.0, imbib/collection, manuscript, manuscript-collection, source-citation@1.0.0 | rw | fs, subprocess | static |
+| `source-service_get-page-image` | external | content-chunk@1.0.0, extraction-run@1.0.0, figure-region@1.0.0, source-citation@1.0.0 | rw | fs, subprocess | static |
+| `source-service_put-citation` | mutating | collection, extraction-run@1.0.0, figure, figure-collection, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection, source-citation@1.0.0 | rw | fs | static |
+| `source-service_put-content-chunk` | mutating | collection, content-chunk@1.0.0, extraction-run@1.0.0, figure, figure-collection, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection, source-citation@1.0.0 | rw | fs | static |
+| `source-service_put-extraction-run` | mutating | collection, extraction-run@1.0.0, figure, figure-collection, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | fs | static |
+| `source-service_put-figure-region` | mutating | collection, extraction-run@1.0.0, figure, figure-collection, figure-region@1.0.0, imbib/collection, impress/ui/surface@1.0.0, manuscript, manuscript-collection | rw | fs | static |
+| `source-service_search-content-chunks` | read_only | content-chunk@1.0.0, figure-region@1.0.0 | rw | — | static |
+| `store-query-service_get-item` | read_only | — | — | — | none |
+| `store-query-service_list-items` | read_only | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0 | rw | — | static |
+| `store-query-service_related-items` | read_only | email-message, figure, imbib/bibliography-entry, impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, manuscript | rw | — | static |
+| `store-query-service_search-all` | read_only | — | r | network, subprocess | dynamic |
+| `surface-demo-service_histogram` | read_only | — | rw | — | dynamic |
+| `surface-demo-service_series` | read_only | — | rw | — | dynamic |
+| `surface-selftest-service_run-selftest` | external | collection | rw | network | static |
+| `triage-service_add-tag` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `triage-service_remove-tag` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `triage-service_set-flag` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `triage-service_set-starred` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `triage-service_set-status` | mutating | impress/ui/surface@1.0.0 | rw | fs | static |
+| `vw-diagnostic-service_close-session` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, vw/command-receipt@1.0.0, vw/measurement@1.0.0, vw/observation@1.0.0, vw/procedure-run@1.0.0 | rw | — | static |
+| `vw-diagnostic-service_create-session` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, vw/command-receipt@1.0.0, vw/configuration@1.0.0, vw/diagnostic-session@1.0.0, vw/measurement@1.0.0, vw/observation@1.0.0, vw/procedure-run@1.0.0, vw/vehicle@1.0.0 | rw | fs | static |
+| `vw-diagnostic-service_evaluate-session` | read_only | — | rw | — | dynamic |
+| `vw-diagnostic-service_get-capabilities` | read_only | — | rw | — | dynamic |
+| `vw-diagnostic-service_get-photo` | read_only | — | — | — | none |
+| `vw-diagnostic-service_get-session` | read_only | — | — | — | none |
+| `vw-diagnostic-service_ingest-photo` | external | content-blob@1.0.0, extraction-run@1.0.0, imbib/linked-file, impress/artifact/media, vw/photo-evidence@1.0.0 | rw | fs | static |
+| `vw-diagnostic-service_list-applicable-procedures` | read_only | — | rw | — | dynamic |
+| `vw-diagnostic-service_list-sessions` | read_only | vw/diagnostic-session@1.0.0 | r | — | static |
+| `vw-diagnostic-service_recommend-next-test` | read_only | — | rw | — | dynamic |
+| `vw-diagnostic-service_record-measurement` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, vw/command-receipt@1.0.0, vw/measurement@1.0.0, vw/observation@1.0.0, vw/procedure-run@1.0.0 | rw | — | static |
+| `vw-diagnostic-service_record-observation` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, vw/command-receipt@1.0.0, vw/measurement@1.0.0, vw/observation@1.0.0, vw/procedure-run@1.0.0 | rw | — | static |
+| `vw-diagnostic-service_record-procedure-step` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, vw/command-receipt@1.0.0, vw/measurement@1.0.0, vw/observation@1.0.0, vw/procedure-run@1.0.0 | rw | — | static |
+| `vw-diagnostic-service_search-photos` | read_only | — | r | — | dynamic |
+| `vw-diagnostic-service_start-procedure` | mutating | impress/ui/layout@1.0.0, impress/ui/preset@1.0.0, vw/command-receipt@1.0.0, vw/measurement@1.0.0, vw/observation@1.0.0, vw/procedure-run@1.0.0 | rw | — | static |
+
+## Appendix B — every Tier B entry, and what a scenario needs to express it
+
+Legend: **M** mutates, **C** cleans up, **L** asserts on rendering by polling `GET /api/logs?category=layout&after=`
+(`layout tier_b.rs:1395-1426`). Class: (i) calls and assertions only; (ii) a human/GUI event; (iii) app
+state a verb could set; (iv) platform. "Needs" names the scenario-format feature the entry requires
+beyond a plain `call` step.
+
+| # | Id (file:line) | Calls, in order | Asserts | M/C | Class | Needs |
+|---|---|---|---|---|---|---|
+| 1 | imprint `app.reachable` (`tier_b.rs:93`) | `GET /api/status` (the probe that gates the tier, `:35`) | responds | — | i | `requires.app` |
+| 2 | imprint `app.list_documents` (`:109`) | `GET /api/documents` | 2xx, decodes | — | i | — |
+| 3 | imprint `app.cross_doc_search` (`:124`) | `GET /api/search?q=the&limit=5` | responds | — | i | — |
+| 4 | imprint `app.compile_pdf` (`:276`) | `POST /api/compile/typst` with an inline source | PDF bytes > 0 (a decode error is a skip) | — | i | `len` on a binary result |
+| 5 | imprint `throughline.opt_in_live` (`:315`) | three `GET …/throughline`, `…/anchors`, `…/coverage` on a random doc id | all 404 | — | i | `{{uuid}}`, `status` |
+| 6 | imprint `throughline.live_round_trip` (`:344`) | `POST …/throughline`, `GET …/anchors`, `PATCH …/anchors {mark-supporting}`, `DELETE …/throughline`, `GET …/throughline` | `has_throughline`, anchor states `["synced"]`, delete true, then 404 | M, C | i | `capture`, `teardown` |
+| 7 | imprint `manuscripts.detail_and_history` (`:211`) | `GET /api/manuscripts`; per row `GET …/{id}`; first 3: `…/history`, `…/revisions` | every row's `store_detail_found` | — | iii | `each` over a captured list; `requires.kinds_present` (skip when none) |
+| 8 | imprint `store.wal_health` (`:156`) | `GET http://127.0.0.1:8787/api/health` (impress-ai-http) | `wal_bytes ≤ 4 × wal_budget_bytes` | — | iv | another daemon; stays code |
+| 9 | layout `app.reachable` (`tier_b.rs:427`) | `GET /api/status`; setup `POST /api/layout/op {save-layout RESTORE}` (`:441`) | responds | M | i | `seed`-like setup step |
+| 10 | layout `layout.apply_preset` (`:480`) | `op apply-layout ordinal 1`; `GET /api/layout/tree` | `version` present, panes non-empty | M | i | — |
+| 11 | layout `layout.version_moves` (`:512`) | tree; `verb split` on `{role: detail}`; tree; `verb resize` with shares read from the tree; `swap list/detail`; swap back; `close` | `version` strictly increases at each step | M, C | i | `capture` from the tree, `gte` on a captured value, a computed shares array (the one step that is not a literal) |
+| 12 | layout `layout.saved_round_trip` (`:601`) | `op save-layout`; `GET /api/layout/layouts`; `op apply-layout name`; `op delete-layout`; `GET layouts` | listed, then `version`, then gone | M, C | i | `capture`, `contains`/`absent` |
+| 13 | layout `layout.channel_selection` (`:660`) | tree; find the detail param sourced from a channel; `verb select` on the list with a fresh uuid; tree | that channel carries exactly `[uuid]` | M | i | a JSON-path lookup into the tree, `{{uuid}}` |
+| 14 | layout `surface.show_and_dispatch` (`:1434`) | `POST /api/surface`; `GET …/render`; `POST …/dispatch {bins change 17}`; render; `dispatch {choose click}`; `GET …/events?after_seq=0` | re-render shows 17; one effect ok; event `bins-chosen` | M, C (in #22) | i | `event` steps (already data) |
+| 15 | layout `layout.hidden_share` (`:1599`) | tree; `verb set-collapsed {role navigator}`; tree; same again; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `within` tolerance; a Rust constant → a literal in the document |
+| 16 | layout `layout.outline_collection_row` (`:762`) | tree; **in-process `outline_target` + `outline_verbs`** (what a click runs); POST each; tree; `wait_for_log "pane N display: 0 rows"`; `verb select` random item; wait for the detail line | list query = collection query; channel 1 carries the collection; the logs appear | M | ii | `gesture` step; `wait.log`. L |
+| 17 | layout `layout.reading_pdf_pane` (`:978`) | `apply-layout ordinal 1`; tree; `split` a pdf pane; `set-query` read filter; **`first_row_of` reads the shared store in-process** (`:1331-1362`); `select`; wait for `pane N pdf: publication`; `close` | the pdf pane logged the selected paper (note if none) | M, C | iv (+iii) | a read paper with a PDF on disk; depends on #16's leftovers (`:981`). L |
+| 18 | layout `layout.source_pane_session` (`:1173`) | ordinal 1; split a source pane; tree; wait `source session <id> opened`; split a copy; split pdf; swap; close all newest-first; ordinal 1 | sessions stable and distinct; pdf has none; preset keeps the detail session | M, C | i | `wait.log`, `capture`. L |
+| 19 | layout `layout.reading_preset` (`:913`) | `GET /api/status` (passes if not impress); `op apply-layout name Reading`; tree; `set-query`; `first_row_of` (direct store read, missing row **fails**); select; wait | detail pane is `pdf`; the log names the paper | M | iv (+iii) | `requires.app: impress`; a paper with a PDF. L |
+| 20 | layout `layout.console_pane` (`:1099`) | ordinal 1; `split` a console pane with `view_state`; tree; wait for the console line; `close` | `view_state` round-trips; the log appears | M, C | i | `wait.log`. L |
+| 21 | layout `layout.wire_contract` (`:1642`) | tree; raw `POST verb` with an unknown field; `focus` another pane; raw `close` with a stale `expected_revision`; tree; raw `set-view-kind editor` | `wire_version == 1`, no camelCase; 400 `invalid-argument` naming `targett`; 409 `conflict`, revision unchanged; 422 `unknown-view-kind` | M | i | `status`, `code`, `message contains` |
+| 22 | layout `layout.restored` (`:1738`) | `DELETE /api/surface/{id}` for each created surface; `op apply-layout name RESTORE`; `op delete-layout RESTORE` | no errors | C | i | a catalogue-level `teardown` (state shared across entries: the restore point, `created_surfaces`) |
+| 23 | surface `surface.http.routes` (`tier_b.rs:152`) | `POST /api/surface`; 12 table steps (list, schema, examples, validate, get, render, state, put state, dispatch click, events, wait, put `?expected_revision=1`); events; DELETE | each 200 with `wire_version: 1` and its key; event `chosen`; delete ok | M, C | i | already a table (`:168-211`) |
+| 24 | surface `surface.http.strict` (`:250`) | 3 raw calls against a nil uuid (`show` retired target, `events?after=`, `render?pane=`) | 400 `invalid-argument` naming the field | — | i | `status`, `message contains` |
+| 25 | surface `surface.http.invalid_spec` (`:286`) | `POST /api/surface` with an invalid spec; `GET /api/surface` | 422 `invalid-spec` with problems; not stored | — | i | `status`, `absent` |
+
+Counts: (i) 20, (ii) 1, (iii) 1, (iv) 3. Beyond a plain call the format needs: `capture` and JSON-path
+expectations (11 entries), `{{uuid}}` (3), `status`/`code` (4), `within` (1), `each` over a captured
+list (1), `wait.log` (5), `gesture` (1), `requires` with skip (3), `teardown` (4 + the catalogue's).
+Every one of these is in § Scenarios' closed set; nothing needs an expression.
+
+## Session log (append-only)
+
+- 2026-09-26 — Planned on a worktree of main at 60833ea1, branch `claude/plan-self-reflective-layer`,
+  after reading ADR-0034/0035 and both plans, and the in-flight P1 (bdddeb14: `VerbDescriptor`,
+  `MethodMeta`, `#[impress_method(safety, idempotent)]`, `#[impress_example]`, `docs/verb-safety.md`
+  with 433 rows) and P4 (87f4b9c4: `impress-core/src/job.rs`, `task-event@1.0.0`, five `job_*` verbs)
+  branches. Measured: the static effects walker over all 433 verbs (three runs — the first two had
+  a brace-matching and a same-crate-first resolution bug, caught by checking
+  `triage-service_set-starred` and `imbib-library-service_list-publications` by hand against
+  `triage_ops.rs:41` and `store_api.rs:1073-1088`); the operation log's schema, writers, `batch_id`
+  sites, compaction and the 0238eb0a backlog (subagent; re-checked: `idx_items_op_target` at
+  `sqlite_store.rs:866`, `apply_operation` at `:1994`, the commit and its `23.0M` comment); the 31
+  background services and the task model (subagent; re-checked: `performAutomatic` in 9 files,
+  `RetentionCleanupService.swift:54`, the ungated cleanup at `imbibApp.swift:580`); the three
+  catalogues (subagent; re-checked: 8 + 14 + 3 Tier B ids by string literal, 25 + 39 + 15 `cap_*`
+  Tier A functions); settings keys and chords (subagents; re-checked: 79 files / 303 raw
+  `keyboardShortcut` hits → 77 / 299 after the four comment lines, 16 raw `keyboardGuarded` hits →
+  14 sites after the definition and a comment, 122 `@AppStorage` declarations and 83 distinct
+  literal keys against the census's 87 resolved, 51 `register(` lines in `CommandRegistry.swift`
+  against 50 calls, `import ImpressCommandPalette` in 0 files outside the package, the collision
+  test at `PaneLayoutCommandsTests.swift:260`). The brief's 39-file, 81-file, 86/85-key and
+  467-verb figures did not reproduce and the tables say what does. No production code; the walker
+  and its JSON stay in the session scratchpad (appendix A is its output). ADR-0036 written as the
+  decision record; draft PR opened; **stopped before Phase 2** as the brief requires.
