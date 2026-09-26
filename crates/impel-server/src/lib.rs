@@ -15,7 +15,6 @@ use axum::{
     Router,
 };
 use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use impel_core::coordination::CoordinationState;
@@ -131,7 +130,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/agents", post(http::register_agent))
         .route("/agents/{id}", get(http::get_agent))
         .route("/agents/{id}", delete(http::terminate_agent))
-        .route("/agents/{id}/next-thread", get(http::get_next_thread))
+        .route(
+            "/agents/{id}/next-thread",
+            get(http::get_next_thread).post(http::claim_next_thread),
+        )
         // Escalation endpoints
         .route("/escalations", get(http::list_escalations))
         .route("/escalations", post(http::create_escalation))
@@ -153,9 +155,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/status", get(http::get_status))
         // WebSocket
         .route("/ws", get(websocket::ws_handler))
-        // Middleware
+        // Middleware. The bearer check is a LAYER over every route (SEC-8):
+        // `auth_middleware` was defined and never wired, so the server was
+        // open. A route added above is now protected unless `auth.rs`'s
+        // open-route table says otherwise. Innermost layer runs last, so the
+        // trace sees the refusal too. No CORS layer: a bearer-only API on
+        // loopback has no browser origin to admit, and `permissive()` was the
+        // same `Access-Control-Allow-Origin: *` SEC-1 removes from the apps.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::auth_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
