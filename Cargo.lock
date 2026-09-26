@@ -4964,7 +4964,6 @@ dependencies = [
  "email_address",
  "errno",
  "fastrand",
- "flate2",
  "fontdb",
  "form_urlencoded",
  "futures-channel",

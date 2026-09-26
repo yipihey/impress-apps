@@ -50,3 +50,10 @@ workspace-hack-line-style = "workspace-dotted"
 # `rest` shard for the same one. Left out of the unification so the hack crate
 # does not put it back.
 workspace-members = ["uniffi-bindgen"]
+
+[final-excludes]
+# flate2's `zlib` backend (one crate's choice) must not be unified into every
+# library: the store FFI's static lib then references system zlib symbols
+# (`_deflate` …) that an app extension does not link (imbib-FileProvider
+# failed to link on 2026-09-26). Each crate keeps its own flate2 backend.
+third-party = [{ name = "flate2" }]

@@ -44,7 +44,6 @@ digest = { version = "0.10", features = ["mac", "oid", "std"] }
 either = { version = "1", features = ["use_std"] }
 email_address = { version = "0.2" }
 fastrand = { version = "2" }
-flate2 = { version = "1", features = ["zlib", "zlib-rs"] }
 fontdb = { version = "0.23" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
@@ -166,7 +165,6 @@ digest = { version = "0.10", features = ["mac", "oid", "std"] }
 either = { version = "1", features = ["use_std"] }
 email_address = { version = "0.2" }
 fastrand = { version = "2" }
-flate2 = { version = "1", features = ["zlib", "zlib-rs"] }
 fontdb = { version = "0.23" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
