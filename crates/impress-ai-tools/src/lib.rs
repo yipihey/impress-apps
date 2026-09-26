@@ -11,27 +11,14 @@ use impress_ai::{Error, Result, ToolAdapter, ToolDefinition};
 use impress_service_core::McpToolDescriptor;
 use serde_json::{json, Map, Value};
 
-// Keep inventory submissions linked into every consumer of this adapter.
+// Keep inventory submissions linked into every consumer of this adapter:
+// the one linked inventory (ADR-0033 D4), with the features Cargo.toml
+// names, plus the store-generic services — never a second list of service
+// crates here (plan-verb-pipeline PL-6).
 #[allow(unused_imports)]
-use imbib_service as _force_link_imbib;
-#[allow(unused_imports)]
-use impart_service as _force_link_impart;
-#[allow(unused_imports)]
-use implore_service as _force_link_implore;
-#[allow(unused_imports)]
-use impress_ai_service as _force_link_ai;
-#[allow(unused_imports)]
-use impress_bridges_service as _force_link_bridges;
-#[allow(unused_imports)]
-use impress_parsers_service as _force_link_parsers;
-#[allow(unused_imports)]
-use impress_smart_search_service as _force_link_smart_search;
+use impress_capabilities as _force_link_inventory;
 #[allow(unused_imports)]
 use impress_store_service as _force_link_store;
-#[allow(unused_imports)]
-use imprint_service as _force_link_imprint;
-#[allow(unused_imports)]
-use vw_impress_adapter as _force_link_vw;
 
 const CAPABILITIES_TOOL: &str = "impress_capabilities";
 const DOMAINS: &[(&str, &str)] = &[

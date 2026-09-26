@@ -126,6 +126,31 @@ fn run_installers() {
     });
 }
 
+/// A verb's input schema, built once per process: `schema_for!` walks the
+/// derive on every call otherwise, which for a verb taking a pane reference
+/// (a `oneOf` of four shapes) is most of the chain's cost.
+pub fn input_schema(verb: &'static VerbDescriptor) -> &'static Value {
+    use std::collections::HashMap;
+    use std::sync::RwLock;
+    static CACHE: RwLock<Option<HashMap<usize, &'static Value>>> = RwLock::new(None);
+    let key = verb as *const VerbDescriptor as usize;
+    if let Some(found) = CACHE
+        .read()
+        .ok()
+        .and_then(|c| c.as_ref().and_then(|m| m.get(&key).copied()))
+    {
+        return found;
+    }
+    let built: &'static Value = Box::leak(Box::new((verb.input_schema)()));
+    if let Ok(mut cache) = CACHE.write() {
+        cache
+            .get_or_insert_with(HashMap::new)
+            .entry(key)
+            .or_insert(built);
+    }
+    built
+}
+
 /// What the layers before the handler produced.
 struct Prepared {
     context: Arc<CallContext>,
@@ -173,8 +198,8 @@ fn prepare(
 
     // 2. strict args.
     if verb.strict {
-        let schema = (verb.input_schema)();
-        if let Err(refusal) = crate::strict::check_args(verb.name, &args, &schema) {
+        let schema = input_schema(verb);
+        if let Err(refusal) = crate::strict::check_args(verb.name, &args, schema) {
             return Ok(Err(crate::strict::refusal_value(&refusal)));
         }
     }
@@ -271,7 +296,7 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
     drop(span);
 
     if verb.safety.class != SafetyClass::ReadOnly || audit::log_all() {
-        let args_summary = audit::summarize_args(&prepared.args, &(verb.input_schema)());
+        let args_summary = audit::summarize_args(&prepared.args, input_schema(verb));
         audit::record(audit::VerbCallRecord {
             call_id: context.call_id.clone(),
             verb: verb.name,

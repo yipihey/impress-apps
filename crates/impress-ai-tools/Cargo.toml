@@ -14,17 +14,18 @@ impress-service-core.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
-# These dependencies populate the one generated McpToolDescriptor inventory.
-imbib-service.workspace = true
-imbib-service-http.workspace = true
-impart-service.workspace = true
-impart-service-http.workspace = true
-implore-service.workspace = true
-implore-service-http.workspace = true
-imprint-service.workspace = true
-imprint-service-http.workspace = true
-impress-bridges-service.workspace = true
-impress-parsers-service.workspace = true
-impress-smart-search-service.workspace = true
+# The one linked inventory (ADR-0033 D4; plan-verb-pipeline PL-6): the
+# service crates this adapter exposes arrive through `impress-capabilities`'
+# features rather than a second force-link list here. Not `full`: no
+# impel/memory (the daemon hosting this IS impel) and no `kit` — the layout
+# and surface verbs are the app's, not a local model's; the store-generic
+# services still come through `impress-store-service` directly.
+impress-capabilities = { workspace = true, default-features = false, features = [
+    "imbib", "impart", "implore", "imprint", "ai", "bridges", "parsers", "smart-search", "vw",
+] }
 impress-store-service.workspace = true
-vw-impress-adapter = { path = "../vw-impress-adapter" }
+# The probes that install each app's HTTP backend (`probe_reachability`).
+imbib-service-http.workspace = true
+impart-service-http.workspace = true
+implore-service-http.workspace = true
+imprint-service-http.workspace = true

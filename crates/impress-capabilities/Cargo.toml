@@ -38,6 +38,13 @@ vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
 # `impress-capabilities-kit`, so each is named in exactly one place.
 impress-capabilities-kit = { workspace = true, optional = true }
 
+[dev-dependencies]
+# The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run
+# linked verbs on a scratch store through `Pipeline::invoke_on` and read
+# the rows back.
+impress-core = { workspace = true, features = ["sqlite"] }
+impress-store-service = { workspace = true }
+
 [features]
 # `full`: every capability the suite has, for the two binaries that must see
 # everything (impress-mcp, impress-cli). `kit`: the ADR-0033 D7 standalone
