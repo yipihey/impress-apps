@@ -726,7 +726,7 @@ loop; it must run with `CARGO_TARGET_DIR` outside the checkout like the other la
 
 - Changing the `rust-toolchain.toml` pin, or adopting any nightly-only flag (`-Zthreads`,
   `-Zshare-generics` on stable are not options; the parallel frontend is nightly).
-- B6: making embeddings opt-in for any binary changes what that binary can do.
+- B6: making embeddings opt-in for any binary changes what that binary can do. **Declined by Tom, 2026-09-26**: the binaries keep embeddings; B6 is not done. B4 (cargo-hakari) approved the same day.
 - B4: cargo-hakari adds a generated crate every member depends on; it changes every
   `Cargo.toml` and the kit manifest (`check-kit-deps.sh --strict` must learn it).
 - sccache's cache directory location and size on the shared runner Mac (B2).
