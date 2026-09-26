@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
 
 [dependencies]
 # Tier B (`src/tier_b.rs`) drives a running app's `/api/surface/*` over
@@ -62,3 +63,10 @@ jsonschema = { version = "0.33", default-features = false }
 # `tests/coherence.rs` opens two connections on one file — the app and
 # `impress-mcp` as the store sees them.
 tempfile = "3"
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"

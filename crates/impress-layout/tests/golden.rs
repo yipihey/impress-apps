@@ -8,9 +8,7 @@
 //! impress-layout --test golden`) *and* saying in the PR what reads the old
 //! shape.
 
-mod common;
-
-use common::publication_query;
+use crate::common::publication_query;
 use impress_layout::{preset, Layout, ViewKindId};
 
 const GOLDEN: &str = concat!(
