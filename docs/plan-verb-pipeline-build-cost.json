@@ -1,0 +1,6190 @@
+{
+ "commit": "3222f573",
+ "date": "2026-09-26",
+ "verbs": 433,
+ "verb_count_note": "433 = lines matching ^\\s*#\\[impress_method in crates/*-service/src (same as the other agent's inventory count). The naive `grep -rc \"#\\[impress_method\" crates --include=*.rs` gives 458: +22 doc-comment mentions (macros crate docs, surface-demo-service docs, impress-mcp comments), +1 imprint-selftest, +2 impress-service-core/examples/echo_demo.rs. 15 of the 433 (vw-service) expand inside vw-impress-adapter, where impress_service_impl! is invoked.",
+ "verbs_per_service_crate_strict": {
+  "imbib-service": 150,
+  "impart-service": 10,
+  "impel-service": 6,
+  "implore-service": 20,
+  "impress-ai-service": 16,
+  "impress-bridges-service": 18,
+  "impress-layout-service": 37,
+  "impress-memory-service": 7,
+  "impress-parsers-service": 6,
+  "impress-smart-search-service": 10,
+  "impress-store-service": 44,
+  "impress-surface-service": 16,
+  "imprint-service": 76,
+  "surface-demo-service": 2,
+  "vw-service": 15
+ },
+ "machine": {
+  "model": "Mac17,6 (Apple M5 Max)",
+  "cores": "18 (6P+12E), cargo jobs=18",
+  "ram_gb": 128,
+  "macos": "26.7 (25G229)",
+  "disk": "APFS, 2.2 TiB free"
+ },
+ "toolchain": {
+  "rust-toolchain.toml": "1.98.1 (components rustfmt, clippy, llvm-tools)",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "profile.dev": "debug=line-tables-only; [profile.dev.package.\"*\"] debug=false (workspace Cargo.toml)",
+  "tools_installed": "cargo binstall -y cargo-llvm-lines cargo-machete cargo-expand (into ~/.cargo/bin; cargo-llvm-lines 0.4.x, cargo-machete 0.9.2)",
+  "sccache": "not installed, no rustc-wrapper",
+  "target_dir": "$HOME/.cache/impress-build-cost-target/{ws,ws2,impress-mcp,impress-cli,impel-tools,check,bo}"
+ },
+ "commands": {
+  "script_phase1": "/private/tmp/claude-501/-Users-tabel-Projects/f214e633-f2a1-5aba-aa53-436378615459/scratchpad/run-builds.sh",
+  "script_phase2": "/private/tmp/claude-501/-Users-tabel-Projects/f214e633-f2a1-5aba-aa53-436378615459/scratchpad/run-phase2.sh",
+  "cold_workspace": "rm -rf $T/ws; CARGO_TARGET_DIR=$T/ws cargo build --workspace --timings",
+  "incremental_service": "echo '// build-cost probe' >> crates/imbib-service/src/lib.rs; CARGO_TARGET_DIR=$T/ws cargo build --workspace --timings; git checkout -- crates/imbib-service/src/lib.rs",
+  "incremental_core": "same with crates/impress-service-core/src/lib.rs",
+  "binaries": "for b in impress-mcp impress-cli impel-tools: rm -rf $T/$b; CARGO_TARGET_DIR=$T/$b cargo build -p $b --timings; then the two touch-and-rebuild steps above with -p $b",
+  "check": "rm -rf $T/check; CARGO_TARGET_DIR=$T/check cargo check --workspace --timings",
+  "tests": "CARGO_TARGET_DIR=$T/ws cargo test -p imbib-core --features native --no-run (warm); cargo clean -p imbib-core; cargo test -p imbib-core --features native --no-run --timings",
+  "llvm_lines": "for c in crates/*-service: CARGO_TARGET_DIR=$T/ws cargo llvm-lines -p $c --lib",
+  "expand": "CARGO_TARGET_DIR=$T/ws cargo expand -p surface-demo-service --lib",
+  "build_override": "rm -rf $T/bo; CARGO_PROFILE_DEV_BUILD_OVERRIDE_OPT_LEVEL=3 CARGO_TARGET_DIR=$T/bo cargo build --workspace --timings (env var; Cargo.toml untouched)",
+  "features": "/private/tmp/claude-501/-Users-tabel-Projects/f214e633-f2a1-5aba-aa53-436378615459/scratchpad/feat-diff.sh (cargo tree --prefix none -f '{p}|{f}' -e normal,build per shard)",
+  "machete": "cargo machete",
+  "duplicates": "cargo tree -d --workspace --depth 0 -e normal,build",
+  "timings_parser": "/private/tmp/claude-501/-Users-tabel-Projects/f214e633-f2a1-5aba-aa53-436378615459/scratchpad/parse-timings.py (UNIT_DATA from cargo-timing.html; critical path via unblocked_units)"
+ },
+ "wall_s": {
+  "ws-cold": {
+   "wall_s": 54.9,
+   "rc": 0
+  },
+  "ws-noop": {
+   "wall_s": 0.5,
+   "rc": 0
+  },
+  "ws-incr-service": {
+   "wall_s": 4.5,
+   "rc": 0
+  },
+  "ws-restore-a": {
+   "wall_s": 4.7,
+   "rc": 0
+  },
+  "ws-incr-core": {
+   "wall_s": 7.2,
+   "rc": 0
+  },
+  "ws-restore-b": {
+   "wall_s": 7.4,
+   "rc": 0
+  },
+  "imbib-core-test-norun": {
+   "wall_s": 11.4,
+   "rc": 0
+  },
+  "impress-mcp-cold": {
+   "wall_s": 48.6,
+   "rc": 0
+  },
+  "impress-mcp-incr-service": {
+   "wall_s": 3.2,
+   "rc": 0
+  },
+  "impress-mcp-restore-a": {
+   "wall_s": 3.4,
+   "rc": 0
+  },
+  "impress-mcp-incr-core": {
+   "wall_s": 5.7,
+   "rc": 0
+  },
+  "impress-mcp-restore-b": {
+   "wall_s": 5.8,
+   "rc": 0
+  },
+  "impress-cli-cold": {
+   "wall_s": 40.6,
+   "rc": 0
+  },
+  "impress-cli-incr-service": {
+   "wall_s": 2.5,
+   "rc": 0
+  },
+  "impress-cli-restore-a": {
+   "wall_s": 2.5,
+   "rc": 0
+  },
+  "impress-cli-incr-core": {
+   "wall_s": 4.7,
+   "rc": 0
+  },
+  "impress-cli-restore-b": {
+   "wall_s": 4.8,
+   "rc": 0
+  },
+  "impel-tools-cold": {
+   "wall_s": 32.2,
+   "rc": 0
+  },
+  "impel-tools-incr-service": {
+   "wall_s": 1.6,
+   "rc": 0
+  },
+  "impel-tools-restore-a": {
+   "wall_s": 1.6,
+   "rc": 0
+  },
+  "impel-tools-incr-core": {
+   "wall_s": 3.3,
+   "rc": 0
+  },
+  "impel-tools-restore-b": {
+   "wall_s": 3.4,
+   "rc": 0
+  },
+  "ws-check-cold": {
+   "wall_s": 40.0,
+   "rc": 0
+  },
+  "imbib-core-test-warm": {
+   "wall_s": 21.6,
+   "rc": 0
+  },
+  "ws-cold-buildoverride-o3": {
+   "wall_s": 79.2,
+   "rc": 0
+  },
+  "ws-incr-service-buildoverride-o3": {
+   "wall_s": 4.6,
+   "rc": 0
+  },
+  "ws-restore-bo": {
+   "wall_s": 4.5,
+   "rc": 0
+  },
+  "ws-cold-2": {
+   "wall_s": 58.4,
+   "rc": 0
+  }
+ },
+ "timings": {
+  "imbib-core-test-norun": {
+   "total_s": 11.3,
+   "units": 609,
+   "unit_time_sum_s": 70.1,
+   "last_unit_end_s": 11.3,
+   "critical_path_s": 11.1,
+   "critical_path": [
+    "imbib-core(todo,0.2s)",
+    "imbib-core(run-custom-build,0.2s)",
+    "imbib-core(todo,10.7s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " imbib_core \"lib\" (test)",
+     "duration_s": 10.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " golden_parity \"test\" (test)",
+     "duration_s": 3.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " eink_documents \"test\" (test)",
+     "duration_s": 3.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " store_dismissed_property_tests \"test\" (test)",
+     "duration_s": 3.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " identifier_tests \"test\" (test)",
+     "duration_s": 2.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " tags_with_counts_semantics \"test\" (test)",
+     "duration_s": 2.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " search_property_tests \"test\" (test)",
+     "duration_s": 2.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " collection_migration_legacy_readers \"test\" (test)",
+     "duration_s": 2.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " eink_store \"test\" (test)",
+     "duration_s": 2.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " bibtex_tests \"test\" (test)",
+     "duration_s": 2.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " stage7_parser_parity \"test\" (test)",
+     "duration_s": 2.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " eink_import \"test\" (test)",
+     "duration_s": 2.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " stage7_pdf_parity \"test\" (test)",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " enrichment_property_tests \"test\" (test)",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 54,
+   "workspace_unit_time_s": 70.1
+  },
+  "imbib-core-test-warm": {
+   "total_s": 11.9,
+   "units": 546,
+   "unit_time_sum_s": 119.3,
+   "last_unit_end_s": 11.9,
+   "critical_path_s": 13.2,
+   "critical_path": [
+    "serde_core(todo,0.4s)",
+    "serde_core(run-custom-build,0.4s)",
+    "serde_core(todo,1.3s)",
+    "serde(todo,0.3s)",
+    "automerge(todo,4.4s)",
+    "impress-core(todo,3.4s)",
+    "impress-store-service(todo,3.0s)",
+    "impress-layout-service(todo,0.0s)"
+   ],
+   "slowest": [
+    {
+     "name": "automerge",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "tantivy",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "tokio",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "pdfium-render",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "rustls",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 2.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "image",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 2.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 2.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 2.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "regex-automata",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "rstest_macros",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "regex-automata",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-domain",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.8,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 54,
+   "workspace_unit_time_s": 26.8
+  },
+  "impel-tools-cold": {
+   "total_s": 32.1,
+   "units": 549,
+   "unit_time_sum_s": 313.5,
+   "last_unit_end_s": 32.1,
+   "critical_path_s": 34.8,
+   "critical_path": [
+    "proc-macro2(todo,0.4s)",
+    "proc-macro2(run-custom-build,0.6s)",
+    "proc-macro2(todo,0.5s)",
+    "quote(todo,0.2s)",
+    "syn(todo,2.6s)",
+    "serde_derive(todo,1.7s)",
+    "serde(todo,1.1s)",
+    "automerge(todo,7.0s)",
+    "impress-core(todo,5.6s)",
+    "impress-store-service(todo,3.9s)",
+    "impress-layout-service(todo,3.6s)",
+    "impress-surface-service(todo,2.1s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,1.3s)",
+    "imprint-service(todo,4.0s)"
+   ],
+   "slowest": [
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 9.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 8.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "automerge",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "moxcms",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "tantivy",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "pdfium-render",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "tokio",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 2.9,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 36,
+   "workspace_unit_time_s": 62.7
+  },
+  "impel-tools-incr-core": {
+   "total_s": 3.2,
+   "units": 549,
+   "unit_time_sum_s": 5.7,
+   "last_unit_end_s": 3.2,
+   "critical_path_s": 3.9,
+   "critical_path": [
+    "impress-service-core(todo,0.1s)",
+    "impress-store-service(todo,0.7s)",
+    "impress-layout-service(todo,0.7s)",
+    "impress-surface-service(todo,0.4s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,0.8s)",
+    "impress-app-client(todo,0.3s)",
+    "imbib-service-http(todo,0.3s)",
+    "impel-tools(todo,0.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-ffi",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-memory-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "surface-demo-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-service-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-capabilities-kit",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "paste",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 36,
+   "workspace_unit_time_s": 5.7
+  },
+  "impel-tools-incr-service": {
+   "total_s": 1.5,
+   "units": 549,
+   "unit_time_sum_s": 1.8,
+   "last_unit_end_s": 1.5,
+   "critical_path_s": 1.6,
+   "critical_path": [
+    "imbib-service(todo,0.8s)",
+    "impress-app-client(todo,0.3s)",
+    "imbib-service-http(todo,0.3s)",
+    "impel-tools(todo,0.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "paste",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-safe",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aho-corasick",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "allocator-api2",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "anndists",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 36,
+   "workspace_unit_time_s": 1.8
+  },
+  "impel-tools-restore-a": {
+   "total_s": 1.5,
+   "units": 549,
+   "unit_time_sum_s": 1.8,
+   "last_unit_end_s": 1.5,
+   "critical_path_s": 1.6,
+   "critical_path": [
+    "imbib-service(todo,0.8s)",
+    "impress-app-client(todo,0.3s)",
+    "imbib-service-http(todo,0.3s)",
+    "impel-tools(todo,0.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "paste",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-safe",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aho-corasick",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "allocator-api2",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "anndists",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 36,
+   "workspace_unit_time_s": 1.8
+  },
+  "impel-tools-restore-b": {
+   "total_s": 3.2,
+   "units": 549,
+   "unit_time_sum_s": 5.7,
+   "last_unit_end_s": 3.2,
+   "critical_path_s": 3.9,
+   "critical_path": [
+    "impress-service-core(todo,0.1s)",
+    "impress-store-service(todo,0.7s)",
+    "impress-layout-service(todo,0.7s)",
+    "impress-surface-service(todo,0.4s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,0.8s)",
+    "impress-app-client(todo,0.3s)",
+    "imbib-service-http(todo,0.3s)",
+    "impel-tools(todo,0.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-ffi",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-memory-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "surface-demo-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-service-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-capabilities-kit",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "paste",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 36,
+   "workspace_unit_time_s": 5.7
+  },
+  "impress-cli-cold": {
+   "total_s": 40.6,
+   "units": 761,
+   "unit_time_sum_s": 465.1,
+   "last_unit_end_s": 40.6,
+   "critical_path_s": 42.2,
+   "critical_path": [
+    "proc-macro2(todo,0.3s)",
+    "proc-macro2(run-custom-build,0.5s)",
+    "proc-macro2(todo,0.4s)",
+    "quote(todo,0.7s)",
+    "syn(todo,2.6s)",
+    "zerocopy-derive(todo,1.0s)",
+    "zerocopy(todo,1.2s)",
+    "ppv-lite86(todo,0.1s)",
+    "rand_chacha(todo,0.2s)",
+    "rand(todo,0.3s)",
+    "num-bigint(todo,0.8s)",
+    "num-rational(todo,0.3s)",
+    "av-scenechange(todo,1.1s)",
+    "rav1e(todo,3.2s)",
+    "ravif(todo,2.7s)",
+    "image(todo,4.5s)",
+    "impress-store-service(todo,8.1s)",
+    "impress-layout-service(todo,5.7s)",
+    "impress-surface-service(todo,2.9s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,1.6s)",
+    "imprint-service(todo,3.9s)"
+   ],
+   "slowest": [
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 12.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "onig_sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 10.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 8.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "automerge",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 6.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "pdfium-render",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "moxcms",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "image",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "tantivy",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.7,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 52,
+   "workspace_unit_time_s": 93.6
+  },
+  "impress-cli-incr-core": {
+   "total_s": 4.6,
+   "units": 761,
+   "unit_time_sum_s": 11.2,
+   "last_unit_end_s": 4.6,
+   "critical_path_s": 5.4,
+   "critical_path": [
+    "impress-service-core(todo,0.2s)",
+    "impress-store-service(todo,0.9s)",
+    "impress-layout-service(todo,0.9s)",
+    "impress-surface-service(todo,0.5s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,0.8s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.4s)",
+    "impress-capabilities(todo,0.1s)",
+    "impress-cli(todo,0.8s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "vw-impress-adapter",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-parsers-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-memory-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-ffi",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 52,
+   "workspace_unit_time_s": 11.2
+  },
+  "impress-cli-incr-service": {
+   "total_s": 2.4,
+   "units": 761,
+   "unit_time_sum_s": 3.1,
+   "last_unit_end_s": 2.4,
+   "critical_path_s": 2.5,
+   "critical_path": [
+    "imbib-service(todo,0.9s)",
+    "impress-app-client(todo,0.3s)",
+    "imprint-selftest(todo,0.4s)",
+    "impress-capabilities(todo,0.1s)",
+    "impress-cli(todo,0.8s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-capabilities",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "pbkdf2",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-sys",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aho-corasick",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 52,
+   "workspace_unit_time_s": 3.1
+  },
+  "impress-cli-restore-a": {
+   "total_s": 2.4,
+   "units": 761,
+   "unit_time_sum_s": 3.1,
+   "last_unit_end_s": 2.4,
+   "critical_path_s": 2.5,
+   "critical_path": [
+    "imbib-service(todo,0.9s)",
+    "impress-app-client(todo,0.3s)",
+    "imprint-selftest(todo,0.4s)",
+    "impress-capabilities(todo,0.1s)",
+    "impress-cli(todo,0.8s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-capabilities",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "pbkdf2",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-sys",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aho-corasick",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 52,
+   "workspace_unit_time_s": 3.1
+  },
+  "impress-cli-restore-b": {
+   "total_s": 4.6,
+   "units": 761,
+   "unit_time_sum_s": 11.2,
+   "last_unit_end_s": 4.6,
+   "critical_path_s": 5.4,
+   "critical_path": [
+    "impress-service-core(todo,0.2s)",
+    "impress-store-service(todo,0.9s)",
+    "impress-layout-service(todo,0.9s)",
+    "impress-surface-service(todo,0.5s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,0.8s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.4s)",
+    "impress-capabilities(todo,0.1s)",
+    "impress-cli(todo,0.8s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "vw-impress-adapter",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-parsers-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-memory-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-ffi",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 52,
+   "workspace_unit_time_s": 11.2
+  },
+  "impress-mcp-cold": {
+   "total_s": 48.6,
+   "units": 925,
+   "unit_time_sum_s": 597.0,
+   "last_unit_end_s": 48.6,
+   "critical_path_s": 35.2,
+   "critical_path": [
+    "libc(todo,0.6s)",
+    "libc(run-custom-build,0.6s)",
+    "libc(todo,0.3s)",
+    "jobserver(todo,0.2s)",
+    "cc(todo,0.8s)",
+    "onig_sys(todo,0.5s)",
+    "onig_sys(run-custom-build,10.5s)",
+    "onig_sys(todo,0.1s)",
+    "onig(todo,0.3s)",
+    "tokenizers(todo,2.5s)",
+    "fastembed(todo,0.8s)",
+    "impress-embeddings(todo,0.8s)",
+    "imbib-core(todo,7.7s)",
+    "imbib-service(todo,4.2s)",
+    "impress-app-client(todo,1.4s)",
+    "imbib-service-http(todo,2.7s)",
+    "impress-mcp(todo,1.4s)"
+   ],
+   "slowest": [
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 14.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "typst-library",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 11.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "onig_sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 10.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 8.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "automerge",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 6.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "wasmi_ir",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "read-fonts",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "write-fonts",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "wasmi",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.4,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 56,
+   "workspace_unit_time_s": 101.6
+  },
+  "impress-mcp-incr-core": {
+   "total_s": 5.6,
+   "units": 925,
+   "unit_time_sum_s": 14.4,
+   "last_unit_end_s": 5.6,
+   "critical_path_s": 6.4,
+   "critical_path": [
+    "impress-service-core(todo,0.1s)",
+    "impress-store-service(todo,1.0s)",
+    "impress-layout-service(todo,0.9s)",
+    "impress-surface-service(todo,0.5s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,0.9s)",
+    "impress-app-client(todo,0.5s)",
+    "imprint-selftest(todo,0.7s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,1.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 1.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "vw-impress-adapter",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-parsers-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-memory-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 56,
+   "workspace_unit_time_s": 14.4
+  },
+  "impress-mcp-incr-service": {
+   "total_s": 3.1,
+   "units": 925,
+   "unit_time_sum_s": 5.3,
+   "last_unit_end_s": 3.1,
+   "critical_path_s": 3.2,
+   "critical_path": [
+    "imbib-service(todo,0.9s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.6s)",
+    "impress-capabilities(todo,0.1s)",
+    "impress-mcp(todo,1.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 1.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impart-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-capabilities",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "pest_meta",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-safe",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 56,
+   "workspace_unit_time_s": 5.3
+  },
+  "impress-mcp-restore-a": {
+   "total_s": 3.1,
+   "units": 925,
+   "unit_time_sum_s": 5.3,
+   "last_unit_end_s": 3.1,
+   "critical_path_s": 3.2,
+   "critical_path": [
+    "imbib-service(todo,0.9s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.6s)",
+    "impress-capabilities(todo,0.1s)",
+    "impress-mcp(todo,1.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 1.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impart-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-capabilities",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "pest_meta",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-safe",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 56,
+   "workspace_unit_time_s": 5.3
+  },
+  "impress-mcp-restore-b": {
+   "total_s": 5.6,
+   "units": 925,
+   "unit_time_sum_s": 14.4,
+   "last_unit_end_s": 5.6,
+   "critical_path_s": 6.4,
+   "critical_path": [
+    "impress-service-core(todo,0.1s)",
+    "impress-store-service(todo,1.0s)",
+    "impress-layout-service(todo,0.9s)",
+    "impress-surface-service(todo,0.5s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,0.9s)",
+    "impress-app-client(todo,0.5s)",
+    "imprint-selftest(todo,0.7s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,1.2s)"
+   ],
+   "slowest": [
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 1.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "vw-impress-adapter",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-parsers-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-memory-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 56,
+   "workspace_unit_time_s": 14.4
+  },
+  "ws-check-cold": {
+   "total_s": 39.9,
+   "units": 1089,
+   "unit_time_sum_s": 520.1,
+   "last_unit_end_s": 39.9,
+   "critical_path_s": 28.8,
+   "critical_path": [
+    "pkg-config(todo,0.5s)",
+    "zstd-sys(todo,0.5s)",
+    "zstd-sys(run-custom-build,14.1s)",
+    "zstd-safe(run-custom-build,0.5s)",
+    "zstd-safe(todo,0.1s)",
+    "zstd(todo,0.2s)",
+    "tantivy-sstable(todo,0.2s)",
+    "tantivy-columnar(todo,0.5s)",
+    "tantivy(todo,2.2s)",
+    "imbib-core(todo,4.7s)",
+    "imbib-service(todo,2.5s)",
+    "impress-app-client(todo,1.1s)",
+    "imbib-service-http(todo,1.3s)",
+    "impress-ai-tools(todo,0.3s)",
+    "impel-taskd(todo,0.3s)"
+   ],
+   "slowest": [
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 14.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "onig_sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 10.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 8.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "typst-library",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 7.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "wasmi_ir",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 6.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 4.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_bindgen",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 4.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_bindgen",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 4.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 3.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 3.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "rustls",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 3.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "nalgebra",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 3.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "pdfium-render",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 3.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 2.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "read-fonts",
+     "mode": "todo",
+     "target": " (check)",
+     "duration_s": 2.7,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 88,
+   "workspace_unit_time_s": 59.2
+  },
+  "ws-cold-2": {
+   "total_s": 58.3,
+   "units": 1034,
+   "unit_time_sum_s": 774.5,
+   "last_unit_end_s": 58.3,
+   "critical_path_s": 44.2,
+   "critical_path": [
+    "libc(todo,1.2s)",
+    "libc(run-custom-build,1.2s)",
+    "libc(todo,0.3s)",
+    "jobserver(todo,0.2s)",
+    "cc(todo,0.8s)",
+    "onig_sys(todo,0.4s)",
+    "onig_sys(run-custom-build,13.2s)",
+    "onig_sys(todo,0.1s)",
+    "onig(todo,0.4s)",
+    "tokenizers(todo,3.5s)",
+    "fastembed(todo,1.4s)",
+    "impress-embeddings(todo,1.3s)",
+    "imbib-core(todo,8.2s)",
+    "imbib-service(todo,4.2s)",
+    "impress-app-client(todo,1.6s)",
+    "imbib-service-http(todo,3.6s)",
+    "impress-ai-tools(todo,0.8s)",
+    "impel-taskd(todo,1.7s)"
+   ],
+   "slowest": [
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 15.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "typst-library",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 14.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "onig_sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 13.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 9.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 8.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 8.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "automerge",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "tantivy",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_bindgen",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "wasmi_ir",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_bindgen",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "read-fonts",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.8,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 161.9
+  },
+  "ws-cold-buildoverride-o3": {
+   "total_s": 79.1,
+   "units": 1094,
+   "unit_time_sum_s": 1161.9,
+   "last_unit_end_s": 79.1,
+   "critical_path_s": 68.7,
+   "critical_path": [
+    "proc-macro2(todo,0.6s)",
+    "proc-macro2(run-custom-build,0.7s)",
+    "proc-macro2(todo,1.4s)",
+    "quote(todo,0.5s)",
+    "syn(todo,19.3s)",
+    "palette_derive(todo,9.6s)",
+    "palette(todo,2.9s)",
+    "typst-library(todo,15.1s)",
+    "typst-layout(todo,2.7s)",
+    "typst(todo,0.3s)",
+    "typst-as-lib(todo,0.4s)",
+    "imprint-core(todo,3.3s)",
+    "imprint-service(todo,4.4s)",
+    "impress-app-client(todo,1.6s)",
+    "imbib-service-http(todo,3.5s)",
+    "impress-ai-tools(todo,0.9s)",
+    "impel-taskd(todo,1.7s)"
+   ],
+   "slowest": [
+    {
+     "name": "syn",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 19.3,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_macros",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 16.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "rustls",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 15.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 15.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "typst-library",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 15.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "darling_core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 14.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "serde_derive",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 13.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "async-trait",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 12.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "strum_macros",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 11.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_bindgen",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 11.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "zerofrom-derive",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 11.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 11.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "typst-macros",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 10.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "onig_sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 10.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 10.1,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 88,
+   "workspace_unit_time_s": 174.6
+  },
+  "ws-cold": {
+   "total_s": 54.8,
+   "units": 1034,
+   "unit_time_sum_s": 714.8,
+   "last_unit_end_s": 54.8,
+   "critical_path_s": 42.2,
+   "critical_path": [
+    "libc(todo,0.9s)",
+    "libc(run-custom-build,1.4s)",
+    "libc(todo,0.2s)",
+    "jobserver(todo,0.2s)",
+    "cc(todo,0.7s)",
+    "onig_sys(todo,0.4s)",
+    "onig_sys(run-custom-build,10.9s)",
+    "onig_sys(todo,0.1s)",
+    "onig(todo,0.4s)",
+    "tokenizers(todo,3.7s)",
+    "fastembed(todo,1.4s)",
+    "impress-embeddings(todo,1.4s)",
+    "imbib-core(todo,8.4s)",
+    "imbib-service(todo,4.3s)",
+    "impress-app-client(todo,1.8s)",
+    "imbib-service-http(todo,3.6s)",
+    "impress-ai-tools(todo,0.9s)",
+    "impel-taskd(todo,1.7s)"
+   ],
+   "slowest": [
+    {
+     "name": "zstd-sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 13.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "typst-library",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 13.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "onig_sys",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 10.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 8.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 8.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "automerge",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 7.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-core",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-ai",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "uniffi_bindgen",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "ring",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 6.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "tantivy",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 6.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "wasmi_ir",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "write-fonts",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.2,
+     "codegen_s": 0
+    },
+    {
+     "name": "read-fonts",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 5.2,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 153.5
+  },
+  "ws-incr-core": {
+   "total_s": 7.0,
+   "units": 1034,
+   "unit_time_sum_s": 27.6,
+   "last_unit_end_s": 7.0,
+   "critical_path_s": 8.0,
+   "critical_path": [
+    "impress-service-core(todo,0.2s)",
+    "impress-store-service(todo,1.1s)",
+    "impress-layout-service(todo,0.9s)",
+    "impress-surface-service(todo,0.6s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,1.0s)",
+    "impress-app-client(todo,0.5s)",
+    "imprint-selftest(todo,0.7s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,2.1s)"
+   ],
+   "slowest": [
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-taskd",
+     "mode": "todo",
+     "target": " impel-taskd \"bin\"",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-cli",
+     "mode": "todo",
+     "target": " imprint \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": " imprint-selftest \"bin\"",
+     "duration_s": 1.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-cli",
+     "mode": "todo",
+     "target": " imbib \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-parsers-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp-host",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 27.6
+  },
+  "ws-incr-service-buildoverride-o3": {
+   "total_s": 4.5,
+   "units": 1094,
+   "unit_time_sum_s": 15.9,
+   "last_unit_end_s": 4.5,
+   "critical_path_s": 4.5,
+   "critical_path": [
+    "imbib-service(todo,1.0s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.8s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,2.1s)"
+   ],
+   "slowest": [
+    {
+     "name": "impel-taskd",
+     "mode": "todo",
+     "target": " impel-taskd \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": " imprint-selftest \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-cli",
+     "mode": "todo",
+     "target": " imprint \"bin\"",
+     "duration_s": 1.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-cli",
+     "mode": "todo",
+     "target": " imbib \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impart-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 88,
+   "workspace_unit_time_s": 15.9
+  },
+  "ws-incr-service": {
+   "total_s": 4.4,
+   "units": 1034,
+   "unit_time_sum_s": 16.2,
+   "last_unit_end_s": 4.4,
+   "critical_path_s": 4.4,
+   "critical_path": [
+    "imbib-service(todo,1.0s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.8s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,2.1s)"
+   ],
+   "slowest": [
+    {
+     "name": "impel-taskd",
+     "mode": "todo",
+     "target": " impel-taskd \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": " imprint-selftest \"bin\"",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-cli",
+     "mode": "todo",
+     "target": " imprint \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-cli",
+     "mode": "todo",
+     "target": " imbib \"bin\"",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impart-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 16.2
+  },
+  "ws-noop": {
+   "total_s": 0.0,
+   "units": 1034,
+   "unit_time_sum_s": 0.0,
+   "last_unit_end_s": 0.0,
+   "critical_path_s": 0.0,
+   "critical_path": [
+    "adler2(todo,0.0s)"
+   ],
+   "slowest": [
+    {
+     "name": "adler2",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aead",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aes-gcm",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "run-custom-build",
+     "target": " build-script (run)",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "ahash",
+     "mode": "todo",
+     "target": " build-script",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aho-corasick",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aligned",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "aligned-vec",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "alloc-no-stdlib",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "alloc-stdlib",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "allocator-api2",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "anndists",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "anstream",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.0,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 0.0
+  },
+  "ws-restore-a": {
+   "total_s": 4.4,
+   "units": 1034,
+   "unit_time_sum_s": 16.2,
+   "last_unit_end_s": 4.4,
+   "critical_path_s": 4.4,
+   "critical_path": [
+    "imbib-service(todo,1.0s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.8s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,2.1s)"
+   ],
+   "slowest": [
+    {
+     "name": "impel-taskd",
+     "mode": "todo",
+     "target": " impel-taskd \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": " imprint-selftest \"bin\"",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-cli",
+     "mode": "todo",
+     "target": " imprint \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-cli",
+     "mode": "todo",
+     "target": " imbib \"bin\"",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impart-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 16.2
+  },
+  "ws-restore-b": {
+   "total_s": 7.0,
+   "units": 1034,
+   "unit_time_sum_s": 27.6,
+   "last_unit_end_s": 7.0,
+   "critical_path_s": 8.0,
+   "critical_path": [
+    "impress-service-core(todo,0.2s)",
+    "impress-store-service(todo,1.1s)",
+    "impress-layout-service(todo,0.9s)",
+    "impress-surface-service(todo,0.6s)",
+    "impress-capabilities-kit(todo,0.1s)",
+    "impress-store-ffi(todo,0.4s)",
+    "imprint-service(todo,1.0s)",
+    "impress-app-client(todo,0.5s)",
+    "imprint-selftest(todo,0.7s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,2.1s)"
+   ],
+   "slowest": [
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-taskd",
+     "mode": "todo",
+     "target": " impel-taskd \"bin\"",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-cli",
+     "mode": "todo",
+     "target": " imprint \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": " imprint-selftest \"bin\"",
+     "duration_s": 1.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-store-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-layout-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-cli",
+     "mode": "todo",
+     "target": " imbib \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.7,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-parsers-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp-host",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-surface-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 87,
+   "workspace_unit_time_s": 27.6
+  },
+  "ws-restore-bo": {
+   "total_s": 4.5,
+   "units": 1094,
+   "unit_time_sum_s": 15.9,
+   "last_unit_end_s": 4.5,
+   "critical_path_s": 4.5,
+   "critical_path": [
+    "imbib-service(todo,1.0s)",
+    "impress-app-client(todo,0.4s)",
+    "imprint-selftest(todo,0.8s)",
+    "impress-capabilities(todo,0.2s)",
+    "impress-mcp(todo,2.1s)"
+   ],
+   "slowest": [
+    {
+     "name": "impel-taskd",
+     "mode": "todo",
+     "target": " impel-taskd \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-mcp",
+     "mode": "todo",
+     "target": " impress-mcp \"bin\"",
+     "duration_s": 2.1,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-cli",
+     "mode": "todo",
+     "target": " impress \"bin\"",
+     "duration_s": 2.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": " imprint-selftest \"bin\"",
+     "duration_s": 1.9,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-cli",
+     "mode": "todo",
+     "target": " imprint \"bin\"",
+     "duration_s": 1.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 1.0,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-selftest",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-cli",
+     "mode": "todo",
+     "target": " imbib \"bin\"",
+     "duration_s": 0.8,
+     "codegen_s": 0
+    },
+    {
+     "name": "imbib-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.6,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-bridges-service",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.5,
+     "codegen_s": 0
+    },
+    {
+     "name": "impart-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "implore-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impress-app-client",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "imprint-service-http",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.4,
+     "codegen_s": 0
+    },
+    {
+     "name": "impel-tools",
+     "mode": "todo",
+     "target": "",
+     "duration_s": 0.3,
+     "codegen_s": 0
+    }
+   ],
+   "workspace_units": 88,
+   "workspace_unit_time_s": 15.9
+  }
+ },
+ "headline": {
+  "cold_workspace_wall_s": [
+   54.9,
+   58.4
+  ],
+  "cold_workspace_unit_time_s": [
+   714.8,
+   774.5
+  ],
+  "cold_workspace_units": 1034,
+  "cold_workspace_critical_path_s": 42.2,
+  "cold_workspace_workspace_crates_unit_time_s": 153.5,
+  "cold_workspace_dependency_unit_time_s": 561.3,
+  "dependency_share": 0.785,
+  "cold_check_workspace_wall_s": 40.0,
+  "cold_bin_wall_s": {
+   "impress-mcp": 48.6,
+   "impress-cli": 40.6,
+   "impel-tools": 32.2
+  },
+  "incr_service_touch_wall_s": {
+   "workspace": 4.5,
+   "impress-mcp": 3.2,
+   "impress-cli": 2.5,
+   "impel-tools": 1.6
+  },
+  "incr_core_touch_wall_s": {
+   "workspace": 7.2,
+   "impress-mcp": 5.7,
+   "impress-cli": 4.7,
+   "impel-tools": 3.3
+  },
+  "noop_wall_s": 0.5,
+  "per_verb_ms": {
+   "cold_workspace_wall": 126.8,
+   "cold_workspace_unit_time": 1650.8,
+   "cold_impress_mcp_wall": 112.2,
+   "cold_impress_cli_wall": 93.8,
+   "cold_impel_tools_wall": 74.4,
+   "incr_service_workspace_wall": 10.4,
+   "incr_service_impress_mcp_wall": 7.4,
+   "incr_core_workspace_wall": 16.6,
+   "incr_core_impress_mcp_wall": 13.2,
+   "service_crates_cold_unit_time": 90.5
+  },
+  "service_crates_cold_unit_time_s": 39.2,
+  "service_crates_share_of_cold_unit_time": 0.055,
+  "tokio_cold_unit_time_s": 3.4,
+  "tokio_full_inheritors": 44
+ },
+ "service_crate_cold": {
+  "imbib-service": {
+   "cold_s": 4.31,
+   "verbs": 150,
+   "ms_per_verb": 29
+  },
+  "impart-service": {
+   "cold_s": 0.8,
+   "verbs": 10,
+   "ms_per_verb": 80
+  },
+  "impel-service": {
+   "cold_s": 1.32,
+   "verbs": 6,
+   "ms_per_verb": 220
+  },
+  "implore-service": {
+   "cold_s": 1.16,
+   "verbs": 20,
+   "ms_per_verb": 58
+  },
+  "impress-ai-service": {
+   "cold_s": 1.92,
+   "verbs": 16,
+   "ms_per_verb": 120
+  },
+  "impress-bridges-service": {
+   "cold_s": 1.19,
+   "verbs": 18,
+   "ms_per_verb": 66
+  },
+  "impress-layout-service": {
+   "cold_s": 7.43,
+   "verbs": 40,
+   "ms_per_verb": 186
+  },
+  "impress-memory-service": {
+   "cold_s": 1.12,
+   "verbs": 8,
+   "ms_per_verb": 140
+  },
+  "impress-parsers-service": {
+   "cold_s": 0.73,
+   "verbs": 7,
+   "ms_per_verb": 104
+  },
+  "impress-smart-search-service": {
+   "cold_s": 0.85,
+   "verbs": 11,
+   "ms_per_verb": 77
+  },
+  "impress-store-service": {
+   "cold_s": 8.62,
+   "verbs": 45,
+   "ms_per_verb": 192
+  },
+  "impress-surface-service": {
+   "cold_s": 3.99,
+   "verbs": 19,
+   "ms_per_verb": 210
+  },
+  "imprint-service": {
+   "cold_s": 4.6,
+   "verbs": 76,
+   "ms_per_verb": 61
+  },
+  "surface-demo-service": {
+   "cold_s": 0.66,
+   "verbs": 4,
+   "ms_per_verb": 165
+  },
+  "vw-service": {
+   "cold_s": 0.52,
+   "verbs": 15,
+   "ms_per_verb": 35
+  }
+ },
+ "service_crate_sections_ws_cold": {
+  "tower-service": {
+   "duration_s": 0.07,
+   "frontend": 0.07,
+   "codegen": 0.0
+  },
+  "impress-store-service": {
+   "duration_s": 8.62,
+   "frontend": 4.72,
+   "codegen": 3.9
+  },
+  "surface-demo-service": {
+   "duration_s": 0.66,
+   "frontend": 0.26,
+   "codegen": 0.4
+  },
+  "impress-layout-service": {
+   "duration_s": 7.43,
+   "frontend": 5.29,
+   "codegen": 2.14
+  },
+  "impart-service": {
+   "duration_s": 0.8,
+   "frontend": 0.37,
+   "codegen": 0.43
+  },
+  "vw-service": {
+   "duration_s": 0.52,
+   "frontend": 0.34,
+   "codegen": 0.18
+  },
+  "impress-smart-search-service": {
+   "duration_s": 0.85,
+   "frontend": 0.43,
+   "codegen": 0.42
+  },
+  "impress-ai-service": {
+   "duration_s": 1.92,
+   "frontend": 1.24,
+   "codegen": 0.68
+  },
+  "impel-service": {
+   "duration_s": 1.32,
+   "frontend": 0.89,
+   "codegen": 0.43
+  },
+  "impress-surface-service": {
+   "duration_s": 3.99,
+   "frontend": 3.33,
+   "codegen": 0.66
+  },
+  "implore-service": {
+   "duration_s": 1.16,
+   "frontend": 0.78,
+   "codegen": 0.38
+  },
+  "impress-memory-service": {
+   "duration_s": 1.12,
+   "frontend": 0.95,
+   "codegen": 0.17
+  },
+  "imprint-service": {
+   "duration_s": 4.6,
+   "frontend": 4.03,
+   "codegen": 0.57
+  },
+  "imbib-service": {
+   "duration_s": 4.31,
+   "frontend": 3.77,
+   "codegen": 0.54
+  },
+  "impress-parsers-service": {
+   "duration_s": 0.73,
+   "frontend": 0.57,
+   "codegen": 0.16
+  },
+  "impress-bridges-service": {
+   "duration_s": 1.19,
+   "frontend": 1.05,
+   "codegen": 0.14
+  }
+ },
+ "llvm_lines": {
+  "measured_crates": 14,
+  "verbs_in_measured_crates": 418,
+  "total_lines": 2141268,
+  "macro_attributed_lines": 716103,
+  "macro_share": 0.334,
+  "macro_lines_per_verb": 1713,
+  "total_lines_per_verb": 5123,
+  "category_totals": {
+   "invoke_fn": 139781,
+   "args_deserialize": 389337,
+   "schema_fn": 5004,
+   "schemars_for_args": 148561,
+   "other_generic_serde": 33420
+  },
+  "category_per_verb": {
+   "invoke_fn": 334,
+   "args_deserialize": 931,
+   "schema_fn": 12,
+   "schemars_for_args": 355,
+   "other_generic_serde": 80
+  },
+  "per_crate": {
+   "imbib-service": {
+    "total_llvm_lines": 417452,
+    "verbs": 150,
+    "macro_attributed": 241045,
+    "macro_share": 0.577,
+    "macro_lines_per_verb": 1607,
+    "total_lines_per_verb": 2783,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 49948,
+    "invoke_future": 0,
+    "args_deserialize": 129821,
+    "schema_fn": 1788,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 52871,
+    "other_generic_serde": 6617,
+    "rest": 176407,
+    "verbs_strict": 150
+   },
+   "impart-service": {
+    "total_llvm_lines": 38070,
+    "verbs": 10,
+    "macro_attributed": 16653,
+    "macro_share": 0.437,
+    "macro_lines_per_verb": 1665,
+    "total_lines_per_verb": 3807,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 3365,
+    "invoke_future": 0,
+    "args_deserialize": 9104,
+    "schema_fn": 120,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 3556,
+    "other_generic_serde": 508,
+    "rest": 21417,
+    "verbs_strict": 10
+   },
+   "impel-service": {
+    "total_llvm_lines": 27055,
+    "verbs": 6,
+    "macro_attributed": 8694,
+    "macro_share": 0.321,
+    "macro_lines_per_verb": 1449,
+    "total_lines_per_verb": 4509,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 1743,
+    "invoke_future": 0,
+    "args_deserialize": 4551,
+    "schema_fn": 72,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 2112,
+    "other_generic_serde": 216,
+    "rest": 18361,
+    "verbs_strict": 6
+   },
+   "implore-service": {
+    "total_llvm_lines": 88935,
+    "verbs": 20,
+    "macro_attributed": 30022,
+    "macro_share": 0.338,
+    "macro_lines_per_verb": 1501,
+    "total_lines_per_verb": 4447,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 6374,
+    "invoke_future": 0,
+    "args_deserialize": 15550,
+    "schema_fn": 240,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 7074,
+    "other_generic_serde": 784,
+    "rest": 58913,
+    "verbs_strict": 20
+   },
+   "impress-ai-service": {
+    "total_llvm_lines": 53508,
+    "verbs": 16,
+    "macro_attributed": 24448,
+    "macro_share": 0.457,
+    "macro_lines_per_verb": 1528,
+    "total_lines_per_verb": 3344,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 5028,
+    "invoke_future": 0,
+    "args_deserialize": 12896,
+    "schema_fn": 192,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 5659,
+    "other_generic_serde": 673,
+    "rest": 29060,
+    "verbs_strict": 16
+   },
+   "impress-bridges-service": {
+    "total_llvm_lines": 44898,
+    "verbs": 18,
+    "macro_attributed": 27625,
+    "macro_share": 0.615,
+    "macro_lines_per_verb": 1535,
+    "total_lines_per_verb": 2494,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 5218,
+    "invoke_future": 0,
+    "args_deserialize": 15060,
+    "schema_fn": 216,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 6372,
+    "other_generic_serde": 759,
+    "rest": 17273,
+    "verbs_strict": 18
+   },
+   "impress-layout-service": {
+    "total_llvm_lines": 427286,
+    "verbs": 40,
+    "macro_attributed": 90113,
+    "macro_share": 0.211,
+    "macro_lines_per_verb": 2253,
+    "total_lines_per_verb": 10682,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 14355,
+    "invoke_future": 0,
+    "args_deserialize": 49813,
+    "schema_fn": 444,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 13520,
+    "other_generic_serde": 11981,
+    "rest": 337173,
+    "verbs_strict": 37
+   },
+   "impress-memory-service": {
+    "total_llvm_lines": 38842,
+    "verbs": 8,
+    "macro_attributed": 12369,
+    "macro_share": 0.318,
+    "macro_lines_per_verb": 1546,
+    "total_lines_per_verb": 4855,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 2367,
+    "invoke_future": 0,
+    "args_deserialize": 7038,
+    "schema_fn": 84,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 2503,
+    "other_generic_serde": 377,
+    "rest": 26473,
+    "verbs_strict": 7
+   },
+   "impress-parsers-service": {
+    "total_llvm_lines": 29365,
+    "verbs": 7,
+    "macro_attributed": 9026,
+    "macro_share": 0.307,
+    "macro_lines_per_verb": 1289,
+    "total_lines_per_verb": 4195,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 1725,
+    "invoke_future": 0,
+    "args_deserialize": 4860,
+    "schema_fn": 72,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 2121,
+    "other_generic_serde": 248,
+    "rest": 20339,
+    "verbs_strict": 6
+   },
+   "impress-smart-search-service": {
+    "total_llvm_lines": 34957,
+    "verbs": 11,
+    "macro_attributed": 17196,
+    "macro_share": 0.492,
+    "macro_lines_per_verb": 1563,
+    "total_lines_per_verb": 3178,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 3088,
+    "invoke_future": 0,
+    "args_deserialize": 9943,
+    "schema_fn": 120,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 3574,
+    "other_generic_serde": 471,
+    "rest": 17761,
+    "verbs_strict": 10
+   },
+   "impress-store-service": {
+    "total_llvm_lines": 344742,
+    "verbs": 45,
+    "macro_attributed": 74468,
+    "macro_share": 0.216,
+    "macro_lines_per_verb": 1655,
+    "total_lines_per_verb": 7661,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 14452,
+    "invoke_future": 0,
+    "args_deserialize": 41718,
+    "schema_fn": 528,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 15686,
+    "other_generic_serde": 2084,
+    "rest": 270274,
+    "verbs_strict": 44
+   },
+   "impress-surface-service": {
+    "total_llvm_lines": 211706,
+    "verbs": 19,
+    "macro_attributed": 30393,
+    "macro_share": 0.144,
+    "macro_lines_per_verb": 1600,
+    "total_lines_per_verb": 11142,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 5443,
+    "invoke_future": 0,
+    "args_deserialize": 14458,
+    "schema_fn": 192,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 5718,
+    "other_generic_serde": 4582,
+    "rest": 181313,
+    "verbs_strict": 16
+   },
+   "imprint-service": {
+    "total_llvm_lines": 359245,
+    "verbs": 76,
+    "macro_attributed": 131084,
+    "macro_share": 0.365,
+    "macro_lines_per_verb": 1725,
+    "total_lines_per_verb": 4727,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 26152,
+    "invoke_future": 0,
+    "args_deserialize": 72881,
+    "schema_fn": 912,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 27085,
+    "other_generic_serde": 4054,
+    "rest": 228161,
+    "verbs_strict": 76
+   },
+   "surface-demo-service": {
+    "total_llvm_lines": 25207,
+    "verbs": 4,
+    "macro_attributed": 2967,
+    "macro_share": 0.118,
+    "macro_lines_per_verb": 742,
+    "total_lines_per_verb": 6302,
+    "invoke_closures_seen": 0,
+    "invoke_fn": 523,
+    "invoke_future": 0,
+    "args_deserialize": 1644,
+    "schema_fn": 24,
+    "serde_json_from_value_args": 0,
+    "serde_json_to_value_ret": 0,
+    "schemars_for_args": 710,
+    "other_generic_serde": 66,
+    "rest": 22240,
+    "verbs_strict": 2
+   }
+  },
+  "note": "vw-service: 0 macro lines because its impress_service_impl! is in vw-impress-adapter (not a *-service crate; not measured). Category 'args_deserialize' = the derived serde Deserialize (Visitor, __Field) for each __Impress_*_Args; 'schemars_for_args' = derived JsonSchema; 'invoke_fn' = __impress_*_invoke and its async closure; 'other' = Args drop glue etc. Return-type to_value instantiations are on domain types and counted in 'rest'."
+ },
+ "expand": {
+  "source_lines": 577,
+  "expanded_lines": 2743,
+  "methods": 2,
+  "lines_per_method": 361,
+  "span": "surface-demo-service series: expanded lines 2024-2384 (Args struct + Deserialize derive + JsonSchema impl + schema fn + invoke fn + 2 inventory::submit!)"
+ },
+ "tests": {
+  "tests_rs_files_workspace": 93,
+  "crates_with_tests_dir": 24,
+  "imbib_core_tests_rs_files": 26,
+  "imbib_core_integration_test_binaries": 24,
+  "imbib_core_test_norun_wall_s": 11.4,
+  "imbib_core_test_norun_unit_time_s": 70.1,
+  "imbib_core_lib_test_unit_s": 10.65,
+  "imbib_core_lib_unit_s": 6.47,
+  "imbib_core_integration_targets_unit_time_s": 52.5,
+  "per_integration_binary_mean_s": 2.19,
+  "units": [
+   {
+    "target": "imbib_core \"lib\" (test)",
+    "duration_s": 10.65
+   },
+   {
+    "target": "lib",
+    "duration_s": 6.47,
+    "frontend": 5.31,
+    "codegen": 1.16
+   },
+   {
+    "target": "golden_parity \"test\" (test)",
+    "duration_s": 3.22
+   },
+   {
+    "target": "eink_documents \"test\" (test)",
+    "duration_s": 3.2
+   },
+   {
+    "target": "store_dismissed_property_tests \"test\" (test)",
+    "duration_s": 3.07
+   },
+   {
+    "target": "identifier_tests \"test\" (test)",
+    "duration_s": 2.91
+   },
+   {
+    "target": "tags_with_counts_semantics \"test\" (test)",
+    "duration_s": 2.84
+   },
+   {
+    "target": "search_property_tests \"test\" (test)",
+    "duration_s": 2.67
+   },
+   {
+    "target": "collection_migration_legacy_readers \"test\" (test)",
+    "duration_s": 2.63
+   },
+   {
+    "target": "eink_store \"test\" (test)",
+    "duration_s": 2.62
+   },
+   {
+    "target": "bibtex_tests \"test\" (test)",
+    "duration_s": 2.55
+   },
+   {
+    "target": "stage7_parser_parity \"test\" (test)",
+    "duration_s": 2.37
+   },
+   {
+    "target": "eink_import \"test\" (test)",
+    "duration_s": 2.22
+   },
+   {
+    "target": "stage7_pdf_parity \"test\" (test)",
+    "duration_s": 2.14
+   },
+   {
+    "target": "enrichment_property_tests \"test\" (test)",
+    "duration_s": 2.09
+   },
+   {
+    "target": "sync_outbox_facade \"test\" (test)",
+    "duration_s": 2.06
+   },
+   {
+    "target": "manuscript_unification \"test\" (test)",
+    "duration_s": 2.01
+   },
+   {
+    "target": "deduplication_tests \"test\" (test)",
+    "duration_s": 1.95
+   },
+   {
+    "target": "eink_end_to_end \"test\" (test)",
+    "duration_s": 1.74
+   },
+   {
+    "target": "ris_tests \"test\" (test)",
+    "duration_s": 1.68
+   },
+   {
+    "target": "pdf_match_golden \"test\" (test)",
+    "duration_s": 1.62
+   },
+   {
+    "target": "citation_search_repro \"test\" (test)",
+    "duration_s": 1.58
+   },
+   {
+    "target": "stage7_abstract_parity \"test\" (test)",
+    "duration_s": 1.5
+   },
+   {
+    "target": "sidebar_snapshot_parity \"test\" (test)",
+    "duration_s": 1.36
+   },
+   {
+    "target": "snapshot_tests \"test\" (test)",
+    "duration_s": 1.28
+   },
+   {
+    "target": "schema_ref_manifest \"test\" (test)",
+    "duration_s": 1.24
+   },
+   {
+    "target": "build-script (run)",
+    "duration_s": 0.23
+   },
+   {
+    "target": "build-script",
+    "duration_s": 0.17
+   },
+   {
+    "target": "imbib_core \"lib\" (doc test)",
+    "duration_s": 0.0
+   }
+  ]
+ },
+ "build_override_o3": {
+  "cold_wall_s": 79.2,
+  "baseline_cold_wall_s": [
+   54.9,
+   58.4
+  ],
+  "delta_s": "+21 to +24",
+  "cold_unit_time_s": 1161.9,
+  "slowest": [
+   {
+    "name": "syn",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 19.3,
+    "codegen_s": 0
+   },
+   {
+    "name": "uniffi_macros",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 16.4,
+    "codegen_s": 0
+   },
+   {
+    "name": "rustls",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 15.9,
+    "codegen_s": 0
+   },
+   {
+    "name": "zstd-sys",
+    "mode": "run-custom-build",
+    "target": " build-script (run)",
+    "duration_s": 15.2,
+    "codegen_s": 0
+   },
+   {
+    "name": "typst-library",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 15.1,
+    "codegen_s": 0
+   },
+   {
+    "name": "darling_core",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 14.1,
+    "codegen_s": 0
+   },
+   {
+    "name": "serde_derive",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 13.0,
+    "codegen_s": 0
+   },
+   {
+    "name": "async-trait",
+    "mode": "todo",
+    "target": "",
+    "duration_s": 12.5,
+    "codegen_s": 0
+   }
+  ],
+  "incr_service_wall_s": 4.6,
+  "baseline_incr_service_wall_s": 4.5,
+  "verdict": "reject"
+ },
+ "shard_feature_diff": {
+  "rest vs imprint": {
+   "common": 599,
+   "differ": 84,
+   "external_differ": 56,
+   "external_differ_list": [
+    "bumpalo v3.19.1",
+    "bytemuck v1.24.0",
+    "camino v1.2.2",
+    "castaway v0.2.4",
+    "clap v4.5.54",
+    "csv v1.4.0",
+    "dirs v6.0.0",
+    "fontdb v0.23.0",
+    "form_urlencoded v1.2.2",
+    "fs-err v2.11.0",
+    "half v2.7.1",
+    "hashbrown v0.14.5",
+    "hyper v1.8.1",
+    "hyper-util v0.1.19",
+    "idna v1.1.0",
+    "indexmap v2.12.1",
+    "lru v0.12.5",
+    "lz4_flex v0.11.5",
+    "mime_guess v2.0.5",
+    "mio v1.1.1",
+    "moxcms v0.7.11",
+    "nom v8.0.0",
+    "num-iter v0.1.45",
+    "percent-encoding v2.3.2",
+    "quick-xml v0.31.0",
+    "quick-xml v0.38.4",
+    "rand_chacha v0.3.1",
+    "regex-automata v0.4.13",
+    "resvg v0.45.1",
+    "rustix v0.38.44",
+    "rustybuzz v0.20.1",
+    "semver v1.0.27",
+    "serde_core v1.0.228",
+    "serde_json v1.0.149",
+    "serde_urlencoded v0.7.1",
+    "signal-hook-registry v1.4.8",
+    "smallvec v1.15.1",
+    "spin v0.9.8",
+    "time v0.3.46",
+    "tinystr v0.8.2",
+    "toml v0.5.11",
+    "toml v0.8.23",
+    "tower v0.5.3",
+    "tower-http v0.6.8",
+    "tracing v0.1.44",
+    "tracing-core v0.1.36",
+    "ttf-parser v0.25.1",
+    "uniffi_macros v0.28.3",
+    "uniffi_meta v0.28.3",
+    "url v2.5.8",
+    "usvg v0.45.1",
+    "yoke v0.8.1",
+    "zerofrom v0.1.6",
+    "zerovec v0.11.5",
+    "zune-jpeg v0.4.21",
+    "zune-jpeg v0.5.11"
+   ],
+   "workspace_differ_list": [
+    "im-bibtex v0.2.0",
+    "image-webp v0.2.4",
+    "imbib-service-http v0.1.0",
+    "impart-service-http v0.1.0",
+    "impel-core v0.1.0",
+    "impel-service v0.1.0",
+    "implore-io v0.1.0",
+    "implore-service-http v0.1.0",
+    "implore-stats v0.1.0",
+    "impress-ai v0.1.0",
+    "impress-ai-service v0.1.0",
+    "impress-bridges-service v0.1.0",
+    "impress-capabilities v0.1.0",
+    "impress-collab v0.1.0",
+    "impress-embeddings v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-parsers-service v0.1.0",
+    "impress-remarkable v0.1.0",
+    "impress-smart-search-service v0.1.0",
+    "impress-store-ffi v0.1.0",
+    "impress-tags v0.1.0",
+    "imprint-core v0.1.0",
+    "imprint-selftest v0.1.0",
+    "imprint-service v0.1.0",
+    "surface-demo-service v0.1.0",
+    "vw-impress-adapter v0.1.0",
+    "vw-service v0.1.0"
+   ],
+   "only_in_first": 88,
+   "only_in_second": 133
+  },
+  "ws-plain vs ws-native": {
+   "common": 807,
+   "differ": 13,
+   "external_differ": 5,
+   "external_differ_list": [
+    "hashbrown v0.14.5",
+    "idna v1.1.0",
+    "idna_adapter v1.2.1",
+    "nom v8.0.0",
+    "stacker v0.1.22"
+   ],
+   "workspace_differ_list": [
+    "impart-core v0.1.0",
+    "impel-core v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-store-ffi v0.1.0",
+    "impress-tags v0.1.0",
+    "imprint-core v0.1.0",
+    "scix-client-ffi v0.1.0"
+   ],
+   "only_in_first": 0,
+   "only_in_second": 15
+  },
+  "ws-plain vs rest": {
+   "common": 672,
+   "differ": 55,
+   "external_differ": 42,
+   "external_differ_list": [
+    "anstream v0.6.21",
+    "askama v0.12.1",
+    "bumpalo v3.19.1",
+    "bytemuck v1.24.0",
+    "clap v4.5.54",
+    "clap_builder v4.5.54",
+    "csv v1.4.0",
+    "dirs v6.0.0",
+    "fontdb v0.23.0",
+    "form_urlencoded v1.2.2",
+    "goblin v0.8.2",
+    "half v2.7.1",
+    "hashbrown v0.14.5",
+    "idna v1.1.0",
+    "indexmap v2.12.1",
+    "lz4_flex v0.11.5",
+    "moxcms v0.7.11",
+    "nom v8.0.0",
+    "num-iter v0.1.45",
+    "percent-encoding v2.3.2",
+    "quick-xml v0.38.4",
+    "rand_chacha v0.3.1",
+    "regex-automata v0.4.13",
+    "resvg v0.45.1",
+    "rustybuzz v0.20.1",
+    "serde_json v1.0.149",
+    "smallvec v1.15.1",
+    "spin v0.9.8",
+    "time v0.3.46",
+    "tinystr v0.8.2",
+    "toml v0.8.23",
+    "ttf-parser v0.25.1",
+    "uniffi v0.28.3",
+    "uniffi_bindgen v0.28.3",
+    "uniffi_udl v0.28.3",
+    "url v2.5.8",
+    "usvg v0.45.1",
+    "yoke v0.8.1",
+    "zerofrom v0.1.6",
+    "zerovec v0.11.5",
+    "zune-jpeg v0.4.21",
+    "zune-jpeg v0.5.11"
+   ],
+   "workspace_differ_list": [
+    "image-webp v0.2.4",
+    "impart-core v0.1.0",
+    "impel-core v0.1.0",
+    "implore-io v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-plot v0.1.0",
+    "impress-store-ffi v0.1.0",
+    "impress-tags v0.1.0",
+    "imprint-core v0.1.0",
+    "imprint-selftest v0.1.0",
+    "imprint-service v0.1.0",
+    "scix-client-ffi v0.1.0"
+   ],
+   "only_in_first": 135,
+   "only_in_second": 15
+  },
+  "ws-plain vs imprint": {
+   "common": 732,
+   "differ": 48,
+   "external_differ": 26,
+   "external_differ_list": [
+    "anstream v0.6.21",
+    "camino v1.2.2",
+    "castaway v0.2.4",
+    "clap v4.5.54",
+    "clap_builder v4.5.54",
+    "fs-err v2.11.0",
+    "hyper v1.8.1",
+    "hyper-util v0.1.19",
+    "lru v0.12.5",
+    "mime_guess v2.0.5",
+    "mio v1.1.1",
+    "quick-xml v0.31.0",
+    "rustix v0.38.44",
+    "semver v1.0.27",
+    "serde_core v1.0.228",
+    "serde_json v1.0.149",
+    "serde_urlencoded v0.7.1",
+    "signal-hook-registry v1.4.8",
+    "toml v0.5.11",
+    "tower v0.5.3",
+    "tower-http v0.6.8",
+    "tracing v0.1.44",
+    "tracing-core v0.1.36",
+    "uniffi v0.28.3",
+    "uniffi_macros v0.28.3",
+    "uniffi_meta v0.28.3"
+   ],
+   "workspace_differ_list": [
+    "im-bibtex v0.2.0",
+    "imbib-service-http v0.1.0",
+    "impart-service-http v0.1.0",
+    "impel-core v0.1.0",
+    "impel-service v0.1.0",
+    "implore-service-http v0.1.0",
+    "implore-stats v0.1.0",
+    "impress-ai v0.1.0",
+    "impress-ai-service v0.1.0",
+    "impress-bridges-service v0.1.0",
+    "impress-capabilities v0.1.0",
+    "impress-collab v0.1.0",
+    "impress-embeddings v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-parsers-service v0.1.0",
+    "impress-plot v0.1.0",
+    "impress-remarkable v0.1.0",
+    "impress-smart-search-service v0.1.0",
+    "imprint-core v0.1.0",
+    "surface-demo-service v0.1.0",
+    "vw-impress-adapter v0.1.0",
+    "vw-service v0.1.0"
+   ],
+   "only_in_first": 75,
+   "only_in_second": 0
+  },
+  "mcp vs rest": {
+   "common": 596,
+   "differ": 85,
+   "external_differ": 56,
+   "external_differ_list": [
+    "bumpalo v3.19.1",
+    "bytemuck v1.24.0",
+    "camino v1.2.2",
+    "castaway v0.2.4",
+    "csv v1.4.0",
+    "dirs v6.0.0",
+    "fontdb v0.23.0",
+    "form_urlencoded v1.2.2",
+    "fs-err v2.11.0",
+    "half v2.7.1",
+    "hashbrown v0.14.5",
+    "hyper v1.8.1",
+    "hyper-util v0.1.19",
+    "idna v1.1.0",
+    "indexmap v2.12.1",
+    "lru v0.12.5",
+    "lz4_flex v0.11.5",
+    "mime_guess v2.0.5",
+    "mio v1.1.1",
+    "moxcms v0.7.11",
+    "nom v8.0.0",
+    "num-iter v0.1.45",
+    "percent-encoding v2.3.2",
+    "quick-xml v0.31.0",
+    "quick-xml v0.38.4",
+    "rand_chacha v0.3.1",
+    "regex-automata v0.4.13",
+    "resvg v0.45.1",
+    "rustix v0.38.44",
+    "rustybuzz v0.20.1",
+    "semver v1.0.27",
+    "serde_core v1.0.228",
+    "serde_json v1.0.149",
+    "serde_urlencoded v0.7.1",
+    "signal-hook-registry v1.4.8",
+    "smallvec v1.15.1",
+    "spin v0.9.8",
+    "time v0.3.46",
+    "tinystr v0.8.2",
+    "toml v0.5.11",
+    "toml v0.8.23",
+    "tower v0.5.3",
+    "tower-http v0.6.8",
+    "tracing v0.1.44",
+    "tracing-core v0.1.36",
+    "ttf-parser v0.25.1",
+    "uniffi v0.28.3",
+    "uniffi_macros v0.28.3",
+    "uniffi_meta v0.28.3",
+    "url v2.5.8",
+    "usvg v0.45.1",
+    "yoke v0.8.1",
+    "zerofrom v0.1.6",
+    "zerovec v0.11.5",
+    "zune-jpeg v0.4.21",
+    "zune-jpeg v0.5.11"
+   ],
+   "workspace_differ_list": [
+    "im-bibtex v0.2.0",
+    "image-webp v0.2.4",
+    "imbib-service-http v0.1.0",
+    "impart-service-http v0.1.0",
+    "impel-core v0.1.0",
+    "impel-service v0.1.0",
+    "implore-io v0.1.0",
+    "implore-service-http v0.1.0",
+    "implore-stats v0.1.0",
+    "impress-ai v0.1.0",
+    "impress-ai-service v0.1.0",
+    "impress-bridges-service v0.1.0",
+    "impress-capabilities v0.1.0",
+    "impress-collab v0.1.0",
+    "impress-embeddings v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-parsers-service v0.1.0",
+    "impress-remarkable v0.1.0",
+    "impress-service-core v0.1.0",
+    "impress-smart-search-service v0.1.0",
+    "impress-store-ffi v0.1.0",
+    "impress-tags v0.1.0",
+    "imprint-core v0.1.0",
+    "imprint-service v0.1.0",
+    "imprint-service-http v0.1.0",
+    "surface-demo-service v0.1.0",
+    "vw-impress-adapter v0.1.0",
+    "vw-service v0.1.0"
+   ],
+   "only_in_first": 132,
+   "only_in_second": 91
+  },
+  "mcp vs imprint": {
+   "common": 728,
+   "differ": 5,
+   "external_differ": 1,
+   "external_differ_list": [
+    "uniffi v0.28.3"
+   ],
+   "workspace_differ_list": [
+    "impress-service-core v0.1.0",
+    "imprint-core v0.1.0",
+    "imprint-selftest v0.1.0",
+    "imprint-service-http v0.1.0"
+   ],
+   "only_in_first": 0,
+   "only_in_second": 4
+  },
+  "cli vs rest": {
+   "common": 592,
+   "differ": 50,
+   "external_differ": 28,
+   "external_differ_list": [
+    "camino v1.2.2",
+    "castaway v0.2.4",
+    "fs-err v2.11.0",
+    "hashbrown v0.14.5",
+    "hyper v1.8.1",
+    "hyper-util v0.1.19",
+    "idna v1.1.0",
+    "lru v0.12.5",
+    "mime_guess v2.0.5",
+    "mio v1.1.1",
+    "nom v8.0.0",
+    "png v0.17.16",
+    "quick-xml v0.31.0",
+    "regex-automata v0.4.13",
+    "rustix v0.38.44",
+    "semver v1.0.27",
+    "serde_core v1.0.228",
+    "serde_json v1.0.149",
+    "serde_urlencoded v0.7.1",
+    "signal-hook-registry v1.4.8",
+    "toml v0.5.11",
+    "tower v0.5.3",
+    "tower-http v0.6.8",
+    "tracing v0.1.44",
+    "tracing-core v0.1.36",
+    "uniffi v0.28.3",
+    "uniffi_macros v0.28.3",
+    "uniffi_meta v0.28.3"
+   ],
+   "workspace_differ_list": [
+    "im-bibtex v0.2.0",
+    "impel-core v0.1.0",
+    "impel-service v0.1.0",
+    "implore-io v0.1.0",
+    "implore-service-http v0.1.0",
+    "implore-stats v0.1.0",
+    "impress-ai v0.1.0",
+    "impress-ai-service v0.1.0",
+    "impress-bridges-service v0.1.0",
+    "impress-capabilities v0.1.0",
+    "impress-collab v0.1.0",
+    "impress-embeddings v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-parsers-service v0.1.0",
+    "impress-remarkable v0.1.0",
+    "impress-smart-search-service v0.1.0",
+    "impress-store-ffi v0.1.0",
+    "impress-tags v0.1.0",
+    "surface-demo-service v0.1.0",
+    "vw-impress-adapter v0.1.0",
+    "vw-service v0.1.0"
+   ],
+   "only_in_first": 0,
+   "only_in_second": 95
+  },
+  "tools vs rest": {
+   "common": 442,
+   "differ": 66,
+   "external_differ": 49,
+   "external_differ_list": [
+    "ahash v0.8.12",
+    "arrayvec v0.7.6",
+    "bitflags v2.13.1",
+    "block-buffer v0.10.4",
+    "camino v1.2.2",
+    "crypto-common v0.1.7",
+    "darling v0.20.11",
+    "digest v0.10.7",
+    "either v1.15.0",
+    "errno v0.3.14",
+    "flate2 v1.1.8",
+    "fs-err v2.11.0",
+    "hashbrown v0.14.5",
+    "hyper v1.8.1",
+    "hyper-util v0.1.19",
+    "idna v1.1.0",
+    "lru v0.12.5",
+    "memmap2 v0.9.9",
+    "mime_guess v2.0.5",
+    "miniz_oxide v0.8.9",
+    "mio v1.1.1",
+    "num-bigint v0.4.6",
+    "png v0.17.16",
+    "quick-xml v0.31.0",
+    "rand v0.9.2",
+    "rayon-core v1.13.0",
+    "regex-automata v0.4.13",
+    "rustix v0.38.44",
+    "rustix v1.1.3",
+    "rustls v0.23.36",
+    "semver v1.0.27",
+    "serde_core v1.0.228",
+    "serde_json v1.0.149",
+    "serde_urlencoded v0.7.1",
+    "sha2 v0.10.9",
+    "signal-hook-registry v1.4.8",
+    "strict-num v0.1.1",
+    "tar v0.4.44",
+    "tiny-skia v0.11.4",
+    "tiny-skia-path v0.11.4",
+    "toml v0.5.11",
+    "tower v0.5.3",
+    "tower-http v0.6.8",
+    "tracing v0.1.44",
+    "tracing-core v0.1.36",
+    "uniffi_macros v0.28.3",
+    "uniffi_meta v0.28.3",
+    "zerocopy v0.8.33",
+    "zip v2.4.2"
+   ],
+   "workspace_differ_list": [
+    "im-bibtex v0.2.0",
+    "image v0.25.9",
+    "imbib-core v0.1.0",
+    "imbib-service-http v0.1.0",
+    "impress-ai v0.1.0",
+    "impress-capabilities-kit v0.1.0",
+    "impress-embeddings v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-memory-service v0.1.0",
+    "impress-remarkable v0.1.0",
+    "impress-service-core v0.1.0",
+    "impress-smart-search v0.1.0",
+    "impress-store-ffi v0.1.0",
+    "impress-tags v0.1.0",
+    "imprint-service-http v0.1.0",
+    "surface-demo-service v0.1.0"
+   ],
+   "only_in_first": 0,
+   "only_in_second": 245
+  },
+  "mcp vs cli": {
+   "common": 588,
+   "differ": 37,
+   "external_differ": 32,
+   "external_differ_list": [
+    "bumpalo v3.19.1",
+    "bytemuck v1.24.0",
+    "csv v1.4.0",
+    "dirs v6.0.0",
+    "fontdb v0.23.0",
+    "form_urlencoded v1.2.2",
+    "half v2.7.1",
+    "idna v1.1.0",
+    "indexmap v2.12.1",
+    "lz4_flex v0.11.5",
+    "moxcms v0.7.11",
+    "num-iter v0.1.45",
+    "percent-encoding v2.3.2",
+    "png v0.17.16",
+    "quick-xml v0.38.4",
+    "rand_chacha v0.3.1",
+    "regex-automata v0.4.13",
+    "resvg v0.45.1",
+    "rustybuzz v0.20.1",
+    "smallvec v1.15.1",
+    "spin v0.9.8",
+    "time v0.3.46",
+    "tinystr v0.8.2",
+    "toml v0.8.23",
+    "ttf-parser v0.25.1",
+    "url v2.5.8",
+    "usvg v0.45.1",
+    "yoke v0.8.1",
+    "zerofrom v0.1.6",
+    "zerovec v0.11.5",
+    "zune-jpeg v0.4.21",
+    "zune-jpeg v0.5.11"
+   ],
+   "workspace_differ_list": [
+    "image-webp v0.2.4",
+    "implore-io v0.1.0",
+    "impress-service-core v0.1.0",
+    "imprint-core v0.1.0",
+    "imprint-service v0.1.0"
+   ],
+   "only_in_first": 140,
+   "only_in_second": 4
+  },
+  "imbib-core-native vs rest": {
+   "common": 405,
+   "differ": 66,
+   "external_differ": 53,
+   "external_differ_list": [
+    "ahash v0.8.12",
+    "arrayvec v0.7.6",
+    "bitflags v2.13.1",
+    "block-buffer v0.10.4",
+    "camino v1.2.2",
+    "crypto-common v0.1.7",
+    "digest v0.10.7",
+    "either v1.15.0",
+    "errno v0.3.14",
+    "fdeflate v0.3.7",
+    "flate2 v1.1.8",
+    "fs-err v2.11.0",
+    "futures-util v0.3.31",
+    "hashbrown v0.14.5",
+    "hyper v1.8.1",
+    "hyper-util v0.1.19",
+    "idna v1.1.0",
+    "lru v0.12.5",
+    "memmap2 v0.9.9",
+    "mime_guess v2.0.5",
+    "miniz_oxide v0.8.9",
+    "mio v1.1.1",
+    "num-bigint v0.4.6",
+    "png v0.17.16",
+    "quick-xml v0.31.0",
+    "rand v0.9.2",
+    "rayon-core v1.13.0",
+    "regex-automata v0.4.13",
+    "rustix v0.38.44",
+    "rustix v1.1.3",
+    "rustls v0.23.36",
+    "semver v1.0.27",
+    "serde_core v1.0.228",
+    "serde_json v1.0.149",
+    "serde_urlencoded v0.7.1",
+    "sha2 v0.10.9",
+    "signal-hook-registry v1.4.8",
+    "strict-num v0.1.1",
+    "tantivy v0.22.1",
+    "tiny-skia v0.11.4",
+    "tiny-skia-path v0.11.4",
+    "tokio-stream v0.1.18",
+    "toml v0.5.11",
+    "tower v0.5.3",
+    "tower-http v0.6.8",
+    "tracing v0.1.44",
+    "tracing-core v0.1.36",
+    "uniffi v0.28.3",
+    "uniffi_macros v0.28.3",
+    "uniffi_meta v0.28.3",
+    "zerocopy v0.8.33",
+    "zip v2.4.2",
+    "zstd v0.13.3"
+   ],
+   "workspace_differ_list": [
+    "im-bibtex v0.2.0",
+    "image v0.25.9",
+    "imbib-core v0.1.0",
+    "impress-bibtex v0.1.0",
+    "impress-core v0.1.0",
+    "impress-domain v0.1.0",
+    "impress-embeddings v0.1.0",
+    "impress-flags v0.1.0",
+    "impress-identifiers v0.1.0",
+    "impress-pane-query v0.1.0",
+    "impress-remarkable v0.1.0",
+    "impress-smart-search v0.1.0",
+    "impress-tags v0.1.0"
+   ],
+   "only_in_first": 0,
+   "only_in_second": 282
+  }
+ },
+ "shard_diff_cost": {
+  "rest vs imprint": {
+   "external_crates": 56,
+   "cold_unit_time_s": 41.7,
+   "top": [
+    [
+     "moxcms[todo]",
+     4.6
+    ],
+    [
+     "regex-automata[todo]",
+     2.3
+    ],
+    [
+     "uniffi_macros[todo]",
+     1.9
+    ],
+    [
+     "rustybuzz[todo]",
+     1.6
+    ],
+    [
+     "bytemuck[todo]",
+     1.6
+    ],
+    [
+     "ttf-parser[todo]",
+     1.5
+    ]
+   ]
+  },
+  "mcp vs rest": {
+   "external_crates": 56,
+   "cold_unit_time_s": 41.5,
+   "top": [
+    [
+     "moxcms[todo]",
+     4.6
+    ],
+    [
+     "regex-automata[todo]",
+     2.3
+    ],
+    [
+     "uniffi_macros[todo]",
+     1.9
+    ],
+    [
+     "rustybuzz[todo]",
+     1.6
+    ],
+    [
+     "bytemuck[todo]",
+     1.6
+    ],
+    [
+     "ttf-parser[todo]",
+     1.5
+    ]
+   ]
+  },
+  "cli vs rest": {
+   "external_crates": 28,
+   "cold_unit_time_s": 23.4,
+   "top": [
+    [
+     "regex-automata[todo]",
+     2.3
+    ],
+    [
+     "uniffi_macros[todo]",
+     1.9
+    ],
+    [
+     "serde_core[run-custom-build]/ build-script (run)",
+     1.5
+    ],
+    [
+     "serde_core[todo]",
+     1.1
+    ],
+    [
+     "tracing[todo]",
+     1.0
+    ],
+    [
+     "hyper-util[todo]",
+     1.0
+    ]
+   ]
+  },
+  "tools vs rest": {
+   "external_crates": 49,
+   "cold_unit_time_s": 37.8,
+   "top": [
+    [
+     "rustls[todo]",
+     2.8
+    ],
+    [
+     "regex-automata[todo]",
+     2.3
+    ],
+    [
+     "uniffi_macros[todo]",
+     1.9
+    ],
+    [
+     "zerocopy[todo]",
+     1.6
+    ],
+    [
+     "serde_core[run-custom-build]/ build-script (run)",
+     1.5
+    ],
+    [
+     "tiny-skia[todo]",
+     1.1
+    ]
+   ]
+  },
+  "ws-plain vs rest": {
+   "external_crates": 42,
+   "cold_unit_time_s": 35.6,
+   "top": [
+    [
+     "uniffi_bindgen[todo]",
+     5.1
+    ],
+    [
+     "moxcms[todo]",
+     4.6
+    ],
+    [
+     "regex-automata[todo]",
+     2.3
+    ],
+    [
+     "goblin[todo]",
+     2.1
+    ],
+    [
+     "clap_builder[todo]",
+     1.8
+    ],
+    [
+     "rustybuzz[todo]",
+     1.6
+    ]
+   ]
+  },
+  "ws-plain vs imprint": {
+   "external_crates": 26,
+   "cold_unit_time_s": 21.2,
+   "top": [
+    [
+     "uniffi_macros[todo]",
+     1.9
+    ],
+    [
+     "clap_builder[todo]",
+     1.8
+    ],
+    [
+     "serde_core[run-custom-build]/ build-script (run)",
+     1.5
+    ],
+    [
+     "serde_core[todo]",
+     1.1
+    ],
+    [
+     "tracing[todo]",
+     1.0
+    ],
+    [
+     "hyper-util[todo]",
+     1.0
+    ]
+   ]
+  },
+  "mcp vs cli": {
+   "external_crates": 32,
+   "cold_unit_time_s": 23.3,
+   "top": [
+    [
+     "moxcms[todo]",
+     4.6
+    ],
+    [
+     "regex-automata[todo]",
+     2.3
+    ],
+    [
+     "rustybuzz[todo]",
+     1.6
+    ],
+    [
+     "bytemuck[todo]",
+     1.6
+    ],
+    [
+     "ttf-parser[todo]",
+     1.5
+    ],
+    [
+     "usvg[todo]",
+     1.5
+    ]
+   ]
+  }
+ },
+ "duplicates": {
+  "count": 54,
+  "extra_copies_unit_time_s": 26.5,
+  "detail": {
+   "thiserror": {
+    "versions": {
+     "1.0.69": 3.81,
+     "2.0.18": 2.96
+    },
+    "extra_copies_s": 2.96
+   },
+   "base64": {
+    "versions": {
+     "0.22.1": 0.22,
+     "0.13.1": 0.24
+    },
+    "extra_copies_s": 0.22
+   },
+   "getrandom": {
+    "versions": {
+     "0.3.4": 2.23,
+     "0.2.17": 0.15,
+     "0.4.3": 0.66
+    },
+    "extra_copies_s": 0.81
+   },
+   "hashbrown": {
+    "versions": {
+     "0.16.1": 0.35,
+     "0.14.5": 0.31,
+     "0.15.5": 0.32
+    },
+    "extra_copies_s": 0.63
+   },
+   "const-oid": {
+    "versions": {
+     "0.9.6": 0.09,
+     "0.10.2": 0.12
+    },
+    "extra_copies_s": 0.09
+   },
+   "writeable": {
+    "versions": {
+     "0.6.2": 0.09,
+     "0.5.5": 0.16
+    },
+    "extra_copies_s": 0.09
+   },
+   "litemap": {
+    "versions": {
+     "0.8.1": 0.09,
+     "0.7.5": 0.16
+    },
+    "extra_copies_s": 0.09
+   },
+   "rand_core": {
+    "versions": {
+     "0.6.4": 0.11,
+     "0.10.1": 0.08,
+     "0.9.5": 0.13
+    },
+    "extra_copies_s": 0.19
+   },
+   "cpufeatures": {
+    "versions": {
+     "0.2.17": 0.13,
+     "0.3.0": 0.06
+    },
+    "extra_copies_s": 0.06
+   },
+   "icu_properties_data": {
+    "versions": {
+     "2.1.2": 2.09,
+     "1.5.1": 0.59
+    },
+    "extra_copies_s": 0.59
+   },
+   "bitflags": {
+    "versions": {
+     "2.13.1": 0.21,
+     "1.3.2": 0.06
+    },
+    "extra_copies_s": 0.06
+   },
+   "crypto-common": {
+    "versions": {
+     "0.1.7": 0.16,
+     "0.2.2": 0.5
+    },
+    "extra_copies_s": 0.16
+   },
+   "block-buffer": {
+    "versions": {
+     "0.10.4": 0.15,
+     "0.12.1": 0.1
+    },
+    "extra_copies_s": 0.1
+   },
+   "digest": {
+    "versions": {
+     "0.10.7": 0.22,
+     "0.11.3": 0.08
+    },
+    "extra_copies_s": 0.08
+   },
+   "sha2": {
+    "versions": {
+     "0.10.9": 0.26,
+     "0.11.0": 0.46
+    },
+    "extra_copies_s": 0.26
+   },
+   "rustc-hash": {
+    "versions": {
+     "2.1.1": 0.09,
+     "1.1.0": 0.06
+    },
+    "extra_copies_s": 0.06
+   },
+   "zune-core": {
+    "versions": {
+     "0.4.12": 0.23,
+     "0.5.1": 0.17
+    },
+    "extra_copies_s": 0.17
+   },
+   "zune-jpeg": {
+    "versions": {
+     "0.4.21": 0.39,
+     "0.5.11": 0.4
+    },
+    "extra_copies_s": 0.39
+   },
+   "thiserror-impl": {
+    "versions": {
+     "1.0.69": 1.2,
+     "2.0.18": 1.04
+    },
+    "extra_copies_s": 1.04
+   },
+   "yoke-derive": {
+    "versions": {
+     "0.8.1": 0.9,
+     "0.7.5": 0.69
+    },
+    "extra_copies_s": 0.69
+   },
+   "zerovec-derive": {
+    "versions": {
+     "0.11.2": 0.99,
+     "0.10.3": 0.72
+    },
+    "extra_copies_s": 0.72
+   },
+   "yoke": {
+    "versions": {
+     "0.8.1": 2.51,
+     "0.7.5": 0.34
+    },
+    "extra_copies_s": 0.34
+   },
+   "itertools": {
+    "versions": {
+     "0.14.0": 0.69,
+     "0.15.0": 0.84,
+     "0.12.1": 0.79,
+     "0.13.0": 0.79
+    },
+    "extra_copies_s": 2.27
+   },
+   "nom": {
+    "versions": {
+     "8.0.0": 1.32,
+     "7.1.3": 0.75
+    },
+    "extra_copies_s": 0.75
+   },
+   "zerovec": {
+    "versions": {
+     "0.11.5": 3.06,
+     "0.10.4": 1.16
+    },
+    "extra_copies_s": 1.16
+   },
+   "zerotrie": {
+    "versions": {
+     "0.2.3": 1.64,
+     "0.1.3": 0.4
+    },
+    "extra_copies_s": 0.4
+   },
+   "rand_chacha": {
+    "versions": {
+     "0.3.1": 0.2,
+     "0.9.0": 0.2
+    },
+    "extra_copies_s": 0.2
+   },
+   "rand": {
+    "versions": {
+     "0.8.5": 0.34,
+     "0.10.2": 0.42,
+     "0.9.2": 0.35
+    },
+    "extra_copies_s": 0.69
+   },
+   "rustix": {
+    "versions": {
+     "1.1.3": 4.0,
+     "0.38.44": 1.87
+    },
+    "extra_copies_s": 1.87
+   },
+   "tinystr": {
+    "versions": {
+     "0.8.2": 0.23,
+     "0.7.6": 0.18
+    },
+    "extra_copies_s": 0.18
+   },
+   "icu_collections": {
+    "versions": {
+     "2.1.1": 0.64,
+     "1.5.0": 0.43
+    },
+    "extra_copies_s": 0.43
+   },
+   "gif": {
+    "versions": {
+     "0.14.1": 0.42,
+     "0.13.3": 0.31
+    },
+    "extra_copies_s": 0.31
+   },
+   "png": {
+    "versions": {
+     "0.18.0": 0.68,
+     "0.17.16": 0.61
+    },
+    "extra_copies_s": 0.61
+   },
+   "webpki-roots": {
+    "versions": {
+     "1.0.5": 0.07,
+     "0.26.11": 0.05
+    },
+    "extra_copies_s": 0.05
+   },
+   "icu_provider": {
+    "versions": {
+     "2.1.1": 0.4,
+     "1.5.0": 0.57
+    },
+    "extra_copies_s": 0.4
+   },
+   "icu_properties": {
+    "versions": {
+     "2.1.2": 1.31,
+     "1.5.1": 1.38
+    },
+    "extra_copies_s": 1.31
+   },
+   "darling_core": {
+    "versions": {
+     "0.20.11": 1.29,
+     "0.23.0": 1.42
+    },
+    "extra_copies_s": 1.29
+   },
+   "chacha20": {
+    "versions": {
+     "0.10.1": 0.12,
+     "0.9.1": 0.09
+    },
+    "extra_copies_s": 0.09
+   },
+   "siphasher": {
+    "versions": {
+     "1.0.1": 0.14,
+     "0.3.11": 0.33
+    },
+    "extra_copies_s": 0.14
+   },
+   "darling_macro": {
+    "versions": {
+     "0.20.11": 0.38,
+     "0.23.0": 0.31
+    },
+    "extra_copies_s": 0.31
+   },
+   "float-cmp": {
+    "versions": {
+     "0.9.0": 0.09,
+     "0.10.0": 0.1
+    },
+    "extra_copies_s": 0.09
+   },
+   "dirs-sys": {
+    "versions": {
+     "0.4.1": 0.13,
+     "0.5.0": 0.07
+    },
+    "extra_copies_s": 0.07
+   },
+   "darling": {
+    "versions": {
+     "0.20.11": 0.37,
+     "0.23.0": 0.27
+    },
+    "extra_copies_s": 0.27
+   },
+   "dirs": {
+    "versions": {
+     "5.0.1": 0.08,
+     "6.0.0": 0.06
+    },
+    "extra_copies_s": 0.06
+   },
+   "quick-xml": {
+    "versions": {
+     "0.38.4": 0.9,
+     "0.31.0": 0.41
+    },
+    "extra_copies_s": 0.41
+   },
+   "pbkdf2": {
+    "versions": {
+     "0.12.2": 0.07,
+     "0.11.0": 0.12
+    },
+    "extra_copies_s": 0.07
+   },
+   "toml": {
+    "versions": {
+     "0.8.23": 0.41,
+     "0.5.11": 1.44
+    },
+    "extra_copies_s": 0.41
+   },
+   "kurbo": {
+    "versions": {
+     "0.12.0": 0.69,
+     "0.11.3": 0.74
+    },
+    "extra_copies_s": 0.69
+   },
+   "imagesize": {
+    "versions": {
+     "0.13.0": 0.27,
+     "0.14.0": 0.25
+    },
+    "extra_copies_s": 0.25
+   },
+   "strum_macros": {
+    "versions": {
+     "0.27.2": 1.15,
+     "0.26.4": 1.11
+    },
+    "extra_copies_s": 1.11
+   },
+   "strum": {
+    "versions": {
+     "0.27.2": 0.5,
+     "0.26.3": 0.26
+    },
+    "extra_copies_s": 0.26
+   },
+   "unicode-width": {
+    "versions": {
+     "0.2.0": 0.12,
+     "0.1.14": 0.18
+    },
+    "extra_copies_s": 0.12
+   },
+   "twox-hash": {
+    "versions": {
+     "2.1.2": 0.1,
+     "1.6.3": 0.17
+    },
+    "extra_copies_s": 0.1
+   },
+   "compact_str": {
+    "versions": {
+     "0.9.0": 0.32,
+     "0.8.1": 0.35
+    },
+    "extra_copies_s": 0.32
+   }
+  }
+ },
+ "machete": {
+  "hits": 70,
+  "crates": 40,
+  "sole_user_hits": [
+   {
+    "crate": "impel-server",
+    "dep": "tokio-tungstenite",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0.15,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "tui-textarea",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0.26,
+    "in_ws_graph": true
+   }
+  ],
+  "all": [
+   {
+    "crate": "impress-service-macros",
+    "dep": "darling",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0.64,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "implore-core",
+    "dep": "implore-stats",
+    "other_workspace_users": 27,
+    "dep_cold_s": 0.53,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "implore-core",
+    "dep": "impress-domain",
+    "other_workspace_users": 39,
+    "dep_cold_s": 1.53,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-core",
+    "dep": "impress-domain",
+    "other_workspace_users": 39,
+    "dep_cold_s": 1.53,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-core",
+    "dep": "mail-parser",
+    "other_workspace_users": 31,
+    "dep_cold_s": 0.74,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-core",
+    "dep": "petgraph",
+    "other_workspace_users": 31,
+    "dep_cold_s": 0.88,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-service-core",
+    "dep": "pyo3",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-service-core",
+    "dep": "uniffi",
+    "other_workspace_users": 21,
+    "dep_cold_s": 0.65,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-flags",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-tags",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-smart-search-service",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-smart-search-service",
+    "dep": "serde_json",
+    "other_workspace_users": 66,
+    "dep_cold_s": 3.45,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-throughline",
+    "dep": "sha2",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0.72,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impel-throughline",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-git",
+    "dep": "serde_json",
+    "other_workspace_users": 66,
+    "dep_cold_s": 3.45,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "vw-impress-adapter",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tools",
+    "dep": "imbib-service",
+    "other_workspace_users": 14,
+    "dep_cold_s": 4.31,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tools",
+    "dep": "impress-memory-service",
+    "other_workspace_users": 3,
+    "dep_cold_s": 1.12,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tools",
+    "dep": "imprint-service",
+    "other_workspace_users": 14,
+    "dep_cold_s": 4.6,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-service",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-service",
+    "dep": "serde_json",
+    "other_workspace_users": 66,
+    "dep_cold_s": 3.45,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-sources",
+    "dep": "chrono",
+    "other_workspace_users": 53,
+    "dep_cold_s": 0.7,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-parsers-service",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "imbib-core",
+    "dep": "impress-domain",
+    "other_workspace_users": 39,
+    "dep_cold_s": 1.53,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "imbib-core",
+    "dep": "nom",
+    "other_workspace_users": 0,
+    "dep_cold_s": 2.07,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "imbib-core",
+    "dep": "plist",
+    "other_workspace_users": 27,
+    "dep_cold_s": 0.49,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "imbib-core",
+    "dep": "tokio",
+    "other_workspace_users": 49,
+    "dep_cold_s": 3.4,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-toolbox",
+    "dep": "uuid",
+    "other_workspace_users": 56,
+    "dep_cold_s": 0.25,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-memory-service",
+    "dep": "serde_json",
+    "other_workspace_users": 66,
+    "dep_cold_s": 3.45,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-app-client",
+    "dep": "async-trait",
+    "other_workspace_users": 45,
+    "dep_cold_s": 0.56,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-app-client",
+    "dep": "chrono",
+    "other_workspace_users": 53,
+    "dep_cold_s": 0.7,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-app-client",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-app-client",
+    "dep": "tokio",
+    "other_workspace_users": 49,
+    "dep_cold_s": 3.4,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "im-identifiers",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "im-identifiers",
+    "dep": "urlencoding",
+    "other_workspace_users": 32,
+    "dep_cold_s": 0.11,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impart-service",
+    "dep": "serde_json",
+    "other_workspace_users": 66,
+    "dep_cold_s": 3.45,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "imprint-selftest",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "implore-stats",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impel-memory",
+    "dep": "serde",
+    "other_workspace_users": 69,
+    "dep_cold_s": 3.88,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-surface",
+    "dep": "uuid",
+    "other_workspace_users": 56,
+    "dep_cold_s": 0.25,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-ai-service",
+    "dep": "schemars",
+    "other_workspace_users": 51,
+    "dep_cold_s": 3.26,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-collab",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-collab",
+    "dep": "uniffi",
+    "other_workspace_users": 21,
+    "dep_cold_s": 0.65,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impart-core",
+    "dep": "impress-domain",
+    "other_workspace_users": 39,
+    "dep_cold_s": 1.53,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impart-core",
+    "dep": "native-tls",
+    "other_workspace_users": 36,
+    "dep_cold_s": 0.89,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impart-core",
+    "dep": "tokio",
+    "other_workspace_users": 49,
+    "dep_cold_s": 3.4,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-domain",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "implore-io",
+    "dep": "fitsio",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-mcp",
+    "dep": "imbib-core",
+    "other_workspace_users": 17,
+    "dep_cold_s": 9.01,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-mcp",
+    "dep": "imprint-service",
+    "other_workspace_users": 14,
+    "dep_cold_s": 4.6,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-cli",
+    "dep": "impress-memory-service",
+    "other_workspace_users": 3,
+    "dep_cold_s": 1.12,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-surface-service",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impress-helix",
+    "dep": "crossterm",
+    "other_workspace_users": 1,
+    "dep_cold_s": 0.54,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "imprint-core",
+    "dep": "impress-identifiers",
+    "other_workspace_users": 25,
+    "dep_cold_s": 0.28,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-enrichment",
+    "dep": "impress-domain",
+    "other_workspace_users": 39,
+    "dep_cold_s": 1.53,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-enrichment",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "vw-service",
+    "dep": "impress-service-core",
+    "other_workspace_users": 36,
+    "dep_cold_s": 1.54,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-capabilities",
+    "dep": "impress-service-core",
+    "other_workspace_users": 36,
+    "dep_cold_s": 1.54,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-capabilities",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impel-server",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impel-server",
+    "dep": "tokio-tungstenite",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0.15,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-server",
+    "dep": "tower",
+    "other_workspace_users": 38,
+    "dep_cold_s": 0.28,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-identifiers",
+    "dep": "reqwest",
+    "other_workspace_users": 36,
+    "dep_cold_s": 2.15,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impress-identifiers",
+    "dep": "tokio",
+    "other_workspace_users": 50,
+    "dep_cold_s": 3.4,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "serde",
+    "other_workspace_users": 69,
+    "dep_cold_s": 3.88,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "serde_json",
+    "other_workspace_users": 66,
+    "dep_cold_s": 3.45,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "thiserror",
+    "other_workspace_users": 0,
+    "dep_cold_s": 6.77,
+    "in_ws_graph": false
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "tokio",
+    "other_workspace_users": 49,
+    "dep_cold_s": 3.4,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "tracing",
+    "other_workspace_users": 47,
+    "dep_cold_s": 1.03,
+    "in_ws_graph": true
+   },
+   {
+    "crate": "impel-tui",
+    "dep": "tui-textarea",
+    "other_workspace_users": 0,
+    "dep_cold_s": 0.26,
+    "in_ws_graph": true
+   }
+  ]
+ },
+ "target_dir_du": "9.2G\t/Users/tabel/.cache/impress-build-cost-target/ws2\n3.1G\t/Users/tabel/.cache/impress-build-cost-target/impel-tools\n9.6G\t/Users/tabel/.cache/impress-build-cost-target/bo\n5.7G\t/Users/tabel/.cache/impress-build-cost-target/impress-mcp\n4.6G\t/Users/tabel/.cache/impress-build-cost-target/impress-cli\n2.0G\t/Users/tabel/.cache/impress-build-cost-target/check\n 16G\t/Users/tabel/.cache/impress-build-cost-target/ws\n"
+}
