@@ -96,6 +96,43 @@ final class LayoutInfoPaneTests: XCTestCase {
         XCTAssertEqual(detailTab, .info, "the info pane beside a pdf pane now shows the PDF twice")
     }
 
+    // MARK: PH-M2 — Open PDF from a row is one gesture, one ⌘Z
+
+    private func selection(onChannelOf tile: UInt64) -> Set<String> {
+        Set(controller.tree?.selection(onChannelOf: tile, kind: RecordKindID.publication.rawValue) ?? [])
+    }
+
+    func testOpenPDFFromARowIsOneStepAndOneUndo() throws {
+        let paper = UUID().uuidString.lowercased()
+        let before = controller.version
+        let outcome = LayoutOpenPDF.open(
+            from: list,
+            selecting: .init(kind: RecordKindID.publication.rawValue, ids: [paper]),
+            controller: controller)
+        XCTAssertEqual(outcome, .infoPaneTab(detail))
+        XCTAssertEqual(controller.version, before + 1, "select + tab + focus were more than one step")
+        XCTAssertEqual(selection(onChannelOf: list), [paper])
+        XCTAssertEqual(detailTab, .pdf)
+        XCTAssertEqual(controller.focused, detail)
+
+        // ONE ⌘Z, in the pane the click left focus on, takes the whole click back.
+        XCTAssertTrue(controller.apply(.undo(stack: .exploration, pane: detail)))
+        XCTAssertEqual(detailTab, .info, "the tab survived the click's undo")
+        XCTAssertEqual(selection(onChannelOf: list), [], "the row's selection survived the click's undo")
+    }
+
+    func testARefusedOpenPDFAppliesNoneOfIt() throws {
+        let before = controller.version
+        // Not a record id: Rust refuses the `select`, so the tab must not move either.
+        let outcome = LayoutOpenPDF.open(
+            from: list,
+            selecting: .init(kind: RecordKindID.publication.rawValue, ids: ["not-a-uuid"]),
+            controller: controller)
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertEqual(controller.version, before)
+        XCTAssertEqual(detailTab, .info, "half of a refused click was applied")
+    }
+
     // MARK: PH-M8 / PH-L7 — kinds through the manifest
 
     func testEveryDetailKindIsAManifestKindTheInfoPaneRenders() {

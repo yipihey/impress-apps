@@ -41,6 +41,13 @@ public struct KindTaggedRow: Identifiable, Hashable, Sendable {
     public let hasSecondaryAttachment: Bool
     public let flag: PublicationFlag?
     public let tagDisplays: [TagDisplayData]
+    /// Whether `date` is the record's own. A row that carries no date (a
+    /// surface row with no `modified` or `created`) still needs a `date` —
+    /// `MailStyleItem.date` is not optional, and eleven conformers across
+    /// three targets depend on that — so it carries a placeholder and this
+    /// is false, and the row renders with no date column rather than a
+    /// made-up one (review PH-L5: every such row read "today").
+    public let isDated: Bool
 
     public init(
         id: UUID,
@@ -57,7 +64,8 @@ public struct KindTaggedRow: Identifiable, Hashable, Sendable {
         hasAttachment: Bool = false,
         hasSecondaryAttachment: Bool = false,
         flag: PublicationFlag? = nil,
-        tagDisplays: [TagDisplayData] = []
+        tagDisplays: [TagDisplayData] = [],
+        isDated: Bool = true
     ) {
         self.id = id
         self.kind = kind
@@ -74,6 +82,15 @@ public struct KindTaggedRow: Identifiable, Hashable, Sendable {
         self.hasSecondaryAttachment = hasSecondaryAttachment
         self.flag = flag
         self.tagDisplays = tagDisplays
+        self.isDated = isDated
+    }
+
+    /// How the mail-style row renders this row: the default, without the
+    /// date column when the row has no date of its own.
+    public var mailStyleConfiguration: MailStyleRowConfiguration {
+        var configuration = MailStyleRowConfiguration.default
+        configuration.showDate = isDated
+        return configuration
     }
 }
 

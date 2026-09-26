@@ -14,19 +14,28 @@ public struct HTTPRequest: Sendable {
     public let queryParams: [String: String]
     public let headers: [String: String]
     public let body: String?
+    /// The local port the request arrived on — the port the server is BOUND
+    /// to, which is the one the caller dialled. Set by `HTTPServer`; nil for
+    /// a request built by hand or parsed from text. A route that reports
+    /// "where am I" (`/api/status`) reads this rather than a setting, which
+    /// can say something else: the port table's default, or a port edited
+    /// in Settings since the server started.
+    public var localPort: UInt16?
 
     public init(
         method: String,
         path: String,
         queryParams: [String: String] = [:],
         headers: [String: String] = [:],
-        body: String? = nil
+        body: String? = nil,
+        localPort: UInt16? = nil
     ) {
         self.method = method
         self.path = path
         self.queryParams = queryParams
         self.headers = headers
         self.body = body
+        self.localPort = localPort
     }
 
     /// Parse an HTTP request string.

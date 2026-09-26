@@ -39,17 +39,24 @@ public actor ImpressHTTPRouter: HTTPRouter {
 
         let path = request.path.lowercased()
         if request.method == "GET", path == "/status" || path == "/api/status" {
-            // The port this server is BOUND to — the one a caller reached it
-            // on (a `-httpAutomationPort` launch argument, a saved setting) —
-            // not the table's default, which it reported before (plan wave 7
-            // T5's finding 4; implore's half was #73's).
-            return SharedAutomationRoutes.status(
-                app: "impress",
-                port: Int(ImpressHTTPServer.configuredPort),
-                domain: ["shell": "impress", "facets": "all"])
+            return Self.status(for: request)
         }
 
         return HTTPResponse.notFound()
+    }
+
+    /// `/api/status`. Its `port` is the one the request ARRIVED on — the
+    /// port this server is bound to, which is what a caller probing several
+    /// impress instances needs — and only for a request that does not know
+    /// (one built by hand) the port the settings name. It reported the
+    /// table's default (plan wave 7 T5's finding 4; implore's half was
+    /// #73's); a setting read at request time is a second source that can
+    /// disagree with the socket, the socket cannot.
+    static func status(for request: HTTPRequest) -> HTTPResponse {
+        SharedAutomationRoutes.status(
+            app: "impress",
+            port: Int(request.localPort ?? ImpressHTTPServer.configuredPort),
+            domain: ["shell": "impress", "facets": "all"])
     }
 }
 

@@ -179,9 +179,13 @@ struct LayoutPublicationRowMenu: View {
             // that switched every `info` pane in every window — including one
             // beside a `pdf` pane, which then showed the PDF twice — and no
             // agent could see or replay it.
+            // Selecting the row and showing its PDF are ONE gesture (one ⌘Z).
             openPDF: { id in
-                context.select([id.uuidString.lowercased()], kind: RecordKindID.publication.rawValue)
-                LayoutOpenPDF.open(from: context.tile, controller: context.controller)
+                LayoutOpenPDF.open(
+                    from: context.tile,
+                    selecting: LayoutOpenPDF.Selection(
+                        kind: RecordKindID.publication.rawValue, ids: [id.uuidString.lowercased()]),
+                    controller: context.controller)
             },
             // No list-background drop and no batch-download sheet in a pane:
             // both are presented by the legacy content view, which a tree
@@ -193,7 +197,13 @@ struct LayoutPublicationRowMenu: View {
 }
 // MARK: - Open PDF
 
-/// "Open PDF" from a list pane's row, as ordinary verbs.
+/// "Open PDF" from a list pane's row, as ordinary verbs applied as ONE
+/// gesture (`LayoutController.applyAll`, review PH-M2): selecting the row,
+/// switching the `info` pane's tab and focusing the pane that shows the PDF
+/// are one click, so they are one undo entry, and a refusal of any of them
+/// applies none. They used to be separate verbs, and the selection and the
+/// tab landed on two different panes' undo rings — two ⌘Zs in two panes to
+/// take back one click.
 @MainActor
 enum LayoutOpenPDF {
 
@@ -205,32 +215,92 @@ enum LayoutOpenPDF {
         case infoPaneTab(UInt64)
         /// Neither follows this list: nothing on screen can show the PDF.
         case nowhere
+        /// Rust refused the gesture: none of it was applied.
+        case refused
+    }
+
+    /// The row being opened, published on the list's channel in the same
+    /// step (what `PaneContext.select` publishes for a click).
+    struct Selection: Equatable {
+        let kind: String
+        let ids: [String]
     }
 
     /// Show the selected paper's PDF in the pane that follows `listTile`'s
     /// channel: focus a `pdf` pane if there is one, else set the `info`
     /// pane's tab to PDF through its `view_state` (a `set-pane`, attributed
-    /// and undoable) and focus it.
+    /// and undoable) and focus it. `selection`, when given, is published on
+    /// the list's channel in the same step.
+    ///
+    /// The tab write goes first, so the step is recorded on the `info` pane's
+    /// exploration ring (`UndoStacks::apply_all` records a gesture on its
+    /// first recorded verb's ring) — the pane focus ends on, so the next ⌘Z
+    /// takes the whole click back.
     @discardableResult
-    static func open(from listTile: UInt64, controller: LayoutController) -> Outcome {
+    static func open(
+        from listTile: UInt64, selecting selection: Selection? = nil, controller: LayoutController
+    ) -> Outcome {
         guard let tree = controller.tree else { return .nowhere }
+        var select: [LayoutJSONValue] = []
+        if let selection {
+            select.append(.object([
+                "verb": .string("select"),
+                "target": LayoutPaneRef.id(listTile).json,
+                "kind": .string(selection.kind),
+                "ids": .array(selection.ids.map { .string($0) }),
+            ]))
+        }
+        func focus(_ tile: UInt64) -> [LayoutJSONValue] {
+            controller.focused == tile ? [] : [LayoutVerb.focus(target: .id(tile)).verbJSON!]
+        }
+
         if let pdf = LayoutPaneViewState.pane(showing: .pdf, onChannelOf: listTile, in: tree) {
             logInfo("Open PDF from pane \(listTile): focus pdf pane \(pdf)", category: "layout")
-            controller.apply(.focus(target: .id(pdf)))
-            return .focusedPDFPane(pdf)
+            let applied = apply(select + focus(pdf), label: "open PDF in pane \(pdf)", controller: controller)
+            return applied ? .focusedPDFPane(pdf) : .refused
         }
         if let info = LayoutPaneViewState.pane(showing: .info, onChannelOf: listTile, in: tree) {
             logInfo("Open PDF from pane \(listTile): info pane \(info) → PDF tab", category: "layout")
-            LayoutPaneViewState.merge(
-                [LayoutViewStateKey.tab: .string(DetailTab.pdf.rawValue)], into: info, controller: controller,
-                why: "Open PDF from pane \(listTile)")
-            controller.apply(.focus(target: .id(info)))
-            return .infoPaneTab(info)
+            let tab: [LayoutJSONValue]
+            switch LayoutPaneViewState.write(
+                [LayoutViewStateKey.tab: .string(DetailTab.pdf.rawValue)], into: info,
+                controller: controller, why: "Open PDF from pane \(listTile)")
+            {
+            case .verb(let verb): tab = [verb]
+            case .unchanged: tab = []
+            case nil: return .refused
+            }
+            let applied = apply(
+                tab + select + focus(info), label: "open PDF in info pane \(info)", controller: controller)
+            return applied ? .infoPaneTab(info) : .refused
         }
         logInfo(
             "Open PDF from pane \(listTile): no pdf or info pane follows its channel — nothing to show it in",
             category: "layout")
+        // The row was still picked: publish it where it is.
+        _ = apply(select + focus(listTile), label: "select for open PDF", controller: controller)
         return .nowhere
+    }
+
+    /// One gesture: all of it or none. An empty one is nothing to do.
+    private static func apply(
+        _ verbs: [LayoutJSONValue], label: String, controller: LayoutController
+    ) -> Bool {
+        guard !verbs.isEmpty else { return true }
+        do {
+            let json = try LayoutJSONValue.array(verbs).jsonString()
+            // 2. SAVE — what Rust did with the click.
+            let applied = try controller.applyAll(json, label: label)
+            logInfo(
+                "Open PDF: \(verbs.count) verb(s) as one step → version \(applied.version)",
+                category: "layout")
+            return true
+        } catch {
+            logWarning(
+                "Open PDF: \(label) refused, none of its \(verbs.count) verb(s) applied — \(error)",
+                category: "layout")
+            return false
+        }
     }
 }
 

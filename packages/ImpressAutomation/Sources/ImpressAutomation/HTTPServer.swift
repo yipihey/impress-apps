@@ -137,6 +137,7 @@ public actor HTTPServer<Router: HTTPRouter> {
         connections.removeAll()
 
         isRunning = false
+        boundPort = nil
         logger?.info("HTTP server stopped")
     }
 
@@ -152,20 +153,27 @@ public actor HTTPServer<Router: HTTPRouter> {
         isRunning
     }
 
+    /// The port the listener is bound to once it is ready, else nil. Asked
+    /// for port 0, this is the one the system picked.
+    public private(set) var boundPort: UInt16?
+
     // MARK: - Connection Handling
 
     private func handleListenerState(_ state: NWListener.State) {
         switch state {
         case .ready:
             if let port = listener?.port {
+                boundPort = port.rawValue
                 logger?.info("HTTP server listening on port \(port.rawValue)")
             }
         case .failed(let error):
             logger?.error("HTTP server listener failed: \(error.localizedDescription)")
             isRunning = false
+            boundPort = nil
         case .cancelled:
             logger?.info("HTTP server listener cancelled")
             isRunning = false
+            boundPort = nil
         default:
             break
         }
@@ -279,10 +287,11 @@ extension HTTPServer {
         }
 
         // Parse HTTP request
-        guard let request = HTTPRequest.parse(requestString) else {
+        guard var request = HTTPRequest.parse(requestString) else {
             await sendResponse(HTTPResponse.badRequest("Invalid HTTP request"), on: connection)
             return
         }
+        request.localPort = Self.localPort(of: connection) ?? boundPort
 
         logger?.debug("HTTP \(request.method) \(request.path)")
 
@@ -321,6 +330,13 @@ extension HTTPServer {
         }
 
         await sendResponse(response, on: connection)
+    }
+
+    /// The local port `connection` arrived on, or nil when the path does not
+    /// say (the caller then falls back to the listener's port).
+    static func localPort(of connection: NWConnection) -> UInt16? {
+        guard case .hostPort(_, let port) = connection.currentPath?.localEndpoint else { return nil }
+        return port.rawValue
     }
 
     /// Whether the connection's transport peer is positively loopback.
