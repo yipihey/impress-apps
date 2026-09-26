@@ -1,0 +1,11 @@
+/Users/tabel/Projects/impress-apps/.claude/worktrees/agent-aa652809ef180de51/target-standalone/debug/deps/quote-16b9de0e0434c69d.d: /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/lib.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/ext.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/format.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/ident_fragment.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/to_tokens.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/runtime.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/spanned.rs
+
+/Users/tabel/Projects/impress-apps/.claude/worktrees/agent-aa652809ef180de51/target-standalone/debug/deps/libquote-16b9de0e0434c69d.rmeta: /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/lib.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/ext.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/format.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/ident_fragment.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/to_tokens.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/runtime.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/spanned.rs
+
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/lib.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/ext.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/format.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/ident_fragment.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/to_tokens.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/runtime.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.44/src/spanned.rs:

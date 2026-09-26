@@ -1,0 +1,11 @@
+/Users/tabel/Projects/impress-apps/.claude/worktrees/agent-aa652809ef180de51/target-standalone/debug/deps/uuid_simd-24227d1c68b8936c.d: /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/lib.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/error.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/spec.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/format.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/parse.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/multiversion.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/ext.rs
+
+/Users/tabel/Projects/impress-apps/.claude/worktrees/agent-aa652809ef180de51/target-standalone/debug/deps/libuuid_simd-24227d1c68b8936c.rmeta: /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/lib.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/error.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/spec.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/format.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/parse.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/multiversion.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/ext.rs
+
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/lib.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/error.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/spec.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/format.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/parse.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/multiversion.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-simd-0.8.0/src/ext.rs:
