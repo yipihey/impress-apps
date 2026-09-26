@@ -77,7 +77,7 @@ unicode-segmentation = "1"
 
 # Parsing
 nom = { workspace = true }
-quick-xml = "0.31"
+quick-xml = { workspace = true }
 
 # Regex for identifier extraction
 regex = { workspace = true }

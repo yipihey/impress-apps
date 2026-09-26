@@ -75,7 +75,7 @@ url = "2"
 urlencoding = "2"
 
 # Directory paths for user data
-dirs = "5"
+dirs = { workspace = true }
 
 # Citation extraction (Phase 2A) — LaTeX `\cite{...}` matcher.
 regex = { workspace = true }

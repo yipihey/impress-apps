@@ -171,7 +171,7 @@ async-trait = "0.1"
 # HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # XML parsing (arXiv Atom feed, PubMed)
-quick-xml = "0.31"
+quick-xml = "0.38"
 # HTTP mocking for source-client tests
 mockito = "1"
 
@@ -290,7 +290,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Persona/config loading
 toml = "0.8"
-dirs = "5"
+dirs = "6"
 
 # impress-service-* (Phase 0 codegen pipeline)
 impress-service-core = { path = "crates/impress-service-core" }

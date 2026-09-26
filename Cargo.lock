@@ -1812,32 +1812,11 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
-dependencies = [
- "dirs-sys 0.4.1",
-]
-
-[[package]]
-name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
 dependencies = [
- "dirs-sys 0.5.0",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
-dependencies = [
- "libc",
- "option-ext",
- "redox_users 0.4.6",
- "windows-sys 0.48.0",
+ "dirs-sys",
 ]
 
 [[package]]
@@ -1848,7 +1827,7 @@ checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
 dependencies = [
  "libc",
  "option-ext",
- "redox_users 0.5.2",
+ "redox_users",
  "windows-sys 0.61.2",
 ]
 
@@ -3257,7 +3236,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "629d8f3bbeda9d148036d6b0de0a3ab947abd08ce90626327fc3547a49d59d97"
 dependencies = [
- "dirs 6.0.0",
+ "dirs",
  "http",
  "indicatif",
  "libc",
@@ -3954,7 +3933,7 @@ dependencies = [
  "percent-encoding",
  "plist",
  "proptest",
- "quick-xml 0.31.0",
+ "quick-xml 0.38.4",
  "regex",
  "reqwest",
  "rstest",
@@ -3985,7 +3964,7 @@ name = "imbib-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "dirs 5.0.1",
+ "dirs",
  "imbib-core",
  "impress-service-core",
  "impress-service-macros",
@@ -4068,7 +4047,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "impress-core",
  "impress-domain",
  "mail-parser",
@@ -4112,7 +4091,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "impel-core",
  "impress-ai",
  "impress-core",
@@ -4149,7 +4128,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "impel-core",
  "impress-ai",
  "impress-core",
@@ -4168,7 +4147,7 @@ name = "impel-taskd"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "imbib-core",
  "impel-core",
  "impel-enrichment",
@@ -4334,7 +4313,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "futures-util",
  "html-escape",
  "impel-core",
@@ -4360,7 +4339,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "impress-ai",
  "impress-core",
  "serde",
@@ -4450,7 +4429,7 @@ name = "impress-bridges-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "dirs 5.0.1",
+ "dirs",
  "imbib-service",
  "impart-service",
  "implore-service",
@@ -4648,7 +4627,7 @@ name = "impress-mcp"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "dirs 5.0.1",
+ "dirs",
  "imbib-core",
  "imbib-service-http",
  "impart-service-http",
@@ -4683,7 +4662,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "impress-core",
  "impress-embeddings",
  "impress-service-core",
@@ -4812,7 +4791,7 @@ dependencies = [
  "impress-domain",
  "lazy_static",
  "mockito",
- "quick-xml 0.31.0",
+ "quick-xml 0.38.4",
  "regex",
  "reqwest",
  "serde",
@@ -4855,7 +4834,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "image",
  "impress-core",
  "impress-service-core",
@@ -4927,7 +4906,7 @@ name = "impress-toolbox"
 version = "0.1.0"
 dependencies = [
  "axum",
- "dirs 5.0.1",
+ "dirs",
  "impress-git",
  "serde",
  "serde_json",
@@ -4953,7 +4932,7 @@ name = "imprint-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "flate2",
  "implore-core",
  "implore-io",
@@ -5015,7 +4994,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dirs 5.0.1",
+ "dirs",
  "hex",
  "impress-core",
  "impress-service-core",
@@ -7463,15 +7442,6 @@ checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
 name = "quick-xml"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1004a344b30a54e2ee58d66a71b32d2db2feb0a31f9a2d302bf0536f15de2a33"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "quick-xml"
 version = "0.37.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "331e97a1af0bf59823e6eadffe373d7b27f485be8748f71471c662c1f269b7fb"
@@ -7825,17 +7795,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f3fe0889e69e2ae9e41f4d6c4c0181701d00e4697b356fb1f74173a5e0ee27"
 dependencies = [
  "bitflags 2.13.1",
-]
-
-[[package]]
-name = "redox_users"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
-dependencies = [
- "getrandom 0.2.17",
- "libredox",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -10479,7 +10438,7 @@ checksum = "bcbcc3ae20680ac8229ae7bf82443570bf381705c89da140df762579463599a0"
 dependencies = [
  "chrono",
  "comemo",
- "dirs 6.0.0",
+ "dirs",
  "ecow",
  "thiserror 2.0.18",
  "typst",
@@ -11845,15 +11804,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
 dependencies = [
  "windows-targets 0.42.2",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.48.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9"
-dependencies = [
- "windows-targets 0.48.5",
 ]
 
 [[package]]

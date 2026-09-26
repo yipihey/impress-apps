@@ -25,7 +25,7 @@ impress-ai = { workspace = true }
 
 async-trait = { workspace = true }
 chrono = { workspace = true }
-dirs = "5"
+dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
