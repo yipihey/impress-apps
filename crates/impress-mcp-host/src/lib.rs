@@ -255,6 +255,7 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
                 "name": descriptor.name,
                 "description": descriptor.description,
                 "inputSchema": (descriptor.input_schema)(),
+                "annotations": descriptor.verb.mcp_annotations(),
             });
             if let Some(ui) = config
                 .tool_ui
@@ -481,6 +482,28 @@ mod tests {
             }),
         );
         assert_eq!(read["result"]["contents"][0]["text"], "hello");
+    }
+
+    /// `tools/list` carries each descriptor's annotations (ADR-0034 D1), read
+    /// off the same record impress-mcp's flat and grouped listings read.
+    #[test]
+    fn tools_list_carries_the_descriptor_annotations() {
+        let response = handle_request(
+            &config(),
+            &json!({"jsonrpc":"2.0","id":4,"method":"tools/list"}),
+        );
+        let tools = response["result"]["tools"]
+            .as_array()
+            .expect("tools is an array");
+        let fixture = tools
+            .iter()
+            .find(|t| t["name"] == "allowed-fixture_echo-arguments")
+            .expect("the fixture is listed");
+        assert_eq!(fixture["annotations"], FIXTURE.mcp_annotations());
+        assert_eq!(
+            fixture["annotations"],
+            json!({"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false})
+        );
     }
 
     #[test]

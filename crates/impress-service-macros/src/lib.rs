@@ -26,6 +26,8 @@
 //!     service = EchoService,
 //!     impl = DemoEcho,
 //!     instance = || DemoEcho,
+//!     safety = read_only,
+//!     since = "0.1.0",
 //!     methods = [
 //!         echo(message: String) -> String,
 //!     ],
@@ -939,5 +941,116 @@ mod tests {
         let err = expand("pub trait Empty: Send + Sync + 'static { async fn f(&self); }")
             .expect_err("no #[impress_method] at all");
         assert!(err.to_string().contains("`Empty` has no #[impress_method]"));
+    }
+
+    /// The per-method safety override and an example land in the method
+    /// table as the `MethodMeta` fields `impress_service_impl!` resolves.
+    #[test]
+    fn safety_override_and_examples_are_captured() {
+        let ts = expand(
+            r##"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Delete it.
+                #[impress_method(safety = destructive, idempotent = true)]
+                #[impress_example(name = "one", args = r#"{"id": "x"}"#, expect = r#"{"ok": true}"#)]
+                async fn delete(&self, id: String) -> bool;
+                /// Read it.
+                #[impress_method]
+                async fn get(&self, id: String) -> String;
+            }
+            "##,
+        )
+        .expect("expands")
+        .to_string();
+        assert!(ts.contains("SafetyClass :: Destructive"), "{ts}");
+        assert!(
+            ts.contains("idempotent : :: core :: option :: Option :: Some (true)"),
+            "{ts}"
+        );
+        assert!(ts.contains("name : \"one\""), "{ts}");
+        assert!(
+            !ts.contains("impress_example"),
+            "the marker is stripped: {ts}"
+        );
+        // The undeclared method carries `None`s, not the other's values.
+        assert!(
+            ts.contains("safety : :: core :: option :: Option :: None"),
+            "{ts}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_safety_class_and_a_non_json_example_are_compile_errors() {
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method(safety = harmless)]
+                async fn echo(&self) -> String;
+            }
+            "#,
+        )
+        .expect_err("outside the vocabulary");
+        assert!(
+            err.to_string().contains("unknown safety class `harmless`"),
+            "{err}"
+        );
+
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method]
+                #[impress_example(name = "bad", args = "[1, 2]")]
+                async fn echo(&self) -> String;
+            }
+            "#,
+        )
+        .expect_err("args must be an object");
+        assert!(
+            err.to_string().contains("`args` must be a JSON object"),
+            "{err}"
+        );
+
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Doc.
+                #[impress_example(name = "stray", args = "{}")]
+                async fn helper(&self) -> String;
+                /// Doc.
+                #[impress_method]
+                async fn echo(&self) -> String;
+            }
+            "#,
+        )
+        .expect_err("an example on a non-verb");
+        assert!(
+            err.to_string().contains("not an #[impress_method]"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_impl_macro_requires_safety_and_since() {
+        let parse = |src: &str| syn::parse_str::<ImplMacroInput>(src);
+        let err = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, methods = [echo(m: String) -> String]",
+        )
+        .err()
+        .expect("no safety");
+        assert!(err.to_string().contains("missing `safety = …`"), "{err}");
+        let err = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, safety = read_only, methods = []",
+        )
+        .err()
+        .expect("no since");
+        assert!(err.to_string().contains("missing `since"), "{err}");
+        let ok = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, safety = mutating, since = \"0.1.0\", methods = []",
+        )
+        .unwrap_or_else(|e| panic!("both declared: {e}"));
+        assert_eq!(ok.safety, "Mutating");
+        assert_eq!(ok.since.value(), "0.1.0");
     }
 }

@@ -72,14 +72,20 @@ fn table() -> BTreeMap<String, (SafetyClass, String)> {
             "docs/verb-safety.md lists `{tool}` twice"
         );
     }
-    assert!(!rows.is_empty(), "docs/verb-safety.md has no `verb-safety` marker block");
+    assert!(
+        !rows.is_empty(),
+        "docs/verb-safety.md has no `verb-safety` marker block"
+    );
     rows
 }
 
 fn verbs() -> Vec<&'static VerbDescriptor> {
     impress_capabilities::force_link();
     let mut out: Vec<_> = VerbDescriptor::iter().collect();
-    assert!(!out.is_empty(), "no verb is linked; the `full` feature set is off");
+    assert!(
+        !out.is_empty(),
+        "no verb is linked; the `full` feature set is off"
+    );
     out.sort_by_key(|v| v.name);
     out
 }
@@ -157,7 +163,10 @@ fn every_verb_has_an_output_schema_and_an_input_schema() {
         }
         let input = (v.input_schema)();
         if input.get("type").and_then(Value::as_str) != Some("object") {
-            problems.push(format!("`{}` input schema is not an object: {input}", v.name));
+            problems.push(format!(
+                "`{}` input schema is not an object: {input}",
+                v.name
+            ));
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
@@ -171,7 +180,12 @@ fn a_verb_named_delete_is_destructive() {
             || v.method.starts_with("delete-")
             || v.method == "forget"
             || v.method.starts_with("prune-");
-        if deletes && !matches!(v.safety.class, SafetyClass::Destructive | SafetyClass::External) {
+        if deletes
+            && !matches!(
+                v.safety.class,
+                SafetyClass::Destructive | SafetyClass::External
+            )
+        {
             problems.push(format!(
                 "`{}` is named like a deletion but declares `{}`",
                 v.name, v.safety.class
@@ -189,12 +203,20 @@ fn names_and_groups_are_derived_from_the_identifiers() {
             format!("{}_{}", v.service, v.method),
             "qualified name is `<service>_<method>`"
         );
-        assert!(v.service.ends_with("-service"), "{} is a service", v.service);
+        assert!(
+            v.service.ends_with("-service"),
+            "{} is a service",
+            v.service
+        );
         assert!(!v.description.is_empty() && !v.description.starts_with("Invoke "));
         // Idempotency defaults from the class unless declared; a read-only
         // verb that says otherwise is a contradiction.
         if v.safety.class == SafetyClass::ReadOnly {
-            assert!(v.safety.idempotent, "{} is read-only, so idempotent", v.name);
+            assert!(
+                v.safety.idempotent,
+                "{} is read-only, so idempotent",
+                v.name
+            );
         }
         // Lifecycle fields are P3's; nothing declares them yet.
         assert!(v.deprecated.is_none() && v.aliases.is_empty(), "{}", v.name);
@@ -214,7 +236,12 @@ fn mcp_annotations_follow_the_declared_class() {
             "{}",
             v.name
         );
-        assert_eq!(a["openWorldHint"], v.safety.class == SafetyClass::External, "{}", v.name);
+        assert_eq!(
+            a["openWorldHint"],
+            v.safety.class == SafetyClass::External,
+            "{}",
+            v.name
+        );
         assert_eq!(
             a["destructiveHint"],
             matches!(

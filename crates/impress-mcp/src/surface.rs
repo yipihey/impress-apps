@@ -215,6 +215,7 @@ fn definition_of(d: &McpToolDescriptor) -> Value {
         "name": d.name,
         "description": d.description,
         "inputSchema": (d.input_schema)(),
+        "annotations": d.verb.mcp_annotations(),
     })
 }
 
@@ -565,6 +566,25 @@ mod tests {
                 d.name,
             );
         }
+    }
+
+    /// Every flat tool in the grouped listing carries the annotations its
+    /// descriptor declares (ADR-0034 D1): the grouped projection reads the
+    /// same record the flat one does.
+    #[test]
+    fn flat_tools_in_the_grouped_listing_carry_their_annotations() {
+        let mut checked = 0;
+        for tool in grouped_definitions(vec![]) {
+            let Some(name) = tool["name"].as_str() else {
+                continue;
+            };
+            let Some(d) = McpToolDescriptor::iter().find(|d| d.name == name) else {
+                continue; // the capabilities tool or a domain enum
+            };
+            assert_eq!(tool["annotations"], d.verb.mcp_annotations(), "{name}");
+            checked += 1;
+        }
+        assert!(checked > 0, "no flat inventory tool in the grouped listing");
     }
 
     /// Every action advertised in a domain enum resolves. The reverse of the
