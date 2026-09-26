@@ -440,6 +440,7 @@ naming the source that failed and why).
 | `impress/ui/surface@1.0.0` | `name`, `spec`, `tags`, `revision` |
 | `impress/ui/surface-state@1.0.0` | `surface`, `host`, `state` — one row per `(surface, host)` |
 | `impress/ui/surface-event@1.0.0` | `surface`, `host`, `seq`, `name`, `payload`, `at` (the author is the actor) |
+| `task-event@1.0.0` | `task`, `seq`, `name`, `payload`, `at` — a job's progress ring, read by `impel-service_job-events` / `job-wait` (see **Jobs**) |
 
 ### Every verb
 
@@ -447,6 +448,45 @@ naming the source that failed and why).
 `surface_get`, `surface_list`, `surface_delete`, `surface_show`,
 `surface_render`, `surface_state_get`, `surface_state_set`,
 `surface_dispatch`, `surface_events`, `surface_wait`, `surface_examples`.
+
+## Jobs: a long-running verb answers with a handle
+
+A verb that takes seconds or more does not block the caller (ADR-0034 D6,
+plan P4). It answers at once with a **job handle** — the id of a
+`task@1.0.0` row — and does its work behind it, in whatever process
+called it (the MCP server, a CLI, the app): no daemon is needed.
+
+```json
+{ "ok": true, "job": { "id": "<task id>", "kind": "imprint-project-service_project-build",
+  "state": "running" }, "message": "…", "wire_version": 1 }
+```
+
+Five `impel-service` verbs read any job:
+
+| Verb | Args | Answers |
+|---|---|---|
+| `impel-service_job-status` | `{id}` | `state` (`running`, `done`, `failed`, `cancelled`), `cancel_requested`, `runner`, `has_result` |
+| `impel-service_job-events` | `{id, after_seq?, limit?}` | progress events past the cursor, `next_seq`, `gap` (the ring keeps 200) |
+| `impel-service_job-wait` | `{id, after_seq?, timeout_ms}` | long-polls (≤ 55 s) for the next event; returns at once with `finished: true` on a terminal job; `timed_out` with the cursor unchanged otherwise |
+| `impel-service_job-cancel` | `{id}` | sets `cancel_requested`; the executor stops at its next check (a build kills the step it is inside) and the row goes `cancelled` |
+| `impel-service_job-result` | `{id}` | the verb's own result, exactly as a synchronous call would have answered it; `not-ready` while it runs |
+
+The loop is `job_wait` from `next_seq` until `finished`, then `job_result`.
+Events are `task-event@1.0.0` rows with the surface ring's cursor semantics —
+`seq` per task, `gap` when pruned past your cursor, cursor unchanged on
+timeout. `project-build` emits a `build` event, one `step` event as each
+figure step starts and finishes, and `finished`.
+
+**In a surface**, a job is a `param` of kind `task@1.0.0`: bind a `status`
+widget to `impel-service_job-status`, a `log` to `impel-service_job-events`,
+and a `button` to `impel-service_job-cancel` that also `emit`s — the person
+sees the progress in a pane, and your `surface_wait` sees them stop it.
+`crates/impress-surface/examples/job-monitor.surface.json` is that surface.
+
+**On the CLI**, `impress <verb> … --wait` (and `imprint project-build …
+--wait`) streams the events to stderr and prints `{ok, job, result}` when
+the job ends; without `--wait` the handle is printed once the job has
+finished, since an inline job dies with its process.
 
 ## Results: `ok`, `code`, and who acted
 

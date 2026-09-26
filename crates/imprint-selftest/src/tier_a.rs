@@ -147,6 +147,31 @@ impl ProjectWorld {
         })
     }
 
+    /// `project_build` is a job (ADR-0034 D6): start it and wait for the
+    /// result the synchronous verb used to answer with.
+    async fn build(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+        allow_shell: Option<bool>,
+        entry_override: Option<String>,
+        author: Option<String>,
+    ) -> imprint_service::ProjectBuildResult {
+        use imprint_service::ImprintProjectService;
+        let started = self
+            .svc
+            .project_build(
+                manuscript_id,
+                target_id,
+                allow_shell,
+                entry_override,
+                author,
+            )
+            .await;
+        imprint_service::await_build(&self.store, &started, std::time::Duration::from_secs(120))
+            .await
+    }
+
     /// Insert an imbib row (library, bibliography entry) into the same store.
     fn insert_row(
         &self,
@@ -1458,12 +1483,12 @@ async fn cap_project_build_records() -> CapabilityResult {
             if !targets.ok {
                 return Err(format!("targets: {}", targets.message));
             }
-            let quiet = w.svc.project_build(id.clone(), None, None, None, None).await;
+            let quiet = w.build(id.clone(), None, None, None, None).await;
             let quiet_build = quiet.build.as_ref().ok_or("no build record")?;
             if !quiet.ok || quiet_build.steps.first().map(|s| s.status.as_str()) != Some("skipped") {
                 return Err(format!("shell step should be skipped by default: {}", quiet.message));
             }
-            let built = w.svc.project_build(id.clone(), None, Some(true), None, None).await;
+            let built = w.build(id.clone(), None, Some(true), None, None).await;
             let build = built.build.as_ref().ok_or("no build record")?;
             if !built.ok || build.steps.first().map(|s| s.status.as_str()) != Some("ran") {
                 return Err(format!("shell step should run when allowed: {} / {}", built.message, built.log));

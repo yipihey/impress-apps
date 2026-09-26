@@ -143,6 +143,21 @@ PNG is what impress's `plot` pane and every figure view draw, and
    `impress-bridges-service_embed-figure` (svg for print) →
    `imbib-manuscripts-service_compile-manuscript` → `render_pdf_page`.
 
+## Long-running verbs are jobs
+
+A verb that takes seconds or more answers at once with a job handle instead
+of holding the session: `{"ok": true, "job": {"id", "kind", "state"}}`.
+`id` is a `task@1.0.0` row. Follow it with `impel-service_job-wait`
+`{id, after_seq, timeout_ms}` (long-polls up to 55 s; returns the next
+progress events past your cursor, or at once with `finished: true` when the
+job has ended), read the verb's own result with `impel-service_job-result`
+`{id}`, and stop it with `impel-service_job-cancel` `{id}` — the executor
+stops at its next check and the job reads `cancelled`. `job-status` and
+`job-events` are the non-blocking reads. Today's job verbs:
+`imprint-project-service_project-build` (a `build` event, a `step` event as
+each figure step starts and finishes, then `finished`). Every other verb
+still answers synchronously.
+
 ## Review checkpoints — propose, do not overwrite
 
 The human's own prose is not yours to rewrite silently. For any change to

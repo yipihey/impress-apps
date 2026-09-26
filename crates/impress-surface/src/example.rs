@@ -37,10 +37,46 @@ pub fn example_paper_triage() -> SurfaceSpec {
         .unwrap_or_else(|e| panic!("examples/paper-triage.surface.json failed to parse: {e}"))
 }
 
+const JOB_MONITOR_JSON: &str = include_str!("../examples/job-monitor.surface.json");
+
+/// The "Job monitor" surface (ADR-0034 D6, plan P4): a `status` widget bound
+/// to `impel-service_job-status`, a `log` of `impel-service_job-events`, and
+/// a Cancel button that calls `impel-service_job-cancel` and `emit`s — so an
+/// agent that started a long-running verb can show the person its progress
+/// in a pane and learn through `surface_wait` when they stopped it. The job
+/// is the surface's one `param`, a `task@1.0.0` row: the handle every
+/// long-running verb answers with. Parses and panics the same way
+/// [`example_signal_explorer`] does.
+pub fn example_job_monitor() -> SurfaceSpec {
+    serde_json::from_str(JOB_MONITOR_JSON)
+        .unwrap_or_else(|e| panic!("examples/job-monitor.surface.json failed to parse: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::validate::validate;
+
+    /// The job monitor binds the `status` widget to a job and its cancel
+    /// button to `job_cancel` (ADR-0034 D6); it validates clean and names
+    /// exactly the three `impel-service_job-*` verbs.
+    #[test]
+    fn job_monitor_parses_and_validates_clean() {
+        let spec = example_job_monitor();
+        assert_eq!(spec.name, "Job monitor");
+        assert_eq!(spec.params.len(), 1);
+        assert_eq!(spec.params[0].kind, "task@1.0.0");
+        let problems = validate(&spec);
+        assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+        let text = serde_json::to_string(&spec).unwrap();
+        for verb in [
+            "impel-service_job-status",
+            "impel-service_job-events",
+            "impel-service_job-cancel",
+        ] {
+            assert!(text.contains(verb), "the monitor must use {verb}");
+        }
+    }
 
     #[test]
     fn the_worked_example_parses_and_validates_clean() {

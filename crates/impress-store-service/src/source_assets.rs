@@ -18,6 +18,61 @@ pub const MIN_DPI: u32 = 72;
 pub const MAX_DPI: u32 = 300;
 pub const MAX_PIXELS: u64 = 24_000_000;
 pub const MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+/// The longest one PDFKit render may run before it is killed (LR-1). A
+/// 300-dpi page renders in well under a second; a minute is a hang.
+pub const RENDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// `Command::output()` with a deadline: the child is killed when it
+/// passes, and the error names the timeout. Output is drained on threads
+/// so a chatty child cannot block on a full pipe.
+fn output_with_timeout(
+    mut command: Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let out = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(s) = stdout.as_mut() {
+            let _ = s.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(s) = stderr.as_mut() {
+            let _ = s.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("renderer killed after {}s", timeout.as_secs()),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+    })
+}
 
 static ASSET_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static CACHE_ROOT: OnceLock<PathBuf> = OnceLock::new();
@@ -239,18 +294,20 @@ pub fn render_page(
     let parent = path.parent().ok_or("cache path has no parent")?;
     std::fs::create_dir_all(parent).map_err(|error| format!("create render cache: {error}"))?;
     let temporary = parent.join(format!(".{key}.partial"));
-    let output = Command::new("osascript")
-        .args([
-            "-l",
-            "JavaScript",
-            "-e",
-            RENDER_JXA,
-            &pdf.to_string_lossy(),
-            &temporary.to_string_lossy(),
-            &page_index.to_string(),
-            &dpi.to_string(),
-        ])
-        .output()
+    let mut command = Command::new("osascript");
+    command.args([
+        "-l",
+        "JavaScript",
+        "-e",
+        RENDER_JXA,
+        &pdf.to_string_lossy(),
+        &temporary.to_string_lossy(),
+        &page_index.to_string(),
+        &dpi.to_string(),
+    ]);
+    // Bounded (LR-1): a wedged PDFKit render used to hold the executor
+    // thread — and with it every verb in the process — forever.
+    let output = output_with_timeout(command, RENDER_TIMEOUT)
         .map_err(|error| format!("could not start PDFKit renderer: {error}"))?;
     if !output.status.success() {
         return Err(format!(
@@ -324,19 +381,23 @@ pub fn render_pages(
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let output = Command::new("osascript")
-        .args([
-            "-l",
-            "JavaScript",
-            "-e",
-            BATCH_RENDER_JXA,
-            &pdf.to_string_lossy(),
-            &batch_dir.to_string_lossy(),
-            &dpi.to_string(),
-            &indexes,
-        ])
-        .output()
-        .map_err(|error| format!("could not start batch PDFKit renderer: {error}"))?;
+    let mut command = Command::new("osascript");
+    command.args([
+        "-l",
+        "JavaScript",
+        "-e",
+        BATCH_RENDER_JXA,
+        &pdf.to_string_lossy(),
+        &batch_dir.to_string_lossy(),
+        &dpi.to_string(),
+        &indexes,
+    ]);
+    // A batch renders several pages: the single-page bound per page.
+    let output = output_with_timeout(
+        command,
+        RENDER_TIMEOUT.saturating_mul(missing.len().clamp(1, 16) as u32),
+    )
+    .map_err(|error| format!("could not start batch PDFKit renderer: {error}"))?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&batch_dir);
         return Err(format!(

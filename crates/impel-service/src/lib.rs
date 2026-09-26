@@ -31,12 +31,16 @@ use serde::{Deserialize, Serialize};
 
 use impel_core::{TaskStoreApi, REVIEW_REQUEST_SCHEMA, TASK_SCHEMA};
 use impress_core::item::{ActorKind, Item, Value};
+use impress_core::job;
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_core::reference::EdgeType;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_core::task::TaskState;
+use impress_service_core::refusal::Refusal;
+use impress_service_core::wire::{wire_version, WIRE_VERSION};
+use impress_store_service::job as runner;
 
 use impress_service_core::async_trait;
 // `impress_method` is a path-only attribute on trait methods; the service
@@ -173,6 +177,122 @@ pub struct ActionReport {
     pub message: String,
 }
 
+// ── Jobs (ADR-0034 D6) ──────────────────────────────────────────────────────
+
+/// A job as its `task@1.0.0` row says it is.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct JobStatusReport {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub message: String,
+    pub id: String,
+    /// The qualified verb that started it (empty for a kernel task).
+    pub kind: String,
+    /// `pending | running | done | failed | cancelled`.
+    pub state: String,
+    /// True once `job_cancel` was called on a running job and the executor
+    /// has not yet stopped.
+    pub cancel_requested: bool,
+    /// Where it ran: `inline:<pid>@<host>` or the daemon's actor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner: Option<String>,
+    /// The error a failed job recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// True when `job_result` has something to answer.
+    pub has_result: bool,
+    pub created: String,
+    pub modified: String,
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+}
+
+/// One progress event, as `surface_events` shapes its own.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct JobEventDto {
+    pub seq: u64,
+    pub name: String,
+    pub payload: serde_json::Value,
+    pub at: String,
+}
+
+/// Events past a cursor, with the cursor to pass next.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct JobEventsResult {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub message: String,
+    pub events: Vec<JobEventDto>,
+    /// The last event's `seq`, or the cursor passed in when nothing came.
+    pub next_seq: u64,
+    /// The ring was pruned past the cursor: events between it and the first
+    /// one here are gone.
+    pub gap: bool,
+    /// The job's state at the time of the read.
+    pub state: String,
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+}
+
+/// The same, from a long-poll.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct JobWaitResult {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub message: String,
+    pub events: Vec<JobEventDto>,
+    pub next_seq: u64,
+    /// Nothing landed before the deadline; the cursor stands. False when
+    /// the job is terminal, which also returns at once.
+    pub timed_out: bool,
+    pub gap: bool,
+    pub state: String,
+    /// The job is `done`, `failed` or `cancelled`: stop waiting and read
+    /// `job_result`.
+    pub finished: bool,
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+}
+
+/// What `job_cancel` did.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct JobCancelReport {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub message: String,
+    /// `cancelled` when the task had not started; `running` when the flag
+    /// was set and the executor will stop at its next check.
+    pub state: String,
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+}
+
+/// The verb's own result, once the job finished.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct JobResultReport {
+    /// True when the job is `done` (and its result, if it carries `ok`, says
+    /// so). A running job answers `ok: false`, code `not-ready`.
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub message: String,
+    pub state: String,
+    /// The verb's result exactly as a synchronous call would have answered
+    /// it; `null` while running.
+    pub result: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+}
+
+/// `job_result` on a job that is still running.
+pub const CODE_NOT_READY: &str = "not-ready";
+
 // ── Service ─────────────────────────────────────────────────────────────────
 
 #[impress_service]
@@ -217,12 +337,54 @@ pub trait ImpelService: Send + Sync + 'static {
     async fn resolve_review(&self, review_id: String, resolution: String) -> ActionReport;
 
     /// Cancel a task that has not started, and every pending task
-    /// downstream of it (ADR-0005 §4 forward propagation). Refuses a
-    /// `running` task — cancelling work mid-flight needs the executor's
-    /// cooperation, which the kernel does not yet have — and refuses a
-    /// terminal one, since `done`/`failed`/`cancelled` admit no transition.
+    /// downstream of it (ADR-0005 §4 forward propagation). A `running` task
+    /// gets `cancel_requested` set instead (ADR-0034 D6): the executor
+    /// polls it and moves the task to `cancelled` at its next check — the
+    /// kernel never interrupts a thread — so this answers at once and
+    /// `job_status` shows when it stopped. Refuses a terminal one, since
+    /// `done`/`failed`/`cancelled` admit no transition.
     #[impress_method]
     async fn cancel_task(&self, task_id: String) -> ActionReport;
+
+    /// A job's row: state, whether a cancel is pending, where it ran, and
+    /// whether `job_result` has anything yet. A job is the handle a
+    /// long-running verb answered with (`{ok, job: {id, kind, state}}`);
+    /// any `task@1.0.0` id works, a kernel task answering with an empty
+    /// `kind`.
+    #[impress_method]
+    async fn job_status(&self, id: String) -> JobStatusReport;
+
+    /// The job's progress events past `after_seq` (0 = from the start),
+    /// oldest first, with `next_seq` to pass next time and `gap` when the
+    /// ring (200 events) was pruned past the cursor. `limit` 0 = all.
+    #[impress_method]
+    async fn job_events(
+        &self,
+        id: String,
+        after_seq: Option<u64>,
+        limit: Option<u32>,
+    ) -> JobEventsResult;
+
+    /// Long-poll for the next event past `after_seq`, up to `timeout_ms`
+    /// (at most 55000): returns as soon as one lands, at once when the job
+    /// has already finished (`finished: true` — read `job_result`), or on
+    /// timeout with `timed_out: true` and the cursor unchanged. The loop an
+    /// agent runs is `job_wait` from `next_seq` until `finished`.
+    #[impress_method]
+    async fn job_wait(&self, id: String, after_seq: Option<u64>, timeout_ms: u64) -> JobWaitResult;
+
+    /// Ask a job to stop. Sets `cancel_requested` on a running job — the
+    /// executor stops at its next check and the row goes `cancelled`, which
+    /// `job_wait` reports as `finished` — or cancels a job that has not
+    /// started outright. Returns at once; idempotent.
+    #[impress_method]
+    async fn job_cancel(&self, id: String) -> JobCancelReport;
+
+    /// The verb's own result, exactly as a synchronous call would have
+    /// answered it, once the job is `done` (or what it had when it failed
+    /// or was cancelled). `not-ready` while it runs.
+    #[impress_method]
+    async fn job_result(&self, id: String) -> JobResultReport;
 
     /// How much of the store is finished task bookkeeping, and how much a
     /// retention sweep would reclaim (ADR-0006).
@@ -638,14 +800,23 @@ impl ImpelService for DefaultImpelService {
         let state = Self::payload_string(&task, "state")
             .and_then(|s| TaskState::parse_compat(&s))
             .unwrap_or(TaskState::Pending);
+        let actor = "impel-service";
         match state {
             TaskState::Running => {
-                return ActionReport {
-                    ok: false,
-                    message: format!(
-                    "task {task_id} is running; the kernel cannot interrupt an executor mid-flight"
-                ),
-                }
+                // ADR-0034 D6: a running task is asked, not interrupted.
+                return match impress_core::job::request_cancel(&store, id, actor) {
+                    Ok(_) => ActionReport {
+                        ok: true,
+                        message: format!(
+                            "task {task_id} is running; cancel requested — the executor stops at \
+                             its next check and the task becomes cancelled (watch job_status)"
+                        ),
+                    },
+                    Err(error) => ActionReport {
+                        ok: false,
+                        message: format!("cancel request failed: {error}"),
+                    },
+                };
             }
             s if s.is_terminal() => {
                 return ActionReport {
@@ -656,7 +827,6 @@ impl ImpelService for DefaultImpelService {
             _ => {}
         }
 
-        let actor = "impel-service";
         if let Err(error) = TaskStoreApi::transition(&*store, id, TaskState::Cancelled, actor, None)
         {
             return ActionReport {
@@ -794,6 +964,268 @@ impl ImpelService for DefaultImpelService {
             summary,
         }
     }
+
+    async fn job_status(&self, id: String) -> JobStatusReport {
+        let refused = |r: Refusal| JobStatusReport {
+            ok: false,
+            code: Some(r.code),
+            message: r.message,
+            id: id.clone(),
+            kind: String::new(),
+            state: String::new(),
+            cancel_requested: false,
+            runner: None,
+            error: None,
+            has_result: false,
+            created: String::new(),
+            modified: String::new(),
+            wire_version: WIRE_VERSION,
+        };
+        let job_id = match parse_job_id(&id) {
+            Ok(j) => j,
+            Err(r) => return refused(r),
+        };
+        match job::get_job(&self.store(), job_id) {
+            Ok(row) => JobStatusReport {
+                ok: true,
+                code: None,
+                message: job_message(&row),
+                id,
+                kind: row.verb,
+                state: row.state.as_str().into(),
+                cancel_requested: row.cancel_requested,
+                runner: row.runner,
+                error: row.error,
+                has_result: row.result_json.is_some(),
+                created: row.created.to_rfc3339(),
+                modified: row.modified.to_rfc3339(),
+                wire_version: WIRE_VERSION,
+            },
+            Err(e) => refused(job_refusal(e)),
+        }
+    }
+
+    async fn job_events(
+        &self,
+        id: String,
+        after_seq: Option<u64>,
+        limit: Option<u32>,
+    ) -> JobEventsResult {
+        let after_seq = after_seq.unwrap_or(0);
+        let refused = |r: Refusal| JobEventsResult {
+            ok: false,
+            code: Some(r.code),
+            message: r.message,
+            events: vec![],
+            next_seq: after_seq,
+            gap: false,
+            state: String::new(),
+            wire_version: WIRE_VERSION,
+        };
+        let job_id = match parse_job_id(&id) {
+            Ok(j) => j,
+            Err(r) => return refused(r),
+        };
+        let store = self.store();
+        let row = match job::get_job(&store, job_id) {
+            Ok(row) => row,
+            Err(e) => return refused(job_refusal(e)),
+        };
+        match job::events_after(&store, job_id, after_seq, limit.unwrap_or(0) as usize) {
+            Ok(rows) => {
+                let (next_seq, gap) = job::cursor_after(&rows, after_seq);
+                JobEventsResult {
+                    ok: true,
+                    code: None,
+                    message: events_message(rows.len(), gap),
+                    events: rows.iter().map(event_dto).collect(),
+                    next_seq,
+                    gap,
+                    state: row.state.as_str().into(),
+                    wire_version: WIRE_VERSION,
+                }
+            }
+            Err(e) => refused(job_refusal(e)),
+        }
+    }
+
+    async fn job_wait(&self, id: String, after_seq: Option<u64>, timeout_ms: u64) -> JobWaitResult {
+        let after_seq = after_seq.unwrap_or(0);
+        let refused = |r: Refusal| JobWaitResult {
+            ok: false,
+            code: Some(r.code),
+            message: r.message,
+            events: vec![],
+            next_seq: after_seq,
+            timed_out: false,
+            gap: false,
+            state: String::new(),
+            finished: false,
+            wire_version: WIRE_VERSION,
+        };
+        let job_id = match parse_job_id(&id) {
+            Ok(j) => j,
+            Err(r) => return refused(r),
+        };
+        let store = self.store();
+        match runner::wait(
+            &store,
+            job_id,
+            after_seq,
+            std::time::Duration::from_millis(timeout_ms),
+        )
+        .await
+        {
+            Ok(w) => {
+                let finished = w.job.state.is_terminal();
+                let message = if w.timed_out {
+                    "timed out; nothing new".to_string()
+                } else if w.events.is_empty() {
+                    format!(
+                        "job is {}; nothing past the cursor — read job_result",
+                        w.job.state
+                    )
+                } else {
+                    events_message(w.events.len(), w.gap)
+                };
+                JobWaitResult {
+                    ok: true,
+                    code: None,
+                    message,
+                    events: w.events.iter().map(event_dto).collect(),
+                    next_seq: w.next_seq,
+                    timed_out: w.timed_out,
+                    gap: w.gap,
+                    state: w.job.state.as_str().into(),
+                    finished,
+                    wire_version: WIRE_VERSION,
+                }
+            }
+            Err(e) => refused(job_refusal(e)),
+        }
+    }
+
+    async fn job_cancel(&self, id: String) -> JobCancelReport {
+        let refused = |r: Refusal| JobCancelReport {
+            ok: false,
+            code: Some(r.code),
+            message: r.message,
+            state: String::new(),
+            wire_version: WIRE_VERSION,
+        };
+        let job_id = match parse_job_id(&id) {
+            Ok(j) => j,
+            Err(r) => return refused(r),
+        };
+        match job::request_cancel(&self.store(), job_id, "impel-service") {
+            Ok(TaskState::Running) => JobCancelReport {
+                ok: true,
+                code: None,
+                message: format!(
+                    "cancel requested for job {id}; it stops at its next check — job_wait reports \
+                     finished once the row is cancelled"
+                ),
+                state: TaskState::Running.as_str().into(),
+                wire_version: WIRE_VERSION,
+            },
+            Ok(state) => JobCancelReport {
+                ok: true,
+                code: None,
+                message: format!("job {id} cancelled before it started"),
+                state: state.as_str().into(),
+                wire_version: WIRE_VERSION,
+            },
+            Err(e) => refused(job_refusal(e)),
+        }
+    }
+
+    async fn job_result(&self, id: String) -> JobResultReport {
+        let refused = |r: Refusal| JobResultReport {
+            ok: false,
+            code: Some(r.code),
+            message: r.message,
+            state: String::new(),
+            result: serde_json::Value::Null,
+            error: None,
+            wire_version: WIRE_VERSION,
+        };
+        let job_id = match parse_job_id(&id) {
+            Ok(j) => j,
+            Err(r) => return refused(r),
+        };
+        let row = match job::get_job(&self.store(), job_id) {
+            Ok(row) => row,
+            Err(e) => return refused(job_refusal(e)),
+        };
+        if !row.state.is_terminal() {
+            return JobResultReport {
+                ok: false,
+                code: Some(CODE_NOT_READY.into()),
+                message: format!("job {id} is {}; job_wait for it to finish", row.state),
+                state: row.state.as_str().into(),
+                result: serde_json::Value::Null,
+                error: None,
+                wire_version: WIRE_VERSION,
+            };
+        }
+        let result = runner::result_of(&row).unwrap_or(serde_json::Value::Null);
+        let result_ok = result
+            .get("ok")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+        JobResultReport {
+            ok: row.state == TaskState::Done && result_ok,
+            code: None,
+            message: match row.state {
+                TaskState::Done => format!("job {id} done"),
+                other => format!("job {id} {other}"),
+            },
+            state: row.state.as_str().into(),
+            result,
+            error: row.error,
+            wire_version: WIRE_VERSION,
+        }
+    }
+}
+
+fn parse_job_id(id: &str) -> Result<uuid::Uuid, Refusal> {
+    id.parse::<uuid::Uuid>()
+        .map_err(|_| Refusal::invalid_argument(format!("not a valid job id: {id}")))
+}
+
+fn job_refusal(e: job::JobError) -> Refusal {
+    match e {
+        job::JobError::NotFound(id) => Refusal::not_found(format!("no job {id}")),
+        job::JobError::NotATask(id, kind) => {
+            Refusal::invalid_argument(format!("{id} is a {kind}, not a task"))
+        }
+        job::JobError::Transition(t) => Refusal::conflict(t.to_string()),
+        other => Refusal::store(other),
+    }
+}
+
+fn job_message(row: &job::JobRow) -> String {
+    match (row.state, row.cancel_requested) {
+        (TaskState::Running, true) => "running; cancel requested".into(),
+        (state, _) => state.as_str().into(),
+    }
+}
+
+fn events_message(count: usize, gap: bool) -> String {
+    if gap {
+        format!("{count} event(s); older events past your cursor were pruned from the ring")
+    } else {
+        format!("{count} event(s)")
+    }
+}
+
+fn event_dto(row: &job::EventRow) -> JobEventDto {
+    JobEventDto {
+        seq: row.seq,
+        name: row.name.clone(),
+        payload: serde_json::from_str(&row.payload_json).unwrap_or(serde_json::Value::Null),
+        at: row.at.clone(),
+    }
 }
 
 /// Age window `retention_status` reports against when the caller names none.
@@ -822,6 +1254,11 @@ impress_service_impl! {
         resolve_review(review_id: String, resolution: String) -> ActionReport,
         cancel_task(task_id: String) -> ActionReport,
         retention_status(window_days: i64) -> RetentionReport,
+        job_status(id: String) -> JobStatusReport,
+        job_events(id: String, after_seq: Option<u64>, limit: Option<u32>) -> JobEventsResult,
+        job_wait(id: String, after_seq: Option<u64>, timeout_ms: u64) -> JobWaitResult,
+        job_cancel(id: String) -> JobCancelReport,
+        job_result(id: String) -> JobResultReport,
     ],
 }
 
@@ -1003,13 +1440,135 @@ mod tests {
         assert!(!again.ok);
         assert!(again.message.contains("already cancelled"));
 
-        // Running → refused (the kernel cannot interrupt an executor).
+        // Running → the flag is set (ADR-0034 D6); the executor stops it.
         let running = create_task_dag(store.as_ref(), &[spec("alpha", vec![])], "s").unwrap();
         TaskStoreApi::transition(store.as_ref(), running[0], TaskState::Running, "t", None)
             .unwrap();
         let busy = svc.cancel_task(running[0].to_string()).await;
-        assert!(!busy.ok);
-        assert!(busy.message.contains("running"));
+        assert!(busy.ok, "{busy:?}");
+        assert!(busy.message.contains("cancel requested"));
+        let item = TaskStoreApi::get_item(store.as_ref(), running[0])
+            .unwrap()
+            .unwrap();
+        assert!(matches!(item.payload.get("state"), Some(Value::String(s)) if s == "running"));
+        assert!(matches!(
+            item.payload.get("cancel_requested"),
+            Some(Value::Bool(true))
+        ));
+    }
+
+    /// The job verbs over an inline job: the handle reads as a job, its
+    /// events stream past a cursor, a wait returns on the finish, and the
+    /// result is the verb's own.
+    #[tokio::test]
+    async fn job_verbs_follow_an_inline_job_to_its_result() {
+        use impress_store_service::job::{start_inline, JobOutcome};
+        let (svc, store) = service();
+        let handle = start_inline(
+            store.clone(),
+            "t-service_slow",
+            &serde_json::json!({"n": 2}),
+            |ctx| async move {
+                ctx.progress("step", serde_json::json!({"i": 1}));
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                ctx.progress("step", serde_json::json!({"i": 2}));
+                JobOutcome::Done(serde_json::json!({"ok": true, "n": 2}))
+            },
+        );
+        let id = handle.job.unwrap().id;
+
+        let early = svc.job_result(id.clone()).await;
+        assert!(!early.ok);
+        assert_eq!(early.code.as_deref(), Some(CODE_NOT_READY));
+
+        let mut cursor = 0;
+        let mut names = vec![];
+        loop {
+            let w = svc.job_wait(id.clone(), Some(cursor), 5_000).await;
+            assert!(w.ok, "{w:?}");
+            assert!(!w.timed_out);
+            names.extend(w.events.iter().map(|e| e.name.clone()));
+            cursor = w.next_seq;
+            if w.finished && w.events.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(names, ["step", "step", "finished"]);
+
+        let status = svc.job_status(id.clone()).await;
+        assert!(status.ok);
+        assert_eq!(status.state, "done");
+        assert_eq!(status.kind, "t-service_slow");
+        assert!(status.has_result);
+
+        let events = svc.job_events(id.clone(), Some(1), None).await;
+        assert_eq!(events.events.len(), 2);
+        assert_eq!(events.next_seq, 3);
+        assert!(!events.gap);
+
+        let result = svc.job_result(id.clone()).await;
+        assert!(result.ok, "{result:?}");
+        assert_eq!(result.result["n"], 2);
+
+        // A cancel on a finished job is a conflict, not a write.
+        let late = svc.job_cancel(id).await;
+        assert!(!late.ok);
+        assert_eq!(late.code.as_deref(), Some("conflict"));
+    }
+
+    #[tokio::test]
+    async fn job_cancel_stops_a_running_job_and_wait_reports_it_finished() {
+        use impress_store_service::job::{start_inline, JobOutcome};
+        let (svc, store) = service();
+        let handle = start_inline(
+            store.clone(),
+            "t-service_loop",
+            &serde_json::json!({}),
+            |ctx| async move {
+                loop {
+                    if ctx.cancel_requested() {
+                        return JobOutcome::Cancelled(
+                            serde_json::json!({"ok": false, "stopped": true}),
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            },
+        );
+        let id = handle.job.unwrap().id;
+        let cancel = svc.job_cancel(id.clone()).await;
+        assert!(cancel.ok, "{cancel:?}");
+        assert_eq!(cancel.state, "running");
+        let status = svc.job_status(id.clone()).await;
+        assert!(status.cancel_requested || status.state == "cancelled");
+        let mut cursor = 0;
+        let final_state = loop {
+            let w = svc.job_wait(id.clone(), Some(cursor), 5_000).await;
+            cursor = w.next_seq;
+            if w.finished && w.events.is_empty() {
+                break w.state;
+            }
+        };
+        assert_eq!(final_state, "cancelled");
+        let result = svc.job_result(id).await;
+        assert!(!result.ok);
+        assert_eq!(result.state, "cancelled");
+        assert_eq!(result.result["stopped"], true);
+    }
+
+    #[tokio::test]
+    async fn job_verbs_refuse_by_name() {
+        let (svc, _store) = service();
+        let bad = svc.job_status("nope".into()).await;
+        assert_eq!(bad.code.as_deref(), Some("invalid-argument"));
+        let missing = svc
+            .job_wait(uuid::Uuid::new_v4().to_string(), None, 10)
+            .await;
+        assert_eq!(missing.code.as_deref(), Some("not-found"));
+        let missing = svc
+            .job_events(uuid::Uuid::new_v4().to_string(), None, None)
+            .await;
+        assert_eq!(missing.code.as_deref(), Some("not-found"));
     }
 
     /// A finished task counts as reclaimable only once it is OLDER than the

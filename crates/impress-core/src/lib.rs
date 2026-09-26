@@ -34,6 +34,11 @@ pub mod collab;
 pub mod collection_migration;
 #[cfg(feature = "sqlite")]
 pub mod collection_ops;
+/// A long-running verb is a job on the task kernel (ADR-0034 D6): the
+/// `task@1.0.0` handle, its `task-event@1.0.0` progress ring, the
+/// `cancel_requested` flag executors poll, and the stored result.
+#[cfg(feature = "sqlite")]
+pub mod job;
 /// The manuscript-format grammar table. Pure data + text heuristics, so it is
 /// available without the `sqlite` feature (wasm/UI-only builds read it too).
 pub mod manuscript_format;

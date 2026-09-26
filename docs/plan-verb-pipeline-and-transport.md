@@ -857,3 +857,53 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   Gates: fmt, clippy rest, clippy imprint, `cargo test --workspace --features native` (232 suites,
   4010 passed, 0 failed, 20 ignored), check-kit-deps --strict, check-kit-standalone,
   check-chassis-deps, check-uniffi-bindings — all clean.
+- 2026-09-26 — **P4 Jobs landed** (branch `claude/pipeline-p4-jobs`, on main at b5218fb4/197ee48e).
+  The convention as D6 states it: `task-event@1.0.0` is a new record kind (D-P4) — a per-task ring
+  with the surface ring's semantics, registered beside `task@1.0.0` in impress-core and written only
+  by `impress_core::job`; the task schema gained `cancel_requested`, `verb`, `args`, `result`,
+  `runner`. A job row is born `running` and assigned to its runner (`inline:<pid>@<host>`), so the
+  scheduler never acquires it. `impress-service-core::job::JobStarted` is the one wire shape;
+  `impress-store-service::job::start_inline` is the inline runner (shared service runtime, cancel
+  poller, a panic is a failed job, `wait` with the cursor rule, `cli_finish` for `--wait`/drain).
+  `impel-service` gained `job_status / job_events / job_wait / job_cancel / job_result`;
+  `cancel_task` on a running task sets the flag instead of refusing, and the scheduler honours the
+  flag on its resume pass. The first gate (LR-1's three one-liners): `get-page-image`'s osascript
+  under a 60 s deadline, `compile-typst`/`project-compile` under `spawn_blocking`, `search-all`
+  bounded to the newest 5,000 rows. `imprint-core`'s `RunnerHost` gained cancel/step hooks
+  (`ObservedHost`), `build()` stops at a step boundary and `ProcessRunnerHost::with_cancel` kills the
+  step — and, found by the live proof, kills its whole process group: `kill()` on a `sh -c` left the
+  grandchild holding the pipes, so a cancelled 45 s step still took 45 s (the timeout path had the
+  same latent hang). **Converted (D-P5):** `imprint-project-service_project-build` — the proof set;
+  every Rust caller (integration tests, Tier A `project.build_records`) goes through `await_build`;
+  no Swift or HTTP mirror called the verb (the app's ⌘B runs `project_build_tree` through the FFI).
+  **Kept synchronous, deliberately:** the other 52 long-running verbs. 26 run inside a running app
+  over the `*-service-http` adapters and will move with P5's transport (a job wrapping an HTTP call
+  in the MCP process is the wrong seat); `surface-wait`/`-render`/`-dispatch` are the surface loop
+  itself (the wait is the primitive; a source needs its value); the 5 AI probes are cached and
+  bounded; `get-page-image`/`get-figure-image` return `_mcp_content` image blocks a caller wants
+  inline (now bounded); the imports, backups, e-ink verbs, `compile-*`, `run-selftest` ×3 and
+  `search-all` return counts/reports their CLI, Swift or Tier B callers read at once — each is a
+  result-shape change with callers to migrate and is one `start_inline` call away once its caller
+  is ready. The machinery does not care which verb; the migration is per caller.
+  Docs: `docs/agent-surfaces.md` § Jobs, the MCP guide's "Long-running verbs are jobs", the matrix
+  row, `docs/verb-coverage.md` counts (438 verbs), the job-monitor example surface, `schema-refs.json`.
+  **Proof (impress-mcp on a scratch store, flat tools, debug build, this Mac under three concurrent
+  release framework builds):** `project-build` handle in 26.6 ms cold (28–34 ms across runs) and
+  2–17 ms warm; `scheduler-status` answered in 2.9 ms while the job ran (the serial loop was never
+  held); `job_wait` streamed `build` → `step running` in 0.7/100 ms, then timed out at 2 s with the
+  cursor unchanged; `job_cancel` answered in 2.1 ms and the job read `cancelled` 210 ms later with
+  the `sh figures/slow.sh` process gone and the `manuscript-build` row `cancelled`; `job_result`
+  answered the old `ProjectBuildResult`. CLI: `impress project-build … --wait` streamed
+  `[1] build … [4] finished {"ok":true,"state":"done"}` to stderr and printed `{ok, job, result}`.
+  Surface: the job-monitor surface rendered the status bound to the job, a dispatched Cancel click
+  called `job-cancel` and emitted `job-cancel-requested`, which `surface_wait` returned in 0.7 ms;
+  the job ended `cancelled`; a Refresh click re-read the source (`cancelled: cancelled`) — a verb
+  source re-runs only on refresh, as documented. Not done, on purpose: MCP `notifications/progress`
+  (the loop is polled through `job_wait`); a heartbeat for a job whose process died (its row stays
+  `running` — the CLI drains for that reason).
+  Gates: fmt, clippy imprint + rest, `cargo test` on every touched crate plus impel-taskd,
+  impress-mcp, impress-cli, imprint-cli (all green), check-schema-refs (81 canonical refs),
+  check-kit-deps --strict, check-kit-standalone (13 crates), check-uniffi-bindings (7 match, no
+  export changed), check-verb-coverage and the census. Tier A imprint 25/25. Tier B on imprint 8/8 (built into this worktree's own DerivedData and its own
+  xcframeworks, launched with `-httpAutomationPort 23271`, quit afterwards; the user's imprint on
+  23121 and their impel-taskd were never touched — the CLI/MCP proof ran on a scratch store).

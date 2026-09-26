@@ -65,7 +65,8 @@ pub use source::{
     SOURCE_CITATION_SCHEMA,
 };
 pub use task::{
-    register_task_schemas, register_task_schemas_if_absent, AGENT_RUN_SCHEMA, TASK_SCHEMA,
+    register_task_schemas, register_task_schemas_if_absent, task_event_schema, AGENT_RUN_SCHEMA,
+    TASK_EVENT_SCHEMA, TASK_SCHEMA,
 };
 pub use throughline::register_throughline_schema;
 pub use ui::{

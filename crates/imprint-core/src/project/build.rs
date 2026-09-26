@@ -110,6 +110,10 @@ pub struct BuildOutcome {
     pub log: String,
     pub duration_ms: u64,
     pub message: String,
+    /// The host's `cancel_requested` went up: the build stopped at the
+    /// next step boundary (or its running process was killed) and `ok` is
+    /// false for that reason, not for an error (ADR-0034 D6).
+    pub cancelled: bool,
 }
 
 impl BuildOutcome {
@@ -160,8 +164,14 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
                 log,
                 duration_ms: start.elapsed().as_millis() as u64,
                 message,
+                cancelled: false,
             }
         };
+    let cancelled = |log: String, diagnostics: Vec<Diagnostic>, steps: Vec<StepReport>| {
+        let mut out = fail("build cancelled".into(), log, diagnostics, steps);
+        out.cancelled = true;
+        out
+    };
 
     // A directory, when something runs in one.
     let dir_steps = graph
@@ -181,9 +191,22 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
         }
     }
 
-    // Figure steps, in dependency order.
+    // Figure steps, in dependency order. A cancel is honoured at every
+    // step boundary; a process host also kills the step it is inside.
     for step in &graph.steps {
+        if host.cancel_requested() {
+            log.push_str("build cancelled before ");
+            log.push_str(&step.source);
+            log.push('\n');
+            return cancelled(log, diagnostics, steps);
+        }
+        host.step_started(&step.source, step.runner.as_str());
         let report = run_step(step, &tree, req, host, &mut log, &mut produced, false);
+        host.step_finished(&report);
+        if report.status == StepStatus::Failed && host.cancel_requested() {
+            steps.push(report);
+            return cancelled(log, diagnostics, steps);
+        }
         if report.status == StepStatus::Failed {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
@@ -194,6 +217,10 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
             });
         }
         steps.push(report);
+    }
+    if host.cancel_requested() {
+        log.push_str("build cancelled before the document engine\n");
+        return cancelled(log, diagnostics, steps);
     }
     let steps_failed = steps
         .iter()
@@ -239,7 +266,13 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
                 file: Some(req.target.entry.clone()),
                 line: None,
             });
-            let mut out = fail(message, log, diagnostics, steps);
+            // A LaTeX engine killed by the cancel flag reports an engine
+            // error; the flag says what it really was.
+            let mut out = if host.cancel_requested() {
+                cancelled(log, diagnostics, steps)
+            } else {
+                fail(message, log, diagnostics, steps)
+            };
             out.produced = produced;
             out
         }
@@ -296,6 +329,7 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
                 log,
                 duration_ms: start.elapsed().as_millis() as u64,
                 message,
+                cancelled: false,
             }
         }
     }
@@ -1373,6 +1407,101 @@ mod tests {
                 && d.message.contains("knuth84")
                 && d.line == Some(4)));
         assert!(out.log.contains("$ pdflatex -interaction=nonstopmode"));
+    }
+
+    /// ADR-0034 D6: the host sees every step start and finish, and a cancel
+    /// raised after the first step stops the build at the next boundary —
+    /// the outcome says `cancelled`, the second step never runs.
+    #[test]
+    fn the_host_observes_steps_and_a_cancel_stops_the_build_at_the_boundary() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+        let dir = tempfile::tempdir().unwrap();
+        let step = |n: &str| {
+            ProjectFile::text(
+                format!("figures/{n}.py"),
+                FileRole::FigureSource,
+                "print(1)",
+            )
+            .with_build(BuildSpec {
+                runner: Runner::Shell,
+                outputs: vec![format!("figures/{n}.png")],
+                inputs: vec![],
+                args: BTreeMap::from([(
+                    "command".to_string(),
+                    serde_json::Value::String(format!("python figures/{n}.py")),
+                )]),
+            })
+        };
+        let entry = ProjectFile::text(
+            "main.typ",
+            FileRole::Main,
+            "#image(\"figures/a.png\") #image(\"figures/b.png\")",
+        );
+        let tree = ProjectTree::new(
+            "m",
+            "Paper",
+            "typst",
+            entry,
+            vec![step("a"), step("b")],
+            vec![],
+        );
+        let t = target(Engine::None, "main.typ");
+        let flag = Arc::new(AtomicBool::new(false));
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+        let inner = ScriptedRunnerHost::new(&["sh"], |req| {
+            std::fs::create_dir_all(req.cwd.join("figures")).unwrap();
+            let name = req.args[1]
+                .trim_start_matches("python figures/")
+                .trim_end_matches(".py");
+            std::fs::write(req.cwd.join(format!("figures/{name}.png")), b"\x89PNG").unwrap();
+            ScriptedRunnerHost::success()
+        });
+        let host = {
+            let seen_start = seen.clone();
+            let seen_finish = seen.clone();
+            let raise = flag.clone();
+            let flag = flag.clone();
+            super::super::runner::ObservedHost::new(
+                inner,
+                move |source, runner| {
+                    seen_start
+                        .lock()
+                        .unwrap()
+                        .push(format!("start {source} ({runner})"))
+                },
+                move |report: &StepReport| {
+                    seen_finish
+                        .lock()
+                        .unwrap()
+                        .push(format!("finish {} {:?}", report.source, report.status));
+                    // The first step done: someone asks to stop.
+                    raise.store(true, Ordering::Relaxed);
+                },
+                move || flag.load(Ordering::Relaxed),
+            )
+        };
+        let req = BuildRequest {
+            tree: &tree,
+            target: &t,
+            bibliographies: &[],
+            work_dir: dir.path().join("build"),
+            allow_shell: true,
+            entry_override: None,
+        };
+        let out = build(&req, &host);
+        assert!(out.cancelled, "{}", out.message);
+        assert!(!out.ok);
+        assert_eq!(out.steps.len(), 1, "the second step never ran");
+        assert_eq!(out.steps[0].status, StepStatus::Ran);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                "start figures/a.py (shell)".to_string(),
+                "finish figures/a.py Ran".to_string()
+            ]
+        );
+        assert!(out.log.contains("cancelled before figures/b.py"));
     }
 
     #[test]
