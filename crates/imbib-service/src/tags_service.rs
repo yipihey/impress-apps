@@ -73,6 +73,9 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// tags on the fly.
     #[impress_method]
     async fn list_tags(&self) -> Vec<TagRecord>;
+    /// List every tag with the number of papers carrying it. As expensive as
+    /// `imbib-tags-service_list-tags`: each count is recomputed, so on a large
+    /// vocabulary prefer `imbib-tags-service_count-by-tag` for one tag.
     #[impress_method]
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
     /// Create a tag in the library's tag vocabulary, optionally with
@@ -97,6 +100,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// with `imbib-library-service_count-publications` (kind:'by-tag').
     #[impress_method]
     async fn delete_tag_undoable(&self, path: String) -> MutationResult;
+    /// Set a tag's light and dark display colors; its path and memberships
+    /// are unchanged (rename with `imbib-tags-service_rename-tag`).
     #[impress_method]
     async fn update_tag(
         &self,
@@ -127,6 +132,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// it can be reversed with `imbib-undo-service_recent-undo-groups` + `imbib-undo-service_undo-batch`.
     #[impress_method]
     async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
+    /// List the papers carrying a tag, optionally within one library or
+    /// collection (`parent_id`), sorted.
     #[impress_method]
     async fn query_by_tag(
         &self,
@@ -136,6 +143,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
         ascending: bool,
         limit: u32,
     ) -> Vec<PublicationSummary>;
+    /// Count the papers carrying a tag, optionally within one library or
+    /// collection.
     #[impress_method]
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32;
 }

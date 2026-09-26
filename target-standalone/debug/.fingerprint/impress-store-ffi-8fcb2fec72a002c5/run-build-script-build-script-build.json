@@ -1,0 +1,1 @@
+{"rustc":17329007180185699724,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[5897023917553301247,"build_script_build",false,4230240598284392837]],"local":[{"RerunIfChanged":{"output":"debug/build/impress-store-ffi-8fcb2fec72a002c5/output","paths":["build.rs"]}}],"rustflags":[],"config":0,"compile_kind":0}

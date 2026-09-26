@@ -1,0 +1,10 @@
+/Users/tabel/Projects/impress-apps/.claude/worktrees/agent-aa652809ef180de51/target-standalone/debug/deps/chacha20-11b69dd995edab78.d: /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/lib.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/variants.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/backends.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/rng.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/../README.md /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/backends/neon.rs
+
+/Users/tabel/Projects/impress-apps/.claude/worktrees/agent-aa652809ef180de51/target-standalone/debug/deps/libchacha20-11b69dd995edab78.rmeta: /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/lib.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/variants.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/backends.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/rng.rs /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/../README.md /Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/backends/neon.rs
+
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/lib.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/variants.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/backends.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/rng.rs:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/../README.md:
+/Users/tabel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20-0.10.1/src/backends/neon.rs:
