@@ -24,7 +24,6 @@ crate-type = ["lib"]
 
 
 [dependencies]
-crossterm = { workspace = true }
 uniffi = { workspace = true, optional = true }
 
 [features]
