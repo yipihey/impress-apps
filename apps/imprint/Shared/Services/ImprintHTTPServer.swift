@@ -50,15 +50,10 @@ public actor ImprintHTTPServer {
 
     // MARK: - Settings
 
-    /// Whether the HTTP server is enabled
-    private static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "httpAutomationEnabled")
-    }
-
-    /// The configured port
-    private static var configuredPort: UInt16 {
-        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
-        return port > 0 ? UInt16(port) : defaultPort
+    /// The shared settings (P0, SEC-4): enabled, port, logging and the
+    /// network fields, the same six keys in every app.
+    private static var settings: AutomationServerSettings {
+        AutomationServerSettings.load(defaultPort: defaultPort)
     }
 
     // MARK: - State
@@ -83,20 +78,16 @@ public actor ImprintHTTPServer {
             return
         }
 
-        guard Self.isEnabled else {
+        let settings = Self.settings
+        guard settings.httpEnabled else {
             Logger.httpServer.infoCapture("HTTP server is disabled in settings", category: "http-server")
             return
         }
 
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.imprint.app",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.imprint.app")
 
         await server.start(configuration: configuration)
-        Logger.httpServer.infoCapture("HTTP server started on port \(Self.configuredPort)", category: "http-server")
+        Logger.httpServer.infoCapture("HTTP server started on port \(settings.port)", category: "http-server")
     }
 
     /// Stop the HTTP server.
@@ -106,12 +97,7 @@ public actor ImprintHTTPServer {
 
     /// Restart the server (e.g., after port change).
     public func restart() async {
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.imprint.app",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.imprint.app")
 
         await server.restart(configuration: configuration)
     }

@@ -1107,17 +1107,11 @@ public actor ImpartHTTPServer {
 
     // MARK: - Settings
 
-    /// Whether the HTTP server is enabled
+    /// The shared settings (P0, SEC-4): enabled, port, logging and the
+    /// network fields, the same six keys in every app.
     @MainActor
-    private static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "httpAutomationEnabled")
-    }
-
-    /// The configured port
-    @MainActor
-    private static var configuredPort: UInt16 {
-        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
-        return port > 0 ? UInt16(port) : defaultPort
+    private static var settings: AutomationServerSettings {
+        AutomationServerSettings.load(defaultPort: defaultPort)
     }
 
     // MARK: - State
@@ -1143,17 +1137,13 @@ public actor ImpartHTTPServer {
             return
         }
 
-        guard Self.isEnabled else {
+        let settings = Self.settings
+        guard settings.httpEnabled else {
             routerLogger.info("HTTP server is disabled in settings")
             return
         }
 
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.imbib.impart",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.imbib.impart")
 
         await server.start(configuration: configuration)
     }
@@ -1166,12 +1156,7 @@ public actor ImpartHTTPServer {
     /// Restart the server (e.g., after port change).
     @MainActor
     public func restart() async {
-        let configuration = HTTPServerConfiguration(
-            port: Self.configuredPort,
-            loggerSubsystem: "com.imbib.impart",
-            loggerCategory: "httpServer",
-            logRequests: true
-        )
+        let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.imbib.impart")
 
         await server.restart(configuration: configuration)
     }
