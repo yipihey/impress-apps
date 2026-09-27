@@ -192,9 +192,6 @@ final class AutomaticWorkUndoTests: XCTestCase {
             ("Chassis/WatchedFolders/WatchedFolderIngestCoordinator.swift", [
                 "UndoCoordinator.performAutomatic(\"watched folder\")",
             ]),
-            ("Inbox/RetentionCleanupService.swift", [
-                "UndoCoordinator.performAutomatic(\"retention\")",
-            ]),
         ]
         for (file, needles) in expectations {
             let source = try Self.source(of: base + file)
@@ -209,60 +206,43 @@ final class AutomaticWorkUndoTests: XCTestCase {
         XCTAssertFalse(body.contains("performAutomatic"), "Send to Inbox is user-initiated")
     }
 
-    // MARK: - Retention (review PH-H2)
+    // MARK: - Retention (plan W3, D-R10 — migrated off `RetentionCleanupService`)
 
-    /// The retention cleanup deletes papers nobody chose to delete. Before
-    /// PH-H2 every one of those deletes put "Delete" on the user's undo
-    /// stack, so ⌘Z after launch resurrected an expired Inbox paper instead
-    /// of undoing what the user had just done.
-    func testRetentionDeletesWithoutTouchingTheUsersUndo() throws {
-        installManager()
-        let adapter = RustStoreAdapter.shared
-        let inbox = UndoCoordinator.performAutomatic("test setup") {
-            InboxManager.shared.getOrCreateInbox()
-        }
-        let key = "retention\(UUID().uuidString.prefix(8))"
-        // Setup is not the user's either: keep it off the stack.
-        let ids = UndoCoordinator.performAutomatic("test setup") {
-            adapter.importBibTeX(
-                "@article{\(key), title={Read in the Inbox}, author={Retention, A.}, year={2020}}",
-                libraryId: inbox.id)
-        }
-        try XCTSkipIf(ids.isEmpty, "import produced nothing in this environment")
-        UndoCoordinator.performAutomatic("test setup") { adapter.setRead(ids: ids, read: true) }
-
-        let settings = InboxRetentionStore.shared
-        let saved = (settings.retentionDays, settings.autoRemoveRead)
-        defer { (settings.retentionDays, settings.autoRemoveRead) = saved }
-        settings.retentionDays = 3650
-        settings.autoRemoveRead = true
-
-        registerUserAction("Add Tag")
-        let runs = RetentionCleanupService.shared.runCount
-        RetentionCleanupService.shared.performCleanup(reason: "test")
-
-        XCTAssertEqual(RetentionCleanupService.shared.runCount, runs + 1)
-        XCTAssertNil(adapter.getPublication(id: ids[0]), "a read Inbox paper is what retention removes")
-        XCTAssertEqual(
-            manager.undoActionName, "Add Tag",
-            "the cleanup's delete reached the user's undo stack")
+    /// The retention DELETE logic moved to Rust (`imbib-library-service_retention-cleanup`,
+    /// `crates/imbib-service/src/library_service.rs`), run by the stored
+    /// `imbib.retention-cleanup` workflow — no longer a Swift code path this
+    /// test suite can drive directly. The invariant PH-H2 fixed (a
+    /// retention delete must never reach the user's undo stack) is now
+    /// structural rather than tested here: the Rust verb calls
+    /// `ImbibStore::delete_item`, which is a plain store delete with no
+    /// concept of — and no way to reach — Swift's `UndoCoordinator` at all.
+    /// It is covered on the Rust side instead:
+    /// `imbib_service::library_service::tests::
+    /// retention_cleanup_removes_read_inbox_papers_but_never_starred_ones`
+    /// (Tier A, a scratch store) and
+    /// `w3_retention_workflow.rs`'s
+    /// `retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log`
+    /// (the full engine: schedule trigger, the 90s `start_delay`, and the
+    /// call landing in `core/verb-call@1.0.0`).
+    ///
+    /// What stays Swift's job — and stays tested here — is the mapping: one
+    /// timer, one caller, and its own 90s gate before the first tick (see
+    /// `WorkflowTickTimer`'s file header for why the gate exists twice).
+    func testWorkflowTickTimerWaits90sBeforeItsFirstTickAndNeverTouchesUndo() throws {
+        let source = try Self.source(of: "Inbox/WorkflowTickTimer.swift")
+        XCTAssertTrue(
+            source.contains("try await Task.sleep(for: .seconds(90))"),
+            "the timer's first tick must wait for the startup grace period")
+        XCTAssertFalse(
+            source.contains("UndoCoordinator") || source.contains("registerUndo"),
+            "the timer maps a tick to workflowTick() only — it must add no logic, " +
+                "including anything that could touch the undo stack")
     }
 
-    /// Once per process, however many callers ask — a pane that mounts again
-    /// must never mean a second run.
-    func testTheLaunchCleanupIsScheduledOncePerProcess() async throws {
-        let service = RetentionCleanupService.shared
-        let first = try XCTUnwrap(service.scheduleLaunchCleanup(gate: .open, reason: "test"))
-        let second = try XCTUnwrap(service.scheduleLaunchCleanup(gate: .open, reason: "test again"))
-        XCTAssertEqual(first, second, "a second schedule made a second run")
-        await first.value
-        XCTAssertGreaterThanOrEqual(service.runCount, 1, "the scheduled run never ran")
-    }
-
-    /// The one caller is imbib's own lifecycle. A view — the chassis sidebar
-    /// lifecycle, applied by the layout tree's outline pane in every chassis
-    /// app on every split — must not run it (the PH-H2 regression).
-    func testOnlyImbibsLifecycleRunsRetention() throws {
+    /// The one caller is imbib's own lifecycle, same rule `RetentionCleanupService`
+    /// enforced before it (the PH-H2 regression this guards against: a view
+    /// mounting again must never mean a second scheduler).
+    func testOnlyImbibsLifecycleStartsTheWorkflowTickTimer() throws {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<3 { root.deleteLastPathComponent() }
         let sources = root.appendingPathComponent("Sources/PublicationManagerCore")
@@ -270,9 +250,11 @@ final class AutomaticWorkUndoTests: XCTestCase {
         var callers: [String] = []
         for case let path as String in enumerator where path.hasSuffix(".swift") {
             let text = try String(contentsOf: sources.appendingPathComponent(path), encoding: .utf8)
-            if text.contains("RetentionCleanupService.shared.") { callers.append(path) }
+            if text.contains("WorkflowTickTimer.shared.start()") { callers.append(path) }
         }
-        XCTAssertEqual(callers, ["Inbox/InboxCoordinator.swift"], "retention has a caller besides imbib's lifecycle")
+        XCTAssertEqual(
+            callers, ["Inbox/InboxCoordinator.swift"],
+            "the workflow tick timer has a caller besides imbib's lifecycle")
     }
 
     /// …/apps/imbib/PublicationManagerCore/Tests/PublicationManagerCoreTests/<this>:

@@ -3996,14 +3996,21 @@ dependencies = [
  "async-trait",
  "dirs",
  "imbib-core",
+ "impress-core",
  "impress-service-core",
  "impress-service-macros",
+ "impress-settings",
+ "impress-store-service",
  "impress-tags",
+ "impress-workflow",
+ "impress-workflow-service",
  "impress-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

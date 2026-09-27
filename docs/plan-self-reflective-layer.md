@@ -2378,3 +2378,69 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   the row's execution bullet asked, but does not yet wrap the whole run in its own job handle, so a
   running workflow has no `task-event` progress ring of its own yet (its calls are each on the
   record in the call log, which is the row's actual acceptance bar).
+
+- 2026-09-27 — **W3 (first migration), WIP — stopped for budget, not blocked.** Worktree
+  `.claude/worktrees/w3-retention`, branch `claude/reflective-w3-retention`, from origin/main at
+  f5a29bb8. The retention verb: `imbib-library-service_retention-cleanup`
+  (`crates/imbib-service/src/library_service.rs`), `safety = destructive`, reading
+  `imbib.retention.{inbox_days,auto_remove_read,exploration_days}` from the settings registry (R1,
+  via a new `imbib_service::store_singleton::default_workspace_dir()` helper and a
+  `SettingsStore::open` beside it) rather than taking thresholds as arguments. Ports all three of
+  `RetentionCleanupService`'s sweeps (inbox, per-collection feeds, exploration searches), keeping
+  its two invariants structurally rather than by convention: every removed inbox/feed paper is
+  `dismiss_paper`'d before `delete_item` (never re-enters the inbox), and `delete_item` is a plain
+  store delete with no path to Swift's `UndoCoordinator` at all — the PH-H2 bug this file existed to
+  prevent cannot recur once the logic is in Rust. Narrowed one piece on purpose: exploration-library
+  identity (`explorationLibraryID`) is a `UserDefaults` pointer with no store row, so the verb only
+  sweeps exploration when a caller passes `exploration_library_id`; the stored workflow (below) has
+  no dynamic args and so covers inbox + feed only — left as follow-up (promote that id into the
+  store, table RG-S) rather than scope-creeping this package into owning it.
+
+  The stored workflow: `imbib.retention-cleanup` (`impress/workflow@1.0.0`), a `schedule` trigger
+  (`every: "24h"`) calling the verb, `guards.not_before_startup_s: 90`, `author.kind: "system"`,
+  seeded `state: Enabled` (not agent-proposed, so D-R6's review gate never applies) by
+  `impress-store-ffi::workflow::ensure_system_workflows_seeded`, run once — matched by `name`, so a
+  disabled or edited row is never overwritten — the first time `workflow_tick()` runs against a
+  workspace that lacks it. This is the one imbib-specific decision living in the shared kit crate
+  (`impress-store-ffi`); a second migrated service will want a less ad hoc seeding seam than "hardcode
+  it at the tick call site," left as an open question for W4.
+
+  Swift: `RetentionCleanupService.swift` deleted; `imbibApp.swift`'s ungated `cleanupExplorationCollectionsOnStartup`
+  (macOS `:580-631`) and its iOS twin deleted along with `LibraryManager.cleanupExplorationCollections`
+  (`:485-515`, WF-1 finding #7) — not ported, since unlike the real retention logic it ignored its
+  own `days` parameter beyond a zero check and deleted every exploration collection outright.
+  `InboxCoordinator.start` (`:97`) now calls `WorkflowTickTimer.shared.start()` (new file), which
+  waits its own 90s before the first `SharedStore.workflowTick()` call — belt-and-suspenders with the
+  engine's own `start_delay`, because the tick's first call also seeds the workflow row, a write this
+  app's startup-gate rule (CLAUDE.md) says must not happen at t=0 either. macOS-only, matching the
+  deleted service's own gate (iOS never ran it). `AutomaticWorkUndoTests.swift`'s retention tests
+  replaced: the undo-stack proof moved to Rust (it is now structural, not merely tested), and what's
+  left in Swift is the mapping shape — one caller (`InboxCoordinator.swift`, source-scanned), the
+  90s gate (source-scanned), never touching `UndoCoordinator`.
+
+  **Tests, all green:** Rust Tier A `library_service::tests::retention_cleanup_removes_read_inbox_papers_but_never_starred_ones`
+  (scratch store + scratch settings workspace, proves starred-never-removed and the dismiss-before-delete
+  order); a full end-to-end workflow test,
+  `crates/imbib-service/tests/w3_retention_workflow.rs::retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log`
+  (two connections to one on-disk store — `imbib_service::store_singleton` for the verb's own dispatch,
+  a raw `SqliteItemStore` for the engine and the call-log sink's `store_override` — proves no run
+  before 90s, exactly one run at 90s, the paper actually removed, and a `core/verb-call@1.0.0` row
+  naming the verb; and that a second tick inside the 24h window does not run again). `docs/verb-safety.md`
+  and `docs/verb-effects.md` updated by hand to the exact rows `crates/impress-capabilities/tests/{descriptor,effects}.rs`
+  printed on failure; `docs/verbs/` regenerated via `gen-verb-docs`. PMC `swift build` clean (the
+  Swift side compiles; `swift test` not yet run — see below).
+
+  **Gates run:** `cargo fmt -p imbib-service -p impress-store-ffi`; `cargo test -p imbib-service`
+  (19 lib tests + the workflow integration test, all green); `cargo test -p impress-capabilities
+  --test descriptor` and `--test effects` (green after the doc edits above). **Gates NOT yet run**
+  (stopped for budget, not because anything failed): `rust-gate.sh fmt`/`clippy rest`/`clippy imprint`
+  across the whole workspace; `cargo test` for the full touched-crate set (`impress-store-ffi`,
+  `impress-workflow`, `impress-workflow-service`); `check-verb-coverage.sh`, `check-schema-refs.sh`,
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-uniffi-bindings.sh` (no UniFFI
+  signature changed, so likely a no-op, but unconfirmed), `cargo hakari generate --diff` (three new
+  dev-dependencies were added to `imbib-service`: `impress-core`, `impress-workflow`,
+  `impress-workflow-service`, `impress-store-service`, `uuid`, `tempfile` — hakari needs a pass);
+  `swift test` in PublicationManagerCore; the imbib macOS/iOS app builds and the pre-push hook; the
+  live proof (xcodebuild + `/api/logs`); `docs/chassis-capability-matrix.md` was checked for a
+  RetentionCleanupService row and has none to update. Pushed as a WIP branch with a **draft** PR —
+  do not merge before a follow-up session finishes the gate list above.

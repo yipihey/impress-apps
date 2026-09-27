@@ -22,6 +22,19 @@ fn default_store_path() -> PathBuf {
         .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
 }
 
+/// The workspace directory (the one holding `impress.sqlite`) the store
+/// singleton opens by default — the same directory `SettingsStore::open`
+/// wants for the settings files it keeps beside the database
+/// (`crates/impress-settings`, R1). Exists so a verb that reads a setting
+/// (retention-cleanup) derives the same workspace the store itself uses,
+/// without a second copy of the `IMBIB_STORE_PATH` override.
+pub fn default_workspace_dir() -> PathBuf {
+    default_store_path()
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// Explicit init for callers that need a custom path. Returns `Err` if the
 /// singleton has already been initialized.
 pub fn init_imbib_store(store_path: PathBuf) -> Result<(), String> {

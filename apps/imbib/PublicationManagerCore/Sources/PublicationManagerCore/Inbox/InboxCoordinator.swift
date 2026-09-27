@@ -88,13 +88,14 @@ public final class InboxCoordinator {
         Logger.inbox.infoCapture("FeedScheduler started (unified: handles all auto-refresh feeds)", category: "coordinator")
 
         #if os(macOS)
-        // Inbox / feed / exploration retention, ONCE per launch and behind the
-        // 90 s startup gate. It lives here, in imbib's own lifecycle, because
-        // imbib is the only app that calls `start()`: the chassis sidebar's
-        // lifecycle ran it before, and the layout tree's outline pane applies
-        // that lifecycle in every chassis app on every mount (review PH-H2).
-        // macOS only, as before — the iOS root never ran it.
-        RetentionCleanupService.shared.scheduleLaunchCleanup()
+        // Retention (inbox + feed collections) is now the stored
+        // `imbib.retention-cleanup` workflow, run by the trigger engine
+        // `WorkflowTickTimer` polls (plan W3, D-R10) — it replaces the
+        // Swift `RetentionCleanupService` this call site used to start
+        // directly. macOS only, as before — the iOS root never ran this
+        // (`WorkflowTickTimer` is a straight port of the call site, not a
+        // new decision to cover iOS).
+        WorkflowTickTimer.shared.start()
         #endif
 
         isStarted = true

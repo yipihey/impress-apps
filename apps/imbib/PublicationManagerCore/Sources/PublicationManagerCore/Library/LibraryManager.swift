@@ -481,26 +481,17 @@ public final class LibraryManager {
         }
     }
 
-    /// Delete exploration collections older than specified days.
-    public func cleanupExplorationCollections(olderThanDays days: Int?) {
-        guard let days = days else { return }
-        guard let libID = explorationLibraryID else { return }
-
-        if days == 0 {
-            clearExplorationLibrary()
-            return
-        }
-
-        // Without dateCreated on CollectionModel, clean up all exploration collections
-        // when any cleanup is requested (date-based filtering not available yet)
-        let collections = store.listCollections(libraryId: libID)
-        if !collections.isEmpty {
-            for collection in collections {
-                deleteExplorationCollection(id: collection.id)
-            }
-            Logger.library.infoCapture("Cleaned up \(collections.count) exploration collection(s)", category: "library")
-        }
-    }
+    // `cleanupExplorationCollections(olderThanDays:)` — the ungated
+    // duplicate WF-1 finding #7 named (plan W3, D-R10) — is deleted, not
+    // ported: unlike the retention logic that IS ported (now the Rust verb
+    // `imbib-library-service_retention-cleanup`, run by the stored
+    // `imbib.retention-cleanup` workflow), this one ignored its own `days`
+    // parameter beyond a zero check and deleted every exploration
+    // collection outright whenever called, with no startup gate at either
+    // of its two call sites. `clearExplorationLibrary()` (the user-facing
+    // "Clear Exploration" action) and `deleteExplorationCollection(id:)`
+    // (the sidebar's per-collection delete) are unrelated user actions and
+    // are unchanged.
 
     /// Delete a specific exploration collection
     public func deleteExplorationCollection(id: UUID) {

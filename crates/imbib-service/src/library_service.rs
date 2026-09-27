@@ -126,6 +126,26 @@ pub struct MutationResult {
     pub ok: bool,
 }
 
+/// What `retention_cleanup` removed, per source (plan W3 / D-R10). Each
+/// count is papers or searches actually removed; a `0` for a source that
+/// found nothing to remove is not distinguishable from a source that was
+/// skipped (`0` thresholds skip a source outright — see the method's doc).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RetentionCleanupReport {
+    /// Inbox papers removed: past `imbib.retention.inbox_days`, or read
+    /// when `imbib.retention.auto_remove_read` is on. Starred papers are
+    /// never counted, whatever their age.
+    pub inbox_removed: u32,
+    /// Papers removed from smart-search feed collections that carry their
+    /// own per-collection `retention_days`. Starred papers are never
+    /// counted.
+    pub feed_removed: u32,
+    /// Exploration smart searches removed: executed, and past
+    /// `imbib.retention.exploration_days`. Only runs when the caller passes
+    /// `exploration_library_id` — see the method's doc for why.
+    pub exploration_removed: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LibraryRecord {
     pub id: String,
@@ -705,6 +725,44 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         sha256: Option<String>,
         is_pdf: bool,
     ) -> Option<LinkedFileRecord>;
+
+    // ---- Retention ----
+    /// Remove papers past their retention window (imbib CLAUDE.md
+    /// "Background Services Must Defer Startup Work"; plan W3, D-R10 —
+    /// replaces the Swift `RetentionCleanupService` and its ungated macOS
+    /// duplicate). DESTRUCTIVE: it deletes store rows, by design — that is
+    /// what the feature does. It never touches the undo stack (undo is a
+    /// user action; this runs as scheduled or on-demand background work),
+    /// and a starred paper is never removed regardless of age.
+    ///
+    /// Three sources, each independent and each reading its own threshold
+    /// from the settings registry (R1) rather than an argument:
+    /// - **Inbox**: `imbib.retention.inbox_days` (0 = keep forever) and
+    ///   `imbib.retention.auto_remove_read`. Every removed inbox paper is
+    ///   first recorded with `dismiss_paper` (by DOI/arXiv/bibcode/cite key)
+    ///   so a later import or feed refresh does not bring it back — "a
+    ///   dismissed paper must never re-enter the inbox" (imbib CLAUDE.md).
+    /// - **Feed collections**: every `imbib/smart-search` row carrying its
+    ///   own per-collection `retention_days` and `auto_remove_read`.
+    /// - **Exploration**: `imbib.retention.exploration_days`, applied to
+    ///   executed smart searches under `exploration_library_id`. That id is
+    ///   local UI state (a `UserDefaults` pointer, not a store row) with no
+    ///   Rust-visible identity yet, so this method only touches exploration
+    ///   when a caller supplies it; a stored workflow with no dynamic
+    ///   arguments therefore covers inbox + feed but not exploration until
+    ///   that identity moves into the store (left as follow-up, table RG-S).
+    #[impress_method(
+        safety = destructive,
+        effects(
+            reads = ["imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper"],
+            writes = ["imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper"],
+        )
+    )]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn retention_cleanup(
+        &self,
+        exploration_library_id: Option<String>,
+    ) -> RetentionCleanupReport;
 }
 
 // ===========================================================================
@@ -1300,6 +1358,179 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .map_err(|e| log("add_linked_file", e))
             .ok()
     }
+
+    async fn retention_cleanup(
+        &self,
+        exploration_library_id: Option<String>,
+    ) -> RetentionCleanupReport {
+        retention::run(&self.store, exploration_library_id.as_deref())
+    }
+}
+
+/// `retention_cleanup`'s implementation — its own module so the date-cutoff
+/// arithmetic and the three source loops (ported from the deleted Swift
+/// `RetentionCleanupService`) read as one unit, separate from the trait glue
+/// above. See the trait method's doc for the invariants this must keep.
+mod retention {
+    use std::sync::OnceLock;
+
+    use imbib_core::unified::store_api::ImbibStore;
+    use impress_settings::SettingsStore;
+
+    use super::RetentionCleanupReport;
+
+    static SETTINGS: OnceLock<SettingsStore> = OnceLock::new();
+
+    fn settings() -> &'static SettingsStore {
+        SETTINGS
+            .get_or_init(|| SettingsStore::open(crate::store_singleton::default_workspace_dir()))
+    }
+
+    fn setting_i64(key: &str, default: i64) -> i64 {
+        settings()
+            .get(key)
+            .ok()
+            .and_then(|r| r.value.as_i64())
+            .unwrap_or(default)
+    }
+
+    fn setting_bool(key: &str, default: bool) -> bool {
+        settings()
+            .get(key)
+            .ok()
+            .and_then(|r| r.value.as_bool())
+            .unwrap_or(default)
+    }
+
+    /// Milliseconds-since-epoch cutoff `days` in the past; `None` when
+    /// `days <= 0` (the registry's "0 = keep forever").
+    fn cutoff_ms(days: i64) -> Option<i64> {
+        if days <= 0 {
+            return None;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        Some(now - days * 24 * 60 * 60 * 1000)
+    }
+
+    /// Record a removed paper as dismissed (by whichever identifiers it has)
+    /// before deleting its row, so it never re-enters the inbox on the next
+    /// import or feed refresh — the same order the Swift service used
+    /// (`InboxManager.trackDismissal` before `store.deleteItem`).
+    fn dismiss_and_delete(
+        store: &ImbibStore,
+        row: &imbib_core::unified::shaped_queries::BibliographyRow,
+    ) {
+        let _ = store.dismiss_paper(
+            row.doi.clone(),
+            row.arxiv_id.clone(),
+            row.bibcode.clone(),
+            Some(row.cite_key.clone()),
+        );
+        let _ = store.delete_item(row.id.clone());
+    }
+
+    fn cleanup_inbox(store: &ImbibStore) -> u32 {
+        let days = setting_i64("imbib.retention.inbox_days", 30);
+        let auto_remove_read = setting_bool("imbib.retention.auto_remove_read", false);
+        let cutoff = cutoff_ms(days);
+        if cutoff.is_none() && !auto_remove_read {
+            return 0; // nothing to do: keep forever, and not removing on read either
+        }
+        let Ok(Some(inbox)) = store.get_inbox_library() else {
+            return 0;
+        };
+        let Ok(publications) =
+            store.query_publications(inbox.id, "created".into(), true, None, None)
+        else {
+            return 0;
+        };
+        let mut removed = 0u32;
+        for pub_row in &publications {
+            if pub_row.is_starred {
+                continue;
+            }
+            let is_old = cutoff.is_some_and(|c| pub_row.date_added < c);
+            let should_remove_as_read = auto_remove_read && pub_row.is_read;
+            if is_old || should_remove_as_read {
+                dismiss_and_delete(store, pub_row);
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    fn cleanup_feed_collections(store: &ImbibStore) -> u32 {
+        let Ok(searches) = store.list_smart_searches(None) else {
+            return 0;
+        };
+        let mut removed = 0u32;
+        for search in &searches {
+            let Some(days) = search.retention_days else {
+                continue;
+            };
+            let Some(cutoff) = cutoff_ms(days as i64) else {
+                continue;
+            };
+            let Some(library_id) = search.library_id.clone() else {
+                continue;
+            };
+            let Ok(publications) =
+                store.query_publications(library_id, "created".into(), true, None, None)
+            else {
+                continue;
+            };
+            for pub_row in &publications {
+                if pub_row.is_starred {
+                    continue;
+                }
+                let is_old = pub_row.date_added < cutoff;
+                let should_remove_as_read = search.auto_remove_read && pub_row.is_read;
+                if is_old || should_remove_as_read {
+                    dismiss_and_delete(store, pub_row);
+                    removed += 1;
+                }
+            }
+        }
+        removed
+    }
+
+    fn cleanup_exploration(store: &ImbibStore, exploration_library_id: Option<&str>) -> u32 {
+        let Some(lib_id) = exploration_library_id else {
+            return 0;
+        };
+        let days = setting_i64("imbib.retention.exploration_days", 30);
+        let Some(cutoff) = cutoff_ms(days) else {
+            return 0;
+        };
+        let Ok(searches) = store.list_smart_searches(Some(lib_id.to_string())) else {
+            return 0;
+        };
+        let mut removed = 0u32;
+        for search in &searches {
+            let Some(executed) = search.last_executed else {
+                continue; // never refreshed: age unknown, never swept
+            };
+            if executed < cutoff {
+                let _ = store.delete_smart_search(search.id.clone());
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    pub(super) fn run(
+        store: &ImbibStore,
+        exploration_library_id: Option<&str>,
+    ) -> RetentionCleanupReport {
+        RetentionCleanupReport {
+            inbox_removed: cleanup_inbox(store),
+            feed_removed: cleanup_feed_collections(store),
+            exploration_removed: cleanup_exploration(store, exploration_library_id),
+        }
+    }
 }
 
 // ===========================================================================
@@ -1369,6 +1600,8 @@ impress_service_impl! {
         list_linked_files(publication_id: String) -> Vec<LinkedFileRecord>,
         count_pdfs(publication_id: String) -> u32,
         add_linked_file(publication_id: String, filename: String, relative_path: Option<String>, file_type: Option<String>, file_size: i64, sha256: Option<String>, is_pdf: bool) -> Option<LinkedFileRecord>,
+        // Retention
+        retention_cleanup(exploration_library_id: Option<String>) -> RetentionCleanupReport,
     ],
 }
 
@@ -1387,11 +1620,83 @@ mod tests {
             .filter(|d| d.name.starts_with("imbib-library-service_"))
             .map(|d| d.name)
             .collect();
-        // 43 methods registered (see methods = [...] above)
+        // 44 methods registered (see methods = [...] above)
         assert!(
             names.len() >= 40,
             "expected >=40 library-service methods, got {}: {names:?}",
             names.len()
         );
+    }
+
+    /// Tier A: `retention_cleanup` against a scratch store, pointed at a
+    /// scratch settings workspace so the test never reads (or depends on)
+    /// this machine's real `imbib.retention.*` values. Covers the invariant
+    /// this verb exists to keep: a starred paper is never removed, whatever
+    /// its read state or the auto-remove-read setting.
+    #[tokio::test]
+    async fn retention_cleanup_removes_read_inbox_papers_but_never_starred_ones() {
+        // Isolate the settings workspace this test's `retention_cleanup`
+        // call resolves (`store_singleton::default_workspace_dir`) from
+        // whatever this machine's real imbib app has written.
+        let settings_dir = tempfile::tempdir().unwrap();
+        std::env::set_var(
+            "IMBIB_STORE_PATH",
+            settings_dir.path().join("impress.sqlite"),
+        );
+        let settings = impress_settings::SettingsStore::open(settings_dir.path());
+        settings
+            .set(
+                "imbib.retention.auto_remove_read",
+                &serde_json::Value::Bool(true),
+            )
+            .expect("set auto_remove_read");
+
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let inbox = store.create_inbox_library("Inbox".into()).unwrap();
+
+        let read_id = store
+            .import_bibtex("@article{Read2024, title={Read}}".into(), inbox.id.clone())
+            .unwrap()
+            .remove(0);
+        store.set_read(vec![read_id.clone()], true).unwrap();
+
+        let starred_read_id = store
+            .import_bibtex(
+                "@article{StarredRead2024, title={Starred and read}}".into(),
+                inbox.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        store.set_read(vec![starred_read_id.clone()], true).unwrap();
+        store
+            .set_starred(vec![starred_read_id.clone()], true)
+            .unwrap();
+
+        let unread_id = store
+            .import_bibtex(
+                "@article{Unread2024, title={Unread}}".into(),
+                inbox.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+        let report = super::ImbibLibraryService::retention_cleanup(&service, None).await;
+
+        assert_eq!(report.inbox_removed, 1, "only the read, unstarred paper");
+        assert_eq!(report.feed_removed, 0);
+        assert_eq!(report.exploration_removed, 0);
+
+        assert!(store.get_publication(read_id).unwrap().is_none());
+        assert!(store.get_publication(starred_read_id).unwrap().is_some());
+        assert!(store.get_publication(unread_id).unwrap().is_some());
+
+        // The removed inbox paper is recorded dismissed so it never
+        // re-enters the inbox (imbib CLAUDE.md's dismissed-papers
+        // invariant), and it never touched an undo stack — `delete_item`
+        // is a plain store delete, not `update_with_undo`.
+        assert!(store
+            .is_paper_dismissed(None, None, None, Some("Read2024".into()))
+            .unwrap());
     }
 }

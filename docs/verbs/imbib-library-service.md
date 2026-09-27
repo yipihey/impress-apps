@@ -685,6 +685,29 @@ Remove papers from a collection (does not delete them).
 
 _No examples yet._
 
+## `imbib-library-service_retention-cleanup`
+
+Remove papers past their retention window (imbib CLAUDE.md "Background Services Must Defer Startup Work"; plan W3, D-R10 — replaces the Swift `RetentionCleanupService` and its ungated macOS duplicate). DESTRUCTIVE: it deletes store rows, by design — that is what the feature does. It never touches the undo stack (undo is a user action; this runs as scheduled or on-demand background work), and a starred paper is never removed regardless of age.
+
+Three sources, each independent and each reading its own threshold from the settings registry (R1) rather than an argument: - **Inbox**: `imbib.retention.inbox_days` (0 = keep forever) and `imbib.retention.auto_remove_read`. Every removed inbox paper is first recorded with `dismiss_paper` (by DOI/arXiv/bibcode/cite key) so a later import or feed refresh does not bring it back — "a dismissed paper must never re-enter the inbox" (imbib CLAUDE.md). - **Feed collections**: every `imbib/smart-search` row carrying its own per-collection `retention_days` and `auto_remove_read`. - **Exploration**: `imbib.retention.exploration_days`, applied to executed smart searches under `exploration_library_id`. That id is local UI state (a `UserDefaults` pointer, not a store row) with no Rust-visible identity yet, so this method only touches exploration when a caller supplies it; a stored workflow with no dynamic arguments therefore covers inbox + feed but not exploration until that identity moves into the store (left as follow-up, table RG-S).
+
+- **safety**: `destructive`
+- **reads**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper"
+- **writes**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `exploration_library_id` | — | no | *(undocumented)* |
+
+**Examples**
+
+- `default`:
+
+  ```json
+  {}
+  ```
+
 ## `imbib-library-service_search-publications`
 
 Search paper metadata by free text, newest-added first, up to `limit` results (0 means 50).

@@ -576,8 +576,14 @@ struct imbibApp: App {
             // to first use so startup remains fast.
             await EmbeddingService.shared.setNeedsIndexBuild()
 
-            // Cleanup old exploration collections based on retention setting
-            await cleanupExplorationCollectionsOnStartup()
+            // Exploration/inbox/feed retention is now the stored
+            // `imbib.retention-cleanup` workflow (plan W3, D-R10) — see
+            // `InboxCoordinator.start`'s `WorkflowTickTimer.shared.start()`.
+            // This call site used to run `LibraryManager.cleanupExplorationCollections`
+            // directly, with no startup gate at all (WF-1 finding #7: it
+            // deleted every exploration collection outright, ignoring its
+            // own `days` parameter beyond a zero check) — deleted rather
+            // than ported.
 
             // PDF health check — deferred 90s per startup grace period
             Task.detached {
@@ -621,20 +627,6 @@ struct imbibApp: App {
                 await SpotlightBridge.shared.setCoordinator(coordinator)
                 appLogger.info("SpotlightSyncCoordinator started for imbib")
             }
-        }
-    }
-
-    /// Cleanup old exploration collections based on user's retention setting.
-    private static func cleanupExplorationCollectionsOnStartup() async {
-        let retention = SyncedSettingsStore.shared.explorationRetention
-        // Only cleanup if retention is time-based (not forever or sessionOnly)
-        // sessionOnly is handled on app quit, forever keeps everything
-        if let days = retention.days, days > 0 {
-            await MainActor.run {
-                let libraryManager = LibraryManager()
-                libraryManager.cleanupExplorationCollections(olderThanDays: days)
-            }
-            appLogger.info("Exploration cleanup: retention=\(retention.rawValue)")
         }
     }
 

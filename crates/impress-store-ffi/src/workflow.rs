@@ -14,8 +14,11 @@
 //! promise (a slightly late anchor only makes the guard stricter, never
 //! looser).
 
+use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 
+use impress_core::item::ActorKind;
+use impress_workflow::spec::{Author, Guards, Review, Trigger, WorkflowSpec, WorkflowState};
 use impress_workflow_service::WorkflowEngine;
 
 use crate::SharedStore;
@@ -23,6 +26,80 @@ use crate::SharedStore;
 /// impel-taskd's own default (`main.rs`'s `--start-delay`) — the one number
 /// with one owner (plan § Workflows).
 const START_DELAY_MS: i64 = 90_000;
+
+/// The first migrated background service (plan W3, D-R10): imbib's inbox /
+/// feed retention sweep, ported from the deleted Swift
+/// `RetentionCleanupService`. Seeded here — the in-app host's tick call site
+/// — rather than agent-proposed, so it starts `enabled` (D-R6's
+/// `Proposed`/review gate is for agent-authored workflows; a system-seeded
+/// one skips it, same as a person writing it by hand). Runs daily, same
+/// cadence as the Swift service's once-per-launch schedule; the 90s
+/// `not_before_startup_s` is `START_DELAY_MS` above, restated as seconds so
+/// the guard reads directly off the stored row rather than assuming this
+/// module's constant.
+fn imbib_retention_cleanup_workflow() -> WorkflowSpec {
+    WorkflowSpec {
+        wire_version: 1,
+        name: "imbib.retention-cleanup".into(),
+        description: "Remove inbox and feed papers past their retention window \
+            (imbib.retention.* settings); starred papers are never removed."
+            .into(),
+        state: WorkflowState::Enabled,
+        author: Author {
+            kind: "system".into(),
+            name: Some("w3-retention-migration".into()),
+        },
+        trigger: Trigger::Schedule {
+            every: "24h".into(),
+            at: None,
+        },
+        guards: Guards {
+            not_before_startup_s: Some(START_DELAY_MS as u64 / 1000),
+            ..Default::default()
+        },
+        params: vec![],
+        sources: BTreeMap::new(),
+        steps: vec![impress_surface::spec::Action::Call {
+            verb: "imbib-library-service_retention-cleanup".into(),
+            args: serde_json::json!({}),
+            into: None,
+            each: None,
+        }],
+        review: Review { required: false },
+    }
+}
+
+/// Inserts [`imbib_retention_cleanup_workflow`] once, the first time a tick
+/// runs against a workspace that does not have it yet (matched by `name` —
+/// a workflow is user-editable after creation, so this never overwrites a
+/// row that already exists, even a disabled one). A seed failure (a corrupt
+/// store, a read-only workspace) is logged to stderr and never blocks the
+/// tick that triggered it.
+fn ensure_system_workflows_seeded(
+    store: &std::sync::Arc<impress_core::sqlite_store::SqliteItemStore>,
+) {
+    let already_seeded = match impress_workflow_service::store::list(store) {
+        Ok(rows) => rows
+            .iter()
+            .any(|r| r.spec.name == "imbib.retention-cleanup"),
+        Err(e) => {
+            eprintln!("[impress-store-ffi] workflow seed: could not list existing rows: {e}");
+            return;
+        }
+    };
+    if already_seeded {
+        return;
+    }
+    if let Err(e) = impress_workflow_service::store::insert(
+        store,
+        &imbib_retention_cleanup_workflow(),
+        ActorKind::System,
+    ) {
+        eprintln!(
+            "[impress-store-ffi] workflow seed: could not insert imbib.retention-cleanup: {e}"
+        );
+    }
+}
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -53,9 +130,12 @@ impl SharedStore {
         let Some(workspace) = self.blob_root_parent() else {
             return Vec::new();
         };
+        let core = self.core();
+        static SEEDED_ONCE: OnceLock<()> = OnceLock::new();
+        SEEDED_ONCE.get_or_init(|| ensure_system_workflows_seeded(&core));
         let mut engine = engine().lock().unwrap_or_else(|poison| poison.into_inner());
         engine
-            .run_once(&self.core(), now_ms(), &workspace)
+            .run_once(&core, now_ms(), &workspace)
             .into_iter()
             .map(|outcome| outcome.workflow_id)
             .collect()
