@@ -66,6 +66,16 @@ fn print_help(store_path: &std::path::Path) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // G7b: the perf aggregator, so `perf-service_summary` sees this
+    // process's own verb spans. stdio transport has no Console to bridge
+    // logs to, so unlike the FFI host this installs only the aggregator,
+    // no log-forwarding layer.
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        let subscriber =
+            tracing_subscriber::registry().with(impress_service_core::pipeline::perf::layer());
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    }
     // Phase A/B/C: try the HTTP backend first (lets us drive the live store
     // through the running imbib macOS app, bypassing macOS TCC restrictions
     // on the sandboxed group container). Falls back silently to SQLite.

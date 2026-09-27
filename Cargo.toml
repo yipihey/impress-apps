@@ -115,6 +115,7 @@ members = [
     "crates/impress-surface-service",
     # ADR-0033 D8 demo capability: the scaffold's output and the worked example
     "crates/surface-demo-service",
+    "crates/perf-service",
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
     # impress-embeddings - the suite's embedding stack (sidecar vector/chunk
@@ -253,6 +254,7 @@ impress-capabilities = { path = "crates/impress-capabilities", default-features 
 impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
+perf-service = { path = "crates/perf-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and

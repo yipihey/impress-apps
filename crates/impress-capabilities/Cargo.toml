@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+perf-service = { workspace = true, optional = true }
 serde_json = { workspace = true }
 impress-service-core = { workspace = true }
 
@@ -72,8 +73,12 @@ tokio = { workspace = true }
 # R2: the keymap coverage test's verb-existence half lives here so
 # `impress-keymap` itself keeps no inventory dependency (RG-6).
 impress-keymap = { workspace = true }
+# G7b: pipeline_bench's aggregator-installed variant.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [features]
+perf = ["dep:perf-service"]
 # `full`: every capability the suite has, for the two binaries that must see
 # everything (impress-mcp, impress-cli). `kit`: the ADR-0033 D7 standalone
 # cut — store, layout and the two surface crates, via `impress-capabilities-kit`
@@ -96,6 +101,7 @@ full = [
     "kit",
     "scenario",
     "impact",
+    "perf",
     "workflow",
 ]
 kit = ["dep:impress-capabilities-kit"]

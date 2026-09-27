@@ -72,6 +72,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `manuscript-collab-service` | read_only | 4 | 1 |
 | `memory-service` | mutating | 7 | 4 |
 | `parsers-service` | read_only | 6 | 0 |
+| `perf-service` | read_only | 2 | 0 |
 | `settings-service` | read_only | 6 | 2 |
 | `smart-search-service` | read_only | 10 | 0 |
 | `source-service` | mutating | 9 | 5 |
@@ -503,6 +504,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `parsers-service_list-publisher-rules` | read_only | name/doc |
 | `parsers-service_parse-mbox` | read_only | name/doc |
 | `parsers-service_resolve-publisher-pdf` | read_only | name/doc |
+| `perf-service_summary` | read_only | name/doc |
+| `perf-service_trace` | read_only | name/doc |
 | `settings-service_get` | read_only | name/doc |
 | `settings-service_list` | read_only | name/doc |
 | `settings-service_reset` | mutating | `settings_service.rs` — forgets a stored value in a scope file; the default stands and the file is rewritten atomically |
