@@ -2,18 +2,61 @@
 //!
 //! These cover behavior that genuinely needs the live app: the real store, the
 //! live search index, actual compilation. When the app isn't reachable, every
-//! Tier B capability is **skipped** (reported as passing-but-skipped) so a
-//! headless CI run without a GUI stays green.
+//! Tier B capability is **skipped** so a headless CI run without a GUI stays
+//! green.
+//!
+//! **SC-1 (docs/plan-self-reflective-layer.md § Scenarios, table SC-1):** the
+//! six class-(i) "pure call sequence" entries below (`app.reachable`,
+//! `app.list_documents`, `app.cross_doc_search`, `app.compile_pdf`,
+//! `throughline.opt_in_live`, `throughline.live_round_trip`) are no longer
+//! hand-coded closures. They are stored `impress/scenario@1.0.0` documents
+//! under `scenarios/` (embedded at compile time), run through the one shared
+//! runner (`impress_scenario::run`) against this crate's own
+//! [`crate::scenario_caller::ImprintTierBCaller`] — not a bespoke loop.
+//!
+//! `manuscripts.detail_and_history` and `store.wal_health` are **kept as
+//! hand-written code**, each marked below with why (SC-1's own
+//! classification): the former is class (iii) — it needs real manuscripts in
+//! the store and loops over however many rows are there, which is app state a
+//! closed scenario spec (ADR-0033 D3: no expressions, no loops) cannot
+//! express; the latter is class (iv) — it reads a second daemon's
+//! (`impress-ai-server`) unauthenticated health route, a different app
+//! entirely from the one this catalogue's `requires.app` names.
 
 use impress_app_client::ImprintClient;
-use imprint_service::handlers::CompileOptions;
+use impress_scenario::Scenario;
 use url::Url;
 
+use crate::scenario_caller::ImprintTierBCaller;
 use crate::{check, skipped, CapabilityResult, Tier};
 
 /// Build a client for `base_url`, or `None` if the URL is malformed.
 fn client_for(base_url: &str) -> Option<ImprintClient> {
     Url::parse(base_url).ok().map(ImprintClient::with_base_url)
+}
+
+/// The six converted scenario documents, embedded at compile time (SC-1: they
+/// are stored documents, not closures — `include_str!` just gets the bytes
+/// into the binary without a runtime file read, the same way
+/// `impress-scenario-service`'s own fixtures are not read from disk at
+/// runtime either).
+const SCENARIO_DOCS: &[&str] = &[
+    include_str!("../scenarios/app.reachable.json"),
+    include_str!("../scenarios/app.list_documents.json"),
+    include_str!("../scenarios/app.cross_doc_search.json"),
+    include_str!("../scenarios/app.compile_pdf.json"),
+    include_str!("../scenarios/throughline.opt_in_live.json"),
+    include_str!("../scenarios/throughline.live_round_trip.json"),
+];
+
+/// Parse every embedded scenario document. Panics on a malformed document —
+/// these are compiled into the binary, so a bad one is a build-time bug, not
+/// a runtime condition.
+pub fn scenarios() -> Vec<Scenario> {
+    SCENARIO_DOCS
+        .iter()
+        .map(|doc| serde_json::from_str(doc).expect("embedded scenario document is valid JSON"))
+        .collect()
 }
 
 /// Run all Tier B capabilities against `base_url`. Skips everything if the app
@@ -35,112 +78,42 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     let info = client.probe().await;
     if info.is_none() {
         let reason = format!("no imprint app responding at {base_url}");
-        return vec![
-            skipped(
-                "app.reachable",
-                "imprint HTTP API is reachable",
-                Tier::B,
-                &reason,
-            ),
-            skipped(
-                "app.list_documents",
-                "Live document list is queryable",
-                Tier::B,
-                "app not running",
-            ),
-            skipped(
-                "app.cross_doc_search",
-                "Live search index is queryable",
-                Tier::B,
-                "app not running",
-            ),
-            skipped(
-                "app.compile_pdf",
-                "Live Typst compile returns a non-empty PDF",
-                Tier::B,
-                "app not running",
-            ),
-            skipped(
-                "throughline.opt_in_live",
-                "Non-opted documents 404 with has_throughline=false over live HTTP",
-                Tier::B,
-                "app not running",
-            ),
-            skipped(
-                "throughline.live_round_trip",
-                "Live create → anchors → mark-supporting → delete leaves no residue",
-                Tier::B,
-                "app not running",
-            ),
-            skipped(
-                "manuscripts.detail_and_history",
-                "Every manuscript row resolves in the Info-tab store read, with history/revisions queryable",
-                Tier::B,
-                "app not running",
-            ),
-            skipped(
-                "store.wal_health",
-                "Shared-store WAL stays within the maintenance budget",
-                Tier::B,
-                "app not running",
-            ),
-        ];
-    }
-    let info = info.unwrap();
-
-    let mut out = Vec::new();
-
-    out.push(
-        check(
+        let mut out = vec![skipped(
             "app.reachable",
             "imprint HTTP API is reachable",
             Tier::B,
-            || async {
-                Ok(format!(
-                    "status={}, version={}",
-                    info.status,
-                    info.version.clone().unwrap_or_else(|| "?".into())
-                ))
-            },
-        )
-        .await,
-    );
-
-    out.push(
-        check(
-            "app.list_documents",
-            "Live document list is queryable",
+            &reason,
+        )];
+        for scenario in scenarios().iter().filter(|s| s.id != "app.reachable") {
+            out.push(skipped(
+                &scenario.id,
+                &scenario.description,
+                Tier::B,
+                "app not running",
+            ));
+        }
+        out.push(skipped(
+            "manuscripts.detail_and_history",
+            "Every manuscript row resolves in the Info-tab store read, with history/revisions queryable",
             Tier::B,
-            || async {
-                match client.list_documents().await {
-                    Ok(docs) => Ok(format!("{} documents", docs.len())),
-                    Err(e) => Err(format!("list_documents failed: {e}")),
-                }
-            },
-        )
-        .await,
-    );
-
-    out.push(
-        check(
-            "app.cross_doc_search",
-            "Live search index is queryable",
+            "app not running",
+        ));
+        out.push(skipped(
+            "store.wal_health",
+            "Shared-store WAL stays within the maintenance budget",
             Tier::B,
-            || async {
-                // An empty result set is fine — we're asserting the index responds,
-                // not that any given term exists.
-                match client.search("the", 5).await {
-                    Ok(hits) => Ok(format!("index responded with {} hits", hits.len())),
-                    Err(e) => Err(format!("search failed: {e}")),
-                }
-            },
-        )
-        .await,
-    );
+            "app not running",
+        ));
+        return out;
+    }
 
-    out.push(compile_capability(&client).await);
-    out.push(throughline_opt_in_capability(&client).await);
-    out.push(throughline_round_trip_capability(&client).await);
+    let mut out = Vec::new();
+
+    for scenario in scenarios() {
+        let mut caller = ImprintTierBCaller::new(client_for(base_url).expect("valid base url"));
+        out.push(impress_scenario::run(&scenario, &mut caller).await);
+    }
+
     out.push(manuscript_detail_history_capability(&client).await);
     out.push(store_wal_health_capability().await);
 
@@ -153,6 +126,8 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
 /// daemon isn't running. The threshold is 4× the daemon's declared budget so
 /// a checkpoint-in-progress never flaps the gate — the incident state was
 /// 200× over.
+///
+/// SC-1 class (iv): reads a second daemon entirely, not this catalogue's app.
 async fn store_wal_health_capability() -> CapabilityResult {
     let id = "store.wal_health";
     let desc = "Shared-store WAL stays within the maintenance budget";
@@ -208,6 +183,9 @@ async fn store_wal_health_capability() -> CapabilityResult {
 /// row `/api/manuscripts` lists (store-native AND watched/external markdown)
 /// must resolve through the chassis store read the Info tab renders from, and
 /// its history/revisions surfaces must answer. Read-only.
+///
+/// SC-1 class (iii): needs real manuscripts in the store and loops over
+/// however many rows are there — app state, not a closed call sequence.
 async fn manuscript_detail_history_capability(client: &ImprintClient) -> CapabilityResult {
     let id = "manuscripts.detail_and_history";
     let desc =
@@ -268,144 +246,47 @@ async fn manuscript_detail_history_capability(client: &ImprintClient) -> Capabil
     check(id, desc, Tier::B, || async move { outcome }).await
 }
 
-/// Live compile: the app's `/api/compile/typst` returns raw PDF bytes, which
-/// the typed client currently expects as a JSON envelope. Until that's
-/// reconciled, a client transport/decode error here is reported as a skip
-/// (with the reason) rather than a failure, so it never spuriously reds the
-/// report. A reachable server that returns a real compile error still fails.
-async fn compile_capability(client: &ImprintClient) -> CapabilityResult {
-    let src = "= Hello\n\nThis is a self-test document.\n";
-    match client.compile_typst(src, CompileOptions::default()).await {
-        Ok(result) => {
-            let bytes = result.pdf_data.as_ref().map(|d| d.len()).unwrap_or(0);
-            let pages = result.page_count;
-            if bytes > 0 {
-                check(
-                    "app.compile_pdf",
-                    "Live Typst compile returns a non-empty PDF",
-                    Tier::B,
-                    || async { Ok(format!("compiled {bytes}-byte PDF, {pages} pages")) },
-                )
-                .await
-            } else {
-                let err = result
-                    .error
-                    .unwrap_or_else(|| "empty PDF and no error".into());
-                check(
-                    "app.compile_pdf",
-                    "Live Typst compile returns a non-empty PDF",
-                    Tier::B,
-                    || async { Err(format!("compile failed: {err}")) },
-                )
-                .await
-            }
-        }
-        Err(e) => skipped(
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use impress_scenario::validate;
+
+    #[test]
+    fn embedded_scenarios_parse_and_validate() {
+        let docs = scenarios();
+        assert_eq!(docs.len(), 6, "expected the six SC-1 converted entries");
+        let expected_ids = [
+            "app.reachable",
+            "app.list_documents",
+            "app.cross_doc_search",
             "app.compile_pdf",
-            "Live Typst compile returns a non-empty PDF",
-            Tier::B,
-            &format!("client compile transport/decode issue: {e}"),
-        ),
-    }
-}
-
-/// Opt-in invariant over live HTTP (ADR-0016 D1): a document that never
-/// opted in must 404 with `has_throughline: false` on every throughline
-/// route. Read-only — probes a random UUID that cannot exist.
-async fn throughline_opt_in_capability(client: &ImprintClient) -> CapabilityResult {
-    let id = "throughline.opt_in_live";
-    let desc = "Non-opted documents 404 with has_throughline=false over live HTTP";
-    let doc = uuid::Uuid::new_v4().to_string();
-    match (
-        client.get_throughline(&doc).await,
-        client.get_throughline_anchors(&doc).await,
-        client.get_throughline_coverage(&doc).await,
-    ) {
-        (Ok(None), Ok(None), Ok(None)) => {
-            check(id, desc, Tier::B, || async {
-                Ok("all three GETs 404 for a non-opted document".to_string())
-            })
-            .await
-        }
-        (a, b, c) => {
-            check(id, desc, Tier::B, || async move {
-                Err(format!("expected three 404s, got {a:?} / {b:?} / {c:?}"))
-            })
-            .await
+            "throughline.opt_in_live",
+            "throughline.live_round_trip",
+        ];
+        for (doc, expected) in docs.iter().zip(expected_ids) {
+            assert_eq!(doc.id, expected);
+            let problems = validate::validate(doc);
+            assert!(problems.is_empty(), "{}: {problems:?}", doc.id);
         }
     }
-}
 
-/// Full mutation round-trip against the live store, self-cleaning: create
-/// a throughline for a synthetic document id, verify the scaffold anchor
-/// derives synced, exercise mark-supporting (no sections exist, so it's a
-/// pure ledger write), then delete and verify the 404 returns. Leaves no
-/// residue in the live store.
-async fn throughline_round_trip_capability(client: &ImprintClient) -> CapabilityResult {
-    let id = "throughline.live_round_trip";
-    let desc = "Live create → anchors → mark-supporting → delete leaves no residue";
-    let doc = uuid::Uuid::new_v4().to_string();
-
-    let body = async {
-        let created = client
-            .create_throughline(&doc, "Selftest throughline")
-            .await
-            .map_err(|e| format!("create: {e}"))?;
-        if created.get("has_throughline").and_then(|v| v.as_bool()) != Some(true) {
-            // Best-effort cleanup before failing.
-            let _ = client.delete_throughline(&doc).await;
-            return Err(format!("create returned unexpected body: {created}"));
-        }
-
-        let anchors = client
-            .get_throughline_anchors(&doc)
-            .await
-            .map_err(|e| format!("anchors: {e}"))?
-            .ok_or("anchors 404 right after create")?;
-        let states: Vec<String> = anchors["anchors"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x["state"].as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if states != vec!["synced".to_string()] {
-            let _ = client.delete_throughline(&doc).await;
-            return Err(format!("scaffold anchor states: {states:?}"));
-        }
-
-        client
-            .patch_throughline_anchors(
-                &doc,
-                serde_json::json!({
-                    "action": "mark-supporting",
-                    "section_key": "selftest-appendix",
-                    "supporting": true
-                }),
-            )
-            .await
-            .map_err(|e| format!("mark-supporting: {e}"))?;
-
-        let deleted = client
-            .delete_throughline(&doc)
-            .await
-            .map_err(|e| format!("delete: {e}"))?;
-        if !deleted {
-            return Err("delete reported nothing to delete".into());
-        }
-        if client
-            .get_throughline(&doc)
-            .await
-            .map_err(|e| format!("post-delete get: {e}"))?
-            .is_some()
-        {
-            return Err("throughline survived deletion".into());
-        }
-        Ok("create/derive/patch/delete round-trip clean, no residue".to_string())
-    };
-    match body.await {
-        Ok(msg) => check(id, desc, Tier::B, || async move { Ok(msg) }).await,
-        Err(e) => check(id, desc, Tier::B, || async move { Err(e) }).await,
+    #[tokio::test]
+    async fn unreachable_app_skips_every_capability_with_stable_ids() {
+        let results = run("http://127.0.0.1:1").await;
+        let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "app.reachable",
+                "app.list_documents",
+                "app.cross_doc_search",
+                "app.compile_pdf",
+                "throughline.opt_in_live",
+                "throughline.live_round_trip",
+                "manuscripts.detail_and_history",
+                "store.wal_health",
+            ]
+        );
+        assert!(results.iter().all(|r| r.skipped && !r.pass));
     }
 }

@@ -1,0 +1,44 @@
+{
+  "wire_version": 1,
+  "id": "throughline.live_round_trip",
+  "description": "Live create → anchors → mark-supporting → delete leaves no residue",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "imprint_throughline-create",
+      "args": { "doc_id": "{{uuid}}", "title": "Selftest throughline" },
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "has_throughline", "equals": true }] },
+      "capture": { "doc": "$.doc_id" }
+    },
+    {
+      "call": "imprint_throughline-anchors-get",
+      "args": { "doc_id": "{{state.doc}}" },
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "states", "equals": ["synced"] }] }
+    },
+    {
+      "call": "imprint_throughline-anchors-patch",
+      "args": {
+        "doc_id": "{{state.doc}}",
+        "action": "mark-supporting",
+        "section_key": "selftest-appendix",
+        "supporting": true
+      },
+      "as": "agent:scenario",
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "imprint_throughline-delete",
+      "args": { "doc_id": "{{state.doc}}" },
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "deleted", "equals": true }] }
+    },
+    {
+      "call": "imprint_throughline-get",
+      "args": { "doc_id": "{{state.doc}}" },
+      "as": "agent:scenario",
+      "expect": { "status": 404 }
+    }
+  ]
+}
