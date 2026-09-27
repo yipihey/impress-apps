@@ -12,7 +12,9 @@ pub mod credentials;
 pub mod error;
 #[cfg(feature = "executor")]
 pub mod executor;
-pub mod fs_lock;
+/// The advisory flock, now the pure `impress-fs-lock` crate (ADR-0036 D-R8);
+/// re-exported so every `crate::fs_lock::` path still resolves.
+pub use impress_fs_lock as fs_lock;
 pub mod migration;
 pub mod omlx;
 pub mod omlx_control;

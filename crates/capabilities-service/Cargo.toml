@@ -19,6 +19,11 @@ impress-surface-service = { workspace = true }
 # second store connection.
 impress-store-service = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# The generator (ADR-0035 D2, plan G4): `verb-surface` and `catalogue-surface`
+# hand back what `impress_verb_surface::verb_surface`/`catalogue` build —
+# pure, no store reach of its own.
+impress-verb-surface = { workspace = true }
+impress-surface = { workspace = true, features = ["schema"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }

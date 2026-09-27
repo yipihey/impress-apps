@@ -906,7 +906,9 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
+ "impress-surface",
  "impress-surface-service",
+ "impress-verb-surface",
  "impress-workspace-hack",
  "schemars 0.8.22",
  "serde",
@@ -4318,6 +4320,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "implore-verbs-ffi"
+version = "0.1.0"
+dependencies = [
+ "implore-service",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "serde_json",
+ "uniffi",
+]
+
+[[package]]
 name = "impress-ai"
 version = "0.1.0"
 dependencies = [
@@ -4329,6 +4342,7 @@ dependencies = [
  "html-escape",
  "impel-core",
  "impress-core",
+ "impress-fs-lock",
  "impress-workspace-hack",
  "mockito",
  "regex",
@@ -4424,6 +4438,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-app-transport"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "implore-verbs-ffi",
+ "impress-core",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "impress-bibtex"
 version = "0.1.0"
 dependencies = [
@@ -4470,6 +4503,7 @@ dependencies = [
  "impress-layout-service",
  "impress-memory-service",
  "impress-parsers-service",
+ "impress-scenario-service",
  "impress-service-core",
  "impress-smart-search-service",
  "impress-store-service",
@@ -4580,6 +4614,14 @@ dependencies = [
  "serde",
  "serde_json",
  "uniffi",
+]
+
+[[package]]
+name = "impress-fs-lock"
+version = "0.1.0"
+dependencies = [
+ "impress-workspace-hack",
+ "tempfile",
 ]
 
 [[package]]
@@ -4771,6 +4813,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-scenario"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-service-core",
+ "impress-surface",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "impress-scenario-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-layout-service",
+ "impress-scenario",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "impress-surface",
+ "impress-surface-service",
+ "impress-workspace-hack",
+ "reqwest",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "impress-service-core"
 version = "0.1.0"
 dependencies = [
@@ -4802,6 +4883,19 @@ dependencies = [
  "quote",
  "serde_json",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "impress-settings"
+version = "0.1.0"
+dependencies = [
+ "impress-fs-lock",
+ "impress-surface",
+ "impress-workspace-hack",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4866,6 +4960,7 @@ dependencies = [
  "impress-layout",
  "impress-layout-service",
  "impress-service-core",
+ "impress-settings",
  "impress-store-service",
  "impress-surface",
  "impress-surface-service",
@@ -4894,7 +4989,10 @@ dependencies = [
  "impress-core",
  "impress-service-core",
  "impress-service-macros",
+ "impress-settings",
+ "impress-surface",
  "impress-workspace-hack",
+ "log",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4929,6 +5027,7 @@ dependencies = [
  "impress-layout-service",
  "impress-service-core",
  "impress-service-macros",
+ "impress-settings",
  "impress-store-service",
  "impress-surface",
  "impress-workspace-hack",
@@ -4972,6 +5071,22 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "impress-verb-surface"
+version = "0.1.0"
+dependencies = [
+ "capabilities-service",
+ "impress-capabilities",
+ "impress-core",
+ "impress-service-core",
+ "impress-surface",
+ "impress-surface-service",
+ "impress-workspace-hack",
+ "serde_json",
+ "surface-demo-service",
+ "tokio",
 ]
 
 [[package]]

@@ -31,9 +31,10 @@ prints the row as it should now read.
 <!-- verb-coverage-services:begin -->
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
-| `capabilities-service` | capabilities-service | 1 | 1 | 2 (0) | 2 | 0 |
+| `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 0 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 0 | 0 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 0 | 0 |
+| `history-service` | impress-store-service | 6 | 6 | 12 (7) | 11 | 6 |
 | `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 0 | 0 |
 | `imbib-app-service` | imbib-service | 17 | 17 | 24 (19) | 0 | 0 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 0 | 0 |
@@ -63,6 +64,8 @@ prints the row as it should now read.
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 0 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
+| `impress-scenario-service` | impress-scenario-service | 5 | 5 | 7 (4) | 7 | 5 |
+| `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
 | `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 0 |
@@ -70,7 +73,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 17 crates, 39 services | **439** | **439** | **1012 (674)** | **90** | **51** |
+| **Total** | 18 crates, 42 services | **459** | **459** | **1040 (691)** | **117** | **68** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -89,12 +92,12 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | Shape | Arguments |
 |---|---:|
 | `array-of-objects` | 3 |
-| `array-of-scalars` | 49 |
+| `array-of-scalars` | 52 |
 | `inline-object` | 4 |
 | `map` | 2 |
-| `other` | 3 |
+| `other` | 6 |
 | `ref-object` | 40 |
-| `scalar` | 911 |
+| `scalar` | 933 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -148,12 +151,14 @@ and the implore owner decides between verbs and deletion.
 | `implore-selection` | library | internal | `parser::parse_selection` and `Evaluator::{evaluate, selected_indices}` have zero callers in the workspace (C-2); the implore owner decides between a verb and deletion |
 | `implore-service` | verb-crate | verb-crate | |
 | `implore-service-http` | service-http | internal | the HTTP adapter of `implore-service`; no capability of its own |
+| `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `implore-stats` | library | should-be-verb | `Ecdf::{from_data, quantile, five_number_summary}`, `SummaryStats::{from_data, zscore, robust_zscore, winsorize}` have no verb and zero callers (C-2) |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
 | `impress-ai-service` | verb-crate | verb-crate | |
 | `impress-ai-tools` | glue/inventory | internal | a third force-link list beside `impress-capabilities` (recorded in the pipeline plan) |
 | `impress-app-client` | library | internal | `ImprintClient` selftest probes; the same data has store-service and imprint verbs |
+| `impress-app-transport` | library | internal | the P5 transport's client side (`call(app, verb, args)`); no capability of its own, it reaches a verb another crate already holds |
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |
 | `impress-bridges-service` | verb-crate | verb-crate | |
 | `impress-capabilities` | glue/inventory | internal | the one linked inventory |
@@ -164,6 +169,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-domain` | library | should-be-verb | `citation_reference::{create_citation_reference, citation_to_typst, citation_to_latex, create_citation_batch}` are Swift-only |
 | `impress-embeddings` | library | should-be-verb | `ChunkIndex::{search, search_scoped}` reach agents only through `impress-mcp`'s hand-written `search_papers` / `get_paper_chunks` |
 | `impress-flags` | library | should-be-verb | `query::{parse_flag_query, FlagQuery::matches}` and `parse::parse_flag_command` have no verb |
+| `impress-fs-lock` | library | internal | the advisory `flock` `impress-ai` and `impress-settings` share (ADR-0036 D-R8); a lock is not a capability |
 | `impress-git` | library | should-be-verb | `commands::{status_cmd, commit_cmd, log_cmd, diff_cmd, push_cmd, pull_cmd, clone_cmd}` and the porcelain parsers have no verb |
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
@@ -177,6 +183,8 @@ and the implore owner decides between verbs and deletion.
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
+| `impress-scenario` | library | covered-through | `impress-scenario-service` exposes validate/interpret over it |
+| `impress-scenario-service` | verb-crate | verb-crate | |
 | `impress-service-core` | glue/inventory | internal | runtime types of the macro pipeline |
 | `impress-service-macros` | glue/inventory | internal | the proc macros |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
@@ -184,10 +192,12 @@ and the implore owner decides between verbs and deletion.
 | `impress-sources` | library | should-be-verb | `SourcePlugin::{search, fetch_by_doi}` for arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar have no Rust verb; `search_sources` refuses when the app is down |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
+| `impress-settings` | library | covered-through | `settings-service` (in `impress-store-service`) exposes the registry, its files and the generated pane; the registry itself is data |
 | `impress-surface` | library | covered-through | `impress-surface-service` exposes plan/resolve/reduce over it |
 | `impress-surface-service` | verb-crate | verb-crate | |
 | `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
+| `impress-verb-surface` | kit-pure | covered-through | `capabilities-service` exposes `verb_surface`/`catalogue` as `verb-surface`/`catalogue-surface` (ADR-0035 D2) |
 | `impress-workspace-hack` | tooling | internal | the generated cargo-hakari crate: dependency glue, no code (plan-verb-pipeline-and-transport § Build cost, B4) |
 | `imprint-cli` | binary | internal | the CLI binary over the inventory |
 | `imprint-core` | domain-core | should-be-verb | reached by `imprint-service` through `{project, render, latex, citations, presentation}`; `sourcemap::{generate_source_map, source_map_lookup}` and ≈22 `uniffi::export` items have no verb (`selection` is UI-bound and correctly internal) |

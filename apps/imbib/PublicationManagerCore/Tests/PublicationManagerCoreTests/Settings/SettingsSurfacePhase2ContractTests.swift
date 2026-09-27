@@ -58,6 +58,10 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
             ("searchAI", "Search & AI", "brain", "Content"),
             ("inbox", "Inbox", "tray", "Inbox & Feeds"),
             ("recommendations", "Recommendations", "sparkles", "Inbox & Feeds"),
+            // 2026-09-26, plan-self-reflective-layer R1: the first GENERATED
+            // pane — the settings registry's `imbib.retention` section as a
+            // surface document. Intentional; the sixteen became seventeen.
+            ("retention", "Retention", "clock.arrow.circlepath", "Inbox & Feeds"),
             ("sync", "Sync", "icloud", "Sync & Backup"),
             ("eink", "E-Ink Devices", "rectangle.portrait", "Sync & Backup"),
             ("importExport", "Import & Export", "arrow.up.arrow.down", "Import & Export"),
@@ -70,9 +74,10 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
 
         XCTAssertEqual(
             rendered.count, Self.imbibMacInventory.count,
-            "imbib's macOS Settings scene shipped 16 panes. Adding or removing one "
-                + "is a redesign of a surface the Stage 6 migration promised to leave "
-                + "visually equivalent — if it is intentional, say so here.")
+            "imbib's macOS Settings scene shipped 16 panes (17 since the generated "
+                + "Retention pane of 2026-09-26). Adding or removing one is a redesign "
+                + "of a surface the Stage 6 migration promised to leave visually "
+                + "equivalent — if it is intentional, say so here.")
 
         for (actual, expected) in zip(rendered, Self.imbibMacInventory) {
             XCTAssertEqual(actual.id.rawValue, expected.id)
@@ -102,6 +107,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
             "searchAI": "Embedding provider and search intelligence",
             "inbox": "Feed subscriptions and mute rules",
             "recommendations": "Configure transparent recommendation engine",
+            "retention": "How long inbox papers and explorations are kept",
             "sync": "iCloud sync settings",
             "eink": "reMarkable, Supernote, and Kindle Scribe integration",
             "importExport": "File format options",
@@ -130,7 +136,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
         let expected: [(String?, [String])] = [
             ("General", ["general", "appearance", "viewing"]),
             ("Content", ["flagsAndTags", "notes", "pdf", "sources", "enrichment", "searchAI"]),
-            ("Inbox & Feeds", ["inbox", "recommendations"]),
+            ("Inbox & Feeds", ["inbox", "recommendations", "retention"]),
             ("Sync & Backup", ["sync", "eink"]),
             ("Import & Export", ["importExport"]),
             ("System", ["shortcuts", "advanced"]),
@@ -166,7 +172,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
                 "notes", "pdf",
                 "pdfStorage",
                 "sources", "enrichment",
-                "inbox", "recommendations",
+                "inbox", "recommendations", "retention",
                 "sync",
                 "backup",
                 "importExport",
@@ -404,12 +410,12 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
         try assertFactoryCoverage(
             preset: .imbib, platform: .macOS,
             factorySource: "apps/imbib/imbib/imbib/Views/Settings/SettingsView.swift",
-            alsoRegisteredElsewhere: ["enrichment"],
+            alsoRegisteredElsewhere: ["enrichment", "retention"],
             builtinsRelied: [])
         try assertFactoryCoverage(
             preset: .imbib, platform: .iOS,
             factorySource: "apps/imbib/imbib/imbib-iOS/Views/IOSSettingsView.swift",
-            alsoRegisteredElsewhere: ["enrichment"],
+            alsoRegisteredElsewhere: ["enrichment", "retention"],
             builtinsRelied: [])
         try assertFactoryCoverage(
             preset: .implore, platform: .macOS,
@@ -486,7 +492,9 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
         let portable = try Self.registeredSections(
             in: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore"
                 + "/Settings/ImbibPortableSettingsSections.swift")
-        XCTAssertEqual(portable, ["enrichment"])
+        // `retention` (2026-09-26): the generated settings surface, one document
+        // on both platforms, so it is portable by construction.
+        XCTAssertEqual(portable, ["enrichment", "retention"])
 
         for appFile in [
             "apps/imbib/imbib/imbib/Views/Settings/SettingsView.swift",

@@ -28,6 +28,8 @@ mod layout;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
+/// The settings registry as Swift reads it (ADR-0036 D5, plan R1).
+mod settings;
 /// The ADR-0033 agent-surface tree as Swift drives it (work package S6).
 mod surface;
 /// The layout and surface crates' `tracing` events, and this crate's own
@@ -37,6 +39,8 @@ mod tracing_bridge;
 /// The pieces `layout`'s and `surface`'s invalidation feeds share (ADR-0033
 /// D6) — see that module's docs.
 mod ui_feed;
+/// The P5 transport's server side: `dispatch_verb` (plan-verb-pipeline P5a).
+mod verb;
 
 // Force the linker to keep all four ADR-0033 D4 `kit` service crates linked
 // into this crate: `impress-layout-service` (used throughout `layout.rs`)
@@ -88,11 +92,13 @@ pub use layout::{
     SharedLayoutListener, SharedLayoutRow, SharedLayoutSnapshot, SharedPane, SharedPaneRows,
     SharedWindow,
 };
+pub use settings::{SharedSettingValue, SharedSettings, SharedSettingsError};
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
     SharedSurfaceListener, SharedSurfaceRow, SharedVerbHost,
 };
 pub use tracing_bridge::{install_log_sink, refusal_http_status, SharedLogSink};
+pub use verb::{dispatch_verb, SharedVerbDispatchResult};
 
 pub use ai_registry::{
     AiCapabilities, AiCategoryAssignment, AiCategoryEntry, AiChatMessage, AiChatRequest,
