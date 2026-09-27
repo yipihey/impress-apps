@@ -16,6 +16,8 @@ options:
 
 settings:
   base:
+    # Shared Rust archives contain overlapping unused exports (as in imbib/impress).
+    DEAD_CODE_STRIPPING: YES
     PRODUCT_NAME: implore
     MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: 1
