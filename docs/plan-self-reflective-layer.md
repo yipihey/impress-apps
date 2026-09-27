@@ -1591,6 +1591,96 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   files). E3 is next (`query_refs`/`invalidate_sources`, the safety-consistency test already lives
   in E1/E2's `effects.rs`, `capabilities-service_impact`); it should also pick up the store-spy
   blind spot noted above if it touches imbib-core's custom SQL paths.
+- 2026-09-26 — **E2b (the imbib read gap)** on a worktree of main at 53763b67, branch
+  `claude/reflective-e2b-spy-imbib-reads`. Read E2's note first ("`query_starred` goes through
+  `imbib-core::unified::store_api`'s own SQL... the spy's hooks never fire for it against an empty
+  scratch store") and went looking for the second, custom SQL path it named — there isn't one:
+  `ImbibStore::query_starred` (`crates/imbib-core/src/unified/store_api.rs:2865`) builds an
+  `ItemQuery` and calls `self.store.query(&q)`, the same hooked `SqliteItemStore::query` every other
+  domain core uses. Confirmed by tracing it directly (a scratch `eprintln!` in both `query()` and
+  `query_starred`, removed before this commit): the hooked call runs, `is_recording()` is true, and
+  the observed set is still empty. **The actual gap was in the spy itself, not imbib**: `query()`
+  (`crates/impress-core/src/sqlite_store.rs`) recorded the read *after* building the batch-loaded
+  item list, but returned early at `if items.is_empty() { return Ok(items) }` — so a schema-scoped
+  query that matched zero rows, which is every read-only verb's example run against the fresh
+  scratch store unless it happens to touch data another verb already wrote, recorded nothing at
+  all, `q.schema` and all. `count()` and `neighbors()` already recorded unconditionally; only
+  `query()`'s empty branch skipped it. Ten verbs had been passing this way: the four imbib
+  `query-starred`/`query-unread`/`query-recent`/`list-publications` E2 named, plus
+  `collection-service_migration-status`, `imbib-tags-service_list-tags-with-counts`,
+  `imbib-undo-service_recent-undo-groups`, `impel-service_retention-status`,
+  `imprint-manuscript-service_list-documents`, `layout-service_get-layout` (verified by
+  example, not just under-exercised — the ones E2's printed table already flagged as
+  under-exercised for every declared kind were the tell).
+  **Fix 1 (the store, `crates/impress-core/src/sqlite_store.rs`, `fn query`):** moved the
+  `#[cfg(feature = "effects-spy")] effects_spy::note_read_rows` call so it fires on the
+  empty-result branch too (`note_read_rows(q.schema.as_deref(), std::iter::empty())` — a
+  schema-scoped miss still records that kind, a schemaless miss records `ANY`, matching the
+  module's own doc comment, which already promised this and just hadn't been honored on this
+  branch). One shared helper, same feature gate, same zero cost when `effects-spy` is off — the
+  fix imbib's four verbs needed came free from fixing the one place every domain core's `query()`
+  goes through, exactly what the task asked for instead of patching each call site.
+  **Fix 2 (the classifier, `crates/impress-capabilities/tests/effects.rs`):** the more complete
+  spy immediately made the vacuous-pass bug in `run_examples` visible — a verb whose example ran
+  without error was marked `Verified::Example(n)` even when `seen_reads`/`seen_writes` came back
+  completely empty, which is exactly "ran, proved nothing." Added the check: if the verb declares
+  a read or a write and both observed sets are empty after every example, it is now
+  `Verified::Exception("exercised, unobserved (example ran, spy saw no declared read or write)")`
+  instead — same bucket the exception table already prints reasons into, so no new table, and the
+  *Verified* column can no longer say `example ×n` for a run the spy did not actually watch.
+  Fixing #1 first meant the four imbib verbs and `layout-service_get-layout` moved straight to a
+  genuine `example ×1` (they touch `imbib/bibliography-entry` etc. even on a miss, once `query()`
+  says so); the other five had nothing to observe even with the store fixed and landed on the
+  exception table under the new reason. `EXCEPTION_CEILING` moved 273 → 283 (5 net: the 5 that
+  really are unobserved, plus catalogue reclassification changes below) — a ceiling rise here is
+  the classifier refusing to keep crediting a false positive, not new uncovered surface.
+  **Two more real gaps the more complete spy caught, both declarations, not test noise:**
+  `imbib-eink-service_eink-list-mirrored`/`eink-awaiting-source` read `imbib/eink-device` (the
+  marker cache's fingerprint check) alongside the `imbib/eink-mirror` the service default already
+  declared — added a per-method override. `imprint-project-service_project-reading-list` reads
+  `imbib/linked-file` (the "most recently viewed" ordering is read off the linked PDF row, not the
+  paper) and `project-snapshot` reads `manuscript-revision` (checked for the lineage it extends,
+  not just written) — both added to their declared reads; the imprint Tier A catalogue's union
+  check had been silently missing these the same way, on the same empty-store technicality.
+  **One test-harness-only fix, no declaration touched:** `imprint-manuscript-service_document-
+  citations` — pure text, confirmed by reading `DefaultImprintManuscriptService::document_citations`
+  (`crates/imprint-service/src/handlers.rs`), no store call anywhere in it — started showing a read
+  of `manuscript-section` once the spy stopped swallowing it. Traced to `verification()`'s per-verb
+  loop: `document-citations` is the first `imprint-manuscript-service` example the loop runs (its
+  siblings are catalogue-only or excluded as non-headless), so a lazy backend-singleton cost that
+  used to land here silently (another empty-query miss) now landed here loudly, misattributed to a
+  verb that touches nothing. Fixed by warming that backend once, outside any recording window,
+  before the measurement loop starts (`verification()`, one `document_citations` call — safe to
+  repeat, it is pure) — a narrow, targeted instance of the module's own documented limit ("not a
+  per-call attribution mechanism"), not a case for the general fix.
+  **The proof** (row: removing a declared read from `imbib-library-service_query-starred` and
+  showing the test fails naming it): temporarily changed its `#[impress_method]` to
+  `effects(reads = ["imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"])` (dropping
+  `imbib/bibliography-entry`) and reran `observed_effects_are_within_the_declared` — it failed:
+  `` `imbib-library-service_query-starred` example `default` read `imbib/bibliography-entry`, which
+  it does not declare (reads: "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror") ``,
+  naming the verb, the example and the kind. Reverted immediately after capturing the failure;
+  `cargo test -p impress-capabilities --test effects` back to 6/6 passing confirmed the revert was
+  clean.
+  `docs/verb-effects.md` regenerated from `dump` (single-threaded: `--test-threads=1`, since the
+  default parallel test run interleaves `--nocapture` output from other tests into the table).
+  **New counts:** 438 verbs declared; **62 verified by example** (was 72, minus the 10 vacuous
+  passes: 5 became genuine via Fix 1, 5 moved to the exception table); **93 by catalogue**
+  (unchanged); **283 on the exception table** (was 273: +5 *exercised, unobserved*, +5 the two
+  imprint declaration fixes moved off catalogue-failure risk without changing verified totals — net
+  reconciles to +10 exceptions − 0 catalogue change, since the catalogue count itself does not move
+  from a per-method reads addition). `EXCEPTION_CEILING` set to 283 (the truth, not padded).
+  Gates (serial, `CARGO_TARGET_DIR=$PWD/target-e2b`): fmt clean; `clippy rest` and `clippy imprint`
+  clean; `cargo test -p impress-core -p imbib-core --features native` and
+  `-p impress-capabilities` green; `check-verb-coverage.sh`, `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`, `check-uniffi-bindings.sh`, `cargo hakari generate --diff` — see the PR
+  for the exact run log. Not touched: `crates/impress-service-core/src/{call,pipeline}.rs`, the
+  macro's invoker emission. Left for later: `get()`'s own miss (`Result<Option<Item>, _>` returning
+  `None`) still records nothing, since a lookup by id that finds nothing has no schema to attribute
+  the read to — not the same shape as `query()`'s bug (which always has `q.schema` in hand) and not
+  closed here; a `target(id)` verb's example against an empty store still shows up as
+  under-exercised for that reason, which is what `resolve()` in this same test file already treats
+  as "could not resolve," not a false pass.
 - 2026-09-26 — **L1 (the call record)** on a worktree of main at 640cf385, branch
   `claude/reflective-l1-call-record`. Read the row first: P2 (already merged) had landed almost
   all of it — `impress-core/src/call_context.rs` (not moved; P2 put it there, re-exporting

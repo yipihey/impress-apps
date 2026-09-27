@@ -5392,6 +5392,18 @@ impl ItemStore for SqliteItemStore {
             }
 
             if items.is_empty() {
+                // Recorded here too, not just past the early return below: a
+                // schema-scoped query that matched nothing is still a read of
+                // that kind (`q.schema` says which one — the store attempted
+                // it and knows), and a schemaless query that matched nothing
+                // touched every kind (`ANY`). Skipping this on the empty path
+                // was the spy's own blind spot (plan E2b): every read-only
+                // verb whose Tier A example runs against the empty scratch
+                // store — which is most of them — always takes this branch,
+                // so their declared reads were never observed and the
+                // *Verified* column recorded a pass no run had earned.
+                #[cfg(feature = "effects-spy")]
+                crate::effects_spy::note_read_rows(q.schema.as_deref(), std::iter::empty());
                 return Ok(items);
             }
 
