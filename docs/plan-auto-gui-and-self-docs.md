@@ -740,6 +740,48 @@ crates) is real and is held, not closed, by this plan.
   written here). A follow-on G3 session should continue the same pattern verb by verb, lowering
   `EXCEPTION_CEILING` and raising the described-arguments count as it goes, rather than attempt the
   remainder in one pass.
+- 2026-09-27 — **G4 landed** on a worktree of main at 5c529aaf, branch `claude/gui-g4-generator`. New
+  pure kit crate `crates/impress-verb-surface` (`docs/kit-manifest.md` row added): `verb_surface(&VerbDescriptor)
+  -> SurfaceSpec` maps one `field` per input argument from the published schema (table 2's rule: scalar/
+  enum/date-format → a typed field, anything else → one raw-JSON text field, the CLI's own precedent), a
+  Run button (`call` `into: state.result`), and a result node chosen from the output schema (table 3:
+  array-of-objects → `table`, object → `kv`, string/otherwise → `text`); a `destructive`/`external`
+  verb's Run button is hidden behind `when: {state.confirmed, equals: true}`, a `status` warning and a
+  `toggle` field — the plan's "review step inside the surface, state not a modal", using only the
+  current vocabulary. `catalogue()` is search + a table sourced from `capabilities-service_list-verbs` +
+  an "Open form" button chaining `verb-surface` → `surface-create` → `surface-show`, the vocabulary's own
+  create/show loop rather than a new "render this spec inline" node kind. Completeness test
+  (`every_linked_verb_gets_a_form_that_validates_with_zero_errors`) runs `verb_surface` over the full
+  linked inventory minus `capabilities-service`'s own 3 verbs (442 verbs total; excluded to avoid the
+  dev-dependency cycle `capabilities-service` → `impress-verb-surface` would otherwise close on itself —
+  Cargo permits a dev-dependency cycle, and `check-kit-standalone.sh` already knows to drop it) and
+  asserts `impress_surface::validate` finds zero errors on all of them: **356 class a (every argument a
+  typed field), 86 class b (at least one raw-JSON field), 0 impossible by shape** — the plan's table 2
+  counts (347/86 on 3222f573) hold, with 9 more class-a verbs from services that gained arguments since.
+  `capabilities-service` gains three read-only verbs: `list-verbs` (search/group over the inventory,
+  D-G2), `verb-surface` (one verb's generated form, `not-found` when unlinked) and `catalogue-surface`
+  (the generated catalogue) — each strict-args-free (the service is not `strict_args`), documented,
+  `since = "0.1.0"`, with an `#[impress_example]`. `docs/verb-coverage.md` (services table, argument-shape
+  histogram, the new `impress-verb-surface` crate row as `covered-through`), `docs/verb-safety.md` and
+  `docs/verb-effects.md` (three rows plus the exception-table entries the store spy expects for a
+  pure-inventory-read verb; `EXCEPTION_CEILING` 277 → 280) updated from the tests' `dump` output;
+  `docs/verbs/` regenerated (`capabilities-service.md`, `README.md`). The row's proof
+  (`crates/impress-verb-surface/tests/proof_catalogue_and_run.rs`, headless): the catalogue is created
+  and rendered through `surface_render` on a scratch in-memory store; the generated form for
+  `surface-demo-service_series` is created, rendered, seeded (`freq`/`n`) and its Run button clicked
+  through `surface_dispatch` — which reaches the verb only through the pipeline, pinned by a second test
+  that calls `impress_service_core::pipeline::invoke_blocking` directly and asserts the same shape; the
+  result lands in `state.result` and the rendered tree still carries the `result-view` (`kv`) node.
+  kit-demo's `--prove` GUI half was skipped per the package's own note ("skip it under load"). Gates:
+  `rust-gate.sh fmt`/`clippy rest`/`clippy imprint` clean; `cargo test -p impress-verb-surface -p
+  capabilities-service -p impress-capabilities -p impress-surface -p impress-surface-service` all green;
+  `check-verb-coverage.sh`, `check-verb-docs.sh`, `check-kit-deps.sh --strict`, `check-kit-standalone.sh`,
+  `check-kit-packages.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh` and `cargo hakari generate
+  --diff` all clean. **Not done**: G-5's fuller fix (id-list arguments as a composed selection/`param`
+  form rather than class-b raw JSON, and a dedicated `PaneRefWire` four-way select) — both verbs table 2
+  already covers as class b, so completeness statement 1 holds without them; they are left as a named
+  follow-up rather than attempted here. The kit-demo `--prove` GUI proof and G6's coverage-line
+  finishing (the `internal` binding-tell) are the next packages' work, per the row's own dependency arrow.
 
 ## Appendix A1 — every verb
 
