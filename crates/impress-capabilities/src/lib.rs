@@ -91,6 +91,9 @@ use imprint_service as _force_link_imprint_service;
 #[cfg(feature = "vw")]
 #[allow(unused_imports)]
 use vw_impress_adapter as _force_link_vw_impress_adapter;
+#[cfg(feature = "impact")]
+#[allow(unused_imports)]
+use capabilities_service as _force_link_capabilities_service;
 
 /// Force the linker to retain every enabled service crate's `inventory::submit!`
 /// entries.

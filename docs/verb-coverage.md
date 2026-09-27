@@ -31,6 +31,7 @@ prints the row as it should now read.
 <!-- verb-coverage-services:begin -->
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
+| `capabilities-service` | capabilities-service | 1 | 1 | 2 (0) | 2 | 0 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 0 | 0 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 0 | 0 |
 | `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 0 | 0 |
@@ -69,7 +70,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 16 crates, 38 services | **438** | **438** | **1010 (674)** | **88** | **51** |
+| **Total** | 17 crates, 39 services | **439** | **439** | **1012 (674)** | **90** | **51** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -93,7 +94,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 3 |
 | `ref-object` | 40 |
-| `scalar` | 909 |
+| `scalar` | 911 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -123,6 +124,7 @@ and the implore owner decides between verbs and deletion.
 <!-- verb-coverage-crates:begin -->
 | Crate | Role | Verdict | Reason / uncovered capabilities |
 |---|---|---|---|
+| `capabilities-service` | verb-crate | verb-crate | |
 | `im-bibtex` | library | should-be-verb | `parser::{parse, parse_with_options, parse_entry}` and `formatter::{format_entry, format_entries}` have no verb; `import_bibtex` ingests but does not return parsed entries; ships its own MCP server (`src/mcp.rs`) and Python bindings outside the inventory |
 | `im-identifiers` | library | should-be-verb | `validators::{is_valid_doi, is_valid_arxiv_id, is_valid_isbn, normalize_doi, normalize_arxiv_id}` and `resolver::{identifier_url, identifier_display_name}` have no verb; own MCP server and Python bindings outside the inventory |
 | `imbib-cli` | binary | internal | the CLI binary over the inventory |
