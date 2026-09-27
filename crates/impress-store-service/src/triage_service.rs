@@ -162,6 +162,11 @@ impress_service_impl! {
     service = TriageService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: [target(id)],
+        writes: [target(id)],
+        reach: [],
+    },
     impl = DefaultTriageService,
     instance = DefaultTriageService::new,
     methods = [

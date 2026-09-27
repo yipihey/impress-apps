@@ -384,6 +384,11 @@ impress_service_impl! {
     service = ImbibAppService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [app("imbib")],
+    },
     impl = DefaultImbibAppService,
     instance = crate::backend::app_service_instance,
     methods = [
@@ -401,7 +406,7 @@ impress_service_impl! {
             search: Option<String>
         ) -> Vec<LogEntry>,
         get_notes(cite_key: String) -> Option<String>,
-        update_notes(cite_key: String, notes: String) -> bool,
+        update_notes(cite_key: String, #[impress_private] notes: String) -> bool,
         delete_annotation(annotation_id: String) -> bool,
         delete_comment(comment_id: String) -> bool,
         delete_collection(collection_id: String) -> bool,

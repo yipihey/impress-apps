@@ -1421,3 +1421,47 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   467-verb figures did not reproduce and the tables say what does. No production code; the walker
   and its JSON stay in the session scratchpad (appendix A is its output). ADR-0036 written as the
   decision record; draft PR opened; **stopped before Phase 2** as the brief requires.
+- 2026-09-26 — **E1 (declared effects)** on a worktree of main at d029648d, branch
+  `claude/reflective-e1-effects`. `VerbDescriptor.effects: Effects { reads, writes, reach }` with
+  `Kind = Ref | Target(arg) | Children(arg) | Prefix | Any(reason)` and `Reach = App(id) | Network |
+  Fs | Subprocess | Device | Provider` (`impress-service-core/src/descriptor.rs`, `resolve_effects`
+  beside `resolve_safety_class`); declared as `impress_service_impl! { effects = { reads: […],
+  writes: […], reach: […] } }` with `#[impress_method(effects(…))]` replacing the whole set per
+  method, and `#[impress_private]` on a `methods = […]` argument → `"x-private": true` in the input
+  schema (H-P1-1, H-P1-2). The macro embeds `schema-refs.json` at build time (`build.rs`), so a
+  misspelt ref is a compile error; the standalone kit scratch has no manifest and skips the check
+  there, and the Tier A test re-checks every ref. Seeding pass from appendix A read against the
+  services: **438 of 438** verbs declared (P4's five `job-*` verbs joined since the appendix), 38
+  service defaults, 231 method exceptions. The walker's over-approximations were not carried over
+  (`triage-service` writes `target(id)`, not the surface kind; the 25 layout verbs the walker
+  called dynamic touch `impress/ui/layout@1.0.0`). `App(id)` reach is declared, not derived: P1
+  made no `needs_app` derivation the macro could read. The store spy is
+  `impress_core::effects_spy` (feature `effects-spy`, hooks on `get`/`query`/`count`/`neighbors`
+  and `emit_mutation`), process-wide because the services reach the store through singletons.
+  `crates/impress-capabilities/tests/effects.rs` runs every headless verb's examples and the three
+  Tier A catalogues under it: **70 verbs verified by example** (a first batch of 70 examples on
+  headless verbs — G3 adds more), **93 by catalogue** (service-level union for layout, surface and
+  the four imprint services, since the catalogues call the traits directly), **275 on the exception
+  table** (85 `needs a running app`, 20 `leaves the process`, 170 `no example`), ceiling pinned at
+  275. `docs/verb-effects.md` is the marker table (rows and reasons written by the test);
+  `check-verb-coverage.sh` checks the source-only half. The safety-consistency check lives in the
+  same test (`read_only ⇒ writes = ∅`; reach beyond `fs` ⇔ `external`, allowlist of two read-only
+  verbs with P1's evidence). **The spy's first run found three things the declarations and P1's
+  table had wrong:** `list-libraries` also reads the entries; `layout-service_get-layout` writes the
+  live row on a cold device and `list-layouts` seeds the shipped presets — both reclassed
+  `mutating` (idempotent) in `docs/verb-safety.md` with the evidence; `project-build` runs as a
+  job and touches `task@1.0.0`/`task-event@1.0.0`. Not done here, by the package split: the surface
+  `verb`-source invalidation (RS-S2, `query_refs`) and `capabilities-service_impact` are E3's;
+  per-verb attribution for the catalogues waits for the call log (L1). Gates (serial,
+  `CARGO_TARGET_DIR=target-e1`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test --workspace --features native` **4064 passed, 0 failed** (the effects-spy feature
+  is an unconditional dev-dependency of `impress-capabilities`, so `tests/effects.rs` ran in that
+  total — no separate spy invocation needed); `check-verb-coverage.sh` OK (38 services declare,
+  438 verbs in `docs/verb-effects.md`, 275 exceptions; 75 crates with a verdict, 20
+  `should-be-verb` at the ceiling); `check-kit-deps.sh --strict` OK; `check-kit-standalone.sh` OK
+  (14 crates); `check-schema-refs.sh` OK (388 call sites, 81 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged (no export moved); `cargo hakari generate`
+  found nothing to regenerate, but `cargo hakari verify` still fails on a `cc` crate feature-set
+  mismatch (`impress-workspace-hack` built with `parallel` vs. a fixup pass with no features) —
+  pre-existing build-graph variance this branch's diff does not touch (no `Cargo.toml` dependency
+  edits), not fixed here.

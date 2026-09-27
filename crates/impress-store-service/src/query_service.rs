@@ -218,7 +218,11 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// Items with `status: "dismissed"` are deliberately withheld; everything
     /// else, archived included, stays findable.
-    #[impress_method]
+    #[impress_method(effects(reads = [any("searches every kind")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"query": "effects", "limit_per_schema": 3}"#
+    )]
     async fn search_all(&self, query: String, limit_per_schema: i64) -> SearchResult;
 
     /// Everything connected to one item, in BOTH directions, across ALL edge
@@ -232,7 +236,7 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// target). Rows are ordered by edge type then title. Edges whose other end
     /// no longer exists are skipped. Pass 0 for the default limit (50); values
     /// above 500 are clamped.
-    #[impress_method]
+    #[impress_method(effects(reads = [target(id), any("walks references across kinds")]))]
     async fn related_items(&self, id: String, limit: i64) -> RelatedResult;
 
     /// Read ONE item of ANY record kind: its universal envelope (title,
@@ -270,7 +274,11 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// Nothing is withheld here — dismissed items included. Unlike a search,
     /// a browse that silently omits rows makes its own counts a lie.
-    #[impress_method]
+    #[impress_method(effects(reads = [any("the schema_ref argument names the kind")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"schema_ref": "manuscript", "limit": 5, "offset": 0}"#
+    )]
     async fn list_items(&self, schema_ref: String, limit: i64, offset: i64) -> ItemListResult;
 }
 
@@ -577,6 +585,11 @@ impress_service_impl! {
     service = StoreQueryService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [target(id)],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultStoreQueryService,
     instance = DefaultStoreQueryService::new,
     methods = [

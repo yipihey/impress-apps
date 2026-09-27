@@ -52,10 +52,11 @@ impl From<&imbib_core::unified::shaped_queries::SciXLibraryRow> for SciXLibraryR
 #[impress_service]
 pub trait ImbibScixService: Send + Sync + 'static {
     /// List the SciX (ADS) libraries mirrored in imbib.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/scix-library"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_scix_libraries(&self) -> Vec<SciXLibraryRecord>;
     /// Get one mirrored SciX library by its imbib id.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/scix-library"]))]
     async fn get_scix_library(&self, id: String) -> Option<SciXLibraryRecord>;
     /// Create imbib's local record of a SciX library, keyed by its remote id.
     /// This does not create the library on SciX.
@@ -71,7 +72,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
     ) -> Option<SciXLibraryRecord>;
     /// Add papers to a mirrored SciX library's local membership; pushing the
     /// change to SciX is the app's sync, not this verb.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/scix-library", "imbib/bibliography-entry"], writes = ["imbib/scix-library"]))]
     async fn add_to_scix_library(
         &self,
         publication_ids: Vec<String>,
@@ -86,7 +87,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
         scix_library_id: String,
     ) -> MutationResult;
     /// List the papers in a mirrored SciX library, sorted and paged.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/scix-library"]))]
     async fn query_scix_library_publications(
         &self,
         scix_library_id: String,
@@ -96,7 +97,7 @@ pub trait ImbibScixService: Send + Sync + 'static {
         offset: u32,
     ) -> Vec<PublicationSummary>;
     /// Count the papers in a mirrored SciX library.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/scix-library"]))]
     async fn count_scix_library_publications(&self, scix_library_id: String) -> u32;
 }
 
@@ -235,6 +236,11 @@ impress_service_impl! {
     service = ImbibScixService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: ["imbib/scix-library"],
+        writes: ["imbib/scix-library"],
+        reach: [],
+    },
     impl = DefaultImbibScixService,
     instance = || crate::backend::scix_service_instance(),
     methods = [

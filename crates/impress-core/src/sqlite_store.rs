@@ -1612,6 +1612,13 @@ impl SqliteItemStore {
     /// It deliberately does NOT post the cross-process Darwin note: every
     /// call site here also calls [`Self::emit`], which posts it once.
     pub(crate) fn emit_mutation(&self, mutation: StoreMutation) {
+        #[cfg(feature = "effects-spy")]
+        crate::effects_spy::note_write(
+            mutation.schema_ref.as_deref(),
+            mutation.item_id,
+            matches!(mutation.kind, MutationKind::Created),
+            matches!(mutation.kind, MutationKind::Deleted),
+        );
         let Ok(mut subs) = self.mutation_subscribers.lock() else {
             return;
         };
@@ -5101,7 +5108,11 @@ impl ItemStore for SqliteItemStore {
                 .map_err(|e| StoreError::Storage(format!("query get: {}", e)))?;
 
             match item {
-                Some(Ok(item)) => Ok(Some(item)),
+                Some(Ok(item)) => {
+                    #[cfg(feature = "effects-spy")]
+                    crate::effects_spy::note_read(Some(&item.schema));
+                    Ok(Some(item))
+                }
                 Some(Err(e)) => Err(e),
                 None => Ok(None),
             }
@@ -5312,11 +5323,18 @@ impl ItemStore for SqliteItemStore {
                 }
             }
 
+            #[cfg(feature = "effects-spy")]
+            crate::effects_spy::note_read_rows(
+                q.schema.as_deref(),
+                items.iter().map(|item| item.schema.as_str()),
+            );
             Ok(items)
         })
     }
 
     fn count(&self, q: &ItemQuery) -> Result<usize, StoreError> {
+        #[cfg(feature = "effects-spy")]
+        crate::effects_spy::note_read(q.schema.as_deref());
         self.with_read(|conn| {
             let compiled = compile_query(q);
 
@@ -5345,7 +5363,10 @@ impl ItemStore for SqliteItemStore {
             return Ok(Vec::new());
         }
 
-        self.with_read(|conn| Self::neighbors_on(conn, id, edge_types, depth))
+        let rows = self.with_read(|conn| Self::neighbors_on(conn, id, edge_types, depth))?;
+        #[cfg(feature = "effects-spy")]
+        crate::effects_spy::note_read_rows(None, rows.iter().map(|item| item.schema.as_str()));
+        Ok(rows)
     }
 
     /// Subscribe to store events (ADR-0015 D3). Any number of subscribers;

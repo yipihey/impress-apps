@@ -785,27 +785,27 @@ pub trait SourceService: Send + Sync + 'static {
     /// Store an immutable structured citation after validating source hashes,
     /// page/range/region coordinates, and referenced source/extraction items.
     /// Repeating identical content is a no-op; conflicting content is refused.
-    #[impress_method]
+    #[impress_method(effects(reads = ["source-citation@1.0.0"], writes = ["source-citation@1.0.0"]))]
     async fn put_citation(&self, citation: SourceCitationInput) -> SourceRecordResult;
 
     /// Resolve one structured citation by UUID, including exact locator and
     /// immutable source hash.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["source-citation@1.0.0"]))]
     async fn get_citation(&self, citation_id: String) -> SourceRecordResult;
 
     /// Store immutable extractor/OCR identity, input hash, output hash,
     /// warnings, and products for one derivation.
-    #[impress_method]
+    #[impress_method(effects(reads = ["extraction-run@1.0.0"], writes = ["extraction-run@1.0.0"]))]
     async fn put_extraction_run(&self, run: ExtractionRunInput) -> SourceRecordResult;
 
     /// Store one immutable domain-neutral text chunk with source locator and
     /// extraction lineage.
-    #[impress_method]
+    #[impress_method(effects(reads = ["content-chunk@1.0.0"], writes = ["content-chunk@1.0.0"]))]
     async fn put_content_chunk(&self, chunk: ContentChunkInput) -> SourceRecordResult;
 
     /// Store immutable automatic layout evidence or a provenance-preserving
     /// manual figure-boundary correction. Available only in curation profiles.
-    #[impress_method]
+    #[impress_method(effects(reads = ["figure-region@1.0.0"], writes = ["figure-region@1.0.0"]))]
     async fn put_figure_region(&self, figure: FigureRegionInput) -> SourceRecordResult;
 
     /// Resolve one selected search hit. Search stays compact; this operation
@@ -817,6 +817,7 @@ pub trait SourceService: Send + Sync + 'static {
     /// locators and extraction lineage. An optional source UUID confines the
     /// results to one asset; pass null to search all ingested sources.
     #[impress_method(safety = read_only)]
+    #[impress_example(name = "default", args = r#"{"query": "effects", "limit": 5}"#)]
     async fn search_content_chunks(
         &self,
         query: String,
@@ -826,7 +827,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Render one complete cited PDF page as MCP image content. Identify the
     /// page by zero-based physical index or displayed label, never by a path.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = [target(source_item_id), "imbib/linked-file"], reach = [subprocess, fs]))]
     async fn get_page_image(
         &self,
         source_item_id: String,
@@ -839,7 +840,7 @@ pub trait SourceService: Send + Sync + 'static {
     /// Resolve a stored figure boundary and return its crop as MCP image
     /// content. Use this for a cited figure; use get-page-image for context.
     /// Uncertain boundaries return the complete page as an explicit fallback.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reads = [target(source_item_id), "figure-region@1.0.0", "source-citation@1.0.0", "imbib/linked-file"], reach = [subprocess, fs]))]
     async fn get_figure_image(
         &self,
         citation_id: Option<String>,
@@ -1622,6 +1623,11 @@ impress_service_impl! {
     service = SourceService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["content-chunk@1.0.0"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultSourceService,
     instance = DefaultSourceService::new,
     methods = [

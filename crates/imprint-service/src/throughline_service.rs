@@ -96,12 +96,12 @@ pub struct CoverageDto {
 pub trait ImprintThroughlineService: Send + Sync + 'static {
     /// Create a throughline for a document (explicit opt-in, ADR-0016 D1).
     /// Fails if one already exists.
-    #[impress_method]
+    #[impress_method(effects(reads = ["manuscript", "throughline"], writes = ["throughline"]))]
     async fn create_throughline(&self, doc_id: String, title: String)
         -> Option<ThroughlineInfoDto>;
 
     /// Fetch a document's throughline, or None if it has none.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["throughline"]))]
     async fn get_throughline(&self, doc_id: String) -> Option<ThroughlineInfoDto>;
 
     /// Replace the narrative source. The ledger is untouched — edited
@@ -119,15 +119,15 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
     async fn delete_throughline(&self, doc_id: String) -> bool;
 
     /// Derived anchor states (empty when the document has no throughline).
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["throughline", "manuscript-section", "manuscript"]))]
     async fn get_anchor_states(&self, doc_id: String) -> Vec<AnchorStateDto>;
 
     /// Coverage report (ADR-0016 D7).
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["throughline", "manuscript-section", "manuscript"]))]
     async fn get_coverage(&self, doc_id: String) -> CoverageDto;
 
     /// Anchor a paragraph label to section keys, baselining ledger hashes.
-    #[impress_method]
+    #[impress_method(effects(reads = ["throughline", "manuscript-section"], writes = ["throughline"]))]
     async fn set_anchor(
         &self,
         doc_id: String,
@@ -293,6 +293,11 @@ impress_service_impl! {
     service = ImprintThroughlineService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["throughline"],
+        writes: ["throughline"],
+        reach: [],
+    },
     impl = DefaultImprintThroughlineService,
     instance = || crate::backend::throughline_service_instance(),
     methods = [

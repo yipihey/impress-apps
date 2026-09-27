@@ -286,6 +286,11 @@ impress_service_impl! {
     service = ImpartService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [app("impart")],
+    },
     impl = DefaultImpartService,
     instance = service_instance,
     methods = [
@@ -301,7 +306,7 @@ impress_service_impl! {
         ) -> bool,
         add_message(
             conversation_id: String,
-            content: String,
+            #[impress_private] content: String,
             role: Option<String>
         ) -> Option<MessageRecord>,
         record_decision(

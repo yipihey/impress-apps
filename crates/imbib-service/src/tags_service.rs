@@ -71,12 +71,14 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// one number use `imbib-library-service_count-publications` (kind:'by-tag'); when you only
     /// need to attach a tag, just call `imbib-tags-service_add-tag`, which creates missing
     /// tags on the fly.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags(&self) -> Vec<TagRecord>;
     /// List every tag with the number of papers carrying it. As expensive as
     /// `imbib-tags-service_list-tags`: each count is recomputed, so on a large
     /// vocabulary prefer `imbib-tags-service_count-by-tag` for one tag.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
     /// Create a tag in the library's tag vocabulary, optionally with
     /// light/dark display colors. Paths are hierarchical with '/' (e.g.
@@ -84,7 +86,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// `imbib-tags-service_add-tag` does that, and it creates missing tags implicitly, so
     /// reach for this tool only when the user wants a category to exist up
     /// front or wants to give a brand-new tag a color.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/tag-definition"], writes = ["imbib/tag-definition"]))]
+    #[impress_example(name = "default", args = r#"{"path": "effects/example"}"#)]
     async fn create_tag(
         &self,
         path: String,
@@ -98,11 +101,11 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// operation log, so `imbib-undo-service_undo-batch` cannot restore the tag or its
     /// memberships (verified live 2026-07-25). Check the blast radius first
     /// with `imbib-library-service_count-publications` (kind:'by-tag').
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"], writes = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
     async fn delete_tag_undoable(&self, path: String) -> MutationResult;
     /// Set a tag's light and dark display colors; its path and memberships
     /// are unchanged (rename with `imbib-tags-service_rename-tag`).
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/tag-definition"], writes = ["imbib/tag-definition"]))]
     async fn update_tag(
         &self,
         path: String,
@@ -116,7 +119,7 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// papers without touching the vocabulary. Not undoable by `imbib-undo-service_undo-batch`
     /// (tag CRUD bypasses the operation log) — but it is trivially
     /// reversible by renaming back, as long as you remember the old path.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"], writes = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
     async fn rename_tag(&self, old_path: String, new_path: String) -> MutationResult;
     /// Attach a tag to specific papers. Tags use hierarchical paths like
     /// 'methods/sims' or 'topic/cosmology'; missing tags (and their
@@ -134,7 +137,7 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
     /// List the papers carrying a tag, optionally within one library or
     /// collection (`parent_id`), sorted.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"]))]
     async fn query_by_tag(
         &self,
         tag_path: String,
@@ -145,7 +148,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     ) -> Vec<PublicationSummary>;
     /// Count the papers carrying a tag, optionally within one library or
     /// collection.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{"tag_path": "effects/example"}"#)]
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32;
 }
 
@@ -292,6 +296,11 @@ impress_service_impl! {
     service = ImbibTagsService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["imbib/bibliography-entry"],
+        writes: ["imbib/bibliography-entry"],
+        reach: [],
+    },
     impl = DefaultImbibTagsService,
     instance = || crate::backend::tags_service_instance(),
     methods = [

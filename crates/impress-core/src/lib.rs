@@ -34,6 +34,11 @@ pub mod collab;
 pub mod collection_migration;
 #[cfg(feature = "sqlite")]
 pub mod collection_ops;
+/// The store spy (ADR-0036 D1): records the record kinds every store call
+/// reads and writes while a Tier A test verifies a verb's declared effects.
+/// Compiled only under `effects-spy`; the store has no hook without it.
+#[cfg(feature = "effects-spy")]
+pub mod effects_spy;
 /// A long-running verb is a job on the task kernel (ADR-0034 D6): the
 /// `task@1.0.0` handle, its `task-event@1.0.0` progress ring, the
 /// `cancel_requested` flag executors poll, and the stored result.

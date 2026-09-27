@@ -308,6 +308,11 @@ impress_service_impl! {
     service = ImprintAppService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [app("imprint")],
+    },
     impl = DefaultImprintAppService,
     instance = crate::backend::app_service_instance,
     methods = [
@@ -317,15 +322,15 @@ impress_service_impl! {
         update_document(document_id: String, title: Option<String>) -> bool,
         update_metadata(document_id: String, metadata_json: String) -> bool,
         get_content(document_id: String) -> Option<String>,
-        insert_text(document_id: String, offset: u32, text: String) -> bool,
+        insert_text(document_id: String, offset: u32, #[impress_private] text: String) -> bool,
         delete_text(document_id: String, offset: u32, length: u32) -> bool,
-        replace(document_id: String, find: String, replace: String) -> u32,
+        replace(document_id: String, find: String, #[impress_private] replace: String) -> u32,
         get_pdf(document_id: String) -> CompiledPdf,
         get_bibliography(document_id: String) -> Option<String>,
         list_comments(document_id: String) -> Vec<CommentRecord>,
         create_comment(
             document_id: String,
-            body: String,
+            #[impress_private] body: String,
             anchor: Option<String>
         ) -> Option<CommentRecord>,
         update_comment(
