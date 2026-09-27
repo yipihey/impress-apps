@@ -55,18 +55,17 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
 
 ## Next packages
 
-- **G5 (in progress)**: `g5-strict` / `claude/gui-g5-strict`, based on `10ee5acd`.
-  The macro now defaults strict, all 476 descriptors are strict, and 136 isolated Rust tests
-  passed (3 ignored). All quick gates passed; five hosted native proofs are underway. Legacy
-  mail/figure/Core Data stores, imbib's derived index, and background service startup needed
-  test-isolation fixes before launching those hosts. `scripts/prove-strict-args.py` runs each
-  app with a unique bundle, port and device, then asserts its actual native store/token paths.
-  Its new Tier B scenario checks both a valid call and an unknown-key refusal through the real
-  HTTP route. Full native archive rebuilds finished. Imprint and impel passed the direct
-  positive/refusal checks; imprint also passed the stored scenario and surface catalogue.
-  Its layout catalogue exposed a stale-revision fixture that can focus an already-focused pane;
-  that fixture is being made deterministic before the final five-host run. Owned hosts from
-  completed runs exited. The live proofs and pre-push builds remain before push/merge.
+- **G5 (verified, PR #124 awaiting merge)**: `g5-strict` / `claude/gui-g5-strict`, based on
+  `10ee5acd`. All 476 descriptors are strict. All requested quick gates and the normal pre-push
+  macOS/iOS builds passed. Isolated macro/core/capabilities tests passed 136 (3 ignored); the
+  deterministic layout-fixture fix passed 98 layout tests. All five native proofs passed their
+  valid call, unknown-key refusal, stored Tier B scenario and surface catalogue; the four chassis
+  apps also passed all 14 layout entries, with no skips. All five owned hosts exited. Evidence is
+  `/tmp/impress-g5-proof-summary.json` and the dated G5 entry in the GUI plan. The archive cohort
+  was fully rebuilt for every supported arm64 slice. Test-only legacy storage/index paths and
+  background startup were isolated without changing production paths or schemas. No build
+  artifacts are committed. Domain dispatch remains P5b. Verify fresh main ancestry and merge
+  [PR #124](https://github.com/yipihey/impress-apps/pull/124) before beginning P5b.
 - **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
