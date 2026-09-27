@@ -21,13 +21,16 @@ def main():
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--build-only", action="store_true")
+    parser.add_argument("--derived-data", type=Path, help="Reuse an owned target-g5-* build directory sequentially")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     cli = args.cli.resolve(strict=True)
     if not os.access(cli, os.X_OK):
         parser.error("--cli must be an executable from this revision")
     app_dir = repo / ("apps/imbib/imbib" if args.app == "imbib" else "apps/" + args.app)
-    derived = repo / ("target-g5-proof-" + args.app)
+    derived = (args.derived_data or repo / ("target-g5-proof-" + args.app)).resolve()
+    if derived.parent != repo or not derived.name.startswith("target-g5-"):
+        parser.error("--derived-data must be an owned target-g5-* directory in this worktree")
     proof = Path(tempfile.mkdtemp(prefix="impress-g5-proof-", dir="/tmp"))
     bootstrap = proof / "bootstrap"
     bootstrap.mkdir()
@@ -52,7 +55,7 @@ def main():
     if args.build_only:
         return
     products = derived / "Build/Products"
-    candidates = [p for p in products.glob("*.xctestrun") if p.name != "g5-proof.xctestrun"]
+    candidates = list(products.glob(args.app + "_*.xctestrun"))
     if len(candidates) != 1:
         raise RuntimeError("Expected exactly one built xctestrun: " + str(candidates))
     config = plistlib.loads(candidates[0].read_bytes())
@@ -71,7 +74,7 @@ def main():
         "IMBIB_LIBRARY_FILES_MIGRATION": "off",
     }
     target.setdefault("EnvironmentVariables", {}).update(overrides)
-    configured = products / "g5-proof.xctestrun"
+    configured = products / ("g5-proof-" + args.app + ".xctestrun")
     configured.write_bytes(plistlib.dumps(config))
     command = [
         "/usr/bin/xcodebuild", "test-without-building", "-xctestrun", str(configured),

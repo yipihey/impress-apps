@@ -1824,3 +1824,31 @@ agent-surfaces.md, ex = an example surface, test); Desc = `fallback` when the de
 | `vw-domain` | library | 75 | yes | covered |  |
 | `vw-mcp` | binary | 0 | yes | internal |  |
 | `vw-service` | library | 15 | yes | internal |  |
+
+- 2026-09-27 — **G5 implementation and isolated proof preparation.** Worktree `g5-strict`,
+  branch `claude/gui-g5-strict`, starts from S3 merge `10ee5acd`. D-G1's macro default is now
+  `strict_args = true`; explicit false remains available. The source census follows that
+  default, and the generated semantic-search census table reports 476 strict verbs out of 476.
+  A linked collection-service regression verifies unknown keys are refused before invocation.
+  The isolated macro/service-core/capabilities run passed 136 tests (3 ignored), and the
+  separate semantic-search census passed 5 tests. Default-feature reference pages regenerate
+  byte-identically (44 pages). The matching CLI is in `target-g5-gates/debug/impress`.
+
+  The five-host proof is `tests/native/StrictArgumentsProofTests.swift`, wired into each app's
+  hosted test target; implore now has a hosted target too. `scripts/prove-strict-args.py` gives
+  each test launch a unique bundle, ephemeral port and device, verifies its actual native store
+  and bearer paths, and runs a stored Tier B scenario through `/api/verb` to check both declared
+  arguments and an unknown-key refusal. It also runs the surface catalogue everywhere and the
+  layout catalogue on the four chassis shells (imbib's separate pre-chassis layout is not that
+  catalogue's contract). The probe is `surface-demo-service_series`, which was lenient before
+  G5; layout/surface methods were already strict. The shared generic route still links kit verbs,
+  so five-host domain dispatch is P5b's prerequisite, not something these tests claim to prove.
+
+  Source review found real test-isolation gaps before any proof launch: impart's legacy Core
+  Data path, imprint's legacy controller and migration/compiler helper startup, implore's figure
+  JSON library, impel's Counsel database/mail listeners, and imbib's Tantivy index. Test paths
+  now stay in process-owned scratch storage or memory; production paths are unchanged. Impart's
+  focused storage-selection test passed. The Core Data migration reviewer found no schema or
+  production-path changes. The new index-path regression and native builds are still running.
+  Full native archive rebuilds keep swiftformat off PATH, `IMPRESS_SKIP_X86=1`, and never use
+  `--fast`; all requested quick gates and the five live proofs remain acceptance work.

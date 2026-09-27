@@ -1,6 +1,7 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-Main at `f7af1c37` includes W3, G7c and W4. The older full workspace result (4,264 passed at
+Main at `10ee5acd` includes W3, G7c, W4 and S3. The full workspace result below is
+for the earlier `f7af1c37` batch; the post-S3 full run is still in progress. The older full workspace result (4,264 passed at
 `f5a29bb8`) does not verify this combined main. A fresh isolated
 `cargo test --workspace --features native -- --test-threads=1` passed there: **4,291 passed,
 0 failed, 23 ignored**, including doctests (220 result groups). The initial parallel run hit the
@@ -16,7 +17,7 @@ is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transpor
 |---|---|
 | Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P6 Python, B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
 | GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
-| Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
+| Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), S3 session recording ([PR #123](https://github.com/yipihey/impress-apps/pull/123), merge `10ee5acd`), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
 
 ## Completed package verification
 
@@ -38,7 +39,9 @@ their combined Rust behavior.
 
 ## S3 verification
 
-S3 is implemented on `claude/reflective-s3-record` (`s3-record`), based on main `197cdfed`.
+S3 merged in [PR #123](https://github.com/yipihey/impress-apps/pull/123) as `10ee5acd`,
+after all requested local gates and the unmodified pre-push hook passed. GitHub Linux checks
+passed; hosted macOS jobs were still queued at merge, as were earlier main jobs.
 It adds scenario recording from one caller's trace or time window, bounded replay metadata,
 output-ID captures and native surface auditing. Final isolated Rust tests passed 434 tests
 (0 failed, 3 ignored), following the broader 579-test run. Two hosted native proofs passed:
@@ -54,7 +57,14 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
 
 ## Next packages
 
-- **G5**: `strict_args` by default on every service (D-G1 approved). Needs Tier B on five apps.
+- **G5 (in progress)**: `g5-strict` / `claude/gui-g5-strict`, based on `10ee5acd`.
+  The macro now defaults strict, all 476 descriptors are strict, and 136 isolated Rust tests
+  passed (3 ignored). Five hosted native proofs and final quick gates are underway. Legacy
+  mail/figure/Core Data stores, imbib's derived index, and background service startup needed
+  test-isolation fixes before launching those hosts. `scripts/prove-strict-args.py` runs each
+  app with a unique bundle, port and device, then asserts its actual native store/token paths.
+  Its new Tier B scenario checks both a valid call and an unknown-key refusal through the real
+  HTTP route. No proof app has been launched yet. The proof/archives must finish before push.
 - **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
