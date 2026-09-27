@@ -26,7 +26,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
-use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -59,43 +58,62 @@ pub enum Decision {
 // overlap is refused (`conflict`); a mutating overlap is logged."
 // (plan-self-reflective-layer.md's E3 row, D-R11).
 //
-// This is an IN-FLIGHT SET KEYED BY KIND, entirely local to this file (kept
-// out of `pipeline/mod.rs`'s `prepare`/`finish` — the audit/call-context
-// machinery L1 owns concurrently) — which means it has no hook at the exact
-// moment a call finishes to release its kinds. Instead an entry expires
-// after [`IN_FLIGHT_TTL`]: long enough to see two calls that actually
-// overlap in time (the Tier A proof below fires them back to back with no
-// `await` between), short enough that a slow verb does not poison the kind
-// for calls that start long after it returned. A precise release (a guard
-// dropped when the call's `finish()` runs) is the natural next step once
-// this lives beside that code; noted here rather than reached for across a
-// module boundary this plan keeps separate.
-const IN_FLIGHT_TTL: Duration = Duration::from_secs(5);
+// An IN-FLIGHT SET KEYED BY KIND: a refcount per literal declared write kind,
+// held only for calls actually granted `Run` (never for one this policy
+// queues or denies, and never counted twice for a refused one) and released
+// by [`release`] when the call finishes. `pipeline::mod.rs`'s `finish` calls
+// it — one line there, the one place that already knows a call ended,
+// alongside the one match arm `prepare` needs for the new `Decision::Conflict`
+// variant; neither touches the audit/call-context machinery L1 owns.
+//
+// The set is keyed by kind ALONE, not by which store a call ran against —
+// this layer sees a verb and a caller, never a store handle, and most calls
+// (the FFI's, the CLI's) never pass one explicitly at all; they reach a
+// process-wide singleton several layers down. That is exactly right for what
+// this guards (ADR-0034's one process, one shared store), and exactly wrong
+// for a test binary that opens a fresh temp store per test and runs them in
+// parallel threads of ONE process — two unrelated tests writing the "same"
+// kind on two different stores would spuriously conflict. [`enabled`] is the
+// fix: off by default (unchanged behaviour, like every other policy here
+// until configured), on via [`enable_conflict_detection`] or
+// `IMPRESS_VERB_CONFLICT_DETECTION=1` — a host that actually shares one
+// store across concurrent callers turns it on; a test process opening many
+// stores in parallel does not.
+static CONFLICT_DETECTION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static CONFLICT_DETECTION_FROM_ENV: OnceLock<bool> = OnceLock::new();
+
+/// Turn D-R11's conflict check on for this process (see the module docs
+/// above [`InFlight`] for why it is off by default).
+pub fn enable_conflict_detection() {
+    CONFLICT_DETECTION.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn conflict_detection_enabled() -> bool {
+    CONFLICT_DETECTION.load(std::sync::atomic::Ordering::Relaxed)
+        || *CONFLICT_DETECTION_FROM_ENV
+            .get_or_init(|| std::env::var("IMPRESS_VERB_CONFLICT_DETECTION").as_deref() == Ok("1"))
+}
 
 struct InFlight {
-    entries: Mutex<HashMap<String, Instant>>,
+    counts: Mutex<HashMap<String, usize>>,
 }
 
 impl InFlight {
     fn new() -> Self {
         Self {
-            entries: Mutex::new(HashMap::new()),
+            counts: Mutex::new(HashMap::new()),
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Instant>> {
-        self.entries.lock().unwrap_or_else(|p| p.into_inner())
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, usize>> {
+        self.counts.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Drop every entry older than the TTL.
-    fn sweep(&self, now: Instant) {
-        self.lock()
-            .retain(|_, at| now.duration_since(*at) < IN_FLIGHT_TTL);
-    }
-
-    /// Kinds of `writes` already in flight, before recording `writes` as
-    /// in-flight too (every kind, present or not, is (re)stamped `now`).
-    fn overlap_and_record(&self, writes: &[&str], now: Instant) -> Vec<String> {
+    /// Kinds of `writes` already in flight, then record every kind of
+    /// `writes` as in flight (refcounted, so two callers holding the same
+    /// kind both need to [`Self::release`] it).
+    fn overlap_and_record(&self, writes: &[&str]) -> Vec<String> {
         let mut table = self.lock();
         let overlap: Vec<String> = writes
             .iter()
@@ -103,9 +121,22 @@ impl InFlight {
             .map(|k| k.to_string())
             .collect();
         for k in writes {
-            table.insert(k.to_string(), now);
+            *table.entry(k.to_string()).or_insert(0) += 1;
         }
         overlap
+    }
+
+    fn release(&self, writes: &[&str]) {
+        let mut table = self.lock();
+        for k in writes {
+            if let Some(count) = table.get_mut(*k) {
+                if *count <= 1 {
+                    table.remove(*k);
+                } else {
+                    *count -= 1;
+                }
+            }
+        }
     }
 }
 
@@ -126,27 +157,32 @@ fn literal_write_kinds(verb: &VerbDescriptor) -> Vec<&'static str> {
         .collect()
 }
 
-/// D-R11's check, run for every call whose safety class is not read-only
-/// (read-only verbs write nothing to conflict over). A destructive verb
-/// whose declared writes overlap another call's in-flight writes is refused
-/// `conflict`; a mutating verb's overlap is logged (`tracing::warn!`) and
-/// still runs — the row's "refused / logged" split, by class.
+/// D-R11's check, run for every call this policy is about to let run
+/// (read-only verbs write nothing to conflict over, and a call this policy
+/// queues or denies never runs at all, so it never takes a lease). A
+/// destructive verb whose declared writes overlap another call's in-flight
+/// writes is refused `conflict` — WITHOUT taking a lease (it never runs, so
+/// it never releases one either). A mutating verb's overlap is logged
+/// (`tracing::warn!`) and still takes its lease and runs — the row's
+/// "refused / logged" split, by class. [`release`] undoes what this took,
+/// once the call finishes.
 fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
-    if verb.safety.class == SafetyClass::ReadOnly {
+    if !conflict_detection_enabled() || verb.safety.class == SafetyClass::ReadOnly {
         return None;
     }
     let writes = literal_write_kinds(verb);
     if writes.is_empty() {
         return None;
     }
-    let now = Instant::now();
-    IN_FLIGHT.sweep(now);
-    let overlap = IN_FLIGHT.overlap_and_record(&writes, now);
+    let overlap = IN_FLIGHT.overlap_and_record(&writes);
     if overlap.is_empty() {
         return None;
     }
     match verb.safety.class {
         SafetyClass::Destructive | SafetyClass::External => {
+            // This call will not run: give back the lease `overlap_and_record`
+            // just took for it.
+            IN_FLIGHT.release(&writes);
             Some(Decision::Conflict(overlap.join(", ")))
         }
         _ => {
@@ -158,6 +194,19 @@ fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
             );
             None
         }
+    }
+}
+
+/// Give back the lease [`check_conflict`] took for `verb`'s declared writes
+/// — called once, when the call finishes (`pipeline::mod.rs`'s `finish`),
+/// whether it ran, was refused for some OTHER reason (strict args,
+/// reachability — no lease was taken, so this is a harmless no-op), or
+/// failed. Never called for a call `decide` answered `Conflict` for: that
+/// call never took a lease (see [`check_conflict`]).
+pub fn release(verb: &VerbDescriptor) {
+    let writes = literal_write_kinds(verb);
+    if !writes.is_empty() {
+        IN_FLIGHT.release(&writes);
     }
 }
 
@@ -254,14 +303,20 @@ fn from_env() -> Option<Arc<dyn Policy>> {
 /// just agents — a resource conflict is not a review policy), then the
 /// installed policy, else the environment's, else run.
 pub fn decide(caller: &CallerIdentity, verb: &VerbDescriptor) -> Decision {
-    if let Some(conflict) = check_conflict(verb) {
-        return conflict;
-    }
     let installed = POLICY.read().ok().and_then(|p| p.clone());
-    match installed.or_else(from_env) {
+    let decision = match installed.or_else(from_env) {
         Some(policy) => policy.decide(caller, verb),
         None => Decision::Run,
+    };
+    // D-R11's conflict check only matters for a call this policy would let
+    // run — one it queues or denies never runs at all, so it never takes a
+    // write lease (see `check_conflict`'s and `release`'s doc comments).
+    if decision == Decision::Run {
+        if let Some(conflict) = check_conflict(verb) {
+            return conflict;
+        }
     }
+    decision
 }
 
 /// Queue a reviewed call and build its answer.
@@ -441,6 +496,7 @@ mod tests {
 
     #[test]
     fn two_destructive_calls_with_overlapping_writes_conflict() {
+        enable_conflict_detection();
         const WRITES: &[Kind] = &[Kind::Ref("d-r11-test/destructive-overlap")];
         let a = verb_writing("d-r11_a1", SafetyClass::Destructive, WRITES);
         let b = verb_writing("d-r11_a2", SafetyClass::Destructive, WRITES);
@@ -455,6 +511,7 @@ mod tests {
 
     #[test]
     fn a_mutating_overlap_is_not_refused() {
+        enable_conflict_detection();
         const WRITES: &[Kind] = &[Kind::Ref("d-r11-test/mutating-overlap")];
         let a = verb_writing("d-r11_b1", SafetyClass::Mutating, WRITES);
         let b = verb_writing("d-r11_b2", SafetyClass::Mutating, WRITES);
@@ -469,6 +526,7 @@ mod tests {
 
     #[test]
     fn disjoint_write_sets_never_conflict() {
+        enable_conflict_detection();
         const WRITES_A: &[Kind] = &[Kind::Ref("d-r11-test/disjoint-a")];
         const WRITES_B: &[Kind] = &[Kind::Ref("d-r11-test/disjoint-b")];
         let a = verb_writing("d-r11_c1", SafetyClass::Destructive, WRITES_A);

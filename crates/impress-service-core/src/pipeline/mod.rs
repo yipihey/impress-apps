@@ -282,6 +282,10 @@ fn outcome(result: &Result<Value, BoxError>) -> (bool, Option<String>, usize, us
 
 /// The layers after the handler: envelope and audit.
 fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Value, BoxError>) {
+    // D-R11: give back the write lease `prepare`'s policy step took for this
+    // call (a no-op if it took none — read-only, no literal declared
+    // writes, or refused before reaching here).
+    policy::release(verb);
     let Prepared {
         context,
         span,
