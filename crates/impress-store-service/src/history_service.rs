@@ -482,7 +482,7 @@ fn mine_ngrams(seq: &[CallSummary], min_repeats: usize, max_len: usize) -> Vec<M
     let mut groups = Vec::new();
     let longest = max_len.min(n);
     for len in (2..=longest).rev() {
-        if len == 0 || n < len * min_repeats {
+        if n / len < min_repeats {
             continue;
         }
         let mut i = 0;
@@ -565,6 +565,22 @@ fn steps_from_group(group: &MinedGroup) -> Vec<Value> {
 /// `impress_workflow::validate` — a mined sequence is a heuristic, and the
 /// validator is the one place "well-formed" is decided.
 fn write_proposal(store: &SqliteItemStore, group: &MinedGroup) -> Result<ProposedWorkflow, String> {
+    // The call log can omit or privacy-reduce arguments. Even among full
+    // records, a changed key set has no safe scalar value to substitute for
+    // the missing key, so do not propose a step that silently drops it.
+    for step_idx in 0..group.verbs.len() {
+        let Some(first) = group.matches[0][step_idx].args.as_object() else {
+            return Err("mined call arguments are not an object".into());
+        };
+        if group.matches.iter().any(|repeat| {
+            repeat[step_idx]
+                .args
+                .as_object()
+                .is_none_or(|args| args.keys().ne(first.keys()))
+        }) {
+            return Err("mined call argument keys differ between repeats".into());
+        }
+    }
     let steps: Vec<Action> = steps_from_group(group)
         .into_iter()
         .map(|s| serde_json::from_value(s).map_err(|e| e.to_string()))
@@ -1048,7 +1064,12 @@ impl HistoryService for DefaultHistoryService {
         // Only mutating calls that succeeded are candidate steps: a
         // read-only call proposes nothing to run, and a failed call is not
         // a sequence worth repeating.
-        summaries.retain(|c| c.ok && is_mutating(&c.verb));
+        summaries.retain(|c| {
+            c.ok && is_mutating(&c.verb)
+                && !c.compacted
+                && c.args.is_object()
+                && !is_reduced(&c.args)
+        });
 
         // Group by caller, preserving each caller's own relative order —
         // "consecutive" means in that caller's stream, not the whole log.
@@ -1452,6 +1473,23 @@ mod tests {
         set_starred(store.clone(), b, "triage-agent");
         set_starred(store.clone(), c, "triage-agent");
         set_starred(store.clone(), c, "triage-agent");
+        crate::audit::flush();
+
+        let svc = DefaultHistoryService::with_store(store);
+        let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
+        assert!(result.ok, "{}", result.message);
+        assert!(result.proposed.is_empty(), "{:?}", result.proposed);
+    }
+
+    #[test]
+    fn privacy_reduced_arguments_are_not_embedded_in_a_proposal() {
+        let store = crate::test_support::test_store();
+        let long_tag = "private-context-".repeat(12);
+        for _ in 0..3 {
+            let id = item(&store);
+            set_starred(store.clone(), id, "triage-agent");
+            add_tag(store.clone(), id, &long_tag, "triage-agent");
+        }
         crate::audit::flush();
 
         let svc = DefaultHistoryService::with_store(store);

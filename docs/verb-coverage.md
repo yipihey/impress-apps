@@ -76,7 +76,7 @@ prints the row as it should now read.
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
 | `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
-| **Total** | 21 crates, 45 services | **471** | **471** | **1053 (700)** | **119** | **77** |
+| **Total** | 21 crates, 45 services | **472** | **472** | **1056 (702)** | **122** | **78** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -100,7 +100,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 943 |
+| `scalar` | 946 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)

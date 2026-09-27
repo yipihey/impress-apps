@@ -2434,3 +2434,20 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   effects tests already confirmed by construction (the doc tables were edited to exactly the rows
   those tests printed), but they are unverified and should be the first thing checked before this
   PR leaves draft.
+
+- 2026-09-27 — **W4 draft closeout after merging fresh `origin/main`.** The miner now excludes
+  compacted and privacy-reduced call arguments, so a stored `{len, sha256_8}` summary cannot become
+  a literal workflow argument (`privacy_reduced_arguments_are_not_embedded_in_a_proposal`). It also
+  skips repeated calls with different argument key sets rather than dropping an unmatched key, and
+  checks the minimum repeat count without overflowing on a large requested value. The
+  `semantic-search` inventory dump showed the coverage table's Total and scalar rows were stale;
+  `docs/verb-coverage.md` now matches that dump (472 verbs, 1056 arguments, 946 scalar arguments).
+
+  Final gates with the private `target-w4-gates` cache: `scripts/rust-gate.sh fmt`, both clippy
+  shards, `scripts/check-verb-coverage.sh`, `scripts/check-verb-docs.sh`,
+  `scripts/check-kit-deps.sh --strict`, `scripts/check-kit-standalone.sh`,
+  `scripts/check-uniffi-bindings.sh`, `scripts/check-schema-refs.sh`, and
+  `cargo hakari generate --diff` passed. Tests passed for `impress-store-service`,
+  `impress-workflow`, `impress-workflow-service`, and `impress-capabilities` with
+  `impress-capabilities/semantic-search` enabled. W4 remains draft until W3 lands; main must be
+  merged and these checks repeated after that integration.
