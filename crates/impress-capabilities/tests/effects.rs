@@ -49,7 +49,12 @@ use serde_json::Value;
 /// recording anything when nothing matched) reclassified 10 verbs from a
 /// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
 /// positive, not gained real coverage, so the ceiling moves to say so.
-const EXCEPTION_CEILING: usize = 277;
+/// Raised to 280 in plan G4: the three new `capabilities-service` verbs
+/// (`list-verbs`, `verb-surface`, `catalogue-surface`) touch only the linked
+/// inventory itself (`any(…)`, no store call), so their examples run and the
+/// store spy observes nothing — the same "exercised, unobserved" shape as
+/// every other pure-computation verb already on this table.
+const EXCEPTION_CEILING: usize = 280;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

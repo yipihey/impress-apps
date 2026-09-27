@@ -906,7 +906,9 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
+ "impress-surface",
  "impress-surface-service",
+ "impress-verb-surface",
  "impress-workspace-hack",
  "schemars 0.8.22",
  "serde",
@@ -4969,6 +4971,22 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "impress-verb-surface"
+version = "0.1.0"
+dependencies = [
+ "capabilities-service",
+ "impress-capabilities",
+ "impress-core",
+ "impress-service-core",
+ "impress-surface",
+ "impress-surface-service",
+ "impress-workspace-hack",
+ "serde_json",
+ "surface-demo-service",
+ "tokio",
 ]
 
 [[package]]

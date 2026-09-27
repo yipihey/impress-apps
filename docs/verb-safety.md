@@ -81,7 +81,10 @@ per-method overrides. Derived from the table below, recorded here for reading.
 <!-- verb-safety:begin -->
 | Tool | Class | Evidence |
 |---|---|---|
+| `capabilities-service_catalogue-surface` | read_only | name/doc |
 | `capabilities-service_impact` | read_only | name/doc |
+| `capabilities-service_list-verbs` | read_only | name/doc |
+| `capabilities-service_verb-surface` | read_only | name/doc |
 | `collection-service_add-members` | mutating | name/doc |
 | `collection-service_create` | mutating | name/doc |
 | `collection-service_delete` | destructive | crates/impress-store-service/src/collection_service.rs:577 collection_ops::delete -> crates/impress-core/src/collection_ops.rs:1035 store.delete(id); kernel returns a restore snapshot but the service drops it (collect… |

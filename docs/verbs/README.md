@@ -2,7 +2,7 @@
 
 One page per service, generated from the linked `VerbDescriptor` inventory. Regenerate with `cargo run -p impress-capabilities --bin gen-verb-docs`; `scripts/check-verb-docs.sh` fails CI on a diff.
 
-- [capabilities-service](capabilities-service.md) (1 verbs)
+- [capabilities-service](capabilities-service.md) (4 verbs)
 - [collection-service](collection-service.md) (12 verbs)
 - [docs-import-service](docs-import-service.md) (10 verbs)
 - [imbib-annotations-service](imbib-annotations-service.md) (9 verbs)

@@ -43,7 +43,42 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use impress_service_macros::impress_method;
 
+use impress_surface::spec::SurfaceSpec;
 use impress_surface_service::SurfaceStore;
+
+/// One verb, as the catalogue lists it (ADR-0035 D2, plan G4).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub struct VerbSummary {
+    pub name: String,
+    pub service: String,
+    pub description: String,
+    /// `read_only` / `mutating` / `destructive` / `external`
+    /// (`SafetyClass::as_str`).
+    pub safety: String,
+    pub since: String,
+}
+
+/// `list-verbs`'s answer: every linked verb matching the query, grouped by
+/// service in the order encountered (the inventory's own linking order).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq, Default)]
+pub struct ListVerbsResult {
+    pub verbs: Vec<VerbSummary>,
+    pub total: usize,
+    /// Every service name seen, in first-seen order — the catalogue's group
+    /// filter options.
+    pub groups: Vec<String>,
+}
+
+/// `verb-surface`'s answer: the generated form, or why there isn't one.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct VerbSurfaceResult {
+    pub ok: bool,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<SurfaceSpec>,
+}
 
 /// One verb that touches a kind, and how.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
@@ -104,6 +139,31 @@ pub trait CapabilitiesService: Send + Sync + 'static {
         args = r#"{"verb": "imbib-library-service_count-publications"}"#
     )]
     async fn impact(&self, kind: Option<String>, verb: Option<String>) -> ImpactResult;
+
+    /// Every linked verb, optionally narrowed by a case-insensitive
+    /// substring of its name or description and/or an exact service name —
+    /// the inventory as data (D-G2, ADR-0035 D2). This is what the generated
+    /// catalogue (`catalogue-surface`) searches.
+    #[impress_method]
+    #[impress_example(name = "all", args = r#"{}"#)]
+    #[impress_example(name = "search", args = r#"{"search": "publications"}"#)]
+    async fn list_verbs(&self, search: Option<String>, group: Option<String>) -> ListVerbsResult;
+
+    /// The generated form for one verb (ADR-0035 D2): `verb_surface` over
+    /// its descriptor, or `not-found` when the name is not linked.
+    #[impress_method]
+    #[impress_example(
+        name = "surface_demo",
+        args = r#"{"verb": "surface-demo-service_series"}"#
+    )]
+    async fn verb_surface(&self, verb: String) -> VerbSurfaceResult;
+
+    /// The generated catalogue surface: search, a table of every linked
+    /// verb (sourced from `list-verbs`), and a button that opens the
+    /// selected verb's generated form (ADR-0035 D2).
+    #[impress_method]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn catalogue_surface(&self) -> SurfaceSpec;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +330,61 @@ impl CapabilitiesService for DefaultCapabilitiesService {
         result.surfaces = surfaces_naming(&self.store(), &needles);
         result
     }
+
+    async fn list_verbs(&self, search: Option<String>, group: Option<String>) -> ListVerbsResult {
+        let needle = search.as_deref().map(str::to_lowercase);
+        let mut groups: Vec<String> = Vec::new();
+        let mut verbs: Vec<VerbSummary> = Vec::new();
+        for v in VerbDescriptor::iter() {
+            if let Some(g) = &group {
+                if v.service != g.as_str() {
+                    continue;
+                }
+            }
+            if !groups.iter().any(|g| g == v.service) {
+                groups.push(v.service.to_string());
+            }
+            if let Some(needle) = &needle {
+                let hay = format!("{} {}", v.name.to_lowercase(), v.description.to_lowercase());
+                if !hay.contains(needle.as_str()) {
+                    continue;
+                }
+            }
+            verbs.push(VerbSummary {
+                name: v.name.to_string(),
+                service: v.service.to_string(),
+                description: v.description.to_string(),
+                safety: v.safety.class.as_str().to_string(),
+                since: v.since.to_string(),
+            });
+        }
+        ListVerbsResult {
+            total: verbs.len(),
+            verbs,
+            groups,
+        }
+    }
+
+    async fn verb_surface(&self, verb: String) -> VerbSurfaceResult {
+        match VerbDescriptor::find(&verb) {
+            Some(descriptor) => VerbSurfaceResult {
+                ok: true,
+                message: format!("generated form for `{verb}`"),
+                code: None,
+                spec: Some(impress_verb_surface::verb_surface(descriptor)),
+            },
+            None => VerbSurfaceResult {
+                ok: false,
+                message: format!("`{verb}` is not a linked verb"),
+                code: Some("not-found".to_string()),
+                spec: None,
+            },
+        }
+    }
+
+    async fn catalogue_surface(&self) -> SurfaceSpec {
+        impress_verb_surface::catalogue()
+    }
 }
 
 // ===========================================================================
@@ -295,6 +410,17 @@ impress_service_impl! {
             /// A verb name (`<service>_<method>`) — the kinds it declares.
             verb: Option<String>,
         ) -> ImpactResult,
+        list_verbs(
+            /// A case-insensitive substring of the verb's name or description.
+            search: Option<String>,
+            /// An exact service name (`imbib-library-service`) to narrow to.
+            group: Option<String>,
+        ) -> ListVerbsResult,
+        verb_surface(
+            /// The verb name (`<service>_<method>`) to generate a form for.
+            verb: String,
+        ) -> VerbSurfaceResult,
+        catalogue_surface() -> SurfaceSpec,
     ],
 }
 

@@ -80,6 +80,8 @@ members = [
     "crates/impress-pane-query",
     # ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure
     "crates/impress-surface",
+    # ADR-0035 D2: verb_surface(&VerbDescriptor) -> SurfaceSpec + catalogue(), pure (plan G4)
+    "crates/impress-verb-surface",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
     "crates/impress-capabilities",
     # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
@@ -209,7 +211,8 @@ impress-layout = { path = "crates/impress-layout" }
 impress-layout-service = { path = "crates/impress-layout-service" }
 impress-pane-query = { path = "crates/impress-pane-query" }
 impress-surface = { path = "crates/impress-surface" }
-impress-capabilities = { path = "crates/impress-capabilities" }
+impress-verb-surface = { path = "crates/impress-verb-surface" }
+impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
 impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
