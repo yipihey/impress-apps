@@ -1448,3 +1448,18 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   0 failed — includes the D-R5 proof above), and PublicationManagerCore (2159 passed, 2 skipped,
   0 failed). Live proof and the push/PR are recorded separately in the same session's report to
   the R1 dispatcher.
+
+- 2026-09-26 (addendum) — the pre-push hook's dual-platform gate (ADR-023 Rule 1) caught a real
+  bug the tests above did not: `SettingsSurfacePane.swift` imported `ImpressLayout` unconditionally,
+  but `PublicationManagerCore/Package.swift` links it macOS-only, so imbib-iOS could not resolve
+  the module. Fixed by keeping the macOS body (unchanged, still `ImpressLayout.SurfacePaneModel`)
+  and giving iOS a named `ContentUnavailableView` placeholder rather than a second, kit-only copy
+  of the render/dispatch model — that copy would have needed its own `SharedSurface` /
+  `SharedSurfaceChange` `Sendable` conformances, which `ImpressLayout` already declares
+  retroactively, so a second declaration in `PublicationManagerCore` would collide at link time
+  once both modules share the macOS binary (caught and backed out before committing). iOS support
+  for the generated Retention pane is R1 follow-up, not silently dropped — see table RG-S.
+  Re-verified: PMC `swift build` (macOS) clean, the pre-push hook's exact iOS command (`xcodebuild
+  build -scheme imbib-iOS -destination 'generic/platform=iOS Simulator' ARCHS=arm64
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO`) now succeeds, and PMC
+  `swift test` is still 2159 passed / 2 skipped / 0 failed.
