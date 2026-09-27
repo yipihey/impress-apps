@@ -38,20 +38,20 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 438 verbs declared; 70 verified by example, 93 by a Tier A
-catalogue, 275 on the exception table.
+Counts today: 438 verbs declared; 62 verified by example, 93 by a Tier A
+catalogue, 283 on the exception table (plan E2b: 10 verbs the spy's own empty-
+result early return had been passing vacuously moved to *exercised,
+unobserved* on the exception table once that gap closed).
 
 ## Every verb
 
 <!-- verb-effects:begin -->
-| Verb | Reads | Writes | Reach | Verified |
-|---|---|---|---|---|
 | `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_member-counts` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | — |
 | `collection-service_migrate` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection" | — | — |
-| `collection-service_migration-status` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | example ×1 |
+| `collection-service_migration-status` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | — |
 | `collection-service_remove-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_rename` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_reorder` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
@@ -110,7 +110,7 @@ catalogue, 275 on the exception table.
 | `imbib-backup-service_prune-backups` | — | — | fs | — |
 | `imbib-backup-service_restore-backup` | — | — | app("imbib"), fs | — |
 | `imbib-eink-service_eink-append-notes` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/annotation", "imbib/eink-mirror", "imbib/eink-device" | "imbib/bibliography-entry", "imbib/linked-file", "imbib/annotation" | — | — |
-| `imbib-eink-service_eink-awaiting-source` | "imbib/eink-mirror" | — | — | example ×1 |
+| `imbib-eink-service_eink-awaiting-source` | "imbib/eink-mirror", "imbib/eink-device" | — | — | example ×1 |
 | `imbib-eink-service_eink-complete-ocr` | "imbib/annotation" | "imbib/annotation" | — | — |
 | `imbib-eink-service_eink-configure-device` | "imbib/eink-device" | "imbib/eink-device" | — | — |
 | `imbib-eink-service_eink-devices` | "imbib/eink-device" | — | — | example ×1 |
@@ -118,7 +118,7 @@ catalogue, 275 on the exception table.
 | `imbib-eink-service_eink-import` | "imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file" | "imbib/annotation", "imbib/linked-file", "imbib/eink-mirror" | device, fs | — |
 | `imbib-eink-service_eink-import-document` | "imbib/eink-device", "imbib/eink-mirror", "imbib/library", "imbib/bibliography-entry" | "imbib/bibliography-entry", "imbib/linked-file", "imbib/eink-mirror", "impress/artifact/note" | device, fs | — |
 | `imbib-eink-service_eink-list-annotations` | "imbib/annotation", "imbib/linked-file" | — | — | — |
-| `imbib-eink-service_eink-list-mirrored` | "imbib/eink-mirror" | — | — | example ×1 |
+| `imbib-eink-service_eink-list-mirrored` | "imbib/eink-mirror", "imbib/eink-device" | — | — | example ×1 |
 | `imbib-eink-service_eink-list-unmatched` | "imbib/eink-device", "imbib/eink-mirror" | — | device | — |
 | `imbib-eink-service_eink-mark` | "imbib/bibliography-entry", "imbib/eink-device", "imbib/eink-mirror", "imbib/linked-file" | "imbib/eink-mirror" | — | — |
 | `imbib-eink-service_eink-note-source-error` | "imbib/eink-device", "imbib/eink-mirror" | "imbib/eink-mirror" | — | — |
@@ -204,7 +204,7 @@ catalogue, 275 on the exception table.
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
 | `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_list-tags` | "imbib/tag-definition" | — | — | example ×1 |
-| `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
+| `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | — |
 | `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
 | `imbib-tags-service_remove-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | — |
@@ -214,7 +214,7 @@ catalogue, 275 on the exception table.
 | `imbib-text-service_generate-cite-key` | — | — | — | example ×1 |
 | `imbib-text-service_normalize-tag-path` | — | — | — | example ×1 |
 | `imbib-text-service_normalize-tag-segment` | — | — | — | example ×1 |
-| `imbib-undo-service_recent-undo-groups` | "core/operation" | — | — | example ×1 |
+| `imbib-undo-service_recent-undo-groups` | "core/operation" | — | — | — |
 | `imbib-undo-service_undo-batch` | "core/operation" | any("restores whatever kind the operations targeted") | — | — |
 | `imbib-undo-service_undo-operation` | "core/operation" | any("restores whatever kind the operations targeted") | — | — |
 | `impart-service_add-message` | — | — | app("impart") | — |
@@ -236,7 +236,7 @@ catalogue, 275 on the exception table.
 | `impel-service_list-failed-tasks` | "task@1.0.0" | — | — | example ×1 |
 | `impel-service_list-pending-reviews` | "review-request@1.0.0" | — | — | example ×1 |
 | `impel-service_resolve-review` | "review-request@1.0.0", "task@1.0.0" | "review-request@1.0.0", "task@1.0.0" | — | — |
-| `impel-service_retention-status` | "task@1.0.0", "review-request@1.0.0", "core/operation" | — | — | example ×1 |
+| `impel-service_retention-status` | "task@1.0.0", "review-request@1.0.0", "core/operation" | — | — | — |
 | `impel-service_scheduler-status` | "task@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
 | `implore-service_create-figure` | — | — | app("implore") | — |
 | `implore-service_export-figure` | — | — | app("implore") | — |
@@ -330,7 +330,7 @@ catalogue, 275 on the exception table.
 | `imprint-manuscript-service_export-document` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
 | `imprint-manuscript-service_get-document` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
 | `imprint-manuscript-service_get-section` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
-| `imprint-manuscript-service_list-documents` | "manuscript" | — | — | example ×1 |
+| `imprint-manuscript-service_list-documents` | "manuscript" | — | — | — |
 | `imprint-manuscript-service_list-sections` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
 | `imprint-manuscript-service_presentation-outline` | — | — | — | catalogue:imprint |
 | `imprint-manuscript-service_put-section` | "manuscript", "manuscript-section" | "manuscript-section", "manuscript" | — | catalogue:imprint |
@@ -358,13 +358,13 @@ catalogue, 275 on the exception table.
 | `imprint-project-service_project-new-figure` | "manuscript", "manuscript-file@1.0.0" | "manuscript-file@1.0.0", "figure", "manuscript" | — | catalogue:imprint |
 | `imprint-project-service_project-outline` | "manuscript", "manuscript-file@1.0.0" | — | — | catalogue:imprint |
 | `imprint-project-service_project-put-file` | "manuscript", "manuscript-file@1.0.0" | "manuscript-file@1.0.0", "manuscript" | — | catalogue:imprint |
-| `imprint-project-service_project-reading-list` | "manuscript", "imbib/bibliography-entry", "imbib/collection" | — | — | catalogue:imprint |
+| `imprint-project-service_project-reading-list` | "manuscript", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | — | — | catalogue:imprint |
 | `imprint-project-service_project-render-figure` | "manuscript", "manuscript-file@1.0.0", "figure" | "manuscript-file@1.0.0" | subprocess, fs | — |
 | `imprint-project-service_project-set-bibliography` | "manuscript", "manuscript-file@1.0.0" | "manuscript-file@1.0.0", "manuscript" | — | catalogue:imprint |
 | `imprint-project-service_project-set-entry` | "manuscript" | "manuscript" | — | catalogue:imprint |
 | `imprint-project-service_project-set-figure-build` | "manuscript", "manuscript-file@1.0.0" | "manuscript-file@1.0.0" | — | catalogue:imprint |
 | `imprint-project-service_project-set-targets` | "manuscript" | "manuscript" | — | catalogue:imprint |
-| `imprint-project-service_project-snapshot` | "manuscript", "manuscript-file@1.0.0" | "manuscript-revision", "manuscript" | — | catalogue:imprint |
+| `imprint-project-service_project-snapshot` | "manuscript", "manuscript-file@1.0.0", "manuscript-revision" | "manuscript-revision", "manuscript" | — | catalogue:imprint |
 | `imprint-project-service_project-status` | "manuscript", "manuscript-file@1.0.0" | — | fs | catalogue:imprint |
 | `imprint-project-service_project-sync-reading-collection` | "manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection" | "imbib/collection" | — | catalogue:imprint |
 | `imprint-project-service_project-tree` | "manuscript", "manuscript-file@1.0.0", "plot-spec" | — | — | catalogue:imprint |
@@ -428,8 +428,8 @@ catalogue, 275 on the exception table.
 | `memory-service_confirm-claim` | "memory/claim@1.0.0" | "memory/claim@1.0.0" | — | — |
 | `memory-service_forget` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — |
 | `memory-service_memory-brief` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | — |
-| `memory-service_memory-status` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | example ×1 |
-| `memory-service_recall` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | example ×1 |
+| `memory-service_memory-status` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | — |
+| `memory-service_recall` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — | — |
 | `memory-service_remember` | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | "memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0" | — | — |
 | `memory-service_supersede-claim` | "memory/claim@1.0.0" | "memory/claim@1.0.0" | — | — |
 | `parsers-service_decode-mime-header` | — | — | — | example ×1 |
@@ -456,11 +456,11 @@ catalogue, 275 on the exception table.
 | `source-service_put-content-chunk` | "content-chunk@1.0.0" | "content-chunk@1.0.0" | — | — |
 | `source-service_put-extraction-run` | "extraction-run@1.0.0" | "extraction-run@1.0.0" | — | — |
 | `source-service_put-figure-region` | "figure-region@1.0.0" | "figure-region@1.0.0" | — | — |
-| `source-service_search-content-chunks` | "content-chunk@1.0.0" | — | — | example ×1 |
+| `source-service_search-content-chunks` | "content-chunk@1.0.0" | — | — | — |
 | `store-query-service_get-item` | target(id) | — | — | — |
-| `store-query-service_list-items` | any("the schema_ref argument names the kind") | — | — | example ×1 |
+| `store-query-service_list-items` | any("the schema_ref argument names the kind") | — | — | — |
 | `store-query-service_related-items` | target(id), any("walks references across kinds") | — | — | — |
-| `store-query-service_search-all` | any("searches every kind") | — | — | example ×1 |
+| `store-query-service_search-all` | any("searches every kind") | — | — | — |
 | `surface-demo-service_histogram` | — | — | — | example ×1 |
 | `surface-demo-service_series` | — | — | — | example ×1 |
 | `surface-selftest-service_run-selftest` | any("runs the catalogue's capabilities") | any("runs the catalogue's capabilities") | app("impress") | — |
@@ -494,13 +494,12 @@ implementation cannot take headless), or `no example` (G3 writes them; the row l
 when one lands).
 
 <!-- verb-effects-exceptions:begin -->
-| Verb | Reason |
-|---|---|
 | `collection-service_add-members` | no example |
 | `collection-service_create` | no example |
 | `collection-service_delete` | no example |
 | `collection-service_member-counts` | no example |
 | `collection-service_migrate` | no example |
+| `collection-service_migration-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_remove-members` | no example |
 | `collection-service_rename` | no example |
 | `collection-service_reorder` | no example |
@@ -626,10 +625,12 @@ when one lands).
 | `imbib-search-service_resolve-cite-key` | no example |
 | `imbib-tags-service_add-tag` | no example |
 | `imbib-tags-service_delete-tag-undoable` | no example |
+| `imbib-tags-service_list-tags-with-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_query-by-tag` | no example |
 | `imbib-tags-service_remove-tag` | no example |
 | `imbib-tags-service_rename-tag` | no example |
 | `imbib-tags-service_update-tag` | no example |
+| `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_undo-batch` | no example |
 | `imbib-undo-service_undo-operation` | no example |
 | `impart-service_add-message` | needs a running app |
@@ -649,6 +650,7 @@ when one lands).
 | `impel-service_job-status` | no example |
 | `impel-service_job-wait` | no example |
 | `impel-service_resolve-review` | no example |
+| `impel-service_retention-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `implore-service_create-figure` | needs a running app |
 | `implore-service_export-figure` | needs a running app |
 | `implore-service_get-dataset` | needs a running app |
@@ -719,6 +721,7 @@ when one lands).
 | `imprint-app-service_update-document` | needs a running app |
 | `imprint-app-service_update-metadata` | needs a running app |
 | `imprint-manuscript-service_compile-latex` | leaves the process (subprocess) |
+| `imprint-manuscript-service_list-documents` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imprint-project-service_project-build` | leaves the process (subprocess, fs) |
 | `imprint-project-service_project-figure-preview` | leaves the process (subprocess, fs) |
 | `imprint-project-service_project-render-figure` | leaves the process (subprocess, fs) |
@@ -731,6 +734,8 @@ when one lands).
 | `memory-service_confirm-claim` | no example |
 | `memory-service_forget` | no example |
 | `memory-service_memory-brief` | no example |
+| `memory-service_memory-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `memory-service_recall` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `memory-service_remember` | no example |
 | `memory-service_supersede-claim` | no example |
 | `parsers-service_extract-landing-page-pdf` | no example |
@@ -748,8 +753,11 @@ when one lands).
 | `source-service_put-content-chunk` | no example |
 | `source-service_put-extraction-run` | no example |
 | `source-service_put-figure-region` | no example |
+| `source-service_search-content-chunks` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_get-item` | no example |
+| `store-query-service_list-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_related-items` | no example |
+| `store-query-service_search-all` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-selftest-service_run-selftest` | needs a running app |
 | `triage-service_add-tag` | no example |
 | `triage-service_remove-tag` | no example |
