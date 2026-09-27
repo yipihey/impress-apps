@@ -1,0 +1,19 @@
+{
+  "_comment": "B5 build budget (plan-verb-pipeline-and-transport.md § Build cost). Deterministic half (macro_lines_per_verb, total_lines_per_verb) is reproducible for a given toolchain and scripts/build-cost.sh fails the PR on a breach the day it lands, no re-run. Measured half (cold/incr_*_ms_per_verb) is noisy on a shared runner, so it only fails after one re-run over budget. A toolchain bump re-baselines these numbers in the same PR that bumps rust-toolchain.toml — that keeps 'the compiler got slower' separate from 'we generated more'.",
+  "toolchain": "1.98.1",
+  "baseline_commit": "3222f573",
+  "budgets": {
+    "macro_lines_per_verb": 2000,
+    "total_lines_per_verb": 6000,
+    "cold_ms_per_verb": 150,
+    "incr_service_ms_per_verb": 12,
+    "incr_core_ms_per_verb": 20
+  },
+  "measured_baseline": {
+    "macro_lines_per_verb": 1713,
+    "total_lines_per_verb": 5123,
+    "cold_ms_per_verb": 112,
+    "incr_service_ms_per_verb": 7,
+    "incr_core_ms_per_verb": 13
+  }
+}
