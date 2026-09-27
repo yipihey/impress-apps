@@ -24,6 +24,7 @@
 
 import SwiftUI
 import XCTest
+import ImpressKeyboard
 
 @testable import PublicationManagerCore
 
@@ -257,6 +258,15 @@ final class PaneLayoutCommandsTests: XCTestCase {
     /// Source scan of `imbibApp.swift` (SwiftUI cannot enumerate a built
     /// `Commands` body), plus the three chords `ImpressPaneLayoutButtons`
     /// contributes as data, plus View ▸ Layouts' ⌃⌘1–9.
+    ///
+    /// R2b (2026-09) moved most of these sites off literals: they now read
+    /// `KeymapRegistry.shared.shortcut(for: "imbib.…")` instead of writing
+    /// `.keyboardShortcut("k", modifiers: …)`. Both forms are scanned here —
+    /// a literal survivor (the dev-mode export, Quit, and the dynamic
+    /// per-index Layouts loop, none seeded into the registry) resolves
+    /// directly; a registry call resolves through `KeymapRegistry.shared` so
+    /// this test still checks the CHORD each site is actually bound to, not
+    /// the id string, and would still fail on a real collision.
     func testNoTwoImbibMenuCommandsShareAChord() throws {
         let source = try Self.source(of: "apps/imbib/imbib/imbib/imbibApp.swift")
         var seen: [String: Int] = [:]
@@ -264,10 +274,10 @@ final class PaneLayoutCommandsTests: XCTestCase {
 
         // `.keyboardShortcut("k")`, `.keyboardShortcut("k", modifiers: X)`,
         // `.keyboardShortcut(.return, modifiers: X)`.
-        let pattern = #"\.keyboardShortcut\((?:"([^"]+)"|\.([a-zA-Z]+))(?:,\s*modifiers:\s*(\[[^\]]*\]|\.[a-z]+))?\)"#
-        let regex = try NSRegularExpression(pattern: pattern)
+        let literalPattern = #"\.keyboardShortcut\((?:"([^"]+)"|\.([a-zA-Z]+))(?:,\s*modifiers:\s*(\[[^\]]*\]|\.[a-z]+))?\)"#
+        let literalRegex = try NSRegularExpression(pattern: literalPattern)
         let ns = source as NSString
-        for match in regex.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
+        for match in literalRegex.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
             let key: String = {
                 for group in [1, 2] where match.range(at: group).location != NSNotFound {
                     return ns.substring(with: match.range(at: group)).lowercased()
@@ -279,6 +289,20 @@ final class PaneLayoutCommandsTests: XCTestCase {
                 : ns.substring(with: match.range(at: 3))
             chords.append(Self.chord(key: key, modifierText: modifierText))
         }
+
+        // `.keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.…"))`
+        let registryPattern = #"KeymapRegistry\.shared\.shortcut\(for:\s*"([^"]+)"\)"#
+        let registryRegex = try NSRegularExpression(pattern: registryPattern)
+        var registryCommandIDs: [String] = []
+        for match in registryRegex.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
+            let commandID = ns.substring(with: match.range(at: 1))
+            registryCommandIDs.append(commandID)
+            guard let shortcut = KeymapRegistry.shared.shortcut(for: commandID) else {
+                continue  // chordless, e.g. Save to Library — nothing to collide
+            }
+            chords.append(Self.chord(shortcut: shortcut))
+        }
+        XCTAssertGreaterThan(registryCommandIDs.count, 40, "the scan stopped matching imbibApp.swift's registry lookups")
         XCTAssertGreaterThan(chords.count, 40, "the scan stopped matching imbibApp.swift's shortcuts")
 
         for chord in ImpressPaneLayoutButtons.chords() {
@@ -305,6 +329,19 @@ final class PaneLayoutCommandsTests: XCTestCase {
             modifierText.contains(".\($0)")
         }
         return "\(names.joined(separator: "+"))-\(key)"
+    }
+
+    /// Same descriptor, from a resolved `KeyboardShortcut` (the registry
+    /// path) rather than a parsed literal.
+    private static func chord(shortcut: KeyboardShortcut) -> String {
+        var names: [String] = []
+        if shortcut.modifiers.contains(.control) { names.append("control") }
+        if shortcut.modifiers.contains(.option) { names.append("option") }
+        if shortcut.modifiers.contains(.shift) { names.append("shift") }
+        if shortcut.modifiers.contains(.command) { names.append("command") }
+        return "\(names.joined(separator: "+"))-\(String(shortcut.key.character).lowercased())"
+        // (KeyEquivalent.character is a Character; String(_:) here is the same
+        // widen-then-lowercase idiom `Chord.key` values use elsewhere.)
     }
 
     /// The repo root really is seven levels up from this file — assert it, or a
