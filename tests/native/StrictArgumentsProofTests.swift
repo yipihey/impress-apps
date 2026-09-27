@@ -61,6 +61,7 @@ final class StrictArgumentsProofTests: XCTestCase {
         let positive = try await request(base + "/api/verb/" + verb, body: valid, bearer: bearer)
         XCTAssertEqual(positive.status, 200)
         XCTAssertEqual((positive.body["x"] as? [Any])?.count, 4)
+        XCTAssertEqual(positive.body["x"] as? [Double], [0.0, 0.25, 0.5, 0.75])
         XCTAssertEqual((positive.body["values"] as? [Any])?.count, 4)
         XCTAssertNil(positive.body["error"])
         let refused = try await request(base + "/api/verb/" + verb, body: invalid, bearer: bearer)
@@ -84,7 +85,10 @@ final class StrictArgumentsProofTests: XCTestCase {
             "requires": ["app": app],
             "steps": [
                 ["call": verb, "args": valid, "expect": ["status": 200, "fields": [
-                    ["path": "$.x", "equals": [0.0, 0.25, 0.5, 0.75]],
+                    // Foundation writes integral Doubles as JSON integers;
+                    // these fractions retain their numeric representation.
+                    ["path": "$.x.1", "equals": 0.25],
+                    ["path": "$.x.3", "equals": 0.75],
                 ]]],
                 ["call": verb, "args": invalid, "expect": ["status": 400, "ok": false,
                     "code": "invalid-argument", "fields": [["path": "$.message", "contains": "g5_extra"]]]],
