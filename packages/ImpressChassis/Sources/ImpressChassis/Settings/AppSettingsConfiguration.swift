@@ -96,6 +96,12 @@ public extension SettingsSectionID {
     static let importExport = SettingsSectionID("importExport")
     /// imbib's keyboard pane. Id from the shipped `settings.tabs.shortcuts`.
     static let shortcuts = SettingsSectionID("shortcuts")
+    /// imbib's retention pane — the first GENERATED section (ADR-0036 D5,
+    /// plan-self-reflective-layer R1): a surface document built from the
+    /// settings registry's `imbib.retention` section, rendered by
+    /// `ImpressSurface`, not a Swift form. Added 2026-09-26; the "frozen
+    /// sixteen" contract test grew to seventeen with it, on purpose.
+    static let retention = SettingsSectionID("retention")
     static let advanced = SettingsSectionID("advanced")
 
     /// iOS-shaped imbib sections. Each is a genuine platform difference, not an
@@ -490,6 +496,17 @@ public struct AppSettingsConfiguration: Sendable {
                 availability: .everywhere,
                 group: .inboxAndFeeds,
                 order: 110),
+            // Retention: the registry's `imbib.retention` section as a
+            // generated surface (ADR-0036 D5). Everywhere, because the pane
+            // is a document the same renderer draws on both platforms.
+            SettingsSectionDescriptor(
+                id: .retention,
+                title: "Retention",
+                systemImage: "clock.arrow.circlepath",
+                subtitle: "How long inbox papers and explorations are kept",
+                availability: .everywhere,
+                group: .inboxAndFeeds,
+                order: 115),
 
             // ── Sync & Backup ────────────────────────────────────────────────
             SettingsSectionDescriptor(

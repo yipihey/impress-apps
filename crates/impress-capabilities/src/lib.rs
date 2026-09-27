@@ -55,6 +55,9 @@
 // because the alias is never read; its only job is to be a real reference
 // the linker cannot ignore.
 
+#[cfg(feature = "impact")]
+#[allow(unused_imports)]
+use capabilities_service as _force_link_capabilities_service;
 #[cfg(feature = "imbib")]
 #[allow(unused_imports)]
 use imbib_service as _force_link_imbib_service;
@@ -79,6 +82,9 @@ use impress_memory_service as _force_link_memory_service;
 #[cfg(feature = "parsers")]
 #[allow(unused_imports)]
 use impress_parsers_service as _force_link_parsers_service;
+#[cfg(feature = "scenario")]
+#[allow(unused_imports)]
+use impress_scenario_service as _force_link_scenario_service;
 #[cfg(feature = "smart-search")]
 #[allow(unused_imports)]
 use impress_smart_search_service as _force_link_smart_search_service;

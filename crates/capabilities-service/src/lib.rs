@@ -1,0 +1,354 @@
+//! `CapabilitiesService` — impact analysis over the linked inventory's own
+//! declared effects (ADR-0036 D-G2's spirit; plan-self-reflective-layer.md's
+//! E3 row and § Effects (consumers): "the input to P3's rename pass and to
+//! 'what breaks if this is renamed'").
+//!
+//! `impact` answers, for a record kind or a verb name:
+//!
+//! * every linked verb that declares the kind among its `effects.reads` or
+//!   `effects.writes` (literal `Kind::Ref` only — see [`Self::impact`]'s doc
+//!   comment for what a dynamic declaration means here);
+//! * for a verb name, the kinds THAT verb declares, the same way;
+//! * every stored surface (`impress/ui/surface@1.0.0` row,
+//!   `impress-surface-service::SurfaceStore`) that names one of the matched
+//!   verbs, or — for a kind query — names the kind literally in its spec.
+//!
+//! **What this does not (yet) cover, and why:** stored *layouts* and
+//! workflows/scenarios. A layout's panes carry a `PaneQuery` (kinds, not
+//! verbs) scoped to one `(app_id, device)` pair with no store-wide "list
+//! every layout" reader today (`impress-layout-service::LayoutStore::all_rows`
+//! takes an `app_id`); workflows and scenarios are later work packages (W, S)
+//! this plan has not built yet. Both are left as follow-up rather than
+//! guessed at here — the plan's own EF-5-style discipline: say what is
+//! covered, not everything the row eventually wants.
+//!
+//! The surface match is deliberately a text search over the stored spec
+//! (`SurfaceRow::spec_text`) rather than a second walk of `Source`/`Action`
+//! shapes: every source and call action serializes its verb as
+//! `"verb":"<name>"` and every query source's kind list is JSON text too, so
+//! a substring match finds both without this crate re-implementing
+//! `impress-surface`'s own AST — the same reasoning
+//! `impress-surface-service::runtime`'s `query_refs` gives for reading the
+//! parsed `Source` enum where it already has one, turned around: here there
+//! is no parsed form worth adding for a report, not a running source.
+
+use std::sync::Arc;
+
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_service_core::descriptor::Kind;
+use impress_service_core::VerbDescriptor;
+use impress_service_macros::{impress_service, impress_service_impl};
+use serde::{Deserialize, Serialize};
+
+#[allow(unused_imports)]
+use impress_service_macros::impress_method;
+
+use impress_surface_service::SurfaceStore;
+
+/// One verb that touches a kind, and how.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub struct VerbTouch {
+    pub verb: String,
+    pub reads: bool,
+    pub writes: bool,
+}
+
+/// One stored surface that names a matched verb or kind, and what named it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub struct SurfaceHit {
+    pub id: String,
+    pub name: String,
+}
+
+/// `impact`'s answer: what a kind or a verb touches, and what would need a
+/// look before either is renamed or removed.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq, Default)]
+pub struct ImpactResult {
+    /// Echoed back: the kind this answer is about, if one was given.
+    pub kind: Option<String>,
+    /// Echoed back: the verb this answer is about, if one was given.
+    pub verb: Option<String>,
+    /// For a `kind` query: every linked verb declaring it among its reads or
+    /// writes. For a `verb` query: that one verb, with `reads`/`writes` both
+    /// true only if it declares the SAME kind on both sides (rare; usually
+    /// one row per kind it touches — see `kinds_touched`).
+    pub verbs: Vec<VerbTouch>,
+    /// For a `verb` query only: the literal kinds that verb declares
+    /// (`effects.reads`/`writes`), by name, with which side(s) named it.
+    pub kinds_touched: Vec<VerbTouch>,
+    /// Stored surfaces naming a matched verb (or, for a `kind` query, the
+    /// kind literally) — a text search over the stored spec, not a parsed
+    /// walk (see the module docs).
+    pub surfaces: Vec<SurfaceHit>,
+    /// Set when neither `kind` nor `verb` resolved to anything: a `verb`
+    /// name not linked, or a `kind` no linked verb declares.
+    pub message: String,
+}
+
+/// Impact analysis over the linked `#[impress_service]` inventory's own
+/// declared effects (E3, ADR-0036 D-G2's spirit) — read-only, and the only
+/// thing it reads is the inventory itself and the stored surfaces.
+#[impress_service]
+pub trait CapabilitiesService: Send + Sync + 'static {
+    /// What touches a record kind, or what a verb touches: every linked verb
+    /// that declares the kind among its reads or writes; for a verb, the
+    /// kinds it declares; and the stored surfaces naming either. Give at
+    /// least one of `kind` or `verb` — both narrows to their intersection
+    /// (verbs matching `kind` AND named `verb`, which is usually just that
+    /// one verb, echoed back so a caller can confirm it actually touches the
+    /// kind it thinks it does).
+    #[impress_method]
+    #[impress_example(name = "by_kind", args = r#"{"kind": "imbib/bibliography-entry"}"#)]
+    #[impress_example(
+        name = "by_verb",
+        args = r#"{"verb": "imbib-library-service_count-publications"}"#
+    )]
+    async fn impact(&self, kind: Option<String>, verb: Option<String>) -> ImpactResult;
+}
+
+// ---------------------------------------------------------------------------
+// Implementation
+// ---------------------------------------------------------------------------
+
+/// Reads `VerbDescriptor::iter()` (the linked inventory) and, for the
+/// surface search, an explicit store or the shared one — the same
+/// `with_store`/shared-singleton split every store-backed service in the kit
+/// uses.
+#[derive(Clone, Default)]
+pub struct DefaultCapabilitiesService {
+    store: Option<Arc<SqliteItemStore>>,
+}
+
+impl DefaultCapabilitiesService {
+    pub fn new() -> Self {
+        Self { store: None }
+    }
+
+    pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
+        Self { store: Some(store) }
+    }
+
+    fn store(&self) -> Arc<SqliteItemStore> {
+        self.store
+            .clone()
+            .unwrap_or_else(impress_store_service::store_instance)
+    }
+}
+
+/// The literal (`Kind::Ref`) name a declared kind carries, else `None` — the
+/// same "dynamic declarations are not this static walk's problem" reasoning
+/// `impress-surface-service::runtime`'s `verb_declared_read_refs` gives (E3).
+fn literal_ref(k: &Kind) -> Option<&'static str> {
+    match k {
+        Kind::Ref(r) => Some(r),
+        _ => None,
+    }
+}
+
+fn verbs_touching_kind(kind: &str) -> Vec<VerbTouch> {
+    VerbDescriptor::iter()
+        .filter_map(|v| {
+            let reads = v
+                .effects
+                .reads
+                .iter()
+                .filter_map(literal_ref)
+                .any(|r| r == kind);
+            let writes = v
+                .effects
+                .writes
+                .iter()
+                .filter_map(literal_ref)
+                .any(|r| r == kind);
+            if reads || writes {
+                Some(VerbTouch {
+                    verb: v.name.to_string(),
+                    reads,
+                    writes,
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn kinds_touched_by(verb: &VerbDescriptor) -> Vec<VerbTouch> {
+    let mut out: Vec<VerbTouch> = Vec::new();
+    let mut touch = |kind: &str, is_read: bool, is_write: bool| {
+        if let Some(existing) = out.iter_mut().find(|t| t.verb == kind) {
+            existing.reads |= is_read;
+            existing.writes |= is_write;
+        } else {
+            out.push(VerbTouch {
+                verb: kind.to_string(),
+                reads: is_read,
+                writes: is_write,
+            });
+        }
+    };
+    for k in verb.effects.reads.iter().filter_map(literal_ref) {
+        touch(k, true, false);
+    }
+    for k in verb.effects.writes.iter().filter_map(literal_ref) {
+        touch(k, false, true);
+    }
+    out
+}
+
+/// Stored surfaces naming any of `needles` (verb names, or a bare kind) as a
+/// JSON substring of the stored spec (see the module docs on why this is a
+/// text search, not a parsed walk).
+fn surfaces_naming(store: &Arc<SqliteItemStore>, needles: &[String]) -> Vec<SurfaceHit> {
+    if needles.is_empty() {
+        return Vec::new();
+    }
+    let surfaces = SurfaceStore::new(store.clone());
+    let Ok(rows) = surfaces.list() else {
+        return Vec::new();
+    };
+    rows.into_iter()
+        .filter(|row| needles.iter().any(|n| row.spec_text.contains(n.as_str())))
+        .map(|row| SurfaceHit {
+            id: row.id.to_string(),
+            name: row.name,
+        })
+        .collect()
+}
+
+#[async_trait::async_trait]
+impl CapabilitiesService for DefaultCapabilitiesService {
+    async fn impact(&self, kind: Option<String>, verb: Option<String>) -> ImpactResult {
+        if kind.is_none() && verb.is_none() {
+            return ImpactResult {
+                message: "give at least one of `kind` or `verb`".to_string(),
+                ..Default::default()
+            };
+        }
+
+        let mut result = ImpactResult {
+            kind: kind.clone(),
+            verb: verb.clone(),
+            ..Default::default()
+        };
+
+        let mut needles: Vec<String> = Vec::new();
+
+        if let Some(kind) = &kind {
+            result.verbs = verbs_touching_kind(kind);
+            needles.push(kind.clone());
+            needles.extend(result.verbs.iter().map(|v| v.verb.clone()));
+        }
+
+        if let Some(verb_name) = &verb {
+            match VerbDescriptor::find(verb_name) {
+                Some(descriptor) => {
+                    result.kinds_touched = kinds_touched_by(descriptor);
+                    // Narrow `verbs` to the intersection when both a kind and
+                    // a verb were given: does THIS verb actually touch that
+                    // kind, by declaration?
+                    if kind.is_some() {
+                        result.verbs.retain(|v| v.verb == *verb_name);
+                    }
+                    needles.push(verb_name.clone());
+                }
+                None => {
+                    result.message = format!("`{verb_name}` is not a linked verb");
+                    return result;
+                }
+            }
+        }
+
+        if kind.is_some() && result.verbs.is_empty() && verb.is_none() {
+            result.message = format!(
+                "no linked verb declares `{}` among its reads or writes",
+                kind.as_deref().unwrap_or_default()
+            );
+        }
+
+        needles.dedup();
+        result.surfaces = surfaces_naming(&self.store(), &needles);
+        result
+    }
+}
+
+// ===========================================================================
+// Macro registration
+// ===========================================================================
+
+impress_service_impl! {
+    service = CapabilitiesService,
+    safety = read_only,
+    since = "0.1.0",
+    effects = {
+        reads: [any("the linked inventory's own effect declarations and the stored impress/ui/surface rows")],
+        writes: [],
+        reach: [],
+    },
+    impl = DefaultCapabilitiesService,
+    instance = DefaultCapabilitiesService::new,
+    methods = [
+        impact(
+            /// A record kind (`imbib/bibliography-entry`) — every linked
+            /// verb declaring it among its reads or writes.
+            kind: Option<String>,
+            /// A verb name (`<service>_<method>`) — the kinds it declares.
+            verb: Option<String>,
+        ) -> ImpactResult,
+    ],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn store() -> Arc<SqliteItemStore> {
+        Arc::new(SqliteItemStore::open_in_memory().unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_kind_query_lists_the_real_linked_reader() {
+        // `imbib-library-service` is not force-linked into THIS crate's own
+        // test binary, so this asserts over whichever real verbs the
+        // workspace-wide inventory happens to link into the test binary —
+        // in this crate alone, none — proving instead that an unknown kind
+        // answers honestly rather than crashing.
+        let svc = DefaultCapabilitiesService::with_store(store());
+        let result = svc.impact(Some("no-such/kind".to_string()), None).await;
+        assert_eq!(result.kind, Some("no-such/kind".to_string()));
+        assert!(result.verbs.is_empty());
+        assert!(!result.message.is_empty(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_verb_query_on_an_unknown_verb_says_so() {
+        let svc = DefaultCapabilitiesService::with_store(store());
+        let result = svc
+            .impact(None, Some("no-such-service_no-such".to_string()))
+            .await;
+        assert!(result.message.contains("not a linked verb"), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn neither_kind_nor_verb_asks_for_one() {
+        let svc = DefaultCapabilitiesService::with_store(store());
+        let result = svc.impact(None, None).await;
+        assert!(result.message.contains("at least one"), "{result:?}");
+    }
+
+    /// The verb this crate itself declares is linked into its own test
+    /// binary trivially (it is this crate), so `impact` on its own name is a
+    /// real, non-degenerate proof over the linked inventory.
+    #[tokio::test]
+    async fn a_verb_query_on_impact_itself_finds_no_declared_kinds() {
+        let svc = DefaultCapabilitiesService::with_store(store());
+        let result = svc
+            .impact(None, Some("capabilities-service_impact".to_string()))
+            .await;
+        assert!(result.message.is_empty(), "{result:?}");
+        assert!(
+            result.kinds_touched.is_empty(),
+            "impact declares reads = [any(\"...\")], no literal kind: {result:?}"
+        );
+    }
+}

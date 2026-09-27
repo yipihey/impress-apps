@@ -1,0 +1,28 @@
+[package]
+name = "implore-verbs-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Per-app UniFFI target for implore's own verbs (plan-verb-pipeline-and-transport.md § P5, ADR-0034 D2): links implore-service directly, outside the kit boundary impress-store-ffi keeps."
+
+[lib]
+crate-type = ["lib"]
+name = "implore_verbs_ffi"
+
+[features]
+default = []
+native = ["uniffi"]
+
+[dependencies]
+impress-service-core = { workspace = true }
+implore-service = { workspace = true }
+uniffi = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[build-dependencies]
+# No uniffi build-dependency, same reasoning as impress-store-ffi's: this
+# crate uses the proc-macro `uniffi::setup_scaffolding!()`.

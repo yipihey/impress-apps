@@ -60,6 +60,22 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
                 ""
             }
         ));
+        if let Some(dep) = v.deprecated {
+            if v.aliases.is_empty() {
+                out.push_str(&format!(
+                    "- **deprecated** since `{}`: {}\n",
+                    dep.since, dep.note
+                ));
+            }
+        }
+        if !v.aliases.is_empty() {
+            let names: Vec<String> = v.aliases.iter().map(|a| format!("`{a}`")).collect();
+            out.push_str(&format!(
+                "- **aliases** (deprecated since `{}`; still callable, never listed): {}\n",
+                v.deprecated.map(|d| d.since).unwrap_or("—"),
+                names.join(", ")
+            ));
+        }
         out.push_str(&format!(
             "- **reads**: {}\n",
             if v.effects.reads.is_empty() {

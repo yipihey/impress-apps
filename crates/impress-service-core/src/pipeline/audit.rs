@@ -57,6 +57,11 @@ pub struct VerbCallRecord {
     /// The per-call store override, when the call ran on one
     /// ([`super::invoke_on`]); the sink writes the row there.
     pub store_override: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// The name the caller actually asked for (P3, plan-verb-pipeline §
+    /// Lifecycle), when an alias resolved to `verb`. `None` for a call by
+    /// its canonical name — so a retired name's traffic is counted under
+    /// the name that was actually asked for, not the one it now answers as.
+    pub requested_name: Option<String>,
 }
 
 impl VerbCallRecord {
@@ -76,6 +81,7 @@ impl VerbCallRecord {
         payload.insert("duration_ms".into(), json!(self.duration_ms));
         payload.insert("arg_bytes".into(), json!(self.arg_bytes));
         payload.insert("result_bytes".into(), json!(self.result_bytes));
+        payload.insert("requested_name".into(), json!(self.requested_name));
         payload.insert("wire_version".into(), json!(crate::wire::WIRE_VERSION));
         payload
     }
@@ -323,6 +329,7 @@ mod tests {
             arg_bytes: 0,
             result_bytes: 0,
             store_override: None,
+            requested_name: None,
         });
         assert!(dropped() > before || has_sink());
     }

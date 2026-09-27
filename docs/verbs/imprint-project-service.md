@@ -335,10 +335,10 @@ _No examples yet._
 
 ## `imprint-project-service_project-reading-list`
 
-The manuscript's reading list: the papers it cites (from its text, in reading order) plus the papers collected for it in imbib, with the ones the author viewed most recently first. Cite keys imbib lacks are listed last with a null `publication_id`.
+The manuscript's reading list: the papers it cites (from its text, in reading order) plus the papers collected for it in imbib, with the ones the author viewed most recently first. Cite keys imbib lacks are listed last with a null `publication_id`. "Most recently viewed" is read off each paper's linked PDF (`imbib/linked-file`), not just the paper row — found by the store spy once it stopped early-returning on an empty query (plan E2b).
 
 - **safety**: `read_only`, idempotent
-- **reads**: "manuscript", "imbib/bibliography-entry", "imbib/collection"
+- **reads**: "manuscript", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
 - **writes**: —
 - **reach**: —
 
@@ -438,10 +438,10 @@ _No examples yet._
 
 ## `imprint-project-service_project-snapshot`
 
-Snapshot the whole tree as a revision: a deterministic `.tar.zst` with the manifest, stored in the workspace CAS; `content_hash` is the input stamp; lineage shared with one-file revisions.
+Snapshot the whole tree as a revision: a deterministic `.tar.zst` with the manifest, stored in the workspace CAS; `content_hash` is the input stamp; lineage shared with one-file revisions, so making one reads the manuscript's prior revisions too (to find the lineage to extend), not just what it writes — found by the store spy once it stopped early-returning on an empty query (plan E2b).
 
 - **safety**: `mutating`
-- **reads**: "manuscript", "manuscript-file@1.0.0"
+- **reads**: "manuscript", "manuscript-file@1.0.0", "manuscript-revision"
 - **writes**: "manuscript-revision", "manuscript"
 - **reach**: —
 

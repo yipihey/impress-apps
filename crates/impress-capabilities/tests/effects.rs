@@ -49,7 +49,20 @@ use serde_json::Value;
 /// recording anything when nothing matched) reclassified 10 verbs from a
 /// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
 /// positive, not gained real coverage, so the ceiling moves to say so.
-const EXCEPTION_CEILING: usize = 277;
+// Raised 277 → 283 for R1 (settings registry): the six settings-service
+// verbs have no headless example (each needs a `SettingsStore` seeded over
+// a temp directory the harness's example format has no seed step for).
+// Raised 283 → 289 for L2 (history verbs): the six history-service verbs
+// have no headless example for the same reason (each needs a populated
+// `core/verb-call@1.0.0` audit trail the harness's example format has no
+// seed step for).
+/// Raised further in plan-self-reflective-layer S1: `scenario-service_run`
+/// is `external` (it can drive a running app over loopback HTTP) and its
+/// own example would need a stored scenario and, for a Tier B run, a live
+/// app — neither is available to a headless example runner, so it joins
+/// the table with `leaves the process (network)`, exactly the reason this
+/// table already gives every other `app(...)`/`network` verb.
+const EXCEPTION_CEILING: usize = 290;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

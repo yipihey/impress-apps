@@ -949,9 +949,14 @@ impl SurfaceRuntime {
         Value::Object(values)
     }
 
-    /// The schema refs this runtime's `query` sources read — what a store
-    /// invalidation has to name for [`Self::invalidate_sources`] to re-run
-    /// one (RS-S2).
+    /// The schema refs this runtime's `query` sources read, plus the
+    /// literal (`Kind::Ref`) reads declared on the verb of every `verb`
+    /// source (EF-4, RS-S2) — what a store invalidation has to name for
+    /// [`Self::invalidate_sources`] to re-run one. A `verb` source whose verb
+    /// is not linked, or whose reads are not literal refs (`target`/
+    /// `children`/`prefix`/`any`, which need the resolved arguments the spy
+    /// resolves at run time, not this static walk), contributes nothing —
+    /// it still re-runs on an argument change or an explicit refresh.
     pub fn query_refs(&self) -> BTreeSet<String> {
         let manifest = impress_core::pane_query::builtin_manifest();
         self.spec
@@ -959,6 +964,7 @@ impl SurfaceRuntime {
             .values()
             .filter_map(|source| match source {
                 Source::Query { query } => Some(refs_read_by(query, &manifest)),
+                Source::Verb { verb, .. } => Some(verb_declared_read_refs(verb)),
                 _ => None,
             })
             .flatten()
@@ -966,11 +972,13 @@ impl SurfaceRuntime {
     }
 
     /// Drop the cached value of every `query` source that reads one of
-    /// `refs`, so the next render runs it again (ADR-0033 Defaults: sources
-    /// re-run "when a store invalidation names a query"). Returns the names
-    /// dropped. `verb` and `value` sources are untouched: an invalidation
-    /// names record kinds, and what a verb reads is not declared anywhere —
-    /// a verb source re-runs when its arguments change or an action
+    /// `refs`, and every `verb` source whose verb declares one of `refs`
+    /// among its reads (EF-4, RS-S2), so the next render runs it again
+    /// (ADR-0033 Defaults: sources re-run "when a store invalidation names a
+    /// query" — extended here to a verb's declared reads). Returns the names
+    /// dropped. `value` sources are untouched (they have nothing to fetch),
+    /// and a `verb` source whose reads are not literal refs is untouched
+    /// too: it still re-runs when its arguments change or an action
     /// refreshes it.
     pub fn invalidate_sources(&mut self, refs: &BTreeSet<String>) -> Vec<String> {
         let manifest = impress_core::pane_query::builtin_manifest();
@@ -981,6 +989,13 @@ impl SurfaceRuntime {
             .filter_map(|(name, source)| match source {
                 Source::Query { query }
                     if refs_read_by(query, &manifest)
+                        .iter()
+                        .any(|r| refs.contains(r)) =>
+                {
+                    Some(name.clone())
+                }
+                Source::Verb { verb, .. }
+                    if verb_declared_read_refs(verb)
                         .iter()
                         .any(|r| refs.contains(r)) =>
                 {
@@ -1538,6 +1553,31 @@ fn refs_read_by(query: &PaneQuery, manifest: &KindManifest) -> Vec<String> {
                 .unwrap_or_else(|| vec![kind.clone()])
         })
         .collect()
+}
+
+/// The literal schema refs a linked verb declares among its reads (EF-4,
+/// RS-S2) — `Kind::Ref` only. `Kind::Target`/`Children`/`Prefix`/`Any` name a
+/// kind that depends on the resolved arguments (EF-2), which this static
+/// walk does not have; those are left for the store spy (E2) to verify at
+/// run time, and a `verb` source over one of them keeps re-running only on
+/// an argument change or a refresh, exactly as before this change. A verb
+/// name `find()` cannot resolve (not linked into this binary) reads nothing,
+/// by the same "no kinds means all kinds" default this file avoids for
+/// queries — a source over an unknown verb is not this function's problem to
+/// solve.
+fn verb_declared_read_refs(verb: &str) -> Vec<String> {
+    match impress_service_core::VerbDescriptor::find(verb) {
+        Some(descriptor) => descriptor
+            .effects
+            .reads
+            .iter()
+            .filter_map(|kind| match kind {
+                impress_service_core::descriptor::Kind::Ref(r) => Some(r.to_string()),
+                _ => None,
+            })
+            .collect(),
+        None => Vec::new(),
+    }
 }
 
 /// A surface's declared params as the query compiler reads them: a schema

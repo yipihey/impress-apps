@@ -1093,3 +1093,121 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-uniffi-bindings.sh` (no FFI surface
   touched) and `cargo hakari generate --diff` all clean. No real verb or view kind was renamed;
   `SHIPPED_RENAMES` stays empty for P3a to append the first entry (ADR-0024 D7's four legacy tools).
+- 2026-09-26 — **P3a Lifecycle mechanism landed** (branch `claude/pipeline-p3-lifecycle`, from main at
+  9aaf8544). `since`/`deprecated`/`aliases` on `VerbDescriptor` (the fields existed, empty, since P1; P3a
+  fills them): `#[impress_method(deprecated(since = "…", note = "…"), aliases = ["old-name", …])]` — the
+  macro refuses `aliases` without `deprecated` on the same method (a rename implies deprecating the old
+  name). No `Source::Alias` second descriptor (the design note's own sketch): a canonical verb simply
+  carries its retired names in `aliases`, and `impress_service_core::call::find`/`call_as`/`call_async_as`
+  resolve an unmatched name against every linked verb's `aliases` before answering unknown — one dispatch
+  path, no second inventory to drift. The pipeline (`Call::requested_name`, a plain `Option<String>`, not
+  `&'static` — the caller-given name is not one) records the requested name as a span field
+  (`requested_name`) and a field on `core/verb-call`'s audit row (P2's record had room: an additive column,
+  no migration), so a retired name's traffic is counted under the name that was actually asked for. The
+  additive `"deprecated": {since, use, note}` envelope field lands on object results only (array/scalar/error
+  results are unchanged) and only where it is true: a direct call to a verb that declares `aliases` is NOT
+  deprecated (`VerbDescriptor::deprecation_notice`) — only a call that arrived via one of those aliases is
+  (`alias_deprecation_notice`); a verb deprecated with no rename (empty `aliases`) is deprecated on its own
+  canonical name. `cargo run -p impress-capabilities --bin gen-verb-docs` now prints a verb's aliases and
+  its own deprecation on its reference page (inert today: no linked verb declares either yet). Tests: macro
+  unit tests for the new attribute (capture, and the aliases-without-deprecated compile error);
+  `impress-service-core::descriptor`/`pipeline`/`call` unit tests cover both envelope cases end to end
+  against a real `inventory::submit!`-registered descriptor (not just a fixture struct) — direct call, no
+  notice; alias call, additive notice; array result, untouched.
+
+  **The four legacy MCP tools were NOT moved** (ADR-0024 D7's other half of this row), and that is reported
+  rather than quietly dropped. Built `imbib-semantic-service` (a real `#[impress_service]` trait wrapping
+  `search_papers`/`get_paper_chunks`/`list_indexed_papers` with `aliases` under their old flat names) and
+  wired it into `impress-mcp`; it worked end to end (a call to `search_papers` reached the inventory verb
+  and answered with the deprecation note) but `scripts/check-verb-coverage.sh` requires every
+  `impress_service_impl!` block under `crates/*/src` to have a row, and `crates/impress-capabilities`'s
+  census test requires that row's service to be **linked** in the `full` feature every other consumer
+  builds — CLI and `impel-tools` among them. `impress-mcp/Cargo.toml`'s own comment records a prior,
+  deliberate decision that the embedding stack behind these three tools (`impress-embeddings` with
+  `embedder` — fastembed, a model load that may reach the network) stays out of the shared inventory
+  precisely so CLI and impel-tools do not pay for it. Joining `full` would reverse that decision silently;
+  the two checks together assume no service crate sits outside it, so there is no smaller fix on the
+  table (an `unlinked` verdict for the coverage script, or a `semantic-search` feature carved out of
+  `full` for just this service, is itself a decision to ask about, not a mechanical patch). Reverted
+  cleanly rather than forced through; `render_pdf_page` (the fourth) was going to stay hand-written
+  regardless — it answers with rasterised image bytes ahead of any dispatch decision, which the additive
+  `deprecated` object field cannot reach. Left for P3b or an explicit ask-first decision on the coverage
+  check's scope.
+
+  Gates: `rust-gate.sh fmt` and `clippy rest`/`clippy imprint` clean; `cargo test -p impress-service-core
+  -p impress-service-macros -p impress-capabilities -p impress-mcp -p impress-mcp-host -p impress-cli` all
+  green; `check-verb-coverage.sh`, `check-verb-docs.sh` (no diff — no linked verb uses the new fields yet),
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`
+  and `cargo hakari generate --diff` all clean.
+- 2026-09-26 — **P5a transport (first half)** on a worktree of main at ad9a0796, branch
+  `claude/pipeline-p5a-transport`. **Client side:** new `crates/impress-app-transport` —
+  `call(app, verb, args) -> Result<Value, Refusal>` over `POST http://127.0.0.1:<port>/api/verb/<name>`,
+  the P0 loopback token attached (`impress_core::loopback_token::client_token_for_url`), a
+  `traceparent` header carried on every call (hook H-P5-1), and one probe-with-60 s-cooldown
+  (`impress-app-transport::is_reachable`, the same rule impel-tools used) replacing the four copies
+  TR-3 found. `impress-app-transport::ports` is the Rust side's port table, pinned to
+  `SiblingApp.descriptors` (Swift's one authoritative table, CLAUDE.md) by a test that greps the
+  Swift file for each literal port. **Server side:** `impress_service_core::dispatch::dispatch` —
+  one generic lookup-and-invoke (`VerbDescriptor::find` → `pipeline::invoke_blocking` → the wire
+  envelope), added to `impress-service-core` rather than `impress-store-ffi` so it can be shared by
+  a kit crate and a non-kit one (below); `impress-store-ffi::verb::dispatch_verb` is its UniFFI
+  wrapper (`#[uniffi::export] fn dispatch_verb(name, args_json, caller_json) -> SharedVerbDispatchResult`),
+  and `packages/ImpressAutomation/Sources/ImpressAutomation/VerbAutomation.swift` is `POST
+  /api/verb/<name>`, mounted in `SharedAutomationRoutes` one door down from `/api/layout/*` and
+  `/api/surface/*` — a direct call into `ImpressRustCore` (this package already links it for
+  `LoopbackToken`), not a registered host, since a verb dispatch needs only the process-wide store
+  to be open. Caller identity is `CallerIdentity::App(<bundle-id's last component>)` (ADR-0034 D3);
+  `traceparent`, when present, becomes `caller_json.trace_id`, which the pipeline joins as the call's
+  trace (H-P5-1's own line: "one id joins a surface click, its verb, the job it started").
+  **Narrowed live, and why:** the plan's own alternative to a per-app UniFFI target — "the store FFI
+  linking the app's services behind features" — was tried first (`implore-service` as an
+  unconditional dependency of `impress-store-ffi`) and caught live by
+  `scripts/check-kit-deps.sh --strict`: "impress-store-ffi reaches implore-core, a domain core. ASK
+  FIRST … this is not a dependency to allowlist." `impress-store-ffi` is a kit crate
+  (`docs/kit-manifest.md`); the check does not offer a manifest-only fix for a domain-core reach, by
+  design. So P5a builds the plan's *other* alternative instead — the per-app UniFFI target the § P5
+  design section names first ("App side: a per-app UniFFI target … linking the app's own `*-service`
+  crate") — as a new, non-kit crate `crates/implore-verbs-ffi`: it links `implore-service` directly
+  (cycle-free — `implore-service` itself has no edge back to `impress-app-client`, unlike
+  `implore-service-http`), force-links its inventory the same way `impress-store-ffi::force_link_kit`
+  does for the kit crates it cannot reach by name, and re-exports the same `dispatch_verb` shape over
+  its own `dispatch_verb` UniFFI function calling the shared `impress_service_core::dispatch::dispatch`.
+  `./scripts/check-kit-deps.sh --strict` is clean again with `implore-service` removed from
+  `impress-store-ffi`. **What is finished and proven, and what is not:** `implore-verbs-ffi` compiles,
+  is unit-tested (its own tests assert the five previously-dead verbs — `plot-series`,
+  `plot-histogram`, `rg-statistics`, `rg-slice-raw`, `rg-slice-png` — are no longer `not-found`), and
+  the parity test below drives it through the full transport. What it does **not** yet have is its
+  own xcframework, a `Package.swift` and Xcode wiring into `apps/implore` so a *running* implore's
+  `/api/verb/<name>` route actually calls into it — today that route only calls
+  `impress-store-ffi`'s kit dispatch, so a live implore still answers `not-found` for these five
+  until that packaging lands (P5b). This is the plan's own escape valve ("implement it for one app;
+  say what remains") landing exactly there: the per-app *Rust* target is real and proven; the
+  per-app *xcframework* is not yet built. **Parity test**
+  (`crates/impress-app-transport/tests/implore_parity.rs`): a stub axum server whose one route calls
+  `implore_verbs_ffi::dispatch_verb` directly — the same function a real `/api/verb/<name>` would
+  call once P5b's packaging lands — proves `impress-app-transport::call("implore", …)` reaches three
+  previously-live verbs (`status`, `list-datasets`, `list-figures`) and all five previously-dead ones
+  without a `not-found`, and that an unknown verb name still refuses `not-found` through the same
+  path. Not yet deleted (P5b's to do, per D-P7): the four `*-service-http` crates,
+  `impress-app-client`, the 160 mirrored Swift arms. **Live proof on implore:** not run this session
+  — the escape valve above ("implement it for one app; say what remains") is exactly why: the
+  packaging that would make implore's *running* HTTP route answer through `implore-verbs-ffi` is
+  the part left for P5b, so a live curl against a built implore would show its existing behaviour
+  (the five routes still 404, `impress-store-ffi`'s kit verbs answering through `/api/verb/<name>`
+  for every app) rather than anything this session's Rust-side work changed on the wire; running the
+  build-and-launch cycle to prove that negative was not worth the machine time this session had.
+  **Gates:** `./scripts/rust-gate.sh fmt` clean (after one `cargo fmt` pass); `clippy rest`,
+  `cargo test -p impress-app-transport -p impress-store-ffi -p impress-service-core -p
+  implore-verbs-ffi -p impress-capabilities`, `check-uniffi-bindings.sh`, `check-kit-deps.sh
+  --strict`, `check-kit-standalone.sh`, `check-kit-packages.sh`, `check-chassis-deps.sh`,
+  `check-schema-refs.sh`, `check-verb-coverage.sh` (two new verdict rows: `impress-app-transport`
+  internal, `implore-verbs-ffi` ffi/internal), `cargo hakari manage-deps && cargo hakari generate`
+  (no changes), `swift test` in `ImpressAutomation` and `PublicationManagerCore` — see the PR for the
+  actual run's numbers, taken on a Mac shared with other agents' builds. **What remains for P5b:**
+  the `implore-verbs-ffi` xcframework, its `Package.swift`, wiring it into `apps/implore`'s Xcode
+  project, and a Swift-side fallback in `VerbAutomationRoutes` (or a registered second host) so
+  `/api/verb/<name>` tries implore's own dispatch when the kit's says `not-found`; the same per-app
+  split for imbib/imprint/impart (each currently has no domain verbs behind `/api/verb` beyond the
+  kit's); migrating the actual entry paths (impress-mcp, impress-cli, impel-tools,
+  impress-ai-tools) onto `impress-app-transport::call` and deleting the four adapters +
+  `impress-app-client` + the 160 mirrored Swift arms (D-P7).

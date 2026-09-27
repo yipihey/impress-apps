@@ -2,33 +2,44 @@
 //  InboxRetentionStore.swift
 //  PublicationManagerCore
 //
-//  Retention settings for the Inbox section.
+//  Retention settings for the Inbox section — read from the settings
+//  registry (ADR-0036 D5, plan-self-reflective-layer R1) since 2026-09-26.
+//
+//  The keys `imbib.retention.inbox_days` and `imbib.retention.auto_remove_read`
+//  are declared once, in `crates/impress-settings`, with their defaults and
+//  the legacy `UserDefaults` names (`inbox.retentionDays`,
+//  `inbox.autoRemoveRead`) this store used to write. A device that set them
+//  before this build has its values copied into `<workspace>/settings/`
+//  on the first read, and the `UserDefaults` keys are left in place (D-R5).
+//  The same values answer `settings-service_get` over the CLI and MCP.
 //
 
 import Foundation
+import ImpressKit
 
 /// Stores retention settings for inbox papers.
 @MainActor
 public final class InboxRetentionStore {
     public static let shared = InboxRetentionStore()
 
-    private let defaults = UserDefaults.standard
-    private let retentionKey = "inbox.retentionDays"
-    private let autoRemoveReadKey = "inbox.autoRemoveRead"
+    public static let retentionKey = "imbib.retention.inbox_days"
+    public static let autoRemoveReadKey = "imbib.retention.auto_remove_read"
 
     /// Number of days to keep inbox papers. 0 means forever.
     public var retentionDays: Int {
-        get { defaults.integer(forKey: retentionKey) }
-        set { defaults.set(newValue, forKey: retentionKey) }
+        get { ImpressSettings.shared.value(Self.retentionKey, as: Int.self) }
+        set { ImpressSettings.shared.set(Self.retentionKey, newValue) }
     }
 
     /// Whether to automatically remove papers that have been read.
     public var autoRemoveRead: Bool {
-        get { defaults.bool(forKey: autoRemoveReadKey) }
-        set { defaults.set(newValue, forKey: autoRemoveReadKey) }
+        get { ImpressSettings.shared.value(Self.autoRemoveReadKey, as: Bool.self) }
+        set { ImpressSettings.shared.set(Self.autoRemoveReadKey, newValue) }
     }
 
-    /// Retention presets for the UI.
+    /// Retention presets for the UI — the registry's `choices` for the key,
+    /// spelled here for the menu; `SettingsRegistryTests` in ImpressKit pins
+    /// the days to the registry.
     public enum RetentionPreset: Int, CaseIterable, Sendable {
         case oneWeek = 7
         case twoWeeks = 14
@@ -47,10 +58,5 @@ public final class InboxRetentionStore {
         }
     }
 
-    private init() {
-        // Default: 30 days retention
-        if defaults.object(forKey: retentionKey) == nil {
-            defaults.set(RetentionPreset.oneMonth.rawValue, forKey: retentionKey)
-        }
-    }
+    private init() {}
 }
