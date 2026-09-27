@@ -56,7 +56,7 @@ use serde_json::Value;
 // have no headless example for the same reason (each needs a populated
 // `core/verb-call@1.0.0` audit trail the harness's example format has no
 // seed step for).
-const EXCEPTION_CEILING: usize = 289;
+const EXCEPTION_CEILING: usize = 293;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

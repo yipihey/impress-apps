@@ -351,6 +351,13 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impress-surface-service_surface-update` | mutating | name/doc |
 | `impress-surface-service_surface-validate` | read_only | name/doc |
 | `impress-surface-service_surface-wait` | read_only | name/doc |
+| `impress-workflow-service_workflow-create` | mutating | name/doc |
+| `impress-workflow-service_workflow-disable` | mutating | name/doc |
+| `impress-workflow-service_workflow-dry-run` | read_only | name/doc |
+| `impress-workflow-service_workflow-enable` | mutating | name/doc |
+| `impress-workflow-service_workflow-get` | read_only | name/doc |
+| `impress-workflow-service_workflow-list` | read_only | name/doc |
+| `impress-workflow-service_workflow-validate` | read_only | name/doc |
 | `imprint-app-service_create-comment` | external | E/M: name/doc |
 | `imprint-app-service_create-document` | external | E/M: name/doc |
 | `imprint-app-service_delete-comment` | external | E/D: crates/imprint-service/src/app_service.rs:301 DEFAULT REFUSES (eprintln + empty/false; no store path); HTTP backend /Users/tabel/Projects/impress-apps/.claude/worktrees/agent-a9747ebb |

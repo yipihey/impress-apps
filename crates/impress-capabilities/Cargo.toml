@@ -25,6 +25,10 @@ impress-bridges-service = { workspace = true, optional = true }
 impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
+# W1 (plan-self-reflective-layer.md § Workflows): the workflow verbs
+# (validate/create/get/list/dry-run/enable/disable), store-tier over
+# `impress-workflow`'s pure spec, validator and planner.
+impress-workflow-service = { workspace = true, optional = true }
 # `capabilities-service_impact` (E3, ADR-0036 D-G2's spirit) reads the linked
 # inventory itself plus the stored surfaces (`impress-surface-service`, kit),
 # so it needs the `kit` feature on whenever it is on.
@@ -83,6 +87,7 @@ full = [
     "vw",
     "kit",
     "impact",
+    "workflow",
 ]
 kit = ["dep:impress-capabilities-kit"]
 
@@ -98,3 +103,4 @@ parsers = ["dep:impress-parsers-service"]
 smart-search = ["dep:impress-smart-search-service"]
 vw = ["dep:vw-impress-adapter"]
 impact = ["dep:capabilities-service", "kit"]
+workflow = ["dep:impress-workflow-service"]

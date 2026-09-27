@@ -682,3 +682,64 @@ created them, not so anyone can mine 10,000 surfaces' worth of button clicks
 afterward — which is also why there is no verb that lists events across
 surfaces, only per-surface, and why the ring is bounded rather than kept
 forever.
+
+## Workflows
+
+A workflow (`impress/workflow@1.0.0`) reuses everything above: it is a
+`SurfaceSpec` with no `root` of its own — a trigger instead of a widget, the
+same `params`/`sources`/`steps` vocabulary, and `impress_surface::reduce`
+unchanged (W1, plan-self-reflective-layer.md § Workflows). `crates/impress-workflow`
+(pure) builds the synthetic single node whose `on_submit` is the workflow's
+`steps`, so nothing in `reduce` needed to change to run one — a workflow's
+`steps` are `Action`s exactly as a surface's `on_submit`/`on_click` are.
+
+```json
+{
+  "wire_version": 1, "name": "imbib.retention-cleanup", "description": "…",
+  "state": "enabled" | "disabled" | "proposed" | "broken",
+  "author": {"kind": "agent" | "person", "name": "…"?},
+  "trigger": {"schedule": {"every": "24h", "at": "03:00"?}}
+           | {"store": {"kinds": [...], "ops": [...], "debounce_ms": 5000?}}
+           | {"job": {"verb": "…", "state": "done"}}
+           | {"message": {"kind": "email-message", "folder": "…"?}}
+           | {"call": {"verb": "…"}}
+           | {"manual": {}},
+  "guards": {"not_before_startup_s": 90?, "max_runs_per_hour": 4?, "requires": ["app:imbib"]?},
+  "params": [...], "sources": {...},
+  "steps": [ {"call": {...}, "each": "state.stale"?}, {"set": {...}}, {"emit": {...}} ],
+  "review": {"required": true}
+}
+```
+
+**The verbs** (`impress-workflow-service`, store-tier over the pure crate):
+
+| Verb | What it does |
+|---|---|
+| `impress-workflow-service_workflow-validate` | Every problem with a spec: the surface validator's structural checks plus a `publish`/`open` step (refused — no pane) and a `schedule` under 60s. |
+| `impress-workflow-service_workflow-create` | Stores a validated spec as a new row. |
+| `impress-workflow-service_workflow-get` | One row, spec included. |
+| `impress-workflow-service_workflow-list` | Every row, without specs. |
+| `impress-workflow-service_workflow-dry-run` | `plan → resolve → reduce` with the trigger's own payload as the event; every `call` step comes back as `would_call` — verb, args, declared safety and effects — never executed. The same table a review surface would show. |
+| `impress-workflow-service_workflow-enable` | Turns a workflow on. |
+| `impress-workflow-service_workflow-disable` | Turns a workflow off. |
+
+**Review (D-R6).** An agent's `create` always stores `state: proposed`,
+whatever the spec itself said — decided from the pipeline's own
+`CallerIdentity` (ADR-0034 D3), never an argument. An agent's `enable` on a
+workflow is refused `review-pending` and leaves the row untouched; only a
+person (or the app acting for them) can actually flip a workflow on. A
+`disable` carries no such restriction — an agent may always turn a workflow
+off.
+
+**Who runs a workflow on its own trigger** — a schedule tick, a store
+change, a finished job — is W2's planner (`impel-taskd`'s fourth spawn rule,
+and the app's FFI tick when no daemon holds the worker lease), not this
+crate; `impress-workflow::plan` is the one function both call, and
+`workflow-service_dry-run` is the same function exposed as a verb so an
+agent (or a review surface) can see what a run *would* do without a
+scheduler in the loop.
+
+**`history-service_save-macro`** already writes an `impress/workflow@1.0.0`
+row with `trigger: manual` from a list of recorded call ids — the `manual`
+half of this vocabulary predates `impress-workflow-service`'s own `create`
+and is unaffected by it; both write the same record shape.
