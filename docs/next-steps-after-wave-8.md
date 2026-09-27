@@ -65,6 +65,11 @@ their combined Rust behavior.
   app-side `apps/{imprint,implore,impel}/Frameworks` and `packages/ImpressScixCore/frameworks`,
   as well as `crates/*/frameworks`. Rebuild the store one with `IMPRESS_SKIP_X86=1` and
   swiftformat off PATH. Never use `--fast`, because the iOS slice is needed.
+  A shared Rust descriptor or audit-layout change also requires rebuilding every co-linked archive
+  that embeds that crate. S3 found an old ImbibCore beside new store/verb archives under the same
+  crate hash: the app linked but native triage dispatch returned 404. Rebuild ImbibCore,
+  ImbibVerbsFfi, ImpressStoreFfi and the macOS ImpelTools inventory together for those changes;
+  unchanged generated Swift bindings alone do not prove the embedded Rust copies agree.
 - Per PR, run the quick gates and touched-crate/capabilities tests. Later batches need a new full workspace run on main.
 - Concurrent worktrees need separate Cargo target directories; sharing a target across differing branches caused a rustdoc dependency-load failure. Use the root cache serially, or a worktree's ignored `target-<pkg>-gates` directory.
 - Run Rust tests with a fresh scratch workspace and process-local environment, before any test can initialize a store singleton:
