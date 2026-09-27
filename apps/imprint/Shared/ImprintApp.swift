@@ -187,6 +187,8 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         // Discover TeX distribution early so LaTeX compilation works without
         // opening Settings first.
         Task { @MainActor in
+            guard !ImpressRuntime.isUnitTestProcess,
+                  !ImpressRuntime.isUITestingProcess else { return }
             await TeXDistributionManager.shared.discoverDistribution()
         }
 

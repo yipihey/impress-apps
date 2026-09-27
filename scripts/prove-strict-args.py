@@ -20,6 +20,7 @@ def main():
     parser.add_argument("app", choices=("imbib", "imprint", "implore", "impel", "impart"))
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--build-only", action="store_true")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     cli = args.cli.resolve(strict=True)
@@ -48,6 +49,8 @@ def main():
                 "CODE_SIGNING_ALLOWED=NO", "IMPRESS_SKIP_INSTALL=1",
                 "PRODUCT_BUNDLE_IDENTIFIER=com.impress.g5proof." + args.app,
             ], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    if args.build_only:
+        return
     products = derived / "Build/Products"
     candidates = [p for p in products.glob("*.xctestrun") if p.name != "g5-proof.xctestrun"]
     if len(candidates) != 1:
