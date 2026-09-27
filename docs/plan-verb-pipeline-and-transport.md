@@ -1397,3 +1397,15 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   divergences) all OK — `impress-py` is not a kit crate, so none of the three moved; `cargo hakari
   manage-deps` (no operations) and `cargo hakari generate --diff` (no changes) — the new crate needed
   no `workspace-hack` entry of its own beyond the existing `pyo3`/`pythonize` lines.
+
+- 2026-09-27 — **P5b started after G5 #124.** Worktree `p5b-transport`, branch
+  `claude/pipeline-p5b-transport`, starts at `85cf0520`. Source inspection confirmed that the
+  implore/impart service defaults refuse or return empty values while live domain state remains
+  in Swift. Their per-app FFIs therefore need async native state callbacks, not just inventory
+  linking. Shared `dispatch_async`, namespace-selected Swift dispatch and task-local native
+  refusal reporting are in `05e14e9c`: a callback failure replaces a typed placeholder before
+  envelope/audit, preserving existing verb signatures. Isolated core tests passed 91 and shared
+  Swift route tests passed 7. Native domain bridge implementation and the client router are
+  in progress; no P5b native app has launched and no adapter deletion is yet accepted.
+  Impart decisions retain the existing process-local ProvenanceService semantics; no new schema
+  or invented message record is being introduced to imply durable decision storage.

@@ -1,7 +1,7 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-Main at `10ee5acd` includes W3, G7c, W4 and S3. A fresh isolated
-`cargo test --workspace --features native -- --test-threads=1` passed on that main:
+Main at `85cf0520` includes W3, G7c, W4, S3 and G5. A fresh isolated
+`cargo test --workspace --features native -- --test-threads=1` passed on the pre-G5 main `10ee5acd`:
 **4,324 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
 Evidence is `/tmp/impress-s3-main-workspace.log`; its workspace was
 `/tmp/impress-cargo-tests.m00DSW/workspace`. The earlier `f7af1c37` batch also passed
@@ -15,7 +15,7 @@ Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-t
 | Plan | Packages |
 |---|---|
 | Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P6 Python, B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
-| GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
+| GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G5 strict default ([PR #124](https://github.com/yipihey/impress-apps/pull/124), merge `85cf0520`), G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
 | Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), S3 session recording ([PR #123](https://github.com/yipihey/impress-apps/pull/123), merge `10ee5acd`), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
 
 ## Completed package verification
@@ -55,7 +55,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
 
 ## Next packages
 
-- **G5 (verified, PR #124 awaiting merge)**: `g5-strict` / `claude/gui-g5-strict`, based on
+- **G5 (merged #124, `85cf0520`)**: `g5-strict` / `claude/gui-g5-strict`, based on
   `10ee5acd`. All 476 descriptors are strict. All requested quick gates and the normal pre-push
   macOS/iOS builds passed. Isolated macro/core/capabilities tests passed 136 (3 ignored); the
   deterministic layout-fixture fix passed 98 layout tests. All five native proofs passed their
@@ -64,9 +64,17 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   `/tmp/impress-g5-proof-summary.json` and the dated G5 entry in the GUI plan. The archive cohort
   was fully rebuilt for every supported arm64 slice. Test-only legacy storage/index paths and
   background startup were isolated without changing production paths or schemas. No build
-  artifacts are committed. Domain dispatch remains P5b. Verify fresh main ancestry and merge
-  [PR #124](https://github.com/yipihey/impress-apps/pull/124) before beginning P5b.
-- **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
+  artifacts are committed. Domain dispatch remains P5b. Fresh main ancestry was verified before normal merge; GitHub jobs were still queued.
+  The post-G5 full workspace run failed at
+  `impress-workflow-service::runner::tests::a_proposed_workflow_never_runs_through_the_engine`
+  (zero proposals instead of one). Its fresh-scratch focused rerun passed; native feature
+  unification and the audit flush heuristic are under investigation. Do not call the post-G5
+  full run green; resolve and rerun it before the next merge.
+- **P5b (in progress)**: `p5b-transport` / `claude/pipeline-p5b-transport` from `85cf0520`.
+  Shared async native dispatch and refusal propagation are committed as `05e14e9c` (91 core
+  tests and 7 Swift route tests passed); implore and impart native state bridges are in progress.
+  No P5b proof app has launched. Acceptance still requires the whole transport migration:
+  package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
 - **R3**: imprint's settings and chords through the registries.
