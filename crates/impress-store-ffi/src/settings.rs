@@ -256,7 +256,7 @@ impl SharedSettings {
                 .update(row.id, &spec, None, None, ActorKind::Human)
                 .map_err(storage)?,
             None => surfaces
-                .create(&spec, None, &[tag.clone()], ActorKind::Human)
+                .create(&spec, None, std::slice::from_ref(&tag), ActorKind::Human)
                 .map_err(storage)?,
         };
         surfaces

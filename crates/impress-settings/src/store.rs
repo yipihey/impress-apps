@@ -465,7 +465,7 @@ mod tests {
             serde_json::from_slice(&fs::read(dir.path().join("settings/app-imbib.json")).unwrap())
                 .unwrap();
         assert_eq!(app.values.get(PORT), Some(&Value::from(23181)));
-        assert!(app.values.get(AUTO_REMOVE).is_none());
+        assert!(!app.values.contains_key(AUTO_REMOVE));
         assert!(!dir
             .path()
             .join("settings")
