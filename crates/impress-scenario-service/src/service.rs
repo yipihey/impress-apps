@@ -22,7 +22,7 @@ use crate::dto::{
 };
 use crate::store::ScenarioStore;
 use crate::tier_a::TierACaller;
-use crate::tier_b::TierBCaller;
+use crate::TierBCaller;
 
 /// Every scenario verb an agent needs (S1's row): validate a spec, store
 /// one, list/get what is stored, and run it — Tier A on a scratch store,

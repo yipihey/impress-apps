@@ -35,6 +35,12 @@ impress-store-service = { workspace = true }
 impress-settings = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
+# S2b: `impress-scenario` joined the kit (Tom's decision, 2026-09-27,
+# docs/kit-manifest.md) so the Tier B catalogue's non-dynamic entries can run
+# as stored `impress/scenario@1.0.0` documents, through the shared Tier B
+# caller `impress-layout-service` already gives this crate
+# (`impress_layout_service::scenario_caller`, reused rather than duplicated).
+impress-scenario = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }

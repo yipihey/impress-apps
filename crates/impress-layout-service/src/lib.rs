@@ -49,6 +49,10 @@ pub mod presets;
 pub mod rename;
 /// The self-test report types: one copy, in `impress-service-core` (RS-S21).
 pub use impress_service_core::report;
+/// S2b: the shared Tier B `impress_scenario::Caller`, reused by
+/// `impress-surface-service` and `impress-scenario-service`. See its module
+/// docs for why it lives here rather than in `impress-scenario` itself.
+pub mod scenario_caller;
 pub mod selftest;
 pub mod service;
 pub mod session;
