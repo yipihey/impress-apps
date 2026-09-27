@@ -1054,3 +1054,49 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   total lines/verb** — both under budget (2,000 / 6,000); +11 % total over the 5,123 baseline, which is P1's
   output schemas and P4's job verbs. The measured half (228 / 20 / 38 ms per verb) was taken at load 14–28
   and is not a baseline; the impress-mac job sets it.
+- 2026-09-26 — **P3a Lifecycle mechanism landed** (branch `claude/pipeline-p3-lifecycle`, from main at
+  9aaf8544). `since`/`deprecated`/`aliases` on `VerbDescriptor` (the fields existed, empty, since P1; P3a
+  fills them): `#[impress_method(deprecated(since = "…", note = "…"), aliases = ["old-name", …])]` — the
+  macro refuses `aliases` without `deprecated` on the same method (a rename implies deprecating the old
+  name). No `Source::Alias` second descriptor (the design note's own sketch): a canonical verb simply
+  carries its retired names in `aliases`, and `impress_service_core::call::find`/`call_as`/`call_async_as`
+  resolve an unmatched name against every linked verb's `aliases` before answering unknown — one dispatch
+  path, no second inventory to drift. The pipeline (`Call::requested_name`, a plain `Option<String>`, not
+  `&'static` — the caller-given name is not one) records the requested name as a span field
+  (`requested_name`) and a field on `core/verb-call`'s audit row (P2's record had room: an additive column,
+  no migration), so a retired name's traffic is counted under the name that was actually asked for. The
+  additive `"deprecated": {since, use, note}` envelope field lands on object results only (array/scalar/error
+  results are unchanged) and only where it is true: a direct call to a verb that declares `aliases` is NOT
+  deprecated (`VerbDescriptor::deprecation_notice`) — only a call that arrived via one of those aliases is
+  (`alias_deprecation_notice`); a verb deprecated with no rename (empty `aliases`) is deprecated on its own
+  canonical name. `cargo run -p impress-capabilities --bin gen-verb-docs` now prints a verb's aliases and
+  its own deprecation on its reference page (inert today: no linked verb declares either yet). Tests: macro
+  unit tests for the new attribute (capture, and the aliases-without-deprecated compile error);
+  `impress-service-core::descriptor`/`pipeline`/`call` unit tests cover both envelope cases end to end
+  against a real `inventory::submit!`-registered descriptor (not just a fixture struct) — direct call, no
+  notice; alias call, additive notice; array result, untouched.
+
+  **The four legacy MCP tools were NOT moved** (ADR-0024 D7's other half of this row), and that is reported
+  rather than quietly dropped. Built `imbib-semantic-service` (a real `#[impress_service]` trait wrapping
+  `search_papers`/`get_paper_chunks`/`list_indexed_papers` with `aliases` under their old flat names) and
+  wired it into `impress-mcp`; it worked end to end (a call to `search_papers` reached the inventory verb
+  and answered with the deprecation note) but `scripts/check-verb-coverage.sh` requires every
+  `impress_service_impl!` block under `crates/*/src` to have a row, and `crates/impress-capabilities`'s
+  census test requires that row's service to be **linked** in the `full` feature every other consumer
+  builds — CLI and `impel-tools` among them. `impress-mcp/Cargo.toml`'s own comment records a prior,
+  deliberate decision that the embedding stack behind these three tools (`impress-embeddings` with
+  `embedder` — fastembed, a model load that may reach the network) stays out of the shared inventory
+  precisely so CLI and impel-tools do not pay for it. Joining `full` would reverse that decision silently;
+  the two checks together assume no service crate sits outside it, so there is no smaller fix on the
+  table (an `unlinked` verdict for the coverage script, or a `semantic-search` feature carved out of
+  `full` for just this service, is itself a decision to ask about, not a mechanical patch). Reverted
+  cleanly rather than forced through; `render_pdf_page` (the fourth) was going to stay hand-written
+  regardless — it answers with rasterised image bytes ahead of any dispatch decision, which the additive
+  `deprecated` object field cannot reach. Left for P3b or an explicit ask-first decision on the coverage
+  check's scope.
+
+  Gates: `rust-gate.sh fmt` and `clippy rest`/`clippy imprint` clean; `cargo test -p impress-service-core
+  -p impress-service-macros -p impress-capabilities -p impress-mcp -p impress-mcp-host -p impress-cli` all
+  green; `check-verb-coverage.sh`, `check-verb-docs.sh` (no diff — no linked verb uses the new fields yet),
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`
+  and `cargo hakari generate --diff` all clean.
