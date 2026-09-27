@@ -14,6 +14,7 @@ use impress_core::item::ActorKind;
 use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
+use impress_store_service::history_service::{DefaultHistoryService, HistoryService};
 use impress_workflow::spec::{
     Action, Author, Guards, Review, Trigger, WorkflowSpec, WorkflowState,
 };
@@ -65,9 +66,6 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
     // setting up fixture data / reading results back afterward.
     imbib_service::store_singleton::init_imbib_store(path.clone())
         .expect("init imbib store singleton");
-    // `retention_cleanup`'s settings read (`store_singleton::default_workspace_dir`)
-    // resolves from this same env var — keep the two aligned.
-    std::env::set_var("IMBIB_STORE_PATH", &path);
 
     let imbib = imbib_service::store_singleton::store_instance();
     let inbox = imbib.create_inbox_library("Inbox".into()).expect("inbox");
@@ -117,7 +115,7 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
     assert!(outcomes[0].error.is_none(), "{:?}", outcomes[0].error);
 
     // The verb actually ran: the read paper is gone.
-    assert!(imbib.get_publication(old_id).unwrap().is_none());
+    assert!(imbib.get_publication(old_id.clone()).unwrap().is_none());
 
     // And its call landed in the log — through the injected store, per
     // `pipeline::invoke_on`'s `store_override`.
@@ -136,6 +134,23 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
             )
         }),
         "expected a retention-cleanup call row, got {rows:?}"
+    );
+    let why = impress_service_core::runtime::block_on(
+        DefaultHistoryService::with_store(engine_store.clone()).why(old_id),
+    );
+    assert!(why.ok, "{}", why.message);
+    assert!(
+        why.entries.iter().any(|entry| {
+            entry.operation_id.is_none()
+                && entry.call.as_ref().is_some_and(|call| {
+                    call.verb == "imbib-library-service_retention-cleanup"
+                        && call.caller["kind"] == "system"
+                        && call.caller["name"]
+                            .as_str()
+                            .is_some_and(|name| name.starts_with("workflow:"))
+                })
+        }),
+        "the removed paper must name its workflow run: {why:?}"
     );
 
     // A second tick before another 24h passes must not run again.

@@ -21,6 +21,10 @@ public struct SharedContainer: Sendable {
             return FileManager.default.temporaryDirectory
                 .appendingPathComponent("impress-unit-tests-\(ProcessInfo.processInfo.processIdentifier)")
         }
+        if ImpressRuntime.isUITestingProcess {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("impress-ui-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        }
         guard let url = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: SiblingDiscovery.suiteGroupID
         ) else {

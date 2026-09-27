@@ -470,9 +470,9 @@ impl HistoryService for DefaultHistoryService {
             })
             .collect();
         entries.reverse(); // For equal timestamps, keep operations_for's newest-first order.
-        // Direct store inserts/deletes deliberately mint no operation row.
-        // Their affected IDs live on the call row. A call that also wrote an
-        // operation for this item is already represented above; show it once.
+                           // Direct store inserts/deletes deliberately mint no operation row.
+                           // Their affected IDs live on the call row. A call that also wrote an
+                           // operation for this item is already represented above; show it once.
         let operation_calls: std::collections::HashSet<String> =
             entries.iter().map(|entry| entry.batch_id.clone()).collect();
         let call_rows = match store.query(&ItemQuery {
@@ -492,6 +492,7 @@ impl HistoryService for DefaultHistoryService {
                 }
             }
         };
+        let canonical_id = target.to_string();
         for row in &call_rows {
             let call_id = row.id.to_string();
             if operation_calls.contains(call_id.as_str()) {
@@ -502,7 +503,10 @@ impl HistoryService for DefaultHistoryService {
                 payload
                     .get(*field)
                     .and_then(Value::as_array)
-                    .is_some_and(|ids| ids.iter().any(|value| value.as_str() == Some(id.as_str())))
+                    .is_some_and(|ids| {
+                        ids.iter()
+                            .any(|value| value.as_str() == Some(canonical_id.as_str()))
+                    })
             });
             if !affected {
                 continue;

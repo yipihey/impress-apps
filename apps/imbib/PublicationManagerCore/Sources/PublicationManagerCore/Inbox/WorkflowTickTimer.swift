@@ -23,6 +23,7 @@
 import Foundation
 import ImpressLogging
 import ImpressRustCore
+import ImbibVerbsFFI
 import OSLog
 
 /// Periodically calls `SharedStore.workflowTick()` so stored workflows with
@@ -69,6 +70,15 @@ public final class WorkflowTickTimer {
         } catch {
             return
         }
+        guard let path = RustStoreAdapter.shared.databaseLocation else { return }
+        do {
+            try await Task.detached(priority: .utility) {
+                try ImbibVerbsFFI.initializeVerbStore(path: path)
+            }.value
+        } catch {
+            Logger.library.errorCapture("Workflow verb store refused: \(error)", category: "workflow")
+            return
+        }
         await tickOnce()
 
         while !Task.isCancelled {
@@ -83,7 +93,9 @@ public final class WorkflowTickTimer {
 
     private func tickOnce() async {
         guard let store = RustStoreAdapter.shared.sharedReviewStore() else { return }
-        let ran = store.workflowTick()
+        let ran = await Task.detached(priority: .utility) {
+            store.workflowTick()
+        }.value
         if !ran.isEmpty {
             Logger.library.infoCapture(
                 "workflow tick ran: \(ran.joined(separator: ", "))",

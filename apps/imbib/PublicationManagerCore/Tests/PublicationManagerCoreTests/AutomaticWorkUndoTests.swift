@@ -13,6 +13,8 @@
 //
 
 import XCTest
+import ImbibVerbsFFI
+import ImpressRustCore
 
 @testable import PublicationManagerCore
 
@@ -206,6 +208,19 @@ final class AutomaticWorkUndoTests: XCTestCase {
         XCTAssertFalse(body.contains("performAutomatic"), "Send to Inbox is user-initiated")
     }
 
+    /// Both FFI libraries must see the domain inventory after final Swift linking.
+    /// A Rust-only engine test cannot catch a missing archive in the app.
+    func testWorkflowHostLinksImbibVerbsIntoTheSharedDispatcher() throws {
+        let name = "imbib-text-service_decode-latex"
+        let args = #"{"input":"hello"}"#
+        let caller = #"{"kind":"system","name":"w3-link-test"}"#
+        let domain = ImbibVerbsFFI.dispatchVerb(name: name, argsJson: args, callerJson: caller)
+        let shared = ImpressRustCore.dispatchVerb(name: name, argsJson: args, callerJson: caller)
+        XCTAssertEqual(domain.status, 200)
+        XCTAssertEqual(shared.status, 200, "the workflow host lost imbib's inventory at link time")
+        XCTAssertEqual(domain.bodyJson, shared.bodyJson)
+    }
+
     // MARK: - Retention (plan W3, D-R10 — migrated off `RetentionCleanupService`)
 
     /// The retention DELETE logic moved to Rust (`imbib-library-service_retention-cleanup`,
@@ -218,7 +233,7 @@ final class AutomaticWorkUndoTests: XCTestCase {
     /// concept of — and no way to reach — Swift's `UndoCoordinator` at all.
     /// It is covered on the Rust side instead:
     /// `imbib_service::library_service::tests::
-    /// retention_cleanup_removes_read_inbox_papers_but_never_starred_ones`
+    /// retention_cleanup_only_removes_eligible_papers_in_each_source`
     /// (Tier A, a scratch store) and
     /// `w3_retention_workflow.rs`'s
     /// `retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log`
@@ -229,7 +244,7 @@ final class AutomaticWorkUndoTests: XCTestCase {
     /// timer, one caller, and its own 90s gate before the first tick (see
     /// `WorkflowTickTimer`'s file header for why the gate exists twice).
     func testWorkflowTickTimerWaits90sBeforeItsFirstTickAndNeverTouchesUndo() throws {
-        let source = try Self.source(of: "Inbox/WorkflowTickTimer.swift")
+        let source = try Self.source(of: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Inbox/WorkflowTickTimer.swift")
         XCTAssertTrue(
             source.contains("try await Task.sleep(for: .seconds(90))"),
             "the timer's first tick must wait for the startup grace period")

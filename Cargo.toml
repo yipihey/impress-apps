@@ -62,6 +62,7 @@ members = [
     # pipeline-and-transport.md § P5): links implore-service directly,
     # outside the kit boundary impress-store-ffi keeps.
     "crates/implore-verbs-ffi",
+    "crates/imbib-verbs-ffi",
     "crates/impart-service",
     "crates/impart-service-http",
     "crates/impress-bridges-service",
@@ -377,6 +378,7 @@ imprint-service-http = { path = "crates/imprint-service-http" }
 implore-service = { path = "crates/implore-service" }
 implore-service-http = { path = "crates/implore-service-http" }
 implore-verbs-ffi = { path = "crates/implore-verbs-ffi" }
+imbib-verbs-ffi = { path = "crates/imbib-verbs-ffi" }
 impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }

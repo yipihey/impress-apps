@@ -61,6 +61,7 @@ ROOT = os.getcwd()
 # regenerate. A second entry here would now demand back the duplicate that
 # change removed.
 BINDINGS = {
+    "imbib-verbs-ffi": ["apps/imbib/ImbibVerbsFFI/Sources/ImbibVerbsFFI/imbib_verbs_ffi.swift"],
     "imbib-core": ["apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift"],
     "imprint-core": [
         "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift",

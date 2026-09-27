@@ -9,7 +9,7 @@
 //! **One engine per process**, not per `SharedStore`: an app opens exactly
 //! one live store, and the engine's `start_delay` anchor
 //! (`WorkflowEngine::new`'s `started_at_ms`) is stamped once, at this
-//! module's first `workflow_tick()` call — close enough to "the app
+//! module's first file-backed store open — close enough to "the app
 //! started" that a workflow never runs early, which is the rule's only
 //! promise (a slightly late anchor only makes the guard stricter, never
 //! looser).
@@ -78,6 +78,11 @@ fn imbib_retention_cleanup_workflow() -> WorkflowSpec {
 fn ensure_system_workflows_seeded(
     store: &std::sync::Arc<impress_core::sqlite_store::SqliteItemStore>,
 ) {
+    if impress_service_core::VerbDescriptor::find("imbib-library-service_retention-cleanup")
+        .is_none()
+    {
+        return; // A kit-only host cannot execute a domain workflow.
+    }
     let already_seeded = match impress_workflow_service::store::list(store) {
         Ok(rows) => rows
             .iter()
@@ -95,9 +100,9 @@ fn ensure_system_workflows_seeded(
         &imbib_retention_cleanup_workflow(),
         ActorKind::System,
     ) {
-        eprintln!(
-            "[impress-store-ffi] workflow seed: could not insert imbib.retention-cleanup: {e}"
-        );
+        tracing::error!(target: "workflow", %e, "could not seed imbib.retention-cleanup");
+    } else {
+        tracing::info!(target: "workflow", "seeded imbib.retention-cleanup");
     }
 }
 
@@ -106,6 +111,12 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Anchor the read-only startup clock when the app opens its store.
+/// Waiting until the first delayed tick would impose a second 90-second gate.
+pub(crate) fn start() {
+    let _ = engine();
 }
 
 fn engine() -> &'static Mutex<WorkflowEngine> {
@@ -131,13 +142,20 @@ impl SharedStore {
             return Vec::new();
         };
         let core = self.core();
-        static SEEDED_ONCE: OnceLock<()> = OnceLock::new();
-        SEEDED_ONCE.get_or_init(|| ensure_system_workflows_seeded(&core));
+        ensure_system_workflows_seeded(&core);
         let mut engine = engine().lock().unwrap_or_else(|poison| poison.into_inner());
         engine
             .run_once(&core, now_ms(), &workspace)
             .into_iter()
-            .map(|outcome| outcome.workflow_id)
+            .filter_map(|outcome| {
+                if let Some(error) = outcome.error {
+                    tracing::error!(target: "workflow", workflow = %outcome.name, %error, "workflow failed");
+                    None
+                } else {
+                    tracing::info!(target: "workflow", workflow = %outcome.name, calls = outcome.calls, "workflow saved");
+                    Some(outcome.workflow_id)
+                }
+            })
             .collect()
     }
 }

@@ -146,10 +146,7 @@ cargo run --release -p uniffi-bindgen -- generate \
     --language swift \
     --out-dir "$BINDINGS_DIR"
 
-HEADER_FILE="$BINDINGS_DIR/${XCFRAMEWORK_NAME}FFI.h"
-if [ ! -f "$HEADER_FILE" ]; then
-    HEADER_FILE=$(ls "$BINDINGS_DIR"/*.h 2>/dev/null | head -1)
-fi
+HEADER_FILE="$BINDINGS_DIR/${LIB_NAME}FFI.h"
 
 echo "=== Building XCFramework ==="
 MACOS_FRAMEWORK_DIR="$FRAMEWORK_DIR/macos.framework"
@@ -166,10 +163,7 @@ for dir in "$MACOS_FRAMEWORK_DIR" "$IOS_FRAMEWORK_DIR" "$IOS_SIM_FRAMEWORK_DIR";
     if [ -n "$HEADER_FILE" ] && [ -f "$HEADER_FILE" ]; then
         cp "$HEADER_FILE" "$NESTED_DIR/"
     fi
-    MODULEMAP_FILE="$BINDINGS_DIR/${XCFRAMEWORK_NAME}FFI.modulemap"
-    if [ ! -f "$MODULEMAP_FILE" ]; then
-        MODULEMAP_FILE=$(ls "$BINDINGS_DIR"/*.modulemap 2>/dev/null | head -1)
-    fi
+    MODULEMAP_FILE="$BINDINGS_DIR/${LIB_NAME}FFI.modulemap"
     if [ -n "$MODULEMAP_FILE" ] && [ -f "$MODULEMAP_FILE" ]; then
         cp "$MODULEMAP_FILE" "$NESTED_DIR/module.modulemap"
     fi
@@ -207,7 +201,7 @@ mkdir -p "$IMBIBVERBSFFI_FRAMEWORKS" "$IMBIBVERBSFFI_SOURCES"
 # Copy XCFramework
 impress_sync_tree "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework" "$IMBIBVERBSFFI_FRAMEWORKS/${XCFRAMEWORK_NAME}.xcframework"
 # Copy Swift bindings (rename to avoid conflicts with hand-written wrappers)
-SWIFT_BINDING=$(ls "$BINDINGS_DIR"/*.swift 2>/dev/null | head -1)
+SWIFT_BINDING="$BINDINGS_DIR/${LIB_NAME}.swift"
 if [ -n "$SWIFT_BINDING" ]; then
     impress_sync_file "$SWIFT_BINDING" "$IMBIBVERBSFFI_SOURCES/${LIB_NAME}.swift"
     echo "Copied Swift bindings to $IMBIBVERBSFFI_SOURCES/${LIB_NAME}.swift"

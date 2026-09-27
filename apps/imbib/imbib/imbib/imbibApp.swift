@@ -494,12 +494,14 @@ struct imbibApp: App {
             }
 
             // Register File Provider domain (independent; XPC — can be slow)
-            let fpStart = CFAbsoluteTimeGetCurrent()
-            do {
-                try await FileProviderDomainManager.shared.registerDomain()
-                appLogger.infoCapture("⏱ File Provider domain registered: \(Int((CFAbsoluteTimeGetCurrent() - fpStart) * 1000))ms", category: "startup")
-            } catch {
-                appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
+            if !UITestingConfiguration.isUITesting {
+                let fpStart = CFAbsoluteTimeGetCurrent()
+                do {
+                    try await FileProviderDomainManager.shared.registerDomain()
+                    appLogger.infoCapture("⏱ File Provider domain registered: \(Int((CFAbsoluteTimeGetCurrent() - fpStart) * 1000))ms", category: "startup")
+                } catch {
+                    appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
+                }
             }
 
             // Migrate flat ai/ tags to three-tier hierarchy (one-time, fast)
