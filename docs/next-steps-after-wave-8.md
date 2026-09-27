@@ -13,9 +13,11 @@ is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transpor
 | GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G6 coverage line, G7a tracing, G7b profiler |
 | Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), W1 workflows, W2 planner, R1 settings, R2a/R2b keymap |
 
-## Open (draft PRs, work in progress when the session ended)
+## Open (work in progress when the session ended)
 
-- **W3**: imbib `RetentionCleanupService` as a stored workflow (branch `claude/reflective-w3-retention`).
+Draft PRs: #118 (G7c) and #119 (W4). Neither has run the full check-* suite yet.
+
+- **W3**: imbib `RetentionCleanupService` as a stored workflow. **Local only, not pushed**: commit 7bbb35e3 on `claude/reflective-w3-retention` in `.claude/worktrees/w3-retention`. To finish, rebuild the store xcframework there (`IMPRESS_SKIP_X86=1 crates/impress-store-ffi/build-xcframework.sh`, swiftformat off PATH), push through the hook, run the remaining gates, then open the PR.
 - **G7c**: trace export (Chrome and folded stacks) and Tier A budgets (branch `claude/gui-g7c-export`).
 - **W4**: `history-service_propose-workflows` (branch `claude/reflective-w4-propose`).
 
