@@ -62,7 +62,7 @@ use serde_json::Value;
 /// app — neither is available to a headless example runner, so it joins
 /// the table with `leaves the process (network)`, exactly the reason this
 /// table already gives every other `app(...)`/`network` verb.
-const EXCEPTION_CEILING: usize = 1000; // TEMP: raised for merge-train regeneration, will be reset below
+const EXCEPTION_CEILING: usize = 290;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

@@ -88,7 +88,6 @@ full = [
 ]
 kit = ["dep:impress-capabilities-kit"]
 scenario = ["dep:impress-scenario-service"]
-impact = ["dep:capabilities-service", "kit"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]
