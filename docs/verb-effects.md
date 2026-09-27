@@ -166,8 +166,8 @@ catalogue, 275 on the exception table.
 | `imbib-library-service_purge-dismissed-from-collection` | "imbib/collection", "imbib/bibliography-entry", "imbib/dismissed-paper" | "imbib/collection" | — | — |
 | `imbib-library-service_query-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
 | `imbib-library-service_query-recent` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
-| `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
-| `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
+| `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
+| `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_remove-from-collection` | "imbib/collection" | "imbib/collection" | — | — |
 | `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | — |
 | `imbib-library-service_set-flag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
@@ -596,8 +596,6 @@ when one lands).
 | `imbib-library-service_move-publications` | no example |
 | `imbib-library-service_purge-dismissed-from-collection` | no example |
 | `imbib-library-service_query-publications` | no example |
-| `imbib-library-service_query-starred` | no example |
-| `imbib-library-service_query-unread` | no example |
 | `imbib-library-service_remove-from-collection` | no example |
 | `imbib-library-service_search-publications` | no example |
 | `imbib-library-service_set-flag` | no example |

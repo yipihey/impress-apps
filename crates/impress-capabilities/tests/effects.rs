@@ -45,7 +45,7 @@ use serde_json::Value;
 /// as G3 writes examples; the test fails when it grows past the count last
 /// accepted here. Lower it when examples land; raising it is a plan
 /// decision, not a test edit.
-const EXCEPTION_CEILING: usize = 275;
+const EXCEPTION_CEILING: usize = 273;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
