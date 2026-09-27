@@ -25,10 +25,10 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today (semantic-search feature on): 192 read-only, 133 mutating,
-33 destructive, 104 external — 462 verbs. Without that feature,
+Counts today (semantic-search feature on): 196 read-only, 136 mutating,
+33 destructive, 104 external — 469 verbs. Without that feature,
 `imbib-semantic-service`'s three read-only verbs are unlinked and the totals
-are 3 fewer (189/133/33/104 — 459).
+are 3 fewer (193/136/33/104 — 466).
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -365,6 +365,13 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impress-surface-service_surface-update` | mutating | name/doc |
 | `impress-surface-service_surface-validate` | read_only | name/doc |
 | `impress-surface-service_surface-wait` | read_only | name/doc |
+| `impress-workflow-service_workflow-create` | mutating | name/doc |
+| `impress-workflow-service_workflow-disable` | mutating | name/doc |
+| `impress-workflow-service_workflow-dry-run` | read_only | name/doc |
+| `impress-workflow-service_workflow-enable` | mutating | name/doc |
+| `impress-workflow-service_workflow-get` | read_only | name/doc |
+| `impress-workflow-service_workflow-list` | read_only | name/doc |
+| `impress-workflow-service_workflow-validate` | read_only | name/doc |
 | `imprint-app-service_create-comment` | external | E/M: name/doc |
 | `imprint-app-service_create-document` | external | E/M: name/doc |
 | `imprint-app-service_delete-comment` | external | E/D: crates/imprint-service/src/app_service.rs:301 DEFAULT REFUSES (eprintln + empty/false; no store path); HTTP backend /Users/tabel/Projects/impress-apps/.claude/worktrees/agent-a9747ebb |

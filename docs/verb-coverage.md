@@ -74,7 +74,8 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 19 crates, 43 services | **462** | **462** | **1044 (693)** | **117** | **68** |
+| `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
+| **Total** | 20 crates, 44 services | **469** | **469** | **1051 (699)** | **119** | **75** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -94,11 +95,11 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 |---|---:|
 | `array-of-objects` | 3 |
 | `array-of-scalars` | 52 |
-| `inline-object` | 4 |
+| `inline-object` | 6 |
 | `map` | 2 |
-| `other` | 6 |
+| `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 937 |
+| `scalar` | 941 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -207,6 +208,8 @@ and the implore owner decides between verbs and deletion.
 | `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
 | `impress-verb-surface` | kit-pure | covered-through | `capabilities-service` exposes `verb_surface`/`catalogue` as `verb-surface`/`catalogue-surface` (ADR-0035 D2) |
+| `impress-workflow` | library | covered-through | `impress-workflow-service` exposes the spec, validator and planner |
+| `impress-workflow-service` | verb-crate | verb-crate | |
 | `impress-workspace-hack` | tooling | internal | the generated cargo-hakari crate: dependency glue, no code (plan-verb-pipeline-and-transport § Build cost, B4) |
 | `imprint-cli` | binary | internal | the CLI binary over the inventory |
 | `imprint-core` | domain-core | should-be-verb | reached by `imprint-service` through `{project, render, latex, citations, presentation}`; `sourcemap::{generate_source_map, source_map_lookup}` and ≈22 `uniffi::export` items have no verb (`selection` is UI-bound and correctly internal) |

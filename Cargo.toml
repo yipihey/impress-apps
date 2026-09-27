@@ -94,6 +94,13 @@ members = [
     "crates/impress-pane-query",
     # ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure
     "crates/impress-surface",
+    # W1 (plan-self-reflective-layer): the workflow spec (trigger + steps in
+    # the surface action vocabulary), its validator and its pure planner,
+    # reusing impress-surface's reduce rather than forking it. Pure.
+    "crates/impress-workflow",
+    # W1: the workflow verbs (validate/create/get/list/dry-run/enable/disable)
+    # over impress-core's `impress/workflow@1.0.0` rows.
+    "crates/impress-workflow-service",
     # ADR-0035 D2: verb_surface(&VerbDescriptor) -> SurfaceSpec + catalogue(), pure (plan G4)
     "crates/impress-verb-surface",
     "crates/impress-scenario",
@@ -233,6 +240,8 @@ impress-layout = { path = "crates/impress-layout" }
 impress-layout-service = { path = "crates/impress-layout-service" }
 impress-pane-query = { path = "crates/impress-pane-query" }
 impress-surface = { path = "crates/impress-surface" }
+impress-workflow = { path = "crates/impress-workflow" }
+impress-workflow-service = { path = "crates/impress-workflow-service" }
 impress-verb-surface = { path = "crates/impress-verb-surface" }
 impress-scenario = { path = "crates/impress-scenario" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }

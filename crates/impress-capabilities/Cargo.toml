@@ -25,6 +25,10 @@ impress-bridges-service = { workspace = true, optional = true }
 impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
+# W1 (plan-self-reflective-layer.md § Workflows): the workflow verbs
+# (validate/create/get/list/dry-run/enable/disable), store-tier over
+# `impress-workflow`'s pure spec, validator and planner.
+impress-workflow-service = { workspace = true, optional = true }
 # P3c step 1: the three legacy semantic-search MCP tools. Deliberately NOT in
 # `full` — the fastembed/tokenizers embedding stack behind it is a cost only
 # `impress-mcp` should pay (see this crate's `semantic-search` feature doc
@@ -92,6 +96,7 @@ full = [
     "kit",
     "scenario",
     "impact",
+    "workflow",
 ]
 kit = ["dep:impress-capabilities-kit"]
 scenario = ["dep:impress-scenario-service"]
@@ -116,3 +121,4 @@ vw = ["dep:vw-impress-adapter"]
 # recorded in docs/plan-verb-pipeline-and-transport.md's session log).
 semantic-search = ["dep:imbib-semantic-service"]
 impact = ["dep:capabilities-service", "kit"]
+workflow = ["dep:impress-workflow-service"]
