@@ -135,6 +135,42 @@ pub struct ScenarioListResult {
     pub refusal: Refusal2,
 }
 
+/// A recorded scenario and an explicit accounting of omitted calls.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ScenarioRecordResult {
+    #[serde(flatten)]
+    pub scenario: ScenarioResult,
+    pub selected: usize,
+    pub skipped: Vec<RecordedCallOmission>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RecordedCallOmission {
+    pub call_id: String,
+    pub verb: String,
+    pub reason: String,
+}
+
+impl From<crate::record::SkippedCall> for RecordedCallOmission {
+    fn from(call: crate::record::SkippedCall) -> Self {
+        Self {
+            call_id: call.call_id,
+            verb: call.verb,
+            reason: call.reason,
+        }
+    }
+}
+
+impl ScenarioRecordResult {
+    pub fn refused(refusal: Refusal) -> Self {
+        Self {
+            scenario: ScenarioResult::refused(refusal),
+            selected: 0,
+            skipped: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ScenarioSummaryDto {
     pub id: String,

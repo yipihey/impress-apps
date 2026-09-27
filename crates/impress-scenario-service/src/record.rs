@@ -268,15 +268,16 @@ fn contains_scenario_template(value: &Value) -> bool {
 }
 
 fn valid_result_path(path: &str) -> bool {
-    path.strip_prefix("$.").is_some_and(|rest| {
-        !rest.is_empty()
-            && rest.split('.').all(|part| {
-                !part.is_empty()
-                    && part
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
-            })
-    })
+    path == "$"
+        || path.strip_prefix("$.").is_some_and(|rest| {
+            !rest.is_empty()
+                && rest.split('.').all(|part| {
+                    !part.is_empty()
+                        && part.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'
+                        })
+                })
+        })
 }
 
 fn bind_prior_ids(
@@ -407,6 +408,22 @@ mod tests {
             Step::Call(call) => call,
             other => panic!("expected call step, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_schema_identified_root_uuid_can_be_captured() {
+        let mut origin = call("one", "example-service_create", json!({}));
+        origin.result_ids.insert("$".into(), json!("paper-id"));
+        let later = call("two", "example-service_update", json!({"id":"paper-id"}));
+        let generated = generate(vec![origin, later]);
+        assert_eq!(
+            as_call(&generated.scenario.steps[0]).capture["capture_0_0"],
+            "$"
+        );
+        assert_eq!(
+            as_call(&generated.scenario.steps[1]).args["id"],
+            "{{state.capture_0_0}}"
+        );
     }
 
     #[test]

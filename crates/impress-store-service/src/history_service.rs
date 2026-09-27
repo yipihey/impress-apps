@@ -381,6 +381,13 @@ fn args_are_full(payload: &Value) -> bool {
     if payload.get("compacted").and_then(Value::as_bool) == Some(true) {
         return false;
     }
+    // New records explicitly distinguish a lossless summary from a reduced
+    // one. In particular, a private null is not permission to replay it.
+    if let Some(replayable) = payload.get("args_replayable").and_then(Value::as_bool) {
+        return replayable && payload.get("args").is_some();
+    }
+    // Older rows predate the marker; preserve their existing conservative
+    // reduced-shape check rather than reclassifying historical records.
     match payload.get("args") {
         Some(args) => !is_reduced(args),
         None => false,
@@ -1307,6 +1314,19 @@ impress_service_impl! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_replay_privacy_marker_overrides_the_legacy_shape_guess() {
+        assert!(!args_are_full(
+            &json!({"args": {"token": null}, "args_replayable": false})
+        ));
+        assert!(args_are_full(
+            &json!({"args": {"spec": {"len": 2, "keys": ["a", "b"]}}, "args_replayable": true})
+        ));
+        assert!(!args_are_full(
+            &json!({"args": {}, "args_replayable": true, "compacted": true})
+        ));
+    }
     use impress_core::item::Value as CoreValue;
     use impress_core::store::FieldMutation;
     use impress_service_core::pipeline::Call as PipeCall;

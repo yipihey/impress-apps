@@ -17,8 +17,8 @@ use impress_service_macros::{impress_service, impress_service_impl};
 use impress_service_macros::impress_method;
 
 use crate::dto::{
-    ScenarioListResult, ScenarioResult, ScenarioRunResult, ScenarioSummaryDto,
-    ScenarioValidateResult, SpecArg,
+    RecordedCallOmission, ScenarioListResult, ScenarioRecordResult, ScenarioResult,
+    ScenarioRunResult, ScenarioSummaryDto, ScenarioValidateResult, SpecArg,
 };
 use crate::store::ScenarioStore;
 use crate::tier_a::TierACaller;
@@ -29,6 +29,23 @@ use crate::TierBCaller;
 /// Tier B against a running app.
 #[impress_service]
 pub trait ImpressScenarioService: Send + Sync + 'static {
+    /// Record one caller's trace or bounded time window as a stored Tier B
+    /// scenario. Only lossless audit arguments are replayed. Earlier output
+    /// IDs reused by later steps become captures; omitted calls are reported.
+    /// This stores a document for review and editing; it executes no steps.
+    #[impress_method(safety = mutating, effects(reads = ["core/verb-call@1.0.0", "impress/scenario@1.0.0"], writes = ["impress/scenario@1.0.0"]))]
+    #[impress_example(
+        name = "empty-trace",
+        args = r#"{"trace_id":"scenario-record-empty-example"}"#
+    )]
+    async fn scenario_record(
+        &self,
+        trace_id: Option<String>,
+        since: Option<String>,
+        until: Option<String>,
+        r#as: Option<String>,
+    ) -> ScenarioRecordResult;
+
     /// Every structural problem with a scenario spec (`impress-scenario::validate`).
     /// `ok` is false when any problem was found; this crate cannot check
     /// that a `call` step names a real verb without the inventory, so it
@@ -143,6 +160,100 @@ impl DefaultImpressScenarioService {
 
 #[async_trait::async_trait]
 impl ImpressScenarioService for DefaultImpressScenarioService {
+    async fn scenario_record(
+        &self,
+        trace_id: Option<String>,
+        since: Option<String>,
+        until: Option<String>,
+        r#as: Option<String>,
+    ) -> ScenarioRecordResult {
+        let selection = match crate::record_store::Selection::new(
+            trace_id.as_deref(),
+            since.as_deref(),
+            until.as_deref(),
+            r#as.as_deref(),
+        ) {
+            Ok(selection) => selection,
+            Err(error) => return ScenarioRecordResult::refused(error),
+        };
+        // Do not log the selected arguments or arbitrary caller-supplied text.
+        tracing::info!(target: "verb", "Recording scenario from {}", if trace_id.is_some() { "trace" } else { "time window" });
+        let store = self.store_arc();
+        let calls = match selection.read(&store) {
+            Ok(calls) => calls,
+            Err(error) => return ScenarioRecordResult::refused(error),
+        };
+        let selected = calls.len();
+        let generated = match crate::record::generate_scenario(
+            format!("recorded.{}", uuid::Uuid::new_v4()),
+            format!("Recorded session of {selected} calls; review expectations before sharing."),
+            calls,
+        ) {
+            Ok(generated) => generated,
+            Err(crate::record::RecordError::NoReplayableCalls { skipped }) => {
+                return ScenarioRecordResult {
+                    scenario: ScenarioResult::refused(Refusal::invalid_argument(
+                        "no replayable calls remain",
+                    )),
+                    selected,
+                    skipped: skipped
+                        .into_iter()
+                        .map(RecordedCallOmission::from)
+                        .collect(),
+                };
+            }
+            Err(error) => {
+                return ScenarioRecordResult::refused(Refusal::invalid_argument(error.to_string()))
+            }
+        };
+        let raw = match serde_json::to_value(&generated.scenario) {
+            Ok(raw) => raw,
+            Err(error) => {
+                return ScenarioRecordResult::refused(Refusal::internal(error.to_string()))
+            }
+        };
+        let (_, problems) = self.problems_of(&raw);
+        if !problems.is_empty() {
+            return ScenarioRecordResult::refused(Refusal::invalid_argument(format!(
+                "recorded scenario is not replayable: {}",
+                problems
+                    .into_iter()
+                    .map(|problem| problem.message)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )));
+        }
+        let skipped: Vec<_> = generated
+            .skipped
+            .into_iter()
+            .map(RecordedCallOmission::from)
+            .collect();
+        let scenarios = ScenarioStore::new(store);
+        let row =
+            match scenarios.create(&generated.scenario, &["recorded".into()], ActorKind::Agent) {
+                Ok(row) => row,
+                Err(error) => return ScenarioRecordResult::refused(error),
+            };
+        tracing::info!(target: "verb", scenario_id = %row.spec.id, selected, steps = row.spec.steps.len(), skipped = skipped.len(), "Saved recorded scenario");
+        // Read back the stored document, so the returned preview is what a
+        // later get/run sees, not just the pre-save in-memory draft.
+        let row = match scenarios.get(row.id) {
+            Ok(Some(row)) => row,
+            Ok(None) => {
+                return ScenarioRecordResult::refused(Refusal::store(
+                    "recorded scenario disappeared after save",
+                ))
+            }
+            Err(error) => return ScenarioRecordResult::refused(error),
+        };
+        tracing::info!(target: "verb", scenario_id = %row.spec.id, steps = row.spec.steps.len(), "Display recorded scenario read back from store");
+        ScenarioRecordResult {
+            scenario: ScenarioResult::from_row(&row),
+            selected,
+            skipped,
+        }
+    }
+
     async fn scenario_validate(&self, spec: SpecArg) -> ScenarioValidateResult {
         ScenarioValidateResult::of(self.problems_of(&spec.0).1)
     }
@@ -265,6 +376,19 @@ impress_service_impl! {
     instance = || impress_scenario_service_instance(),
     strict_args = true,
     methods = [
+        scenario_record(
+            /// The exact recorded trace ID. Mutually exclusive with since/until.
+            trace_id: Option<String>,
+            /// Inclusive RFC 3339 start of a window; requires until and as.
+            since: Option<String>,
+            /// Inclusive RFC 3339 end of a window; requires since and as.
+            until: Option<String>,
+            /// One exact recorded caller: person, agent:<name>, app:<name>,
+            /// system:<name>, or provider:<name>. A trace may omit this only
+            /// when all matching rows have the same caller. This selects
+            /// history; it does not change the invoking caller's authority.
+            r#as: Option<String>
+        ) -> ScenarioRecordResult,
         scenario_validate(
             /// The scenario spec, as JSON.
             spec: SpecArg
