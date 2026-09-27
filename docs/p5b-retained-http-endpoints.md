@@ -14,6 +14,7 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 | imbib | `GET /api/search/external` in `ImbibBridge` | `search-sources` returns `ExternalPaper`, but the HTTP candidate also has an importable `identifier`; some results have no DOI, arXiv ID, or bibcode from which to recover it. |
 | imbib | `POST /api/papers/add`, `POST /api/papers/resolve` in `ImbibBridge` | `import-papers` accepts BibTeX-backed `PaperImport`, not arbitrary identifiers plus target collection/PDF preference or per-paper failures. `resolve-identifier` accepts a string, not the bridge's structured citation and ranked candidates. |
 | imbib | `GET /api/libraries`, `GET /api/collections` in `ImbibBridge` | `list-libraries` omits collection count and sharing; `list-collections` requires a library ID while the HTTP route lists across libraries with names. |
+| imbib | `GET /api/export?keys=...&format=ris` | The canonical `export-bibtex` verb cannot produce RIS. The old route now accepts only explicit `format=ris`; BibTeX uses the verb. |
 | imprint | `GET /api/documents` and `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | `list-documents` omits word count and last modification; no verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
 | implore | `GET /api/figures`, `GET /api/figures/{id}`, `GET /api/figures/{id}/export` in `ImploreBridge` and impel's `CounselToolRegistry` | `FigureRecord` lacks the route's type, dataset name, modified time and view-state fields. `export-figure` returns a file path, while `ImploreBridge.exportFigure` returns image bytes. Counsel's raw result expects the old full envelope. |
 | impart | `GET /api/research/conversations` in `ImpartBridge` and impel's `CounselToolRegistry` | `ConversationRecord` omits participants, tags, parent conversation, and `lastActivityAt` from the HTTP list; Counsel also consumes the old count/total/query envelope. `GET /api/messages` is a separate app-only mail capability. |
@@ -21,7 +22,16 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 
 The exact equivalent bridge operations now use verbs: imbib BibTeX export and
 library creation, and imprint document content composed from `get-document`
-plus `get-content`. Their old route arms may be removed after hosted parity;
-the shared `SiblingBridge` reads the per-launch token for POST and decodes the
+plus `get-content`. The imbib BibTeX export and library creation route arms were
+removed after hosted parity; the three old undo and seven local SciX routing
+arms also moved to verbs. No Swift caller uses those SciX URLs; the seven
+existing SciX descriptors cover local record CRUD, membership, and counts.
+The shared `SiblingBridge` reads the per-launch token for POST and decodes the
 raw result. Keep private Swift handlers invoked by native callbacks even when
 the corresponding HTTP `if` arm is removed.
+
+Other candidate library and tag routes remain pending a route-by-route contract
+proof. The library and collection list routes expose sharing and cross-library
+fields that current verb results omit, while the tag-tree route returns a
+formatted hierarchy rather than flat tag records. Manuscript, e-ink,
+revisions, and shared status/log routes remain independent capabilities.

@@ -26,7 +26,9 @@ The server starts automatically when imbib launches if enabled.
 
 ## API Reference
 
-All endpoints return JSON responses with this structure:
+The legacy HTTP endpoints return JSON responses with this structure. Canonical
+`POST /api/verb/<name>` endpoints return their typed result directly, as shown
+in the BibTeX example below.
 
 ```json
 {
@@ -146,28 +148,33 @@ Retrieve a specific paper by its cite key.
 
 ---
 
-### Export BibTeX
+### Export Bibliography
 
 ```
-GET /api/export?keys={key1,key2,...}&format={bibtex|ris}
+POST /api/verb/imbib-library-service_export-bibtex
+Authorization: Bearer <automation-token>
+Content-Type: application/json
+
+{"ids":["key1","key2"]}
 ```
 
-Export bibliography entries for specified cite keys.
+The canonical verb exports BibTeX for specified cite keys. It returns a raw JSON
+string containing the BibTeX. Set `IMPRESS_APP_TOKEN` to the current launch's
+loopback automation token before using the examples below.
+
+The distinct RIS export remains available at
+`GET /api/export?keys={key1,key2,...}&format=ris`. It returns the legacy
+`{status, format, paperCount, content}` envelope. The `format=ris` parameter
+is required on that route.
 
 **Parameters:**
-| Parameter | Required | Default | Description |
-|-----------|----------|---------|-------------|
-| `keys` | Yes | - | Comma-separated cite keys |
-| `format` | No | bibtex | Export format: `bibtex` or `ris` |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `ids` | Yes | Array of cite keys or publication IDs in the JSON body |
 
 **Response:**
 ```json
-{
-  "status": "ok",
-  "format": "bibtex",
-  "paperCount": 2,
-  "content": "@article{Einstein1905SR,\n  author = {Einstein, Albert},\n  ...\n}\n\n@article{Hawking1974BH, ...}"
-}
+"@article{Einstein1905SR,\n  author = {Einstein, Albert},\n  ...\n}"
 ```
 
 ---
@@ -221,7 +228,9 @@ The imbib Safari extension includes a citation picker that communicates with the
 curl "http://127.0.0.1:23120/api/search?q=cosmological+simulations&limit=10"
 
 # Get BibTeX for specific papers
-curl "http://127.0.0.1:23120/api/export?keys=Springel2005,Boylan2009"
+curl -s -X POST "http://127.0.0.1:23120/api/verb/imbib-library-service_export-bibtex" \
+  -H "Authorization: Bearer $IMPRESS_APP_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"ids":["Springel2005","Boylan2009"]}' | jq -r '.'
 ```
 
 Copy the BibTeX into your Prism project's bibliography file.
@@ -294,7 +303,10 @@ imbib-search() {
 }
 
 imbib-bibtex() {
-  curl -s "http://127.0.0.1:23120/api/export?keys=$1" | jq -r '.content'
+  jq -nc --arg keys "$1" '{ids: ($keys | split(","))}' | \
+    curl -s -X POST "http://127.0.0.1:23120/api/verb/imbib-library-service_export-bibtex" \
+      -H "Authorization: Bearer $IMPRESS_APP_TOKEN" -H 'Content-Type: application/json' \
+      --data-binary @- | jq -r '.'
 }
 
 # Usage:
@@ -307,6 +319,7 @@ imbib-bibtex() {
 ### Example 5: Python Script
 
 ```python
+import os
 import requests
 
 IMBIB_API = "http://127.0.0.1:23120"
@@ -322,12 +335,13 @@ def search_library(query: str, limit: int = 20) -> list:
 
 def get_bibtex(cite_keys: list[str]) -> str:
     """Export BibTeX for given cite keys."""
-    response = requests.get(
-        f"{IMBIB_API}/api/export",
-        params={"keys": ",".join(cite_keys)}
+    response = requests.post(
+        f"{IMBIB_API}/api/verb/imbib-library-service_export-bibtex",
+        headers={"Authorization": f"Bearer {os.environ['IMPRESS_APP_TOKEN']}"},
+        json={"ids": cite_keys}
     )
     response.raise_for_status()
-    return response.json()["content"]
+    return response.json()
 
 def is_imbib_running() -> bool:
     """Check if imbib HTTP server is available."""
@@ -377,7 +391,7 @@ Any integration follows this pattern:
 
 1. **Check availability**: `GET /api/status`
 2. **Search**: `GET /api/search?q=...`
-3. **Retrieve**: `GET /api/papers/{key}` or `GET /api/export?keys=...`
+3. **Retrieve**: `GET /api/papers/{key}` or `POST /api/verb/imbib-library-service_export-bibtex`
 4. **Use**: Insert citation, copy BibTeX, etc.
 
 ### Error Handling

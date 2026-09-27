@@ -1,4 +1,5 @@
 import Foundation
+import ImpressAutomation
 import Testing
 @testable import PublicationManagerCore
 
@@ -23,5 +24,59 @@ struct ImbibNativeVerbsTests {
         #expect(missing.status == 400)
         let body = try #require(JSONSerialization.jsonObject(with: Data(missing.bodyJson.utf8)) as? [String: Any])
         #expect(body["code"] as? String == "invalid-args")
+    }
+
+    @MainActor
+    @Test func recentActivityFiltersMembershipBeforeApplyingLimit() async throws {
+        let store = RustStoreAdapter.shared // in-memory under XCTest
+        let inside = try #require(store.createLibrary(name: "Recent inside \(UUID())"))
+        let outside = try #require(store.createLibrary(name: "Recent outside \(UUID())"))
+        let unique = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let insideID = try #require(store.importBibTeX(
+            "@article{Inside\(unique), title={Inside activity}}", libraryId: inside.id).first)
+        let outsideID = try #require(store.importBibTeX(
+            "@article{Outside\(unique), title={Outside activity}}", libraryId: outside.id).first)
+        store.recordRecentView(id: insideID)
+        try await Task.sleep(nanoseconds: 10_000_000)
+        store.recordRecentView(id: outsideID)
+
+        let router = HTTPAutomationRouter()
+        let unfiltered = await router.invokeNativeVerb(
+            method: "recent_activity", argsJSON: #"{"limit":1}"#)
+        let global = try #require(JSONSerialization.jsonObject(with: Data(unfiltered.bodyJson.utf8)) as? [[String: Any]])
+        #expect((global.first?["id"] as? String).flatMap(UUID.init(uuidString:)) == outsideID)
+
+        let filtered = await router.invokeNativeVerb(
+            method: "recent_activity",
+            argsJSON: "{\"limit\":1,\"parent_id\":\"\(inside.id.uuidString)\"}")
+        #expect(filtered.status == 200)
+        let papers = try #require(JSONSerialization.jsonObject(with: Data(filtered.bodyJson.utf8)) as? [[String: Any]])
+        #expect(papers.count == 1)
+        #expect((papers.first?["id"] as? String).flatMap(UUID.init(uuidString:)) == insideID)
+
+        let invalid = await router.invokeNativeVerb(
+            method: "recent_activity", argsJSON: #"{"limit":1,"parent_id":"not-a-uuid"}"#)
+        #expect(invalid.status == 400)
+    }
+
+    @Test func retiredImbibAliasesAreNotRouted() async {
+        let router = HTTPAutomationRouter()
+        let bibtex = await router.route(HTTPRequest(method: "GET", path: "/api/export",
+                                                       queryParams: ["keys": "Key2026"]))
+        #expect(bibtex.status == 404)
+        let ris = await router.route(HTTPRequest(method: "GET", path: "/api/export",
+                                                    queryParams: ["keys": "Key2026", "format": "ris"]))
+        #expect(ris.status != 404, "RIS export remains an app-only HTTP capability")
+        let library = await router.route(HTTPRequest(method: "POST", path: "/api/libraries",
+                                                        body: #"{"name":"Retired alias"}"#))
+        #expect(library.status == 404)
+        let undo = await router.route(HTTPRequest(method: "GET", path: "/api/undo/recent"))
+        #expect(undo.status == 404)
+        let scix = await router.route(HTTPRequest(method: "GET", path: "/api/scix-libraries"))
+        #expect(scix.status == 404)
+        let scixMutation = await router.route(HTTPRequest(
+            method: "POST", path: "/api/scix-libraries/\(UUID())/papers",
+            body: #"{"publication_ids":[]}"#))
+        #expect(scixMutation.status == 404)
     }
 }

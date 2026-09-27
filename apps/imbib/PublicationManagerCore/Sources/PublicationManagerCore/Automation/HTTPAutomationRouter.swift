@@ -28,7 +28,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/status` - Server health and library statistics
 /// - `GET /api/search?q=...&limit=...` - Search library
 /// - `GET /api/papers/{citeKey}` - Get single paper with BibTeX
-/// - `GET /api/export?keys=a,b,c` - Export BibTeX for multiple cite keys
+/// - `GET /api/export?keys=a,b,c&format=ris` - Export RIS for multiple cite keys
 /// - `GET /api/collections` - List all collections
 /// - `GET /api/libraries` - List all libraries
 /// - `GET /api/collections/{id}/papers` - List papers in a collection
@@ -530,39 +530,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetItemByUUID(itemID: itemID)
         }
 
-        // GET /api/scix-libraries
-        if path == "/api/scix-libraries" {
-            return await handleListScixLibraries()
-        }
-        // GET /api/scix-libraries/{id}
-        if path.hasPrefix("/api/scix-libraries/") && !path.contains("/papers") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleGetScixLibrary(id: id)
-        }
-        // GET /api/scix-libraries/{id}/papers
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleQueryScixLibraryPapers(scixLibraryID: id, request: request)
-        }
-        // GET /api/scix-libraries/{id}/papers/count
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers/count") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers/count".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleCountScixLibraryPapers(scixLibraryID: id)
-        }
-
-        // GET /api/undo/recent
-        if path == "/api/undo/recent" {
-            return await handleRecentUndoGroups(request)
-        }
 
         // GET /api/artifacts/{id}/relations — must come before /api/artifacts/{id} below
         if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/relations") {
@@ -573,7 +540,9 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetArtifactRelations(id: artifactID)
         }
 
-        if path == "/api/export" {
+        // RIS has no canonical verb. BibTeX export uses
+        // POST /api/verb/imbib-library-service_export-bibtex.
+        if path == "/api/export" && request.queryParams["format"] == "ris" {
             return await handleExport(request)
         }
 
@@ -1059,33 +1028,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
             return await handleCreateAnnotationForFile(linkedFileID: fileID, request: request)
         }
-        // POST /api/scix-libraries
-        if path == "/api/scix-libraries" {
-            return await handleCreateScixLibrary(request)
-        }
-        // POST /api/scix-libraries/{id}/papers — add publications
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
-            let segment = String(path.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleAddToScixLibrary(scixLibraryID: id, request: request)
-        }
-        // POST /api/undo/operation/{id}
-        if path.hasPrefix("/api/undo/operation/") {
-            let opID = String(path.dropFirst("/api/undo/operation/".count))
-            return await handleUndoOperation(operationID: opID)
-        }
-        // POST /api/undo/batch/{id}
-        if path.hasPrefix("/api/undo/batch/") {
-            let batchID = String(path.dropFirst("/api/undo/batch/".count))
-            return await handleUndoBatch(batchID: batchID)
-        }
-
-        if path == "/api/libraries" {
-            return await handleCreateLibrary(request)
-        }
-
         if path == "/api/collections" {
             return await handleCreateCollection(request)
         }
@@ -1395,14 +1337,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             let tagPath = raw.removingPercentEncoding ?? raw
             return await handleDeleteTag(path: tagPath)
         }
-        // DELETE /api/scix-libraries/{id}/papers — remove publications
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleRemoveFromScixLibrary(scixLibraryID: id, request: request)
-        }
 
         // DELETE /api/papers/{citeKey}/files/{linkedFileId}
         if path.hasPrefix("/api/papers/"),
@@ -1692,8 +1626,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/export?keys=a,b,c&format=bibtex
-    /// Export BibTeX for specified cite keys.
+    /// GET /api/export?keys=a,b,c&format=ris
+    /// The remaining legacy export route; BibTeX uses the canonical verb.
     private func handleExport(_ request: HTTPRequest) async -> HTTPResponse {
         guard let keysParam = request.queryParams["keys"], !keysParam.isEmpty else {
             return .badRequest("Missing 'keys' parameter")
@@ -2440,7 +2374,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/search?q=...": "Search library (params: q, limit, offset, tag, flag, read, collection, library, addedAfter, addedBefore)",
                 "GET /api/search/external?q=...": "Search external sources like ADS, arXiv, Crossref (params: q, source, limit)",
                 "GET /api/papers/{citeKey}": "Get paper by cite key",
-                "GET /api/export?keys=...": "Export BibTeX (params: keys, format)",
+                "GET /api/export?keys=...&format=ris": "Export RIS (BibTeX uses POST /api/verb/imbib-library-service_export-bibtex)",
                 "GET /api/collections": "List all collections",
                 "GET /api/collections/{id}/papers": "List papers in a collection (params: limit, offset)",
                 "GET /api/libraries": "List all libraries with sharing info",
@@ -5177,7 +5111,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/papers/recent-activity?limit=N
+    /// GET /api/papers/recent-activity?limit=N&parent_id=...
     /// (also reachable as `GET /api/papers/recent?source=activity`)
     ///
     /// **Recent USER ACTIVITY** — papers the user viewed or added by hand,
@@ -5194,12 +5128,26 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let limit = request.queryParams["limit"].flatMap { UInt32($0) }
             ?? UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
         let store = RustStoreAdapter.shared
-        let entries = store.recentActivityEntries(limit: limit)
-        let activityByID = Dictionary(
-            entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-
         do {
-            let papers = try store.imbibStore.queryRecentActivity(limit: limit)
+            let parent = request.queryParams["parent_id"] ?? request.queryParams["parentId"]
+            let memberIDs: Set<String>?
+            if let parent {
+                guard let parentID = UUID(uuidString: parent) else {
+                    return .badRequest("Invalid parent ID")
+                }
+                // queryPublicationIds uses the same HasParent-or-Contains
+                // membership predicate as queryRecent(parentId:). Filtering
+                // after a global limit would drop older matches incorrectly.
+                memberIDs = Set(try store.imbibStore.queryPublicationIds(parentId: parentID.uuidString))
+            } else {
+                memberIDs = nil
+            }
+            let scanLimit = memberIDs == nil ? limit : UInt32.max
+            let entries = store.recentActivityEntries(limit: scanLimit)
+            let activityByID = Dictionary(
+                entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let recent = try store.imbibStore.queryRecentActivity(limit: scanLimit)
+            let papers = Array(recent.filter { memberIDs?.contains($0.id) ?? true }.prefix(Int(limit)))
             let payload: [[String: Any]] = papers.map { paper in
                 var dict = bibToDict(paper)
                 if let activity = activityByID[UUID(uuidString: paper.id) ?? UUID()] {
