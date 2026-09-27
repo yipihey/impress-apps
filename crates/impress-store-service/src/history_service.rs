@@ -1096,7 +1096,7 @@ impl HistoryService for DefaultHistoryService {
         max_len: i64,
     ) -> ProposeWorkflowsResult {
         log::info!(
-            target: "workflow",
+            target: "verb",
             "propose_workflows requested: since={} min_repeats={} max_len={}",
             since.as_deref().unwrap_or("<all>"),
             min_repeats,
@@ -1125,7 +1125,7 @@ impl HistoryService for DefaultHistoryService {
         let items = match store.query(&query) {
             Ok(items) => items,
             Err(e) => {
-                log::warn!(target: "workflow", "propose_workflows call-log query failed: {e}");
+                log::warn!(target: "verb", "propose_workflows call-log query failed: {e}");
                 return ProposeWorkflowsResult {
                     ok: false,
                     message: e.to_string(),
@@ -1161,7 +1161,7 @@ impl HistoryService for DefaultHistoryService {
                 match write_proposal(&store, &group) {
                     Ok(pw) => {
                         log::info!(
-                            target: "workflow",
+                            target: "verb",
                             "propose_workflows saved id={} steps={} repeats={}",
                             pw.id,
                             pw.verbs.len(),
@@ -1172,7 +1172,7 @@ impl HistoryService for DefaultHistoryService {
                     Err(error) => {
                         skipped += 1;
                         log::warn!(
-                            target: "workflow",
+                            target: "verb",
                             "propose_workflows skipped group: {error:?} (verbs={}, repeats={})",
                             group.verbs.join(" -> "),
                             group.matches.len()
@@ -1182,7 +1182,7 @@ impl HistoryService for DefaultHistoryService {
             }
         }
         log::info!(
-            target: "workflow",
+            target: "verb",
             "propose_workflows returning {} proposal(s), {skipped} skipped",
             proposed.len()
         );

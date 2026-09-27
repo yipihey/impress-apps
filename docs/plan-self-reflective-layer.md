@@ -2576,7 +2576,8 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   The miner now logs its request (since, repeats and length), each saved proposal
   (ID and counts), and the returned proposal count. A skipped group logs its verb
   sequence and a named error category, without call argument values. This uses
-  the store service's existing `log` dependency. The proposal is still
+  the store service's existing `log` dependency and the Rust Console bridge's
+  existing `verb` category, so the logs reach the app console and `/api/logs`. The proposal is still
   `state: proposed` and cannot run until a person enables it.
 
   Integration checks in private `target-w4-gates`: formatting, both clippy
