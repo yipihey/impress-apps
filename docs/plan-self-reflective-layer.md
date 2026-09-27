@@ -2641,7 +2641,9 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   showed an initialized singleton, not a path or data change. No real store was inspected for
   this completion handoff. The automatic W3 workflow still cannot discover the exploration-library
   ID held only in legacy UserDefaults; explicit `exploration_library_id` remains available.
-  S3 and the other follow-on items listed in the handoff have not started. A fresh isolated full
-  workspace suite on main at
-  `f7af1c37` is running, with output in `/tmp/impress-open-packages-workspace-test.log`; its
-  result is pending.
+  The combined main at `f7af1c37` passed an explicitly isolated full native workspace run,
+  serially: 4,291 passed, 0 failed, 23 ignored, including doctests. The initial parallel run hit
+  the known impel-tools backend-state race. Evidence: `/tmp/impress-open-packages-workspace-serial.log`;
+  owned scratch `/tmp/impress-cargo-tests.8X6GhB/workspace`. S3 has since started in
+  `s3-record` / `claude/reflective-s3-record`; its implementation and live proof are not yet
+  verified. The later packages remain unstarted.
