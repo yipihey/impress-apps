@@ -17785,6 +17785,19 @@ public func installLogSink(sink: SharedLogSink, level: String) -> Bool {
     )
 })
 }
+/**
+ * The keymap registry as JSON: `{"wire_version": 1, "bindings": [...]}`.
+ * Settings ▸ Keyboard and the ⌘/ window read this instead of a Swift-side
+ * table, and `docs/keyboard.md` is generated from the same registry this
+ * serializes (`impress-keymap`'s `render_markdown`). Already a JSON string
+ * from `impress-keymap::keymap_json` — passed through, not re-encoded.
+ */
+public func keymapJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_keymap_json($0
+    )
+})
+}
 public func kindManifestJson() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_impress_store_ffi_fn_func_kind_manifest_json($0
@@ -18014,6 +18027,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 14824) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_keymap_json() != 61155) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 19740) {
