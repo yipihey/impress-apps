@@ -998,3 +998,11 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   is clean; `shellcheck` is not installed on this Mac and was skipped; `./scripts/rust-gate.sh fmt`
   passed clean. Removed a stray `target-b5/` left by the prior agent's interrupted run before
   measuring (build artefacts, gitignored, not committed).
+- 2026-09-26 — **B5 correction** (orchestrator): the first B5 run's `total_lines_per_verb` of 11,361 was a
+  counting bug, not growth — `cargo llvm-lines` prints its own `(TOTAL)` row first and the script summed it
+  with the per-function rows, doubling every crate. Fixed (the TOTAL row is the crate total; macro lines are
+  summed from the function rows only). Re-measured on c0277c7e: 438 verbs, **1,641 macro lines/verb, 5,680
+  total lines/verb** — both under budget (2,000 / 6,000); +11 % total over the 5,123 baseline, which is P1's
+  output schemas and P4's job verbs. The measured half (228 / 20 / 38 ms per verb) was taken at load 14–28
+  and is not a baseline; the impress-mac job sets it.
+

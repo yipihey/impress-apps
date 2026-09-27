@@ -109,11 +109,13 @@ for crate_dir in crates/*-service; do
     crate=$(basename "$crate_dir")
     lines=$(cargo llvm-lines -p "$crate" --lib 2>/dev/null | awk '
         NR<=2 { next }
+        # The first data row is llvm-lines own "(TOTAL)"; it is the crate
+        # total, not a function, and must not be summed with the rows below.
+        index($0, "(TOTAL)") { n = $1; gsub(/,/, "", n); total = n + 0; next }
         {
             n = $1
             gsub(/,/, "", n)
             if (n ~ /^[0-9]+$/) {
-                total += n
                 if (index($0, "_invoke") || index($0, "__Impress_") || index($0, "Args")) {
                     macro += n
                 }
