@@ -35,9 +35,14 @@ struct ImpartApp: App {
             await ImpartHTTPServer.shared.start()
         }
 
-        // Sync shared conversations/messages even when imbib is not running.
-        // The launcher itself enforces the suite's 120-second startup grace.
-        CloudSyncEngineLauncher.startAfterGrace()
+        // Test launches use per-process stores and must not start the suite's
+        // production mail sync process after its startup grace period.
+        let isIsolatedTest = ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess
+        if !isIsolatedTest {
+            // Sync shared conversations/messages even when imbib is not running.
+            // The launcher itself enforces the suite's 120-second startup grace.
+            CloudSyncEngineLauncher.startAfterGrace()
+        }
 
         // Prepare shared impress-core workspace (creates directory if needed).
         // Setup opens the store handle and declares the mail schemas
@@ -51,23 +56,27 @@ struct ImpartApp: App {
             // Sleeps ≥90 s internally before its first store mutation
             // (CLAUDE.md startup invariant), then pages CDMessages
             // oldest-first and checkpoints a watermark per batch.
-            let persistence = PersistenceController.shared
-            Task.detached(priority: .background) {
-                await ImpartStoreBackfill.shared.startIfNeeded(persistence: persistence)
+            if !isIsolatedTest {
+                let persistence = PersistenceController.shared
+                Task.detached(priority: .background) {
+                    await ImpartStoreBackfill.shared.startIfNeeded(persistence: persistence)
+                }
             }
         }
 
         // Spotlight indexing — deferred 90s per startup grace period
-        Task.detached {
-            try? await Task.sleep(for: .seconds(90))
-            guard !Task.isCancelled else { return }
+        if !isIsolatedTest {
+            Task.detached {
+                try? await Task.sleep(for: .seconds(90))
+                guard !Task.isCancelled else { return }
 
-            let coordinator = SpotlightSyncCoordinator(provider: ImpartSpotlightProvider())
-            await coordinator.initialRebuildIfNeeded()
-            await coordinator.startObserving(
-                mutationName: NSManagedObjectContext.didSaveObjectsNotification
-            )
-            await SpotlightBridge.shared.setCoordinator(coordinator)
+                let coordinator = SpotlightSyncCoordinator(provider: ImpartSpotlightProvider())
+                await coordinator.initialRebuildIfNeeded()
+                await coordinator.startObserving(
+                    mutationName: NSManagedObjectContext.didSaveObjectsNotification
+                )
+                await SpotlightBridge.shared.setCoordinator(coordinator)
+            }
         }
     }
 
