@@ -47,6 +47,21 @@ pub fn failed() -> u64 {
     FAILED.load(Ordering::Relaxed)
 }
 
+/// The call log's own backlog, as `/api/health` (or `history-service_health`,
+/// L2) shows it: rows written, rows dropped for a full channel, rows the
+/// store refused, and the pipeline-side count of calls that found no sink at
+/// all (a process that never linked a store service). A dropped record is
+/// never silent — this is where it surfaces.
+pub fn health() -> serde_json::Value {
+    serde_json::json!({
+        "written": written(),
+        "dropped": dropped(),
+        "failed": failed(),
+        "no_sink": pipeline_audit::dropped(),
+        "channel_capacity": CHANNEL_CAPACITY,
+    })
+}
+
 /// The sink: one sender, one writer thread.
 pub struct ChannelSink {
     sender: Mutex<SyncSender<VerbCallRecord>>,
@@ -264,6 +279,140 @@ mod tests {
                 .collect()
             ))
         );
+    }
+
+    /// Two mutating verbs invoked under one trace each leave their own call
+    /// row (their own `batch_id`, joined to their own ops), and both rows
+    /// carry the shared `trace_id` — the join `history-service_trace` will
+    /// use, without needing L2 to exist yet to prove it.
+    #[test]
+    fn two_verbs_under_one_trace_each_stamp_their_own_ops_and_share_the_trace_id() {
+        let store = crate::test_support::test_store();
+        let id_a = item(&store);
+        let id_b = item(&store);
+        let verb = VerbDescriptor::find("triage-service_set-starred").expect("linked");
+
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        let call_a = Call::agent(
+            "test",
+            serde_json::json!({ "id": id_a.to_string(), "starred": true }),
+        )
+        .with_trace(trace_id.clone());
+        let call_b = Call::agent(
+            "test",
+            serde_json::json!({ "id": id_b.to_string(), "starred": true }),
+        )
+        .with_trace(trace_id.clone());
+
+        let answer_a =
+            impress_service_core::runtime::block_on(pipeline::invoke_on(store.clone(), verb, call_a))
+                .expect("verb a ran");
+        assert_eq!(answer_a["ok"], true, "{answer_a}");
+        let answer_b =
+            impress_service_core::runtime::block_on(pipeline::invoke_on(store.clone(), verb, call_b))
+                .expect("verb b ran");
+        assert_eq!(answer_b["ok"], true, "{answer_b}");
+        flush();
+
+        let ops_a = store.operations_for(id_a, None).expect("ops a");
+        let ops_b = store.operations_for(id_b, None).expect("ops b");
+        assert!(!ops_a.is_empty() && !ops_b.is_empty());
+
+        let batch_a = ops_a[0].batch_id.clone().expect("a's ops have a batch id");
+        let batch_b = ops_b[0].batch_id.clone().expect("b's ops have a batch id");
+        assert_ne!(batch_a, batch_b, "each call keeps its own batch id");
+        assert!(
+            ops_a.iter().all(|op| op.batch_id.as_deref() == Some(batch_a.as_str())),
+            "every op of call a carries call a's id"
+        );
+        assert!(
+            ops_b.iter().all(|op| op.batch_id.as_deref() == Some(batch_b.as_str())),
+            "every op of call b carries call b's id"
+        );
+
+        let row_a = store
+            .get(uuid::Uuid::parse_str(&batch_a).unwrap())
+            .expect("read")
+            .expect("call a's row exists");
+        let row_b = store
+            .get(uuid::Uuid::parse_str(&batch_b).unwrap())
+            .expect("read")
+            .expect("call b's row exists");
+        assert_eq!(
+            row_a.payload.get("trace_id"),
+            Some(&impress_core::item::Value::String(trace_id.clone()))
+        );
+        assert_eq!(
+            row_b.payload.get("trace_id"),
+            Some(&impress_core::item::Value::String(trace_id))
+        );
+    }
+
+    /// § Call log "off the hot path": a full channel drops the record
+    /// rather than block the caller, and the caller's own `record()` call
+    /// stays fast — a bounded `try_send`, never a wait for the writer
+    /// thread to catch up. This is the sink's own bound
+    /// ([`CHANNEL_CAPACITY`]), tested directly against a sender that is
+    /// never drained, so the writer thread cannot race the assertion.
+    #[test]
+    fn a_full_channel_drops_and_counts_rather_than_block_the_caller() {
+        use std::sync::mpsc::sync_channel;
+
+        fn record_of(n: usize) -> VerbCallRecord {
+            VerbCallRecord {
+                call_id: format!("c{n}"),
+                verb: "t-service_x",
+                since: "0.1.0",
+                caller: impress_service_core::pipeline::CallerIdentity::Person,
+                trace_id: "t".into(),
+                parent_call: None,
+                args: serde_json::Value::Null,
+                ok: true,
+                code: None,
+                message_len: 0,
+                started_at: String::new(),
+                duration_ms: 0,
+                arg_bytes: 0,
+                result_bytes: 0,
+                store_override: None,
+            }
+        }
+
+        // An undrained channel of the sink's own bound: fill it exactly,
+        // then send one more.
+        let (sender, _receiver_never_drained) = sync_channel::<VerbCallRecord>(CHANNEL_CAPACITY);
+        for n in 0..CHANNEL_CAPACITY {
+            sender.try_send(record_of(n)).expect("fits within the bound");
+        }
+
+        let before = dropped();
+        let started = std::time::Instant::now();
+        match sender.try_send(record_of(CHANNEL_CAPACITY)) {
+            Ok(()) => panic!("the channel was full; this send should not have fit"),
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                DROPPED.fetch_add(1, Ordering::Relaxed);
+                pipeline_audit::count_dropped();
+            }
+            Err(other) => panic!("unexpected: {other:?}"),
+        }
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(50),
+            "an overflow must not block the caller: took {elapsed:?}"
+        );
+        assert_eq!(dropped(), before + 1, "the overflow is counted, not silent");
+    }
+
+    /// `health()` shows the backlog `/api/health` will surface: the plan's
+    /// "a dropped record is never silent" as a number, not a log line.
+    #[test]
+    fn health_reports_the_dropped_counter() {
+        let before = health()["dropped"].as_u64().unwrap_or(0);
+        DROPPED.fetch_add(1, Ordering::Relaxed);
+        let after = health();
+        assert_eq!(after["dropped"].as_u64().unwrap(), before + 1);
+        assert_eq!(after["channel_capacity"].as_u64().unwrap() as usize, CHANNEL_CAPACITY);
     }
 
     /// A read-only verb leaves no row (D-R3).
