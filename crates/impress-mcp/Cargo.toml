@@ -12,18 +12,16 @@ name = "impress-mcp"
 path = "src/main.rs"
 
 [dependencies]
-imbib-core = { workspace = true, features = ["native"] }
-# The embedding stack behind the three hand-written semantic-search tools.
-# All three features named explicitly even though imbib-core's `native` also
-# turns on store+index: `tools.rs` names `EmbeddingStore` and `ChunkIndex`
-# itself, and a dependency you use is one you declare, not one you inherit by
-# feature unification. `embedder` (fastembed) is enabled HERE and nowhere else
-# in the suite — this binary is the only thing that generates embeddings
-# rather than reading them.
-impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
+# P3c step 1: the three hand-written semantic-search tools (search_papers,
+# get_paper_chunks, list_indexed_papers) moved to `imbib-semantic-service`, a
+# real `#[impress_service]` trait, deprecated under their old flat names as
+# aliases. This binary reaches them through `impress-capabilities`'s
+# `semantic-search` feature below (NOT part of `full`) rather than as a
+# direct dependency — the fastembed/tokenizers stack that feature force-links
+# is still enabled ONLY here in the suite, same decision as before, now given
+# real lifecycle instead of hand-written tools kept in step by hand.
 serde = { workspace = true }
 serde_json = { workspace = true }
-rusqlite = { workspace = true }
 dirs = { workspace = true }
 # Inlining rasterised pages as MCP image content.
 base64 = "0.22"
@@ -32,7 +30,11 @@ base64 = "0.22"
 # the old per-crate force-link list did (imbib, impart, impel, implore,
 # imprint(+selftest), ai, bridges, layout, memory, parsers, smart-search,
 # store, vw, surface, surface-demo). `inventory_bridge.rs` delegates to it.
-impress-capabilities = { workspace = true, features = ["full"] }
+# `semantic-search` (P3c step 1, NOT part of `full`) additionally links
+# `imbib-semantic-service` — this binary is the one place in the suite that
+# enables it, since it is the one place that must keep answering
+# `search_papers`/`get_paper_chunks`/`list_indexed_papers` (now aliases).
+impress-capabilities = { workspace = true, features = ["full", "semantic-search"] }
 # The core runtime helpers (descriptor iteration used to live here too, but
 # `server.rs` and `surface.rs` still reach `McpToolDescriptor`/`runtime`
 # directly outside the inventory-tool path, e.g. for the ADR-0024 grouped

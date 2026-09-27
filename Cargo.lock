@@ -906,7 +906,9 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
+ "impress-surface",
  "impress-surface-service",
+ "impress-verb-surface",
  "impress-workspace-hack",
  "schemars 0.8.22",
  "serde",
@@ -3971,6 +3973,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "imbib-semantic-service"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "imbib-core",
+ "impress-embeddings",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-workspace-hack",
+ "rusqlite",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "imbib-service"
 version = "0.1.0"
 dependencies = [
@@ -4489,6 +4508,7 @@ name = "impress-capabilities"
 version = "0.1.0"
 dependencies = [
  "capabilities-service",
+ "imbib-semantic-service",
  "imbib-service",
  "impart-service",
  "impel-service",
@@ -4506,6 +4526,7 @@ dependencies = [
  "impress-smart-search-service",
  "impress-store-service",
  "impress-surface-service",
+ "impress-workflow-service",
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
@@ -4686,13 +4707,14 @@ dependencies = [
  "impress-service-macros",
  "impress-store-service",
  "impress-workspace-hack",
- "log",
  "reqwest",
  "schemars 0.8.22",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -4702,19 +4724,16 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",
- "imbib-core",
  "imbib-service-http",
  "impart-service-http",
  "implore-service-http",
  "impress-capabilities",
- "impress-embeddings",
  "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-service",
  "imprint-service-http",
- "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -4975,12 +4994,14 @@ dependencies = [
  "impress-surface",
  "impress-surface-service",
  "impress-workspace-hack",
- "log",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
  "uniffi",
  "uuid",
 ]
@@ -5040,7 +5061,6 @@ dependencies = [
  "impress-surface",
  "impress-workspace-hack",
  "jsonschema",
- "log",
  "reqwest",
  "schemars 0.8.22",
  "serde",
@@ -5048,6 +5068,7 @@ dependencies = [
  "surface-demo-service",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -5079,6 +5100,54 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "impress-verb-surface"
+version = "0.1.0"
+dependencies = [
+ "capabilities-service",
+ "impress-capabilities",
+ "impress-core",
+ "impress-service-core",
+ "impress-surface",
+ "impress-surface-service",
+ "impress-workspace-hack",
+ "serde_json",
+ "surface-demo-service",
+ "tokio",
+]
+
+[[package]]
+name = "impress-workflow"
+version = "0.1.0"
+dependencies = [
+ "impress-surface",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "impress-workflow-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "impress-surface",
+ "impress-workflow",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]
@@ -5202,6 +5271,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-core",
+ "tracing-log",
  "ttf-parser",
  "typenum",
  "unic-langid-impl",
@@ -5280,6 +5350,7 @@ dependencies = [
  "chrono",
  "impress-app-client",
  "impress-core",
+ "impress-scenario",
  "impress-service-core",
  "impress-service-macros",
  "impress-store-ffi",

@@ -285,7 +285,7 @@ struct DetachedNotesView: View {
                 saveNotes()
             }
             .disabled(!hasUnsavedChanges)
-            .keyboardShortcut("s", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.detached.save"))
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -376,7 +376,7 @@ struct DetachedBibTeXView: View {
                 Button("Save") {
                     saveBibTeX()
                 }
-                .keyboardShortcut("s", modifiers: .command)
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.detached.save"))
             }
         }
         .padding(.horizontal)

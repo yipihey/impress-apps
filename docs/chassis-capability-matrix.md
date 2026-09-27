@@ -696,6 +696,17 @@ through the sidebar renderer, iOS through the grouped list.
 - **Keyboard pane WRAPPED, not edited:** `KeyboardShortcutsSettingsTab` (macOS) /
   `IOSKeyboardShortcutsSettingsView` (iOS) are named by factories.
   `PMC/Settings/KeyboardShortcutsSettings.swift` is untouched.
+  **R2b (2026-09-27) rewrote the macOS pane's body only.** It now shows the
+  ONE keymap registry (`impress-keymap`, read through `ImpressKeyboard
+  .KeymapRegistry`) as a plain, read-only, section-grouped list — labels and
+  chords exactly as `docs/keyboard.md` states them — instead of
+  `KeyboardShortcutsStore`'s editable bindings (a separate,
+  `ShortcutCatalog`-backed customization surface that predates the registry
+  and still drives imbib's own triage-key remapping elsewhere; it is
+  untouched and still the source of truth for those bindings). No recording
+  sheet, no conflict detection, no per-user override: chord overrides are a
+  device setting for a later pass (D-R13). `IOSKeyboardShortcutsSettingsView`
+  is unchanged (iOS is out of R2's scope).
 - **iOS entry point untouched.** `IOSSettingsView` keeps its type name, so
   `IOSContentView`'s gear and ⌘, still present it with no edit to that file
   (which the sidebar work is rewriting concurrently).

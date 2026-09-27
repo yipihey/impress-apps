@@ -118,7 +118,7 @@ impl RenamePass {
             report.surfaces_rewritten += 1;
         }
         if report.surfaces_rewritten > 0 {
-            log::info!(
+            tracing::info!(
                 target: "surface",
                 "rename pass v{}: rewrote {} surface row(s)",
                 table.version,
@@ -167,7 +167,7 @@ fn rewrite_json(
                 .and_then(|v| v.as_str())
                 .and_then(|old| table.rename_verb(old))
             {
-                log::info!(
+                tracing::info!(
                     target: "surface",
                     "rename pass v{}: surface {} verb '{}' -> '{new_verb}'",
                     table.version,
@@ -185,7 +185,7 @@ fn rewrite_json(
                 .and_then(|v| v.as_str())
                 .and_then(|old| table.rename_view_kind(old))
             {
-                log::info!(
+                tracing::info!(
                     target: "surface",
                     "rename pass v{}: surface {} view kind '{}' -> '{new_kind}'",
                     table.version,

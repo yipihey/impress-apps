@@ -117,7 +117,7 @@ impl RenamePass {
         report.presets_visited = visited;
         report.presets_rewritten = rewritten;
         if report.total_rewritten() > 0 {
-            log::info!(
+            tracing::info!(
                 target: "layout",
                 "rename pass v{}: rewrote {} layout row(s) and {} preset row(s)",
                 table.version,
@@ -218,7 +218,7 @@ fn rewrite_view_kinds(layout: &mut Layout, table: &RenameTable, item: &Item) -> 
         let Some(new_kind) = table.rename_view_kind(pane.view_kind.as_str()) else {
             continue;
         };
-        log::info!(
+        tracing::info!(
             target: "layout",
             "rename pass v{}: row {} pane {:?} view kind '{}' -> '{}'",
             table.version,

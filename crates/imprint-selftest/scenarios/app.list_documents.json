@@ -1,0 +1,14 @@
+{
+  "wire_version": 1,
+  "id": "app.list_documents",
+  "description": "Live document list is queryable",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "imprint_list-documents",
+      "args": {},
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "count", "gte": 0 }] }
+    }
+  ]
+}

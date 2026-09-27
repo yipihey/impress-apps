@@ -20,6 +20,10 @@ members = [
     "crates/impress-keymap",
     "crates/imprint-core",
     "crates/imbib-core",
+    # P3c step 1: the three legacy semantic-search MCP tools as a real
+    # #[impress_service] trait, behind impress-capabilities' semantic-search
+    # feature (NOT full) — see docs/plan-verb-pipeline-and-transport.md.
+    "crates/imbib-semantic-service",
     # local-network (SFTP) transport for reMarkable tablets
     "crates/impress-remarkable",
     # impress-fs-lock - the advisory flock impress-ai and impress-settings
@@ -90,6 +94,15 @@ members = [
     "crates/impress-pane-query",
     # ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure
     "crates/impress-surface",
+    # W1 (plan-self-reflective-layer): the workflow spec (trigger + steps in
+    # the surface action vocabulary), its validator and its pure planner,
+    # reusing impress-surface's reduce rather than forking it. Pure.
+    "crates/impress-workflow",
+    # W1: the workflow verbs (validate/create/get/list/dry-run/enable/disable)
+    # over impress-core's `impress/workflow@1.0.0` rows.
+    "crates/impress-workflow-service",
+    # ADR-0035 D2: verb_surface(&VerbDescriptor) -> SurfaceSpec + catalogue(), pure (plan G4)
+    "crates/impress-verb-surface",
     "crates/impress-scenario",
     "crates/impress-scenario-service",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
@@ -224,15 +237,19 @@ imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
 imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
+imbib-semantic-service = { path = "crates/imbib-semantic-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-layout = { path = "crates/impress-layout" }
 impress-layout-service = { path = "crates/impress-layout-service" }
 impress-pane-query = { path = "crates/impress-pane-query" }
 impress-surface = { path = "crates/impress-surface" }
+impress-workflow = { path = "crates/impress-workflow" }
+impress-workflow-service = { path = "crates/impress-workflow-service" }
+impress-verb-surface = { path = "crates/impress-verb-surface" }
 impress-scenario = { path = "crates/impress-scenario" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
-impress-capabilities = { path = "crates/impress-capabilities" }
+impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
 impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
@@ -321,6 +338,11 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Bridges any remaining `log` caller (a dependency; G7a moved the workspace's
+# own `log`-facade crates onto `tracing`, D-P1) into whatever `tracing`
+# subscriber is installed — `impress-store-ffi`'s bridge layer calls
+# `LogTracer::init()`.
+tracing-log = "0.2"
 
 # Persona/config loading
 toml = "0.8"

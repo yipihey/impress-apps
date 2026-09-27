@@ -1,0 +1,27 @@
+{
+  "wire_version": 1,
+  "id": "throughline.opt_in_live",
+  "description": "Non-opted documents 404 with has_throughline=false over live HTTP",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "imprint_throughline-get",
+      "args": { "doc_id": "{{uuid}}" },
+      "as": "agent:scenario",
+      "expect": { "status": 404 },
+      "capture": { "doc": "$.doc_id" }
+    },
+    {
+      "call": "imprint_throughline-anchors-get",
+      "args": { "doc_id": "{{state.doc}}" },
+      "as": "agent:scenario",
+      "expect": { "status": 404 }
+    },
+    {
+      "call": "imprint_throughline-coverage-get",
+      "args": { "doc_id": "{{state.doc}}" },
+      "as": "agent:scenario",
+      "expect": { "status": 404 }
+    }
+  ]
+}

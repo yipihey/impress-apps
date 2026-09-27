@@ -1,0 +1,29 @@
+[package]
+name = "imbib-semantic-service"
+description = "The three legacy semantic-search MCP tools as a real #[impress_service] trait (P3c step 1): search-papers, get-paper-chunks, list-indexed-papers, deprecated under their old flat aliases. Behind the `semantic-search` feature (impress-capabilities) — NOT in `full` — because the fastembed/tokenizers embedding stack behind it stays out of the shared inventory that impress-cli and impel-tools link (impress-mcp/Cargo.toml records the original decision)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Mirrors the hand-written handlers this crate replaces
+# (crates/impress-mcp/src/tools.rs before P3c): `native` also turns on
+# store+index, named explicitly anyway — a dependency you use is one you
+# declare, not one you inherit by feature unification.
+imbib-core = { workspace = true, features = ["native"] }
+# `embedder` (fastembed) is enabled HERE, same as impress-mcp's own comment
+# explains: this is the one place in the suite that generates embeddings
+# rather than only reading them.
+impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+rusqlite = { workspace = true }
+dirs = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"
