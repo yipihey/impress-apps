@@ -4808,6 +4808,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-py"
+version = "0.1.0"
+dependencies = [
+ "impress-app-transport",
+ "impress-capabilities",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "pyo3",
+ "pythonize",
+ "serde_json",
+]
+
+[[package]]
 name = "impress-remarkable"
 version = "0.1.0"
 dependencies = [
@@ -7760,6 +7773,16 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "pythonize"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91a6ee7a084f913f98d70cdc3ebec07e852b735ae3059a1500db2661265da9ff"
+dependencies = [
+ "pyo3",
+ "serde",
 ]
 
 [[package]]

@@ -192,6 +192,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-pane-query` | kit-pure | covered-through | the pane-query algebra `layout-service` verbs take as arguments |
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
+| `impress-py` | library | internal | the P6 Python binding: `list_verbs()`/`call(verb, args)`; no capability of its own, it reaches a verb another crate already holds |
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
 | `impress-scenario` | library | covered-through | `impress-scenario-service` exposes validate/interpret over it |
 | `impress-scenario-service` | verb-crate | verb-crate | |
