@@ -38,8 +38,8 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 476 verbs declared; 81 verified by example, 93 by a Tier A
-catalogue, 302 on the exception table.
+Counts today: 476 verbs declared; 82 verified by example, 93 by a Tier A
+catalogue, 301 on the exception table.
 
 ## Every verb
 
@@ -310,7 +310,7 @@ catalogue, 302 on the exception table.
 | `impress-scenario-service_scenario-create` | "impress/scenario@1.0.0" | "impress/scenario@1.0.0" | — | example ×1 |
 | `impress-scenario-service_scenario-get` | "impress/scenario@1.0.0" | — | — | example ×1 |
 | `impress-scenario-service_scenario-list` | "impress/scenario@1.0.0" | — | — | example ×1 |
-| `impress-scenario-service_scenario-record` | "core/verb-call@1.0.0", "impress/scenario@1.0.0" | "impress/scenario@1.0.0" | — | — |
+| `impress-scenario-service_scenario-record` | "core/verb-call@1.0.0", "impress/scenario@1.0.0" | "impress/scenario@1.0.0" | — | example ×1 |
 | `impress-scenario-service_scenario-run` | "impress/scenario@1.0.0" | any("a scenario's steps may call any verb, including a mutating one") | network | — |
 | `impress-scenario-service_scenario-validate` | — | — | — | example ×1 |
 | `impress-surface-service_surface-create` | "impress/ui/surface@1.0.0" | "impress/ui/surface@1.0.0" | — | catalogue:surface |
@@ -752,7 +752,6 @@ when one lands).
 | `impress-bridges-service_resolve-artifact` | no example |
 | `impress-bridges-service_search-all` | no example |
 | `impress-bridges-service_sync-figure` | needs a running app |
-| `impress-scenario-service_scenario-record` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `impress-scenario-service_scenario-run` | leaves the process (network) |
 | `impress-workflow-service_workflow-disable` | no example |
 | `impress-workflow-service_workflow-dry-run` | no example |

@@ -82,10 +82,10 @@ Record one caller's trace or bounded time window as a stored Tier B scenario. On
 
 **Examples**
 
-- `empty-trace`:
+- `recorded-session`:
 
   ```json
-  {"trace_id":"scenario-record-empty-example"}
+  {"trace_id":"scenario-record-example"}
   ```
 
 ## `impress-scenario-service_scenario-run`
