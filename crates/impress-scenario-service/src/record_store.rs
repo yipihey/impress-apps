@@ -179,7 +179,9 @@ fn read_call(item: &Item) -> Result<(String, DateTime<Utc>, RecordedCall), Refus
                 .collect()
         })
         .unwrap_or_default();
-    let caller = if item.author == "human" || item.author.starts_with("app:") {
+    // Review-policy exemptions do not erase caller identity: an app token
+    // may act for the person, but the scenario vocabulary cannot name it.
+    let caller = if item.author == "human" {
         "person".into()
     } else {
         item.author.clone()
@@ -326,6 +328,24 @@ mod tests {
             .unwrap();
         assert_eq!(calls.len(), 2);
         assert!(calls.iter().all(|call| !call.args_replayable));
+    }
+
+    #[test]
+    fn app_calls_keep_their_identity_and_are_not_replayed_as_the_person() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        record(&store, CallerIdentity::App("impress".into()), payload());
+        let calls = Selection::new(Some("recording"), None, None, Some("app:impress"))
+            .unwrap()
+            .read(&store)
+            .unwrap();
+        assert_eq!(calls[0].caller, "app:impress");
+        let error =
+            crate::record::generate_scenario("app-recording".into(), "".into(), calls).unwrap_err();
+        let crate::record::RecordError::NoReplayableCalls { skipped } = error else {
+            panic!("expected the unsupported caller to be reported");
+        };
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].reason.contains("identity"));
     }
 
     #[test]
