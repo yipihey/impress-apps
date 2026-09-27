@@ -22,19 +22,26 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         let expectedRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("impress-unit-tests-\(pid)")
             .standardizedFileURL.resolvingSymlinksInPath()
-        XCTAssertTrue(ImpressRuntime.isUnitTestProcess && ImpressRuntime.isUITestingProcess)
-        XCTAssertEqual(root, expectedRoot)
-        XCTAssertEqual(SharedWorkspace.databaseURL.standardizedFileURL.resolvingSymlinksInPath(),
-                       root.appendingPathComponent("workspace/impress.sqlite"))
-        XCTAssertEqual(RustStoreAdapter.shared.databaseLocation, SharedWorkspace.databasePath)
-        XCTAssertEqual(UserDefaults.standard.integer(forKey: "httpAutomationPort"), Int(port))
-        XCTAssertTrue(env["IMPRESS_DEVICE_ID"]?.hasPrefix("codex-p5b-") == true)
+        try requireIsolation(ImpressRuntime.isUnitTestProcess && ImpressRuntime.isUITestingProcess,
+                             "Host must be a UI-testing XCTest process")
+        try requireIsolation(root == expectedRoot, "Host root must be PID-owned scratch")
+        try requireIsolation(
+            SharedWorkspace.databaseURL.standardizedFileURL.resolvingSymlinksInPath()
+                == root.appendingPathComponent("workspace/impress.sqlite"),
+            "Workspace database must be under the PID-owned root")
+        try requireIsolation(RustStoreAdapter.shared.databaseLocation == SharedWorkspace.databasePath,
+                             "Rust store must use the same scratch database")
+        try requireIsolation(UserDefaults.standard.integer(forKey: "httpAutomationPort") == Int(port),
+                             "HTTP port must be the proof port")
+        try requireIsolation(env["IMPRESS_DEVICE_ID"]?.hasPrefix("codex-p5b-") == true,
+                             "Device ID must be proof-owned")
         let tokenPath = LoopbackToken.path(port: port)
-        XCTAssertTrue(tokenPath.hasPrefix(root.path + "/"))
+        try requireIsolation(tokenPath.hasPrefix(root.path + "/"), "Token path must be scratch-owned")
 
         let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("fixtures/rg-volume.npz")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.path))
+        try requireIsolation(FileManager.default.fileExists(atPath: fixture.path),
+                             "Proof fixture must exist before sending native requests")
         var token: String?
         for _ in 0..<100 {
             token = try? String(contentsOfFile: tokenPath, encoding: .utf8)
@@ -76,6 +83,13 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         let bytes = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(pngValue["png_base64"] as? String)))
         XCTAssertEqual(Array(bytes.prefix(8)), [137, 80, 78, 71, 13, 10, 26, 10])
         XCTAssertEqual(pngValue["width"] as? Int, 4)
+    }
+
+    private func requireIsolation(_ condition: Bool, _ message: String) throws {
+        guard condition else {
+            throw NSError(domain: "ImpressP5bProofIsolation", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: message])
+        }
     }
 
     private func jsonStringValue(_ value: Any) -> [String: Any]? {

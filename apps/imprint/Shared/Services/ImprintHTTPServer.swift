@@ -84,6 +84,13 @@ public actor ImprintHTTPServer {
             return
         }
 
+        do {
+            try ImprintNativeVerbs.install()
+        } catch {
+            Logger.httpServer.errorCapture("Native verbs unavailable: \(error)", category: "http-server")
+            return
+        }
+
         let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.imprint.app")
 
         await server.start(configuration: configuration)
@@ -97,6 +104,12 @@ public actor ImprintHTTPServer {
 
     /// Restart the server (e.g., after port change).
     public func restart() async {
+        do {
+            try ImprintNativeVerbs.install()
+        } catch {
+            Logger.httpServer.errorCapture("Native verbs unavailable: \(error)", category: "http-server")
+            return
+        }
         let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.imprint.app")
 
         await server.restart(configuration: configuration)

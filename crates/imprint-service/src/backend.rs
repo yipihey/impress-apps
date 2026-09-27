@@ -14,6 +14,7 @@ use impress_service_core::BackendSlot;
 
 use crate::handlers::DefaultImprintHttpHandlers;
 use crate::manuscript_service::{DefaultImprintManuscriptService, ImprintManuscriptService};
+use crate::project_service::{DefaultImprintProjectService, ImprintProjectService};
 use crate::text_service::{DefaultImprintTextService, ImprintTextService};
 use crate::throughline::ThroughlineStore;
 use crate::throughline_service::{DefaultImprintThroughlineService, ImprintThroughlineService};
@@ -23,6 +24,11 @@ use crate::throughline_service::{DefaultImprintThroughlineService, ImprintThroug
 /// generated dispatch.
 pub trait ImprintBackend: Send + Sync + 'static {
     fn manuscript(&self) -> Arc<dyn ImprintManuscriptService>;
+    /// Project operations use the configured workspace when a native host is
+    /// installed; standalone callers retain the shared-store default.
+    fn project(&self) -> Arc<dyn ImprintProjectService> {
+        Arc::new(DefaultImprintProjectService::new())
+    }
     /// App-level capabilities (comments, content edits, PDF, logs).
     /// Defaulted to the refusing implementation so existing backends keep
     /// compiling; the HTTP backend overrides it.
@@ -119,6 +125,13 @@ pub fn manuscript_service_instance() -> Arc<dyn ImprintManuscriptService> {
     match BACKEND.get() {
         Some(b) => b.manuscript(),
         None => Arc::new(DefaultImprintManuscriptService::new(default_handlers())),
+    }
+}
+
+pub fn project_service_instance() -> Arc<dyn ImprintProjectService> {
+    match BACKEND.get() {
+        Some(b) => b.project(),
+        None => Arc::new(DefaultImprintProjectService::new()),
     }
 }
 

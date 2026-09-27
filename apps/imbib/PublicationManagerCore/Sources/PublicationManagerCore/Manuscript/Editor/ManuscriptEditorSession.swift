@@ -167,6 +167,22 @@ public final class ManuscriptEditorSession {
 
     // MARK: - Editing
 
+    /// Apply an automation edit to the same buffer used by the visible editor
+    /// and wait for its collaborative commit. Callers derive `body` from this
+    /// session's current source so a pending human edit is included.
+    /// The view still owns its undo stack; this operation shares the session's
+    /// merge and notification path with an ordinary editor save.
+    public func applyAutomationBody(_ body: String) async -> ManuscriptSaveResult {
+        saveTask?.cancel()
+        source = body
+        // Assigning source schedules a new debounce. This explicit commit
+        // takes its place, including when the source was already unchanged.
+        saveTask?.cancel()
+        saveTask = nil
+        cursorPosition = min(cursorPosition, (body as NSString).length)
+        return await saveCAS()
+    }
+
     /// Called on every buffer change: debounce a guarded save (200ms) and a
     /// format-specific compile.
     private func noteEdit() {

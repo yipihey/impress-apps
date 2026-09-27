@@ -125,14 +125,14 @@ pub trait ImprintAppService: Send + Sync + 'static {
     #[impress_method]
     async fn get_content(&self, document_id: String) -> Option<String>;
 
-    /// Insert text at a character offset in a manuscript. Goes through the
+    /// Insert text at a UTF-16 editor offset in a manuscript. Goes through the
     /// running app so the open editor, its undo stack and its source map stay
     /// in step. Prefer section-level writes when you are replacing a whole
     /// section — they are compare-and-set and cannot clobber a concurrent edit.
     #[impress_method]
     async fn insert_text(&self, document_id: String, offset: u32, text: String) -> bool;
 
-    /// Delete a character range from a manuscript. Offsets are into the source
+    /// Delete a UTF-16 editor range from a manuscript. Offsets are into the source
     /// text; read it first, since they shift with every edit.
     #[impress_method]
     async fn delete_text(&self, document_id: String, offset: u32, length: u32) -> bool;

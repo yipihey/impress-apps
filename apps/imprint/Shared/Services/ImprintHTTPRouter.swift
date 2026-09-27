@@ -82,6 +82,57 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     public init() {}
 
+    /// Native service callback entry. Keep the handler implementations after
+    /// P5b removes the mirrored REST routing arms below.
+    public func invokeNativeVerb(
+        method: String, id: String? = nil, request: HTTPRequest
+    ) async -> HTTPResponse {
+        switch method {
+        case "status": return await handleStatus()
+        case "get_logs":
+            return await SharedAutomationRoutes.route(request)
+                ?? .serverError("Log route unavailable")
+        case "create_document": return await handleCreateDocument(request)
+        case "update_document":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "update_metadata":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "get_content":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleGetDocumentContent(id: id)
+        case "insert_text":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "delete_text":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "replace":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "get_pdf":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleGetPDF(id: id)
+        case "get_bibliography":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleGetBibliography(id: id)
+        case "list_comments":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleListComments(docId: id, filter: nil, authorAgentId: nil)
+        case "create_comment":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleCreateComment(docId: id, request: request)
+        case "update_comment":
+            guard let id else { return .badRequest("Missing comment ID") }
+            return await handlePatchComment(id: id, request: request)
+        case "delete_comment":
+            guard let id else { return .badRequest("Missing comment ID") }
+            return await handleDeleteComment(id: id)
+        default: return .notFound("Unknown imprint native method")
+        }
+    }
+
     // MARK: - Routing
 
     /// Route a request to the appropriate handler.

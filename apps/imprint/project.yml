@@ -36,12 +36,18 @@ packages:
     path: Packages/ImprintCore
   ImprintRustCore:
     path: ImprintRustCore
+  ImprintVerbsFFI:
+    path: ImprintVerbsFFI
   ImpressTestKit:
     path: ../../packages/ImpressTestKit
   ImpressHelixCore:
     path: ../../packages/ImpressHelixCore
   ImpressAI:
     path: ../../packages/ImpressAI
+  ImpressChassis:
+    path: ../../packages/ImpressChassis
+  ImpressTheme:
+    path: ../../packages/ImpressTheme
   ImpressAutomation:
     path: ../../packages/ImpressAutomation
   ImpressKeyboard:
@@ -134,8 +140,11 @@ targets:
     dependencies:
       - package: ImprintCore
       - package: ImprintRustCore
+      - package: ImprintVerbsFFI
       - package: ImpressHelixCore
       - package: ImpressAI
+      - package: ImpressChassis
+      - package: ImpressTheme
       - package: ImpressAutomation
       - package: ImpressKeyboard
       - package: ImpressOperationQueue
@@ -241,9 +250,15 @@ targets:
     platform: macOS
     sources:
       - path: ../../tests/native/StrictArgumentsProofTests.swift
+      - path: ../../tests/native/TransportProofTests.swift
       - path: Tests
     dependencies:
       - target: imprint
+      - package: ImprintCore
+      - package: ImpressRustCore
+      - package: ImpressAutomation
+      - package: ImpressKit
+      - package: PublicationManagerCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.tests
@@ -298,6 +313,8 @@ targets:
       - package: ImprintRustCore
       - package: ImpressHelixCore
       - package: ImpressAI
+      - package: ImpressChassis
+      - package: ImpressTheme
       - package: ImpressAutomation
       - package: ImpressKeyboard
       - package: ImpressOperationQueue
