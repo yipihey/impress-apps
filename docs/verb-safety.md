@@ -221,6 +221,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_query-starred` | read_only | name/doc |
 | `imbib-library-service_query-unread` | read_only | name/doc |
 | `imbib-library-service_remove-from-collection` | mutating | name/doc |
+| `imbib-library-service_retention-cleanup` | destructive | name/doc |
 | `imbib-library-service_search-publications` | read_only | name/doc |
 | `imbib-library-service_set-flag` | mutating | name/doc |
 | `imbib-library-service_set-library-default` | mutating | name/doc |

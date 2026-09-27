@@ -46,6 +46,9 @@ pub struct VerbCallRecord {
     pub parent_call: Option<String>,
     /// The privacy-filtered argument summary.
     pub args: Value,
+    /// UUIDs of items created and deleted by this call's handler.
+    pub inserted_ids: Vec<String>,
+    pub deleted_ids: Vec<String>,
     pub ok: bool,
     pub code: Option<String>,
     pub message_len: usize,
@@ -74,6 +77,8 @@ impl VerbCallRecord {
         payload.insert("trace_id".into(), json!(self.trace_id));
         payload.insert("parent_call".into(), json!(self.parent_call));
         payload.insert("args".into(), self.args.clone());
+        payload.insert("inserted_ids".into(), json!(self.inserted_ids));
+        payload.insert("deleted_ids".into(), json!(self.deleted_ids));
         payload.insert("ok".into(), json!(self.ok));
         payload.insert("code".into(), json!(self.code));
         payload.insert("message_len".into(), json!(self.message_len));
@@ -321,6 +326,8 @@ mod tests {
             trace_id: "t".into(),
             parent_call: None,
             args: Value::Null,
+            inserted_ids: vec![],
+            deleted_ids: vec![],
             ok: true,
             code: None,
             message_len: 0,

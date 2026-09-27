@@ -2379,6 +2379,118 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   running workflow has no `task-event` progress ring of its own yet (its calls are each on the
   record in the call log, which is the row's actual acceptance bar).
 
+- 2026-09-27 — **W3 (first migration), WIP — stopped for budget, not blocked.** Worktree
+  `.claude/worktrees/w3-retention`, branch `claude/reflective-w3-retention`, from origin/main at
+  f5a29bb8. The retention verb: `imbib-library-service_retention-cleanup`
+  (`crates/imbib-service/src/library_service.rs`), `safety = destructive`, reading
+  `imbib.retention.{inbox_days,auto_remove_read,exploration_days}` from the settings registry (R1,
+  via a new `imbib_service::store_singleton::default_workspace_dir()` helper and a
+  `SettingsStore::open` beside it) rather than taking thresholds as arguments. Ports all three of
+  `RetentionCleanupService`'s sweeps (inbox, per-collection feeds, exploration searches), keeping
+  its two invariants structurally rather than by convention: every removed inbox/feed paper is
+  `dismiss_paper`'d before `delete_item` (never re-enters the inbox), and `delete_item` is a plain
+  store delete with no path to Swift's `UndoCoordinator` at all — the PH-H2 bug this file existed to
+  prevent cannot recur once the logic is in Rust. Narrowed one piece on purpose: exploration-library
+  identity (`explorationLibraryID`) is a `UserDefaults` pointer with no store row, so the verb only
+  sweeps exploration when a caller passes `exploration_library_id`; the stored workflow (below) has
+  no dynamic args and so covers inbox + feed only — left as follow-up (promote that id into the
+  store, table RG-S) rather than scope-creeping this package into owning it.
+
+  The stored workflow: `imbib.retention-cleanup` (`impress/workflow@1.0.0`), a `schedule` trigger
+  (`every: "24h"`) calling the verb, `guards.not_before_startup_s: 90`, `author.kind: "system"`,
+  seeded `state: Enabled` (not agent-proposed, so D-R6's review gate never applies) by
+  `impress-store-ffi::workflow::ensure_system_workflows_seeded`, run once — matched by `name`, so a
+  disabled or edited row is never overwritten — the first time `workflow_tick()` runs against a
+  workspace that lacks it. This is the one imbib-specific decision living in the shared kit crate
+  (`impress-store-ffi`); a second migrated service will want a less ad hoc seeding seam than "hardcode
+  it at the tick call site," left as an open question for W4.
+
+  Swift: `RetentionCleanupService.swift` deleted; `imbibApp.swift`'s ungated `cleanupExplorationCollectionsOnStartup`
+  (macOS `:580-631`) and its iOS twin deleted along with `LibraryManager.cleanupExplorationCollections`
+  (`:485-515`, WF-1 finding #7) — not ported, since unlike the real retention logic it ignored its
+  own `days` parameter beyond a zero check and deleted every exploration collection outright.
+  `InboxCoordinator.start` (`:97`) now calls `WorkflowTickTimer.shared.start()` (new file), which
+  waits its own 90s before the first `SharedStore.workflowTick()` call — belt-and-suspenders with the
+  engine's own `start_delay`, because the tick's first call also seeds the workflow row, a write this
+  app's startup-gate rule (CLAUDE.md) says must not happen at t=0 either. macOS-only, matching the
+  deleted service's own gate (iOS never ran it). `AutomaticWorkUndoTests.swift`'s retention tests
+  replaced: the undo-stack proof moved to Rust (it is now structural, not merely tested), and what's
+  left in Swift is the mapping shape — one caller (`InboxCoordinator.swift`, source-scanned), the
+  90s gate (source-scanned), never touching `UndoCoordinator`.
+
+  **Tests, all green:** Rust Tier A `library_service::tests::retention_cleanup_removes_read_inbox_papers_but_never_starred_ones`
+  (scratch store + scratch settings workspace, proves starred-never-removed and the dismiss-before-delete
+  order); a full end-to-end workflow test,
+  `crates/imbib-service/tests/w3_retention_workflow.rs::retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log`
+  (two connections to one on-disk store — `imbib_service::store_singleton` for the verb's own dispatch,
+  a raw `SqliteItemStore` for the engine and the call-log sink's `store_override` — proves no run
+  before 90s, exactly one run at 90s, the paper actually removed, and a `core/verb-call@1.0.0` row
+  naming the verb; and that a second tick inside the 24h window does not run again). `docs/verb-safety.md`
+  and `docs/verb-effects.md` updated by hand to the exact rows `crates/impress-capabilities/tests/{descriptor,effects}.rs`
+  printed on failure; `docs/verbs/` regenerated via `gen-verb-docs`. PMC `swift build` clean (the
+  Swift side compiles; `swift test` not yet run — see below).
+
+  **Gates run:** `cargo fmt -p imbib-service -p impress-store-ffi`; `cargo test -p imbib-service`
+  (19 lib tests + the workflow integration test, all green); `cargo test -p impress-capabilities
+  --test descriptor` and `--test effects` (green after the doc edits above). **Gates NOT yet run**
+  (stopped for budget, not because anything failed): `rust-gate.sh fmt`/`clippy rest`/`clippy imprint`
+  across the whole workspace; `cargo test` for the full touched-crate set (`impress-store-ffi`,
+  `impress-workflow`, `impress-workflow-service`); `check-verb-coverage.sh`, `check-schema-refs.sh`,
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-uniffi-bindings.sh` (no UniFFI
+  signature changed, so likely a no-op, but unconfirmed), `cargo hakari generate --diff` (three new
+  dev-dependencies were added to `imbib-service`: `impress-core`, `impress-workflow`,
+  `impress-workflow-service`, `impress-store-service`, `uuid`, `tempfile` — hakari needs a pass);
+  `swift test` in PublicationManagerCore; the imbib macOS/iOS app builds and the pre-push hook; the
+  live proof (xcodebuild + `/api/logs`); `docs/chassis-capability-matrix.md` was checked for a
+  RetentionCleanupService row and has none to update. Pushed as a WIP branch with a **draft** PR —
+  do not merge before a follow-up session finishes the gate list above.
+
+- 2026-09-27 — **W3 verified and submitted as [PR #121](https://github.com/yipihey/impress-apps/pull/121)**
+  after merging main at 633aeeef. Review found that the app had never linked the domain verb:
+  added the approved P5b imbib-owned `imbib-verbs-ffi` target and its Swift package/build-lane
+  provisioning. The kit still has no domain dependency. The GUI initializes the service at its
+  exact database path, and both store/settings singletons retain that path. Anchor the engine's
+  startup clock at store open, rather than imposing a second 90-second delay after Swift's gate;
+  run ticks off the main actor and stop the timer with the coordinator. Seed only when the host
+  links the retention verb, and never overwrite an existing workflow.
+
+  Retention review fixed feed scope (Contains members, not the entire owning library), preserved
+  the inbox's zero-days keep-forever setting, required dismissal to succeed before deletion,
+  counted only successful deletes, and kept exploration cleanup before feed cleanup. The automatic
+  workflow still covers inbox/feed; the existing explicit exploration-library argument remains
+  the follow-up described in the original entry.
+
+  The acceptance proof exposed a missing L1/L2 seam: call rows had no inserted/deleted IDs, despite
+  D-R7 relying on them. Added per-call task-local deduplicated capture at the store mutation seam,
+  wrote the two fields into the existing call schema, and taught `why` to include call-only
+  evidence (`operation_id: null`) without duplicating operation-backed calls. No new schema ref
+  or operation source. Nested/concurrent isolation and the actual retention-to-why path are tested.
+
+  Scratch launches now share one file-backed store for the workflow, domain verbs and settings;
+  shared preferences/notification payloads are isolated too. A live attempt found imbib ignoring
+  `-httpAutomationPort`; its legacy settings adapter now applies process-only overrides through
+  ImpressAutomation. The first attempt was stopped without fixture calls; the subsequent scratch
+  store mismatch was fixed and pinned by a Swift two-connection regression test.
+
+  **Gates green:** fmt; clippy rest + imprint; verb coverage and generated reference docs; strict
+  kit dependencies; standalone kit (21 crates); UniFFI (8 bindings); schema refs (401 sites,
+  85 refs); chassis dependencies; hakari generate --diff. Rust touched/workflow/capabilities tests:
+  1,063 passed, 0 failed. PMC: 2,159 XCTest (2 skipped), 112 Swift Testing, then the final 9-test
+  regression suite. ImpressKit: 13 + 30 tests; ImpressAutomation: 20 + 78. Store, imbib core and
+  imbib verbs xcframeworks rebuilt for arm64 macOS/iOS/simulator with swiftformat absent and no
+  `--fast`. Verb marker tables regenerated from the census/descriptor/effects dump with optional
+  semantic-search verbs linked. Both pushes passed the unmodified pre-push hook's macOS and iOS
+  builds; a scoped xcodebuild wrapper supplied only a worktree-owned derived-data path and disabled
+  installation, without skipping any check.
+
+  **Live proof:** own derived build, bundle `com.impress.imbib.w3proof`, port 23331, device
+  `w3-retention-proof`, PID 66655 and its PID-owned scratch workspace. All three papers remained
+  at 89.749 seconds; by 97.810 seconds the stale paper was gone while starred/fresh papers remained.
+  `history-service_why` named `System(workflow:d3d02d6b-df59-4f3e-a432-2f1b43925a9b)`;
+  `/api/logs?category=workflow` recorded the tick. `SHKSharingServicePicker` count: 0. Only that
+  launched PID was stopped. Evidence: `/tmp/impress-w3-live-proof.json` and
+  `/tmp/impress-w3-live-proof-run.log`. No launcher or real store was changed.
+
 - 2026-09-27 — **W4 (proposed workflows)** on a worktree of origin/main, branch
   `claude/reflective-w4-propose`. `history-service_propose-workflows {since?, min_repeats?,
   max_len?}` (mutating, `strict_args`, `effects(reads = ["core/verb-call@1.0.0"], writes =
@@ -2451,3 +2563,29 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `impress-workflow`, `impress-workflow-service`, and `impress-capabilities` with
   `impress-capabilities/semantic-search` enabled. W4 remains draft until W3 lands; main must be
   merged and these checks repeated after that integration.
+
+- 2026-09-27 — **W4 integrated W3 after PR #121 landed on main.** Fresh `origin/main`
+  (`35ea75fa`) merged into `claude/reflective-w4-propose` without rebasing. The
+  history service retained both W3's call-only `why` entries (`operation_id: null`,
+  affected-ID evidence and deduplication) and W4's proposal miner. Both W3 and W4
+  plan logs were preserved. The merged semantic-search census printed 473 verbs,
+  1,057 arguments and 947 scalar arguments; those exact totals replaced the
+  conflicting coverage table values. Reference pages were regenerated with the
+  existing default-feature `gen-verb-docs` lane.
+
+  The miner now logs its request (since, repeats and length), each saved proposal
+  (ID and counts), and the returned proposal count. A skipped group logs its verb
+  sequence and a named error category, without call argument values. This uses
+  the store service's existing `log` dependency. The proposal is still
+  `state: proposed` and cannot run until a person enables it.
+
+  Integration checks in private `target-w4-gates`: formatting, both clippy
+  shards, source verb coverage, strict kit dependencies, standalone kit (21
+  crates), UniFFI binding names (8), schema refs (403 sites, 85 refs), and
+  `cargo hakari generate --diff` passed. The merged touched crates
+  (`impress-store-service`, `impress-workflow`, `impress-workflow-service`,
+  `impress-capabilities`, `imbib-service`) passed with semantic-search enabled,
+  including W3 retention and `why` proofs plus W4 miner proofs. Focused history
+  tests passed after the final logging change. The generated-reference-docs
+  checker is run after committing, because it treats staged generated pages as
+  dirty even when they match the generator output.

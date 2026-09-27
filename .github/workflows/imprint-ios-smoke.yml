@@ -35,6 +35,8 @@ on:
       - 'apps/imprint/imprint-ShareExtension/**'
       - 'apps/imprint/Shared/**'
       - 'apps/imprint/project.yml'
+      - 'apps/imbib/ImbibVerbsFFI/**'
+      - 'crates/imbib-verbs-ffi/**'
       - '.github/workflows/imprint-ios-smoke.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -123,6 +125,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ScixClientCore.xcframework

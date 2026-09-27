@@ -20,6 +20,7 @@ let package = Package(
         .package(url: "https://github.com/mgriebling/SwiftMath", from: "1.7.0"),
         .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0"),
         .package(path: "../ImbibRustCore"),
+        .package(path: "../ImbibVerbsFFI"),
         // GUI-meld Phase 3: the Typst compile/edit stack moves into PMC.
         // ImprintCore is the Swift wrapper around the in-process Typst
         // renderer (transitively links ImprintRustCore + ImprintCore.xcframework);
@@ -69,6 +70,7 @@ let package = Package(
                 .product(name: "SwiftMath", package: "SwiftMath"),
                 .product(name: "HighlightSwift", package: "HighlightSwift"),
                 "ImbibRustCore",
+                "ImbibVerbsFFI",
                 .product(name: "ImprintCore", package: "ImprintCore"),
                 "ImpressSyntaxHighlight",
                 "ImpressRustCore",
@@ -121,6 +123,7 @@ let package = Package(
                 // implementation through the real FFI).
                 "ImpressSmartSearch",
                 "ImbibRustCore",
+                "ImbibVerbsFFI",
             ],
             resources: [
                 .copy("Fixtures")

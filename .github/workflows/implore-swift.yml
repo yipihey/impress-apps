@@ -12,11 +12,14 @@ on:
     branches: [main]
     paths:
       - 'apps/implore/**'
+      - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
       - 'packages/**'
       - 'crates/implore-core/**'
       - 'crates/impress-core/**'
       - 'crates/impress-helix/**'
       - 'crates/impress-store-ffi/**'
+      - 'crates/imbib-verbs-ffi/**'
       - 'crates/impress-ai/**'
       - '.github/workflows/implore-swift.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
@@ -156,6 +159,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: IMPRESS_SKIP_IOS=1
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: IMPRESS_SKIP_IOS=1
 
       # PMC -> ImprintCore -> imprint_coreFFI. implore is a macOS-only project,

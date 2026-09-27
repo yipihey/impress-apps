@@ -10,6 +10,7 @@
 
 import Foundation
 import ImbibRustCore
+import ImbibVerbsFFI
 import ImpressFTUI
 import ImpressKit
 import ImpressLogging
@@ -29,7 +30,7 @@ import OSLog
 public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Shared singleton instance.
-    /// When launched with `--ui-testing`, uses an in-memory store for deterministic tests.
+    /// When launched with `--ui-testing`, uses a per-process scratch store.
     ///
     /// `nonisolated` so it can be accessed from the `ImbibImpressStore`
     /// gateway actor without crossing into the main actor. The instance
@@ -38,7 +39,7 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// of the returned instance (e.g., `imbibStore`).
     public nonisolated(unsafe) static let shared: RustStoreAdapter = {
         do {
-            let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+            let isUITesting = ImpressRuntime.isUITestingProcess
             // Unit-test processes (swift test / xctest) must NEVER open the
             // production App Group database: (1) a test could write into the
             // user's real library; (2) opening the shared container from an
@@ -54,8 +55,10 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                 // same database `SharedStore`-based adapters open, which is
                 // production's topology and the only one worth testing.
                 UITestingEnvironment.prepareScratchDatabaseDirectory()
-                return try RustStoreAdapter(
+                let adapter = try RustStoreAdapter(
                     scratchPath: UITestingEnvironment.scratchDatabasePath)
+                try ImbibVerbsFFI.initializeVerbStore(path: UITestingEnvironment.scratchDatabasePath)
+                return adapter
             }
             if RustStoreAdapter.isUnitTestProcess {
                 return try RustStoreAdapter(inMemory: true)
@@ -79,6 +82,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             { try RustStoreAdapter() }
         ) {
         case .success(let adapter):
+            if let path = adapter.databaseLocation {
+                do {
+                    try ImbibVerbsFFI.initializeVerbStore(path: path)
+                } catch {
+                    Logger.library.errorCapture("Domain verb store initialization failed: \(error)", category: "workflow")
+                }
+            }
             return adapter
         case .failure(let error):
             Logger.library.errorCapture(
@@ -168,13 +178,6 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         if reviewStoreOpenAttempted { return nil }
         reviewStoreOpenAttempted = true
         do {
-            // Same production-store guard as `shared` (see isUnitTestProcess).
-            if Self.isUnitTestProcess
-                || ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-                let s = try ImpressRustCore.SharedStore.openInMemory()
-                self.reviewSharedStore = s
-                return s
-            }
             // The kernel handle already IS a SharedStore on the exact file
             // the review queue needs — reuse it instead of paying a third
             // full store open (schema init + reader pool) at first sidebar
@@ -183,6 +186,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             if let kernelStore {
                 self.reviewSharedStore = kernelStore
                 return kernelStore
+            }
+            // A scratch adapter has a file-backed kernel too. Only a test
+            // adapter without that handle needs an in-memory review store.
+            if Self.isUnitTestProcess || ImpressRuntime.isUITestingProcess {
+                let s = try ImpressRustCore.SharedStore.openInMemory()
+                self.reviewSharedStore = s
+                return s
             }
             try SharedWorkspace.ensureDirectoryExists()
             let path = SharedWorkspace.databaseURL.path
@@ -227,6 +237,10 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         return store
     }
 
+    /// Exact database used by this adapter, including isolated proof stores.
+    /// A domain verb host must never fall back to the default workspace.
+    public nonisolated let databaseLocation: String?
+
     // MARK: - Initialization
 
     private init() throws {
@@ -236,6 +250,7 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         let s = try ImbibStore.open(path: dbPath)
         self.store = s
         self.imbibStore = s
+        self.databaseLocation = dbPath
         self.kernelStore = Self.openKernelStore(at: dbPath)
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
         // Cross-process receive half: daemon writes (impel-taskd's tasks
@@ -254,6 +269,7 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         let s = try ImbibStore.open(path: scratchPath)
         self.store = s
         self.imbibStore = s
+        self.databaseLocation = scratchPath
         self.kernelStore = Self.openKernelStore(at: scratchPath)
     }
 
@@ -267,12 +283,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             // so there is no kernel handle to share here — collection reads
             // fall back to the legacy ImbibStore path, which is also the
             // pre-flip behaviour the in-memory tests were written against.
+            self.databaseLocation = nil
             self.kernelStore = nil
         } else {
             let dbPath = Self.databasePath()
             let s = try ImbibStore.open(path: dbPath)
             self.store = s
             self.imbibStore = s
+            self.databaseLocation = dbPath
             self.kernelStore = Self.openKernelStore(at: dbPath)
         }
     }

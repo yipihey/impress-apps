@@ -137,7 +137,7 @@ Every call, as a tree built from `parent_call`, for one trace id — a surface c
 
 ## `history-service_why`
 
-Why an item is the way it is: every operation that wrote it, newest first, each joined to the call that wrote it (its caller, the time, the requested verb, and the surface it came from when the call context carried one).
+Why an item is the way it is: operations and direct insert/delete calls naming its id, newest first. A direct write has no operation row, so its entry has `operation_id: null` and `batch_id` is its call id. Each entry carries the caller and surface when recorded.
 
 - **safety**: `read_only`, idempotent
 - **reads**: any("history reads any kind's operations and every call row")

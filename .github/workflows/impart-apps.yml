@@ -17,10 +17,11 @@ on:
       # changes what this lane compiles without touching apps/impart.
       - 'apps/imbib/PublicationManagerCore/**'
       - 'apps/imbib/ImbibRustCore/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
       - 'apps/imprint/Packages/ImprintCore/**'
       - 'apps/imprint/ImprintRustCore/**'
       - 'packages/**'
-      # All of crates/, not a list. The five frameworks below reach 32 crate
+      # All of crates/, not a list. The frameworks below reach many crate
       # directories between them (their --all-features path closure, the same
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
@@ -45,10 +46,11 @@ on:
       # changes what this lane compiles without touching apps/impart.
       - 'apps/imbib/PublicationManagerCore/**'
       - 'apps/imbib/ImbibRustCore/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
       - 'apps/imprint/Packages/ImprintCore/**'
       - 'apps/imprint/ImprintRustCore/**'
       - 'packages/**'
-      # All of crates/, not a list. The five frameworks below reach 32 crate
+      # All of crates/, not a list. The frameworks below reach many crate
       # directories between them (their --all-features path closure, the same
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
@@ -131,7 +133,7 @@ jobs:
         run: brew install xcodegen
 
       # impart links PublicationManagerCore on both platforms, and PMC drags in
-      # four Rust cores on top of impart's own ImpressRustCore. Every one is a
+      # sibling Rust cores on top of impart's own ImpressRustCore. Every one is a
       # gitignored local binaryTarget, and package resolution walks the whole
       # graph before building anything, so ONE missing artifact fails the lane
       # at "Could not resolve package dependencies" — which is how this lane
@@ -149,6 +151,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ScixClientCore.xcframework

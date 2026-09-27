@@ -86,9 +86,6 @@ struct imbibApp: App {
             LibraryFilesMigrationRunner.start()
         }
 
-        // Capture libraryManager for use in Task (can't capture self in struct)
-        let capturedLibraryManager = libraryManager
-
         // Phased startup, mirroring macOS scheduleBackgroundInit: the previous
         // single sequential Task ran FTS-rebuild + two source registrations +
         // enrichment + inbox (with a store MUTATION via getOrCreateInbox) +
@@ -172,7 +169,13 @@ struct imbibApp: App {
 
             await autoPopulateSearchIndexesOnStartup()
 
-            await cleanupExplorationCollectionsOnStartup(libraryManager: capturedLibraryManager)
+            // Exploration/inbox/feed retention is now the stored
+            // `imbib.retention-cleanup` workflow (plan W3, D-R10) — macOS's
+            // `InboxCoordinator.start` runs the timer that ticks it; iOS
+            // never ran `InboxCoordinator`'s own retention path either (the
+            // Swift service this replaces was macOS-only) and this call site
+            // — the `LibraryManager.cleanupExplorationCollections` duplicate,
+            // WF-1 finding #7 — is deleted rather than ported.
         }
 
         // ADR-0023 W2 — watched folders. NOT inside the 90-second block above:
@@ -450,21 +453,6 @@ private func updateAppBadge(_ count: Int) {
         if let error = error {
             appLogger.error("Failed to set badge: \(error.localizedDescription)")
         }
-    }
-}
-
-// MARK: - Exploration Cleanup
-
-/// Cleanup old exploration collections based on user's retention setting.
-private func cleanupExplorationCollectionsOnStartup(libraryManager: LibraryManager) async {
-    let retention = SyncedSettingsStore.shared.explorationRetention
-    // Only cleanup if retention is time-based (not forever or sessionOnly)
-    // sessionOnly is handled when going to background, forever keeps everything
-    if let days = retention.days, days > 0 {
-        await MainActor.run {
-            libraryManager.cleanupExplorationCollections(olderThanDays: days)
-        }
-        appLogger.info("Exploration cleanup: retention=\(retention.rawValue)")
     }
 }
 

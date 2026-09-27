@@ -40,7 +40,7 @@ prints the row as it should now read.
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 0 | 0 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 0 | 0 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 0 | 0 |
-| `imbib-library-service` | imbib-service | 44 | 44 | 81 (62) | 0 | 0 |
+| `imbib-library-service` | imbib-service | 45 | 45 | 82 (62) | 0 | 0 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 0 | 0 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 0 | 0 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 0 | 0 |
@@ -53,7 +53,9 @@ prints the row as it should now read.
 | `implore-service` | implore-service | 20 | 20 | 26 (13) | 8 | 0 |
 | `impress-ai-service` | impress-ai-service | 16 | 16 | 25 (19) | 0 | 0 |
 | `impress-bridges-service` | impress-bridges-service | 18 | 18 | 30 (29) | 0 | 0 |
+| `impress-scenario-service` | impress-scenario-service | 5 | 5 | 7 (4) | 7 | 5 |
 | `impress-surface-service` | impress-surface-service | 15 | 15 | 33 (18) | 16 | 15 |
+| `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
 | `imprint-app-service` | imprint-service | 15 | 15 | 29 (22) | 0 | 0 |
 | `imprint-manuscript-service` | imprint-service | 17 | 17 | 34 (34) | 0 | 0 |
 | `imprint-project-service` | imprint-service | 30 | 30 | 97 (47) | 0 | 0 |
@@ -66,7 +68,6 @@ prints the row as it should now read.
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 0 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
 | `perf-service` | perf-service | 2 | 2 | 2 (1) | 0 | 2 |
-| `impress-scenario-service` | impress-scenario-service | 5 | 5 | 7 (4) | 7 | 5 |
 | `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
@@ -75,8 +76,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
-| **Total** | 21 crates, 45 services | **472** | **472** | **1056 (702)** | **122** | **78** |
+| **Total** | 21 crates, 45 services | **473** | **473** | **1057 (702)** | **122** | **78** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -100,7 +100,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 946 |
+| `scalar` | 947 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -162,6 +162,7 @@ and the implore owner decides between verbs and deletion.
 | `implore-selection` | library | internal | `parser::parse_selection` and `Evaluator::{evaluate, selected_indices}` have zero callers in the workspace (C-2); the implore owner decides between a verb and deletion |
 | `implore-service` | verb-crate | verb-crate | |
 | `implore-service-http` | service-http | internal | the HTTP adapter of `implore-service`; no capability of its own |
+| `imbib-verbs-ffi` | ffi | internal | imbib per-app dispatch and exact-store initialization (P5b prerequisite for W3); no independent capability |
 | `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `implore-stats` | library | should-be-verb | `Ecdf::{from_data, quantile, five_number_summary}`, `SummaryStats::{from_data, zscore, robust_zscore, winsorize}` have no verb and zero callers (C-2) |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |

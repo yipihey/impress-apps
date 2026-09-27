@@ -35,6 +35,23 @@ fn check_ok(s: &OkStatus) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 impl ImbibClient {
+    /// W3 uses the generated route; no second Swift retention implementation.
+    pub async fn retention_cleanup(
+        &self,
+        exploration_library_id: Option<String>,
+    ) -> Result<imbib_service::library_service::RetentionCleanupReport> {
+        let response = self
+            .http
+            .post(
+                self.base_url
+                    .join("/api/verb/imbib-library-service_retention-cleanup")?,
+            )
+            .json(&json!({"exploration_library_id": exploration_library_id}))
+            .send()
+            .await?;
+        decode_envelope(response).await
+    }
+
     pub async fn list_libraries(&self) -> Result<Vec<LibraryRecord>> {
         #[derive(Deserialize)]
         struct R {

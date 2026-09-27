@@ -87,6 +87,25 @@ public struct AutomationServerSettings: Sendable, Equatable {
             networkBindAddress: defaults.string(forKey: Keys.networkBindAddress)
         )
     }
+
+    /// Apply process-only overrides to an app's legacy settings record.
+    /// Saved values stay in that record; a proof's port never persists.
+    public func applyingLaunchOverrides(
+        from defaults: UserDefaults = .standard
+    ) -> AutomationServerSettings {
+        let arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        var result = self
+        if arguments[Keys.port] != nil {
+            result.port = Self.load(from: defaults, defaultPort: port).port
+        }
+        if arguments[Keys.enabled] != nil {
+            result.httpEnabled = defaults.bool(forKey: Keys.enabled)
+        }
+        if arguments[Keys.logRequests] != nil {
+            result.logRequests = defaults.bool(forKey: Keys.logRequests)
+        }
+        return result
+    }
 }
 
 extension HTTPServerConfiguration {

@@ -106,6 +106,19 @@ runs:
               "apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift"
             )
             ;;
+          imbib-verbs-ffi)
+            CACHE=(
+              "$F/ImbibVerbsFfi.xcframework"
+              "$F/bindings"
+              "apps/imbib/ImbibVerbsFFI/frameworks/ImbibVerbsFfi.xcframework"
+              "apps/imbib/ImbibVerbsFFI/Sources/ImbibVerbsFFI/imbib_verbs_ffi.swift"
+            )
+            REQUIRED=(
+              "$F/ImbibVerbsFfi.xcframework"
+              "apps/imbib/ImbibVerbsFFI/frameworks/ImbibVerbsFfi.xcframework"
+              "apps/imbib/ImbibVerbsFFI/Sources/ImbibVerbsFFI/imbib_verbs_ffi.swift"
+            )
+            ;;
           impart-core)
             CACHE=(
               "$F/ImpartCore.xcframework"

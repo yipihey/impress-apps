@@ -11,8 +11,12 @@ imbib-core = { workspace = true, features = ["native"] }
 impress-tags = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
+# retention-cleanup reads its thresholds from the settings registry (R1)
+# rather than taking them as arguments.
+impress-settings = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tracing = { workspace = true }
 async-trait = { workspace = true }
 # The proc macro emits `derive(schemars::JsonSchema)` which needs schemars
 # resolvable as a top-level crate at the call site, not just via re-export.
@@ -27,3 +31,19 @@ impress-workspace-hack.workspace = true
 [dev-dependencies]
 # The service trait is async; its tests need a runtime to drive it.
 tokio = { workspace = true }
+# retention_cleanup's Tier A test isolates a scratch settings workspace.
+tempfile = "3.10"
+# The W3 workflow integration test drives the real trigger engine end to
+# end (schedule -> start_delay -> the retention_cleanup verb -> the call
+# log), over a second connection to the same on-disk store `imbib-core`
+# opens — the `sync_outbox_facade.rs` dual-handle pattern. Dev-only: these
+# never become a normal-build dependency of this crate.
+impress-core = { workspace = true, features = ["sqlite"] }
+impress-workflow = { workspace = true }
+impress-workflow-service = { workspace = true }
+# Linking this installs the pipeline's call-log sink (its `Installer` is an
+# `inventory` submission — see `impress-store-service::audit`), so the
+# workflow's `retention_cleanup` call actually lands a `core/verb-call@1.0.0`
+# row for the test to read back.
+impress-store-service = { workspace = true }
+uuid = { workspace = true }

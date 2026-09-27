@@ -866,6 +866,7 @@ impl SharedStore {
     #[cfg_attr(feature = "native", uniffi::constructor)]
     pub fn open(path: String) -> Result<Arc<Self>, SharedStoreError> {
         force_link_kit();
+        workflow::start();
         let store =
             SqliteItemStore::open(Path::new(&path)).map_err(|e| SharedStoreError::Storage {
                 message: e.to_string(),
@@ -888,6 +889,14 @@ impl SharedStore {
         // the first wins and that is the right answer.
         let store = Arc::new(store);
         let installed = impress_store_service::install_store(store.clone()).is_ok();
+        if installed {
+            // File-backed services must share the GUI's workspace even if
+            // their first call arrives before Swift opens SharedSettings.
+            let _ = impress_store_service::set_store_path(&path);
+            if let Some(workspace) = Path::new(&path).parent() {
+                let _ = impress_store_service::set_settings_workspace(workspace);
+            }
+        }
         Ok(Arc::new(SharedStore {
             layout_sessions: layout_sessions_for(installed),
             surface_sessions: surface_sessions_for(installed),
