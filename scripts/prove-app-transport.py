@@ -12,6 +12,7 @@ from pathlib import Path
 import plistlib
 import socket
 import subprocess
+import sys
 import tempfile
 import uuid
 
@@ -78,6 +79,12 @@ def main():
             "DEAD_CODE_STRIPPING=YES",
             "PRODUCT_BUNDLE_IDENTIFIER=com.impress.p5bproof." + args.app,
         ], cwd=repo, env=env, log=proof / "build.log")
+    # Check the exact app to be hosted, including its nested test plugin and
+    # frameworks, on both fresh-build and --skip-build paths. A bundled SQLite
+    # definition must never be launched alongside another SQLite copy.
+    app_bundle = derived / "Build/Products/Debug" / (args.app + ".app")
+    run([sys.executable, str(repo / "scripts/check-native-sqlite.py"), str(app_bundle)],
+        cwd=repo, env=env, log=proof / "build.log")
     if args.build_only:
         print("Build-only complete; no app was launched.", flush=True)
         return
