@@ -217,6 +217,9 @@ fn prepare(
         policy::Decision::Run => {}
         policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
         policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
+        // D-R11: a destructive verb whose declared writes overlap another
+        // call's still in flight on the same kind.
+        policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
     }
 
     // 5. span.

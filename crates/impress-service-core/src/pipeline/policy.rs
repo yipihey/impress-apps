@@ -24,12 +24,14 @@
 //! answers `review-pending` naming that no queue is installed; the verb still
 //! does not run, which is the safe direction.
 
-use std::sync::{Arc, OnceLock, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use super::identity::CallerIdentity;
-use crate::descriptor::{SafetyClass, VerbDescriptor};
+use crate::descriptor::{Kind, SafetyClass, VerbDescriptor};
 use crate::refusal::Refusal;
 
 /// The generic refusal code for a call the policy queued.
@@ -43,6 +45,119 @@ pub enum Decision {
     Run,
     Review,
     Deny(String),
+    /// D-R11: a destructive verb whose declared write set overlaps another
+    /// call's, still in flight on the same kind. `String` is the conflicting
+    /// kind.
+    Conflict(String),
+}
+
+// ---------------------------------------------------------------------------
+// D-R11: concurrent-write conflict detection
+// ---------------------------------------------------------------------------
+//
+// "Two concurrent calls whose declared write sets overlap: a destructive
+// overlap is refused (`conflict`); a mutating overlap is logged."
+// (plan-self-reflective-layer.md's E3 row, D-R11).
+//
+// This is an IN-FLIGHT SET KEYED BY KIND, entirely local to this file (kept
+// out of `pipeline/mod.rs`'s `prepare`/`finish` — the audit/call-context
+// machinery L1 owns concurrently) — which means it has no hook at the exact
+// moment a call finishes to release its kinds. Instead an entry expires
+// after [`IN_FLIGHT_TTL`]: long enough to see two calls that actually
+// overlap in time (the Tier A proof below fires them back to back with no
+// `await` between), short enough that a slow verb does not poison the kind
+// for calls that start long after it returned. A precise release (a guard
+// dropped when the call's `finish()` runs) is the natural next step once
+// this lives beside that code; noted here rather than reached for across a
+// module boundary this plan keeps separate.
+const IN_FLIGHT_TTL: Duration = Duration::from_secs(5);
+
+struct InFlight {
+    entries: Mutex<HashMap<String, Instant>>,
+}
+
+impl InFlight {
+    fn new() -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Instant>> {
+        self.entries.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Drop every entry older than the TTL.
+    fn sweep(&self, now: Instant) {
+        self.lock().retain(|_, at| now.duration_since(*at) < IN_FLIGHT_TTL);
+    }
+
+    /// Kinds of `writes` already in flight, before recording `writes` as
+    /// in-flight too (every kind, present or not, is (re)stamped `now`).
+    fn overlap_and_record(&self, writes: &[&str], now: Instant) -> Vec<String> {
+        let mut table = self.lock();
+        let overlap: Vec<String> = writes
+            .iter()
+            .filter(|k| table.contains_key(**k))
+            .map(|k| k.to_string())
+            .collect();
+        for k in writes {
+            table.insert(k.to_string(), now);
+        }
+        overlap
+    }
+}
+
+static IN_FLIGHT: LazyLock<InFlight> = LazyLock::new(InFlight::new);
+
+/// The literal (`Kind::Ref`) kinds `verb` declares among its writes — the
+/// same "dynamic declarations are this static walk's blind spot, not its
+/// problem to solve" reasoning `impress-surface-service::runtime`'s
+/// `verb_declared_read_refs` gives for reads (E3).
+fn literal_write_kinds(verb: &VerbDescriptor) -> Vec<&'static str> {
+    verb.effects
+        .writes
+        .iter()
+        .filter_map(|k| match k {
+            Kind::Ref(r) => Some(*r),
+            _ => None,
+        })
+        .collect()
+}
+
+/// D-R11's check, run for every call whose safety class is not read-only
+/// (read-only verbs write nothing to conflict over). A destructive verb
+/// whose declared writes overlap another call's in-flight writes is refused
+/// `conflict`; a mutating verb's overlap is logged (`tracing::warn!`) and
+/// still runs — the row's "refused / logged" split, by class.
+fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
+    if verb.safety.class == SafetyClass::ReadOnly {
+        return None;
+    }
+    let writes = literal_write_kinds(verb);
+    if writes.is_empty() {
+        return None;
+    }
+    let now = Instant::now();
+    IN_FLIGHT.sweep(now);
+    let overlap = IN_FLIGHT.overlap_and_record(&writes, now);
+    if overlap.is_empty() {
+        return None;
+    }
+    match verb.safety.class {
+        SafetyClass::Destructive | SafetyClass::External => {
+            Some(Decision::Conflict(overlap.join(", ")))
+        }
+        _ => {
+            tracing::warn!(
+                target: "verb",
+                verb = verb.name,
+                kinds = %overlap.join(", "),
+                "mutating call overlaps another in-flight call's declared writes (D-R11)"
+            );
+            None
+        }
+    }
 }
 
 /// A policy is a pure function of the caller and the descriptor.
@@ -134,9 +249,13 @@ fn from_env() -> Option<Arc<dyn Policy>> {
         .clone()
 }
 
-/// Decide for one call: the installed policy, else the environment's, else
-/// run.
+/// Decide for one call: D-R11's conflict check first (every caller, not
+/// just agents — a resource conflict is not a review policy), then the
+/// installed policy, else the environment's, else run.
 pub fn decide(caller: &CallerIdentity, verb: &VerbDescriptor) -> Decision {
+    if let Some(conflict) = check_conflict(verb) {
+        return conflict;
+    }
     let installed = POLICY.read().ok().and_then(|p| p.clone());
     match installed.or_else(from_env) {
         Some(policy) => policy.decide(caller, verb),
@@ -182,6 +301,16 @@ pub fn deny(verb: &VerbDescriptor, reason: String) -> Value {
     crate::strict::refusal_value(&Refusal::new(FORBIDDEN, format!("{}: {reason}", verb.name)))
 }
 
+/// The answer for a call refused over D-R11: a destructive verb whose
+/// declared writes overlap another call's in-flight writes on `kinds`.
+pub fn conflict(verb: &VerbDescriptor, kinds: String) -> Value {
+    crate::strict::refusal_value(&Refusal::conflict(format!(
+        "{} is destructive and its declared writes ({kinds}) overlap another call still in \
+         flight on the same kind (D-R11)",
+        verb.name
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,6 +337,36 @@ mod tests {
             },
             since: "0.1.0",
             effects: crate::Effects::NONE,
+            deprecated: None,
+            aliases: &[],
+            examples: &[],
+            strict: false,
+            source: Source::Linked,
+            handler,
+        }
+    }
+
+    /// A verb declaring `writes` (as `Kind::Ref`s), for D-R11's tests. Every
+    /// call passes a distinct `name`/kind: [`IN_FLIGHT`] is one process-wide
+    /// static, and `cargo test` runs these in parallel threads.
+    fn verb_writing(name: &'static str, class: SafetyClass, writes: &'static [Kind]) -> VerbDescriptor {
+        VerbDescriptor {
+            name,
+            service: "t-service",
+            method: "x",
+            description: "d",
+            input_schema: schema,
+            output_schema: schema,
+            safety: Safety {
+                class,
+                idempotent: false,
+            },
+            since: "0.1.0",
+            effects: crate::descriptor::Effects {
+                reads: &[],
+                writes,
+                reach: &[],
+            },
             deprecated: None,
             aliases: &[],
             examples: &[],
@@ -271,5 +430,51 @@ mod tests {
         assert_eq!(answer["code"], REVIEW_PENDING);
         assert_eq!(answer["verb"], "t-service_x");
         assert_eq!(answer["wire_version"], crate::wire::WIRE_VERSION);
+    }
+
+    // ─── D-R11: concurrent-write conflict detection ───────────────────────
+
+    #[test]
+    fn two_destructive_calls_with_overlapping_writes_conflict() {
+        const WRITES: &[Kind] = &[Kind::Ref("d-r11-test/destructive-overlap")];
+        let a = verb_writing("d-r11_a1", SafetyClass::Destructive, WRITES);
+        let b = verb_writing("d-r11_a2", SafetyClass::Destructive, WRITES);
+        let agent = CallerIdentity::agent("mcp");
+        assert_eq!(decide(&agent, &a), Decision::Run, "the first call runs");
+        assert_eq!(
+            decide(&agent, &b),
+            Decision::Conflict("d-r11-test/destructive-overlap".to_string()),
+            "the second, overlapping, destructive call is refused"
+        );
+    }
+
+    #[test]
+    fn a_mutating_overlap_is_not_refused() {
+        const WRITES: &[Kind] = &[Kind::Ref("d-r11-test/mutating-overlap")];
+        let a = verb_writing("d-r11_b1", SafetyClass::Mutating, WRITES);
+        let b = verb_writing("d-r11_b2", SafetyClass::Mutating, WRITES);
+        let agent = CallerIdentity::agent("mcp");
+        assert_eq!(decide(&agent, &a), Decision::Run);
+        assert_eq!(
+            decide(&agent, &b),
+            Decision::Run,
+            "a mutating overlap is logged, not refused"
+        );
+    }
+
+    #[test]
+    fn disjoint_write_sets_never_conflict() {
+        const WRITES_A: &[Kind] = &[Kind::Ref("d-r11-test/disjoint-a")];
+        const WRITES_B: &[Kind] = &[Kind::Ref("d-r11-test/disjoint-b")];
+        let a = verb_writing("d-r11_c1", SafetyClass::Destructive, WRITES_A);
+        let b = verb_writing("d-r11_c2", SafetyClass::Destructive, WRITES_B);
+        let agent = CallerIdentity::agent("mcp");
+        assert_eq!(decide(&agent, &a), Decision::Run);
+        assert_eq!(decide(&agent, &b), Decision::Run);
+    }
+
+    #[test]
+    fn a_read_only_verb_never_conflicts() {
+        assert_eq!(check_conflict(&verb(SafetyClass::ReadOnly)), None);
     }
 }
