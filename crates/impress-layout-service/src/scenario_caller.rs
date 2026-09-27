@@ -37,6 +37,10 @@
 //! `impress_layout::Verb`'s `#[serde(tag = "verb", rename_all =
 //! "kebab-case")]` already expects. Nothing using `gesture` (which already
 //! carried its own `"verb"` field) changes.
+//!
+//! P5a's `POST /api/verb/<name>` now carries every other `call` step. The
+//! route decides caller identity from its own transport; a scenario's `as`
+//! label never travels in the request body.
 
 use std::time::Duration;
 
@@ -140,7 +144,7 @@ async fn read(path: &str, response: reqwest::Response) -> Result<(u16, Value), S
 pub struct TierBCaller {
     http: LoopbackClient,
     /// A very small effects proxy: every kind this caller wrote via a
-    /// `layout-service_*`/`surface-service_*` call it recognized, by name.
+    /// layout/surface call it recognized, by name.
     /// Tier B has no store to re-query, so this is the only signal
     /// available without H-P5-1's generic route naming its own effects.
     wrote: std::collections::BTreeSet<String>,
@@ -158,9 +162,9 @@ impl TierBCaller {
 /// Which `impress/ui/*` kind a recognized verb writes, for the effects
 /// proxy above.
 fn kind_for(verb: &str) -> Option<&'static str> {
-    if verb.starts_with("layout-service_") {
+    if verb.starts_with("layout-service_") || verb.starts_with("impress-layout-service_") {
         Some("impress/ui/layout@1.0.0")
-    } else if verb.starts_with("surface-service_") {
+    } else if verb.starts_with("surface-service_") || verb.starts_with("impress-surface-service_") {
         Some("impress/ui/surface@1.0.0")
     } else {
         None
@@ -378,11 +382,21 @@ impl Caller for TierBCaller {
                 }
             }
             other => {
-                return Err(format!(
-                    "`{other}` cannot be called over Tier B yet — no generic verb route until \
-                     H-P5-1 (P5) lands; only layout-service_*/surface-service_* verbs this \
-                     dispatch table names are supported"
-                ));
+                // P5a's generic route accepts the verb's own argument object
+                // and returns its pipeline result unchanged, including a
+                // refusal body and HTTP status. The scenario's `as` label is
+                // never sent as caller identity: the app's transport owns it.
+                if !other
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                {
+                    return Err(format!("invalid verb name `{other}` for /api/verb"));
+                }
+                let (status, value) = self.http.post(&format!("/api/verb/{other}"), &args).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
             }
         };
         if let Some(kind) = kind_for(verb) {
@@ -516,4 +530,120 @@ pub async fn run_embedded(
         }
     };
     impress_scenario::run(&scenario, caller).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    fn mock_once(
+        status: u16,
+        response: Value,
+    ) -> (String, std::thread::JoinHandle<(String, Value)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("owned loopback port");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let thread = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("one request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            let header_end = loop {
+                let mut chunk = [0u8; 1024];
+                let n = stream.read(&mut chunk).expect("request bytes");
+                assert!(n > 0, "request ended before headers");
+                bytes.extend_from_slice(&chunk[..n]);
+                if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let headers = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+            let content_len: usize = headers
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':').and_then(|(name, value)| {
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse().unwrap())
+                    })
+                })
+                .expect("JSON content length");
+            while bytes.len() - header_end < content_len {
+                let mut chunk = [0u8; 1024];
+                let n = stream.read(&mut chunk).expect("request body");
+                assert!(n > 0, "request ended before body");
+                bytes.extend_from_slice(&chunk[..n]);
+            }
+            let body =
+                serde_json::from_slice(&bytes[header_end..header_end + content_len]).unwrap();
+            let wire = response.to_string();
+            write!(
+                stream,
+                "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{wire}",
+                wire.len()
+            )
+            .unwrap();
+            (headers.lines().next().unwrap().to_string(), body)
+        });
+        (base, thread)
+    }
+
+    #[tokio::test]
+    async fn generic_verb_route_preserves_raw_refusal_and_transport_identity() {
+        let refusal = json!({"ok": false, "code": "not-found", "wire_version": 1});
+        let (base, mock) = mock_once(404, refusal.clone());
+        let mut caller = TierBCaller::new(&base);
+        let outcome = caller
+            .call(
+                "imbib-triage-service_set-starred",
+                json!({"id": "paper-1", "starred": true}),
+                "person",
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.status, Some(404));
+        assert_eq!(outcome.result, refusal);
+        let (request, body) = mock.join().unwrap();
+        assert_eq!(
+            request,
+            "POST /api/verb/imbib-triage-service_set-starred HTTP/1.1"
+        );
+        assert_eq!(body, json!({"id": "paper-1", "starred": true}));
+    }
+
+    #[tokio::test]
+    async fn generic_verb_name_cannot_escape_the_route() {
+        let mut caller = TierBCaller::new("http://127.0.0.1:1");
+        let error = caller
+            .call("../api/status", json!({}), "person")
+            .await
+            .unwrap_err();
+        assert!(error.contains("invalid verb name"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn canonical_surface_verb_uses_generic_route_and_keeps_effect_proxy() {
+        let (base, mock) = mock_once(200, json!({"ok": true, "wire_version": 1}));
+        let mut caller = TierBCaller::new(&base);
+        let args =
+            json!({"id": "surface-1", "event": {"widget": "go", "kind": "click", "value": null}});
+        let outcome = caller
+            .call(
+                "impress-surface-service_surface-dispatch",
+                args.clone(),
+                "person",
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.status, Some(200));
+        assert_eq!(outcome.result["ok"], true);
+        assert!(caller.wrote("impress/ui/surface@1.0.0"));
+        let (request, body) = mock.join().unwrap();
+        assert_eq!(
+            request,
+            "POST /api/verb/impress-surface-service_surface-dispatch HTTP/1.1"
+        );
+        assert_eq!(body, args);
+    }
 }

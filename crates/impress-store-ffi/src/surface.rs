@@ -72,8 +72,10 @@ use impress_core::schemas::{SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout_service::resolve_device;
+use impress_service_core::descriptor::VerbDescriptor;
+use impress_service_core::pipeline::{self, Call, CallerIdentity, PipelineError};
 use impress_service_core::refusal::codes;
-use impress_service_core::Refusal;
+use impress_service_core::{BoxError, Refusal};
 use impress_surface_service::runtime::actor_name;
 use impress_surface_service::store::actor_from;
 
@@ -669,9 +671,12 @@ impl SharedSurface {
     ) -> Result<String> {
         let core = self.core.clone();
         let actor = actor_from(Some(actor.as_str()));
-        off_caller(async move { core.dispatch(&surface_id, pane, &event_json, actor).await })
-            .await
-            .map_err(SharedSurfaceError::surface)?
+        off_caller(async move {
+            core.dispatch_audited(&surface_id, pane, &event_json, actor)
+                .await
+        })
+        .await
+        .map_err(SharedSurfaceError::surface)?
     }
 
     // ------------------------------------------------------------ the http surface
@@ -825,6 +830,52 @@ impl SurfaceCore {
             revisions,
             wire_version: impress_service_core::wire::WIRE_VERSION,
         })
+    }
+
+    /// The native pane's dispatch enters the same pipeline as the service
+    /// and HTTP paths. Keep this inside `off_caller`: Tokio task locals do
+    /// not cross its spawn boundary, and linked effects need this call as
+    /// their parent while the existing runtime performs the dispatch.
+    async fn dispatch_audited(
+        &self,
+        surface_id: &str,
+        pane: Option<u64>,
+        event_json: &str,
+        actor: ActorKind,
+    ) -> Result<String> {
+        parse_surface_id(surface_id)?;
+        let event: Event = serde_json::from_str(event_json).map_err(SharedSurfaceError::json)?;
+        let descriptor = VerbDescriptor::find("impress-surface-service_surface-dispatch")
+            .ok_or_else(|| SharedSurfaceError::internal("surface-dispatch verb is not linked"))?;
+        let caller = match actor {
+            ActorKind::Human => CallerIdentity::Person,
+            ActorKind::Agent => CallerIdentity::agent("surface-ffi"),
+            ActorKind::System => CallerIdentity::system("surface-ffi"),
+        };
+        let args = serde_json::json!({
+            "id": surface_id,
+            "event": event,
+            "host": self.host,
+            "params": null,
+        });
+        let mut call = Call::new(caller, args);
+        call.store = Some(self.store.clone());
+        let answer = pipeline::invoke_with(descriptor, call, |_| async move {
+            let raw = self
+                .dispatch(surface_id, pane, event_json, actor)
+                .await
+                .map_err(|e| Box::new(e) as BoxError)?;
+            serde_json::from_str(&raw).map_err(|e| Box::new(e) as BoxError)
+        })
+        .await;
+        match answer {
+            Ok(value) => serde_json::to_string(&value).map_err(SharedSurfaceError::json),
+            Err(PipelineError::Handler(error)) => match error.downcast::<SharedSurfaceError>() {
+                Ok(error) => Err(*error),
+                Err(error) => Err(SharedSurfaceError::internal(error)),
+            },
+            Err(error) => Err(SharedSurfaceError::internal(error)),
+        }
     }
 
     async fn dispatch(
@@ -2211,6 +2262,75 @@ mod tests {
             .map(|e| e["actor"].as_str().unwrap())
             .collect();
         assert_eq!(actors, vec!["human", "agent"], "{}", events.body);
+    }
+
+    #[test]
+    fn native_dispatch_audits_full_event_and_links_a_linked_effect() {
+        use impress_core::query::ItemQuery;
+
+        let (store, surface) = open();
+        let spec: SurfaceSpec = serde_json::from_value(serde_json::json!({
+            "surface": "1.0",
+            "name": "Native audit fixture",
+            "state": {},
+            "root": {"column": [{
+                "button": {"label": "Create", "on_click": [{
+                    "call": {
+                        "verb": "collection-service_create",
+                        "args": {
+                            "binding": "generic",
+                            "name": "audit-child",
+                            "parent_id": null,
+                            "kind_scope": "any"
+                        }
+                    }
+                }]},
+                "id": "go"
+            }]}
+        }))
+        .unwrap();
+        let id = create(&store, &spec);
+        let result = surface
+            .dispatch_now(id.clone(), None, CLICK.into())
+            .expect("native dispatch");
+        let result: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["ok"], true, "{result}");
+
+        impress_store_service::audit::flush();
+        let rows = store
+            .core()
+            .query(&ItemQuery {
+                schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let parent = rows
+            .iter()
+            .find(|row| {
+                row.payload.get("verb")
+                    == Some(&ItemValue::String(
+                        "impress-surface-service_surface-dispatch".into(),
+                    ))
+            })
+            .expect("native surface call row");
+        assert_eq!(parent.author, "human");
+        assert_eq!(parent.author_kind, ActorKind::Human);
+        let parent_payload = serde_json::to_value(&parent.payload).unwrap();
+        assert_eq!(parent_payload["args"]["id"], id);
+        assert_eq!(parent_payload["args"]["event"]["widget"], "go");
+        assert_eq!(parent_payload["args"]["event"]["kind"], "click");
+        assert_eq!(parent_payload["args"]["params"], serde_json::Value::Null);
+
+        let child = rows
+            .iter()
+            .find(|row| {
+                row.payload.get("verb")
+                    == Some(&ItemValue::String("collection-service_create".into()))
+            })
+            .expect("linked effect call row");
+        let child_payload = serde_json::to_value(&child.payload).unwrap();
+        assert_eq!(child_payload["parent_call"], parent.id.to_string());
+        assert_eq!(child_payload["trace_id"], parent_payload["trace_id"]);
     }
 
     #[test]
