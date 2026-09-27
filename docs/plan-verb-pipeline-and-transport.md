@@ -1139,3 +1139,85 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   green; `check-verb-coverage.sh`, `check-verb-docs.sh` (no diff — no linked verb uses the new fields yet),
   `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`
   and `cargo hakari generate --diff` all clean.
+- 2026-09-27 — **P3c step 1: `imbib-semantic-service` given real lifecycle** (branch
+  `claude/pipeline-p3c-semantic-search`, from main at 6a464881, which carries P3a #101). Tom's decision on
+  ADR-0024 D7's other half, taken up after the P3a session log reported the reverted spike: a
+  `semantic-search` feature beside `full` in `impress-capabilities`, so the three legacy tools get a real
+  `#[impress_service]` trait without joining the shared inventory `impress-cli` and `impel-tools` link.
+  New crate `crates/imbib-semantic-service` (workspace member, `imbib-semantic-service` workspace-deps
+  alias): one trait `ImbibSemanticService` with `search_papers`, `get_paper_chunks`, `list_indexed_papers`
+  — arguments and logic copied from `crates/impress-mcp/src/tools.rs` (deleted) and `store.rs` (deleted,
+  copied verbatim as `imbib-semantic-service::store`). Each method's canonical name is the kebab form
+  (`search-papers`, `get-paper-chunks`, `list-indexed-papers`); each declares
+  `aliases = ["search_papers"]` (etc., the old flat snake_case name) and `deprecated(since = "0.1.0", note
+  = "use <canonical>")`, `safety = read_only`, and an `effects(reads = [any(...)])` — `any(...)` rather than
+  a schema ref, because the embeddings sidecar is a separate SQLite file with no `schema_ref` in
+  `schema-refs.json`. Each method returns a JSON **object** (`{"ok", "results"|"chunks"|"papers"}` or
+  `{"ok": false, "message"}`), not a bare array or string: P3a's additive `deprecated` envelope field only
+  attaches to object results (`apply_deprecation_notice`), and a scalar/array return would silently drop it
+  for exactly the alias calls this step exists to keep answering correctly. State (the lazily-built
+  embedding stack and the shared-store connection) lives in `SemanticState`, mirroring the original
+  `ToolContext` but `Send + Sync` throughout (`#[impress_service]` requires it): `OnceLock` for the
+  embedding stack, a `Mutex<Option<Connection>>` for the main store (`rusqlite::Connection` is `Send` but
+  not `Sync`), reached through a closure (`with_main_store`) rather than a returned reference so no borrow
+  can outlive the lock guard.
+
+  `impress-capabilities`'s new `semantic-search` feature (`imbib-semantic-service = { optional = true }`,
+  force-linked in `lib.rs` behind `#[cfg(feature = "semantic-search")]`) is **not** part of `full` and not
+  part of `impress-capabilities-kit` (this is a domain-service force-link, not the ADR-0033 D7 standalone
+  kit slice). Only `impress-mcp` enables it (`features = ["full", "semantic-search"]`); `impress-cli` and
+  `impel-tools` build unchanged. `impress-mcp`'s own `imbib-core`/`impress-embeddings` direct dependencies
+  and its `store.rs`/`tools.rs` are gone — it now reaches the three verbs the same way it reaches every
+  other `#[impress_service]` verb, through `inventory_bridge`; `render_pdf_page` is the one tool that stays
+  hand-written (it answers with rasterised image bytes ahead of any dispatch decision, which the additive
+  `deprecated` field cannot reach). `--embeddings-path` is retired: the service picks its own default via
+  `SemanticState::default_embeddings_path`, matching the CLI's previous default; `--store-path` is
+  unchanged.
+
+  **Proof** (both required by the task spec, run from a clean `CARGO_TARGET_DIR=$PWD/target-p3c`):
+  ```
+  $ cargo tree -p impress-cli -e normal -i fastembed
+  fastembed v4.9.1
+  └── impress-embeddings v0.1.0 (…)
+      └── imbib-core v0.1.0 (…)
+          └── impress-memory-service v0.1.0 (…)
+              └── impress-cli v0.1.0 (…)
+  ```
+  This is **not** a regression from this step: `impress-cli`'s own `Cargo.toml` already enables
+  `impress-memory-service` with `features = ["vector-embedder"]` (its comment: "`impress-capabilities`'s
+  `memory` feature deliberately does NOT enable `vector-embedder` … so this binary enables it itself to
+  keep the vector tier it always had") — a pre-existing, independent decision that also enables
+  `impress-embeddings/embedder`. `cargo tree -p impress-cli -e normal -i imbib-semantic-service` confirms
+  the new crate itself is not reachable at all (`error: package ID specification did not match any
+  packages`), which is the actual claim this step makes: P3c added no new fastembed edge to `impress-cli`.
+  ```
+  $ cargo tree -p impress-mcp -e normal -i fastembed
+  fastembed v4.9.1
+  └── impress-embeddings v0.1.0 (…)
+      ├── imbib-core v0.1.0 (…) [multiple paths, incl. via imbib-semantic-service]
+      ├── imbib-semantic-service v0.1.0 (…)
+      │   └── impress-capabilities v0.1.0 (…)
+      │       └── impress-mcp v0.1.0 (…)
+      └── impress-memory-service v0.1.0 (…)
+          └── impress-mcp v0.1.0 (…)
+  ```
+  (Full outputs are in the PR description / session transcript.)
+
+  **Proof test**: `impress-mcp`'s `server::tests::search_papers_alias_reaches_the_inventory_verb_with_a_deprecated_notice`
+  drives `tools/call` end to end with `"name": "search_papers"` and asserts `structuredContent.deprecated ==
+  {"since": "0.1.0", "use": "imbib-semantic-service_search-papers", "note": "…"}` — the alias reaches the
+  canonical inventory verb and carries the additive notice; a direct call to `imbib-semantic-service_search-papers`
+  would not.
+
+  **Not done, as specified**: `scripts/check-verb-coverage.sh` fails, exactly as anticipated —
+  ```
+  FAIL: workspace member imbib-semantic-service has no verdict in docs/verb-coverage.md
+  FAIL: service ImbibSemanticService (imbib-semantic-service) has an impress_service_impl! block but no row in docs/verb-coverage.md (run the census test's dump for the row)
+  ```
+  Left for P3c step 2, along with `crates/impress-capabilities/tests/census.rs` and
+  `docs/verb-coverage.md`/`verb-safety.md`/`verb-effects.md`, none of which were touched.
+
+  Gates: `rust-gate.sh fmt`, `clippy rest`, `clippy imprint` all clean; `cargo test -p imbib-semantic-service
+  -p impress-mcp -p impress-service-core -p impress-cli` all green (8 + 40 + 7 + 78 + doctests passed,
+  0 failed); `check-kit-deps.sh --strict`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`, and `cargo
+  hakari generate --diff` all clean (`cargo hakari manage-deps` reported no operations to perform).

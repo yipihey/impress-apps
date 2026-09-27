@@ -7,9 +7,6 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
 use crate::inventory_bridge::{call_inventory_tool, inventory_tool_definitions, is_inventory_tool};
-use crate::tools::{
-    tool_get_paper_chunks, tool_list_indexed_papers, tool_search_papers, ToolContext,
-};
 // Trait import needed for method-call syntax on `DefaultMemoryService` in
 // `memory_brief_markdown` below — same requirement the codegen macro itself
 // has (`impress-service-macros`' expansion comment: "Requires the trait to
@@ -17,7 +14,7 @@ use crate::tools::{
 use impress_memory_service::MemoryService;
 
 /// Run the MCP server, reading JSON-RPC requests from stdin and writing responses to stdout.
-pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let stdout = io::stdout();
 
@@ -60,7 +57,7 @@ pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
             // them as a liveness probe at any time.
             "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
             "tools/list" => handle_tools_list(&id),
-            "tools/call" => handle_tool_call(&ctx, &id, &request),
+            "tools/call" => handle_tool_call(&id, &request),
             "resources/list" => handle_resources_list(&id),
             "resources/read" => handle_resources_read(&id, &request),
             _ => json!({
@@ -589,54 +586,15 @@ pub fn total_tool_count() -> usize {
 }
 
 fn legacy_tool_definitions() -> Value {
+    // P3c step 1: the three semantic-search tools (search_papers,
+    // get_paper_chunks, list_indexed_papers) moved to `imbib-semantic-service`
+    // — a real `#[impress_service]` trait, reached through the inventory path
+    // below like every other generated tool, deprecated under these exact
+    // names as aliases. `render_pdf_page` is the one tool that stays
+    // hand-written here (see its own doc comment): it answers with rasterised
+    // image bytes ahead of any dispatch decision, which the additive
+    // `deprecated` envelope field cannot reach.
     json!([
-        {
-            "name": "search_papers",
-            "description": "Semantic search across all indexed PDFs in the local library. Finds relevant passages by meaning, not just keywords. Returns publications with matching text excerpts, page numbers, and similarity scores.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language search query (e.g. 'stellar feedback mechanisms', 'dark matter halo profiles')"
-                    },
-                    "top_k": {
-                        "type": "integer",
-                        "description": "Maximum number of publications to return (default: 10)",
-                        "default": 10
-                    }
-                },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "get_paper_chunks",
-            "description": "Get all text chunks for a specific publication. Use this for full-context RAG after finding a paper via search_papers. Chunks are ordered by position in the document.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "publication_id": {
-                        "type": "string",
-                        "description": "Publication UUID (from search_papers results)"
-                    }
-                },
-                "required": ["publication_id"]
-            }
-        },
-        {
-            "name": "list_indexed_papers",
-            "description": "List all publications that have been chunk-indexed for semantic search. Shows title, authors, year, and chunk count for each paper.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of publications to return (default: 50)",
-                        "default": 50
-                    }
-                }
-            }
-        },
         {
             "name": "render_pdf_page",
             "description": "Render one page of a PDF on disk to a PNG and return it as an image, so it can actually be SEEN in the conversation. MCP carries raster images, not PDFs, which is why a compiled manuscript otherwise arrives as a path and a byte count. Feed it the path from imprint-manuscript-service_compile-typst (works with every app closed), imbib-manuscripts-service_compile-manuscript, or imprint-app-service_get-pdf. Pages are 1-based and clamped to the document.",
@@ -664,7 +622,7 @@ fn legacy_tool_definitions() -> Value {
     ])
 }
 
-fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
+fn handle_tool_call(id: &Value, request: &Value) -> Value {
     let tool_name = request["params"]["name"].as_str().unwrap_or("");
     let args = &request["params"]["arguments"];
 
@@ -681,19 +639,14 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
         };
     }
 
-    // Try legacy hand-written tools first.
-    let legacy_result: Option<Result<String, String>> = match tool_name {
-        // Rasterisation answers with image content, so it returns early
-        // rather than going through the text wrapper below.
-        "search_papers" => Some(tool_search_papers(ctx, args)),
-        "get_paper_chunks" => Some(tool_get_paper_chunks(ctx, args)),
-        "list_indexed_papers" => Some(tool_list_indexed_papers(ctx, args)),
-        _ => None,
-    };
-
-    if let Some(result) = legacy_result {
-        return wrap_text_result(id, result);
-    }
+    // P3c step 1: `search_papers`/`get_paper_chunks`/`list_indexed_papers`
+    // are no longer hand-written here — they are `imbib-semantic-service`'s
+    // canonical `search-papers`/`get-paper-chunks`/`list-indexed-papers`
+    // verbs, and these flat names are now just `aliases` those verbs declare.
+    // `impress_capabilities::find`/`call_as` (via `is_inventory_tool`/
+    // `call_inventory_tool` below) resolve an alias exactly like a canonical
+    // name — see P3a's `resolve_aliases` — so they fall straight through to
+    // the inventory branch with no dedicated match arm.
 
     // A gated tool called anyway (a stale client list, or a guess) gets a
     // clear error rather than an empty success — the pipeline's
@@ -919,33 +872,32 @@ mod tests {
 
     #[test]
     fn test_legacy_tool_definitions_count() {
-        // Four hand-written tools: the three semantic-search ones, plus
-        // render_pdf_page. Everything else in the server is generated from
-        // #[impress_service]; this number should only ever grow for something
+        // One hand-written tool: render_pdf_page. P3c step 1 moved the three
+        // semantic-search tools to `imbib-semantic-service`'s
+        // `#[impress_service]` inventory (reached through their old flat
+        // names as aliases); this number should only ever grow for something
         // that is a property of the TRANSPORT rather than of an app.
         let tools = legacy_tool_definitions();
         assert!(tools.is_array());
-        assert_eq!(tools.as_array().unwrap().len(), 4);
+        assert_eq!(tools.as_array().unwrap().len(), 1);
     }
 
     #[test]
     fn test_tool_definitions_includes_legacy_and_inventory() {
-        // Combined list is legacy (3) + every `#[impress_service]` method.
+        // Combined list is legacy (1) + every `#[impress_service]` method.
         // imbib-service contributes 5 ImbibTextService methods at minimum.
-        // Pinned flat: the grouped projection deliberately folds most of these
-        // behind domain tools (ADR-0024), and what this test is about is that
-        // the inventory reaches the listing at all.
         let tools = tool_definitions_in(crate::surface::Projection::Flat);
         let arr = tools.as_array().expect("tools is array");
         assert!(
-            arr.len() >= 3 + 5,
+            arr.len() > 5,
             "expected legacy + inventory tools; got {}",
             arr.len()
         );
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        for legacy in ["search_papers", "get_paper_chunks", "list_indexed_papers"] {
-            assert!(names.contains(&legacy), "missing legacy {legacy}");
-        }
+        assert!(
+            names.contains(&"render_pdf_page"),
+            "missing render_pdf_page"
+        );
         for inventory in [
             "imbib-text-service_decode-latex",
             "imbib-text-service_expand-journal-macro",
@@ -969,28 +921,21 @@ mod tests {
         let tools = tool_definitions_in(crate::surface::Projection::Flat);
         let tools = tools.as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(
-            &names[..3],
-            &["search_papers", "get_paper_chunks", "list_indexed_papers"]
-        );
+        assert_eq!(&names[..1], &["render_pdf_page"]);
     }
 
-    /// The grouped projection leads with the root tool, then keeps the legacy
-    /// three flat. They are pre-codegen and unclassifiable (ADR-0024 D7), so
-    /// folding them away would drop them entirely rather than group them.
+    /// The grouped projection leads with the root tool, then keeps the one
+    /// remaining legacy tool flat: it is pre-codegen and unclassifiable
+    /// (ADR-0024 D7), so folding it away would drop it entirely rather than
+    /// group it.
     #[test]
     fn grouped_leads_with_the_root_tool_and_keeps_legacy_flat() {
         let tools = tool_definitions_in(crate::surface::Projection::Grouped);
         let tools = tools.as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
-            &names[..4],
-            &[
-                crate::surface::CAPABILITIES_TOOL,
-                "search_papers",
-                "get_paper_chunks",
-                "list_indexed_papers"
-            ]
+            &names[..2],
+            &[crate::surface::CAPABILITIES_TOOL, "render_pdf_page"]
         );
         assert!(
             names.len()
@@ -1004,14 +949,6 @@ mod tests {
 
     #[test]
     fn test_handle_tool_call_dispatches_inventory_tool() {
-        // We can exercise the inventory branch without touching the
-        // (mandatory) ToolContext by going through `handle_tool_call`
-        // with a stub: the legacy tools won't be invoked because the
-        // name routes into the inventory match. Pass a deliberately
-        // empty ToolContext-equivalent by constructing the request and
-        // bypassing the legacy arm — but `handle_tool_call` takes
-        // `&ToolContext` by reference, so we can't avoid creating one
-        // here. Instead, drive the inventory bridge directly.
         use crate::inventory_bridge::call_inventory_tool;
         let out = call_inventory_tool(
             "imbib-text-service_decode-latex",
@@ -1019,5 +956,44 @@ mod tests {
         )
         .expect("inventory tool returns Ok");
         assert_eq!(out.as_str(), Some("Café"));
+    }
+
+    /// P3c step 1: calling the old flat `search_papers` name through the
+    /// full `tools/call` path reaches `imbib-semantic-service`'s
+    /// `search-papers` verb via its alias, and the result carries the
+    /// additive `deprecated` envelope object naming the canonical verb
+    /// (P3a's `alias_deprecation_notice`) — proof that a live client asking
+    /// for the retired name still gets an answer, not `Unknown tool`.
+    #[test]
+    fn search_papers_alias_reaches_the_inventory_verb_with_a_deprecated_notice() {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "search_papers",
+                "arguments": { "query": "anything", "top_k": 1 }
+            }
+        });
+        let response = handle_tool_call(&json!(1), &request);
+        assert!(
+            response["result"].is_object(),
+            "expected a result, got {response}"
+        );
+        let structured = &response["result"]["structuredContent"];
+        let deprecated = &structured["deprecated"];
+        assert!(
+            deprecated.is_object(),
+            "expected a deprecated notice on the aliased call: {structured}"
+        );
+        assert_eq!(deprecated["since"], "0.1.0");
+        assert_eq!(deprecated["use"], "imbib-semantic-service_search-papers");
+        assert!(
+            deprecated["note"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("search-papers"),
+            "{deprecated}"
+        );
     }
 }
