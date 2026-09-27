@@ -19,6 +19,7 @@ pub mod manuscript_section;
 pub mod manuscript_submission;
 pub mod memory;
 pub mod plot_spec;
+pub mod scenario;
 pub mod settings;
 pub mod source;
 pub mod task;
@@ -62,6 +63,7 @@ pub use memory::{
     MEMORY_INSTRUCTION_SCHEMA,
 };
 pub use plot_spec::register_plot_spec_schema;
+pub use scenario::{register_scenario_schema, SCENARIO_SCHEMA_REF};
 pub use settings::{register_settings_schema, settings_schema, SETTINGS_SCHEMA_REF};
 pub use source::{
     register_source_schemas, CONTENT_CHUNK_SCHEMA, EXTRACTION_RUN_SCHEMA, FIGURE_REGION_SCHEMA,
@@ -153,6 +155,10 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // call, joined to the operations it wrote by `batch_id`. Depends on
     // nothing — the join is a batch key, not an edge.
     register_verb_call_schema(registry);
+    // Stored scenarios (S1, § Scenarios): depends on nothing — a scenario's
+    // whole shape is owned by crates/impress-scenario, not a structural field
+    // here.
+    register_scenario_schema(registry);
 }
 
 #[cfg(test)]

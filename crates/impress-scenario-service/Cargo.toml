@@ -1,0 +1,37 @@
+[package]
+name = "impress-scenario-service"
+description = "docs/plan-self-reflective-layer.md S1: the scenario verbs, `impress/scenario@1.0.0` records, and the Tier A/B runners"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+impress-scenario = { workspace = true }
+impress-surface = { workspace = true }
+impress-layout-service = { workspace = true }
+impress-store-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+impress-service-core = { workspace = true, features = ["cli"] }
+# force-linked by tests/proof_scenarios.rs so `surface.http.routes`'s verb
+# resolves — this crate's own production code never depends on
+# impress-surface-service.
+impress-surface-service = { workspace = true }
+
+[[test]]
+name = "main"
+path = "tests/main.rs"

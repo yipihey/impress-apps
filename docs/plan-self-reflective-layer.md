@@ -1913,3 +1913,70 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `impress/workflow@1.0.0` properly in `impress-core` and builds the runtime that actually executes
   one (`save-macro` only writes the document); wiring `history-service_health` into an app's
   `/api/health` HTTP route, same as L1 left it.
+- 2026-09-26 — **S1 (scenario crate and runner)** on a worktree of main at ad9a0796, branch
+  `claude/reflective-s1-scenario`. New pure crate `impress-scenario`: the spec
+  (`Scenario`/`Requires`/`SeedRecord`/`Step` — `Call`/`Event`/`Gesture`/`Wait`, untagged so the
+  wire shape reads exactly as the plan's example — `Expect`'s closed set, `ExpectEffects`), a
+  structural `validate` (unmet capture references, empty step lists), and the interpreter
+  (`run`/`Caller`), templated with `impress_surface::template`'s `Context`/`resolve_value` reused
+  with captures standing in for the `state` root, extended with a `{{uuid}}` text pre-pass (SC-1).
+  New store-tier crate `impress-scenario-service`: `scenario-service_{validate, create, get, list,
+  run}`, `impress/scenario@1.0.0` registered (`impress-core/src/schemas/scenario.rs`,
+  schema-refs.json canonical + registries, approved per the plan). `TierACaller` opens a fresh
+  in-memory store per scenario and runs every `call` through
+  `impress_service_core::pipeline::invoke_on` (H-P2-3, confirmed already landed on this branch's
+  base) — `crates/impress-capabilities/tests/pipeline.rs`'s
+  `every_handler_call_site_is_the_pipeline` covers it, since it enumerates every
+  `descriptor.handler` call site in the tree. `TierBCaller` lifts
+  `impress-layout-service/src/tier_b.rs`'s `Http` helper into
+  `impress_scenario_service::LoopbackClient` (SC-2's shared client) with the loopback token from
+  `impress_core::loopback_token`; `gesture`/`event`/`wait.log` reach real routes
+  (`/api/layout/verb`, `/api/surface/{id}/dispatch`, `/api/logs`), but a `call` step's verb name
+  reaches only a small dispatch table (`layout-service_*`/`surface-service_*`) until H-P5-1
+  (`POST /api/verb/<name>`, P5, still queued) lands — named as a limitation in both the crate's
+  and `docs/agent-surfaces.md`'s module docs, not hidden.
+
+  **The proof:** `layout.apply_preset`, `layout.saved_round_trip` and `layout.wire_contract`
+  (from `impress-layout-service`'s Tier B catalogue) and `surface.http.routes` (from
+  `impress-surface-service`'s, simplified to its read-only half for a headless run) run as
+  scenarios in Tier A, through the real pipeline, in
+  `crates/impress-scenario-service/tests/proof_scenarios.rs`. The three existing `run_selftest`
+  verbs (`imprint-selftest`, `layout-selftest-service`, `surface-selftest-service`) are untouched —
+  converting every catalogue entry is S2's row, not this one's.
+
+  Linked into `impress-capabilities` behind a new `scenario` feature (in `full`); `scenario_run`
+  is `safety = external` (its steps may call any verb, including a mutating one, and a Tier B run
+  leaves the process); `scenario_validate`/`create`/`get` gained `#[impress_example]`s so only
+  `scenario_run` needed the exception table (`EXCEPTION_CEILING` 277 → 278, documented in
+  `crates/impress-capabilities/tests/effects.rs` beside the plan citation). `docs/agent-surfaces.md`
+  gained a Scenarios section (spec, the two `Caller`s and their honest limitations, the verb
+  list); `docs/verb-coverage.md`, `verb-safety.md`, `verb-effects.md` rows added by hand from the
+  census/effects tests' own dump, then `docs/verbs/` regenerated (picking up two pre-existing,
+  unrelated drifts in `imbib-eink-service`/`imprint-project-service` nobody had regenerated since
+  plan E2b's spy fix). `impress-scenario`/`impress-scenario-service` are NOT added to
+  `docs/kit-manifest.md`'s crate table — that table is specifically the layout+surface kit
+  (ADR-0033 D7), and neither new crate is part of it; `impress-scenario` still follows the same
+  pure-tier discipline by construction (no `impress-core`, no workspace crate outside
+  `impress-surface`/`impress-service-core`), so `check-kit-deps.sh`/`check-kit-standalone.sh` pass
+  unchanged.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-s1`): fmt clean; `clippy rest` and `clippy imprint`
+  clean; `cargo test -p impress-scenario -p impress-scenario-service -p impress-layout-service -p
+  impress-surface-service -p imprint-selftest -p impress-capabilities -p impress-core` all green
+  (804 tests across the seven crates, 0 failed), including
+  `every_handler_call_site_is_the_pipeline`; `check-verb-coverage.sh`, `check-schema-refs.sh`,
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh --strict`, `check-uniffi-bindings.sh`,
+  `check-verb-docs.sh` all OK; `cargo hakari manage-deps`/`generate` reported no changes needed
+  (both new crates already listed `impress-workspace-hack.workspace = true`). `--all-features`
+  on the wide `cargo test` invocation fails outside S1's scope: `imprint-core`'s native PDF
+  backend (`tectonic_bridge_icu`) needs a system `icu-uc` pkg-config file this machine does not
+  have; the gate above uses default features, as the row's own list of crates does not ask for
+  `--all-features`.
+
+  **Not done here, left for later work:** the Tier B half of the proof (an isolated `impress`
+  build on `-httpAutomationPort 23301`) — this session judged it infeasible under the current
+  host load (1000+ processes already running; the repo's own memory notes parallel worktree
+  agents colliding on this Mac) rather than risk a bad build or disturbing another agent's run;
+  the four proof scenarios are Tier A only until that's done. A real effects spy (P2/L1's
+  `SpyStore`) to replace `TierACaller::wrote`'s "re-query the scratch store" proxy. S2 (convert
+  every catalogue entry into stored scenarios).

@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 183 read-only, 132 mutating,
-33 destructive, 103 external — 451 verbs.
+Counts today: 186 read-only, 133 mutating,
+33 destructive, 104 external — 456 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -336,6 +336,11 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impress-bridges-service_resolve-artifact` | read_only | name/doc |
 | `impress-bridges-service_search-all` | read_only | name/doc |
 | `impress-bridges-service_sync-figure` | external | E/D: crates/impress-bridges-service/src/lib.rs:507 implore_service::service_instance().export_figure — default crates/implore-service/src/lib.rs:484 refuses (ok:false), HTTP backend crates/implore-service-http/src/lib.rs:3… |
+| `impress-scenario-service_scenario-create` | mutating | name/doc |
+| `impress-scenario-service_scenario-get` | read_only | name/doc |
+| `impress-scenario-service_scenario-list` | read_only | name/doc |
+| `impress-scenario-service_scenario-run` | external | a scenario's steps may call any verb, including a mutating or destructive one, and a Tier B run leaves the process over loopback HTTP |
+| `impress-scenario-service_scenario-validate` | read_only | name/doc |
 | `impress-surface-service_surface-create` | mutating | name/doc |
 | `impress-surface-service_surface-delete` | destructive | crates/impress-surface-service/src/service.rs:744-772 surfaces_for_write().delete -> store.rs:378-394 store.delete() of every state row, every event row and the surface row (hard deletes, no operation/undo), then regi… |
 | `impress-surface-service_surface-dispatch` | mutating | name/doc |
