@@ -992,6 +992,19 @@ crates) is real and is held, not closed, by this plan.
   (`/tmp/impress-g7c-store-build.log`, `/tmp/impress-g7c-imbib-verbs-build.log`). The parent is
   handling the final hook and PR update.
 
+- 2026-09-27 — **G7c completion.** [PR #118](https://github.com/yipihey/impress-apps/pull/118)
+  merged on main as `8d102646` after W3. The final integrated package run was serial and passed
+  475 tests, 0 failed, 4 ignored. All requested local quick gates, full store and imbib-verbs
+  xcframework rebuilds for macOS arm64, iOS device arm64 and iOS simulator arm64, and the
+  unmodified pre-push macOS/iOS builds passed. The per-call triage fixture fix is included.
+  Earlier Rust test runs without explicit process-wide store/workspace overrides have unverified
+  isolation; the observed failure showed an initialized singleton, not a path or data change.
+  G7c's final 475-test run also lacked these explicit overrides. The combined main at `f7af1c37`
+  subsequently passed an explicitly isolated full native workspace run, serially: 4,291 passed,
+  0 failed, 23 ignored, including doctests. The initial parallel run hit the known impel-tools
+  backend-state race. Evidence: `/tmp/impress-open-packages-workspace-serial.log`; owned scratch
+  `/tmp/impress-cargo-tests.8X6GhB/workspace`.
+
 ## Appendix A1 — every verb
 
 Columns: args (required); shapes (scalar / arr = array of scalars / obj = object / arr-obj); fit (a/b);
