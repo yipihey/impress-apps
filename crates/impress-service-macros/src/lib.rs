@@ -199,6 +199,14 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     }
                     None => quote! { ::core::option::Option::None },
                 };
+                let deprecated = match &overrides.deprecated {
+                    Some(decl) => {
+                        let literal = decl.literal();
+                        quote! { ::core::option::Option::Some(#literal) }
+                    }
+                    None => quote! { ::core::option::Option::None },
+                };
+                let aliases = &overrides.aliases;
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -207,6 +215,8 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         idempotent: #idempotent,
                         effects: #effects,
                         examples: &[#(#example_tokens),*],
+                        deprecated: #deprecated,
+                        aliases: &[#(#aliases),*],
                     }
                 });
             }
@@ -250,13 +260,45 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
     })
 }
 
-/// What `#[impress_method(safety = …, idempotent = …, effects(…))]` declares.
+/// What `#[impress_method(safety = …, idempotent = …, effects(…),
+/// deprecated(…), aliases = […])]` declares.
 #[derive(Default)]
 struct MethodOverrides {
     /// The `SafetyClass` variant name (`ReadOnly`, …), validated.
     safety: Option<String>,
     idempotent: Option<bool>,
     effects: Option<EffectsDecl>,
+    /// `deprecated(since = "…", note = "…")` (P3, plan-verb-pipeline §
+    /// Lifecycle).
+    deprecated: Option<DeprecatedDecl>,
+    /// `aliases = ["old-name", …]` (P3): retired names for this verb.
+    /// Requires `deprecated(…)` on the same method — a rename implies
+    /// deprecating the old name.
+    aliases: Vec<syn::LitStr>,
+}
+
+/// `deprecated(since = "…", note = "…")` as written on `#[impress_method]`.
+struct DeprecatedDecl {
+    since: syn::LitStr,
+    note: syn::LitStr,
+}
+
+impl DeprecatedDecl {
+    /// `::impress_service_core::Deprecation { since: …, alias_of: …, note: … }`,
+    /// with `alias_of` always `None`: the pipeline reads the replacement
+    /// name off the *call site* (the alias resolved, or the verb's own
+    /// canonical name) rather than a second copy of it here.
+    fn literal(&self) -> TokenStream2 {
+        let since = &self.since;
+        let note = &self.note;
+        quote! {
+            ::impress_service_core::Deprecation {
+                since: #since,
+                alias_of: ::core::option::Option::None,
+                note: #note,
+            }
+        }
+    }
 }
 
 /// An effect set as written — `reads`, `writes` and `reach` lists, each
@@ -488,12 +530,74 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
             } else if meta.path.is_ident("effects") {
                 out.effects = Some(parse_effects_attr(&meta)?);
                 Ok(())
+            } else if meta.path.is_ident("deprecated") {
+                out.deprecated = Some(parse_deprecated_attr(&meta)?);
+                Ok(())
+            } else if meta.path.is_ident("aliases") {
+                out.aliases = parse_aliases_attr(&meta)?;
+                Ok(())
             } else {
                 Err(meta.error(
-                    "unknown #[impress_method] key; `safety = …`, `idempotent = …` or `effects(…)`",
+                    "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
+                     `effects(…)`, `deprecated(…)` or `aliases = […]`",
                 ))
             }
         })?;
+    }
+    if !out.aliases.is_empty() && out.deprecated.is_none() {
+        return Err(syn::Error::new(
+            out.aliases[0].span(),
+            "`aliases = […]` needs `deprecated(since = \"…\", note = \"…\")` on the same \
+             method — a rename implies deprecating the old name",
+        ));
+    }
+    Ok(out)
+}
+
+/// `deprecated(since = "…", note = "…")` inside `#[impress_method(…)]`.
+fn parse_deprecated_attr(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<DeprecatedDecl> {
+    let content;
+    syn::parenthesized!(content in meta.input);
+    let mut since: Option<syn::LitStr> = None;
+    let mut note: Option<syn::LitStr> = None;
+    while !content.is_empty() {
+        let key: Ident = content.parse()?;
+        content.parse::<syn::Token![=]>()?;
+        if key == "since" {
+            since = Some(content.parse()?);
+        } else if key == "note" {
+            note = Some(content.parse()?);
+        } else {
+            return Err(syn::Error::new(
+                key.span(),
+                "unknown deprecated key; `since` or `note`",
+            ));
+        }
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(DeprecatedDecl {
+        since: since.ok_or_else(|| {
+            syn::Error::new_spanned(&meta.path, "deprecated needs `since = \"…\"`")
+        })?,
+        note: note.ok_or_else(|| {
+            syn::Error::new_spanned(&meta.path, "deprecated needs `note = \"…\"`")
+        })?,
+    })
+}
+
+/// `aliases = ["old-name", …]` inside `#[impress_method(…)]`.
+fn parse_aliases_attr(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<Vec<syn::LitStr>> {
+    let value = meta.value()?;
+    let content;
+    syn::bracketed!(content in value);
+    let mut out = Vec::new();
+    while !content.is_empty() {
+        out.push(content.parse()?);
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
     }
     Ok(out)
 }
@@ -1082,8 +1186,8 @@ fn expand_method(
                     #default_effects,
                 ),
                 since: #since,
-                deprecated: ::core::option::Option::None,
-                aliases: &[],
+                deprecated: ::impress_service_core::resolve_deprecated(&#meta_table, #method_name_str),
+                aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),
                 examples: ::impress_service_core::resolve_examples(&#meta_table, #method_name_str),
                 strict: #strict_args,
                 source: ::impress_service_core::Source::Linked,
@@ -1426,6 +1530,76 @@ mod tests {
         )
         .expect_err("unknown effects key");
         assert!(err.to_string().contains("unknown effects key"), "{err}");
+    }
+
+    /// `deprecated(since = "…", note = "…")` and `aliases = […]` (P3) land
+    /// in the method table.
+    #[test]
+    fn deprecated_and_aliases_are_captured() {
+        let ts = expand(
+            r#"
+            pub trait S: Send + Sync + 'static {
+                /// Delete it, the new way.
+                #[impress_method]
+                async fn delete(&self, id: String) -> bool;
+                /// Delete it, the old way.
+                #[impress_method(
+                    deprecated(since = "0.9.0", note = "renamed to delete"),
+                    aliases = ["remove", "destroy"]
+                )]
+                async fn old_delete(&self, id: String) -> bool;
+            }
+            "#,
+        )
+        .expect("expands")
+        .to_string();
+        assert!(ts.contains("\"remove\""), "{ts}");
+        assert!(ts.contains("\"destroy\""), "{ts}");
+        assert!(ts.contains("\"0.9.0\""), "{ts}");
+        assert!(ts.contains("\"renamed to delete\""), "{ts}");
+        assert!(
+            ts.contains("alias_of : :: core :: option :: Option :: None"),
+            "{ts}"
+        );
+        // The undeclared method carries an empty alias list and no
+        // deprecation.
+        assert!(
+            ts.contains("aliases : & []") || ts.contains("aliases : &[]"),
+            "{ts}"
+        );
+    }
+
+    /// `aliases = […]` with no `deprecated(…)` is a compile error: a rename
+    /// implies deprecating the old name.
+    #[test]
+    fn aliases_without_deprecated_is_a_compile_error() {
+        let err = expand(
+            r#"
+            pub trait S: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method(aliases = ["old"])]
+                async fn f(&self, id: String) -> bool;
+            }
+            "#,
+        )
+        .expect_err("aliases needs deprecated");
+        assert!(err.to_string().contains("needs `deprecated"), "{err}");
+    }
+
+    /// An unknown `deprecated(…)` key is a compile error.
+    #[test]
+    fn unknown_deprecated_key_is_a_compile_error() {
+        let err = expand(
+            r#"
+            pub trait S: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method(deprecated(reason = "x"), aliases = ["old"])]
+                async fn f(&self, id: String) -> bool;
+            }
+            "#,
+        )
+        .expect_err("unknown deprecated key");
+        assert!(err.to_string().contains("unknown deprecated key"), "{err}");
     }
 
     /// `#[impress_private]` on a `methods = […]` argument is recorded (and

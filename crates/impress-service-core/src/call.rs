@@ -59,9 +59,15 @@ pub fn descriptors() -> impl Iterator<Item = &'static McpToolDescriptor> {
 }
 
 /// Look up one descriptor by its exact MCP tool name
-/// (`"surface-demo-service_series"`, kebab-case method ident).
+/// (`"surface-demo-service_series"`, kebab-case method ident), or by one of
+/// its retired aliases (P3, plan-verb-pipeline § Lifecycle) — a name that
+/// still dispatches, but is never advertised: `tools/list` and the CLI's own
+/// listing read [`crate::descriptor::VerbDescriptor::aliases`] and print the
+/// canonical name only.
 pub fn find(name: &str) -> Option<&'static McpToolDescriptor> {
-    McpToolDescriptor::iter().find(|d| d.name == name)
+    McpToolDescriptor::iter()
+        .find(|d| d.name == name)
+        .or_else(|| McpToolDescriptor::iter().find(|d| d.verb.has_alias(name)))
 }
 
 /// The identity [`call`] and [`call_async`] run as when nothing says
@@ -84,8 +90,25 @@ pub fn call(name: &str, args: Value) -> Result<Value, CallError> {
 /// [`call`] with the caller's identity stated.
 pub fn call_as(name: &str, caller: CallerIdentity, args: Value) -> Result<Value, CallError> {
     let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    runtime::block_on(pipeline::invoke(descriptor.verb, Call::new(caller, args)))
+    let call = call_for(descriptor, name, caller, args);
+    runtime::block_on(pipeline::invoke(descriptor.verb, call))
         .map_err(|e| CallError::from_pipeline(descriptor.name, e))
+}
+
+/// A [`Call`] carrying `name` as its `requested_name` when `name` is not
+/// `descriptor.name` — i.e. `name` resolved through an alias.
+fn call_for(
+    descriptor: &'static McpToolDescriptor,
+    name: &str,
+    caller: CallerIdentity,
+    args: Value,
+) -> Call {
+    let call = Call::new(caller, args);
+    if descriptor.name == name {
+        call
+    } else {
+        call.with_requested_name(name)
+    }
 }
 
 /// The `async` counterpart to [`call`], for callers already on the runtime.
@@ -100,7 +123,88 @@ pub async fn call_async_as(
     args: Value,
 ) -> Result<Value, CallError> {
     let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    pipeline::invoke(descriptor.verb, Call::new(caller, args))
+    let call = call_for(descriptor, name, caller, args);
+    pipeline::invoke(descriptor.verb, call)
         .await
         .map_err(|e| CallError::from_pipeline(descriptor.name, e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::descriptor::{Deprecation, Safety, SafetyClass, Source};
+    use crate::{Effects, McpToolDescriptor, ServiceFuture, VerbDescriptor};
+    use serde_json::json;
+
+    fn schema() -> Value {
+        json!({"type": "object"})
+    }
+    fn handler(args: Value) -> ServiceFuture {
+        Box::pin(async move { Ok(json!({"ok": true, "echo": args})) })
+    }
+    static RENAMED: VerbDescriptor = VerbDescriptor {
+        name: "call-test-service_renamed",
+        service: "call-test-service",
+        method: "renamed",
+        description: "d",
+        input_schema: schema,
+        output_schema: schema,
+        safety: Safety {
+            class: SafetyClass::ReadOnly,
+            idempotent: true,
+        },
+        effects: Effects::NONE,
+        since: "0.1.0",
+        deprecated: Some(Deprecation {
+            since: "0.9.0",
+            alias_of: None,
+            note: "renamed; use call-test-service_renamed",
+        }),
+        aliases: &["call-test-service_old-name"],
+        examples: &[],
+        strict: false,
+        source: Source::Linked,
+        handler,
+    };
+    inventory::submit! { McpToolDescriptor::of(&RENAMED) }
+
+    #[test]
+    fn find_resolves_an_alias_to_its_verb() {
+        let direct = find("call-test-service_renamed").expect("direct name resolves");
+        let via_alias = find("call-test-service_old-name").expect("alias resolves");
+        assert_eq!(direct.name, "call-test-service_renamed");
+        assert_eq!(
+            via_alias.name, "call-test-service_renamed",
+            "the alias resolves to the SAME (canonical) descriptor"
+        );
+    }
+
+    #[test]
+    fn calling_by_its_canonical_name_gets_no_deprecation_notice() {
+        let result = call("call-test-service_renamed", json!({})).expect("call succeeds");
+        assert!(result.get("deprecated").is_none(), "{result}");
+    }
+
+    #[test]
+    fn calling_by_the_retired_alias_answers_with_a_deprecation_notice() {
+        let result = call("call-test-service_old-name", json!({"n": 1})).expect("call succeeds");
+        assert_eq!(
+            result["deprecated"],
+            json!({
+                "since": "0.9.0",
+                "use": "call-test-service_renamed",
+                "note": "renamed; use call-test-service_renamed",
+            })
+        );
+        // The rest of the envelope — including the arguments the handler saw
+        // — is unchanged.
+        assert_eq!(result["echo"], json!({"n": 1}));
+        assert_eq!(result["ok"], true);
+    }
+
+    #[test]
+    fn an_unknown_name_is_still_unknown_tool() {
+        let err = call("call-test-service_nope", json!({})).unwrap_err();
+        assert!(matches!(err, CallError::UnknownTool(_)));
+    }
 }

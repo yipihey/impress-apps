@@ -23,7 +23,7 @@ _No examples yet._
 Marked papers that still need their PDF/ePUB fetched.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/eink-mirror"
+- **reads**: "imbib/eink-mirror", "imbib/eink-device"
 - **writes**: —
 - **reach**: —
 
@@ -160,7 +160,7 @@ _No examples yet._
 Mirror rows for a device, optionally filtered by state.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/eink-mirror"
+- **reads**: "imbib/eink-mirror", "imbib/eink-device"
 - **writes**: —
 - **reach**: —
 
