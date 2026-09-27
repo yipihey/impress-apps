@@ -92,9 +92,6 @@ final class NativeImpartHost: ImpartNativeCallbacks, @unchecked Sendable {
             case "add_message":
                 let id = try requiredUUID(args, "conversation_id")
                 let content = try requiredString(args, "content")
-                guard try await repository.fetchConversation(id: id) != nil else {
-                    return failure(404, "not-found", "Research conversation was not found")
-                }
                 let rawRole = (args["role"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let role: ResearchSenderRole
                 let sender: String
@@ -103,12 +100,14 @@ final class NativeImpartHost: ImpartNativeCallbacks, @unchecked Sendable {
                 case "system": role = .system; sender = "system"
                 default: role = .counsel; sender = rawRole ?? "assistant"
                 }
-                let sequence = try await repository.fetchMessages(for: id).count + 1
-                let message = ResearchMessage(
-                    conversationId: id, sequence: sequence, senderRole: role,
-                    senderId: sender, contentMarkdown: content)
                 logInfo("Appending native research message to \(id)", category: "research-native")
-                try await repository.saveMessage(message, to: id)
+                let message: ResearchMessage
+                do {
+                    message = try await repository.appendMessage(
+                        to: id, content: content, senderRole: role, senderId: sender)
+                } catch RepositoryError.conversationNotFound {
+                    return failure(404, "not-found", "Research conversation was not found")
+                }
                 logInfo("Saved native research message \(message.id) to \(id)", category: "research-native")
                 await changed()
                 return success(messageRecord(message))
@@ -238,10 +237,15 @@ private func failure(_ status: UInt16, _ code: String, _ message: String) -> Nat
 }
 
 public enum ImpartNativeVerbs {
+    @MainActor static private(set) var activeRepository: ResearchConversationRepository?
+    @MainActor static private(set) var activePersistence: PersistenceController?
+
     /// Register the native backend before starting the HTTP automation route.
     @MainActor public static func install(persistence: PersistenceController = .shared) {
         let repository = ResearchConversationRepository(persistenceController: persistence)
         registerNativeBackend(callback: NativeImpartHost(repository: repository, provenance: .shared))
+        activeRepository = repository
+        activePersistence = persistence
         VerbAutomationRoutes.registerDomainDispatcher(services: ["impart-service"]) {
             name, argsJSON, callerJSON in
             let result = await dispatchVerb(name: name, argsJson: argsJSON, callerJson: callerJSON)

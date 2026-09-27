@@ -1143,6 +1143,7 @@ public actor ImpartHTTPServer {
             return
         }
 
+        await configureRouter()
         let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.imbib.impart")
 
         await server.start(configuration: configuration)
@@ -1156,9 +1157,23 @@ public actor ImpartHTTPServer {
     /// Restart the server (e.g., after port change).
     @MainActor
     public func restart() async {
+        await configureRouter()
         let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.imbib.impart")
 
         await server.restart(configuration: configuration)
+    }
+
+    @MainActor
+    private func configureRouter() async {
+        let persistence = ImpartNativeVerbs.activePersistence ?? .shared
+        let repository = ImpartNativeVerbs.activeRepository
+            ?? ResearchConversationRepository(persistenceController: persistence)
+        await router.configureAll(
+            persistenceController: persistence,
+            syncService: SyncService(persistence: persistence),
+            researchRepository: repository,
+            artifactResolver: ArtifactResolver(),
+            provenanceService: .shared)
     }
 
     /// Check if the server is currently running.

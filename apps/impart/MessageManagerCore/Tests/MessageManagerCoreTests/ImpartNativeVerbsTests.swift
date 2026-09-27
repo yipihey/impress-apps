@@ -2,8 +2,63 @@ import Foundation
 import Testing
 @testable import MessageManagerCore
 
-@Suite("Impart native verb backend")
+@Suite("Impart native verb backend", .serialized)
 struct ImpartNativeVerbsTests {
+    @MainActor @Test("Concurrent native appends persist distinct ordered sequences")
+    func concurrentMessageAppends() async throws {
+        let persistence = PersistenceController(inMemory: true)
+        let repository = ResearchConversationRepository(persistenceController: persistence)
+        let conversation = ResearchConversation(title: "Concurrent append", participants: [])
+        try await repository.save(conversation)
+        let host = NativeImpartHost(repository: repository, provenance: ProvenanceService())
+        let count = 24
+        let payloads = try (0..<count).map { index in
+            let data = try JSONSerialization.data(withJSONObject: [
+                "conversation_id": conversation.id.uuidString,
+                "content": "Message \(index)", "role": "user"
+            ])
+            return String(decoding: data, as: UTF8.self)
+        }
+
+        let replies = await withTaskGroup(of: (UInt16, String).self) { group in
+            for payload in payloads {
+                group.addTask {
+                    let reply = await host.invoke(method: "add_message", argsJson: payload)
+                    return (reply.status, reply.bodyJson)
+                }
+            }
+            var replies: [(UInt16, String)] = []
+            for await reply in group { replies.append(reply) }
+            return replies
+        }
+        #expect(replies.count == count)
+        #expect(replies.allSatisfy { $0.0 == 200 })
+        let returnedIDs = try replies.map { _, body in
+            let value = try #require(JSONSerialization.jsonObject(
+                with: Data(body.utf8)) as? [String: Any])
+            return try #require(value["id"] as? String)
+        }
+        #expect(Set(returnedIDs).count == count)
+
+        // Read from a new Core Data context, independent of the writer and
+        // of the repository's own message fetch, to verify saved order.
+        let persisted = try await persistence.performBackgroundTask { context in
+            let request = CDResearchMessage.fetchRequest()
+            request.predicate = NSPredicate(
+                format: "conversation.id == %@", conversation.id as CVarArg)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "conversationSequence", ascending: true)
+            ]
+            return try context.fetch(request).map {
+                (id: $0.id.uuidString, sequence: Int($0.conversationSequence), content: $0.contentMarkdown)
+            }
+        }
+        #expect(persisted.count == count)
+        #expect(persisted.map(\.sequence) == Array(1...count))
+        #expect(Set(persisted.map(\.id)) == Set(returnedIDs))
+        #expect(Set(persisted.map(\.content)) == Set((0..<count).map { "Message \($0)" }))
+    }
+
     @MainActor @Test("Research writes persist and return real IDs; invalid input refuses")
     func researchOperations() async throws {
         let persistence = PersistenceController(inMemory: true)
