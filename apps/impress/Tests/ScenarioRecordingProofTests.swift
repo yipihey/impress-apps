@@ -184,7 +184,10 @@ final class ScenarioRecordingProofTests: XCTestCase {
         let rendered = try Self.object(Data(try await surface.render(surfaceId: surfaceID, pane: nil).utf8))
         XCTAssertEqual(rendered["ok"] as? Bool, true)
 
-        let since = Self.timestamp(Date().addingTimeInterval(-1))
+        // Keep creation/render outside the person's recording window even
+        // when the audit clock stores only milliseconds.
+        try await Task.sleep(for: .milliseconds(5))
+        let since = Self.timestamp(Date())
         var nativeReplies = [[String: Any]]()
         for action in actions {
             let event = try Self.jsonString(["widget": action.widget, "kind": "click", "value": NSNull()])
@@ -195,7 +198,7 @@ final class ScenarioRecordingProofTests: XCTestCase {
             XCTAssertEqual(reply["effects_failed"] as? Int, 0, replyJSON)
             nativeReplies.append(reply)
         }
-        let until = Self.timestamp(Date().addingTimeInterval(1))
+        let until = Self.timestamp(Date())
         let selection = ["--since", since, "--until", until, "--as", "person"]
         var history = [String: Any]()
         for _ in 0..<40 {

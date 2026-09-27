@@ -218,13 +218,104 @@ fn resolved_schema<'a>(schema: &'a Value, root: &'a Value) -> &'a Value {
     current
 }
 
-fn schema_child<'a>(schema: &'a Value, root: &'a Value, key: &str) -> Option<&'a Value> {
+fn union_branch<'a>(branches: &'a [Value], value: &Value, root: &'a Value) -> Option<&'a Value> {
+    let tag = value.get("kind").and_then(Value::as_str);
+    let tagged: Vec<_> = branches
+        .iter()
+        .filter(|branch| {
+            let Some(tag) = tag else {
+                return false;
+            };
+            let branch = resolved_schema(branch, root);
+            let Some(tag_schema) = branch.get("properties").and_then(|p| p.get("kind")) else {
+                return false;
+            };
+            tag_schema.get("const").and_then(Value::as_str) == Some(tag)
+                || tag_schema
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .is_some_and(|choices| choices.len() == 1 && choices[0].as_str() == Some(tag))
+        })
+        .collect();
+    if tagged.len() == 1 {
+        return Some(tagged[0]);
+    }
+    if !tagged.is_empty() {
+        return None;
+    }
+    let typed: Vec<_> = branches
+        .iter()
+        .filter(|branch| {
+            let branch = resolved_schema(branch, root);
+            let Some(kind) = branch.get("type").and_then(Value::as_str) else {
+                return false;
+            };
+            matches!(
+                (kind, value),
+                ("null", Value::Null)
+                    | ("object", Value::Object(_))
+                    | ("array", Value::Array(_))
+                    | ("string", Value::String(_))
+                    | ("boolean", Value::Bool(_))
+                    | ("number" | "integer", Value::Number(_))
+            )
+        })
+        .collect();
+    (typed.len() == 1).then(|| typed[0])
+}
+
+fn schema_child<'a>(
+    schema: &'a Value,
+    value: &Value,
+    root: &'a Value,
+    key: &str,
+) -> Result<Option<&'a Value>, ()> {
     let schema = resolved_schema(schema, root);
-    schema
+    if schema.get("$ref").is_some() {
+        return Err(());
+    }
+    let direct = schema
         .get("properties")
         .and_then(|p| p.get(key))
-        .or_else(|| key.parse::<usize>().ok().and_then(|_| schema.get("items")))
-        .or_else(|| schema.get("additionalProperties").filter(|v| v.is_object()))
+        .or_else(|| key.parse::<usize>().ok().and_then(|_| schema.get("items")));
+    if direct.is_some() {
+        return Ok(direct);
+    }
+    if let Some(additional) = schema.get("additionalProperties") {
+        return additional.as_object().map(|_| Some(additional)).ok_or(());
+    }
+    if schema.get("allOf").is_some() {
+        return Err(());
+    }
+    for name in ["oneOf", "anyOf"] {
+        if let Some(branches) = schema.get(name) {
+            let branch = union_branch(branches.as_array().ok_or(())?, value, root).ok_or(())?;
+            return schema_child(branch, value, root, key);
+        }
+    }
+    Ok(None)
+}
+
+fn has_id_candidate(value: &Value, name: &str) -> bool {
+    fn scan(value: &Value, name: &str, budget: &mut usize, depth: usize) -> bool {
+        if *budget == 0 || depth > 16 {
+            return true;
+        }
+        *budget -= 1;
+        if is_id_field(name) && !value.is_null() {
+            return true;
+        }
+        match value {
+            Value::Object(fields) => fields
+                .iter()
+                .any(|(key, child)| scan(child, key, budget, depth + 1)),
+            Value::Array(items) => items
+                .iter()
+                .any(|child| scan(child, name, budget, depth + 1)),
+            _ => false,
+        }
+    }
+    scan(value, name, &mut 1024, 0)
 }
 
 fn safe_id(value: &Value) -> bool {
@@ -237,64 +328,89 @@ fn safe_id(value: &Value) -> bool {
         })
 }
 
-/// A union has no single property schema to descend through. Inspect every
-/// reachable branch, following local references; uncertainty fails closed.
+/// Inspect schema constraints against the finite result value. Recursive
+/// render-tree schemas are safe when the actual result terminates; a cycle
+/// that does not consume a value node, an unresolved reference, or exhausted
+/// work budget still fails closed. A union checks every branch because we
+/// cannot prove which branch governed a returned value.
 fn reachable_private_or_unknown(
     schema: &Value,
+    value: &Value,
     root: &Value,
     budget: &mut usize,
-    active_refs: &mut Vec<String>,
     depth: usize,
 ) -> bool {
-    if *budget == 0 || depth >= 32 {
+    if *budget == 0 || depth >= 64 {
         return true;
     }
     *budget -= 1;
-    match schema {
-        Value::Object(fields) => {
-            if fields.get("x-private") == Some(&Value::Bool(true)) {
-                return true;
-            }
-            if let Some(reference) = fields.get("$ref") {
-                let Some(reference) = reference.as_str() else {
-                    return true;
-                };
-                let Some(pointer) = reference.strip_prefix('#') else {
-                    return true;
-                };
-                if active_refs.iter().any(|seen| seen == reference) || active_refs.len() >= 16 {
-                    return true;
-                }
-                let Some(target) = root.pointer(pointer) else {
-                    return true;
-                };
-                active_refs.push(reference.to_owned());
-                let unsafe_ref =
-                    reachable_private_or_unknown(target, root, budget, active_refs, depth + 1);
-                active_refs.pop();
-                if unsafe_ref {
-                    return true;
-                }
-            }
-            fields
-                .iter()
-                .filter(|(key, _)| key.as_str() != "$ref")
-                .any(|(_, child)| {
-                    reachable_private_or_unknown(child, root, budget, active_refs, depth + 1)
-                })
-        }
-        Value::Array(items) => items
-            .iter()
-            .any(|child| reachable_private_or_unknown(child, root, budget, active_refs, depth + 1)),
-        _ => false,
+    let Some(fields) = schema.as_object() else {
+        return false;
+    };
+    if fields.get("x-private") == Some(&Value::Bool(true)) {
+        return true;
     }
-}
-
-fn output_schema_private(schema: &Value, root: &Value) -> bool {
-    fn inspect(schema: &Value, root: &Value, depth: usize, active_refs: &mut Vec<String>) -> bool {
-        if depth >= 16 {
+    if let Some(reference) = fields.get("$ref") {
+        let Some(pointer) = reference.as_str().and_then(|s| s.strip_prefix('#')) else {
+            return true;
+        };
+        let Some(target) = root.pointer(pointer) else {
+            return true;
+        };
+        if reachable_private_or_unknown(target, value, root, budget, depth + 1) {
             return true;
         }
+    }
+    for key in ["allOf", "anyOf", "oneOf"] {
+        if let Some(branches) = fields.get(key) {
+            let Some(branches) = branches.as_array() else {
+                return true;
+            };
+            if branches
+                .iter()
+                .any(|branch| reachable_private_or_unknown(branch, value, root, budget, depth + 1))
+            {
+                return true;
+            }
+        }
+    }
+    if let Some(properties) = fields.get("properties").and_then(Value::as_object) {
+        if let Some(actual) = value.as_object() {
+            for (key, child) in actual {
+                if let Some(child_schema) = properties.get(key) {
+                    if reachable_private_or_unknown(child_schema, child, root, budget, depth + 1) {
+                        return true;
+                    }
+                } else if let Some(additional) = fields.get("additionalProperties") {
+                    if reachable_private_or_unknown(additional, child, root, budget, depth + 1) {
+                        return true;
+                    }
+                }
+            }
+        }
+    } else if let (Some(additional), Some(actual)) =
+        (fields.get("additionalProperties"), value.as_object())
+    {
+        if actual
+            .values()
+            .any(|child| reachable_private_or_unknown(additional, child, root, budget, depth + 1))
+        {
+            return true;
+        }
+    }
+    if let (Some(items), Some(actual)) = (fields.get("items"), value.as_array()) {
+        if actual
+            .iter()
+            .any(|child| reachable_private_or_unknown(items, child, root, budget, depth + 1))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn output_schema_private(schema: &Value, value: &Value, root: &Value) -> bool {
+    fn inspect(schema: &Value, value: &Value, root: &Value, active_refs: &mut Vec<String>) -> bool {
         let Some(fields) = schema.as_object() else {
             return false;
         };
@@ -308,39 +424,52 @@ fn output_schema_private(schema: &Value, root: &Value) -> bool {
             let Some(pointer) = reference.strip_prefix('#') else {
                 return true;
             };
-            if active_refs.iter().any(|seen| seen == reference) {
+            if active_refs.iter().any(|seen| seen == reference) || active_refs.len() >= 16 {
                 return true;
             }
             let Some(target) = root.pointer(pointer) else {
                 return true;
             };
             active_refs.push(reference.to_owned());
-            let unsafe_ref = inspect(target, root, depth + 1, active_refs);
+            let unsafe_ref = inspect(target, value, root, active_refs);
             active_refs.pop();
             if unsafe_ref {
                 return true;
             }
-            // `$ref` siblings are active schema constraints. Descending only
-            // into the referenced target would miss a private sibling field.
-            let mut budget = 1024;
-            if fields
+            // A `$ref` may have active sibling constraints. The referenced
+            // object's ordinary properties are visited below by IdCollector;
+            // siblings need their own privacy check because schema_child
+            // chooses the referenced property schema.
+            let siblings: serde_json::Map<_, _> = fields
                 .iter()
-                .filter(|(key, _)| key.as_str() != "$ref")
-                .any(|(_, child)| {
-                    reachable_private_or_unknown(child, root, &mut budget, active_refs, 0)
-                })
-            {
-                return true;
+                .filter(|(key, _)| key.as_str() != "$ref" && key.as_str() != "$defs")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            if !siblings.is_empty() {
+                let mut budget = 1024;
+                if reachable_private_or_unknown(
+                    &Value::Object(siblings),
+                    value,
+                    root,
+                    &mut budget,
+                    0,
+                ) {
+                    return true;
+                }
             }
         }
         let mut budget = 1024;
         ["allOf", "anyOf", "oneOf"].iter().any(|key| {
-            fields.get(*key).is_some_and(|branch| {
-                reachable_private_or_unknown(branch, root, &mut budget, active_refs, 0)
+            fields.get(*key).is_some_and(|branches| {
+                branches.as_array().is_none_or(|branches| {
+                    branches.iter().any(|branch| {
+                        reachable_private_or_unknown(branch, value, root, &mut budget, 0)
+                    })
+                })
             })
         })
     }
-    inspect(schema, root, 0, &mut Vec::new())
+    inspect(schema, value, root, &mut Vec::new())
 }
 
 struct IdCollector<'a> {
@@ -364,7 +493,18 @@ impl<'a> IdCollector<'a> {
             return;
         }
         self.visited += 1;
-        if schema.is_some_and(|s| output_schema_private(s, self.root)) {
+        // An embedded unconstrained JSON value (such as a table row or plot
+        // spec) is not a schema-backed identifier source. An explicit ID
+        // inside it is omitted and makes the recording refuse, not captured.
+        if path != "$"
+            && schema.is_some_and(|s| {
+                s == &Value::Bool(true) || s.as_object().is_some_and(|o| o.is_empty())
+            })
+        {
+            self.truncated |= has_id_candidate(value, name);
+            return;
+        }
+        if schema.is_some_and(|s| output_schema_private(s, value, self.root)) {
             self.truncated = true;
             return;
         }
@@ -395,7 +535,15 @@ impl<'a> IdCollector<'a> {
                         self.truncated = true;
                         continue;
                     }
-                    let child_schema = schema.and_then(|s| schema_child(s, self.root, key));
+                    let child_schema = match schema.map(|s| schema_child(s, value, self.root, key))
+                    {
+                        Some(Err(())) => {
+                            self.truncated |= has_id_candidate(child, key);
+                            continue;
+                        }
+                        Some(Ok(child_schema)) => child_schema,
+                        None => None,
+                    };
                     self.visit(
                         child,
                         child_schema,
@@ -412,7 +560,15 @@ impl<'a> IdCollector<'a> {
                         break;
                     }
                     let key = index.to_string();
-                    let child_schema = schema.and_then(|s| schema_child(s, self.root, &key));
+                    let child_schema = match schema.map(|s| schema_child(s, value, self.root, &key))
+                    {
+                        Some(Err(())) => {
+                            self.truncated |= has_id_candidate(child, name);
+                            continue;
+                        }
+                        Some(Ok(child_schema)) => child_schema,
+                        None => None,
+                    };
                     self.visit(
                         child,
                         child_schema,
@@ -442,7 +598,7 @@ pub fn result_ids(result: &Value, output_schema: &Value) -> (BTreeMap<String, Va
         .get("format")
         .and_then(Value::as_str)
         == Some("uuid");
-    if root_is_uuid && output_schema_private(output_schema, output_schema) {
+    if root_is_uuid && output_schema_private(output_schema, result, output_schema) {
         return (collector.ids, true);
     }
     if root_is_uuid {
@@ -690,6 +846,9 @@ mod tests {
             "sibling": {"$ref": "#/$defs/PublicObject", "properties": {
                 "id": {"x-private": true}
             }},
+            "sibling_dynamic": {"$ref": "#/$defs/PublicObject",
+                "additionalProperties": {"x-private": true}},
+            "all_of": {"allOf": [{"properties": {"id": {"type": "string"}}}]},
             "unknown": {"$ref": "#/$defs/Missing"},
             "cycle": {"$ref": "#/$defs/Cycle"}
         }, "$defs": {
@@ -702,12 +861,85 @@ mod tests {
             "Cycle": {"$ref": "#/$defs/Cycle"}
         }});
         let raw = json!({"public_id": "safe-1", "union": {"id": "hidden-1"},
-            "sibling": {"id": "hidden-2"}, "unknown": {"id": "hidden-3"},
+            "sibling": {"id": "hidden-2"},
+            "sibling_dynamic": {"id": "hidden-dynamic"},
+            "all_of": {"id": "hidden-all"},
+            "unknown": {"id": "hidden-3"},
             "cycle": {"id": "hidden-4"}});
         let (ids, truncated) = result_ids(&raw, &schema);
         assert_eq!(ids.get("$.public_id"), Some(&json!("safe-1")));
         assert_eq!(ids.len(), 1, "{ids:?}");
         assert!(truncated);
+    }
+
+    #[test]
+    fn finite_recursive_render_tree_extracts_ids_without_a_false_cycle() {
+        // SurfaceDispatchResult -> RenderTree -> RenderNode -> RenderKind's
+        // tagged oneOf -> children RenderNode is a recursive *schema*, but
+        // this returned tree is finite. Traversal must consume value nodes.
+        let schema = json!({"$ref": "#/$defs/Reply", "$defs": {
+            "Reply": {"type": "object", "properties": {
+                "ok": {"type": "boolean"},
+                "tree": {"$ref": "#/$defs/Node"}
+            }},
+            "Node": {"type": "object", "properties": {
+                "id": {"type": "string"},
+                "node": {"$ref": "#/$defs/Kind"}
+            }},
+            "Kind": {"oneOf": [
+                {"type": "object", "properties": {
+                    "kind": {"const": "column"},
+                    "items": {"type": "array", "items": {"$ref": "#/$defs/Node"}}
+                }},
+                {"type": "object", "properties": {
+                    "kind": {"const": "button"},
+                    "label": {"type": "string"}
+                }}
+            ]}
+        }});
+        let raw = json!({"ok": true, "tree": {"id": "root", "node": {
+            "kind": "column", "items": [
+                {"id": "star-paper", "node": {"kind": "button", "label": "Star"}},
+                {"id": "tag-paper", "node": {"kind": "button", "label": "Tag"}}
+            ]
+        }}});
+        let (ids, truncated) = result_ids(&raw, &schema);
+        assert!(!truncated, "finite tree was marked incomplete: {ids:?}");
+        assert_eq!(
+            ids.get("$.tree.node.items.0.id"),
+            Some(&json!("star-paper"))
+        );
+        assert_eq!(ids.get("$.tree.node.items.1.id"), Some(&json!("tag-paper")));
+    }
+
+    #[test]
+    fn recursive_union_still_refuses_private_or_untyped_identifiers() {
+        let schema = json!({"$ref": "#/$defs/Node", "$defs": {
+            "Node": {"properties": {
+                "id": {"type": "string"},
+                "node": {"oneOf": [
+                    {"properties": {
+                        "kind": {"const": "column"},
+                        "items": {"type": "array", "items": {"$ref": "#/$defs/Node"}}
+                    }},
+                    {"properties": {
+                        "kind": {"const": "button"},
+                        "value": {},
+                        "private": {"anyOf": [{"$ref": "#/$defs/Private"}]}
+                    }}
+                ]}
+            }},
+            "Private": {"properties": {"secret_id": {"x-private": true}}}
+        }});
+        let untyped = json!({"id": "root", "node": {"kind": "button", "value": {"id": "secret"}}});
+        let (ids, truncated) = result_ids(&untyped, &schema);
+        assert!(truncated);
+        assert!(!ids.values().any(|value| value == "secret"));
+        let private = json!({"id": "root", "node": {"kind": "button",
+            "private": {"secret_id": "secret"}}});
+        let (ids, truncated) = result_ids(&private, &schema);
+        assert!(truncated);
+        assert!(!ids.values().any(|value| value == "secret"));
     }
 
     #[test]
