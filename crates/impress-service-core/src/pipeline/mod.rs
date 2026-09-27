@@ -145,10 +145,17 @@ fn run_installers() {
 /// derive on every call otherwise, which for a verb taking a pane reference
 /// (a `oneOf` of four shapes) is most of the chain's cost.
 pub fn input_schema(verb: &'static VerbDescriptor) -> &'static Value {
+    cached_schema(verb, false)
+}
+
+/// S3 also consults the output schema for private identifier paths. Like
+/// strict input checking, auditing must not rebuild a schema on every call.
+fn cached_schema(verb: &'static VerbDescriptor, output: bool) -> &'static Value {
     use std::collections::HashMap;
     use std::sync::RwLock;
-    static CACHE: RwLock<Option<HashMap<usize, &'static Value>>> = RwLock::new(None);
-    let key = verb as *const VerbDescriptor as usize;
+    type SchemaCache = HashMap<(usize, bool), &'static Value>;
+    static CACHE: RwLock<Option<SchemaCache>> = RwLock::new(None);
+    let key = (verb as *const VerbDescriptor as usize, output);
     if let Some(found) = CACHE
         .read()
         .ok()
@@ -156,7 +163,12 @@ pub fn input_schema(verb: &'static VerbDescriptor) -> &'static Value {
     {
         return found;
     }
-    let built: &'static Value = Box::leak(Box::new((verb.input_schema)()));
+    let build = if output {
+        verb.output_schema
+    } else {
+        verb.input_schema
+    };
+    let built: &'static Value = Box::leak(Box::new(build()));
     if let Ok(mut cache) = CACHE.write() {
         cache
             .get_or_insert_with(HashMap::new)
@@ -376,7 +388,12 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
     }
 
     if verb.safety.class != SafetyClass::ReadOnly || audit::log_all() {
-        let args_summary = audit::summarize_args(&prepared.args, input_schema(verb));
+        let (recorded_args, args_replayable) =
+            audit::recorded_args(&prepared.args, input_schema(verb), verb.replay_full);
+        let (result_ids, result_ids_truncated) = match result {
+            Ok(value) => audit::result_ids(value, cached_schema(verb, true)),
+            Err(_) => Default::default(),
+        };
         let (inserted_ids, deleted_ids) = context.mutation_ids.snapshot();
         audit::record(audit::VerbCallRecord {
             call_id: context.call_id.clone(),
@@ -385,7 +402,10 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
             caller: context.caller.clone(),
             trace_id: context.trace_id.clone(),
             parent_call: context.parent_call.clone(),
-            args: args_summary,
+            args: recorded_args,
+            args_replayable,
+            result_ids,
+            result_ids_truncated,
             inserted_ids,
             deleted_ids,
             ok,
@@ -514,6 +534,7 @@ mod tests {
         examples: &[],
         strict: true,
         budget_ms: None,
+        replay_full: false,
         source: Source::Linked,
         handler: echo,
     };

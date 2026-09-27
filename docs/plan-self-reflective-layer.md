@@ -2647,3 +2647,73 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   owned scratch `/tmp/impress-cargo-tests.8X6GhB/workspace`. S3 has since started in
   `s3-record` / `claude/reflective-s3-record`; its implementation and live proof are not yet
   verified. The later packages remain unstarted.
+
+- 2026-09-27 — **S3 implementation and first isolated native proof.** Added
+  `impress-scenario-service_scenario-record` (trace, or inclusive time window with one exact
+  caller), a pure capture matcher, and losslessness/output-ID metadata on the existing call row.
+  `replay = full` is opt-in on the 51 layout/surface methods; private fields still prevent full
+  recording, and full arguments must fit below 16 KiB. Bounded output-ID extraction follows local
+  schema references and fails closed on private/unknown branches. The recorder reports omitted
+  calls, suppresses children of retained parents, refuses dependencies on omitted producers and
+  truncated ID metadata, and preserves outcomes. App identities are not promoted to `person`.
+  Scenarios use the existing spec and schema ref; no new widget, action or record kind was added.
+  Native surface dispatch now enters the pipeline around its existing runtime, preserving the
+  pane and store override. Tier B sends canonical verbs through `/api/verb`; failed native surface
+  event replays fail the scenario instead of passing silently. The output-schema lookup is cached.
+
+  The first hosted proof passed in an isolated impress at port 23333, device
+  `codex-s3-proof-*`, distinct bundle `com.impress.s3proof.impress`, and the PID-owned
+  `impress-unit-tests-229/workspace/impress.sqlite`. It used trusted native-person dispatch to
+  star/tag/flag three scratch papers, recorded four calls, checked an ID capture, stored and fetched
+  the scenario, edited its field expectations once, reset the state, replayed via HTTP, and checked
+  the resulting stars/tag/flag and live verb logs. The test host exited. Evidence:
+  `/tmp/impress-s3-proof-75721661-fcf9-40fe-882f-440e6d836ffa/output/host-229/` and
+  `/tmp/impress-s3-proof-run-cohort.log`. This is a native-dispatch proof, not a claim that the
+  ordinary publication-list actions are audited: those still use the legacy RustStoreAdapter
+  path. A second hosted proof through the native surface-event path is being completed.
+
+  Rust verification so far: 579 touched-crate tests passed (4 ignored), 7 caller-selection tests
+  passed after the identity fix, the event-failure regressions passed, and the final capabilities
+  run passed 30 tests (2 ignored). Format, both workspace clippy shards, source coverage, generated
+  reference pages, strict kit dependencies, standalone kit, binding/schema checks and hakari diff
+  all passed. Semantic-search census/descriptor/effects comparisons passed 4/7/6 tests; the effects
+  table stays at 301 exceptions, with 82 example-verified and 93 catalogue verbs. The new recording
+  example seeds its audit row before the effects-spy window and verifies a real scenario write.
+
+  Native build finding: copying an archive is unsafe when a shared Rust descriptor layout changes.
+  The copied ImbibCore contained the old `VerbDescriptor` layout under the same crate hash as the
+  new store/verb archives; the first proof returned `no such verb` for all triage verbs. Full
+  ImbibCore, ImbibVerbsFfi and ImpressStoreFfi rebuilds passed macOS/iOS-device/iOS-simulator arm64;
+  ImpelTools was rebuilt for its supported macOS arm64 target. Swift bindings were unchanged.
+  impress now enables dead-code stripping, matching imbib's link of the overlapping static
+  archives. All rebuilds kept swiftformat off PATH, used `IMPRESS_SKIP_X86=1`, and never used
+  `--fast`. Logs: `/tmp/impress-s3-*-build*.log`, `/tmp/impress-s3-final-*.log`,
+  `/tmp/impress-s3-quick-gates.log`, `/tmp/impress-s3-touched-tests.log`.
+
+  Remaining boundary: linked native surface effects inherit the parent trace. Effects delegated
+  through the Swift `SharedVerbHost`/ImpelTools callback still cross a context-losing boundary;
+  expanding that callback's identity/trace contract is not part of this capture-matcher package.
+
+- 2026-09-27 — **S3 final native proof and schema review.** Both hosted tests passed on the
+  final rebuilt archive cohort: direct native triage (4 calls, no omissions, one ID capture)
+  and native surface triage (6 calls selected, 3 parent dispatch steps retained, 3 duplicate
+  children reported as omitted). Each stored and fetched the scenario, edited expectations
+  once, reset the scratch papers, replayed over HTTP, and verified their stars/tag/flag and live
+  verb logs. Both Tier B reports passed with no skips. The proof used port 23333, distinct
+  bundle `com.impress.s3proof.impress`, its own device ID and PID-owned workspace
+  `impress-unit-tests-12083/workspace`; PID 12083 exited after testing. Evidence is
+  `/tmp/impress-s3-proof-6f13b826-efab-4b6e-8e7b-78aa17735877/output/host-12083/`,
+  `/tmp/impress-s3-proof-run-final.log`, and its adjacent result bundle. These are native
+  dispatch tests, not GUI clicks or a claim about the unaudited ordinary publication list.
+
+  The first surface run correctly exposed a conservative false refusal: the result schema is
+  recursive even when the actual rendered tree is finite. Audit extraction now follows the
+  bounded actual value through local references and discriminated/nullable branches, retaining
+  the private/unknown-branch refusal. Regressions use the real `SurfaceDispatchResult` schema;
+  arbitrary table-row JSON IDs remain excluded. Eleven audit regressions and two real-schema
+  regressions passed. The post-review isolated native run passed 434 tests, 0 failed, 3 ignored
+  across seven affected packages; fmt and both workspace clippy shards passed. The earlier
+  broader 579-test run covers the other touched crates. Final native rebuilds covered all three
+  arm64 slices for ImbibCore, ImbibVerbsFfi and ImpressStoreFfi, plus macOS ImpelTools; generated
+  Swift bindings stayed unchanged. Logs: `/tmp/impress-s3-post-review-*.log`,
+  `/tmp/impress-s3-final-cohort-*.log`, `/tmp/impress-s3-proof-build-final.log`.

@@ -96,20 +96,27 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
 
     /// Point `impel-tools` at the sibling apps' HTTP ports and install this
     /// host on `store` — call once, from impress's own launch path, beside
-    /// `ImpressHTTPServer.shared.start()`.
+    /// `ImpressHTTPServer.shared.start()`. An isolated UI test installs the
+    /// host without configuring or probing sibling apps.
     ///
-    /// The first probe runs here; an app that is closed at that moment is
+    /// On a normal launch the first probe runs here; an app closed then is
     /// re-probed by `impel-tools` on the next call that needs it (at most once
     /// a minute), so "start imbib, then use a surface" works without
     /// relaunching impress — it did not on 2026-09-23, when `configure` was a
     /// once-per-process cell.
     static func install(on store: SharedStore) {
-        let backends = configure(
-            imbibUrl: "http://localhost:\(SiblingApp.imbib.httpPort)",
-            imprintUrl: "http://localhost:\(SiblingApp.imprint.httpPort)")
-        logInfo(
-            "impel-tools verb host: imbib=\(backends.imbib), imprint=\(backends.imprint)",
-            category: "surface")
+        if ImpressRuntime.isUITestingProcess {
+            logInfo(
+                "impel-tools verb host: isolated UI test; sibling backends left unconfigured",
+                category: "surface")
+        } else {
+            let backends = configure(
+                imbibUrl: "http://localhost:\(SiblingApp.imbib.httpPort)",
+                imprintUrl: "http://localhost:\(SiblingApp.imprint.httpPort)")
+            logInfo(
+                "impel-tools verb host: imbib=\(backends.imbib), imprint=\(backends.imprint)",
+                category: "surface")
+        }
         store.setVerbHost(host: ImpelToolsVerbHost())
         logInfo("impel-tools verb host installed on the shared store", category: "surface")
     }

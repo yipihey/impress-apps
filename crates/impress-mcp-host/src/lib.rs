@@ -435,6 +435,7 @@ mod tests {
         examples: &[],
         strict: false,
         budget_ms: None,
+        replay_full: false,
         source: impress_service_core::Source::Linked,
         handler: fixture_echo,
     };

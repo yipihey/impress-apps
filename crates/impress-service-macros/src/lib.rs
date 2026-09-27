@@ -211,6 +211,7 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     Some(lit) => quote! { ::core::option::Option::Some(#lit) },
                     None => quote! { ::core::option::Option::None },
                 };
+                let replay_full = overrides.replay_full;
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -222,6 +223,7 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         deprecated: #deprecated,
                         aliases: &[#(#aliases),*],
                         budget_ms: #budget_ms,
+                        replay_full: #replay_full,
                     }
                 });
             }
@@ -266,7 +268,7 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
 }
 
 /// What `#[impress_method(safety = …, idempotent = …, effects(…),
-/// deprecated(…), aliases = […])]` declares.
+/// deprecated(…), aliases = […], replay = full]` declares.
 #[derive(Default)]
 struct MethodOverrides {
     /// The `SafetyClass` variant name (`ReadOnly`, …), validated.
@@ -283,6 +285,8 @@ struct MethodOverrides {
     /// `budget_ms = …` (D-P2, G7c): a Tier A example ceiling in whole
     /// milliseconds.
     budget_ms: Option<syn::LitInt>,
+    /// `replay = full`: opt into complete arguments when the audit privacy rule permits.
+    replay_full: bool,
 }
 
 /// `deprecated(since = "…", note = "…")` as written on `#[impress_method]`.
@@ -548,10 +552,17 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                 let lit: syn::LitInt = meta.value()?.parse()?;
                 out.budget_ms = Some(lit);
                 Ok(())
+            } else if meta.path.is_ident("replay") {
+                let mode: Ident = meta.value()?.parse()?;
+                if mode != "full" {
+                    return Err(syn::Error::new(mode.span(), "replay must be `full`"));
+                }
+                out.replay_full = true;
+                Ok(())
             } else {
                 Err(meta.error(
                     "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
-                     `effects(…)`, `deprecated(…)`, `aliases = […]` or `budget_ms = …`",
+                     `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …` or `replay = full`",
                 ))
             }
         })?;
@@ -1203,6 +1214,7 @@ fn expand_method(
                 examples: ::impress_service_core::resolve_examples(&#meta_table, #method_name_str),
                 strict: #strict_args,
                 budget_ms: ::impress_service_core::resolve_budget_ms(&#meta_table, #method_name_str),
+                replay_full: ::impress_service_core::resolve_replay_full(&#meta_table, #method_name_str),
                 source: ::impress_service_core::Source::Linked,
                 handler: #invoker_fn,
             };
@@ -1326,6 +1338,27 @@ mod tests {
         let err = expand("pub trait Empty: Send + Sync + 'static { async fn f(&self); }")
             .expect_err("no #[impress_method] at all");
         assert!(err.to_string().contains("`Empty` has no #[impress_method]"));
+    }
+
+    #[test]
+    fn replay_full_is_captured_and_other_modes_are_refused() {
+        let ts = expand(
+            "pub trait ReplayService: Send + Sync + 'static {\n\
+             /// Replay this.\n\
+             #[impress_method(replay = full)]\n\
+             async fn replay(&self, id: String) -> String;\n}",
+        )
+        .expect("replay opt-in expands")
+        .to_string();
+        assert!(ts.contains("replay_full : true"), "{ts}");
+        let err = expand(
+            "pub trait ReplayService: Send + Sync + 'static {\n\
+             /// Replay this.\n\
+             #[impress_method(replay = summary)]\n\
+             async fn replay(&self, id: String) -> String;\n}",
+        )
+        .expect_err("unknown replay mode must fail");
+        assert!(err.to_string().contains("replay must be `full`"));
     }
 
     /// The per-method safety override and an example land in the method

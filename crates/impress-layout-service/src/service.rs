@@ -91,7 +91,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `after` puts the new pane on the right / below; false puts it before.
     /// `new_pane` is a whole pane spec; omit it to duplicate the pane being
     /// split, which is what a bare "split this" gesture means.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn split(
         &self,
         app_id: String,
@@ -107,7 +107,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Move a pane (or a whole subtree) next to another, or into its tabs.
     ///
     /// `placement` is `left` | `right` | `above` | `below` | `into-tabs`.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn move_tile(
         &self,
         app_id: String,
@@ -120,7 +120,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ) -> LayoutVerbResult;
 
     /// Close a pane or a whole subtree. Never the last pane of the layout.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn close(
         &self,
         app_id: String,
@@ -132,7 +132,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Exchange two tiles' positions, each keeping the share of the position
     /// it lands in.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn swap(
         &self,
         app_id: String,
@@ -147,7 +147,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// They are weights, not fractions: `1 2 3` means the three-column
     /// chassis, and the renderer divides by their sum.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn resize(
         &self,
         app_id: String,
@@ -160,7 +160,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Retype a container, keeping its children in order: `tabs` |
     /// `horizontal` | `vertical` | `grid`.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_container_kind(
         &self,
         app_id: String,
@@ -176,7 +176,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `collapsed` omitted toggles. The pane stays in the tree with its
     /// session; only its share moves. Refused (`not-in-a-split`) for a pane
     /// whose parent is not a split.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_collapsed(
         &self,
         app_id: String,
@@ -189,7 +189,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Show one pane alone in its window. Zoom is a view state, not a mutation
     /// of the tree: every share and every session survives it.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn maximize(
         &self,
         app_id: String,
@@ -200,7 +200,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ) -> LayoutVerbResult;
 
     /// Undo a maximize. A no-op when nothing is maximized.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn restore(
         &self,
         app_id: String,
@@ -211,7 +211,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Move a pane out into a new window whose root it becomes — the detached
     /// PDF. Refused when the pane is already the whole of its window.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn detach(
         &self,
         app_id: String,
@@ -225,7 +225,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Replace a pane's whole spec: query, view kind, parameters, channel,
     /// role and view state at once.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_pane(
         &self,
         app_id: String,
@@ -240,7 +240,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// (ADR-0031 D2): kinds, a scope, filters, a text term, one relation walk,
     /// sort and limit. Anything it cannot express is materialized in the store
     /// first and queried from there.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_query(
         &self,
         app_id: String,
@@ -255,7 +255,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `info`, `pdf`, `notes`, `bibtex`, `source`, `plot`, `console`,
     /// `surface`, `legacy`, `placeholder` — `impress_layout::ViewKindId::KNOWN`,
     /// the whole vocabulary. Anything else is refused (`unknown-view-kind`).
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_view_kind(
         &self,
         app_id: String,
@@ -268,7 +268,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Re-point one of a pane's declared parameters: follow a channel, pin it
     /// to one item, or fall back to the view kind's default.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn bind_param(
         &self,
         app_id: String,
@@ -282,7 +282,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Change the channel a pane publishes its selection on: `1`–`8`, or
     /// `follow` for the window's default.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_channel(
         &self,
         app_id: String,
@@ -295,7 +295,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Set what `follow` means in one window. `follow` itself is refused: a
     /// window default that follows itself is not a value.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_default_channel(
         &self,
         app_id: String,
@@ -309,7 +309,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Give, move or clear a role — `navigator`, `list`, `detail`, `preview`,
     /// `console`, or one of your own. The universal chords act on whichever
     /// pane holds the role, so this is how ⌃⌘S is re-aimed.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_role(
         &self,
         app_id: String,
@@ -324,7 +324,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Focus a pane. Focus is a value in the layout, so it is legible to
     /// agents and tests rather than living in a view.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn focus(
         &self,
         app_id: String,
@@ -336,7 +336,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. This is
     /// the h / l grammar, as a tree walk rather than a geometric one.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn focus_direction(
         &self,
         app_id: String,
@@ -354,7 +354,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// untouched. An empty `ids` is a real value: it records that nothing of
     /// that kind is selected, which is what a detail pane renders its empty
     /// state from.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn select(
         &self,
         app_id: String,
@@ -369,7 +369,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Replace (or clear, with null) a window's frame. Device-scoped: it
     /// persists locally and is filtered out before a layout is applied
     /// somewhere else.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn set_window_geometry(
         &self,
         app_id: String,
@@ -390,7 +390,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// same verb with a different `as_kind` and arrives with the implore and
     /// preset work (L7); asking for one now is refused rather than
     /// approximated.
-    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0", "impress/ui/surface@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0", "impress/ui/surface@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
     async fn commit(
         &self,
         app_id: String,
@@ -403,7 +403,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Save the current arrangement under a name, durably. Re-saving an
     /// existing name overwrites it.
-    #[impress_method(safety = destructive)]
+    #[impress_method(replay = full, safety = destructive)]
     async fn save_layout(
         &self,
         app_id: String,
@@ -426,7 +426,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Window geometry is dropped on the way in: the logical tree is what
     /// ports between devices, and a 27" frame has no business landing on a
     /// laptop (ADR-0019 D2).
-    #[impress_method(safety = destructive)]
+    #[impress_method(replay = full, safety = destructive)]
     async fn apply_layout(
         &self,
         app_id: String,
@@ -441,7 +441,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// is not a saved layout) and any preset (`reset-preset` is how a preset
     /// goes back to shipped); deleting a name that does not exist is `ok:
     /// false` with a message, never an error.
-    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
     async fn delete_layout(
         &self,
         app_id: String,
@@ -455,7 +455,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// These are two of the three stacks of ADR-0031 D7. The third — the
     /// editor session's own undo manager — is never ours and is not reachable
     /// from here.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn undo(
         &self,
         app_id: String,
@@ -467,7 +467,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ) -> LayoutVerbResult;
 
     /// Redo on one ring. Same stacks as `undo`.
-    #[impress_method]
+    #[impress_method(replay = full)]
     async fn redo(
         &self,
         app_id: String,
@@ -486,7 +486,7 @@ pub trait LayoutService: Send + Sync + 'static {
     // Mutating, not read-only: on a device with no live row this writes the
     // default layout (the store spy observed it, plan self-reflective-layer
     // E1); idempotent thereafter.
-    #[impress_method(safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
     #[impress_example(
         name = "default",
         args = r#"{"app_id": "impress", "device": "effects-device"}"#
@@ -500,7 +500,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// The compiled `item_query` is literally what the store will be asked —
     /// which is how "why is this pane empty?" becomes a question with an
     /// answer instead of a debugging session.
-    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", any("compiles the pane's query over the kind it names")]))]
+    #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", any("compiles the pane's query over the kind it names")]))]
     async fn get_pane(
         &self,
         app_id: String,
@@ -510,7 +510,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// What a channel currently carries, per record kind, and which panes it
     /// drives. `channel` is `1`–`8` or `follow`.
-    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
     async fn get_channel(
         &self,
         app_id: String,
@@ -521,7 +521,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// What a pane reference resolves to right now — "which pane is `right`?"
     /// answered without doing anything to it.
-    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
     async fn resolve_reference(
         &self,
         app_id: String,
@@ -536,7 +536,7 @@ pub trait LayoutService: Send + Sync + 'static {
     // Mutating, not read-only: the first call on a store seeds the shipped
     // presets (the store spy observed the write, plan self-reflective-layer
     // E1); idempotent thereafter.
-    #[impress_method(safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0"]))]
+    #[impress_method(replay = full, safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0"]))]
     #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
     async fn list_layouts(&self, app_id: String) -> LayoutListResult;
 
@@ -551,7 +551,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// chords: presets first, then named layouts. The answer also carries the
     /// sections this app permits that are NOT expressible as queries, with
     /// the reason (ADR-0031 D2).
-    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
     #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
     async fn list_presets(&self, app_id: String) -> PresetListResult;
 
@@ -563,7 +563,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Window geometry is dropped on the way in, exactly as `apply_layout`
     /// drops it: the logical tree is what ports between devices (ADR-0019
     /// D2).
-    #[impress_method(safety = destructive)]
+    #[impress_method(replay = full, safety = destructive)]
     async fn apply_preset(
         &self,
         app_id: String,
@@ -581,7 +581,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// rather than approximated. Editing a shipped preset leaves its
     /// `version` alone, so "the user edited Triage" stays distinguishable
     /// from "we shipped a newer Triage" and `reset_preset` can undo it.
-    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0", "impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0", "impress/ui/layout@1.0.0"]))]
     async fn save_preset(
         &self,
         app_id: String,
@@ -596,7 +596,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// Refused for a name the suite does not ship: there would be nothing to
     /// restore it to, and the refusal names what IS shipped.
-    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
     async fn reset_preset(
         &self,
         app_id: String,

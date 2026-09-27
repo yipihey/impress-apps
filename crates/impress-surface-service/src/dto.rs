@@ -853,3 +853,62 @@ pub struct SurfaceExamplesResult {
     #[serde(default = "wire_version")]
     pub wire_version: u32,
 }
+
+#[cfg(test)]
+mod audit_schema_tests {
+    use super::*;
+    use impress_surface::resolve::RenderKind;
+    use impress_surface::{RenderNode, RenderTree};
+
+    fn dispatch_with(kind: RenderKind) -> serde_json::Value {
+        let tree = RenderTree {
+            root: RenderNode {
+                id: "root".into(),
+                label: None,
+                help: None,
+                node: kind,
+            },
+            focus_order: vec!["star-paper".into()],
+        };
+        serde_json::to_value(SurfaceDispatchResult::dispatched(
+            tree,
+            vec![EffectOutcomeDto::done("call", "triaged")],
+            Vec::new(),
+            Revisions::default(),
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn real_dispatch_schema_accepts_finite_recursive_tree() {
+        let raw = dispatch_with(RenderKind::Column {
+            items: vec![RenderNode {
+                id: "star-paper".into(),
+                label: None,
+                help: None,
+                node: RenderKind::Button {
+                    label: "Star".into(),
+                },
+            }],
+        });
+        let schema = serde_json::to_value(schemars::schema_for!(SurfaceDispatchResult)).unwrap();
+        let (ids, truncated) = impress_service_core::pipeline::audit::result_ids(&raw, &schema);
+        assert!(!truncated, "finite native dispatch was incomplete: {ids:?}");
+        assert_eq!(
+            ids.get("$.tree.root.node.items.0.id"),
+            Some(&serde_json::json!("star-paper"))
+        );
+    }
+
+    #[test]
+    fn real_dispatch_schema_does_not_capture_untyped_table_row_ids() {
+        let raw = dispatch_with(RenderKind::Table {
+            rows: serde_json::json!([{"id": "private-row"}]),
+            columns: vec!["title".into()],
+        });
+        let schema = serde_json::to_value(schemars::schema_for!(SurfaceDispatchResult)).unwrap();
+        let (ids, truncated) = impress_service_core::pipeline::audit::result_ids(&raw, &schema);
+        assert!(truncated);
+        assert!(!ids.values().any(|value| value == "private-row"));
+    }
+}

@@ -663,6 +663,7 @@ mod collision_tests {
             examples: &[],
             strict: false,
             budget_ms: None,
+            replay_full: false,
             source: crate::Source::Linked,
             handler: apply,
         }

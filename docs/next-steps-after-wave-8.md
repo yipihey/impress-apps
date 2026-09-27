@@ -36,11 +36,24 @@ this handoff. W4's final Rust run and W3's live proof were explicitly isolated; 
 475-test run did not have explicit process-wide overrides. The fresh isolated main run checks
 their combined Rust behavior.
 
+## S3 verification
+
+S3 is implemented on `claude/reflective-s3-record` (`s3-record`), based on main `197cdfed`.
+It adds scenario recording from one caller's trace or time window, bounded replay metadata,
+output-ID captures and native surface auditing. Final isolated Rust tests passed 434 tests
+(0 failed, 3 ignored), following the broader 579-test run. Two hosted native proofs passed:
+direct triage records four calls with an ID capture; surface triage records three parent steps
+and reports their three children as omitted. Both stored/fetched/edited/replayed the scenario
+and checked paper state and live logs. The owned host PID 12083 exited. Evidence:
+`/tmp/impress-s3-proof-run-final.log` and
+`/tmp/impress-s3-proof-6f13b826-efab-4b6e-8e7b-78aa17735877/output/host-12083/`.
+The final archive cohort covers ImbibCore, ImbibVerbsFfi and ImpressStoreFfi's three arm64
+slices plus macOS ImpelTools. Full workspace verification above predates S3; the next batch
+needs a new main run. Ordinary publication-list actions remain outside audit, and native
+effects delegated through the Swift ImpelTools callback still lose parent identity/trace.
+
 ## Next packages
 
-- **S3 (in progress, not verified)**: generate a scenario from a recorded session. Worktree
-  `s3-record`, branch `claude/reflective-s3-record`, based on `f7af1c37`. Audit replay metadata and
-  the capture matcher are being implemented; service integration and a live isolated proof remain.
 - **G5**: `strict_args` by default on every service (D-G1 approved). Needs Tier B on five apps.
 - **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
@@ -65,6 +78,11 @@ their combined Rust behavior.
   app-side `apps/{imprint,implore,impel}/Frameworks` and `packages/ImpressScixCore/frameworks`,
   as well as `crates/*/frameworks`. Rebuild the store one with `IMPRESS_SKIP_X86=1` and
   swiftformat off PATH. Never use `--fast`, because the iOS slice is needed.
+  A shared Rust descriptor or audit-layout change also requires rebuilding every co-linked archive
+  that embeds that crate. S3 found an old ImbibCore beside new store/verb archives under the same
+  crate hash: the app linked but native triage dispatch returned 404. Rebuild ImbibCore,
+  ImbibVerbsFfi, ImpressStoreFfi and the macOS ImpelTools inventory together for those changes;
+  unchanged generated Swift bindings alone do not prove the embedded Rust copies agree.
 - Per PR, run the quick gates and touched-crate/capabilities tests. Later batches need a new full workspace run on main.
 - Concurrent worktrees need separate Cargo target directories; sharing a target across differing branches caused a rustdoc dependency-load failure. Use the root cache serially, or a worktree's ignored `target-<pkg>-gates` directory.
 - Run Rust tests with a fresh scratch workspace and process-local environment, before any test can initialize a store singleton:

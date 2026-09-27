@@ -64,6 +64,30 @@ Takes no arguments.
   {}
   ```
 
+## `impress-scenario-service_scenario-record`
+
+Record one caller's trace or bounded time window as a stored Tier B scenario. Only lossless audit arguments are replayed. Earlier output IDs reused by later steps become captures; omitted calls are reported. This stores a document for review and editing; it executes no steps.
+
+- **safety**: `mutating`
+- **reads**: "core/verb-call@1.0.0", "impress/scenario@1.0.0"
+- **writes**: "impress/scenario@1.0.0"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `as` | — | no | One exact recorded caller: person, agent:<name>, app:<name>, system:<name>, or provider:<name>. A trace may omit this only when all matching rows have the same caller. This selects history; it does not change the invoking caller's authority. |
+| `since` | — | no | Inclusive RFC 3339 start of a window; requires until and as. |
+| `trace_id` | — | no | The exact recorded trace ID. Mutually exclusive with since/until. |
+| `until` | — | no | Inclusive RFC 3339 end of a window; requires since and as. |
+
+**Examples**
+
+- `recorded-session`:
+
+  ```json
+  {"trace_id":"scenario-record-example"}
+  ```
+
 ## `impress-scenario-service_scenario-run`
 
 Run one stored scenario by its `scenario_id`, Tier A on a fresh scratch store or Tier B against `base_url` (default: this device's own app, resolved the way the layout Tier B catalogue does). `external`: a Tier B run leaves the process over loopback HTTP, and a scenario's steps may call any verb, including a mutating or destructive one — the same reasoning that makes `workflow-service_run` (and every other "run arbitrary steps" verb) an external safety class rather than trying to infer a tighter one from what happens to run.
