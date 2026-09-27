@@ -78,6 +78,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// say — templates, widget ids, problem paths, params — so an agent
     /// authoring in a chat never has to read Rust source (ADR-0033 D8).
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn surface_schema(&self) -> SurfaceSchemaResult;
 
     /// Every problem with a spec, by JSON pointer and severity: structure
@@ -94,7 +95,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// nothing is stored; warnings are stored and listed. `name` overrides
     /// the row's label (the spec's own `name` is untouched); `tags` are
     /// free-text labels shown by `surface_list`.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0"]))]
     async fn surface_create(
         &self,
         spec: SpecArg,
@@ -106,7 +107,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// its `revision`. The row's `name` is kept unless `name` is given. Pass
     /// the `revision` you last read as `expected_revision` to be refused
     /// (`conflict`) instead of overwriting a change someone else made since.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0"]))]
     async fn surface_update(
         &self,
         id: String,
@@ -116,16 +117,17 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     ) -> SurfaceResult;
 
     /// One surface row, spec included.
-    #[impress_method]
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0"]))]
     async fn surface_get(&self, id: String) -> SurfaceResult;
 
     /// Every stored surface, oldest first, without their specs (see
     /// `surface_get` for the full document).
-    #[impress_method]
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn surface_list(&self) -> SurfaceListResult;
 
     /// Delete a surface and every state/event row that belongs to it.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0"]))]
     async fn surface_delete(&self, id: String) -> SurfaceDeleteResult;
 
     /// Put a surface in a pane of `app_id`'s window on `device` (this device
@@ -134,7 +136,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// new pane beside the focused one). Composes ordinary `layout-service`
     /// verbs — a surface pane is not a special case of the layout tree
     /// (ADR-0033 D1).
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
     async fn surface_show(
         &self,
         id: String,
@@ -148,7 +150,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// headlessly (ADR-0033 D2). Runs every stale source first. `params`
     /// binds the surface's declared params for this call; without it they
     /// come from the pane that shows the surface.
-    #[impress_method]
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", any("evaluates the surface's verb sources")]))]
     async fn surface_render(
         &self,
         id: String,
@@ -158,13 +160,13 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 
     /// The working state of one `(surface, host)` instance — the spec's own
     /// initial `state` block if nothing has been dispatched to it yet.
-    #[impress_method]
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0"]))]
     async fn surface_state_get(&self, id: String, host: Option<String>) -> SurfaceStateResult;
 
     /// Overwrite the working state of one `(surface, host)` instance
     /// directly (bypassing `reduce` — for seeding a surface's state, not
     /// for an ordinary field edit, which goes through `surface_dispatch`).
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0"], writes = ["impress/ui/surface-state@1.0.0"]))]
     async fn surface_state_set(
         &self,
         id: String,
@@ -176,7 +178,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// the resulting state, run every effect it produced, and re-render —
     /// as the agent. `ok` only when every effect happened. `params` as for
     /// `surface_render`.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", any("evaluates the surface's verb sources")], writes = ["impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0", any("runs the surface's actions")]))]
     async fn surface_dispatch(
         &self,
         id: String,
@@ -187,7 +189,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 
     /// A page of `(surface, host)`'s emitted events with `seq > after_seq`
     /// (0, every event still in the ring, when absent).
-    #[impress_method]
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0"]))]
     async fn surface_events(
         &self,
         id: String,
@@ -199,7 +201,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// (at most 55000). Returns as soon as one lands, or on timeout with
     /// `timed_out: true` and no events — the primitive the five-verb loop
     /// calls "wait" (ADR-0033 D5/D6).
-    #[impress_method]
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0"]))]
     async fn surface_wait(
         &self,
         id: String,
@@ -212,6 +214,7 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// then the paper-triage surface over the user's own unread papers — so
     /// an agent can start from a spec that already validates.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn surface_examples(&self) -> SurfaceExamplesResult;
 }
 
@@ -1133,6 +1136,11 @@ impress_service_impl! {
     service = ImpressSurfaceService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImpressSurfaceService,
     instance = || impress_surface_service_instance(),
     strict_args = true,

@@ -223,7 +223,8 @@ pub trait CollectionService: Send + Sync + 'static {
     /// `binding` is `imbib` | `manuscript` | `figure` | `generic`. Build the
     /// tree from each row's `parent_id` (null = root). Start here: every other
     /// method takes ids this returns.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(name = "default", args = r#"{"binding": "generic"}"#)]
     async fn tree(&self, binding: String) -> CollectionListResult;
 
     /// Create a collection under `parent_id` (null = a new root).
@@ -234,6 +235,10 @@ pub trait CollectionService: Send + Sync + 'static {
     /// defaults to "any". The other bindings ignore it — their schema has no
     /// such field.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "name": "effects example", "parent_id": null, "kind_scope": "any"}"#
+    )]
     async fn create(
         &self,
         binding: String,
@@ -244,6 +249,10 @@ pub trait CollectionService: Send + Sync + 'static {
 
     /// Rename a collection.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}"#
+    )]
     async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult;
 
     /// Move a collection under `new_parent_id` (null = make it a root).
@@ -252,6 +261,10 @@ pub trait CollectionService: Send + Sync + 'static {
     /// descendants — the cycle check lives in the Rust kernel, so it holds for
     /// every caller rather than only the ones that remembered it.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}"#
+    )]
     async fn reparent(
         &self,
         binding: String,
@@ -261,18 +274,30 @@ pub trait CollectionService: Send + Sync + 'static {
 
     /// Set a collection's position among its siblings. Lower sorts first.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}"#
+    )]
     async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult;
 
     /// Delete a collection. Members are NEVER deleted — only the membership
     /// goes away, so the papers/manuscripts/figures survive. Deleting a
     /// collection that does not exist is an error, not a no-op.
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}"#
+    )]
     async fn delete(&self, binding: String, id: String) -> CollectionMutationResult;
 
     /// File items into a collection. Idempotent per item; returns how many
     /// were applied. A `generic` collection with `kind_scope: "any"` accepts
     /// items of every kind at once.
-    #[impress_method]
+    #[impress_method(effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids)], writes = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#
+    )]
     async fn add_members(
         &self,
         binding: String,
@@ -284,6 +309,10 @@ pub trait CollectionService: Send + Sync + 'static {
     /// items filed in a DIFFERENT collection are left alone rather than
     /// unfiled. Returns how many were actually removed.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#
+    )]
     async fn remove_members(
         &self,
         binding: String,
@@ -294,7 +323,11 @@ pub trait CollectionService: Send + Sync + 'static {
     /// Member count per collection, aligned index-for-index with
     /// `collection_ids`. Unknown ids count 0 rather than failing the batch, so
     /// a stale id cannot break a whole sidebar refresh.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"binding": "generic", "collection_ids": []}"#
+    )]
     async fn member_counts(
         &self,
         binding: String,
@@ -305,7 +338,8 @@ pub trait CollectionService: Send + Sync + 'static {
     /// (ADR-0022 WP G7): the `collections.unified` flag, how many rows are
     /// still under each legacy schema, and how many generic rows exist per
     /// `kind_scope`. Read-only and always safe. Start here before `migrate`.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn migration_status(&self) -> MigrationStatusResult;
 
     /// Converge the three legacy collection schemas onto `collection@1.0.0`.
@@ -321,7 +355,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// byte-faithful. Re-running is safe: the second run rewrites zero rows.
     ///
     /// This is a deliberate, human-invoked operation on data users live in.
-    #[impress_method]
+    #[impress_method(effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"], writes = ["collection"]))]
     async fn migrate(&self, dry_run: bool) -> MigrationReportResult;
 
     /// Undo `migrate`: restore every migrated collection's original schema and
@@ -810,6 +844,11 @@ impress_service_impl! {
     service = CollectionService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["collection", "imbib/collection", "manuscript-collection", "figure-collection"],
+        writes: ["collection", "imbib/collection", "manuscript-collection", "figure-collection"],
+        reach: [],
+    },
     impl = DefaultCollectionService,
     instance = DefaultCollectionService::new,
     methods = [

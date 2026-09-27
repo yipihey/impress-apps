@@ -16,6 +16,11 @@ schema = ["schemars", "impress-pane-query/schema"]
 # Automerge-backed manuscript bodies (ADR-0027). Needs the store: the
 # document cache hangs off SqliteItemStore and chunks are store items.
 collab = ["dep:automerge", "dep:base64", "sqlite"]
+# The store spy (ADR-0036 D1, `effects_spy`): `SqliteItemStore` reports the
+# kinds each call reads and writes to a process-wide recorder so
+# `crates/impress-capabilities/tests/effects.rs` can verify every verb's
+# declared effects against what it did. Tests only; nothing ships with it.
+effects-spy = ["sqlite"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

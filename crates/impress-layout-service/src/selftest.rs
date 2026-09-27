@@ -70,6 +70,11 @@ impress_service_impl! {
     service = LayoutSelftestService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [any("runs the catalogue's capabilities")],
+        writes: [any("runs the catalogue's capabilities")],
+        reach: [app("impress")],
+    },
     impl = DefaultLayoutSelftestService,
     instance = || selftest_instance(),
     methods = [

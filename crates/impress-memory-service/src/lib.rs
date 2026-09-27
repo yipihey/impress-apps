@@ -343,7 +343,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// a paper, a run). Either may be empty. An id that does not resolve to a
     /// live item is kept in the record but silently skipped as a graph edge
     /// — it does not fail the write.
-    #[impress_method]
+    #[impress_method(effects(reads = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"], writes = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"]))]
     #[allow(clippy::too_many_arguments)]
     async fn remember(
         &self,
@@ -376,6 +376,10 @@ pub trait MemoryService: Send + Sync + 'static {
     /// vectors embedded yet, results are byte-identical to the FTS-only
     /// tier.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "default",
+        args = r#"{"query": "effects", "limit": 5, "include_superseded": false, "subject_ref": "effects-example"}"#
+    )]
     async fn recall(
         &self,
         query: String,
@@ -416,7 +420,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// a near-duplicate — call it directly only when you already hold the
     /// exact id (from a prior `recall` or `memory_brief`) and want to record
     /// that it still holds without restating the prose.
-    #[impress_method]
+    #[impress_method(effects(reads = ["memory/claim@1.0.0"], writes = ["memory/claim@1.0.0"]))]
     async fn confirm_claim(&self, id: String) -> ActionResult;
 
     /// Retract a memory by REPLACING it: writes a new memory of the SAME
@@ -434,7 +438,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// worth the sentence — it is the only place "why was this retracted"
     /// survives. This is NOT how to retire a memory that was never wrong but
     /// is simply unwanted or private; use `forget` for that instead.
-    #[impress_method]
+    #[impress_method(effects(reads = ["memory/claim@1.0.0"], writes = ["memory/claim@1.0.0"]))]
     async fn supersede_claim(
         &self,
         old_id: String,
@@ -450,7 +454,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// this only flips the flag every read path already honours, so the
     /// action is reversible by a direct store edit even though no verb here
     /// un-forgets it.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"], writes = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"]))]
     async fn forget(&self, id: String) -> ActionResult;
 
     /// Row counts per memory schema (heads and totals), plus which retrieval
@@ -466,6 +470,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// fraction whenever the tier is at least configured; this call never
     /// pays for a model load itself, so it is always cheap to check.
     #[impress_method(safety = read_only)]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn memory_status(&self) -> StatusResult;
 }
 
@@ -1687,13 +1692,18 @@ impress_service_impl! {
     service = MemoryService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultMemoryService,
     instance = DefaultMemoryService::new,
     methods = [
         remember(
             kind: String,
             title: String,
-            body: String,
+            #[impress_private] body: String,
             claim_type: String,
             confidence: f64,
             subject_refs: Vec<String>,

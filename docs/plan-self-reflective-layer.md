@@ -1433,3 +1433,95 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   writer) was never called by `impress-cli`/`imprint-cli` before `std::process::exit`, so a one-shot
   CLI process could race the writer thread and drop its own verb-call row; both binaries now flush
   before exit.
+- 2026-09-26 — **E1 (declared effects)** on a worktree of main at d029648d, branch
+  `claude/reflective-e1-effects`. `VerbDescriptor.effects: Effects { reads, writes, reach }` with
+  `Kind = Ref | Target(arg) | Children(arg) | Prefix | Any(reason)` and `Reach = App(id) | Network |
+  Fs | Subprocess | Device | Provider` (`impress-service-core/src/descriptor.rs`, `resolve_effects`
+  beside `resolve_safety_class`); declared as `impress_service_impl! { effects = { reads: […],
+  writes: […], reach: […] } }` with `#[impress_method(effects(…))]` replacing the whole set per
+  method, and `#[impress_private]` on a `methods = […]` argument → `"x-private": true` in the input
+  schema (H-P1-1, H-P1-2). The macro embeds `schema-refs.json` at build time (`build.rs`), so a
+  misspelt ref is a compile error; the standalone kit scratch has no manifest and skips the check
+  there, and the Tier A test re-checks every ref. Seeding pass from appendix A read against the
+  services: **438 of 438** verbs declared (P4's five `job-*` verbs joined since the appendix), 38
+  service defaults, 231 method exceptions. The walker's over-approximations were not carried over
+  (`triage-service` writes `target(id)`, not the surface kind; the 25 layout verbs the walker
+  called dynamic touch `impress/ui/layout@1.0.0`). `App(id)` reach is declared, not derived: P1
+  made no `needs_app` derivation the macro could read. The store spy is
+  `impress_core::effects_spy` (feature `effects-spy`, hooks on `get`/`query`/`count`/`neighbors`
+  and `emit_mutation`), process-wide because the services reach the store through singletons.
+  `crates/impress-capabilities/tests/effects.rs` runs every headless verb's examples and the three
+  Tier A catalogues under it: **70 verbs verified by example** (a first batch of 70 examples on
+  headless verbs — G3 adds more), **93 by catalogue** (service-level union for layout, surface and
+  the four imprint services, since the catalogues call the traits directly), **275 on the exception
+  table** (85 `needs a running app`, 20 `leaves the process`, 170 `no example`), ceiling pinned at
+  275. `docs/verb-effects.md` is the marker table (rows and reasons written by the test);
+  `check-verb-coverage.sh` checks the source-only half. The safety-consistency check lives in the
+  same test (`read_only ⇒ writes = ∅`; reach beyond `fs` ⇔ `external`, allowlist of two read-only
+  verbs with P1's evidence). **The spy's first run found three things the declarations and P1's
+  table had wrong:** `list-libraries` also reads the entries; `layout-service_get-layout` writes the
+  live row on a cold device and `list-layouts` seeds the shipped presets — both reclassed
+  `mutating` (idempotent) in `docs/verb-safety.md` with the evidence; `project-build` runs as a
+  job and touches `task@1.0.0`/`task-event@1.0.0`. Not done here, by the package split: the surface
+  `verb`-source invalidation (RS-S2, `query_refs`) and `capabilities-service_impact` are E3's;
+  per-verb attribution for the catalogues waits for the call log (L1). Gates (serial,
+  `CARGO_TARGET_DIR=target-e1`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test --workspace --features native` **4064 passed, 0 failed** (the effects-spy feature
+  is an unconditional dev-dependency of `impress-capabilities`, so `tests/effects.rs` ran in that
+  total — no separate spy invocation needed); `check-verb-coverage.sh` OK (38 services declare,
+  438 verbs in `docs/verb-effects.md`, 275 exceptions; 75 crates with a verdict, 20
+  `should-be-verb` at the ceiling); `check-kit-deps.sh --strict` OK; `check-kit-standalone.sh` OK
+  (14 crates); `check-schema-refs.sh` OK (388 call sites, 81 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged (no export moved); `cargo hakari generate`
+  found nothing to regenerate, but `cargo hakari verify` still fails on a `cc` crate feature-set
+  mismatch (`impress-workspace-hack` built with `parallel` vs. a fixup pass with no features) —
+  pre-existing build-graph variance this branch's diff does not touch (no `Cargo.toml` dependency
+  edits), not fixed here.
+- 2026-09-26 — **E2 (the spy)** on a worktree of main at 95335f75, branch `claude/reflective-e2-spy`.
+  Read E1 first: it had already built the row's whole shape — `impress_core::effects_spy` (feature
+  `effects-spy`, hooks on `get`/`query`/`count`/`neighbors`/`emit_mutation`), the Tier A runner in
+  `crates/impress-capabilities/tests/effects.rs` (`run_examples`/`run_catalogue`/`verification`)
+  asserting `observed ⊆ declared` for every headless verb's examples and the three Tier A
+  catalogues, the printed under-exercised table, and a *Verified* column in `docs/verb-effects.md`
+  the test computes and refuses to let drift from a hand-typed value (`every_verb_declares_what_the_table_records`).
+  **Kept the spy at `crates/impress-core/src/effects_spy.rs`**, not moved to `store/spy.rs` as the
+  plan's path names it: it is already wired into five call sites in `sqlite_store.rs` and is a
+  top-level module of `impress-core` (there is no `store/` submodule to move it into without
+  churning those call sites for no behavioural change), so this is a location the plan's text
+  didn't quite match, not a gap E2 needed to fill.
+  **What E2 did add:** two examples (`imbib-library-service_query-unread`,
+  `_query-starred`, `#[impress_example(args = "{parent_id: null, sort_field: "title", ascending:
+  true, limit: 5}")]`, matching the pattern already used by `list-publications`/`query-recent`),
+  moving both off the exception table and lowering `EXCEPTION_CEILING` 275 → 273 (confirmed by
+  `dump`: "declared: 438 · verified by example: 72 · by catalogue: 93 · exceptions: 273"). Looked
+  for more cheap wins first: 170 of 273 exceptions are `target(id)`/`children(id)` verbs (including
+  the row's own `triage-service_set-starred`) whose example would need a real row already in the
+  scratch store — the example format has no seed step, so making one of those "cheap" would mean
+  adding seed support to the harness, which is more than a one-line fix and was left alone.
+  **The proof** (row: "removing a declared kind from `triage-service_set-starred`'s effects fails
+  the build naming the example" — `triage-service_set-starred` has no example, so this ran on the
+  nearest verified `target`/write verb instead): first tried removing a read kind from
+  `imbib-library-service_query-starred`'s declaration and re-running — the test still passed,
+  because `query_starred` goes through `imbib-core::unified::store_api`'s own SQL, not
+  `impress_core::sqlite_store::SqliteItemStore`'s generic `query`/`count`, so the spy's hooks never
+  fire for it against an empty scratch store (confirmed: every `imbib-library-service_*` and
+  `imbib-tags-service_list-*` read-only example is in the printed under-exercised table, all reads,
+  none written). This is a real blind spot EF-3 anticipated ("a static tool can seed the
+  declarations and cannot verify them") but for the *store spy itself*, not just the walker — noted
+  here for E3/L1, not fixed. Retried on `imbib-tags-service_create-tag` (writes go through the
+  generic store's `emit_mutation`, which every write already hits): temporarily changed
+  `writes = ["imbib/tag-definition"]` to `writes = []` and reran
+  `observed_effects_are_within_the_declared` — it failed:
+  `` `imbib-tags-service_create-tag` example `default` wrote `imbib/tag-definition`, which it does
+  not declare (writes: —) ``, naming the verb, the example and the kind exactly as the row
+  requires. Reverted immediately after capturing the failure. Gates (serial,
+  `CARGO_TARGET_DIR=target-e2`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test -p impress-capabilities -p impress-core -p impress-service-core` all green (600 + 67 +
+  25 + smaller suites, 0 failed); `check-verb-coverage.sh` OK ("38 services declare, 438 verbs in
+  docs/verb-effects.md (273 exceptions)"); `check-kit-deps.sh --strict` OK; `check-kit-standalone.sh`
+  OK (14 crates); `check-schema-refs.sh` OK (388 call sites, 81 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged; `cargo hakari generate --diff` empty. Not
+  touched: `crates/impress-service-core/src/{call,pipeline}.rs`, the macro's invoker emission (P2's
+  files). E3 is next (`query_refs`/`invalidate_sources`, the safety-consistency test already lives
+  in E1/E2's `effects.rs`, `capabilities-service_impact`); it should also pick up the store-spy
+  blind spot noted above if it touches imbib-core's custom SQL paths.

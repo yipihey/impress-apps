@@ -1857,6 +1857,7 @@ mod call_verb_tests {
                 idempotent: true,
             },
             since: "0.1.0",
+            effects: impress_service_core::Effects::NONE,
             deprecated: None,
             aliases: &[],
             examples: &[],

@@ -15,7 +15,14 @@
 #     has a service row (kebab-cased), and every service row has a block;
 #   * at most CEILING crates are `should-be-verb` (C-1: the gap is held, not
 #     allowed to grow). The ceiling is read from the test file so the two
-#     checks cannot disagree.
+#     checks cannot disagree;
+#   * every `impress_service_impl!` block declares `effects = {` (ADR-0036
+#     D1 — the macro refuses a block without one, but a hosted runner should
+#     say so before a build does), docs/verb-effects.md lists exactly the
+#     verbs docs/verb-safety.md lists (the two marker tables describe one
+#     inventory), and every exception row there names a verb in its own
+#     table. The effects test in crates/impress-capabilities/tests/effects.rs
+#     checks the declarations themselves against the linked inventory.
 #
 # Usage:
 #   scripts/check-verb-coverage.sh
@@ -105,7 +112,42 @@ for row in $SERVICE_ROWS; do
     in_list "$row" "$KEBABS" || fail "$DOC has a row for $row, but no impress_service_impl! block under crates/*/src names it; delete the row"
 done
 
+# --- effects: every block declares, and the two verb tables agree ---------------
+
+EFFECTS_DOC="docs/verb-effects.md"
+SAFETY_DOC="docs/verb-safety.md"
+doc_block() { # doc_block <file> <marker>
+    awk -v b="<!-- $2:begin -->" -v e="<!-- $2:end -->" \
+        'index($0, b) { p = 1; next } index($0, e) { p = 0 } p' "$1"
+}
+verbs_in() { # verbs_in <file> <marker>: the first cell of every row
+    doc_block "$1" "$2" | awk -F'|' '/^\| `/ { v = $2; gsub(/[` ]/, "", v); print v }' | sort
+}
+
+BLOCK_COUNT="$(grep -rh 'impress_service_impl! *{' crates/*/src --include='*.rs' | grep -vc '^\s*//' || true)"
+EFFECTS_COUNT="$(grep -rh -A40 'impress_service_impl! *{' crates/*/src --include='*.rs' | grep -v '^\s*//' | grep -c 'effects = {' || true)"
+if [[ "$BLOCK_COUNT" -ne "$EFFECTS_COUNT" ]]; then
+    fail "$BLOCK_COUNT impress_service_impl! blocks but $EFFECTS_COUNT declare effects = { … }; every service declares what it touches (ADR-0036 D1)"
+fi
+
+SAFETY_VERBS="$(verbs_in "$SAFETY_DOC" verb-safety)"
+EFFECTS_VERBS="$(verbs_in "$EFFECTS_DOC" verb-effects)"
+[[ -n "$EFFECTS_VERBS" ]] || { echo "FAIL: could not read the verb table in $EFFECTS_DOC" >&2; exit 1; }
+for v in $(comm -23 <(printf '%s\n' "$SAFETY_VERBS") <(printf '%s\n' "$EFFECTS_VERBS")); do
+    fail "$SAFETY_DOC lists $v but $EFFECTS_DOC has no row for it (run the effects test's dump for the row)"
+done
+for v in $(comm -13 <(printf '%s\n' "$SAFETY_VERBS") <(printf '%s\n' "$EFFECTS_VERBS")); do
+    fail "$EFFECTS_DOC lists $v, which $SAFETY_DOC does not; delete the row or add the verb to both"
+done
+for v in $(verbs_in "$EFFECTS_DOC" verb-effects-exceptions); do
+    in_list "$v" "$EFFECTS_VERBS" || fail "$EFFECTS_DOC's exception table names $v, which its verb table does not"
+done
+for v in $EFFECTS_VERBS; do
+    in_list "${v%%_*}" "$KEBABS" || fail "$EFFECTS_DOC row $v names service ${v%%_*}, which has no impress_service_impl! block"
+done
+
 if [[ $status -eq 0 ]]; then
+    echo "verb effects: $BLOCK_COUNT services declare, $(printf '%s\n' "$EFFECTS_VERBS" | wc -l | tr -d ' ') verbs in $EFFECTS_DOC ($(verbs_in "$EFFECTS_DOC" verb-effects-exceptions | wc -l | tr -d ' ') exceptions)"
     echo "verb coverage: $(printf '%s\n' "$MEMBERS" | wc -l | tr -d ' ') crates with a verdict ($COUNT should-be-verb, ceiling $CEILING), $(printf '%s\n' "$SERVICE_ROWS" | wc -l | tr -d ' ') services with a row"
 fi
 exit "$status"

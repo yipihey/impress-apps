@@ -305,7 +305,8 @@ pub trait ImpelService: Send + Sync + 'static {
     /// Start here when impel "seems stuck" — a large `pending_reviews`
     /// with a live worker means the queue is waiting on you, while a stale
     /// worker means nothing is running at all.
-    #[impress_method]
+    #[impress_method(effects(reads = ["task@1.0.0", "review-request@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn scheduler_status(&self) -> SchedulerStatusReport;
 
     /// Terminally-failed tasks, newest first, each with the recorded error
@@ -314,7 +315,8 @@ pub trait ImpelService: Send + Sync + 'static {
     /// intent that, until this verb, nothing ever read.
     ///
     /// `limit` 0 means the default (50).
-    #[impress_method]
+    #[impress_method(effects(reads = ["task@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
     async fn list_failed_tasks(&self, limit: i64) -> Vec<FailedTaskReport>;
 
     /// The human review queue: unresolved checkpoints, oldest first,
@@ -323,7 +325,8 @@ pub trait ImpelService: Send + Sync + 'static {
     /// exactly the reviews that most need answering.
     ///
     /// `limit` 0 means the default (50).
-    #[impress_method]
+    #[impress_method(effects(reads = ["review-request@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
     async fn list_pending_reviews(&self, limit: i64) -> Vec<PendingReviewReport>;
 
     /// Answer one review checkpoint. `resolution` is `approved` (apply the
@@ -333,7 +336,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// silently applying nothing.
     ///
     /// The suspended task resumes on the scheduler's next pass.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["review-request@1.0.0", "task@1.0.0"], writes = ["review-request@1.0.0", "task@1.0.0"]))]
     async fn resolve_review(&self, review_id: String, resolution: String) -> ActionReport;
 
     /// Cancel a task that has not started, and every pending task
@@ -343,7 +346,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// kernel never interrupts a thread — so this answers at once and
     /// `job_status` shows when it stopped. Refuses a terminal one, since
     /// `done`/`failed`/`cancelled` admit no transition.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"]))]
     async fn cancel_task(&self, task_id: String) -> ActionReport;
 
     /// A job's row: state, whether a cancel is pending, where it ran, and
@@ -377,7 +380,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// executor stops at its next check and the row goes `cancelled`, which
     /// `job_wait` reports as `finished` — or cancels a job that has not
     /// started outright. Returns at once; idempotent.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"]))]
     async fn job_cancel(&self, id: String) -> JobCancelReport;
 
     /// The verb's own result, exactly as a synchronous call would have
@@ -397,7 +400,8 @@ pub trait ImpelService: Send + Sync + 'static {
     /// survives but can no longer name the task it ran for.
     ///
     /// `window_days` 0 means the default (90).
-    #[impress_method]
+    #[impress_method(effects(reads = ["task@1.0.0", "review-request@1.0.0", "core/operation"]))]
+    #[impress_example(name = "default", args = r#"{"window_days": 30}"#)]
     async fn retention_status(&self, window_days: i64) -> RetentionReport;
 }
 
@@ -1247,6 +1251,11 @@ impress_service_impl! {
     service = ImpelService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: ["task@1.0.0", "task-event@1.0.0"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImpelService,
     instance = || impel_instance(),
     methods = [

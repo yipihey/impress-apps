@@ -75,6 +75,11 @@ impress_service_impl! {
     service = SurfaceSelftestService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [any("runs the catalogue's capabilities")],
+        writes: [any("runs the catalogue's capabilities")],
+        reach: [app("impress")],
+    },
     impl = DefaultSurfaceSelftestService,
     instance = || selftest_instance(),
     methods = [

@@ -117,18 +117,18 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     // ---- Annotations (PDF) ----
     /// List PDF annotations on a paper. Includes highlights, underlines,
     /// notes, and text comments made on the PDF.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/annotation"]))]
     async fn list_annotations(
         &self,
         linked_file_id: String,
         page_number: Option<i32>,
     ) -> Vec<AnnotationRecord>;
     /// Count the PDF annotations on one linked file.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/annotation"]))]
     async fn count_annotations(&self, linked_file_id: String) -> u32;
     /// Add a PDF annotation to a paper. Supports highlights, underlines,
     /// strikethroughs, notes, and free text.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/linked-file"], writes = ["imbib/annotation"]))]
     async fn create_annotation(
         &self,
         linked_file_id: String,
@@ -156,7 +156,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     async fn list_comments_since(&self, item_id: String, since_clock: u64) -> Vec<CommentRecord>;
     /// Add a comment to a paper. Can be a top-level comment or a reply to
     /// an existing comment.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/comment"]))]
     async fn create_comment(
         &self,
         publication_id: String,
@@ -167,7 +167,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     ) -> Option<CommentRecord>;
     /// Add a comment to any item by UUID (publication, artifact, or other
     /// item type).
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = [target(item_id)], writes = ["imbib/comment"]))]
     async fn create_comment_on_item(
         &self,
         item_id: String,
@@ -177,7 +177,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         parent_comment_id: Option<String>,
     ) -> Option<CommentRecord>;
     /// Edit the text of an existing comment.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["imbib/comment"], writes = ["imbib/comment"]))]
     async fn update_comment(&self, id: String, text: String) -> MutationResult;
 }
 
@@ -333,17 +333,22 @@ impress_service_impl! {
     service = ImbibAnnotationsService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: ["imbib/comment"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImbibAnnotationsService,
     instance = || crate::backend::annotations_service_instance(),
     methods = [
         list_annotations(linked_file_id: String, page_number: Option<i32>) -> Vec<AnnotationRecord>,
         count_annotations(linked_file_id: String) -> u32,
-        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, contents: Option<String>, selected_text: Option<String>, author_name: Option<String>) -> Option<AnnotationRecord>,
+        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, #[impress_private] contents: Option<String>, selected_text: Option<String>, author_name: Option<String>) -> Option<AnnotationRecord>,
         list_comments_for_item(item_id: String) -> Vec<CommentRecord>,
         list_comments(publication_id: String) -> Vec<CommentRecord>,
         list_comments_since(item_id: String, since_clock: u64) -> Vec<CommentRecord>,
-        create_comment(publication_id: String, text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
-        create_comment_on_item(item_id: String, text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
-        update_comment(id: String, text: String) -> MutationResult,
+        create_comment(publication_id: String, #[impress_private] text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
+        create_comment_on_item(item_id: String, #[impress_private] text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
+        update_comment(id: String, #[impress_private] text: String) -> MutationResult,
     ],
 }

@@ -218,7 +218,11 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// Items with `status: "dismissed"` are deliberately withheld; everything
     /// else, archived included, stays findable.
-    #[impress_method]
+    #[impress_method(effects(reads = [any("searches every kind")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"query": "effects", "limit_per_schema": 3}"#
+    )]
     async fn search_all(&self, query: String, limit_per_schema: i64) -> SearchResult;
 
     /// Everything connected to one item, in BOTH directions, across ALL edge
@@ -232,7 +236,11 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// target). Rows are ordered by edge type then title. Edges whose other end
     /// no longer exists are skipped. Pass 0 for the default limit (50); values
     /// above 500 are clamped.
-    #[impress_method]
+    #[impress_method(effects(reads = [target(id), any("walks references across kinds")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "limit": 10}"#
+    )]
     async fn related_items(&self, id: String, limit: i64) -> RelatedResult;
 
     /// Read ONE item of ANY record kind: its universal envelope (title,
@@ -252,6 +260,10 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// An unknown id is `ok: false` with "not found", never an empty success.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000"}"#
+    )]
     async fn get_item(&self, id: String) -> ItemResult;
 
     /// Browse the store: a page of envelopes for one record kind, newest
@@ -270,7 +282,11 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// Nothing is withheld here — dismissed items included. Unlike a search,
     /// a browse that silently omits rows makes its own counts a lie.
-    #[impress_method]
+    #[impress_method(effects(reads = [any("the schema_ref argument names the kind")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"schema_ref": "manuscript", "limit": 5, "offset": 0}"#
+    )]
     async fn list_items(&self, schema_ref: String, limit: i64, offset: i64) -> ItemListResult;
 }
 
@@ -577,13 +593,41 @@ impress_service_impl! {
     service = StoreQueryService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [target(id)],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultStoreQueryService,
     instance = DefaultStoreQueryService::new,
     methods = [
-        search_all(query: String, limit_per_schema: i64) -> SearchResult,
-        related_items(id: String, limit: i64) -> RelatedResult,
-        get_item(id: String) -> ItemResult,
-        list_items(schema_ref: String, limit: i64, offset: i64) -> ItemListResult,
+        search_all(
+            /// The search text, treated as prefix-matched words, never FTS5
+            /// syntax.
+            query: String,
+            /// Cap per record kind; 0 for the default (20), clamped above 200.
+            limit_per_schema: i64,
+        ) -> SearchResult,
+        related_items(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// Cap on the number of edges returned; 0 for the default (50),
+            /// clamped above 500.
+            limit: i64,
+        ) -> RelatedResult,
+        get_item(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+        ) -> ItemResult,
+        list_items(
+            /// The exact kind string (`"manuscript"`, `"imbib/bibliography-entry"`,
+            /// …); empty string or `"any"` walks every kind at once.
+            schema_ref: String,
+            /// Page size; 0 for the default (50), clamped above 200.
+            limit: i64,
+            /// Rows to skip before the page starts.
+            offset: i64,
+        ) -> ItemListResult,
     ],
 }
 

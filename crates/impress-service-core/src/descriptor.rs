@@ -84,6 +84,162 @@ impl std::fmt::Display for SafetyClass {
     }
 }
 
+/// A record kind a verb reads or writes, as the effect declaration names it
+/// (ADR-0036 D1, plan-self-reflective-layer § Effects).
+///
+/// Most verbs name their kinds outright (`Ref`); the 76 whose effect is a
+/// function of an argument — a triage verb writes the kind of whatever `id`
+/// names — say so with `Target`/`Children`, and the store spy resolves the
+/// argument against the store the same way the verb does. `Prefix` is for
+/// the layout and surface services, whose kinds share `impress/ui/`. `Any`
+/// is allowed only with a reason, which the exception table prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Kind {
+    /// A canonical ref from `schema-refs.json` (`imbib/bibliography-entry`).
+    /// The macro checks the spelling against the manifest at compile time;
+    /// the descriptor test checks it again.
+    Ref(&'static str),
+    /// The kind of the record the named argument identifies (`id`, `ids`,
+    /// `publication_ids`, …). The argument may be a string or an array.
+    Target(&'static str),
+    /// The kinds parented under the record the named argument identifies
+    /// (a collection's members).
+    Children(&'static str),
+    /// Every kind under a prefix (`impress/ui/`).
+    Prefix(&'static str),
+    /// Any kind, with the reason the verb cannot say more.
+    Any(&'static str),
+}
+
+impl Kind {
+    /// The declaration spelling: `"ref"`, `target(arg)`, `children(arg)`,
+    /// `prefix("…")`, `any("reason")`.
+    pub fn describe(&self) -> String {
+        match self {
+            Kind::Ref(r) => format!("\"{r}\""),
+            Kind::Target(a) => format!("target({a})"),
+            Kind::Children(a) => format!("children({a})"),
+            Kind::Prefix(p) => format!("prefix(\"{p}\")"),
+            Kind::Any(why) => format!("any(\"{why}\")"),
+        }
+    }
+
+    /// Whether a concrete schema ref observed on a store call is covered by
+    /// this declared kind, once `Target`/`Children` have been resolved to
+    /// `resolved` (the kinds the argument named; `None` when the caller
+    /// could not resolve them, which covers nothing).
+    pub fn covers(&self, observed: &str, resolved: Option<&[String]>) -> bool {
+        match self {
+            Kind::Ref(r) => *r == observed,
+            Kind::Prefix(p) => observed.starts_with(p),
+            Kind::Any(_) => true,
+            Kind::Target(_) | Kind::Children(_) => {
+                resolved.is_some_and(|kinds| kinds.iter().any(|k| k == observed))
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe())
+    }
+}
+
+/// Where a verb reaches outside the process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Reach {
+    /// A running app over its HTTP automation port (`app("imbib")`).
+    App(&'static str),
+    Network,
+    Fs,
+    Subprocess,
+    Device,
+    /// An AI provider (local or hosted).
+    Provider,
+}
+
+impl Reach {
+    /// The declaration spelling (`fs`, `network`, `app("imbib")`, …), the
+    /// same one `docs/verb-effects.md` prints.
+    pub fn describe(&self) -> String {
+        match self {
+            Reach::App(id) => format!("app(\"{id}\")"),
+            Reach::Network => "network".into(),
+            Reach::Fs => "fs".into(),
+            Reach::Subprocess => "subprocess".into(),
+            Reach::Device => "device".into(),
+            Reach::Provider => "provider".into(),
+        }
+    }
+
+    /// Whether this reach leaves the machine's own process tree in a way the
+    /// store cannot account for — everything but `fs`, which a mutating or
+    /// destructive verb may declare (backups, exports) without being
+    /// `external`.
+    pub const fn is_external(&self) -> bool {
+        !matches!(self, Reach::Fs)
+    }
+}
+
+impl std::fmt::Display for Reach {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe())
+    }
+}
+
+/// What a verb touches: the record kinds it reads and writes and where it
+/// reaches outside the process (ADR-0036 D1). Declared once per service in
+/// `impress_service_impl! { effects = { reads: […], writes: […], reach: […] } }`
+/// with per-method exceptions `#[impress_method(effects(reads = […], writes =
+/// […], reach = […]))]` on the trait — a method's declaration replaces the
+/// service's whole set, as `safety` does. Verified by the store spy over the
+/// examples in Tier A (`crates/impress-capabilities/tests/effects.rs`) and
+/// recorded, one row per verb, in `docs/verb-effects.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Effects {
+    /// Record kinds read (`query`, `count`, `get`, `neighbors`).
+    pub reads: &'static [Kind],
+    /// Record kinds written (`insert`, `update`, `delete`, `apply_operation`).
+    pub writes: &'static [Kind],
+    /// Outside the process.
+    pub reach: &'static [Reach],
+}
+
+impl Effects {
+    /// Touches nothing: pure computation.
+    pub const NONE: Effects = Effects {
+        reads: &[],
+        writes: &[],
+        reach: &[],
+    };
+
+    /// The three columns as `docs/verb-effects.md` prints them (`—` for an
+    /// empty set; items comma-separated, in declaration order).
+    pub fn columns(&self) -> [String; 3] {
+        fn join<T: std::fmt::Display>(items: &[T]) -> String {
+            if items.is_empty() {
+                "—".to_string()
+            } else {
+                items
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        }
+        [join(self.reads), join(self.writes), join(self.reach)]
+    }
+
+    /// Whether any declared kind is `Any`.
+    pub fn declares_any(&self) -> bool {
+        self.reads
+            .iter()
+            .chain(self.writes.iter())
+            .any(|k| matches!(k, Kind::Any(_)))
+    }
+}
+
 /// The safety facts a policy layer (ADR-0034 D3) and an MCP client read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Safety {
@@ -149,6 +305,9 @@ pub struct MethodMeta {
     pub safety: Option<SafetyClass>,
     /// `#[impress_method(idempotent = …)]`, when declared.
     pub idempotent: Option<bool>,
+    /// `#[impress_method(effects(…))]`, when the method departs from the
+    /// service's default set.
+    pub effects: Option<Effects>,
     pub examples: &'static [Example],
 }
 
@@ -199,6 +358,22 @@ pub const fn resolve_idempotent(
     }
 }
 
+/// The effect set for a method: its own declaration, else the service's
+/// default (ADR-0036 D1). A method's declaration replaces the whole set.
+pub const fn resolve_effects(
+    table: &'static [MethodMeta],
+    method: &str,
+    service_default: Effects,
+) -> Effects {
+    match method_meta(table, method) {
+        Some(MethodMeta {
+            effects: Some(effects),
+            ..
+        }) => *effects,
+        _ => service_default,
+    }
+}
+
 /// The examples declared on a method (empty until G3 writes them).
 pub const fn resolve_examples(table: &'static [MethodMeta], method: &str) -> &'static [Example] {
     match method_meta(table, method) {
@@ -218,6 +393,9 @@ pub const fn resolve_examples(table: &'static [MethodMeta], method: &str) -> &'s
 /// - `safety`: the service's `safety = …` default with the method's
 ///   `#[impress_method(safety = …)]` exception (declared; checked against
 ///   `docs/verb-safety.md`);
+/// - `effects`: the service's `effects = { … }` default with the method's
+///   `#[impress_method(effects(…))]` exception (declared; checked against
+///   `docs/verb-effects.md` and verified by the store spy);
 /// - `since`: the service's `since = "…"` (declared; checked non-empty);
 /// - `deprecated`, `aliases`: P3's lifecycle fields, empty until then;
 /// - `examples`: `#[impress_example]` on the method (declared; G3 fills);
@@ -236,6 +414,7 @@ pub struct VerbDescriptor {
     pub input_schema: fn() -> Value,
     pub output_schema: fn() -> Value,
     pub safety: Safety,
+    pub effects: Effects,
     pub since: &'static str,
     pub deprecated: Option<Deprecation>,
     pub aliases: &'static [&'static str],
@@ -284,6 +463,7 @@ impl std::fmt::Debug for VerbDescriptor {
             .field("name", &self.name)
             .field("description", &self.description)
             .field("safety", &self.safety)
+            .field("effects", &self.effects)
             .field("since", &self.since)
             .field("strict", &self.strict)
             .finish()
@@ -300,6 +480,11 @@ mod tests {
             doc: "Delete it.",
             safety: Some(SafetyClass::Destructive),
             idempotent: None,
+            effects: Some(Effects {
+                reads: &[],
+                writes: &[Kind::Target("id")],
+                reach: &[],
+            }),
             examples: &[Example {
                 name: "one",
                 args: r#"{"id": "x"}"#,
@@ -311,9 +496,64 @@ mod tests {
             doc: "Set it.",
             safety: None,
             idempotent: Some(true),
+            effects: None,
             examples: &[],
         },
     ];
+
+    const SERVICE_EFFECTS: Effects = Effects {
+        reads: &[Kind::Ref("imbib/bibliography-entry")],
+        writes: &[],
+        reach: &[Reach::Fs],
+    };
+
+    #[test]
+    fn a_method_effects_declaration_replaces_the_service_default() {
+        let own = resolve_effects(&TABLE, "delete", SERVICE_EFFECTS);
+        assert_eq!(own.writes, &[Kind::Target("id")]);
+        assert!(own.reads.is_empty(), "replaces, never merges");
+        assert_eq!(
+            resolve_effects(&TABLE, "set_flag", SERVICE_EFFECTS),
+            SERVICE_EFFECTS
+        );
+        assert_eq!(
+            resolve_effects(&TABLE, "missing", SERVICE_EFFECTS),
+            SERVICE_EFFECTS
+        );
+    }
+
+    #[test]
+    fn kinds_cover_observed_refs_once_targets_resolve() {
+        assert!(Kind::Ref("manuscript").covers("manuscript", None));
+        assert!(!Kind::Ref("manuscript").covers("manuscript-file@1.0.0", None));
+        assert!(Kind::Prefix("impress/ui/").covers("impress/ui/layout@1.0.0", None));
+        assert!(Kind::Any("dispatches whatever the surface calls").covers("x", None));
+        assert!(
+            !Kind::Target("id").covers("figure", None),
+            "unresolved covers nothing"
+        );
+        assert!(Kind::Target("id").covers("figure", Some(&["figure".to_string()])));
+        assert!(!Kind::Children("id").covers("figure", Some(&["manuscript".to_string()])));
+    }
+
+    #[test]
+    fn effects_print_as_the_table_does() {
+        let e = Effects {
+            reads: &[Kind::Ref("manuscript"), Kind::Target("ids")],
+            writes: &[],
+            reach: &[Reach::App("imbib"), Reach::Network],
+        };
+        assert_eq!(
+            e.columns(),
+            [
+                "\"manuscript\", target(ids)".to_string(),
+                "—".to_string(),
+                "app(\"imbib\"), network".to_string()
+            ]
+        );
+        assert!(!e.declares_any());
+        assert!(Reach::Network.is_external() && !Reach::Fs.is_external());
+    }
 
     #[test]
     fn a_method_override_beats_the_service_default() {
@@ -391,6 +631,7 @@ mod tests {
                 class: SafetyClass::ReadOnly,
                 idempotent: true,
             },
+            effects: Effects::NONE,
             since: "0.1.0",
             deprecated: None,
             aliases: &[],

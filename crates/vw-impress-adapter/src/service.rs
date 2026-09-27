@@ -437,6 +437,11 @@ impress_service_impl! {
     service = VwDiagnosticService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0", "vw/measurement@1.0.0", "vw/observation@1.0.0"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultVwDiagnosticService,
     instance = default_vw_service,
     methods = [
