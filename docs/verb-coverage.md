@@ -146,12 +146,14 @@ and the implore owner decides between verbs and deletion.
 | `implore-selection` | library | internal | `parser::parse_selection` and `Evaluator::{evaluate, selected_indices}` have zero callers in the workspace (C-2); the implore owner decides between a verb and deletion |
 | `implore-service` | verb-crate | verb-crate | |
 | `implore-service-http` | service-http | internal | the HTTP adapter of `implore-service`; no capability of its own |
+| `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `implore-stats` | library | should-be-verb | `Ecdf::{from_data, quantile, five_number_summary}`, `SummaryStats::{from_data, zscore, robust_zscore, winsorize}` have no verb and zero callers (C-2) |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
 | `impress-ai-service` | verb-crate | verb-crate | |
 | `impress-ai-tools` | glue/inventory | internal | a third force-link list beside `impress-capabilities` (recorded in the pipeline plan) |
 | `impress-app-client` | library | internal | `ImprintClient` selftest probes; the same data has store-service and imprint verbs |
+| `impress-app-transport` | library | internal | the P5 transport's client side (`call(app, verb, args)`); no capability of its own, it reaches a verb another crate already holds |
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |
 | `impress-bridges-service` | verb-crate | verb-crate | |
 | `impress-capabilities` | glue/inventory | internal | the one linked inventory |

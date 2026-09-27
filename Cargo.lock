@@ -4300,6 +4300,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "implore-verbs-ffi"
+version = "0.1.0"
+dependencies = [
+ "implore-service",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "serde_json",
+ "uniffi",
+]
+
+[[package]]
 name = "impress-ai"
 version = "0.1.0"
 dependencies = [
@@ -4402,6 +4413,25 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "impress-app-transport"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "implore-verbs-ffi",
+ "impress-core",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
  "uuid",
 ]
 

@@ -36,6 +36,8 @@ mod surface;
 /// The pieces `layout`'s and `surface`'s invalidation feeds share (ADR-0033
 /// D6) — see that module's docs.
 mod ui_feed;
+/// The P5 transport's server side: `dispatch_verb` (plan-verb-pipeline P5a).
+mod verb;
 
 // Force the linker to keep all four ADR-0033 D4 `kit` service crates linked
 // into this crate: `impress-layout-service` (used throughout `layout.rs`)
@@ -92,6 +94,7 @@ pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
     SharedSurfaceListener, SharedSurfaceRow, SharedVerbHost,
 };
+pub use verb::{dispatch_verb, SharedVerbDispatchResult};
 
 pub use ai_registry::{
     AiCapabilities, AiCategoryAssignment, AiCategoryEntry, AiChatMessage, AiChatRequest,

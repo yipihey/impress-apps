@@ -12757,6 +12757,78 @@ public func FfiConverterTypeSharedSyncCollectionOutcome_lower(_ value: SharedSyn
 
 
 /**
+ * What [`dispatch_verb`] answers: an HTTP status and the wire body —
+ * `{"ok": true, "wire_version", …}` or `{"ok": false, "wire_version",
+ * "code", "message"}` — exactly the convention `/api/layout/…` and
+ * `/api/surface/…` already answer (`impress_service_core::wire`).
+ */
+public struct SharedVerbDispatchResult {
+    public var status: UInt16
+    public var bodyJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: UInt16, bodyJson: String) {
+        self.status = status
+        self.bodyJson = bodyJson
+    }
+}
+
+
+
+extension SharedVerbDispatchResult: Equatable, Hashable {
+    public static func ==(lhs: SharedVerbDispatchResult, rhs: SharedVerbDispatchResult) -> Bool {
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.bodyJson != rhs.bodyJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(status)
+        hasher.combine(bodyJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedVerbDispatchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedVerbDispatchResult {
+        return
+            try SharedVerbDispatchResult(
+                status: FfiConverterUInt16.read(from: &buf), 
+                bodyJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedVerbDispatchResult, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.status, into: &buf)
+        FfiConverterString.write(value.bodyJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedVerbDispatchResult_lift(_ buf: RustBuffer) throws -> SharedVerbDispatchResult {
+    return try FfiConverterTypeSharedVerbDispatchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedVerbDispatchResult_lower(_ value: SharedVerbDispatchResult) -> RustBuffer {
+    return FfiConverterTypeSharedVerbDispatchResult.lower(value)
+}
+
+
+/**
  * A discovered file as the store holds it — the provenance row.
  */
 public struct SharedWatchedFile {
@@ -17771,6 +17843,20 @@ public func compilePaneQuery(queryJson: String, declsJson: String, bindingsJson:
 })
 }
 /**
+ * Dispatch one verb by its qualified name (`<service>_<method>`) through
+ * the invoker pipeline, on whatever `*-service` crates this binary links
+ * (the kit, for this crate — see the module doc for what that excludes).
+ */
+public func dispatchVerb(name: String, argsJson: String, callerJson: String) -> SharedVerbDispatchResult {
+    return try!  FfiConverterTypeSharedVerbDispatchResult.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_dispatch_verb(
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(argsJson),
+        FfiConverterString.lower(callerJson),$0
+    )
+})
+}
+/**
  * Install `sink` as the destination of the layout and surface crates' log
  * lines, at `level` (`error` | `warning` | `info` | `debug`; anything else
  * is `info`). Installing again replaces the sink and the level. Returns
@@ -18024,6 +18110,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_compile_pane_query() != 7773) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_dispatch_verb() != 2837) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 14824) {
