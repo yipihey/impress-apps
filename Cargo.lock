@@ -4751,6 +4751,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-scenario"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-service-core",
+ "impress-surface",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "impress-scenario-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-layout-service",
+ "impress-scenario",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "impress-surface",
+ "impress-workspace-hack",
+ "reqwest",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "impress-service-core"
 version = "0.1.0"
 dependencies = [
