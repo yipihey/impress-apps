@@ -25,8 +25,10 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 183 read-only, 132 mutating,
-33 destructive, 103 external — 451 verbs.
+Counts today (semantic-search feature on): 192 read-only, 133 mutating,
+33 destructive, 104 external — 462 verbs. Without that feature,
+`imbib-semantic-service`'s three read-only verbs are unlinked and the totals
+are 3 fewer (189/133/33/104 — 459).
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -49,6 +51,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-manuscripts-service` | external | 7 | 0 |
 | `imbib-scix-service` | read_only | 7 | 3 |
 | `imbib-search-service` | read_only | 10 | 1 |
+| `imbib-semantic-service` | read_only | 3 | 0 |
 | `imbib-tags-service` | mutating | 10 | 5 |
 | `imbib-text-service` | read_only | 5 | 0 |
 | `imbib-undo-service` | mutating | 3 | 1 |
@@ -83,7 +86,10 @@ per-method overrides. Derived from the table below, recorded here for reading.
 <!-- verb-safety:begin -->
 | Tool | Class | Evidence |
 |---|---|---|
+| `capabilities-service_catalogue-surface` | read_only | name/doc |
 | `capabilities-service_impact` | read_only | name/doc |
+| `capabilities-service_list-verbs` | read_only | name/doc |
+| `capabilities-service_verb-surface` | read_only | name/doc |
 | `collection-service_add-members` | mutating | name/doc |
 | `collection-service_create` | mutating | name/doc |
 | `collection-service_delete` | destructive | crates/impress-store-service/src/collection_service.rs:577 collection_ops::delete -> crates/impress-core/src/collection_ops.rs:1035 store.delete(id); kernel returns a restore snapshot but the service drops it (collect… |
@@ -243,6 +249,9 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-search-service_get-smart-search` | read_only | name/doc |
 | `imbib-search-service_list-smart-searches` | read_only | name/doc |
 | `imbib-search-service_resolve-cite-key` | read_only | name/doc |
+| `imbib-semantic-service_get-paper-chunks` | read_only | name/doc |
+| `imbib-semantic-service_list-indexed-papers` | read_only | name/doc |
+| `imbib-semantic-service_search-papers` | read_only | name/doc |
 | `imbib-tags-service_add-tag` | mutating | name/doc |
 | `imbib-tags-service_count-by-tag` | read_only | name/doc |
 | `imbib-tags-service_create-tag` | mutating | name/doc |
@@ -336,6 +345,11 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impress-bridges-service_resolve-artifact` | read_only | name/doc |
 | `impress-bridges-service_search-all` | read_only | name/doc |
 | `impress-bridges-service_sync-figure` | external | E/D: crates/impress-bridges-service/src/lib.rs:507 implore_service::service_instance().export_figure — default crates/implore-service/src/lib.rs:484 refuses (ok:false), HTTP backend crates/implore-service-http/src/lib.rs:3… |
+| `impress-scenario-service_scenario-create` | mutating | name/doc |
+| `impress-scenario-service_scenario-get` | read_only | name/doc |
+| `impress-scenario-service_scenario-list` | read_only | name/doc |
+| `impress-scenario-service_scenario-run` | external | a scenario's steps may call any verb, including a mutating or destructive one, and a Tier B run leaves the process over loopback HTTP |
+| `impress-scenario-service_scenario-validate` | read_only | name/doc |
 | `impress-surface-service_surface-create` | mutating | name/doc |
 | `impress-surface-service_surface-delete` | destructive | crates/impress-surface-service/src/service.rs:744-772 surfaces_for_write().delete -> store.rs:378-394 store.delete() of every state row, every event row and the surface row (hard deletes, no operation/undo), then regi… |
 | `impress-surface-service_surface-dispatch` | mutating | name/doc |

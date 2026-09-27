@@ -38,15 +38,18 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 458 verbs declared; 72 verified by example, 93 by a Tier A
-catalogue, 293 on the exception table.
+Counts today: 469 verbs declared; 73 verified by example, 93 by a Tier A
+catalogue, 303 on the exception table.
 
 ## Every verb
 
 <!-- verb-effects:begin -->
 | Verb | Reads | Writes | Reach | Verified |
 |---|---|---|---|---|
+| `capabilities-service_catalogue-surface` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
 | `capabilities-service_impact` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | example ×2 |
+| `capabilities-service_list-verbs` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
+| `capabilities-service_verb-surface` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
 | `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
 | `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
@@ -206,6 +209,9 @@ catalogue, 293 on the exception table.
 | `imbib-search-service_get-smart-search` | "imbib/smart-search" | — | — | — |
 | `imbib-search-service_list-smart-searches` | "imbib/smart-search" | — | — | example ×1 |
 | `imbib-search-service_resolve-cite-key` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | — |
+| `imbib-semantic-service_get-paper-chunks` | any("reads the imbib embeddings sidecar") | — | — | — |
+| `imbib-semantic-service_list-indexed-papers` | any("reads the imbib embeddings sidecar and, for metadata, the shared impress store") | — | — | — |
+| `imbib-semantic-service_search-papers` | any("reads the imbib embeddings sidecar and, for metadata, the shared impress store") | — | — | — |
 | `imbib-tags-service_add-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_count-by-tag` | "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
@@ -299,6 +305,11 @@ catalogue, 293 on the exception table.
 | `impress-bridges-service_resolve-artifact` | any("resolves a URI to whichever kind it names") | — | — | — |
 | `impress-bridges-service_search-all` | any("searches every kind") | — | — | — |
 | `impress-bridges-service_sync-figure` | target(figure_id) | — | app("implore"), fs | — |
+| `impress-scenario-service_scenario-create` | "impress/scenario@1.0.0" | "impress/scenario@1.0.0" | — | example ×1 |
+| `impress-scenario-service_scenario-get` | "impress/scenario@1.0.0" | — | — | example ×1 |
+| `impress-scenario-service_scenario-list` | "impress/scenario@1.0.0" | — | — | example ×1 |
+| `impress-scenario-service_scenario-run` | "impress/scenario@1.0.0" | any("a scenario's steps may call any verb, including a mutating one") | network | — |
+| `impress-scenario-service_scenario-validate` | — | — | — | example ×1 |
 | `impress-surface-service_surface-create` | "impress/ui/surface@1.0.0" | "impress/ui/surface@1.0.0" | — | catalogue:surface |
 | `impress-surface-service_surface-delete` | "impress/ui/surface@1.0.0" | "impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0" | — | catalogue:surface |
 | `impress-surface-service_surface-dispatch` | "impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", any("evaluates the surface's verb sources") | "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0", any("runs the surface's actions") | — | catalogue:surface |
@@ -516,6 +527,9 @@ when one lands).
 <!-- verb-effects-exceptions:begin -->
 | Verb | Reason |
 |---|---|
+| `capabilities-service_catalogue-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `capabilities-service_list-verbs` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `capabilities-service_verb-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_add-members` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_member-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
@@ -649,6 +663,9 @@ when one lands).
 | `imbib-search-service_full-text-search` | no example |
 | `imbib-search-service_get-smart-search` | no example |
 | `imbib-search-service_resolve-cite-key` | no example |
+| `imbib-semantic-service_get-paper-chunks` | no example |
+| `imbib-semantic-service_list-indexed-papers` | no example |
+| `imbib-semantic-service_search-papers` | no example |
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_list-tags-with-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
@@ -727,6 +744,7 @@ when one lands).
 | `impress-bridges-service_resolve-artifact` | no example |
 | `impress-bridges-service_search-all` | no example |
 | `impress-bridges-service_sync-figure` | needs a running app |
+| `impress-scenario-service_scenario-run` | leaves the process (network) |
 | `impress-workflow-service_workflow-disable` | no example |
 | `impress-workflow-service_workflow-dry-run` | no example |
 | `impress-workflow-service_workflow-enable` | no example |

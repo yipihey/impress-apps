@@ -31,7 +31,7 @@ prints the row as it should now read.
 <!-- verb-coverage-services:begin -->
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
-| `capabilities-service` | capabilities-service | 1 | 1 | 2 (0) | 2 | 0 |
+| `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 0 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 0 | 0 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 0 | 0 |
 | `history-service` | impress-store-service | 6 | 6 | 12 (7) | 11 | 6 |
@@ -44,6 +44,7 @@ prints the row as it should now read.
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 0 | 0 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 0 | 0 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 0 | 0 |
+| `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 0 | 0 |
 | `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 20 | 0 |
 | `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 0 | 0 |
 | `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 0 | 0 |
@@ -64,6 +65,7 @@ prints the row as it should now read.
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 0 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
+| `impress-scenario-service` | impress-scenario-service | 5 | 5 | 7 (4) | 7 | 5 |
 | `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
@@ -73,7 +75,7 @@ prints the row as it should now read.
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
 | `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
-| **Total** | 18 crates, 42 services | **458** | **458** | **1037 (692)** | **109** | **70** |
+| **Total** | 20 crates, 44 services | **469** | **469** | **1051 (699)** | **119** | **75** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -92,12 +94,12 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | Shape | Arguments |
 |---|---:|
 | `array-of-objects` | 3 |
-| `array-of-scalars` | 51 |
-| `inline-object` | 6 |
+| `array-of-scalars` | 52 |
+| `inline-object` | 5 |
 | `map` | 2 |
-| `other` | 5 |
+| `other` | 6 |
 | `ref-object` | 40 |
-| `scalar` | 930 |
+| `scalar` | 944 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -119,6 +121,13 @@ One row per workspace member. The verdicts:
   writes its verbs or is listed `internal` with a reason. Writing a crate's
   verbs moves its row to `verb-crate` or `covered-through` and lowers the
   ceiling in `census.rs`.
+- **optional-feature**: holds an `impress_service_impl!` block, but linked
+  only under a named Cargo feature outside `full` — the Reason column names
+  it. Whether *this* build links it depends on the feature flags this test
+  run passed, so the test accepts the crate whether or not it currently shows
+  up as a verb crate (P3c step 2). `imbib-semantic-service` is the first:
+  `impress-capabilities`'s `semantic-search` feature, which only
+  `impress-mcp` turns on.
 
 `implore-stats` and `implore-selection` have zero callers in the workspace
 (C-2); they are listed as the plan found them, `should-be-verb` and `internal`,
@@ -132,6 +141,7 @@ and the implore owner decides between verbs and deletion.
 | `im-identifiers` | library | should-be-verb | `validators::{is_valid_doi, is_valid_arxiv_id, is_valid_isbn, normalize_doi, normalize_arxiv_id}` and `resolver::{identifier_url, identifier_display_name}` have no verb; own MCP server and Python bindings outside the inventory |
 | `imbib-cli` | binary | internal | the CLI binary over the inventory |
 | `imbib-core` | domain-core | should-be-verb | reached by `imbib-service` through `ImbibStore` (48 of 180 methods); RIS parse/format/import/export, `merge_publications`, the reference-filter grammar and ≈170 of 259 `uniffi::export` items have no verb |
+| `imbib-semantic-service` | verb-crate | optional-feature | `semantic-search` — the three legacy semantic-search MCP tools; deliberately not in `full` (the fastembed/tokenizers stack is a cost only `impress-mcp` should pay); only `impress-mcp` enables it |
 | `imbib-service` | verb-crate | verb-crate | |
 | `imbib-service-http` | service-http | internal | the HTTP adapter of `imbib-service` for a running app; no capability of its own |
 | `impart-core` | domain-core | should-be-verb | `provenance::queries::{trace_lineage, trace_effects, artifact_history, decision_history, …}` have no verb; `impart-service` calls nothing in it |
@@ -151,12 +161,14 @@ and the implore owner decides between verbs and deletion.
 | `implore-selection` | library | internal | `parser::parse_selection` and `Evaluator::{evaluate, selected_indices}` have zero callers in the workspace (C-2); the implore owner decides between a verb and deletion |
 | `implore-service` | verb-crate | verb-crate | |
 | `implore-service-http` | service-http | internal | the HTTP adapter of `implore-service`; no capability of its own |
+| `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `implore-stats` | library | should-be-verb | `Ecdf::{from_data, quantile, five_number_summary}`, `SummaryStats::{from_data, zscore, robust_zscore, winsorize}` have no verb and zero callers (C-2) |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
 | `impress-ai-service` | verb-crate | verb-crate | |
 | `impress-ai-tools` | glue/inventory | internal | a third force-link list beside `impress-capabilities` (recorded in the pipeline plan) |
 | `impress-app-client` | library | internal | `ImprintClient` selftest probes; the same data has store-service and imprint verbs |
+| `impress-app-transport` | library | internal | the P5 transport's client side (`call(app, verb, args)`); no capability of its own, it reaches a verb another crate already holds |
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |
 | `impress-bridges-service` | verb-crate | verb-crate | |
 | `impress-capabilities` | glue/inventory | internal | the one linked inventory |
@@ -181,6 +193,8 @@ and the implore owner decides between verbs and deletion.
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
+| `impress-scenario` | library | covered-through | `impress-scenario-service` exposes validate/interpret over it |
+| `impress-scenario-service` | verb-crate | verb-crate | |
 | `impress-service-core` | glue/inventory | internal | runtime types of the macro pipeline |
 | `impress-service-macros` | glue/inventory | internal | the proc macros |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
@@ -193,6 +207,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-surface-service` | verb-crate | verb-crate | |
 | `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
+| `impress-verb-surface` | kit-pure | covered-through | `capabilities-service` exposes `verb_surface`/`catalogue` as `verb-surface`/`catalogue-surface` (ADR-0035 D2) |
 | `impress-workflow` | library | covered-through | `impress-workflow-service` exposes the spec, validator and planner |
 | `impress-workflow-service` | verb-crate | verb-crate | |
 | `impress-workspace-hack` | tooling | internal | the generated cargo-hakari crate: dependency glue, no code (plan-verb-pipeline-and-transport § Build cost, B4) |
@@ -214,5 +229,5 @@ and the implore owner decides between verbs and deletion.
 
 | Check | What it proves | How it fails |
 |---|---|---|
-| `crates/impress-capabilities/tests/census.rs` | Every service in the linked `full` inventory has a row whose counts match; no row names an unlinked service; every workspace member has a verdict; a crate holding a linked `impress_service_impl!` block is `verb-crate` and no other crate is; the shape histogram matches; at most 20 crates are `should-be-verb`. `cargo test -p impress-capabilities --test census -- --nocapture dump` prints the tables as they should read now. | A list of the stale rows, each with its replacement. |
-| `scripts/check-verb-coverage.sh` | Without a build: every workspace member has a row with a known verdict, every `impress_service_impl!` block under `crates/*/src` names a service that has a row, and the `should-be-verb` count is at most the ceiling. | `FAIL: …` per problem. Exit 1. |
+| `crates/impress-capabilities/tests/census.rs` | Every service in the linked `full` inventory has a row whose counts match; no row names an unlinked service — except a service whose crate is `optional-feature` in the crates table, which is allowed to sit unmatched when this build did not turn its feature on (P3c step 2); every workspace member has a verdict; a crate holding a linked `impress_service_impl!` block is `verb-crate` (or `optional-feature`) and no other crate is; the shape histogram and Total row match exactly for a `--features semantic-search` build, the doc's own recorded convention; at most 20 crates are `should-be-verb`. `cargo test -p impress-capabilities --features semantic-search --test census -- --nocapture dump` prints the tables as they should read now. | A list of the stale rows, each with its replacement. |
+| `scripts/check-verb-coverage.sh` | Without a build: every workspace member has a row with a known verdict (`verb-crate`, `covered-through`, `internal`, `should-be-verb`, `optional-feature`), every `impress_service_impl!` block under `crates/*/src` names a service that has a row, and the `should-be-verb` count is at most the ceiling. | `FAIL: …` per problem. Exit 1. |

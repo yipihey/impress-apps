@@ -29,6 +29,36 @@
 //! capability that guessed a field name would fail as a refusal, which is the
 //! right failure — but the point of naming the sources here is that none of
 //! them were guessed.
+//!
+//! **SC-1, kept as code (docs/plan-self-reflective-layer.md § Scenarios,
+//! table SC-1; S2's row).** This whole catalogue stays hand-written for this
+//! round of conversion, for two independent reasons, neither of which is a
+//! deferral of S2's own class-(i) work:
+//!
+//! 1. Almost every entry here reads the live tree back and computes its next
+//!    call from what it finds — a tile id for a role, a container's current
+//!    child count to build an even `shares` array, which pane's parameter
+//!    reads a channel. A stored `impress/scenario@1.0.0` document has no
+//!    expressions or loops (ADR-0033 D3, by design), so a step's args are a
+//!    literal or a `{{state.<capture>}}` reference to an *earlier step's own
+//!    result* — never a computed lookup into an arbitrary JSON structure the
+//!    way `tile_with_role`/`linear_parent`/`channel_ids` below do. Converting
+//!    these faithfully needs either a richer capture expression (a JSON-path
+//!    predicate search, not just `$.a.b`) or literal ids the tree is not
+//!    guaranteed to keep stable across a preset change — neither exists yet.
+//! 2. `impress-layout-service` is a kit crate
+//!    (`docs/kit-manifest.md`, ADR-0033 D7): `check-kit-deps.sh --strict`
+//!    refuses any workspace dependency the manifest's table does not list,
+//!    and `impress-scenario` (the interpreter S2's other two conversions
+//!    reach) is deliberately NOT in that table (S1's session log: "not the
+//!    layout+surface kit"). Depending on it here without first amending the
+//!    manifest is exactly the kind of kit-boundary change ADR-0033 D7 marks
+//!    ask-first — out of this pass's remit.
+//!
+//! `layout.outline_collection_row` (class ii, "gesture") has the same
+//! dynamic-lookup shape as (1) above (`outline_target`, `first_row_of`) and
+//! stays code for the same reason, not because a `gesture` step could not
+//! carry it in principle.
 
 use std::time::Duration;
 

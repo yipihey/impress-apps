@@ -28,6 +28,7 @@ change with it. They do not keep a second list.
 | `impress-pane-query` | pure | The ADR-0031 D2 pane-query algebra (`PaneQuery`, scopes, filters, sorts), moved out of impress-core by S0. |
 | `impress-layout` | pure | The layout tree as pure values: panes, containers, channels, the D8 verbs, patches and undo rings. |
 | `impress-surface` | pure | Surfaces as pure values: spec, JSON schema, plan / resolve / reduce, `RenderTree`. |
+| `impress-verb-surface` | pure | `verb_surface(&VerbDescriptor) -> SurfaceSpec` and `catalogue()`: the generated form, Run button, review step and result view for every linked verb (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4). Depends on `impress-service-core` (the descriptor) and `impress-surface` (the vocabulary) alone. |
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
 | `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
 | `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities-kit`. |

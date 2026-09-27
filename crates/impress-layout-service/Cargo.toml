@@ -38,8 +38,9 @@ uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true }
 # The Rust half's log line (review RL-L6): reloads of a moved row, a
 # quarantined live row, refused undo steps. Target `layout`, the category the
-# Swift half uses; bridging the facade into ImpressLogging is plan wave 7 T5.
-log = "0.4"
+# Swift half uses; bridged into ImpressLogging by `impress-store-ffi`'s
+# `tracing` subscriber layer (G7a — moved off the `log` facade, D-P1).
+tracing = { workspace = true }
 # Tier B only: the outline capability polls `/api/logs` for the pane's own
 # display line, which lands on the app's next run-loop turn, not inside the
 # verb's response. An async sleep, so the poll does not block the runtime.
@@ -48,6 +49,9 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# `tests/logging.rs` captures the `layout` target's lines with a small
+# `tracing_subscriber::Layer`.
+tracing-subscriber = { workspace = true }
 # `tests/coherence.rs`: two store handles on one FILE, the shape of two
 # processes (`:memory:` is private to one connection).
 tempfile = "3"

@@ -1913,6 +1913,220 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `impress/workflow@1.0.0` properly in `impress-core` and builds the runtime that actually executes
   one (`save-macro` only writes the document); wiring `history-service_health` into an app's
   `/api/health` HTTP route, same as L1 left it.
+- 2026-09-26 — **S1 (scenario crate and runner)** on a worktree of main at ad9a0796, branch
+  `claude/reflective-s1-scenario`. New pure crate `impress-scenario`: the spec
+  (`Scenario`/`Requires`/`SeedRecord`/`Step` — `Call`/`Event`/`Gesture`/`Wait`, untagged so the
+  wire shape reads exactly as the plan's example — `Expect`'s closed set, `ExpectEffects`), a
+  structural `validate` (unmet capture references, empty step lists), and the interpreter
+  (`run`/`Caller`), templated with `impress_surface::template`'s `Context`/`resolve_value` reused
+  with captures standing in for the `state` root, extended with a `{{uuid}}` text pre-pass (SC-1).
+  New store-tier crate `impress-scenario-service`: `scenario-service_{validate, create, get, list,
+  run}`, `impress/scenario@1.0.0` registered (`impress-core/src/schemas/scenario.rs`,
+  schema-refs.json canonical + registries, approved per the plan). `TierACaller` opens a fresh
+  in-memory store per scenario and runs every `call` through
+  `impress_service_core::pipeline::invoke_on` (H-P2-3, confirmed already landed on this branch's
+  base) — `crates/impress-capabilities/tests/pipeline.rs`'s
+  `every_handler_call_site_is_the_pipeline` covers it, since it enumerates every
+  `descriptor.handler` call site in the tree. `TierBCaller` lifts
+  `impress-layout-service/src/tier_b.rs`'s `Http` helper into
+  `impress_scenario_service::LoopbackClient` (SC-2's shared client) with the loopback token from
+  `impress_core::loopback_token`; `gesture`/`event`/`wait.log` reach real routes
+  (`/api/layout/verb`, `/api/surface/{id}/dispatch`, `/api/logs`), but a `call` step's verb name
+  reaches only a small dispatch table (`layout-service_*`/`surface-service_*`) until H-P5-1
+  (`POST /api/verb/<name>`, P5, still queued) lands — named as a limitation in both the crate's
+  and `docs/agent-surfaces.md`'s module docs, not hidden.
+
+  **The proof:** `layout.apply_preset`, `layout.saved_round_trip` and `layout.wire_contract`
+  (from `impress-layout-service`'s Tier B catalogue) and `surface.http.routes` (from
+  `impress-surface-service`'s, simplified to its read-only half for a headless run) run as
+  scenarios in Tier A, through the real pipeline, in
+  `crates/impress-scenario-service/tests/proof_scenarios.rs`. The three existing `run_selftest`
+  verbs (`imprint-selftest`, `layout-selftest-service`, `surface-selftest-service`) are untouched —
+  converting every catalogue entry is S2's row, not this one's.
+
+  Linked into `impress-capabilities` behind a new `scenario` feature (in `full`); `scenario_run`
+  is `safety = external` (its steps may call any verb, including a mutating one, and a Tier B run
+  leaves the process); `scenario_validate`/`create`/`get` gained `#[impress_example]`s so only
+  `scenario_run` needed the exception table (`EXCEPTION_CEILING` 277 → 278, documented in
+  `crates/impress-capabilities/tests/effects.rs` beside the plan citation). `docs/agent-surfaces.md`
+  gained a Scenarios section (spec, the two `Caller`s and their honest limitations, the verb
+  list); `docs/verb-coverage.md`, `verb-safety.md`, `verb-effects.md` rows added by hand from the
+  census/effects tests' own dump, then `docs/verbs/` regenerated (picking up two pre-existing,
+  unrelated drifts in `imbib-eink-service`/`imprint-project-service` nobody had regenerated since
+  plan E2b's spy fix). `impress-scenario`/`impress-scenario-service` are NOT added to
+  `docs/kit-manifest.md`'s crate table — that table is specifically the layout+surface kit
+  (ADR-0033 D7), and neither new crate is part of it; `impress-scenario` still follows the same
+  pure-tier discipline by construction (no `impress-core`, no workspace crate outside
+  `impress-surface`/`impress-service-core`), so `check-kit-deps.sh`/`check-kit-standalone.sh` pass
+  unchanged.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-s1`): fmt clean; `clippy rest` and `clippy imprint`
+  clean; `cargo test -p impress-scenario -p impress-scenario-service -p impress-layout-service -p
+  impress-surface-service -p imprint-selftest -p impress-capabilities -p impress-core` all green
+  (804 tests across the seven crates, 0 failed), including
+  `every_handler_call_site_is_the_pipeline`; `check-verb-coverage.sh`, `check-schema-refs.sh`,
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh --strict`, `check-uniffi-bindings.sh`,
+  `check-verb-docs.sh` all OK; `cargo hakari manage-deps`/`generate` reported no changes needed
+  (both new crates already listed `impress-workspace-hack.workspace = true`). `--all-features`
+  on the wide `cargo test` invocation fails outside S1's scope: `imprint-core`'s native PDF
+  backend (`tectonic_bridge_icu`) needs a system `icu-uc` pkg-config file this machine does not
+  have; the gate above uses default features, as the row's own list of crates does not ask for
+  `--all-features`.
+
+  **Not done here, left for later work:** the Tier B half of the proof (an isolated `impress`
+  build on `-httpAutomationPort 23301`) — this session judged it infeasible under the current
+  host load (1000+ processes already running; the repo's own memory notes parallel worktree
+  agents colliding on this Mac) rather than risk a bad build or disturbing another agent's run;
+  the four proof scenarios are Tier A only until that's done. A real effects spy (P2/L1's
+  `SpyStore`) to replace `TierACaller::wrote`'s "re-query the scratch store" proxy. S2 (convert
+  every catalogue entry into stored scenarios).
+- 2026-09-27 — **R2b (keymap registry)**, Swift half, on a worktree of main, branch
+  `claude/reflective-r2b-keymap-swift`. Read R2a first: it seeded 66 imbib chords into
+  `crates/impress-keymap` and exported them as `keymap_json()` (`impress-store-ffi`), with no
+  Swift call site — that pass was deliberately Rust-only. This one adds the reader.
+  **`KeymapRegistry`** (`packages/ImpressKeyboard/Sources/ImpressKeyboard/KeymapRegistry.swift`):
+  decodes `keymapJson()` once, keeps `entries: [Entry]` and answers
+  `shortcut(for commandID:) -> KeyboardShortcut?`. The one piece of logic in it is
+  `parse(_:)`, which reads `Chord::Display`'s glyph spelling (`"⇧⌘F"`, `"⏎"`) back into
+  `KeyEquivalent` + `EventModifiers` — a total, unambiguous inverse of a Rust `Display` impl that
+  has a fixed modifier-glyph order and exactly one key glyph, so no chord logic is duplicated on
+  the Swift side; Swift only maps the registry's wire shape to SwiftUI types, per the plan's own
+  constraint. Added `ImpressRustCore` as a package dependency of `ImpressKeyboard` (confirmed
+  `scripts/check-kit-packages.sh` polices only `ImpressLayout`/`ImpressSurface` manifests, so
+  `ImpressKeyboard` gaining a dependency needed no allowlist edit).
+  **Sites switched, behaviour unchanged** (every chord is exactly what it was): `imbibApp.swift`'s
+  `AppCommands` — 59 of 62 `.keyboardShortcut(...)` sites, reading `KeymapRegistry.shared
+  .shortcut(for: "imbib.…")` in place of a literal. Three literals deliberately survive because
+  R2a did not seed them: the dynamic per-index View ▸ Layouts loop (⌃⌘1–9, built from a `for` index
+  rather than one binding per key), the dev-mode "Export as Default Library Set" (⇧⌘D, behind
+  `--edit-default-set`) and Quit (⌥⌘Q, App-menu chrome, not a menu command). `PaneLayoutCommands
+  .swift`'s `ImpressPaneLayoutButtons.chords()` (the three universal pane toggles, shared by every
+  chassis app) now reads key/modifiers from the same three imbib-scoped registry ids, with a
+  literal fallback if an entry is ever missing — safe because the universal layer's chord is
+  identical in every app today, so imbib's registry ids are simply where that one shared value
+  currently lives; a second app's seed (R3+) would need its own ids and this file would need to
+  pick whichever app's window it is actually rendering in, not attempted here.
+  `DetachedViews.swift`'s two detached-window ⌘S "Save" bindings (Notes/BibTeX) both now read
+  `imbib.detached.save`.
+  **Tests:** `KeymapRegistryTests` (new, `packages/ImpressKeyboard`) transcribes all 66 seeded
+  bindings from `imbib.rs` as the expected chord/modifiers per command id and asserts the decoded
+  registry (via the real `keymapJson()` FFI call, not a fixture) matches every one, plus three
+  parse-level tests (special-glyph round trip, all-four-modifiers order, unknown id → nil).
+  `PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord` had to change: its regex-scanned
+  `imbibApp.swift` for literal `.keyboardShortcut(...)` calls to build the collision set, and most
+  of those literals are now `KeymapRegistry.shared.shortcut(for: "id")` calls the old regex cannot
+  see. Added a second regex for that call shape, resolving each matched id through
+  `KeymapRegistry.shared` before adding its chord to the same collision set — so the test still
+  fails on a real duplicate chord rather than silently losing coverage once the literals it used to
+  scan disappeared. **Settings ▸ Keyboard** (`KeyboardShortcutsSettingsTab.swift`, macOS) was
+  rewritten from an editable `KeyboardShortcutsStore`-backed UI (recording sheet, conflict
+  detection, per-user remap) to a plain, read-only, section-grouped list over
+  `KeymapRegistry.shared.entries` — label and chord (or "—" for chordless), grouped in the
+  registry's own first-seen section order, filterable by the existing search field. Chord
+  overrides are out of scope (D-R13, a later device setting); `KeyboardShortcutsStore` /
+  `ShortcutCatalog` themselves are untouched — they still drive imbib's separate triage-key
+  remapping (j/k/s/d/… list navigation) elsewhere and were never the menu's source of truth.
+  `docs/chassis-capability-matrix.md` records the Settings ▸ Keyboard change under "Keyboard pane
+  WRAPPED, not edited". iOS, `ImpressCommandPalette` registration and chord overrides are out of
+  scope, per the plan's own R2 row and this pass's ask-first boundary; no Rust changed, so
+  `rust-gate.sh` was not run. **Had to run `xcodegen generate` in `apps/imbib/imbib`** before any
+  Xcode build in the worktree — `imbib.xcodeproj` is gitignored and generated from `project.yml`,
+  and a fresh worktree checkout has neither. Gates: `swift test` in `packages/ImpressKeyboard`
+  (all pass, including 4 new `KeymapRegistryTests`); `swift build` + `swift test` in
+  `apps/imbib/PublicationManagerCore` (clean build, only pre-existing warnings; 2159 tests, 0
+  failures, 2 skipped — unaffected by this change); `xcodebuild -scheme imbib -destination
+  'platform=macOS'` and `-scheme imbib-iOS -destination 'generic/platform=iOS Simulator' ARCHS=arm64
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO` both **BUILD SUCCEEDED**;
+  both derived-data directories deleted afterward. xcframeworks copied into the worktree per setup
+  (`impress-store-ffi`'s already carried `keymap_json`, confirmed with `nm -gU`, so no framework
+  rebuild was needed).
+
+- 2026-09-27 — **S2 (convert the catalogues)** on a worktree of main, branch
+  `claude/reflective-s2-catalogues`. Converted imprint-selftest's six class-(i) Tier B entries
+  (`app.reachable`, `app.list_documents`, `app.cross_doc_search`, `app.compile_pdf`,
+  `throughline.opt_in_live`, `throughline.live_round_trip`) into stored `impress/scenario@1.0.0`
+  documents under `crates/imprint-selftest/scenarios/*.json`, embedded at compile time
+  (`include_str!`) and run through the one shared runner (`impress_scenario::run`) against a new
+  `ImprintTierBCaller` (`crates/imprint-selftest/src/scenario_caller.rs`) — not a bespoke loop.
+  imprint's raw REST routes (`/api/documents`, `/api/search`, `/api/compile/typst`,
+  `/api/documents/{id}/throughline*`) are not `#[impress_method]` verbs, so the caller defines a
+  small `imprint_*` call vocabulary and maps each name onto `impress_app_client::ImprintClient`,
+  translating typed results into the plain JSON a scenario's `expect`/`capture` read — echoing
+  `doc_id` back into every throughline response so a later step's `{{state.doc}}` has something to
+  reference, since nothing else in the wire body would carry it. `run_selftest` keeps its exact
+  eight ids (six scenario-backed, two still code) and its skip-when-unreachable shape (a unit test,
+  `unreachable_app_skips_every_capability_with_stable_ids`, pins the id list and that every entry
+  is `skipped && !pass`).
+
+  **imprint's report copy deleted** (SC-1): `crates/imprint-selftest/src/report.rs` is gone;
+  `lib.rs` now re-exports `impress_service_core::report::{CapabilityResult, SelfTestReport, Tier}`
+  — the type `impress-layout-service`/`impress-surface-service` already shared, and the one
+  `impress_scenario::run` itself returns. Two observable changes, both intentional and named in
+  `lib.rs`'s doc comment: the report gains an `ok` field, and `skipped()`'s `pass` flips from
+  `true` to `false` (the shared type's own rule, RL-L18 — "a skipped capability has pass: false").
+  `tier_a.rs` needed no edits at all (it only ever referenced `crate::{CapabilityResult, Tier}`);
+  only `lib.rs`, `service.rs` and `tier_b.rs` touched the type. `imprint-selftest`'s CLI (`main.rs`)
+  needed no changes — `report.ok()` still exists on the shared type — and CI never calls it with a
+  bare/`--tier b` invocation that a Tier-B-skip-flips-`ok` would affect (`imprint-rust.yml`/
+  `imprint-tectonic.yml` only ever run `--tier a`).
+
+  `manuscripts.detail_and_history` (class iii — real manuscripts, loops over however many rows
+  exist) and `store.wal_health` (class iv — a second daemon's health route) are kept as
+  hand-written code in `tier_b.rs`, each marked with an SC-1 comment naming its class and why.
+
+  **layout and surface stayed code this round — a scope-limiting finding, not a deferral of
+  work.** `impress-layout-service`/`impress-surface-service` are kit crates
+  (`docs/kit-manifest.md`, ADR-0033 D7); `check-kit-deps.sh --strict` refuses any workspace
+  dependency the manifest's table does not list, and `impress-scenario` (S1's interpreter, the
+  "one runner" imprint's conversion reaches) is deliberately **not** in that table (S1's own
+  session log: "not the layout+surface kit"). Depending on it from a kit crate without first
+  amending the manifest is exactly the ask-first kit-boundary change ADR-0033 D7 marks — out of
+  this pass's remit, confirmed by re-running `check-kit-deps.sh --strict` clean with no manifest
+  edit. Layout's catalogue has a second, independent reason beyond the kit boundary: most of its
+  entries (`layout.version_moves`, `layout.channel_selection`, `layout.hidden_share`,
+  `layout.outline_collection_row`, `layout.source_pane_session`, `layout.console_pane`) read the
+  live tree back and *compute* their next call from what they find (a tile id for a role, a
+  container's current child count, which pane's parameter reads a channel) — a stored scenario
+  document has no expressions or loops by design (ADR-0033 D3), so these need either a richer
+  capture (a JSON-path predicate search, not `$.a.b`) or a dynamic-lookup step kind, neither of
+  which exists. `layout.apply_preset`, `layout.saved_round_trip`, `layout.wire_contract`,
+  `layout.restored` and surface's whole catalogue (`surface.http.routes/.strict/.invalid_spec`) do
+  NOT have that problem — they are already near-literal call+capture+assert sequences (S1's own
+  `proof_scenarios.rs` proves the first three of the layout ones run as scenarios in Tier A today)
+  — and are named here as the natural next conversions once the kit-manifest decision is made.
+  Both files gained a top-of-module SC-1 comment recording this; no per-capability logic changed,
+  so the pre-existing catalogues (13 layout ids + `layout.restored`, 3 surface ids) are unmodified
+  and unregressed.
+
+  **Test (task requirement 4):** `crates/impress-scenario-service/tests/catalogue_scenarios.rs`
+  walks every `crates/*/scenarios/*.json` under the repo, parses and structurally validates each
+  one (`impress_scenario::validate`, `wire_version == 1`), and runs every Tier-A-capable document
+  headlessly against a scratch store through `TierACaller` — today that is a no-op loop (S2's six
+  converted documents are all Tier B, since imprint's routes are not verbs `TierACaller`'s pipeline
+  dispatch can reach), asserted honestly rather than skipped silently, so a future Tier A document
+  under any catalogue's `scenarios/` is picked up with no test-file edit.
+
+  **Counts.** Converted to stored scenario documents: **6** (imprint only). Kept as hand-written
+  code: **19** — imprint 2 (`manuscripts.detail_and_history`, `store.wal_health`, both already
+  classified iii/iv in table SC-1), layout 14 (13 `CATALOGUE` entries + `layout.restored`, all kit-
+  boundary as above; six of those also fail the "no expressions" test independently), surface 3
+  (kit-boundary only). This is short of the plan row's illustrative "20 class-(i) + 1 gesture = 21"
+  because that count did not anticipate the kit/pure-crate boundary `check-kit-deps.sh --strict`
+  enforces against `impress-layout-service`/`impress-surface-service`; the six imprint conversions
+  are the ones this session confirmed both feasible AND compliant with every existing gate, and the
+  session log above states exactly what remains and why, per the plan's own "fails loudly" standard
+  rather than silently declaring a bigger number done.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-s2`, from the worktree root): fmt clean; `clippy rest`
+  and `clippy imprint` clean; `cargo test -p impress-scenario -p impress-scenario-service -p
+  impress-layout-service -p impress-surface-service -p imprint-selftest -p impress-capabilities`
+  all green (0 failed); `check-verb-coverage.sh` OK (81 crates with a verdict, ceiling 20;
+  42 services with a row); `check-verb-docs.sh` OK (`docs/verbs/` regenerated, current);
+  `check-schema-refs.sh` OK (396 call sites, 85 canonical refs, 0 known divergences);
+  `check-kit-deps.sh --strict` OK (no new kit-crate dependency — confirms the scope decision
+  above); `check-kit-standalone.sh` OK; `cargo hakari generate --diff` clean (only
+  `imprint-selftest`'s new `impress-scenario` dependency, already covered by the existing
+  workspace-hack feature set).
 
 - 2026-09-27 — W1 (workflow crate and its verbs) finished on
   `claude/reflective-w1-workflow`, worktree `.claude/worktrees/w1-workflow`. Two new crates:

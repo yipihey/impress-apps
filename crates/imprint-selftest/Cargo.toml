@@ -32,6 +32,13 @@ impress-core = { workspace = true, features = ["sqlite"] }
 impress-store-ffi = { workspace = true }
 # Tier B: drive the running app over HTTP.
 impress-app-client = { workspace = true }
+# The scenario spec + interpreter (SC-1's "one runner"): the class-(i) Tier B
+# entries are stored `impress/scenario@1.0.0` documents under `scenarios/`,
+# run through `impress_scenario::run` against this crate's own `Caller`
+# (`scenario_caller.rs`) — not a bespoke loop. Not a kit crate (imprint is
+# outside the layout+surface kit), so this dependency needs no
+# `docs/kit-manifest.md` entry or `check-kit-deps.sh` exemption.
+impress-scenario = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
