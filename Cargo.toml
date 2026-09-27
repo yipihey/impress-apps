@@ -54,6 +54,10 @@ members = [
     # implore/impart service traits (TypeScript MCP retirement)
     "crates/implore-service",
     "crates/implore-service-http",
+    # implore-verbs-ffi - implore's own per-app UniFFI target (plan-verb-
+    # pipeline-and-transport.md § P5): links implore-service directly,
+    # outside the kit boundary impress-store-ffi keeps.
+    "crates/implore-verbs-ffi",
     "crates/impart-service",
     "crates/impart-service-http",
     "crates/impress-bridges-service",
@@ -143,6 +147,11 @@ members = [
     # impress-app-client - typed Rust HTTP client for imbib/imprint
     # automation APIs. Backs HttpImbib*Service impls.
     "crates/impress-app-client",
+    # impress-app-transport - the P5 transport's client side: one
+    # `call(app, verb, args)` over `POST /api/verb/<name>` (plan-verb-
+    # pipeline-and-transport.md § P5), replacing the four `*-service-http`
+    # adapters' probe/retry/cooldown machinery with one copy.
+    "crates/impress-app-transport",
     # imbib-service-http - HTTP-backed impls of the 7 imbib-service traits +
     # install() helper that probes localhost:23120 and installs the backend.
     "crates/imbib-service-http",
@@ -332,10 +341,12 @@ imprint-cli = { path = "crates/imprint-cli" }
 
 # HTTP transport for the unified storage (Phase A/B/C from we-are-planning-…).
 impress-app-client = { path = "crates/impress-app-client" }
+impress-app-transport = { path = "crates/impress-app-transport" }
 imbib-service-http = { path = "crates/imbib-service-http" }
 imprint-service-http = { path = "crates/imprint-service-http" }
 implore-service = { path = "crates/implore-service" }
 implore-service-http = { path = "crates/implore-service-http" }
+implore-verbs-ffi = { path = "crates/implore-verbs-ffi" }
 impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }

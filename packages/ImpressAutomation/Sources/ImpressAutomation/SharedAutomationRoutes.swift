@@ -88,7 +88,7 @@ public enum SharedAutomationRoutes {
         "/api/performance/reset",
         "/api/store-timings",
         "/api/store-timings/reset",
-    ]).union(LayoutAutomationRoutes.paths).union(["/api/surface"])
+    ]).union(LayoutAutomationRoutes.paths).union(["/api/surface", "/api/verb"])
 
     /// Answer `request` if it is one of the generic routes; return `nil` to let
     /// the caller fall through to its own dispatch.
@@ -157,7 +157,12 @@ public enum SharedAutomationRoutes {
             // ADR-0033's agent surfaces, for the same reason again — and with
             // one difference: the sub-paths under `/api/surface/` are Rust's
             // route table, so this is a prefix match rather than a fixed set.
-            return await SurfaceAutomationRoutes.route(path, method: method, request: request)
+            if let surface = await SurfaceAutomationRoutes.route(path, method: method, request: request) {
+                return surface
+            }
+            // The P5 transport's server side: `POST /api/verb/<name>`, one
+            // more prefix match, one more Rust route table.
+            return await VerbAutomationRoutes.route(path, method: method, request: request)
         }
     }
 
