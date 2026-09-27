@@ -475,4 +475,92 @@ mod tests {
             "a second lease on the same workflow must fail while the first is held"
         );
     }
+
+    /// W4's proof, the engine half: a workflow mined by
+    /// `history-service_propose-workflows` is written `state: proposed`
+    /// (never `enabled`), and `run_once`'s own row filter
+    /// (`r.spec.state == WorkflowState::Enabled`) means the engine never
+    /// runs it, however far past `start_delay` the clock is.
+    #[test]
+    fn a_proposed_workflow_never_runs_through_the_engine() {
+        use impress_service_core::pipeline::{self, Call as PipeCall};
+        use impress_store_service::history_service::{DefaultHistoryService, HistoryService};
+
+        let store = store();
+
+        // Three identical two-step triage sessions by one caller — W4's
+        // miner input (see `impress-store-service::history_service`'s own
+        // proof for the mining half).
+        let star = VerbDescriptor::find("triage-service_set-starred").expect("linked");
+        let tag = VerbDescriptor::find("triage-service_add-tag").expect("linked");
+        for _ in 0..3 {
+            let id = uuid::Uuid::new_v4();
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert(
+                "title".to_string(),
+                impress_core::item::Value::String("paper".into()),
+            );
+            store
+                .insert(impress_core::item::Item {
+                    id,
+                    schema: "test".into(),
+                    payload,
+                    created: chrono::Utc::now(),
+                    modified: chrono::Utc::now(),
+                    author: "test".into(),
+                    author_kind: impress_core::item::ActorKind::Agent,
+                    logical_clock: 0,
+                    origin: None,
+                    canonical_id: None,
+                    tags: vec![],
+                    flag: None,
+                    is_read: false,
+                    is_starred: false,
+                    priority: impress_core::item::Priority::None,
+                    visibility: impress_core::item::Visibility::Private,
+                    message_type: None,
+                    produced_by: None,
+                    version: None,
+                    batch_id: None,
+                    references: vec![],
+                    parent: None,
+                })
+                .expect("insert paper");
+            impress_service_core::runtime::block_on(pipeline::invoke_on(
+                store.clone(),
+                star,
+                PipeCall::agent(
+                    "triage-agent",
+                    serde_json::json!({"id": id.to_string(), "starred": true}),
+                ),
+            ))
+            .expect("star ran");
+            impress_service_core::runtime::block_on(pipeline::invoke_on(
+                store.clone(),
+                tag,
+                PipeCall::agent(
+                    "triage-agent",
+                    serde_json::json!({"id": id.to_string(), "tag": "reading/queue"}),
+                ),
+            ))
+            .expect("tag ran");
+        }
+        impress_store_service::audit::flush();
+
+        let svc = DefaultHistoryService::with_store(store.clone());
+        let proposal = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
+        assert_eq!(proposal.proposed.len(), 1, "{:?}", proposal.proposed);
+
+        let workspace = tempfile::tempdir().unwrap();
+        let mut engine = WorkflowEngine::new(0, 90_000);
+        // Well past `start_delay`, and the proposed row's `manual` trigger
+        // has no autonomous fire path anyway — the filter this asserts is
+        // `run_once`'s row-state filter, which runs before any trigger is
+        // even looked at.
+        let outcomes = engine.run_once(&store, 1_000_000, workspace.path());
+        assert!(
+            outcomes.is_empty(),
+            "a proposed workflow must never run: {outcomes:?}"
+        );
+    }
 }

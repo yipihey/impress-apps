@@ -47,6 +47,29 @@ Takes no arguments.
   {}
   ```
 
+## `history-service_propose-workflows`
+
+Mines the call log for sequences of consecutive mutating verb calls by one caller that repeat at least `min_repeats` times (default 3), and writes each as a `proposed` `impress/workflow@1.0.0` document with a `manual` trigger and `review.required: true` (D-R6): an agent may create a proposal, but nothing runs from it without a person's review. "Consecutive" is in the caller's own call stream — other callers' calls interleaved in the log do not break a sequence. An argument whose value is the same across every repeat stays literal in the proposed step; one that differs becomes `"{{event.value.<name>}}"`, filled from the payload a person passes when they run the workflow's `manual` trigger. `max_len` bounds how long a mined sequence may be (default 6, capped at 20); the miner tries the longest lengths first so a shorter sequence is not reported as a sub-pattern of one already proposed.
+
+- **safety**: `mutating`
+- **reads**: "core/verb-call@1.0.0"
+- **writes**: "impress/workflow@1.0.0"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `max_len` | integer | yes | The longest sequence length the miner considers. 0 or absent means the default (6), clamped above 20. |
+| `min_repeats` | integer | yes | A repeated sequence must occur at least this many times. 0 or absent means the default (3). |
+| `since` | — | no | RFC 3339 lower bound on `started_at`, inclusive; unbounded when absent. |
+
+**Examples**
+
+- `default`:
+
+  ```json
+  {"min_repeats": 3}
+  ```
+
 ## `history-service_replay`
 
 Re-invoke recorded calls through the pipeline, as `Agent("replay:<original caller>")`. Only a call whose arguments were recorded in full (never privacy-reduced, never compacted) can be replayed; every other one is refused `not-replayable`, by name, without running anything. `dry_run` lists what would run instead of running it.

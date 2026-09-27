@@ -20,6 +20,12 @@
 //!   stored, reviewable `impress/workflow@1.0.0` document (§ Workflows'
 //!   `manual` trigger; W1 builds the runtime that executes one, this only
 //!   writes the document, `state: "proposed"`).
+//! * [`HistoryService::propose_workflows`] — the n-gram miner (W4, plan §
+//!   Workflows, "the loop's last arc"): finds sequences of consecutive
+//!   mutating verb calls by one caller that repeat at least `min_repeats`
+//!   times and writes each as a `proposed` `impress/workflow@1.0.0`
+//!   document with a `manual` trigger and `review.required: true`
+//!   (D-R6) — nothing runs from a proposal until a person enables it.
 //! * [`HistoryService::health`] — the audit sink's backlog, plus the log's
 //!   own row count and oldest row.
 //!
@@ -37,10 +43,14 @@ use impress_core::schemas::{VERB_CALL_SCHEMA, WORKFLOW_SCHEMA as CORE_WORKFLOW_S
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_service_core::async_trait;
+use impress_service_core::descriptor::SafetyClass;
 use impress_service_core::pipeline::{self, Call};
 use impress_service_core::refusal::codes;
 use impress_service_core::VerbDescriptor;
 use impress_service_macros::{impress_service, impress_service_impl};
+use impress_workflow::spec::{
+    Action, Author, Guards, Review, Trigger, WorkflowSpec, WorkflowState,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -158,6 +168,25 @@ pub struct SaveMacroResult {
     pub message: String,
 }
 
+/// One workflow the miner proposed.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProposedWorkflow {
+    /// The new `impress/workflow@1.0.0` document's id.
+    pub id: String,
+    pub name: String,
+    /// The verb sequence this proposal was mined from, in step order.
+    pub verbs: Vec<String>,
+    /// How many times this sequence repeated in the log.
+    pub repeats: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProposeWorkflowsResult {
+    pub ok: bool,
+    pub message: String,
+    pub proposed: Vec<ProposedWorkflow>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HistoryHealth {
     pub ok: bool,
@@ -250,6 +279,35 @@ pub trait HistoryService: Send + Sync + 'static {
         args = r#"{"call_ids": ["00000000-0000-0000-0000-000000000000"], "name": "my-macro"}"#
     )]
     async fn save_macro(&self, call_ids: Vec<String>, name: String) -> SaveMacroResult;
+
+    /// Mines the call log for sequences of consecutive mutating verb calls
+    /// by one caller that repeat at least `min_repeats` times (default 3),
+    /// and writes each as a `proposed` `impress/workflow@1.0.0` document
+    /// with a `manual` trigger and `review.required: true` (D-R6): an agent
+    /// may create a proposal, but nothing runs from it without a person's
+    /// review. "Consecutive" is in the caller's own call stream — other
+    /// callers' calls interleaved in the log do not break a sequence. An
+    /// argument whose value is the same across every repeat stays literal
+    /// in the proposed step; one that differs becomes
+    /// `"{{event.value.<name>}}"`, filled from the payload a person passes
+    /// when they run the workflow's `manual` trigger. `max_len` bounds how
+    /// long a mined sequence may be (default 6, capped at 20); the miner
+    /// tries the longest lengths first so a shorter sequence is not
+    /// reported as a sub-pattern of one already proposed.
+    #[impress_method(
+        safety = mutating,
+        effects(
+            reads = ["core/verb-call@1.0.0"],
+            writes = ["impress/workflow@1.0.0"]
+        )
+    )]
+    #[impress_example(name = "default", args = r#"{"min_repeats": 3}"#)]
+    async fn propose_workflows(
+        &self,
+        since: Option<String>,
+        min_repeats: i64,
+        max_len: i64,
+    ) -> ProposeWorkflowsResult;
 
     /// The call log's own backlog: the audit sink's `written`/`dropped`/
     /// `failed`/`no_sink` counters and channel bound, plus how many
@@ -377,6 +435,215 @@ fn error_calls(message: String) -> CallsResult {
         message,
         calls: vec![],
     }
+}
+
+// ---------------------------------------------------------------------------
+// The n-gram miner (W4)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MIN_REPEATS: usize = 3;
+const DEFAULT_MAX_LEN: usize = 6;
+
+/// Whether a verb's declared safety class is `mutating` (not `read_only`,
+/// not `destructive`, not `external`) — the class the miner proposes
+/// sequences of. An unlinked verb (should not happen for a recorded call,
+/// but the log outlives a build that removed one) is never mutating.
+fn is_mutating(verb: &str) -> bool {
+    VerbDescriptor::find(verb).is_some_and(|d| d.safety.class == SafetyClass::Mutating)
+}
+
+/// A stable grouping key for one call's caller: prefer the name (an agent
+/// or a surface names itself), falling back to the kind alone.
+fn caller_key(caller: &Value) -> String {
+    let kind = caller.get("kind").and_then(Value::as_str).unwrap_or("?");
+    match caller.get("name").and_then(Value::as_str) {
+        Some(name) => format!("{kind}:{name}"),
+        None => kind.to_string(),
+    }
+}
+
+/// One repeated sequence the miner found: `verbs[i]` is the verb of every
+/// `matches[*][i]`; `matches` holds one clone of the matched calls per
+/// repeat, in the order they occurred.
+struct MinedGroup {
+    verbs: Vec<String>,
+    matches: Vec<Vec<CallSummary>>,
+}
+
+/// Finds sequences of consecutive calls in `seq` (already filtered to one
+/// caller's mutating, successful calls, oldest first) that repeat, as
+/// non-overlapping blocks, at least `min_repeats` times — trying the
+/// longest length first (`max_len` down to 2) so a proposal is not also
+/// reported again as a shorter sub-pattern of itself. A block already
+/// consumed by a proposal is not considered again at a shorter length.
+fn mine_ngrams(seq: &[CallSummary], min_repeats: usize, max_len: usize) -> Vec<MinedGroup> {
+    let n = seq.len();
+    let mut consumed = vec![false; n];
+    let mut groups = Vec::new();
+    let longest = max_len.min(n);
+    for len in (2..=longest).rev() {
+        if len == 0 || n < len * min_repeats {
+            continue;
+        }
+        let mut i = 0;
+        while i + len <= n {
+            if consumed[i..i + len].iter().any(|&c| c) {
+                i += 1;
+                continue;
+            }
+            let signature: Vec<&str> = seq[i..i + len].iter().map(|c| c.verb.as_str()).collect();
+            let mut match_starts = vec![i];
+            let mut j = i + len;
+            while j + len <= n {
+                if consumed[j..j + len].iter().any(|&c| c) {
+                    j += 1;
+                    continue;
+                }
+                let candidate: Vec<&str> =
+                    seq[j..j + len].iter().map(|c| c.verb.as_str()).collect();
+                if candidate == signature {
+                    match_starts.push(j);
+                    j += len;
+                } else {
+                    j += 1;
+                }
+            }
+            if match_starts.len() >= min_repeats {
+                for &start in &match_starts {
+                    consumed[start..start + len].fill(true);
+                }
+                let verbs = signature.iter().map(|s| s.to_string()).collect();
+                let matches = match_starts
+                    .iter()
+                    .map(|&start| seq[start..start + len].to_vec())
+                    .collect();
+                groups.push(MinedGroup { verbs, matches });
+                i = match_starts[0] + len;
+            } else {
+                i += 1;
+            }
+        }
+    }
+    groups
+}
+
+/// Builds one step per column of a mined group: an argument that is
+/// identical (by JSON value) across every repeat stays literal; one that
+/// differs becomes `"{{event.value.<name>}}"`, named `step<i>_<key>`.
+fn steps_from_group(group: &MinedGroup) -> Vec<Value> {
+    group
+        .verbs
+        .iter()
+        .enumerate()
+        .map(|(step_idx, verb)| {
+            let first_args = group.matches[0][step_idx].args.clone();
+            let mut args = match &first_args {
+                Value::Object(map) => map.clone(),
+                _ => Default::default(),
+            };
+            if let Value::Object(first_map) = &first_args {
+                for key in first_map.keys() {
+                    let varies = group
+                        .matches
+                        .iter()
+                        .any(|m| m[step_idx].args.get(key) != first_map.get(key));
+                    if varies {
+                        args.insert(
+                            key.clone(),
+                            Value::String(format!("{{{{event.value.step{step_idx}_{key}}}}}")),
+                        );
+                    }
+                }
+            }
+            json!({ "call": { "verb": verb, "args": Value::Object(args) } })
+        })
+        .collect()
+}
+
+/// Validates and writes one mined group as a `proposed` workflow document.
+/// Refuses (without writing) any proposal that would not pass
+/// `impress_workflow::validate` — a mined sequence is a heuristic, and the
+/// validator is the one place "well-formed" is decided.
+fn write_proposal(store: &SqliteItemStore, group: &MinedGroup) -> Result<ProposedWorkflow, String> {
+    let steps: Vec<Action> = steps_from_group(group)
+        .into_iter()
+        .map(|s| serde_json::from_value(s).map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
+    let name = format!(
+        "proposed.{}.{}",
+        group.verbs.join("-then-"),
+        &uuid::Uuid::new_v4().to_string()[..8]
+    );
+    let spec = WorkflowSpec {
+        wire_version: 1,
+        name: name.clone(),
+        description: format!(
+            "Mined from {} repeat(s) of: {}.",
+            group.matches.len(),
+            group.verbs.join(" -> ")
+        ),
+        state: WorkflowState::Proposed,
+        author: Author {
+            kind: "agent".into(),
+            name: Some("history-service".into()),
+        },
+        trigger: Trigger::Manual {},
+        guards: Guards::default(),
+        params: vec![],
+        sources: BTreeMap::new(),
+        steps,
+        review: Review { required: true },
+    };
+    let problems = impress_workflow::validate::validate(&spec);
+    if problems
+        .iter()
+        .any(|p| p.severity == impress_workflow::validate::Severity::Error)
+    {
+        return Err(format!(
+            "mined proposal '{name}' failed validation: {problems:?}"
+        ));
+    }
+
+    let doc = serde_json::to_value(&spec).map_err(|e| e.to_string())?;
+    let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
+    if let Value::Object(fields) = doc {
+        for (k, v) in fields {
+            payload.insert(k, serde_json_to_item_value(&v));
+        }
+    }
+    let now = Utc::now();
+    let id = uuid::Uuid::new_v4();
+    let outcome = store.insert(Item {
+        id,
+        schema: WORKFLOW_SCHEMA.into(),
+        payload,
+        created: now,
+        modified: now,
+        author: "history-service".into(),
+        author_kind: ActorKind::Agent,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::None,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
+    });
+    let id = outcome.map_err(|e| e.to_string())?;
+    Ok(ProposedWorkflow {
+        id: id.to_string(),
+        name,
+        verbs: group.verbs.clone(),
+        repeats: group.matches.len() as u64,
+    })
 }
 
 #[async_trait::async_trait]
@@ -738,6 +1005,74 @@ impl HistoryService for DefaultHistoryService {
         }
     }
 
+    async fn propose_workflows(
+        &self,
+        since: Option<String>,
+        min_repeats: i64,
+        max_len: i64,
+    ) -> ProposeWorkflowsResult {
+        let store = self.store();
+        let min_repeats = if min_repeats <= 0 {
+            DEFAULT_MIN_REPEATS
+        } else {
+            min_repeats as usize
+        };
+        let max_len = if max_len <= 0 {
+            DEFAULT_MAX_LEN
+        } else {
+            (max_len as usize).min(20)
+        };
+
+        let query = ItemQuery {
+            schema: Some(VERB_CALL_SCHEMA.into()),
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: true,
+            }],
+            ..Default::default()
+        };
+        let items = match store.query(&query) {
+            Ok(items) => items,
+            Err(e) => {
+                return ProposeWorkflowsResult {
+                    ok: false,
+                    message: e.to_string(),
+                    proposed: vec![],
+                }
+            }
+        };
+        let mut summaries: Vec<CallSummary> = items.iter().map(call_summary).collect();
+        if let Some(since) = &since {
+            summaries.retain(|c| c.started_at.as_str() >= since.as_str());
+        }
+        // Only mutating calls that succeeded are candidate steps: a
+        // read-only call proposes nothing to run, and a failed call is not
+        // a sequence worth repeating.
+        summaries.retain(|c| c.ok && is_mutating(&c.verb));
+
+        // Group by caller, preserving each caller's own relative order —
+        // "consecutive" means in that caller's stream, not the whole log.
+        let mut by_caller: BTreeMap<String, Vec<CallSummary>> = BTreeMap::new();
+        for c in summaries {
+            by_caller.entry(caller_key(&c.caller)).or_default().push(c);
+        }
+
+        let mut proposed = Vec::new();
+        for seq in by_caller.into_values() {
+            for group in mine_ngrams(&seq, min_repeats, max_len) {
+                match write_proposal(&store, &group) {
+                    Ok(pw) => proposed.push(pw),
+                    Err(_) => continue, // validation or store error: skip, not fatal to the others
+                }
+            }
+        }
+        ProposeWorkflowsResult {
+            ok: true,
+            message: format!("{} workflow(s) proposed.", proposed.len()),
+            proposed,
+        }
+    }
+
     async fn health(&self) -> HistoryHealth {
         let store = self.store();
         let sink_health = crate::audit::health();
@@ -828,6 +1163,17 @@ impress_service_impl! {
             /// The saved workflow's `name`.
             name: String,
         ) -> SaveMacroResult,
+        propose_workflows(
+            /// RFC 3339 lower bound on `started_at`, inclusive; unbounded
+            /// when absent.
+            since: Option<String>,
+            /// A repeated sequence must occur at least this many times.
+            /// 0 or absent means the default (3).
+            min_repeats: i64,
+            /// The longest sequence length the miner considers. 0 or absent
+            /// means the default (6), clamped above 20.
+            max_len: i64,
+        ) -> ProposeWorkflowsResult,
         health() -> HistoryHealth,
     ],
 }
@@ -1016,5 +1362,101 @@ mod tests {
         assert!(health.ok);
         assert!(health.rows >= 1);
         assert!(health.channel_capacity > 0);
+    }
+
+    fn add_tag(store: Arc<SqliteItemStore>, id: uuid::Uuid, tag: &str, caller: &str) -> Value {
+        let verb = VerbDescriptor::find("triage-service_add-tag").expect("linked");
+        impress_service_core::runtime::block_on(pipeline::invoke_on(
+            store,
+            verb,
+            PipeCall::agent(caller, json!({"id": id.to_string(), "tag": tag})),
+        ))
+        .expect("verb ran")
+    }
+
+    /// W4's proof (plan § W4): a recorded session of three identical triage
+    /// sequences — star then tag, three times over — yields exactly one
+    /// `proposed` workflow, with a `manual` trigger, `review.required:
+    /// true`, and two steps.
+    #[test]
+    fn three_identical_triage_sequences_propose_one_workflow() {
+        let store = crate::test_support::test_store();
+        for _ in 0..3 {
+            let id = item(&store);
+            set_starred(store.clone(), id, "triage-agent");
+            add_tag(store.clone(), id, "reading/queue", "triage-agent");
+        }
+        crate::audit::flush();
+
+        let svc = DefaultHistoryService::with_store(store.clone());
+        let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
+        assert!(result.ok, "{}", result.message);
+        assert_eq!(result.proposed.len(), 1, "{:?}", result.proposed);
+        let proposal = &result.proposed[0];
+        assert_eq!(proposal.repeats, 3);
+        assert_eq!(
+            proposal.verbs,
+            vec![
+                "triage-service_set-starred".to_string(),
+                "triage-service_add-tag".to_string(),
+            ]
+        );
+
+        let row = store
+            .get(uuid::Uuid::parse_str(&proposal.id).unwrap())
+            .unwrap()
+            .expect("workflow row exists");
+        assert_eq!(row.schema, WORKFLOW_SCHEMA);
+        assert_eq!(
+            row.payload.get("state"),
+            Some(&CoreValue::String("proposed".into()))
+        );
+        assert_eq!(
+            row.payload.get("trigger"),
+            Some(&serde_json_to_item_value(&json!({"manual": {}})))
+        );
+        let review = row.payload.get("review").expect("review field");
+        assert_eq!(
+            review,
+            &serde_json_to_item_value(&json!({"required": true}))
+        );
+        let steps = row.payload.get("steps").expect("steps field");
+        assert!(matches!(steps, CoreValue::Array(v) if v.len() == 2));
+
+        // W2's engine ignores anything not `state: enabled` (`trigger.rs`'s
+        // `tick` doc: "a proposed/disabled/broken row is never passed in").
+        // A freshly mined proposal's own state proves the point directly —
+        // `impress-workflow-service`'s `no_run_before_start_delay_...`-style
+        // fixtures cover the engine side of that filter.
+        assert_eq!(
+            impress_workflow::spec::WorkflowState::Proposed.as_str(),
+            "proposed"
+        );
+        assert_ne!(
+            row.payload.get("state"),
+            Some(&serde_json_to_item_value(&json!("enabled")))
+        );
+    }
+
+    /// The negative half of the same proof: three *different* two-step
+    /// sequences by the same caller never repeat, so nothing is proposed.
+    #[test]
+    fn three_different_sequences_propose_nothing() {
+        let store = crate::test_support::test_store();
+        let a = item(&store);
+        let b = item(&store);
+        let c = item(&store);
+        set_starred(store.clone(), a, "triage-agent");
+        add_tag(store.clone(), a, "x", "triage-agent");
+        add_tag(store.clone(), b, "y", "triage-agent");
+        set_starred(store.clone(), b, "triage-agent");
+        set_starred(store.clone(), c, "triage-agent");
+        set_starred(store.clone(), c, "triage-agent");
+        crate::audit::flush();
+
+        let svc = DefaultHistoryService::with_store(store);
+        let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
+        assert!(result.ok, "{}", result.message);
+        assert!(result.proposed.is_empty(), "{:?}", result.proposed);
     }
 }

@@ -41,7 +41,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 |---|---|---:|---:|
 | `collection-service` | mutating | 12 | 5 |
 | `docs-import-service` | mutating | 10 | 5 |
-| `history-service` | read_only | 6 | 2 |
+| `history-service` | read_only | 7 | 3 |
 | `imbib-annotations-service` | read_only | 9 | 4 |
 | `imbib-app-service` | external | 17 | 0 |
 | `imbib-artifacts-service` | read_only | 9 | 4 |
@@ -115,6 +115,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `docs-import-service_update-watched-folder` | mutating | name/doc |
 | `history-service_calls` | read_only | name/doc |
 | `history-service_health` | read_only | name/doc |
+| `history-service_propose-workflows` | mutating | name/doc |
 | `history-service_replay` | mutating | name/doc |
 | `history-service_save-macro` | mutating | name/doc |
 | `history-service_trace` | read_only | name/doc |

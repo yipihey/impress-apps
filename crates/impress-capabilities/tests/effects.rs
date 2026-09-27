@@ -72,7 +72,11 @@ use serde_json::Value;
 /// `#[impress_example]` yet, landing all three on the exception table as
 /// "no example" — not a regression in a verb that was already covered.
 /// Raised further in W1: the workflow verbs have no headless example yet.
-const EXCEPTION_CEILING: usize = 300;
+/// Raised further in W4: `history-service_propose-workflows`'s example runs
+/// against an empty call log (no store to seed with a recorded session), so
+/// the spy observes nothing — the same "exercised, unobserved" shape as
+/// `history-service_save-macro` beside it.
+const EXCEPTION_CEILING: usize = 301;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

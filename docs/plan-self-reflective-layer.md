@@ -2378,3 +2378,59 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   the row's execution bullet asked, but does not yet wrap the whole run in its own job handle, so a
   running workflow has no `task-event` progress ring of its own yet (its calls are each on the
   record in the call log, which is the row's actual acceptance bar).
+
+- 2026-09-27 — **W4 (proposed workflows)** on a worktree of origin/main, branch
+  `claude/reflective-w4-propose`. `history-service_propose-workflows {since?, min_repeats?,
+  max_len?}` (mutating, `strict_args`, `effects(reads = ["core/verb-call@1.0.0"], writes =
+  ["impress/workflow@1.0.0"])`) added to `crates/impress-store-service/src/history_service.rs`
+  beside `save_macro`: an n-gram miner over the call log, grouped by caller (preserving each
+  caller's own order — other callers' interleaved calls do not break a sequence), filtered to
+  successful calls whose verb's declared `safety.class == Mutating`. `mine_ngrams` tries block
+  lengths from `max_len` (default 6) down to 2, chunking each caller's sequence into non-overlapping
+  windows and grouping by verb signature; a signature occurring at least `min_repeats` times
+  (default 3) becomes one proposal, consumed so a shorter length cannot re-report it as a
+  sub-pattern. An argument identical across every repeat stays literal in the proposed step; one
+  that differs becomes `"{{event.value.step<i>_<key>}}"` — `WorkflowSpec.params` (a `ParamDecl`
+  bound to a record kind, the pane-query type) is the wrong mechanism for a scalar that varies
+  between repeats, so the miner leaves it empty and uses the `manual` trigger's own event payload
+  as the parameter channel instead, documented at the method and at `steps_from_group`. Every
+  proposal is built as an `impress_workflow::spec::WorkflowSpec` (`state: Proposed`, `author: {kind:
+  "agent", name: "history-service"}`, `trigger: Manual {}`, `review.required: true` — D-R6) and
+  validated with `impress_workflow::validate::validate` before being written; a proposal that would
+  not validate is skipped, not written. `impress-store-service` gained a dependency on the pure kit
+  crate `impress-workflow` (`Cargo.toml`; no kit-manifest change needed — `impress-workflow` is
+  already `pure` tier and a store-tier crate may reach it).
+
+  The proof, in two halves. Mining (`impress-store-service::history_service::tests`): three
+  identical two-step triage sessions (`triage-service_set-starred` then `triage-service_add-tag`,
+  same caller) yield exactly one `proposed` workflow with `repeats: 3`, two steps, `trigger:
+  {"manual": {}}`, `review.required: true`
+  (`three_identical_triage_sequences_propose_one_workflow`); three different two-step sequences by
+  the same caller yield none (`three_different_sequences_propose_nothing`). Nothing runs from it
+  (`impress-workflow-service::runner::tests::a_proposed_workflow_never_runs_through_the_engine`):
+  the same mined session, `WorkflowEngine::run_once` called a million ms past `start_delay`,
+  produces zero outcomes — the engine's own row filter (`state == WorkflowState::Enabled`,
+  `runner.rs:97`) excludes a `proposed` row before any trigger is even evaluated, which
+  `trigger.rs`'s doc comment already states as the contract this test exercises end to end rather
+  than assumes.
+
+  Docs and tables regenerated: `docs/verbs/history-service.md` and `docs/verbs/README.md`
+  (`gen-verb-docs`); `docs/verb-coverage.md`'s `history-service` row (6→7 verbs); `docs/verb-safety.md`
+  (`history-service_propose-workflows | mutating`, service row 6→7/2→3); `docs/verb-effects.md` (the
+  declared-effects row and the "exercised, unobserved" exception row — the example runs against an
+  empty call log, so the spy observes nothing, the same shape as `save_macro`'s neighbor row);
+  `crates/impress-capabilities/tests/effects.rs`'s `EXCEPTION_CEILING` 300 → 301 for that one row,
+  with the reason recorded beside the constant.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-w4`): fmt clean (after `cargo fmt`); `clippy rest` and
+  `clippy imprint` clean (one fix along the way: `consumed[start..start+len].fill(true)` over a
+  `needless_range_loop`); `cargo test -p impress-store-service -p impress-workflow -p
+  impress-workflow-service -p impress-capabilities` all green; `check-schema-refs.sh` OK (400 call
+  sites, 85 canonical refs, 0 divergences); `cargo hakari generate --diff` reported no changes.
+  **Not run this session, budget-limited — left for a follow-up pass before merge:**
+  `check-verb-coverage.sh`, `check-verb-docs.sh` (docs were regenerated and diffed by hand against
+  the census test's own output, but the script itself was not re-run), `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`. None of these were expected to disagree with what the census and
+  effects tests already confirmed by construction (the doc tables were edited to exactly the rows
+  those tests printed), but they are unverified and should be the first thing checked before this
+  PR leaves draft.
