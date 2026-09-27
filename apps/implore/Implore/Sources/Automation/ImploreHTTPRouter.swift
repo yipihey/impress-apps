@@ -53,6 +53,73 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     public init() {}
 
+    /// In-process service adapter. The verb names and argument validation
+    /// remain in `ImploreService`; this maps its already-decoded arguments to
+    /// the same live-state functions used by the app's legacy HTTP endpoints.
+    public func invokeNativeVerb(method: String, argsJSON: String) async -> HTTPResponse {
+        guard let data = argsJSON.data(using: .utf8),
+              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .badRequest("Invalid native verb arguments")
+        }
+
+        func string(_ key: String) -> String? { args[key] as? String }
+        func query(_ keys: [String]) -> [String: String] {
+            var result: [String: String] = [:]
+            for key in keys {
+                if let value = args[key] as? String { result[key] = value }
+                else if let value = args[key] as? NSNumber { result[key] = value.stringValue }
+            }
+            return result
+        }
+        func request(_ verb: String, _ path: String, _ keys: [String] = []) -> HTTPRequest {
+            HTTPRequest(method: verb, path: path, queryParams: query(keys), body: argsJSON)
+        }
+
+        switch method {
+        case "plot_series":
+            guard let names = args["series"] as? [String] else {
+                return .badRequest("Missing series")
+            }
+            return await renderPlotSeries(names: names, title: string("title"))
+        case "plot_histogram":
+            return await handlePlotHistogram(request("GET", "/api/plot/histogram", ["quantity", "bins"]))
+        case "rg_slice_png":
+            // A String-returning verb cannot carry a binary HTTP response.
+            var params = query(["format"])
+            params["format"] = "base64"
+            return await handleRgSlicePng(HTTPRequest(method: "GET", path: "/api/rg/slice/png", queryParams: params))
+        case "rg_slice_raw":
+            return await handleRgSliceRaw(request("GET", "/api/rg/slice/raw", ["quantity", "axis", "position", "downsample"]))
+        case "rg_statistics":
+            return await handleRgStatistics(request("GET", "/api/rg/statistics", ["scope", "quantity", "axis", "position"]))
+        case "status": return await handleStatus()
+        case "get_logs": return await route(request("GET", "/api/logs", ["limit", "level"]))
+        case "list_datasets": return await handleListDatasets()
+        case "get_dataset":
+            guard let id = string("dataset_id") else { return .badRequest("Missing dataset_id") }
+            return await handleGetDataset(id: id)
+        case "list_figures":
+            var params: [String: String] = [:]
+            if let id = string("dataset_id") { params["datasetId"] = id }
+            return await handleListFigures(HTTPRequest(method: "GET", path: "/api/figures", queryParams: params))
+        case "get_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleGetFigure(id: id)
+        case "create_figure": return await handleCreateFigure(request("POST", "/api/figures"))
+        case "export_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleExportFigure(id: id, request: request("POST", "/api/figures/\(id)/export"))
+        case "rg_load": return await handleRgLoad(request("POST", "/api/rg/load"))
+        case "rg_state": return await handleRgState()
+        case "rg_control": return await handleRgControl(request("POST", "/api/rg/control"))
+        case "rg_slice_save": return await handleRgSliceSave(request("POST", "/api/rg/slice/save"))
+        case "rg_batch": return await handleRgBatch(request("POST", "/api/rg/batch"))
+        case "rg_colormaps": return handleRgColormaps()
+        case "rg_cascade_plot": return await handleRgCascadePlot()
+        default: return .notFound("Unknown implore native method")
+        }
+    }
+
     // MARK: - Routing
 
     /// Route a request to the appropriate handler.
@@ -943,21 +1010,25 @@ public actor ImploreHTTPRouter: HTTPRouter {
     /// Query params: series (comma-separated names), title (optional).
     @MainActor
     private func handlePlotSvg(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let viewer = AppState.shared?.rgViewerState else {
-            return .badRequest("No RG dataset loaded")
-        }
-
         guard let seriesParam = request.queryParams["series"] else {
             return .badRequest("Missing required query param: series (comma-separated names)")
         }
 
         let names = seriesParam.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
-        let title = request.queryParams["title"] ?? "\(names.count) series"
+        return renderPlotSeries(names: names, title: request.queryParams["title"])
+    }
+
+    @MainActor
+    private func renderPlotSeries(names: [String], title: String?) -> HTTPResponse {
+        guard let viewer = AppState.shared?.rgViewerState else {
+            return .badRequest("No RG dataset loaded")
+        }
+        let actualTitle = title ?? "\(names.count) series"
 
         logInfo("Plot SVG: \(names.joined(separator: ", "))", category: "plot-api")
 
         do {
-            let svg = try viewer.dataset.plotDataSeries(names: names, title: title)
+            let svg = try viewer.dataset.plotDataSeries(names: names, title: actualTitle)
             return .svg(svg)
         } catch {
             return .serverError("Failed to render plot: \(error)")

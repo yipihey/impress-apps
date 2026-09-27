@@ -28,6 +28,7 @@ struct ImploreApp: App {
     private static let skipWelcome = CommandLine.arguments.contains("--skip-welcome")
 
     init() {
+        ImploreNativeVerbs.install()
         // Configure app for testing if needed
         if Self.isUITesting {
             configureForUITesting()

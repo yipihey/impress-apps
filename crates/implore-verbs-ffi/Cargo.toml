@@ -15,14 +15,18 @@ default = []
 native = ["uniffi"]
 
 [dependencies]
+async-trait = { workspace = true }
 impress-service-core = { workspace = true }
 implore-service = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 uniffi = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
-
-[dev-dependencies]
-serde_json = { workspace = true }
 
 [build-dependencies]
 # No uniffi build-dependency, same reasoning as impress-store-ffi's: this
 # crate uses the proc-macro `uniffi::setup_scaffolding!()`.
+
+[dev-dependencies]
+implore-core = { workspace = true, features = ["uniffi"] }
+tokio = { workspace = true }
