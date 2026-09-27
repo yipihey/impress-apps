@@ -40,7 +40,7 @@
 //!   fallback store says so (`store: "fallback"`).
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use impress_core::collection_ops::{
     self, CollectionSchemaBinding, FIGURE_COLLECTION, GENERIC_COLLECTION, IMBIB_COLLECTION,
@@ -616,6 +616,27 @@ pub trait LayoutService: Send + Sync + 'static {
 /// `--store-path` parsed by `impress-cli` applies here too. `with_store` takes
 /// an explicit store AND gives the instance its own session registry, which is
 /// what makes the tests hermetic: no test can see another's panes.
+/// Run [`crate::rename::RenamePass`] against `store` once per process
+/// (plan-verb-pipeline-and-transport.md P3b: "at store open or at service
+/// start, once per rename-table version"). The shipped table
+/// ([`impress_service_core::lifecycle::SHIPPED_RENAMES`]) is empty, so this
+/// costs one branch and touches the store not at all until a real rename is
+/// appended; the `store_metadata` marker the pass itself records is what
+/// then keeps a later launch from redoing work an earlier one already did.
+fn ensure_renamed(store: &Arc<SqliteItemStore>) {
+    use impress_service_core::lifecycle::SHIPPED_RENAMES;
+    if SHIPPED_RENAMES.is_empty() {
+        return;
+    }
+    static RAN: OnceLock<()> = OnceLock::new();
+    RAN.get_or_init(|| {
+        if let Err(e) = crate::rename::RenamePass::new(store.clone()).run_if_needed(&SHIPPED_RENAMES)
+        {
+            log::error!(target: "layout", "rename pass: {e}");
+        }
+    });
+}
+
 #[derive(Clone, Default)]
 pub struct DefaultLayoutService {
     store: Option<Arc<SqliteItemStore>>,
@@ -708,12 +729,22 @@ impl DefaultLayoutService {
         self.registry().forget(app_id, &resolve_device(device));
     }
 
+    /// The store this instance runs against: the explicit one it was built
+    /// with, or the process-wide singleton. Runs the rename pass
+    /// ([`crate::rename::RenamePass`]) against it once per process — see
+    /// [`ensure_renamed`] — so every path below that resolves a store this
+    /// way has it already rewritten before it reads or writes a row.
+    fn resolved_store(&self) -> Arc<SqliteItemStore> {
+        let store = self
+            .store
+            .clone()
+            .unwrap_or_else(impress_store_service::store_instance);
+        ensure_renamed(&store);
+        store
+    }
+
     fn layout_store(&self) -> LayoutStore {
-        LayoutStore::new(
-            self.store
-                .clone()
-                .unwrap_or_else(impress_store_service::store_instance),
-        )
+        LayoutStore::new(self.resolved_store())
     }
 
     /// The store for a call that writes, acquired once: refused with
@@ -721,10 +752,7 @@ impl DefaultLayoutService {
     /// service substitutes for a store it could not open, because a write
     /// there answers `ok` and vanishes (review AC-F20).
     fn layout_store_for_write(&self) -> Result<LayoutStore, Refusal> {
-        let store = self
-            .store
-            .clone()
-            .unwrap_or_else(impress_store_service::store_instance);
+        let store = self.resolved_store();
         if impress_store_service::is_fallback_store(&store) {
             return Err(Refusal::store_unavailable(format!(
                 "the store at {} could not be opened, so this write would land in a temporary \
@@ -739,10 +767,7 @@ impl DefaultLayoutService {
     /// stand-in for a store that could not be opened: a read answered from
     /// it is not the user's data and says so (review AC-F20).
     fn store_marker(&self) -> Option<String> {
-        let store = self
-            .store
-            .clone()
-            .unwrap_or_else(impress_store_service::store_instance);
+        let store = self.resolved_store();
         impress_store_service::is_fallback_store(&store).then(|| "fallback".to_string())
     }
 
