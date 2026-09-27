@@ -520,6 +520,10 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// List unread papers, optionally within one library or collection
     /// (`parent_id`), sorted.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"parent_id": null, "sort_field": "title", "ascending": true, "limit": 5}"#
+    )]
     async fn query_unread(
         &self,
         parent_id: Option<String>,
@@ -530,6 +534,10 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// List starred papers, optionally within one library or collection
     /// (`parent_id`), sorted.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"parent_id": null, "sort_field": "title", "ascending": true, "limit": 5}"#
+    )]
     async fn query_starred(
         &self,
         parent_id: Option<String>,

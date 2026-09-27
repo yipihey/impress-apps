@@ -637,7 +637,13 @@ List starred papers, optionally within one library or collection (`parent_id`), 
 | `parent_id` | — | no | *(undocumented)* |
 | `sort_field` | string | yes | *(undocumented)* |
 
-_No examples yet._
+**Examples**
+
+- `default`:
+
+  ```json
+  {"parent_id": null, "sort_field": "title", "ascending": true, "limit": 5}
+  ```
 
 ## `imbib-library-service_query-unread`
 
@@ -655,7 +661,13 @@ List unread papers, optionally within one library or collection (`parent_id`), s
 | `parent_id` | — | no | *(undocumented)* |
 | `sort_field` | string | yes | *(undocumented)* |
 
-_No examples yet._
+**Examples**
+
+- `default`:
+
+  ```json
+  {"parent_id": null, "sort_field": "title", "ascending": true, "limit": 5}
+  ```
 
 ## `imbib-library-service_remove-from-collection`
 
