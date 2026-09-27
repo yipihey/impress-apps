@@ -20,3 +20,4 @@ impress-layout-service = { workspace = true }
 impress-store-service = { workspace = true }
 impress-surface-service = { workspace = true }
 surface-demo-service = { workspace = true }
+impress-workspace-hack.workspace = true

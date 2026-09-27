@@ -47,6 +47,7 @@ tokio = { workspace = true }
 # Lines under target `surface`; the store FFI bridges them into the app's
 # Console as `?category=surface` (wave 7 T5, review RS-S11).
 log = "0.4"
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 # The `cli` feature builds the clap tree from the same inventory

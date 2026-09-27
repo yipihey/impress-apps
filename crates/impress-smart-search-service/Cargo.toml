@@ -18,6 +18,7 @@ impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 async-trait = { workspace = true }
 schemars = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -14,3 +14,4 @@ uniffi = ["dep:uniffi"]
 im-bibtex = { workspace = true }
 thiserror = { workspace = true }
 uniffi = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true

@@ -40,6 +40,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 
 # Python bindings
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+impress-workspace-hack.workspace = true
 
 [[bin]]
 name = "im-identifiers"

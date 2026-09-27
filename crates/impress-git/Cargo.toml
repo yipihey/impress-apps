@@ -10,3 +10,4 @@ repository.workspace = true
 serde = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+impress-workspace-hack.workspace = true

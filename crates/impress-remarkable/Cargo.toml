@@ -21,6 +21,7 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 # The tablet's `.rmdoc` export is a zip of its on-disk document files.
 zip = { workspace = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

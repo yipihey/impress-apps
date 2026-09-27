@@ -26,6 +26,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 thiserror = { workspace = true }
 schemars = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
 
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/
 # (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would

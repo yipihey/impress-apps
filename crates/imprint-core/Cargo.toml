@@ -144,6 +144,7 @@ tectonic_errors = { version = "0.2", optional = true }
 # range keeps `cargo update` from selecting 0.4.2 under that cap. Lift it
 # together with the parquet bump.
 tectonic_bundles = { version = ">=0.4, <0.4.2", optional = true }
+impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

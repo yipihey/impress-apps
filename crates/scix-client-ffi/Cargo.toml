@@ -34,6 +34,7 @@ tokio = { version = "1", features = ["rt"], optional = true }
 thiserror = { workspace = true }
 serde_json = { version = "1", optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
+impress-workspace-hack.workspace = true
 
 [build-dependencies]
 # No uniffi build-dependency: this crate uses the proc-macro

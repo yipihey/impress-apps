@@ -17,3 +17,4 @@ serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 thiserror = { workspace = true }
 schemars = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
