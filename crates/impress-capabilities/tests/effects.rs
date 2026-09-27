@@ -377,7 +377,7 @@ fn scratch_store() -> Arc<SqliteItemStore> {
             // of the verb being measured. Record stores its harmless list
             // step for review; it does not execute that step.
             impress_core::call_context::record_verb_call(
-                &store,
+                store.as_ref(),
                 "56000000-0000-4000-8000-000000000003",
                 &impress_service_core::pipeline::CallerIdentity::Person,
                 serde_json::json!({
