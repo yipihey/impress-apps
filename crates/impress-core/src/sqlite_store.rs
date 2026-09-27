@@ -786,6 +786,39 @@ impl SqliteItemStore {
         })
     }
 
+    /// One value out of `store_metadata` — the table `origin_id`,
+    /// `fts_selfheal_gen` and `task_schema_migration`'s marker/ledger already
+    /// live in. Generic on purpose: a caller that needs one durable flag per
+    /// store (a migration marker, an applied rename-table version) should
+    /// not have to invent a fourth key/value table to get it, and
+    /// `crate::device` names this exact widening as the thing to do when it
+    /// is needed (it wasn't yet, when that module was written).
+    pub fn get_store_metadata(&self, key: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .query_raw(
+                "SELECT value FROM store_metadata WHERE key = ?1",
+                &[&key],
+                |row| row.get::<_, String>(0),
+            )?
+            .into_iter()
+            .next())
+    }
+
+    /// Write one `store_metadata` value. `INSERT OR REPLACE`, the same
+    /// idempotent upsert `task_schema_migration` uses for its own marker.
+    pub fn set_store_metadata(&self, key: &str, value: &str) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO store_metadata (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )
+        .map_err(|e| StoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     fn init_schema(conn: &Connection) -> Result<(), StoreError> {
         // Multi-process safety (ADR-0007 Phase 3): three apps + a sync
         // engine share this file; block-and-retry beats instant SQLITE_BUSY.
