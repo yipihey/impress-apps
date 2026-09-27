@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 186 read-only, 133 mutating,
-33 destructive, 104 external — 456 verbs.
+Counts today: 189 read-only, 133 mutating,
+33 destructive, 104 external — 459 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 

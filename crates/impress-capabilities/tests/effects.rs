@@ -67,7 +67,7 @@ use serde_json::Value;
 /// inventory itself (`any(…)`, no store call), so their examples run and the
 /// store spy observes nothing — the same "exercised, unobserved" shape as
 /// every other pure-computation verb already on this table.
-const EXCEPTION_CEILING: usize = 1000; // TEMP: raised for merge-train regeneration, will be reset below
+const EXCEPTION_CEILING: usize = 293;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

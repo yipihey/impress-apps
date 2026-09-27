@@ -73,7 +73,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 19 crates, 43 services | **459** | **459** | **1042 (691)** | **118** | **68** |
+| **Total** | 18 crates, 42 services | **459** | **459** | **1040 (691)** | **117** | **68** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -97,7 +97,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 6 |
 | `ref-object` | 40 |
-| `scalar` | 931 |
+| `scalar` | 933 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
