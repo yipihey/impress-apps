@@ -203,6 +203,76 @@ async fn a_stale_expected_revision_is_a_conflict_and_changes_nothing() {
     assert_eq!(undo.code.as_deref(), Some("conflict"), "{}", undo.message);
 }
 
+/// The Tier B wire scenario must create a real revision change before it
+/// presents its stale revision. Focusing the already-focused detail pane is
+/// a no-op, so drive the catalogue's two distinct focus targets from either
+/// possible starting focus and prove the stale close still conflicts.
+#[tokio::test]
+async fn wire_contract_focus_pair_makes_the_captured_revision_stale() {
+    let scenario: serde_json::Value =
+        serde_json::from_str(include_str!("../scenarios/layout.wire_contract.json"))
+            .expect("embedded wire scenario parses");
+    let targets: Vec<&str> = scenario["steps"]
+        .as_array()
+        .expect("steps")
+        .iter()
+        .filter(|step| {
+            step["call"] == "layout-service_focus" && step["args"].get("targett").is_none()
+        })
+        .map(|step| step["args"]["target"]["role"].as_str().expect("focus role"))
+        .collect();
+    assert_eq!(targets, ["list", "detail"]);
+
+    for initial_focus in ["list", "detail"] {
+        let svc = service();
+        let initial = svc
+            .focus(
+                APP.into(),
+                device(),
+                PaneRefDto::role(initial_focus),
+                None,
+                None,
+            )
+            .await;
+        assert!(initial.ok, "{initial_focus}: {}", initial.message);
+        let rev0 = svc
+            .get_layout(APP.into(), device())
+            .await
+            .revision
+            .expect("captured revision");
+        for target in &targets {
+            let focused = svc
+                .focus(APP.into(), device(), PaneRefDto::role(target), None, None)
+                .await;
+            assert!(focused.ok, "{target}: {}", focused.message);
+        }
+        let after = svc
+            .get_layout(APP.into(), device())
+            .await
+            .revision
+            .expect("revision after focus pair");
+        assert_ne!(
+            after, rev0,
+            "starting from {initial_focus} must move revision"
+        );
+
+        let stale = svc
+            .close(
+                APP.into(),
+                device(),
+                PaneRefDto::role("list"),
+                None,
+                Some(rev0),
+            )
+            .await;
+        assert_eq!(stale.code.as_deref(), Some("conflict"), "{stale:?}");
+        assert_eq!(
+            svc.get_layout(APP.into(), device()).await.revision,
+            Some(after)
+        );
+    }
+}
+
 #[tokio::test]
 async fn a_view_kind_or_a_query_kind_outside_the_vocabulary_is_refused() {
     let svc = service();
