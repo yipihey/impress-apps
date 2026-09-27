@@ -36,6 +36,7 @@
 //  otherwise (plan wave 6 W5). See ADR-0022 D9.
 //
 
+import ImpressKeyboard
 import ImpressLogging
 import SwiftUI
 
@@ -276,12 +277,39 @@ public extension ImpressPaneLayoutButtons {
         public let role: String
     }
 
-    /// The published grammar, in menu order.
+    /// The published grammar, in menu order. R2b: the key and modifiers are
+    /// read from the keymap registry (`impress-keymap`'s imbib table, the
+    /// only app seeded so far) rather than written here — these three chords
+    /// are the universal layer, identical in every chassis app, so imbib's
+    /// registry ids are simply where the one shared truth currently lives.
+    /// `Self.fallback` is the pre-registry literal, used only if the
+    /// registry has no entry (defensive; the registry always does).
     static func chords(listTitle: String = "Toggle List") -> [Chord] {
         [
-            Chord(title: "Toggle Detail Pane", key: "0", modifiers: .command, role: "detail"),
-            Chord(title: listTitle, key: "0", modifiers: [.command, .option], role: "list"),
-            Chord(title: "Toggle Sidebar", key: "s", modifiers: [.control, .command], role: "navigator"),
+            Chord(
+                title: "Toggle Detail Pane",
+                key: Self.key("imbib.pane.toggle_detail", fallback: "0"),
+                modifiers: Self.modifiers("imbib.pane.toggle_detail", fallback: .command),
+                role: "detail"),
+            Chord(
+                title: listTitle,
+                key: Self.key("imbib.pane.toggle_list", fallback: "0"),
+                modifiers: Self.modifiers("imbib.pane.toggle_list", fallback: [.command, .option]),
+                role: "list"),
+            Chord(
+                title: "Toggle Sidebar",
+                key: Self.key("imbib.pane.toggle_sidebar", fallback: "s"),
+                modifiers: Self.modifiers("imbib.pane.toggle_sidebar", fallback: [.control, .command]),
+                role: "navigator"),
         ]
+    }
+
+    private static func key(_ commandID: String, fallback: Character) -> Character {
+        guard let shortcut = KeymapRegistry.shared.shortcut(for: commandID) else { return fallback }
+        return shortcut.key.character
+    }
+
+    private static func modifiers(_ commandID: String, fallback: EventModifiers) -> EventModifiers {
+        KeymapRegistry.shared.shortcut(for: commandID)?.modifiers ?? fallback
     }
 }

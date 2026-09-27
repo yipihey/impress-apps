@@ -980,7 +980,7 @@ struct AppCommands: Commands {
                 PaneLayoutStore.shared.current.pdfDarkMode = toDark
                 Task { await PDFSettingsStore.shared.updateDarkMode(enabled: toDark) }
             }
-            .keyboardShortcut("d", modifiers: [.control, .command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.all_dark_light"))
         }
     }
 
@@ -1037,12 +1037,12 @@ struct AppCommands: Commands {
             Button("Import...") {
                 NotificationCenter.default.post(name: .showUnifiedImport, object: nil)
             }
-            .keyboardShortcut("i", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.file.import"))
 
             Button("Export...") {
                 NotificationCenter.default.post(name: .showUnifiedExport, object: nil)
             }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.file.export"))
         }
 
         // Edit menu - context-aware pasteboard commands
@@ -1055,17 +1055,17 @@ struct AppCommands: Commands {
                     NotificationCenter.default.post(name: .copyPublications, object: nil)
                 }
             }
-            .keyboardShortcut("c", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.copy"))
 
             Button("Copy as Citation") {
                 NotificationCenter.default.post(name: .copyAsCitation, object: nil)
             }
-            .keyboardShortcut("c", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.copy_as_citation"))
 
             Button("Copy DOI/URL") {
                 NotificationCenter.default.post(name: .copyIdentifier, object: nil)
             }
-            .keyboardShortcut("c", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.copy_identifier"))
 
             Button("Cut") {
                 if TextFieldFocusDetection.isTextFieldFocused() {
@@ -1074,7 +1074,7 @@ struct AppCommands: Commands {
                     NotificationCenter.default.post(name: .cutPublications, object: nil)
                 }
             }
-            .keyboardShortcut("x", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.cut"))
 
             Button("Paste") {
                 if TextFieldFocusDetection.isTextFieldFocused() {
@@ -1083,7 +1083,7 @@ struct AppCommands: Commands {
                     NotificationCenter.default.post(name: .pastePublications, object: nil)
                 }
             }
-            .keyboardShortcut("v", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.paste"))
 
             Divider()
 
@@ -1094,7 +1094,7 @@ struct AppCommands: Commands {
                     NotificationCenter.default.post(name: .selectAllPublications, object: nil)
                 }
             }
-            .keyboardShortcut("a", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.select_all"))
 
             Divider()
 
@@ -1103,7 +1103,7 @@ struct AppCommands: Commands {
                 Button("Smart Search (AI)...") {
                     ImbibSearchAction.onlineSourceSearch(source: .menuCommand).post()
                 }
-                .keyboardShortcut("s", modifiers: .command)
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.smart_search"))
 
                 Button("Focus Search") {
                     ImbibSearchAction.localFind(source: .menuCommand).post()
@@ -1116,7 +1116,7 @@ struct AppCommands: Commands {
             Button("Undo History") {
                 UndoHistoryPanelController.shared.toggle()
             }
-            .keyboardShortcut("z", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.edit.undo_history"))
             #endif
         }
 
@@ -1125,41 +1125,41 @@ struct AppCommands: Commands {
             Button("Command Palette...") {
                 NotificationCenter.default.post(name: .showCommandPalette, object: nil)
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.command_palette"))
 
             Divider()
 
             Button("Show Library") {
                 NotificationCenter.default.post(name: .showLibrary, object: nil)
             }
-            .keyboardShortcut("1", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_library"))
 
             Button("Show Search") {
                 NotificationCenter.default.post(name: .showSearch, object: nil)
             }
-            .keyboardShortcut("2", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_search"))
 
             Button("Show Inbox") {
                 NotificationCenter.default.post(name: .showInbox, object: nil)
             }
-            .keyboardShortcut("3", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_inbox"))
 
             Divider()
 
             Button("Show PDF Tab") {
                 NotificationCenter.default.post(name: .showPDFTab, object: nil)
             }
-            .keyboardShortcut("4", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_pdf_tab"))
 
             Button("Show Notes Tab") {
                 NotificationCenter.default.post(name: .showNotesTab, object: nil)
             }
-            .keyboardShortcut("5", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_notes_tab"))
 
             Button("Show BibTeX Tab") {
                 NotificationCenter.default.post(name: .showBibTeXTab, object: nil)
             }
-            .keyboardShortcut("6", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_bibtex_tab"))
 
             Divider()
 
@@ -1189,7 +1189,7 @@ struct AppCommands: Commands {
             Button("Open PDF on Second Display") {
                 NotificationCenter.default.post(name: .detachPDFTab, object: nil)
             }
-            .keyboardShortcut("p", modifiers: [.control, .command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.detach_pdf"))
 
             appearanceMenu
 
@@ -1198,36 +1198,36 @@ struct AppCommands: Commands {
             Button("Focus Sidebar") {
                 NotificationCenter.default.post(name: .focusSidebar, object: nil)
             }
-            .keyboardShortcut("1", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.focus_sidebar"))
 
             Button("Focus List") {
                 NotificationCenter.default.post(name: .focusList, object: nil)
             }
-            .keyboardShortcut("2", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.focus_list"))
 
             Button("Focus Detail") {
                 NotificationCenter.default.post(name: .focusDetail, object: nil)
             }
-            .keyboardShortcut("3", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.focus_detail"))
 
             Divider()
 
             Button("Show Console") {
                 openWindow(id: "console")
             }
-            .keyboardShortcut("c", modifiers: [.control, .command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.show_console"))
 
             Divider()
 
             Button("Increase Text Size") {
                 NotificationCenter.default.post(name: .increaseFontSize, object: nil)
             }
-            .keyboardShortcut("=", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.increase_text_size"))
 
             Button("Decrease Text Size") {
                 NotificationCenter.default.post(name: .decreaseFontSize, object: nil)
             }
-            .keyboardShortcut("-", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.view.decrease_text_size"))
         }
 
         // Paper menu (new)
@@ -1235,29 +1235,29 @@ struct AppCommands: Commands {
             Button("Open PDF") {
                 NotificationCenter.default.post(name: .openSelectedPaper, object: nil)
             }
-            .keyboardShortcut(.return, modifiers: [])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.open_pdf"))
 
             Button("Open Notes") {
                 NotificationCenter.default.post(name: .showNotesTab, object: nil)
             }
-            .keyboardShortcut("r", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.open_notes"))
 
             Button("Open References") {
                 NotificationCenter.default.post(name: .openReferences, object: nil)
             }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.open_references"))
 
             Divider()
 
             Button("Toggle Read/Unread") {
                 NotificationCenter.default.post(name: .toggleReadStatus, object: nil)
             }
-            .keyboardShortcut("u", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.toggle_read"))
 
             Button("Mark All as Read") {
                 NotificationCenter.default.post(name: .markAllAsRead, object: nil)
             }
-            .keyboardShortcut("u", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.mark_all_read"))
 
             Divider()
 
@@ -1273,31 +1273,31 @@ struct AppCommands: Commands {
             Button("Dismiss from Inbox") {
                 NotificationCenter.default.post(name: .dismissFromInbox, object: nil)
             }
-            .keyboardShortcut("j", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.dismiss_from_inbox"))
 
             Divider()
 
             Button("Move to Collection...") {
                 NotificationCenter.default.post(name: .moveToCollection, object: nil)
             }
-            .keyboardShortcut("m", modifiers: [.control, .command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.move_to_collection"))
 
             Button("Add to Collection...") {
                 NotificationCenter.default.post(name: .addToCollection, object: nil)
             }
-            .keyboardShortcut("l", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.add_to_collection"))
 
             Button("Remove from Collection") {
                 NotificationCenter.default.post(name: .removeFromCollection, object: nil)
             }
-            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.remove_from_collection"))
 
             Divider()
 
             Button("Share...") {
                 NotificationCenter.default.post(name: .sharePapers, object: nil)
             }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.share"))
 
             Divider()
 
@@ -1308,7 +1308,7 @@ struct AppCommands: Commands {
             Button("Mirror to reMarkable") {
                 NotificationCenter.default.post(name: .toggleEInkMirror, object: nil)
             }
-            .keyboardShortcut("e", modifiers: [.control, .command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.mirror_to_remarkable"))
             .disabled(!EInkMirrorModel.shared.isConfigured)
 
             Button("Sync reMarkable Now") {
@@ -1331,7 +1331,7 @@ struct AppCommands: Commands {
             Button("Delete") {
                 NotificationCenter.default.post(name: .deleteSelectedPapers, object: nil)
             }
-            .keyboardShortcut(.delete, modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.paper.delete"))
         }
 
         // Annotate menu (PDF annotations)
@@ -1339,24 +1339,24 @@ struct AppCommands: Commands {
             Button("Highlight Selection") {
                 NotificationCenter.default.post(name: .highlightSelection, object: nil)
             }
-            .keyboardShortcut("h", modifiers: .control)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.annotate.highlight"))
 
             Button("Underline Selection") {
                 NotificationCenter.default.post(name: .underlineSelection, object: nil)
             }
-            .keyboardShortcut("u", modifiers: .control)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.annotate.underline"))
 
             Button("Strikethrough Selection") {
                 NotificationCenter.default.post(name: .strikethroughSelection, object: nil)
             }
-            .keyboardShortcut("t", modifiers: .control)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.annotate.strikethrough"))
 
             Divider()
 
             Button("Add Note at Selection") {
                 NotificationCenter.default.post(name: .addNoteAtSelection, object: nil)
             }
-            .keyboardShortcut("n", modifiers: .control)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.annotate.add_note"))
 
             Divider()
 
@@ -1404,13 +1404,13 @@ struct AppCommands: Commands {
             Button("Back") {
                 NotificationCenter.default.post(name: .navigateBack, object: navigationHistory)
             }
-            .keyboardShortcut("[", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.back"))
             .disabled(!(navigationHistory?.canGoBack ?? false))
 
             Button("Forward") {
                 NotificationCenter.default.post(name: .navigateForward, object: navigationHistory)
             }
-            .keyboardShortcut("]", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.forward"))
             .disabled(!(navigationHistory?.canGoForward ?? false))
 
             Divider()
@@ -1428,24 +1428,24 @@ struct AppCommands: Commands {
             Button("First Paper") {
                 NotificationCenter.default.post(name: .navigateFirstPaper, object: nil)
             }
-            .keyboardShortcut(.upArrow, modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.first_paper"))
 
             Button("Last Paper") {
                 NotificationCenter.default.post(name: .navigateLastPaper, object: nil)
             }
-            .keyboardShortcut(.downArrow, modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.last_paper"))
 
             Divider()
 
             Button("Next Unread") {
                 NotificationCenter.default.post(name: .navigateNextUnread, object: nil)
             }
-            .keyboardShortcut(.downArrow, modifiers: .option)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.next_unread"))
 
             Button("Previous Unread") {
                 NotificationCenter.default.post(name: .navigatePreviousUnread, object: nil)
             }
-            .keyboardShortcut(.upArrow, modifiers: .option)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.previous_unread"))
 
             Divider()
 
@@ -1465,7 +1465,7 @@ struct AppCommands: Commands {
             Button("Go to Page...") {
                 NotificationCenter.default.post(name: .pdfGoToPage, object: nil)
             }
-            .keyboardShortcut("g", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.go.to_page"))
         }
 
         // Window menu additions
@@ -1475,17 +1475,17 @@ struct AppCommands: Commands {
             Button("Refresh") {
                 NotificationCenter.default.post(name: .refreshData, object: nil)
             }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.refresh"))
 
             Button("Toggle Unread Filter") {
                 NotificationCenter.default.post(name: .toggleUnreadFilter, object: nil)
             }
-            .keyboardShortcut("\\", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.toggle_unread_filter"))
 
             Button("Toggle PDF Filter") {
                 NotificationCenter.default.post(name: .togglePDFFilter, object: nil)
             }
-            .keyboardShortcut("\\", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.toggle_pdf_filter"))
 
             Divider()
 
@@ -1493,32 +1493,32 @@ struct AppCommands: Commands {
             Button("Open PDF in Fullscreen") {
                 NotificationCenter.default.post(name: .detachPDFTab, object: nil)
             }
-            .keyboardShortcut("p", modifiers: .shift)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.open_pdf_fullscreen"))
 
             Button("Open Notes in Fullscreen") {
                 NotificationCenter.default.post(name: .detachNotesTab, object: nil)
             }
-            .keyboardShortcut("n", modifiers: .shift)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.open_notes_fullscreen"))
 
             Button("Open Info in Fullscreen") {
                 NotificationCenter.default.post(name: .detachInfoTab, object: nil)
             }
-            .keyboardShortcut("i", modifiers: .shift)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.open_info_fullscreen"))
 
             Button("Open BibTeX in Fullscreen") {
                 NotificationCenter.default.post(name: .detachBibTeXTab, object: nil)
             }
-            .keyboardShortcut("b", modifiers: .shift)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.open_bibtex_fullscreen"))
 
             Button("Flip Window Positions") {
                 NotificationCenter.default.post(name: .flipWindowPositions, object: nil)
             }
-            .keyboardShortcut("f", modifiers: .shift)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.flip_positions"))
 
             Button("Close Detached Windows") {
                 NotificationCenter.default.post(name: .closeDetachedWindows, object: nil)
             }
-            .keyboardShortcut("w", modifiers: [.command, .shift, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.window.close_detached"))
         }
 
         // Help menu
@@ -1526,7 +1526,7 @@ struct AppCommands: Commands {
             Button("imbib Help") {
                 openWindow(id: "help")
             }
-            .keyboardShortcut("?", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.help.open"))
 
             Button("Search Help...") {
                 // The window may be closed: leave the request for it to take
@@ -1536,14 +1536,14 @@ struct AppCommands: Commands {
                 openWindow(id: "help")
                 NotificationCenter.default.post(name: .showHelpSearchPalette, object: nil)
             }
-            .keyboardShortcut("?", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.help.search"))
 
             Divider()
 
             Button("Keyboard Shortcuts") {
                 openWindow(id: "keyboard-shortcuts")
             }
-            .keyboardShortcut("/", modifiers: .command)
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imbib.help.keyboard_shortcuts"))
 
             Divider()
 

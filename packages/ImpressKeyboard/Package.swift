@@ -7,8 +7,19 @@ let package = Package(
     products: [
         .library(name: "ImpressKeyboard", targets: ["ImpressKeyboard"])
     ],
+    dependencies: [
+        .package(path: "../ImpressRustCore")
+    ],
     targets: [
-        .target(name: "ImpressKeyboard", swiftSettings: [.swiftLanguageMode(.v5)]),
-        .testTarget(name: "ImpressKeyboardTests", dependencies: ["ImpressKeyboard"], swiftSettings: [.swiftLanguageMode(.v5)])
+        .target(
+            name: "ImpressKeyboard",
+            dependencies: ["ImpressRustCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "ImpressKeyboardTests",
+            dependencies: ["ImpressKeyboard"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        )
     ]
 )
