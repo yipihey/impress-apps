@@ -25,10 +25,10 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today (semantic-search feature on): 192 read-only, 133 mutating,
-33 destructive, 104 external — 462 verbs. Without that feature,
+Counts today (semantic-search feature on): 196 read-only, 136 mutating,
+33 destructive, 104 external — 469 verbs. Without that feature,
 `imbib-semantic-service`'s three read-only verbs are unlinked and the totals
-are 3 fewer (189/133/33/104 — 459).
+are 3 fewer (193/136/33/104 — 466).
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
