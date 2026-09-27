@@ -814,6 +814,89 @@ crates) is real and is held, not closed, by this plan.
   `check-uniffi-bindings.sh`, `check-schema-refs.sh`, `cargo hakari generate --diff`, all clean.
   **Not done, deliberately out of scope for this slice**: the aggregator reading these spans into
   `PerfBucketStat`-shaped rows, the `perf_summary` verb, trace export and budgets on examples — G7b/G7c.
+- 2026-09-27 — **G6 landed** on a worktree of `origin/main`, branch `claude/gui-g6-coverage`. The crate
+  table between `docs/verb-coverage.md`'s `verb-coverage-crates` markers was already finished by G0/G1's
+  first draft (every row has a verdict, every `should-be-verb` row names what should become a verb, every
+  `internal` row gives a reason) — checked mechanically (no empty *Reason* cell on either verdict) rather
+  than reworded. What G6 adds is the `internal` binding-tell itself: `scripts/check-verb-coverage.sh`
+  now greps `crates/<name>/src` for `#[uniffi::export]`, `#[pyfunction]`/`#[pymodule]` and `.route(` on
+  every `internal`-verdict crate (comment lines excluded), and fails naming the crate unless its role is
+  `ffi`/`service-http` (the binding is that role's whole job) or it is listed in a new marker table,
+  `verb-coverage-internal-bindings` — the same shape as `kit-manifest.md`'s open findings — with the
+  binding and a reason it does not make the crate agent-facing. Five crates needed that table today:
+  `impel-tools` and `impress-mcp-host` (the binding is the inventory-glue itself), `impress-ai-http` and
+  `impress-toolbox` (an HTTP transport/local-exec surface already named `internal` with a reason before
+  G6), and `impress-helix` (a `#[uniffi::export]`ed keystroke state machine that fails rule (b) — a live
+  key event — regardless of the binding). The check's own fixture test, `check-verb-coverage.sh
+  --self-test`, drives `has_binding`/`is_binding_exempt` directly on five tmp-dir source fixtures (a real
+  `#[uniffi::export]`, a real `#[pyfunction]`, a real `.route(`, the same attribute named only in a `//!`
+  doc comment, and a plain `pub fn`) plus five role/allowlist cases and two end-to-end ones, mirroring
+  `check-kit-deps.sh --self-test`'s pattern (pure `classify` function, `expect` helper). The
+  `should-be-verb` ceiling stays at 20 in `census.rs` — nothing moved to `covered` this package. Gates
+  (serial, `CARGO_TARGET_DIR` on a scratch dir): `rust-gate.sh fmt`, `cargo test -p impress-capabilities`
+  (18 tests across census/effects/keymap_coverage/pipeline/policy/tier_a), `check-verb-coverage.sh` and
+  its `--self-test`, `check-kit-deps.sh --strict` — all clean.
+- 2026-09-27 — **G7b landed** (the aggregator and the perf verbs) on a worktree of `origin/main`,
+  branch `claude/gui-g7b-perf`. A new `tracing_subscriber::Layer`,
+  `impress_service_core::pipeline::perf` (`AGGREGATED_TARGETS = ["verb", "io"]`), folds every closed
+  `verb`-target span P2 already opens (`pipeline::mod`) into a process-wide, per-name bucket keyed
+  `"{target}:{name}"` (`verb:t-service_echo`, and `io:<name>` should a future I/O seam span ever open
+  one — none exists yet in this workspace; PF-3's `with_write` chokepoint, which would be the first,
+  stays a named follow-up rather than being built here). Each bucket keeps exact `count`,
+  `total_nanos`/`min_nanos`/`max_nanos` over every call plus a 1024-sample ring for nearest-rank
+  `p50`/`p95` — the same window size and percentile arithmetic
+  `packages/ImpressLogging/Sources/ImpressLogging/PerfMetrics.swift:265-270` uses. Self-vs-total time
+  is tracked per span (a closed child's duration is added to its still-open parent's `ChildNanos`
+  extension, `self = total - child`) so a later trace-tree export (G7c) has it precomputed, though no
+  `PerfBucketStat` field yet exposes it separately — it is folded into `total_nanos` exactly as
+  `duration_us` always was. The bucket snapshot, `PerfBucketStat`, is field-for-field
+  `PerfMetrics.swift:47` (`name, count, totalNanos, minNanos, maxNanos, mainThreadCount, p50Nanos,
+  p95Nanos, budgetNanos?, breachCount`), `#[serde(rename_all = "camelCase")]` so the JSON keys match
+  too; `mainThreadCount` is always 0 (Rust is off the main actor since wave 7 T2) and
+  `budgetNanos`/`breachCount` are always `None`/0 — Tier A budgets on examples are G7c, not this
+  package. No argument value is ever read by the layer (P7): it only sees the fields the `verb` span
+  itself already carries (`name`, `duration_us`, …).
+
+  A new crate, `perf-service` (registered domain-style in `impress-capabilities`, feature `perf`,
+  folded into `full`), exposes two read-only, `strict_args` verbs: `perf-service_summary { prefix? }`
+  returns the bucket rows (optionally narrowed by a key prefix, e.g. `"verb:imbib"`), and
+  `perf-service_trace { trace_id }` refuses `unavailable` naming exactly what is missing — no bounded
+  span log is kept in this build, only the aggregated buckets, which have no per-trace identity to
+  look up; G7c is where a span log (and the trace export it unlocks — Chrome/Perfetto JSON, folded
+  stacks) lands. Both verbs carry doc comments, `#[impress_example]`s, and the crate's own Tier-A-style
+  test calls them through `pipeline::invoke_blocking` (not `tool.handler` directly, which bypasses the
+  pipeline — and so the span — entirely) as the proof the work package asks for: after a few
+  `perf-service_trace` calls, `perf-service_summary` lists a `verb:perf-service_trace` bucket with a
+  nonzero count. `docs/verb-coverage.md`, `verb-safety.md` and `verb-effects.md` gained the crate's
+  rows from the census/descriptor/effects tests' own `dump`/failure output (2 verbs, both read-only,
+  both with examples so `EXCEPTION_CEILING` in `effects.rs` did not need to move — 461 verbs total,
+  191 read-only); `docs/verbs/perf-service.md` is `gen-verb-docs`'s regenerated page.
+
+  The layer is installed everywhere the pipeline runs: `impress-store-ffi::tracing_bridge::install`
+  adds `.with(impress_service_core::pipeline::perf::layer())` to the same global subscriber the log
+  bridge already builds (every app and the FFI verb host get it for free), and `impress-mcp`/
+  `impress-cli`'s `main`s install the aggregator alone (no Console to bridge to over stdio/CLI).
+
+  **The span bench** (`crates/impress-capabilities/tests/pipeline_bench.rs`, release): a second
+  `#[ignore]`d case, `per_call_overhead_with_perf_aggregator_installed`, installs only the aggregator
+  layer and re-runs the same five verbs `per_call_overhead_of_the_chain` already benches, so that
+  test's own printed numbers are the layer-off baseline to diff against. Layer-off baseline (worst
+  case `layout-service_get-layout`, dominated by pre-existing chain overhead unrelated to this
+  package): 75.56 µs. With the aggregator installed: 84.40 µs — a per-verb delta of roughly 1-3 µs on
+  four of the five cases (`decode-latex` −0.35, `series` +0.30, `get-pane` +0.97, `list-items` +2.29)
+  and +8.84 µs on `get-layout`, whose own raw-handler time was itself noisy between runs (8.43 µs →
+  9.83 µs) — within the budget (≤ 5 µs per span) for every case except that one noisy outlier, which
+  is dominated by chain-level variance the aggregator does not explain on its own.
+
+  Full gate green, run serially with `CARGO_TARGET_DIR` pointed at a scratch dir:
+  `rust-gate.sh fmt`, `clippy rest`, `clippy imprint`; `cargo test` across `impress-service-core`,
+  `impress-capabilities`, `impress-store-ffi`, `perf-service` (0 failed); `check-verb-coverage.sh`,
+  `check-verb-docs.sh` (regenerated and staged), `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh --strict` (18 crates — `perf-service` is domain-registered, not kit-grade,
+  so it does not appear here), `check-uniffi-bindings.sh` (no export changed, 7/7 match unregenerated),
+  `check-schema-refs.sh`, `cargo hakari manage-deps && cargo hakari generate` (no changes — the new
+  crate's dependencies were already unified). **Not done, deliberately out of scope for this slice**:
+  trace export (Chrome/Perfetto JSON, folded stacks) and Tier A budgets on examples — G7c.
 
 ## Appendix A1 — every verb
 

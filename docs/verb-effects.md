@@ -38,7 +38,7 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 469 verbs declared; 76 verified by example, 93 by a Tier A
+Counts today: 471 verbs declared; 78 verified by example, 93 by a Tier A
 catalogue, 300 on the exception table.
 
 ## Every verb
@@ -463,6 +463,8 @@ catalogue, 300 on the exception table.
 | `parsers-service_list-publisher-rules` | — | — | — | example ×1 |
 | `parsers-service_parse-mbox` | — | — | — | — |
 | `parsers-service_resolve-publisher-pdf` | — | — | network | — |
+| `perf-service_summary` | — | — | — | example ×2 |
+| `perf-service_trace` | — | — | — | example ×1 |
 | `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_list` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_reset` | — | "impress/settings@1.0.0" | fs | — |

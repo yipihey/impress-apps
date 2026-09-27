@@ -141,6 +141,15 @@ fn take_wait(args: Vec<String>) -> (Vec<String>, bool) {
 }
 
 fn main() {
+    // G7b: the perf aggregator, so a `perf-service_summary` call in the
+    // same invocation sees this process's own verb spans (mainly useful
+    // with `--wait` chaining several verbs in one process run).
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        let subscriber =
+            tracing_subscriber::registry().with(impress_service_core::pipeline::perf::layer());
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    }
     // The real reference into `impress-capabilities` this file's top comment
     // promises: `cli::build_cli_from_inventory`/`dispatch_matches` below read
     // the process-wide `CliSubcommand` inventory (defined in

@@ -1368,3 +1368,32 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   stdio smoke tests, as always); `check-verb-coverage.sh`, `check-verb-docs.sh`, `check-kit-deps.sh --strict`,
   `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh` and `cargo hakari generate
   --diff` all clean.
+- 2026-09-27 — **P6 Python landed** (branch `claude/pipeline-p6-python`, worktree of main). One new
+  crate, `crates/impress-py` (D-P8): a Python module `impress` with `list_verbs()` and `call(verb,
+  args, app=None)`, **no path of its own** — `list_verbs()` reads
+  `impress_service_core::descriptor::VerbDescriptor::iter` (the same linked inventory `impress-cli`
+  and `impress-mcp` read, force-linked with `impress_capabilities::force_link()`, `full` feature);
+  `call` with no `app` goes through `impress_service_core::dispatch::dispatch` — the FFI verb host's
+  own by-name dispatch — with `CallerIdentity::App("python")` (the honest identity: this module speaks
+  for the process that imported it, the same relationship the FFI host has to its caller, not an
+  agent's sandboxed "the model asked for this"); `call(verb, args, app="impress")` goes over
+  `impress_app_transport::call`, unchanged. The pyo3 wrappers are `mod py` behind the `python` feature
+  (`im-bibtex`'s and `im-identifiers`' own gating pattern); the underlying Rust (`list_verb_infos`,
+  `call_local`, `call_remote`) has no `pyo3` in its signature and is exercised directly in
+  `tests/dispatch.rs` — no Python interpreter needed for `cargo test`. `maturin` was not available on
+  this machine to build the wheel; the build command is `maturin build --release --features python -m
+  crates/impress-py/Cargo.toml` (documented in the crate's module doc), and `cargo check -p impress-py
+  --features python` was run in its place to prove the pyo3 half compiles. `docs/verb-coverage.md`
+  gained one `internal` row (`impress-py`, no capability of its own). Retiring `im-bibtex`'s and
+  `im-identifiers`' own MCP servers (PY-1's other half) was left alone — their functions are not yet
+  verbs, which is the row's own should-be-verb finding, not this package's — and is **what remains**.
+  **Proof:** `cargo test -p impress-py` — `call_local` runs `imbib-text-service_decode-latex` through
+  the pipeline (`Caf\'{e}` → `Café`, the plan's own proof verb) and refuses an unknown verb by name;
+  `list_verb_infos` finds it in the inventory with a non-empty description and an object input schema.
+  **Gates:** `rust-gate.sh fmt` (one `cargo fmt` pass), `clippy rest` and `clippy imprint` clean;
+  `cargo test -p impress-py` (3/3) and `-p impress-capabilities` (full suite) green; `check-verb-
+  coverage.sh` (84 crates verdicted, should-be-verb still 20/20, unchanged), `check-kit-deps.sh
+  --strict`, `check-kit-standalone.sh` (17-crate scratch build), `check-schema-refs.sh` (396 sites, 0
+  divergences) all OK — `impress-py` is not a kit crate, so none of the three moved; `cargo hakari
+  manage-deps` (no operations) and `cargo hakari generate --diff` (no changes) — the new crate needed
+  no `workspace-hack` entry of its own beyond the existing `pyo3`/`pythonize` lines.

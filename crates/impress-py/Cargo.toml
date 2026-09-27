@@ -1,0 +1,33 @@
+[package]
+name = "impress-py"
+description = "the `impress` Python module: one generic list_verbs()/call() binding over the linked inventory and the P5 transport (plan-verb-pipeline-and-transport.md § P6, D-P8)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "impress"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Behind a feature, same gating pattern as `im-bibtex`'s and
+# `im-identifiers`' `python` feature: a plain workspace build never needs
+# the Python interpreter headers.
+python = ["dep:pyo3", "dep:pythonize"]
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-app-transport = { workspace = true }
+# The one linked inventory (ADR-0033 D4). `default-features = false` +
+# explicit `full` mirrors impress-cli/impress-mcp: this module wants every
+# service's verbs, not just the kit slice.
+impress-capabilities = { workspace = true, features = ["full"] }
+serde_json = { workspace = true }
+pyo3 = { workspace = true, optional = true }
+pythonize = { workspace = true, optional = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -222,7 +222,15 @@ pub fn install_log_sink(sink: Box<dyn SharedLogSink>, level: String) -> bool {
 
 pub(crate) fn install(sink: Arc<dyn SharedLogSink>, level: &str) -> bool {
     let installed = *SUBSCRIBER_INSTALLED.get_or_init(|| {
-        let subscriber = tracing_subscriber::registry().with(BridgeLayer);
+        // The G7b perf aggregator rides the same global subscriber as this
+        // bridge, on the same `verb`-target spans — it folds them into
+        // per-name buckets (`perf-service_summary`) while this layer only
+        // forwards lines to the Console; installing both here means every
+        // process that installs a log sink (every app, the FFI verb host)
+        // also gets bucketed span history for free.
+        let subscriber = tracing_subscriber::registry()
+            .with(BridgeLayer)
+            .with(impress_service_core::pipeline::perf::layer());
         let set = tracing::subscriber::set_global_default(subscriber).is_ok();
         if set {
             // Any `log` caller in a dependency still reaches this

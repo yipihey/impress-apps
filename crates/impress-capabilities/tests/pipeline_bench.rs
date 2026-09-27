@@ -105,3 +105,58 @@ fn per_call_overhead_of_the_chain() {
     }
     println!("worst overhead: {worst:.2} µs per call (budget: ~20 µs for a read-only call)");
 }
+
+/// G7b's own budget: the perf aggregator (`impress_service_core::pipeline::perf`)
+/// must add no more than 5 µs per span. This installs *only* that layer (no
+/// log bridge, no fmt layer) as the global subscriber — which the process
+/// otherwise has none of in this bench binary, so `per_call_overhead_of_the_chain`
+/// above is the layer-off baseline — and re-runs the same cases; the
+/// per-verb delta against that baseline is the aggregator's own added cost.
+#[test]
+#[ignore = "a timing; run alone in release with --ignored --nocapture, \
+            after per_call_overhead_of_the_chain so its printed numbers are \
+            the layer-off baseline to diff against"]
+fn per_call_overhead_with_perf_aggregator_installed() {
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        let subscriber =
+            tracing_subscriber::registry().with(impress_service_core::pipeline::perf::layer());
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    }
+    let store = Arc::new(SqliteItemStore::open_in_memory().expect("store"));
+    let layout_args = json!({ "app_id": "bench", "device": "bench-device" });
+    let pane_args =
+        json!({ "app_id": "bench", "device": "bench-device", "target": {"focused": true} });
+    let cases: Vec<(&'static str, Value)> = vec![
+        (
+            "imbib-text-service_decode-latex",
+            json!({ "input": "Caf\\'{e} and Schr\\\"{o}dinger" }),
+        ),
+        (
+            "surface-demo-service_series",
+            json!({ "freq": 1.5, "n": 64 }),
+        ),
+        ("layout-service_get-layout", layout_args),
+        ("layout-service_get-pane", pane_args),
+        (
+            "store-query-service_list-items",
+            json!({ "schema_ref": "collection", "limit": 10, "offset": 0 }),
+        ),
+    ];
+    println!(
+        "\nwith the perf aggregator layer installed:\n{:<40} {:>10} {:>10} {:>10}",
+        "verb", "raw µs", "chain µs", "delta µs"
+    );
+    let mut worst = 0.0f64;
+    for (name, args) in cases {
+        let (raw, chain) = bench(name, args, &store);
+        let delta = chain - raw;
+        worst = worst.max(delta);
+        println!("{name:<40} {raw:>10.2} {chain:>10.2} {delta:>10.2}");
+    }
+    println!(
+        "worst overhead with the aggregator: {worst:.2} µs per call \
+         (diff this against per_call_overhead_of_the_chain's worst to get \
+         the layer's own cost; budget: \u{2264} 5 \u{03bc}s per span)"
+    );
+}

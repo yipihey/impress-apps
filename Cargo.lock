@@ -4534,8 +4534,11 @@ dependencies = [
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
+ "perf-service",
  "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "vw-impress-adapter",
 ]
 
@@ -4564,6 +4567,8 @@ dependencies = [
  "impress-store-service",
  "impress-workspace-hack",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4707,6 +4712,7 @@ dependencies = [
  "chrono",
  "impress-core",
  "impress-layout",
+ "impress-scenario",
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
@@ -4741,6 +4747,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4809,6 +4817,19 @@ version = "0.1.0"
 dependencies = [
  "impress-workspace-hack",
  "png 0.17.16",
+]
+
+[[package]]
+name = "impress-py"
+version = "0.1.0"
+dependencies = [
+ "impress-app-transport",
+ "impress-capabilities",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "pyo3",
+ "pythonize",
+ "serde_json",
 ]
 
 [[package]]
@@ -4889,6 +4910,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uniffi",
  "uuid",
 ]
@@ -5047,6 +5069,7 @@ dependencies = [
  "impress-core",
  "impress-layout",
  "impress-layout-service",
+ "impress-scenario",
  "impress-service-core",
  "impress-service-macros",
  "impress-settings",
@@ -7167,6 +7190,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "perf-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "pest"
 version = "2.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7767,6 +7807,16 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "pythonize"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91a6ee7a084f913f98d70cdc3ebec07e852b735ae3059a1500db2661265da9ff"
+dependencies = [
+ "pyo3",
+ "serde",
 ]
 
 [[package]]

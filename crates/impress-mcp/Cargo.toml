@@ -12,6 +12,11 @@ name = "impress-mcp"
 path = "src/main.rs"
 
 [dependencies]
+# G7b: installs the perf aggregator (no store-ffi log sink here — stdio
+# transport has no Console to forward to) so `perf-service_summary` has
+# bucket history in this process too.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 # P3c step 1: the three hand-written semantic-search tools (search_papers,
 # get_paper_chunks, list_indexed_papers) moved to `imbib-semantic-service`, a
 # real `#[impress_service]` trait, deprecated under their old flat names as

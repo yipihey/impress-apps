@@ -30,30 +30,64 @@
 //! right failure — but the point of naming the sources here is that none of
 //! them were guessed.
 //!
-//! **SC-1, kept as code (docs/plan-self-reflective-layer.md § Scenarios,
-//! table SC-1; S2's row).** This whole catalogue stays hand-written for this
-//! round of conversion, for two independent reasons, neither of which is a
-//! deferral of S2's own class-(i) work:
+//! **SC-1, S2b (docs/plan-self-reflective-layer.md § Scenarios, table SC-1).**
+//! S2 kept this whole catalogue hand-written because `impress-layout-service`
+//! is a kit crate (`docs/kit-manifest.md`, ADR-0033 D7) and
+//! `check-kit-deps.sh --strict` refused the dependency on `impress-scenario`
+//! the interpreter needs. Tom approved joining it to the kit 2026-09-27
+//! (`docs/kit-manifest.md`'s `impress-scenario` row), which unblocks the
+//! entries that are literal call sequences. S2b converts three:
+//! `layout.apply_preset`, `layout.saved_round_trip`, `layout.wire_contract`
+//! — as `impress/scenario@1.0.0` documents under `scenarios/`, run through
+//! [`scenario_caller`](crate::scenario_caller)'s shared `TierBCaller`. The
+//! rest stay code, for reasons unchanged from S2's own account plus one new
+//! one this pass found:
 //!
-//! 1. Almost every entry here reads the live tree back and computes its next
-//!    call from what it finds — a tile id for a role, a container's current
-//!    child count to build an even `shares` array, which pane's parameter
-//!    reads a channel. A stored `impress/scenario@1.0.0` document has no
-//!    expressions or loops (ADR-0033 D3, by design), so a step's args are a
-//!    literal or a `{{state.<capture>}}` reference to an *earlier step's own
-//!    result* — never a computed lookup into an arbitrary JSON structure the
-//!    way `tile_with_role`/`linear_parent`/`channel_ids` below do. Converting
-//!    these faithfully needs either a richer capture expression (a JSON-path
-//!    predicate search, not just `$.a.b`) or literal ids the tree is not
-//!    guaranteed to keep stable across a preset change — neither exists yet.
-//! 2. `impress-layout-service` is a kit crate
-//!    (`docs/kit-manifest.md`, ADR-0033 D7): `check-kit-deps.sh --strict`
-//!    refuses any workspace dependency the manifest's table does not list,
-//!    and `impress-scenario` (the interpreter S2's other two conversions
-//!    reach) is deliberately NOT in that table (S1's session log: "not the
-//!    layout+surface kit"). Depending on it here without first amending the
-//!    manifest is exactly the kind of kit-boundary change ADR-0033 D7 marks
-//!    ask-first — out of this pass's remit.
+//! 1. Almost every other entry here reads the live tree back and computes
+//!    its next call from what it finds — a tile id for a role, a
+//!    container's current child count to build an even `shares` array,
+//!    which pane's parameter reads a channel. A stored scenario document
+//!    has no expressions or loops (ADR-0033 D3, by design): its `call`/
+//!    `gesture` args are a literal or a `{{state.<capture>}}` reference to
+//!    an *earlier step's own result* — never a computed lookup into an
+//!    arbitrary JSON structure the way `tile_with_role`/`linear_parent`/
+//!    `channel_ids` below do. This is `layout.version_moves`,
+//!    `layout.channel_selection`, `layout.hidden_share`,
+//!    `layout.outline_collection_row`, `layout.source_pane_session` and
+//!    `layout.console_pane` — the six named in S2's own account, unchanged.
+//! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
+//!    shape one level down: `first_row_of` is a live, filtered read of the
+//!    shared store (a read paper that already has its PDF) done in-process
+//!    (`impress_store_service::store_instance()`), not over the wire — no
+//!    verb this catalogue's `TierBCaller` dispatch table reaches returns
+//!    that predicate search, and a scenario step cannot compute one either.
+//! 3. `layout.restored` is the tier's own `finally`: it closes over
+//!    `run()`'s own mutable state (whether the initial park succeeded,
+//!    which surfaces this run actually created) across every OTHER
+//!    capability's execution, not just its own steps — a stored document
+//!    is self-contained and cannot see another capability's outcome. Given
+//!    what it restores (a person's live, possibly-in-use arrangement),
+//!    getting this wrong silently is worse than leaving it hand-written; a
+//!    natural next step once the interpreter can express "best effort,
+//!    no per-step assertion required" the way this function's `finally`
+//!    already does by hand.
+//! 4. `app.reachable` is the tier's own gate (`GET /api/status`, run before
+//!    any scenario would), not a capability a scenario step names.
+//!
+//! **A found blocker, not carried into this pass:** `surface.show_and_dispatch`
+//! (here) and all three of `impress-surface-service`'s catalogue
+//! (`surface.http.*`) build a surface spec whose OWN `bind`/`on_click` fields
+//! use the surface engine's `{{state.…}}` template syntax
+//! (`{"bind": "state.bins"}`, `{"payload": {"bins": "{{state.bins}}"}}`).
+//! `impress_scenario::template::resolve` walks every string in a `call`
+//! step's `args` and resolves `{{…}}` against the *scenario's own* captures
+//! before the step runs — so embedding such a spec as `args` fails immediately
+//! (`a missing capture is an error`, not a slow-burning wrong-but-passing
+//! bug) because the scenario has no `bins` capture. Converting either
+//! catalogue's surface-creating entries needs either an escape for a literal
+//! `{{…}}` the scenario interpreter should not touch, or moving the spec into
+//! a `seed`-like non-templated slot — neither exists yet; left for the
+//! interpreter's own next pass rather than guessed at here.
 //!
 //! `layout.outline_collection_row` (class ii, "gesture") has the same
 //! dynamic-lookup shape as (1) above (`outline_target`, `first_row_of`) and
@@ -64,7 +98,16 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::scenario_caller;
 use crate::{check, skipped, CapabilityResult, Tier};
+
+/// S2b: the three catalogue entries converted to stored
+/// `impress/scenario@1.0.0` documents, `include_str!`'d at compile time so a
+/// malformed document is a build-time surprise, not a runtime one (matching
+/// `imprint-selftest`'s own embedding).
+const APPLY_PRESET_SCENARIO: &str = include_str!("../scenarios/layout.apply_preset.json");
+const SAVED_ROUND_TRIP_SCENARIO: &str = include_str!("../scenarios/layout.saved_round_trip.json");
+const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -251,21 +294,6 @@ impl Http {
         decode(path, response).await
     }
 
-    /// POST, returning the status and body whatever they are — for checking
-    /// that a refusal is the refusal it should be.
-    async fn post_raw(&self, path: &str, body: &Value) -> Result<(u16, Value), String> {
-        let url = format!("{}{path}", self.base);
-        let response = self
-            .client
-            .post(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| format!("POST {path}: {e}"))?;
-        let (status, value, _) = read(path, response).await?;
-        Ok((status.as_u16(), value))
-    }
-
     /// `POST /api/layout/verb` with one `impress_layout::Verb` body.
     async fn verb(&self, verb: &Value) -> Result<Value, String> {
         self.post("/api/layout/verb", verb).await
@@ -432,6 +460,11 @@ fn any_publication_query() -> Value {
 /// Run every Tier B capability against `base_url`, restoring what it changed.
 pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     let http = Http::new(base_url);
+    // S2b's scenario-backed entries share one `TierBCaller` (its own
+    // loopback connection, separate from `http` above): nothing here
+    // depends on it seeing the other capabilities' effects, so one per run
+    // is simplicity over sharing a connection that buys nothing yet.
+    let mut scenario_caller = scenario_caller::TierBCaller::new(base_url);
 
     // One probe gates the tier. `/api/status` is the shared automation
     // surface's own liveness route, answered by every app in the suite.
@@ -480,9 +513,9 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     // Surfaces this run created, deleted by the restore step whatever happens.
     let mut created_surfaces: Vec<String> = Vec::new();
 
-    out.push(apply_preset_capability(&http).await);
+    out.push(scenario_caller::run_embedded(APPLY_PRESET_SCENARIO, &mut scenario_caller).await);
     out.push(version_moves_capability(&http).await);
-    out.push(saved_layout_capability(&http).await);
+    out.push(scenario_caller::run_embedded(SAVED_ROUND_TRIP_SCENARIO, &mut scenario_caller).await);
     out.push(channel_selection_capability(&http).await);
     out.push(surface_capability(&http, &mut created_surfaces).await);
     out.push(hidden_share_capability(&http).await);
@@ -491,7 +524,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(source_pane_session_capability(&http).await);
     out.push(reading_preset_capability(&http).await);
     out.push(console_pane_capability(&http).await);
-    out.push(wire_contract_capability(&http).await);
+    out.push(scenario_caller::run_embedded(WIRE_CONTRACT_SCENARIO, &mut scenario_caller).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
@@ -499,39 +532,6 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(restore_capability(&http, parked, &created_surfaces).await);
 
     out
-}
-
-/// 1. Apply a preset by ordinal and read the tree back.
-///
-/// Ordinal 1 is the app's own default preset: `presets::ordinal_targets`
-/// numbers the shipped presets first, then the user's presets, then the named
-/// layouts, so position 1 means the same thing on a machine that has never
-/// opened the app.
-async fn apply_preset_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[1];
-    check(id, description, Tier::B, || async {
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let version = tree
-            .get("version")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "tree carried no `version` after apply-layout".to_string())?;
-        let panes = panes(&tree)?;
-        if panes.is_empty() {
-            return Err("the tree has no panes after applying ordinal 1".into());
-        }
-        let kinds: Vec<&str> = panes
-            .iter()
-            .filter_map(|(_, p)| p.get("view_kind").and_then(Value::as_str))
-            .collect();
-        Ok(format!(
-            "ordinal 1 applied: version={version}, {} panes ({})",
-            panes.len(),
-            kinds.join(", ")
-        ))
-    })
-    .await
 }
 
 /// 2. Split / resize / swap / close, each advancing `version`.
@@ -623,57 +623,6 @@ async fn version_moves_capability(http: &Http) -> CapabilityResult {
         advanced("close", before, version)?;
 
         Ok(steps.join(", "))
-    })
-    .await
-}
-
-/// 3. Save a layout, see it listed, apply it back, delete it, see it gone.
-async fn saved_layout_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[3];
-    const NAME: &str = "__tier-b-selftest-layout__";
-    check(id, description, Tier::B, || async {
-        // Names are listed under `layouts` with their own ordinals; this reads
-        // by name, because the `apply-layout` ordinal space is the *union* of
-        // presets and layouts and so does not match this list's numbering.
-        let named = |list: &Value| -> bool {
-            list.get("layouts")
-                .and_then(Value::as_array)
-                .map(|rows| {
-                    rows.iter()
-                        .any(|r| r.get("name").and_then(Value::as_str) == Some(NAME))
-                })
-                .unwrap_or(false)
-        };
-
-        http.op(&json!({
-            "op": "save-layout",
-            "name": NAME,
-            "purpose": "tier-b self-test"
-        }))
-        .await?;
-        if !named(&http.get("/api/layout/layouts").await?) {
-            return Err(format!(
-                "`{NAME}` was saved but is not in /api/layout/layouts"
-            ));
-        }
-
-        let applied = http
-            .op(&json!({ "op": "apply-layout", "name": NAME }))
-            .await?;
-        let version = applied
-            .get("version")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "apply-layout reported no `version`".to_string())?;
-
-        http.op(&json!({ "op": "delete-layout", "name": NAME }))
-            .await?;
-        if named(&http.get("/api/layout/layouts").await?) {
-            return Err(format!("`{NAME}` survived delete-layout"));
-        }
-
-        Ok(format!(
-            "saved, listed, applied (version={version}) and deleted `{NAME}`"
-        ))
     })
     .await
 }
@@ -1659,102 +1608,6 @@ async fn hidden_share_capability(http: &Http) -> CapabilityResult {
         Ok(format!(
             "tile {navigator}: {original} → {hidden} (≤ {}) → {restored}",
             impress_layout::HIDDEN_SHARE_CEILING
-        ))
-    })
-    .await
-}
-
-/// The written contract, over HTTP (plan wave 7, T6): every layout body is
-/// snake_case and carries `wire_version`; a field the verb does not take is
-/// 400 `invalid-argument` naming it; a verb made against a revision someone
-/// has since moved is 409 `conflict` and changes nothing; a view kind outside
-/// the vocabulary is 422 `unknown-view-kind`.
-async fn wire_contract_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[12];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        if tree.get("wire_version").and_then(Value::as_u64)
-            != Some(u64::from(impress_service_core::wire::WIRE_VERSION))
-        {
-            return Err(format!("the tree body carries no wire_version 1: {tree}"));
-        }
-        let camel: Vec<&String> = tree
-            .as_object()
-            .map(|o| {
-                o.keys()
-                    .filter(|k| k.chars().any(char::is_uppercase))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !camel.is_empty() {
-            return Err(format!("the tree body has camelCase keys: {camel:?}"));
-        }
-        let revision = tree
-            .get("revision")
-            .and_then(Value::as_u64)
-            .ok_or("the tree body carries no `revision`")?;
-
-        let (status, body) = http
-            .post_raw(
-                "/api/layout/verb",
-                &json!({"verb": "focus", "target": {"role": "list"}, "targett": {}}),
-            )
-            .await?;
-        if status != 400
-            || body.get("code").and_then(Value::as_str) != Some("invalid-argument")
-            || !body
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .contains("targett")
-        {
-            return Err(format!(
-                "an unknown field was not refused by name: {status} {body}"
-            ));
-        }
-
-        // Move the revision (focus on another pane), then act on the old one.
-        let list = tile_with_role(&tree, "list")?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let focused = tree.get("focused").and_then(Value::as_u64);
-        let other = if focused == Some(list) { detail } else { list };
-        let moved = http
-            .verb(&json!({"verb": "focus", "target": {"id": other}}))
-            .await?;
-        let now = moved
-            .get("revision")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| format!("a verb's body carries no `revision`: {moved}"))?;
-        let (status, body) = http
-            .post_raw(
-                "/api/layout/verb",
-                &json!({"verb": "close", "target": {"id": other}, "expected_revision": revision}),
-            )
-            .await?;
-        if status != 409 || body.get("code").and_then(Value::as_str) != Some("conflict") {
-            return Err(format!(
-                "a stale expected_revision was not a conflict: {status} {body}"
-            ));
-        }
-        if http.tree().await?.get("revision").and_then(Value::as_u64) != Some(now) {
-            return Err("the refused verb wrote something".into());
-        }
-
-        let (status, body) = http
-            .post_raw(
-                "/api/layout/verb",
-                &json!({"verb": "set-view-kind", "target": {"id": other}, "view_kind": "editor"}),
-            )
-            .await?;
-        if status != 422 || body.get("code").and_then(Value::as_str) != Some("unknown-view-kind") {
-            return Err(format!(
-                "an unknown view kind was not refused: {status} {body}"
-            ));
-        }
-
-        Ok(format!(
-            "wire_version 1, snake_case; unknown field → 400; revision {revision} → {now} then \
-             stale → 409; 'editor' → 422"
         ))
     })
     .await

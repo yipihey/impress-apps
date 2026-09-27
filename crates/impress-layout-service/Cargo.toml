@@ -24,6 +24,11 @@ impress-layout = { workspace = true, features = ["schema"] }
 impress-store-service = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
+# S2b: `impress-scenario` joined the kit (Tom's decision, 2026-09-27,
+# docs/kit-manifest.md) so the Tier B catalogue's non-dynamic entries can run
+# as stored `impress/scenario@1.0.0` documents through the one interpreter,
+# instead of a hand-written call sequence per entry (`src/scenario_caller.rs`).
+impress-scenario = { workspace = true }
 # Tier B only: the seven loopback requests that drive the running app's
 # `/api/layout/*` and `/api/surface/*`. Deliberately raw `reqwest` rather than
 # `impress-app-client`, whose typed clients are built on `imbib-service` and

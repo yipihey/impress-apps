@@ -115,6 +115,7 @@ members = [
     "crates/impress-surface-service",
     # ADR-0033 D8 demo capability: the scaffold's output and the worked example
     "crates/surface-demo-service",
+    "crates/perf-service",
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
     # impress-embeddings - the suite's embedding stack (sidecar vector/chunk
@@ -165,6 +166,10 @@ members = [
     # pipeline-and-transport.md § P5), replacing the four `*-service-http`
     # adapters' probe/retry/cooldown machinery with one copy.
     "crates/impress-app-transport",
+    # impress-py - the P6 Python binding: one generic `list_verbs()`/`call()`
+    # over the same inventory and transport (plan-verb-pipeline-and-
+    # transport.md § P6, D-P8), instead of a per-method pyo3 shim.
+    "crates/impress-py",
     # imbib-service-http - HTTP-backed impls of the 7 imbib-service traits +
     # install() helper that probes localhost:23120 and installs the backend.
     "crates/imbib-service-http",
@@ -249,6 +254,7 @@ impress-capabilities = { path = "crates/impress-capabilities", default-features 
 impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
+perf-service = { path = "crates/perf-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and
@@ -354,6 +360,7 @@ quote = "1"
 proc-macro2 = "1"
 darling = "0.20"
 pyo3 = { version = "0.23", features = ["extension-module"] }
+pythonize = "0.23"
 
 # Auto-generated CLI binaries (imbib-cli, imprint-cli) — clap built from
 # CliSubcommand inventory entries registered by `#[impress_service]`.
@@ -364,6 +371,7 @@ imprint-cli = { path = "crates/imprint-cli" }
 # HTTP transport for the unified storage (Phase A/B/C from we-are-planning-…).
 impress-app-client = { path = "crates/impress-app-client" }
 impress-app-transport = { path = "crates/impress-app-transport" }
+impress-py = { path = "crates/impress-py" }
 imbib-service-http = { path = "crates/imbib-service-http" }
 imprint-service-http = { path = "crates/imprint-service-http" }
 implore-service = { path = "crates/implore-service" }

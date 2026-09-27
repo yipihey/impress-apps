@@ -1,0 +1,519 @@
+//! The shared Tier B [`impress_scenario::Caller`], relocated here from
+//! `impress-scenario-service` (docs/plan-self-reflective-layer.md S2b).
+//!
+//! # Why it lives here, not in `impress-scenario-service`
+//!
+//! `impress-scenario` (the spec + interpreter) joined the kit S2b (Tom's
+//! decision, 2026-09-27, `docs/kit-manifest.md`) so `impress-layout-service`
+//! and `impress-surface-service` could run their own non-dynamic Tier B
+//! catalogue entries as stored `impress/scenario@1.0.0` documents. But the
+//! *caller* that drives those documents over `/api/layout/*` and
+//! `/api/surface/*` needs the per-launch loopback token
+//! (`impress_core::loopback_token`), and `impress-core` is off-limits to a
+//! `pure`-tier kit crate (`docs/kit-manifest.md`'s tier rule) — so it cannot
+//! live in `impress-scenario` itself. `impress-scenario-service` is not in
+//! the kit at all (S1's session log: "not the layout+surface kit"), so a kit
+//! crate cannot depend on it either without a second, bigger manifest
+//! change. `impress-layout-service` is the pure-enough spot: it is already
+//! `store`-tier (it depends on `impress-core` for its own persistence) and
+//! already carries the exact `reqwest` + loopback-token client this caller
+//! needs (this module used to be its private `tier_b.rs` `Http`).
+//! `impress-surface-service` already depends on `impress-layout-service` for
+//! its own `surface_show` (see that crate's `Cargo.toml`), so it reuses this
+//! module for free rather than gaining a new kit-crate dependency.
+//! `impress-scenario-service` also depends on `impress-layout-service`
+//! already, so its own `tier_b` module is now a one-line re-export of this
+//! one instead of a second copy (SC-1's whole point: one runner, not three).
+//!
+//! # The `call` → `/api/layout/verb` fix this move made
+//!
+//! The generic `layout-service_*` arm used to forward a `call` step's `args`
+//! verbatim as the wire body of `POST /api/layout/verb` — which only ever
+//! worked for a `gesture` step, whose JSON already carries the `"verb"` tag
+//! by hand. A `call` step names the verb in `call`, not in `args` (matching
+//! Tier A, where the pipeline dispatches on the call name), so the arm now
+//! injects `"verb": "<the call name with `layout-service_` stripped>"` into
+//! the body before posting — the same kebab-case spelling
+//! `impress_layout::Verb`'s `#[serde(tag = "verb", rename_all =
+//! "kebab-case")]` already expects. Nothing using `gesture` (which already
+//! carried its own `"verb"` field) changes.
+
+use std::time::Duration;
+
+use async_trait::async_trait;
+use impress_scenario::{CallOutcome, Caller, EventBody, WaitBody};
+use serde_json::{json, Value};
+
+/// A loopback JSON client over one app's automation surface.
+pub struct LoopbackClient {
+    client: reqwest::Client,
+    base: String,
+}
+
+impl LoopbackClient {
+    pub fn new(base: &str) -> Self {
+        // `no_proxy`: every request here goes to 127.0.0.1 (asking macOS for
+        // the proxy config from a sandboxed process can abort). The app
+        // bearer (P0, SEC-2) comes from the per-launch loopback token file,
+        // or `IMPRESS_APP_TOKEN`.
+        let mut builder = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(10));
+        if let Some(token) = impress_core::loopback_token::client_token_for_url(base) {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(mut value) =
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            {
+                value.set_sensitive(true);
+                headers.insert(reqwest::header::AUTHORIZATION, value);
+                builder = builder.default_headers(headers);
+            }
+        }
+        let client = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        Self {
+            client,
+            base: base.trim_end_matches('/').to_string(),
+        }
+    }
+
+    pub async fn get(&self, path: &str) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("GET {path}: {e}"))?;
+        read(path, response).await
+    }
+
+    pub async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .post(&url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("POST {path}: {e}"))?;
+        read(path, response).await
+    }
+
+    pub async fn put(&self, path: &str, body: &Value) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .put(&url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("PUT {path}: {e}"))?;
+        read(path, response).await
+    }
+
+    pub async fn delete(&self, path: &str) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| format!("DELETE {path}: {e}"))?;
+        read(path, response).await
+    }
+}
+
+/// The status and JSON body of one response — the caller decides whether a
+/// non-2xx or an `{"ok": false}` envelope is a step failure (a scenario may
+/// deliberately expect a refusal).
+async fn read(path: &str, response: reqwest::Response) -> Result<(u16, Value), String> {
+    let status = response.status().as_u16();
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("{path}: reading body: {e}"))?;
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("{path}: HTTP {status}, body is not JSON ({e}): {text}"))?;
+    Ok((status, value))
+}
+
+pub struct TierBCaller {
+    http: LoopbackClient,
+    /// A very small effects proxy: every kind this caller wrote via a
+    /// `layout-service_*`/`surface-service_*` call it recognized, by name.
+    /// Tier B has no store to re-query, so this is the only signal
+    /// available without H-P5-1's generic route naming its own effects.
+    wrote: std::collections::BTreeSet<String>,
+}
+
+impl TierBCaller {
+    pub fn new(base_url: &str) -> Self {
+        Self {
+            http: LoopbackClient::new(base_url),
+            wrote: std::collections::BTreeSet::new(),
+        }
+    }
+}
+
+/// Which `impress/ui/*` kind a recognized verb writes, for the effects
+/// proxy above.
+fn kind_for(verb: &str) -> Option<&'static str> {
+    if verb.starts_with("layout-service_") {
+        Some("impress/ui/layout@1.0.0")
+    } else if verb.starts_with("surface-service_") {
+        Some("impress/ui/surface@1.0.0")
+    } else {
+        None
+    }
+}
+
+#[async_trait]
+impl Caller for TierBCaller {
+    async fn call(
+        &mut self,
+        verb: &str,
+        args: Value,
+        _as_ident: &str,
+    ) -> Result<CallOutcome, String> {
+        let outcome = match verb {
+            "layout-service_apply-layout-by-ordinal" => {
+                let ordinal = args
+                    .get("ordinal")
+                    .cloned()
+                    .ok_or_else(|| "`apply-layout-by-ordinal` needs `ordinal`".to_string())?;
+                self.op(json!({"op": "apply-layout", "ordinal": ordinal}))
+                    .await?
+            }
+            "layout-service_apply-layout" => {
+                let mut body = json!({"op": "apply-layout"});
+                merge_args(&mut body, &args);
+                self.op(body).await?
+            }
+            "layout-service_save-layout" => {
+                let mut body = json!({"op": "save-layout"});
+                merge_args(&mut body, &args);
+                self.op(body).await?
+            }
+            "layout-service_delete-layout" => {
+                let mut body = json!({"op": "delete-layout"});
+                merge_args(&mut body, &args);
+                self.op(body).await?
+            }
+            "layout-service_commit" => self.op(json!({"op": "commit"})).await?,
+            "layout-service_get-layout" => {
+                let (status, value) = self.http.get("/api/layout/tree").await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "layout-service_list-layouts" => {
+                let (status, value) = self.http.get("/api/layout/layouts").await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            other if other.starts_with("layout-service_") => {
+                // Every other `layout-service_*` verb is a `Verb`
+                // (split/resize/swap/close/focus/…). `args` is the verb's
+                // OWN argument shape (matching Tier A, and a `call` step's
+                // own doc — the caller names the verb, `args` does not
+                // repeat it), so the wire tag is injected here rather than
+                // required of every scenario author.
+                let verb_name = &other["layout-service_".len()..];
+                let mut body = args.clone();
+                if let Some(obj) = body.as_object_mut() {
+                    obj.entry("verb").or_insert_with(|| json!(verb_name));
+                } else {
+                    body = json!({ "verb": verb_name });
+                }
+                self.verb(body).await?
+            }
+            "surface-service_surface-dispatch" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-dispatch` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self
+                    .http
+                    .post(&format!("/api/surface/{id}/dispatch"), &args)
+                    .await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-list" => {
+                let (status, value) = self.http.get("/api/surface").await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-create" => {
+                let (status, value) = self.http.post("/api/surface", &args).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-validate" => {
+                let (status, value) = self.http.post("/api/surface/validate", &args).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-schema" => {
+                let (status, value) = self.http.get("/api/surface/schema").await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-examples" => {
+                let (status, value) = self.http.get("/api/surface/examples").await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-show" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-show` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self.http.get(&format!("/api/surface/{id}")).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-render" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-render` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self.http.get(&format!("/api/surface/{id}/render")).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-get-state" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-get-state` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self.http.get(&format!("/api/surface/{id}/state")).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-set-state" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-set-state` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self
+                    .http
+                    .put(&format!("/api/surface/{id}/state"), &args)
+                    .await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-events" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-events` needs `id`".to_string())?
+                    .to_string();
+                let after_seq = args.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
+                let (status, value) = self
+                    .http
+                    .get(&format!("/api/surface/{id}/events?after_seq={after_seq}"))
+                    .await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-delete" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-delete` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self.http.delete(&format!("/api/surface/{id}")).await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            "surface-service_surface-show-target" => {
+                // The retired `{"ref": "id", "tile": N}` strict-args probe
+                // (`layout.wire_contract`'s surface sibling): the id names
+                // which surface to post to, everything else IS the body.
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "`surface-show-target` needs `id`".to_string())?
+                    .to_string();
+                let (status, value) = self
+                    .http
+                    .post(&format!("/api/surface/{id}/show"), &args)
+                    .await?;
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
+            }
+            other => {
+                return Err(format!(
+                    "`{other}` cannot be called over Tier B yet — no generic verb route until \
+                     H-P5-1 (P5) lands; only layout-service_*/surface-service_* verbs this \
+                     dispatch table names are supported"
+                ));
+            }
+        };
+        if let Some(kind) = kind_for(verb) {
+            self.wrote.insert(kind.to_string());
+        }
+        Ok(outcome)
+    }
+
+    async fn event(&mut self, event: &EventBody) -> Result<CallOutcome, String> {
+        let body = json!({"widget": event.widget, "kind": event.kind, "value": event.value});
+        let (status, value) = self
+            .http
+            .post(&format!("/api/surface/{}/dispatch", event.surface), &body)
+            .await?;
+        self.wrote.insert("impress/ui/surface@1.0.0".to_string());
+        Ok(CallOutcome {
+            result: value,
+            status: Some(status),
+        })
+    }
+
+    async fn gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
+        self.verb(gesture.clone()).await
+    }
+
+    async fn wait(&mut self, wait: &WaitBody) -> Result<(), String> {
+        match wait {
+            WaitBody::Log { log } => {
+                let deadline =
+                    tokio::time::Instant::now() + std::time::Duration::from_millis(log.timeout_ms);
+                loop {
+                    let (status, value) = self
+                        .http
+                        .get(&format!("/api/logs?category={}", log.category))
+                        .await?;
+                    if status == 200 {
+                        if let Some(entries) = value.get("entries").and_then(Value::as_array) {
+                            if entries.iter().any(|e| {
+                                e.get("message")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|m| m.contains(&log.contains))
+                            }) {
+                                return Ok(());
+                            }
+                        }
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "no log line under `{}` containing \"{}\" within {}ms",
+                            log.category, log.contains, log.timeout_ms
+                        ));
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+            }
+            WaitBody::Job {
+                job,
+                state,
+                timeout_ms,
+            } => Err(format!(
+                "`wait.job` is not supported yet (no job endpoint this caller reaches): \
+                 job={job} state={state} timeout_ms={timeout_ms}"
+            )),
+        }
+    }
+
+    async fn seed(&mut self, kind: &str, _payload: &Value) -> Result<Value, String> {
+        Err(format!(
+            "seeding a live app's store is out of S1's scope (kind `{kind}`); Tier B scenarios \
+             must not declare `seed`"
+        ))
+    }
+
+    fn wrote(&self, kind: &str) -> bool {
+        self.wrote.contains(kind)
+    }
+}
+
+impl TierBCaller {
+    async fn op(&mut self, body: Value) -> Result<CallOutcome, String> {
+        let (status, value) = self.http.post("/api/layout/op", &body).await?;
+        Ok(CallOutcome {
+            result: value,
+            status: Some(status),
+        })
+    }
+
+    async fn verb(&mut self, body: Value) -> Result<CallOutcome, String> {
+        let (status, value) = self.http.post("/api/layout/verb", &body).await?;
+        Ok(CallOutcome {
+            result: value,
+            status: Some(status),
+        })
+    }
+}
+
+fn merge_args(body: &mut Value, args: &Value) {
+    if let (Some(b), Some(a)) = (body.as_object_mut(), args.as_object()) {
+        for (k, v) in a {
+            b.insert(k.clone(), v.clone());
+        }
+    }
+}
+
+/// Parse and run one embedded `impress/scenario@1.0.0` document (as
+/// `include_str!`'d JSON) against a fresh [`TierBCaller`] for `base_url`,
+/// returning the same [`crate::report::CapabilityResult`] shape every other
+/// Tier B capability in this crate returns.
+///
+/// `caller` is threaded through by the call site rather than opened here so
+/// a whole catalogue run shares one caller (and so one `wrote()` effects
+/// proxy) across its scenario-backed and hand-written capabilities alike —
+/// matching how `run()` already shares one `Http` across every hand-written
+/// capability function.
+pub async fn run_embedded(
+    document: &str,
+    caller: &mut TierBCaller,
+) -> impress_service_core::report::CapabilityResult {
+    let scenario: impress_scenario::Scenario = match serde_json::from_str(document) {
+        Ok(s) => s,
+        Err(e) => {
+            return impress_service_core::report::CapabilityResult {
+                id: "scenario.parse-error".to_string(),
+                description: "an embedded scenario document failed to parse".to_string(),
+                tier: impress_service_core::report::Tier::B,
+                pass: false,
+                detail: format!("invalid scenario JSON: {e}"),
+                duration_ms: 0,
+                skipped: false,
+            };
+        }
+    };
+    impress_scenario::run(&scenario, caller).await
+}
