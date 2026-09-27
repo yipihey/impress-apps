@@ -68,6 +68,12 @@ catalogue, 275 on the exception table.
 | `docs-import-service_record-produced-rows` | "watched-file@1.0.0" | "watched-file@1.0.0" | — | — |
 | `docs-import-service_remove-watched-folder` | "watched-folder@1.0.0", "watched-file@1.0.0" | "watched-folder@1.0.0", "watched-file@1.0.0" | — | — |
 | `docs-import-service_update-watched-folder` | "watched-folder@1.0.0" | "watched-folder@1.0.0" | — | — |
+| `history-service_calls` | any("history reads any kind's operations and every call row") | — | — | example ×1 |
+| `history-service_health` | any("history reads any kind's operations and every call row") | — | — | example ×1 |
+| `history-service_replay` | "core/verb-call@1.0.0" | any("re-invokes an arbitrary recorded verb, whose own writes are its own") | — | example ×1 |
+| `history-service_save-macro` | "core/verb-call@1.0.0" | "impress/workflow@1.0.0" | — | example ×1 |
+| `history-service_trace` | any("history reads any kind's operations and every call row") | — | — | example ×1 |
+| `history-service_why` | any("history reads any kind's operations and every call row") | — | — | example ×1 |
 | `imbib-annotations-service_count-annotations` | "imbib/annotation" | — | — | — |
 | `imbib-annotations-service_create-annotation` | "imbib/linked-file" | "imbib/annotation" | — | — |
 | `imbib-annotations-service_create-comment` | "imbib/bibliography-entry" | "imbib/comment" | — | — |

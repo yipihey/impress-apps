@@ -1646,3 +1646,72 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   apps — L1's row lists `sqlite_store.rs`, `schemas/call.rs`, `schema-refs.json` and the
   pipeline/privacy files as its scope, not an app's HTTP surface or a store-tier verb crate, both
   of which the work-package table gives to L2.
+- 2026-09-26 — **L2 history verbs landed** (branch `claude/reflective-l2-history`, worktree from
+  main at e5c90db6). `crates/impress-store-service/src/history_service.rs`, a new
+  `HistoryService` (store tier, `#[impress_service]`, `strict_args = true`, `safety = read_only`
+  default) with all six verbs § Call log names:
+  - `calls {since?, until?, verb?, caller?, trace_id?, limit}` — a filtered, newest-first page of
+    `core/verb-call@1.0.0` (queried by schema and sorted in SQL; the finer filters run in Rust over
+    the page rather than as store predicates, since `caller` is a nested object).
+  - `why {id}` — `operations_for(id)` joined by `batch_id` to each op's call row, newest first;
+    degrades to `call: null` rather than erroring when a row was dropped by the audit sink (never
+    silent — that's what `health` is for).
+  - `trace {trace_id}` — every `core/verb-call@1.0.0` row sharing a trace id, queried by
+    `Predicate::Eq("trace_id", …)`, nested into a tree from `parent_call` (roots are calls whose
+    parent is absent or outside the trace).
+  - `replay {call_ids, dry_run}` (mutating) — re-invokes each call through
+    `pipeline::invoke_on(store, …)` as `Agent("replay:<original caller>")`, refusing
+    `not-replayable` (a new `refusal::codes::NOT_REPLAYABLE`) for any call not recorded in full.
+    "Recorded in full" is decided from the stored row itself, since P1's `#[impress_method(replay =
+    full)]` descriptor attribute the plan's privacy table mentions doesn't exist yet: `args_are_full`
+    walks the row's `args` for the audit layer's own reduced shapes (`{len, sha256_8}`, `{len,
+    first}`, `{len, keys}` — exactly what `summarize_args`/`hashed` produce) and checks
+    `payload.compacted` — exact for the common case (small scalars and id fields pass the privacy
+    filter unchanged, so a call built only from those is provably full; anything reduced is
+    provably not). `dry_run` lists what would run and refuses non-replayable calls by name without
+    running anything, as the plan requires.
+  - `save-macro {call_ids, name}` (mutating) — writes `impress/workflow@1.0.0` exactly as § Call
+    log's row specifies: `state: "proposed"`, `trigger: {"manual": {}}`, `review.required: true`,
+    steps built from each named call's own recorded verb and args, in order. W1 (queued, after this
+    package) is the crate that validates, plans and *runs* one; until then this is a stored,
+    reviewable document nothing executes. `impress/workflow@1.0.0` was one of D-R1's four
+    pre-approved kinds but had no writer or schema-refs entry yet — added to `schema-refs.json`
+    `canonical` with a note that W1 owns the real `impress-core` registration.
+  - `health {}` — `crate::audit::health()`'s counters (`written`/`dropped`/`failed`/`no_sink`/
+    `channel_capacity`) plus a live `core/verb-call@1.0.0` row count and the oldest row's
+    `started_at`, both read straight from the store rather than cached.
+
+  Registered by construction: `impress-store-service` is already one of `impress-capabilities-kit`'s
+  four force-linked crates (ADR-0033 D7), so no new inventory wiring was needed beyond `pub mod
+  history_service;` in that crate's `lib.rs` — the census test caught the two docs this still needed
+  (`docs/verb-coverage.md`'s service/total rows and argument-shape histogram) on its own. Added
+  `history-service`'s rows to `docs/verb-coverage.md`, `docs/verb-safety.md` (service default +
+  6 per-verb rows) and `docs/verb-effects.md` (6 rows, all via the `dump` tests' exact printed text)
+  and regenerated `docs/verbs/` with `gen-verb-docs`. Added `NO_ARGUMENT_TOOLS` entry for
+  `history-service_health` (impress-store-service's own inventory test, not census).
+
+  **Proof:** a Tier A test (`why_names_the_call_its_caller_and_the_verb`) creates an item, stars it
+  through `pipeline::invoke_on` + `triage-service_set-starred`, flushes the audit sink, and asserts
+  `HistoryService::why` names the call's verb and `{"kind": "agent", "name": "test-agent"}` caller.
+  Repeated over the CLI on a scratch store (`/tmp/l2-scratch/impress.sqlite`, never the real
+  Library — no `--store-path` given ever touches `~/Library/Group Containers/...`): `impress
+  --store-path … create --binding generic --name "Test Collection"` then `triage-service_set-starred
+  --id … --starred`, then `why --id …` — returned the operation, its `batch_id`, and a `call` object
+  naming `triage-service_set-starred`, `{"kind": "agent", "name": "cli"}` and the RFC 3339
+  `started_at`, over the real CLI binary end to end. `trace`, `replay` (both the refusal path and
+  the dry-run path) and `save-macro` each have their own Tier A test; `replay`'s refusal test proves
+  the "recorded in full" check on a real reduced argument (a 200-character tag), not a mock.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-l2`, machine loaded — several other worktrees building in
+  parallel): fmt clean; `clippy rest` and `clippy imprint` clean; `cargo test -p impress-store-service
+  -p impress-capabilities -p impress-core -p impress-cli -p impress-mcp` all green (118 in
+  impress-store-service, all impress-capabilities suites including `effects.rs`'s `dump`/spy tests
+  and `pipeline.rs`'s "every handler call site is the pipeline" enumeration, 274+ in impress-core, 50
+  in impress-cli, 7 in impress-mcp); `check-verb-coverage.sh`, `check-verb-docs.sh` (after
+  regenerating `docs/verbs/`), `check-schema-refs.sh` (393 call sites, 83 canonical refs, 0
+  divergences), `check-kit-deps.sh --strict`, `check-uniffi-bindings.sh` (7 bindings, unchanged) all
+  OK; `cargo hakari generate --diff` empty (no `Cargo.toml` touched — no new dependency). Not
+  redone: the P2 bench, untouched by this package. **Left for later packages**: W1 registers
+  `impress/workflow@1.0.0` properly in `impress-core` and builds the runtime that actually executes
+  one (`save-macro` only writes the document); wiring `history-service_health` into an app's
+  `/api/health` HTTP route, same as L1 left it.

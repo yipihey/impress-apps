@@ -33,6 +33,7 @@ prints the row as it should now read.
 |---|---|---:|---:|---:|---:|---:|
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 0 | 0 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 0 | 0 |
+| `history-service` | impress-store-service | 6 | 6 | 12 (7) | 11 | 6 |
 | `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 0 | 0 |
 | `imbib-app-service` | imbib-service | 17 | 17 | 24 (19) | 0 | 0 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 0 | 0 |
@@ -69,7 +70,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 16 crates, 38 services | **438** | **438** | **1010 (674)** | **88** | **51** |
+| **Total** | 16 crates, 39 services | **444** | **444** | **1022 (681)** | **99** | **57** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -88,12 +89,12 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | Shape | Arguments |
 |---|---:|
 | `array-of-objects` | 3 |
-| `array-of-scalars` | 49 |
+| `array-of-scalars` | 51 |
 | `inline-object` | 4 |
 | `map` | 2 |
 | `other` | 3 |
 | `ref-object` | 40 |
-| `scalar` | 909 |
+| `scalar` | 919 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
