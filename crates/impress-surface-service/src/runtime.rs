@@ -995,7 +995,9 @@ impl SurfaceRuntime {
                     Some(name.clone())
                 }
                 Source::Verb { verb, .. }
-                    if verb_declared_read_refs(verb).iter().any(|r| refs.contains(r)) =>
+                    if verb_declared_read_refs(verb)
+                        .iter()
+                        .any(|r| refs.contains(r)) =>
                 {
                     Some(name.clone())
                 }

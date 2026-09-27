@@ -89,7 +89,8 @@ impl InFlight {
 
     /// Drop every entry older than the TTL.
     fn sweep(&self, now: Instant) {
-        self.lock().retain(|_, at| now.duration_since(*at) < IN_FLIGHT_TTL);
+        self.lock()
+            .retain(|_, at| now.duration_since(*at) < IN_FLIGHT_TTL);
     }
 
     /// Kinds of `writes` already in flight, before recording `writes` as
@@ -349,7 +350,11 @@ mod tests {
     /// A verb declaring `writes` (as `Kind::Ref`s), for D-R11's tests. Every
     /// call passes a distinct `name`/kind: [`IN_FLIGHT`] is one process-wide
     /// static, and `cargo test` runs these in parallel threads.
-    fn verb_writing(name: &'static str, class: SafetyClass, writes: &'static [Kind]) -> VerbDescriptor {
+    fn verb_writing(
+        name: &'static str,
+        class: SafetyClass,
+        writes: &'static [Kind],
+    ) -> VerbDescriptor {
         VerbDescriptor {
             name,
             service: "t-service",

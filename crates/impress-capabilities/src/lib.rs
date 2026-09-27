@@ -55,6 +55,9 @@
 // because the alias is never read; its only job is to be a real reference
 // the linker cannot ignore.
 
+#[cfg(feature = "impact")]
+#[allow(unused_imports)]
+use capabilities_service as _force_link_capabilities_service;
 #[cfg(feature = "imbib")]
 #[allow(unused_imports)]
 use imbib_service as _force_link_imbib_service;
@@ -91,9 +94,6 @@ use imprint_service as _force_link_imprint_service;
 #[cfg(feature = "vw")]
 #[allow(unused_imports)]
 use vw_impress_adapter as _force_link_vw_impress_adapter;
-#[cfg(feature = "impact")]
-#[allow(unused_imports)]
-use capabilities_service as _force_link_capabilities_service;
 
 /// Force the linker to retain every enabled service crate's `inventory::submit!`
 /// entries.

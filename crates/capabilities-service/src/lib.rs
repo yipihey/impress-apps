@@ -98,10 +98,7 @@ pub trait CapabilitiesService: Send + Sync + 'static {
     /// one verb, echoed back so a caller can confirm it actually touches the
     /// kind it thinks it does).
     #[impress_method]
-    #[impress_example(
-        name = "by_kind",
-        args = r#"{"kind": "imbib/bibliography-entry"}"#
-    )]
+    #[impress_example(name = "by_kind", args = r#"{"kind": "imbib/bibliography-entry"}"#)]
     #[impress_example(
         name = "by_verb",
         args = r#"{"verb": "imbib-library-service_count-publications"}"#
@@ -151,8 +148,18 @@ fn literal_ref(k: &Kind) -> Option<&'static str> {
 fn verbs_touching_kind(kind: &str) -> Vec<VerbTouch> {
     VerbDescriptor::iter()
         .filter_map(|v| {
-            let reads = v.effects.reads.iter().filter_map(literal_ref).any(|r| r == kind);
-            let writes = v.effects.writes.iter().filter_map(literal_ref).any(|r| r == kind);
+            let reads = v
+                .effects
+                .reads
+                .iter()
+                .filter_map(literal_ref)
+                .any(|r| r == kind);
+            let writes = v
+                .effects
+                .writes
+                .iter()
+                .filter_map(literal_ref)
+                .any(|r| r == kind);
             if reads || writes {
                 Some(VerbTouch {
                     verb: v.name.to_string(),
@@ -307,9 +314,7 @@ mod tests {
         // in this crate alone, none — proving instead that an unknown kind
         // answers honestly rather than crashing.
         let svc = DefaultCapabilitiesService::with_store(store());
-        let result = svc
-            .impact(Some("no-such/kind".to_string()), None)
-            .await;
+        let result = svc.impact(Some("no-such/kind".to_string()), None).await;
         assert_eq!(result.kind, Some("no-such/kind".to_string()));
         assert!(result.verbs.is_empty());
         assert!(!result.message.is_empty(), "{result:?}");
@@ -318,7 +323,9 @@ mod tests {
     #[tokio::test]
     async fn a_verb_query_on_an_unknown_verb_says_so() {
         let svc = DefaultCapabilitiesService::with_store(store());
-        let result = svc.impact(None, Some("no-such-service_no-such".to_string())).await;
+        let result = svc
+            .impact(None, Some("no-such-service_no-such".to_string()))
+            .await;
         assert!(result.message.contains("not a linked verb"), "{result:?}");
     }
 
