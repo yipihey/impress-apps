@@ -42,7 +42,7 @@ prints the row as it should now read.
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 0 | 0 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 0 | 0 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 0 | 0 |
-| `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 0 | 0 |
+| `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 20 | 0 |
 | `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 0 | 0 |
 | `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 0 | 0 |
 | `impart-service` | impart-service | 10 | 10 | 22 (14) | 0 | 0 |
@@ -64,12 +64,12 @@ prints the row as it should now read.
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
-| `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
+| `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 0 |
 | `surface-demo-service` | surface-demo-service | 2 | 2 | 4 (4) | 0 | 0 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
-| `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 0 | 0 |
+| `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 16 crates, 38 services | **438** | **438** | **1010 (674)** | **50** | **51** |
+| **Total** | 16 crates, 38 services | **438** | **438** | **1010 (674)** | **88** | **51** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`

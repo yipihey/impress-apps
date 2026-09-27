@@ -45,7 +45,7 @@ use serde_json::Value;
 /// as G3 writes examples; the test fails when it grows past the count last
 /// accepted here. Lower it when examples land; raising it is a plan
 /// decision, not a test edit.
-const EXCEPTION_CEILING: usize = 275;
+const EXCEPTION_CEILING: usize = 251;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
@@ -319,6 +319,20 @@ fn scratch_store() -> Arc<SqliteItemStore> {
         .clone()
 }
 
+/// The pipeline's own audit record (ADR-0034 D-P3 as amended by ADR-0036
+/// D-R2): every non-read-only call writes one `core/verb-call` row, by
+/// construction, on every path. It is the pipeline's write, not the verb's
+/// effect, so no verb declares it and the spy's window must not charge it
+/// to the verb.
+const PIPELINE_AUDIT_KIND: &str = "core/verb-call@1.0.0";
+
+fn verb_observed() -> effects_spy::Observed {
+    let mut observed = effects_spy::stop();
+    observed.writes.remove(PIPELINE_AUDIT_KIND);
+    observed.reads.remove(PIPELINE_AUDIT_KIND);
+    observed
+}
+
 async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: &mut Verification) {
     let mut seen_reads = BTreeSet::new();
     let mut seen_writes = BTreeSet::new();
@@ -328,10 +342,16 @@ async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: 
         effects_spy::start();
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            (v.handler)(args.clone()),
+            impress_service_core::pipeline::invoke(
+                v,
+                impress_service_core::pipeline::Call::new(
+                    impress_service_core::pipeline::CallerIdentity::system("effects-spy"),
+                    args.clone(),
+                ),
+            ),
         )
         .await;
-        let observed = effects_spy::stop();
+        let observed = verb_observed();
         match result {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
@@ -417,7 +437,7 @@ async fn run_catalogue(
             .collect(),
         other => unreachable!("no catalogue named {other}"),
     };
-    let observed = effects_spy::stop();
+    let observed = verb_observed();
     let failed: Vec<_> = results
         .iter()
         .filter(|(_, pass, skipped)| !pass && !skipped)

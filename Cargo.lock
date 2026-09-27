@@ -4372,25 +4372,18 @@ name = "impress-ai-tools"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "imbib-service",
  "imbib-service-http",
- "impart-service",
  "impart-service-http",
- "implore-service",
  "implore-service-http",
  "impress-ai",
  "impress-ai-service",
- "impress-bridges-service",
- "impress-parsers-service",
+ "impress-capabilities",
  "impress-service-core",
- "impress-smart-search-service",
  "impress-store-service",
  "impress-workspace-hack",
- "imprint-service",
  "imprint-service-http",
  "serde_json",
  "tokio",
- "vw-impress-adapter",
 ]
 
 [[package]]
@@ -4517,6 +4510,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "impress-pane-query",
+ "impress-service-core",
  "impress-workspace-hack",
  "proptest",
  "rusqlite",
@@ -4761,6 +4755,7 @@ name = "impress-service-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "clap",
  "impress-service-macros",
  "impress-workspace-hack",
@@ -4769,9 +4764,12 @@ dependencies = [
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "uniffi",
+ "uuid",
 ]
 
 [[package]]

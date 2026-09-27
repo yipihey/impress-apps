@@ -127,7 +127,8 @@ use impress_layout_service::{
 };
 
 use crate::{item_to_row, SharedItemRow, SharedStore};
-use impress_service_core::Refusal;
+use impress_service_core::pipeline::{self, Call, CallerIdentity};
+use impress_service_core::{Refusal, VerbDescriptor};
 
 // ─── Runtime ─────────────────────────────────────────────────────────────
 
@@ -630,10 +631,12 @@ impl SharedLayout {
         }
         let app = self.app_id.clone();
         let device = self.device.clone();
-        let actor = actor_from(Some(&actor));
-        self.verb(|| {
-            self.service
-                .apply_verbs_as(&app, device, actor, expected, verbs)
+        let args = serde_json::json!({ "verbs": verbs, "expected_revision": expected });
+        self.through_pipeline(&actor, args, |actor| {
+            self.verb(|| {
+                self.service
+                    .apply_verbs_as(&app, device, actor, expected, verbs)
+            })
         })
     }
 
@@ -689,15 +692,18 @@ impl SharedLayout {
     pub fn resize_share(&self, pane: u64, share: f32, actor: String) -> Result<SharedAppliedVerb> {
         let app = self.app_id.clone();
         let device = self.device.clone();
-        let actor = actor_from(Some(&actor));
+        let args =
+            serde_json::json!({ "verb": { "verb": "resize", "pane": pane, "share": share } });
         // The shares are read from the session the verb applies to, under
         // its lock: reading the tree first and resizing after let a verb in
         // between turn this into "N shares for M children" (review RL-L13).
-        self.verb(|| {
-            self.service
-                .apply_verb_as(&app, device, actor, None, |session| {
-                    resize_one_share(&session.layout, TileId::new(pane), share)
-                })
+        self.through_pipeline(&actor, args, |actor| {
+            self.verb(|| {
+                self.service
+                    .apply_verb_as(&app, device, actor, None, |session| {
+                        resize_one_share(&session.layout, TileId::new(pane), share)
+                    })
+            })
         })
     }
 
@@ -955,11 +961,138 @@ impl SharedLayout {
     ) -> Result<SharedAppliedVerb> {
         let app = self.app_id.clone();
         let device = self.device.clone();
-        let actor = actor_from(Some(&actor));
-        self.verb(|| {
-            self.service
-                .apply_verb_as(&app, device, actor, expected_revision, |_| Ok(verb))
+        let args = serde_json::json!({ "verb": verb, "expected_revision": expected_revision });
+        self.through_pipeline(&actor, args, |actor| {
+            self.verb(|| {
+                self.service
+                    .apply_verb_as(&app, device, actor, expected_revision, |_| Ok(verb))
+            })
         })
+    }
+
+    /// Run one gesture through the pipeline (plan-verb-pipeline P2: this
+    /// `apply` was one of the two bypasses), with `work` as the handler
+    /// step. The caller identity is what Swift says the gesture is — the
+    /// person's own chord (`human`) is `Person`; `/api/layout/verb` passes
+    /// `agent` and is `Agent("http")` — and inside the call the actor the
+    /// verb records is derived from that identity (`actor_from` under a
+    /// call context), so the string is no longer believed on its own.
+    /// Every operation the gesture writes carries the call id as its
+    /// `batch_id`, and the call is on the record like an agent's.
+    fn through_pipeline(
+        &self,
+        actor: &str,
+        args: serde_json::Value,
+        work: impl FnOnce(ActorKind) -> Result<SharedAppliedVerb>,
+    ) -> Result<SharedAppliedVerb> {
+        let caller = caller_of(actor);
+        let mut outcome: Option<Result<SharedAppliedVerb>> = None;
+        let answer = pipeline::invoke_sync_with(&LAYOUT_APPLY, Call::new(caller, args), |_| {
+            let result = work(actor_from(Some(actor)));
+            let envelope = match &result {
+                Ok(applied) => serde_json::json!({
+                    "ok": true,
+                    "revision": applied.revision,
+                    "changed_tiles": applied.changed_tiles.len(),
+                }),
+                Err(e) => serde_json::json!({
+                    "ok": false,
+                    "code": match e {
+                        SharedLayoutError::Layout { code, .. } => code.clone(),
+                        SharedLayoutError::Query { .. } => "invalid-argument".to_string(),
+                        SharedLayoutError::Store { .. } => "store-error".to_string(),
+                        SharedLayoutError::Json { .. } => "invalid-argument".to_string(),
+                    },
+                    "message": e.to_string(),
+                }),
+            };
+            outcome = Some(result);
+            Ok(envelope)
+        });
+        match outcome {
+            Some(result) => result,
+            // The chain refused before the handler (policy): the refusal's
+            // own code and message, the way a service refusal is carried.
+            None => match answer {
+                Ok(refused) => Err(SharedLayoutError::refused(
+                    refused
+                        .get("code")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    refused
+                        .get("message")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("refused")
+                        .to_string(),
+                )),
+                Err(e) => Err(SharedLayoutError::refused(None, e.to_string())),
+            },
+        }
+    }
+}
+
+/// The FFI layout gesture as the pipeline sees it (plan-verb-pipeline table
+/// PL1, path e2). Not an inventory verb — a chord is not addressable by
+/// name from outside the app — but the same chain, so the GUI's every
+/// gesture is attributed and audited like an agent's verb. The verb object
+/// is checked strictly by `parse_verb` before it gets here, against the same
+/// `Verb` schema (`impress_service_core::strict`), so `strict` is off to
+/// avoid checking it twice.
+static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
+    name: "layout-service_apply",
+    service: "layout-service",
+    method: "apply",
+    description: "Apply one layout gesture (an `impress_layout::Verb`) from the app's own UI \
+                  or its `/api/layout/verb` route.",
+    input_schema: apply_schema,
+    output_schema: apply_schema,
+    safety: impress_service_core::Safety {
+        class: impress_service_core::SafetyClass::Mutating,
+        idempotent: false,
+    },
+    since: "0.1.0",
+    // The layout service's own set (its `impress_service_impl!` default).
+    effects: impress_service_core::Effects {
+        reads: &[
+            impress_service_core::Kind::Ref("impress/ui/layout@1.0.0"),
+            impress_service_core::Kind::Ref("impress/ui/preset@1.0.0"),
+        ],
+        writes: &[impress_service_core::Kind::Ref("impress/ui/layout@1.0.0")],
+        reach: &[],
+    },
+    deprecated: None,
+    aliases: &[],
+    examples: &[],
+    strict: false,
+    source: impress_service_core::Source::Linked,
+    handler: apply_not_callable,
+};
+
+fn apply_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "verb": verb_schema(),
+            "expected_revision": { "type": ["integer", "null"] },
+            "verbs": { "type": "array", "items": verb_schema() },
+        },
+    })
+}
+
+fn apply_not_callable(_: serde_json::Value) -> impress_service_core::ServiceFuture {
+    Box::pin(async {
+        Err("layout-service_apply is the app's own gesture, not a verb to call by name".into())
+    })
+}
+
+/// The caller a Swift-side actor string is: the GUI's `human` is the
+/// person; `system` is the app's own housekeeping; anything else (the HTTP
+/// route passes `agent`) is an agent over HTTP.
+fn caller_of(actor: &str) -> CallerIdentity {
+    match actor.trim().to_ascii_lowercase().as_str() {
+        "human" | "user" | "person" => CallerIdentity::Person,
+        "system" => CallerIdentity::system("layout"),
+        _ => CallerIdentity::agent("http"),
     }
 }
 

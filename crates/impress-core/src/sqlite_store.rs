@@ -2245,7 +2245,15 @@ impl SqliteItemStore {
             message_type: None,
             produced_by: None,
             version: None,
-            batch_id: spec.batch_id.clone(),
+            // The verb call this write belongs to (ADR-0036 D2, hook H-P2-2):
+            // an operation written with no batch of its own under a pipeline
+            // call context is stamped with the call id, so the call row and
+            // its operations join on `batch_id` without any of the ~170
+            // `batch_id: None` sites changing.
+            batch_id: spec
+                .batch_id
+                .clone()
+                .or_else(crate::call_context::current_call_id),
             references: vec![],
             parent: None,
         };

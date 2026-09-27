@@ -127,7 +127,9 @@ pub fn force_link() {
 // the `kit` feature so every existing caller (`impress-mcp`'s
 // `inventory_bridge`, `impress-cli`) compiles unchanged.
 #[cfg(feature = "kit")]
-pub use impress_capabilities_kit::{call, call_async, descriptors, find, CallError};
+pub use impress_capabilities_kit::{
+    call, call_as, call_async, call_async_as, descriptors, find, CallError,
+};
 
 #[cfg(test)]
 mod tests {

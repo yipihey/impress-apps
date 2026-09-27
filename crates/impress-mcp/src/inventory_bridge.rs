@@ -67,7 +67,11 @@ pub fn is_inventory_tool(name: &str) -> bool {
 /// `Result<Value, CallError>`) because `server.rs` threads the error straight
 /// into `wrap_text_result`, which wants a `String`.
 pub fn call_inventory_tool(name: &str, args: Value) -> Result<Value, String> {
-    impress_capabilities::call(name, args).map_err(|e| e.to_string())
+    // Every MCP client is an agent (ADR-0034 D3), named by what it said in
+    // `initialize`; the pipeline never reads an identity from an argument.
+    let caller =
+        impress_service_core::pipeline::CallerIdentity::agent(crate::server::client_name());
+    impress_capabilities::call_as(name, caller, args).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

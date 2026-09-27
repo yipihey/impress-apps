@@ -11,27 +11,14 @@ use impress_ai::{Error, Result, ToolAdapter, ToolDefinition};
 use impress_service_core::McpToolDescriptor;
 use serde_json::{json, Map, Value};
 
-// Keep inventory submissions linked into every consumer of this adapter.
+// Keep inventory submissions linked into every consumer of this adapter:
+// the one linked inventory (ADR-0033 D4), with the features Cargo.toml
+// names, plus the store-generic services — never a second list of service
+// crates here (plan-verb-pipeline PL-6).
 #[allow(unused_imports)]
-use imbib_service as _force_link_imbib;
-#[allow(unused_imports)]
-use impart_service as _force_link_impart;
-#[allow(unused_imports)]
-use implore_service as _force_link_implore;
-#[allow(unused_imports)]
-use impress_ai_service as _force_link_ai;
-#[allow(unused_imports)]
-use impress_bridges_service as _force_link_bridges;
-#[allow(unused_imports)]
-use impress_parsers_service as _force_link_parsers;
-#[allow(unused_imports)]
-use impress_smart_search_service as _force_link_smart_search;
+use impress_capabilities as _force_link_inventory;
 #[allow(unused_imports)]
 use impress_store_service as _force_link_store;
-#[allow(unused_imports)]
-use imprint_service as _force_link_imprint;
-#[allow(unused_imports)]
-use vw_impress_adapter as _force_link_vw;
 
 const CAPABILITIES_TOOL: &str = "impress_capabilities";
 const DOMAINS: &[(&str, &str)] = &[
@@ -88,9 +75,35 @@ impl ImpressToolAdapter {
     /// Store-backed and pure tools remain available when every app is closed.
     pub async fn probe() -> Result<Self> {
         let reachable = Self::probe_reachability().await?;
-        Ok(Self {
+        let adapter = Self {
             reachable: std::sync::Arc::new(std::sync::RwLock::new(reachable)),
-        })
+        };
+        adapter.install_gate();
+        Ok(adapter)
+    }
+
+    /// Make this adapter's live reachability the pipeline's reachability
+    /// layer for the process (plan-verb-pipeline PL-2: one rule, one probe
+    /// interface; the probe is this adapter's refreshed table, the store is
+    /// the fallback for owned namespaces as it always was here).
+    fn install_gate(&self) {
+        let shared = self.reachable.clone();
+        impress_service_core::pipeline::reachability::install(
+            impress_service_core::pipeline::reachability::Config {
+                probe: std::sync::Arc::new(move |app: &str| {
+                    let table = shared.read().map(|r| *r).unwrap_or_default();
+                    match app {
+                        "imbib" => table.imbib,
+                        "imprint" => table.imprint,
+                        "implore" => table.implore,
+                        "impart" => table.impart,
+                        _ => false,
+                    }
+                }),
+                store_fallback: true,
+                list_all: false,
+            },
+        );
     }
 
     /// Re-probe and update the shared reachability. Long-running hosts
@@ -320,9 +333,19 @@ impl ToolAdapter for ImpressToolAdapter {
                 )))
             }
         };
-        (descriptor.handler)(inner)
-            .await
-            .map_err(|error| Error::Invalid(format!("{} failed: {error}", descriptor.name)))
+        // The local model is an agent (ADR-0034 D3); the pipeline records
+        // it as `impress-ai`, whatever the arguments claim.
+        impress_service_core::pipeline::invoke(
+            descriptor.verb,
+            impress_service_core::pipeline::Call::agent("impress-ai", inner),
+        )
+        .await
+        .map_err(|error| match error {
+            impress_service_core::pipeline::PipelineError::Handler(e) => {
+                Error::Invalid(format!("{} failed: {e}", descriptor.name))
+            }
+            unavailable => Error::Invalid(unavailable.to_string()),
+        })
     }
 }
 

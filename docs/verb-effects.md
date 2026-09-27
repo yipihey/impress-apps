@@ -46,18 +46,18 @@ catalogue, 275 on the exception table.
 <!-- verb-effects:begin -->
 | Verb | Reads | Writes | Reach | Verified |
 |---|---|---|---|---|
-| `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_member-counts` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | — |
+| `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
+| `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
+| `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
+| `collection-service_member-counts` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | example ×1 |
 | `collection-service_migrate` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection" | — | — |
 | `collection-service_migration-status` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | example ×1 |
-| `collection-service_remove-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_rename` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_reorder` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_reparent` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
+| `collection-service_remove-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
+| `collection-service_rename` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
+| `collection-service_reorder` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
+| `collection-service_reparent` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
 | `collection-service_rollback` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_tree` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | — |
+| `collection-service_tree` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | example ×1 |
 | `docs-import-service_add-watched-folder` | "watched-folder@1.0.0" | "watched-folder@1.0.0" | fs | — |
 | `docs-import-service_finish-watched-scan` | "watched-folder@1.0.0", "watched-file@1.0.0" | "watched-folder@1.0.0", "watched-file@1.0.0" | — | — |
 | `docs-import-service_import-directory` | "manuscript", "manuscript-file@1.0.0", "watched-file@1.0.0" | "manuscript", "manuscript-file@1.0.0" | fs | — |
@@ -166,8 +166,8 @@ catalogue, 275 on the exception table.
 | `imbib-library-service_purge-dismissed-from-collection` | "imbib/collection", "imbib/bibliography-entry", "imbib/dismissed-paper" | "imbib/collection" | — | — |
 | `imbib-library-service_query-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
 | `imbib-library-service_query-recent` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
-| `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
-| `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
+| `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
+| `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_remove-from-collection` | "imbib/collection" | "imbib/collection" | — | — |
 | `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | — |
 | `imbib-library-service_set-flag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
@@ -199,16 +199,16 @@ catalogue, 275 on the exception table.
 | `imbib-search-service_get-smart-search` | "imbib/smart-search" | — | — | — |
 | `imbib-search-service_list-smart-searches` | "imbib/smart-search" | — | — | example ×1 |
 | `imbib-search-service_resolve-cite-key` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | — |
-| `imbib-tags-service_add-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
+| `imbib-tags-service_add-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-tags-service_count-by-tag` | "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
-| `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | — |
+| `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-tags-service_list-tags` | "imbib/tag-definition" | — | — | example ×1 |
 | `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
-| `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
-| `imbib-tags-service_remove-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
-| `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | — |
-| `imbib-tags-service_update-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | — |
+| `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
+| `imbib-tags-service_remove-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-tags-service_update-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
 | `imbib-text-service_decode-latex` | — | — | — | example ×1 |
 | `imbib-text-service_expand-journal-macro` | — | — | — | example ×1 |
 | `imbib-text-service_generate-cite-key` | — | — | — | example ×1 |
@@ -457,18 +457,18 @@ catalogue, 275 on the exception table.
 | `source-service_put-extraction-run` | "extraction-run@1.0.0" | "extraction-run@1.0.0" | — | — |
 | `source-service_put-figure-region` | "figure-region@1.0.0" | "figure-region@1.0.0" | — | — |
 | `source-service_search-content-chunks` | "content-chunk@1.0.0" | — | — | example ×1 |
-| `store-query-service_get-item` | target(id) | — | — | — |
+| `store-query-service_get-item` | target(id) | — | — | example ×1 |
 | `store-query-service_list-items` | any("the schema_ref argument names the kind") | — | — | example ×1 |
-| `store-query-service_related-items` | target(id), any("walks references across kinds") | — | — | — |
+| `store-query-service_related-items` | target(id), any("walks references across kinds") | — | — | example ×1 |
 | `store-query-service_search-all` | any("searches every kind") | — | — | example ×1 |
 | `surface-demo-service_histogram` | — | — | — | example ×1 |
 | `surface-demo-service_series` | — | — | — | example ×1 |
 | `surface-selftest-service_run-selftest` | any("runs the catalogue's capabilities") | any("runs the catalogue's capabilities") | app("impress") | — |
-| `triage-service_add-tag` | target(id) | target(id) | — | — |
-| `triage-service_remove-tag` | target(id) | target(id) | — | — |
-| `triage-service_set-flag` | target(id) | target(id) | — | — |
-| `triage-service_set-starred` | target(id) | target(id) | — | — |
-| `triage-service_set-status` | target(id) | target(id) | — | — |
+| `triage-service_add-tag` | target(id) | target(id) | — | example ×1 |
+| `triage-service_remove-tag` | target(id) | target(id) | — | example ×1 |
+| `triage-service_set-flag` | target(id) | target(id) | — | example ×1 |
+| `triage-service_set-starred` | target(id) | target(id) | — | example ×1 |
+| `triage-service_set-status` | target(id) | target(id) | — | example ×1 |
 | `vw-diagnostic-service_close-session` | "vw/diagnostic-session@1.0.0" | "vw/diagnostic-session@1.0.0", "vw/command-receipt@1.0.0" | — | — |
 | `vw-diagnostic-service_create-session` | "vw/vehicle@1.0.0", "vw/configuration@1.0.0", "vw/diagnostic-session@1.0.0" | "vw/diagnostic-session@1.0.0", "vw/vehicle@1.0.0", "vw/configuration@1.0.0", "vw/command-receipt@1.0.0" | — | — |
 | `vw-diagnostic-service_evaluate-session` | "vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0", "vw/measurement@1.0.0", "vw/observation@1.0.0" | — | — | — |
@@ -496,17 +496,8 @@ when one lands).
 <!-- verb-effects-exceptions:begin -->
 | Verb | Reason |
 |---|---|
-| `collection-service_add-members` | no example |
-| `collection-service_create` | no example |
-| `collection-service_delete` | no example |
-| `collection-service_member-counts` | no example |
 | `collection-service_migrate` | no example |
-| `collection-service_remove-members` | no example |
-| `collection-service_rename` | no example |
-| `collection-service_reorder` | no example |
-| `collection-service_reparent` | no example |
 | `collection-service_rollback` | no example |
-| `collection-service_tree` | no example |
 | `docs-import-service_add-watched-folder` | no example |
 | `docs-import-service_finish-watched-scan` | no example |
 | `docs-import-service_import-directory` | no example |
@@ -596,8 +587,6 @@ when one lands).
 | `imbib-library-service_move-publications` | no example |
 | `imbib-library-service_purge-dismissed-from-collection` | no example |
 | `imbib-library-service_query-publications` | no example |
-| `imbib-library-service_query-starred` | no example |
-| `imbib-library-service_query-unread` | no example |
 | `imbib-library-service_remove-from-collection` | no example |
 | `imbib-library-service_search-publications` | no example |
 | `imbib-library-service_set-flag` | no example |
@@ -626,12 +615,6 @@ when one lands).
 | `imbib-search-service_full-text-search` | no example |
 | `imbib-search-service_get-smart-search` | no example |
 | `imbib-search-service_resolve-cite-key` | no example |
-| `imbib-tags-service_add-tag` | no example |
-| `imbib-tags-service_delete-tag-undoable` | no example |
-| `imbib-tags-service_query-by-tag` | no example |
-| `imbib-tags-service_remove-tag` | no example |
-| `imbib-tags-service_rename-tag` | no example |
-| `imbib-tags-service_update-tag` | no example |
 | `imbib-undo-service_undo-batch` | no example |
 | `imbib-undo-service_undo-operation` | no example |
 | `impart-service_add-message` | needs a running app |
@@ -750,14 +733,7 @@ when one lands).
 | `source-service_put-content-chunk` | no example |
 | `source-service_put-extraction-run` | no example |
 | `source-service_put-figure-region` | no example |
-| `store-query-service_get-item` | no example |
-| `store-query-service_related-items` | no example |
 | `surface-selftest-service_run-selftest` | needs a running app |
-| `triage-service_add-tag` | no example |
-| `triage-service_remove-tag` | no example |
-| `triage-service_set-flag` | no example |
-| `triage-service_set-starred` | no example |
-| `triage-service_set-status` | no example |
 | `vw-diagnostic-service_close-session` | no example |
 | `vw-diagnostic-service_create-session` | no example |
 | `vw-diagnostic-service_evaluate-session` | no example |
