@@ -1,0 +1,51 @@
+# Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
+
+Main at f5a29bb8 has every package below merged except those under "Open". The full workspace suite
+passes there (`cargo test --workspace --features native`: 4264 passed, 0 failed). Detail for each package
+is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transport.md`,
+`docs/plan-auto-gui-and-self-docs.md` and `docs/plan-self-reflective-layer.md`.
+
+## Merged
+
+| Plan | Packages |
+|---|---|
+| Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P6 Python, B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
+| GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G6 coverage line, G7a tracing, G7b profiler |
+| Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), W1 workflows, W2 planner, R1 settings, R2a/R2b keymap |
+
+## Open (work in progress when the session ended)
+
+Draft PRs: #118 (G7c) and #119 (W4). Neither has run the full check-* suite yet.
+
+- **W3**: imbib `RetentionCleanupService` as a stored workflow. **Local only, not pushed**: commit 7bbb35e3 on `claude/reflective-w3-retention` in `.claude/worktrees/w3-retention`. To finish, rebuild the store xcframework there (`IMPRESS_SKIP_X86=1 crates/impress-store-ffi/build-xcframework.sh`, swiftformat off PATH), push through the hook, run the remaining gates, then open the PR.
+- **G7c**: trace export (Chrome and folded stacks) and Tier A budgets (branch `claude/gui-g7c-export`).
+- **W4**: `history-service_propose-workflows` (branch `claude/reflective-w4-propose`).
+
+Each branch has a session-log entry or commit message saying what remains.
+
+## Not started
+
+- **S3**: generate a scenario from a recorded session. Needs a live isolated app.
+- **G5**: `strict_args` by default on every service (D-G1 approved). Needs Tier B on five apps.
+- **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imbib, imprint and impart. Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
+- **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
+- **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
+- **R3**: imprint's settings and chords through the registries.
+- **G3 remainder**: about 170 verbs still lack an `#[impress_example]`, and about 900 arguments lack `///` docs.
+- **Scenario interpreter gaps** (S2b): a store-predicate step, a best-effort step, and an escape for surface `{{state…}}` templates. The remaining 16 Tier B entries are blocked on these.
+- **Swift gap from R1**: the generated Retention pane is macOS-only; iOS shows a placeholder.
+
+## Known issues to watch
+
+- **Flaky under load**: tests that time a wall clock or share process-global state. Examples are impress-store-ffi `surface::…a_paper_written_anywhere…`, `layout::…a_mutation_wakes_only…`, impress-core `collab::large_body_commit_stays_fast`, impel-tools `store_generic_tools_are_available_without_app_backends` and impress-store-ffi `workflow` tick tests. All pass alone.
+- **`cargo hakari verify`** reports `flate2` and `cc` feature-set notes caused by the deliberate exclusions. CI uses `generate --diff`, which passes.
+- **Launcher**: `~/MyApplications/impress.app` may still point at a proof build (`impress-p2-proof.noindex`). To fix it, run `ln -sfn ~/Library/Developer/Xcode/DerivedData/impress-suite/Build/Products/Debug/impress.app ~/MyApplications/impress.app`.
+- **Merging**: subagents may not run `gh pr merge` (the permission check blocks them). The orchestrator merges after verifying.
+
+## How to run the next session
+
+- One worktree per package: `git worktree add .claude/worktrees/<pkg> -b claude/<branch> origin/main`, then `git branch --unset-upstream`.
+- Use cheaper models for implementation, with small packages. Large ones were abandoned without a start.
+- A worktree needs its xcframeworks copied from the main checkout (`cp -c -R`), and the store one rebuilt with `IMPRESS_SKIP_X86=1`. Never use `--fast`, because the iOS slice is needed.
+- Per PR, run the quick gates. Run the full workspace suite once on main after a batch.
+- Regenerate the verb tables from the tests' `dump` output (`cargo test -p impress-capabilities --test {census,descriptor,effects} -- --nocapture --test-threads=1 dump`); never edit them by hand.
