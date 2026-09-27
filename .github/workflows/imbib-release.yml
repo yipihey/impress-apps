@@ -44,6 +44,13 @@ jobs:
           IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         run: ./build-xcframework.sh
 
+      - name: Build ImbibVerbsFfi xcframework
+        working-directory: crates/imbib-verbs-ffi
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        run: ./build-xcframework.sh
+
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib
         run: xcodegen generate

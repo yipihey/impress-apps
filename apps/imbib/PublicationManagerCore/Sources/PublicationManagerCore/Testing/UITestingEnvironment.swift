@@ -72,10 +72,7 @@ public enum UITestingEnvironment {
     /// the in-memory choice was actually buying — and never the app-group
     /// container, which is what it was avoiding.
     public static var scratchDatabasePath: String {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("impress-ui-tests-\(ProcessInfo.processInfo.processIdentifier)")
-            .appendingPathComponent("impress.sqlite")
-            .path
+        SharedWorkspace.databasePath
     }
 
     /// Create the scratch database's directory. Safe to call repeatedly.

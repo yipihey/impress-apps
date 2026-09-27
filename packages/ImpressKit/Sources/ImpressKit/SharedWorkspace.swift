@@ -56,6 +56,12 @@ public enum SharedWorkspace: Sendable {
             return FileManager.default.temporaryDirectory
                 .appendingPathComponent("impress-unit-tests-\(ProcessInfo.processInfo.processIdentifier)")
         }
+        // UI proofs must isolate every shared-store/settings caller, not only
+        // RustStoreAdapter. Keep the same file-backed topology as production.
+        if ImpressRuntime.isUITestingProcess {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("impress-ui-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        }
         if let url = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: SiblingDiscovery.suiteGroupID
         ) {

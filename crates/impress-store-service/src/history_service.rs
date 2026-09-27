@@ -9,8 +9,9 @@
 //!
 //! * [`HistoryService::calls`] — a filtered page of the log ("what
 //!   happened").
-//! * [`HistoryService::why`] — every operation on an item, each joined to
-//!   the call that wrote it ("why did this change").
+//! * [`HistoryService::why`] — operations joined to their calls, plus calls
+//!   recording direct inserts/deletes that have no operation row ("why did
+//!   this change").
 //! * [`HistoryService::trace`] — every call sharing a trace id, as a tree
 //!   built from `parent_call`.
 //! * [`HistoryService::replay`] — re-runs recorded calls through the
@@ -84,14 +85,15 @@ pub struct CallSummary {
     pub compacted: bool,
 }
 
-/// One operation on an item, joined to the call that wrote it.
+/// An operation on an item, or an affected-ID call with no operation row.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WhyEntry {
-    /// The operation row's id.
-    pub operation_id: String,
-    /// RFC 3339, the operation's own timestamp.
+    /// The operation row's id; `None` for a direct insert/delete recorded
+    /// only in the call log. No operation id is invented for those writes.
+    pub operation_id: Option<String>,
+    /// RFC 3339: the operation's timestamp, or the call's start time.
     pub applied_at: String,
-    /// The join key — every op's `batch_id`.
+    /// The call id (every operation written by that call has it as `batch_id`).
     pub batch_id: String,
     /// The call that wrote this operation, when its row still exists. `None`
     /// only for a call the audit sink dropped (never silent — see
@@ -200,10 +202,10 @@ pub trait HistoryService: Send + Sync + 'static {
         limit: i64,
     ) -> CallsResult;
 
-    /// Why an item is the way it is: every operation that wrote it, newest
-    /// first, each joined to the call that wrote it (its caller, the time,
-    /// the requested verb, and the surface it came from when the call
-    /// context carried one).
+    /// Why an item is the way it is: operations and direct insert/delete
+    /// calls naming its id, newest first. A direct write has no operation
+    /// row, so its entry has `operation_id: null` and `batch_id` is its call
+    /// id. Each entry carries the caller and surface when recorded.
     #[impress_method]
     #[impress_example(
         name = "default",
@@ -460,18 +462,72 @@ impl HistoryService for DefaultHistoryService {
                 let batch_id = op.batch_id.clone()?;
                 let call = call_row(&store, &batch_id).as_ref().map(call_summary);
                 Some(WhyEntry {
-                    operation_id: op.id.to_string(),
+                    operation_id: Some(op.id.to_string()),
                     applied_at: op.created.to_rfc3339_opts(SecondsFormat::Millis, true),
                     batch_id,
                     call,
                 })
             })
             .collect();
-        entries.reverse(); // operations_for is oldest-first; "why" reads newest-first.
+        entries.reverse(); // For equal timestamps, keep operations_for's newest-first order.
+                           // Direct store inserts/deletes deliberately mint no operation row.
+                           // Their affected IDs live on the call row. A call that also wrote an
+                           // operation for this item is already represented above; show it once.
+        let operation_calls: std::collections::HashSet<String> =
+            entries.iter().map(|entry| entry.batch_id.clone()).collect();
+        let call_rows = match store.query(&ItemQuery {
+            schema: Some(VERB_CALL_SCHEMA.into()),
+            include_tags: false,
+            include_references: false,
+            assume_schema_rare: true,
+            ..Default::default()
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                return WhyResult {
+                    ok: false,
+                    id,
+                    message: e.to_string(),
+                    entries: vec![],
+                }
+            }
+        };
+        let canonical_id = target.to_string();
+        for row in &call_rows {
+            let call_id = row.id.to_string();
+            if operation_calls.contains(call_id.as_str()) {
+                continue;
+            }
+            let payload = payload_json(row);
+            let affected = ["inserted_ids", "deleted_ids"].iter().any(|field| {
+                payload
+                    .get(*field)
+                    .and_then(Value::as_array)
+                    .is_some_and(|ids| {
+                        ids.iter()
+                            .any(|value| value.as_str() == Some(canonical_id.as_str()))
+                    })
+            });
+            if !affected {
+                continue;
+            }
+            let call = call_summary(row);
+            let applied_at = chrono::DateTime::parse_from_rfc3339(&call.started_at)
+                .map(|time| time.with_timezone(&Utc))
+                .unwrap_or(row.created)
+                .to_rfc3339_opts(SecondsFormat::Millis, true);
+            entries.push(WhyEntry {
+                operation_id: None,
+                applied_at,
+                batch_id: call_id,
+                call: Some(call),
+            });
+        }
+        entries.sort_by(|a, b| b.applied_at.cmp(&a.applied_at));
         WhyResult {
             ok: true,
             id,
-            message: format!("{} operation(s) wrote this item.", entries.len()),
+            message: format!("{} change(s) affected this item.", entries.len()),
             entries,
         }
     }
@@ -836,6 +892,7 @@ impress_service_impl! {
 mod tests {
     use super::*;
     use impress_core::item::Value as CoreValue;
+    use impress_core::store::FieldMutation;
     use impress_service_core::pipeline::Call as PipeCall;
     use impress_service_core::VerbDescriptor;
 
@@ -843,6 +900,60 @@ mod tests {
         crate::test_support::make_item(store, "test")
             .parse()
             .unwrap()
+    }
+
+    fn paper(store: &SqliteItemStore) -> uuid::Uuid {
+        let now = Utc::now();
+        let id = uuid::Uuid::new_v4();
+        store
+            .insert(Item {
+                id,
+                schema: "imbib/bibliography-entry".into(),
+                payload: Default::default(),
+                created: now,
+                modified: now,
+                author: "test".into(),
+                author_kind: ActorKind::Human,
+                logical_clock: 0,
+                origin: None,
+                canonical_id: None,
+                tags: vec![],
+                flag: None,
+                is_read: false,
+                is_starred: false,
+                priority: Priority::None,
+                visibility: Visibility::Private,
+                message_type: None,
+                produced_by: None,
+                version: None,
+                batch_id: None,
+                references: vec![],
+                parent: None,
+            })
+            .expect("insert paper");
+        id
+    }
+
+    fn affected_call(
+        store: &SqliteItemStore,
+        id: uuid::Uuid,
+        field: &str,
+        started_at: chrono::DateTime<Utc>,
+        caller: impress_service_core::pipeline::CallerIdentity,
+    ) -> String {
+        let call_id = uuid::Uuid::new_v4().to_string();
+        let mut payload = serde_json::json!({
+            "verb": "imbib-library-service_retention-cleanup",
+            "caller": caller.to_json(),
+            "started_at": started_at.to_rfc3339_opts(SecondsFormat::Millis, true),
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        payload.insert(field.into(), json!([id.to_string()]));
+        impress_core::call_context::record_verb_call(store, &call_id, &caller, payload)
+            .expect("record call");
+        call_id
     }
 
     fn set_starred(store: Arc<SqliteItemStore>, id: uuid::Uuid, caller: &str) -> Value {
@@ -876,6 +987,75 @@ mod tests {
         assert_eq!(call.verb, "triage-service_set-starred");
         assert_eq!(call.caller, json!({"kind": "agent", "name": "test-agent"}));
         assert!(!result.entries[0].applied_at.is_empty());
+        assert!(result.entries[0].operation_id.is_some());
+    }
+
+    #[test]
+    fn why_shows_workflow_caller_for_a_deleted_paper_without_an_operation() {
+        let store = crate::test_support::test_store();
+        let id = paper(&store);
+        let now = Utc::now();
+        let inserted_call = affected_call(
+            &store,
+            id,
+            "inserted_ids",
+            now - chrono::Duration::hours(2),
+            impress_service_core::pipeline::CallerIdentity::agent("importer"),
+        );
+        store.delete(id).expect("direct delete");
+        let deleted_call = affected_call(
+            &store,
+            id,
+            "deleted_ids",
+            now - chrono::Duration::hours(1),
+            impress_service_core::pipeline::CallerIdentity::system("imbib.retention-cleanup"),
+        );
+        assert!(store.operations_for(id, None).unwrap().is_empty());
+
+        let result = impress_service_core::runtime::block_on(
+            DefaultHistoryService::with_store(store).why(id.to_string()),
+        );
+        assert!(result.ok, "{}", result.message);
+        assert_eq!(result.entries.len(), 2);
+        assert_eq!(result.entries[0].batch_id, deleted_call);
+        assert_eq!(result.entries[1].batch_id, inserted_call);
+        assert!(result
+            .entries
+            .iter()
+            .all(|entry| entry.operation_id.is_none()));
+        assert_eq!(
+            result.entries[0].call.as_ref().unwrap().caller,
+            json!({"kind": "system", "name": "imbib.retention-cleanup"})
+        );
+    }
+
+    #[test]
+    fn why_does_not_duplicate_an_operation_linked_call_that_names_the_item() {
+        let store = crate::test_support::test_store();
+        let id = item(&store);
+        set_starred(store.clone(), id, "test-agent");
+        crate::audit::flush();
+        let call_id = store.operations_for(id, None).unwrap()[0]
+            .batch_id
+            .clone()
+            .unwrap();
+        store
+            .update(
+                call_id.parse().unwrap(),
+                vec![FieldMutation::SetPayload(
+                    "deleted_ids".into(),
+                    CoreValue::Array(vec![CoreValue::String(id.to_string())]),
+                )],
+            )
+            .unwrap();
+
+        let result = impress_service_core::runtime::block_on(
+            DefaultHistoryService::with_store(store).why(id.to_string()),
+        );
+        assert!(result.ok, "{}", result.message);
+        assert_eq!(result.entries.len(), 1);
+        assert!(result.entries[0].operation_id.is_some());
+        assert_eq!(result.entries[0].batch_id, call_id);
     }
 
     #[test]

@@ -15,11 +15,13 @@ is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transpor
 
 ## Open (work in progress when the session ended)
 
-Draft PRs: #118 (G7c) and #119 (W4). Neither has run the full check-* suite yet.
+PR #121 (W3) is verified and ready for the orchestrator's merge check. Draft PRs #118 (G7c)
+and #119 (W4) have local review fixes and complete gates; they must merge main again after W3,
+rerun the integration gates, push through the hook, and be marked ready before merging.
 
-- **W3**: imbib `RetentionCleanupService` as a stored workflow. **Local only, not pushed**: commit 7bbb35e3 on `claude/reflective-w3-retention` in `.claude/worktrees/w3-retention`. To finish, rebuild the store xcframework there (`IMPRESS_SKIP_X86=1 crates/impress-store-ffi/build-xcframework.sh`, swiftformat off PATH), push through the hook, run the remaining gates, then open the PR.
-- **G7c**: trace export (Chrome and folded stacks) and Tier A budgets (branch `claude/gui-g7c-export`).
-- **W4**: `history-service_propose-workflows` (branch `claude/reflective-w4-propose`).
+- **W3 / #121**: `claude/reflective-w3-retention`, `.claude/worktrees/w3-retention`. All requested gates and both pre-push platforms passed. The isolated live proof retained all papers before 90s, removed stale only after the guard, and `why` named the workflow. Store/imbib core/imbib verb frameworks rebuilt with full iOS slices. Includes the imbib-owned FFI prerequisite of P5b and fixes to affected-ID call history and scratch isolation. The explicit exploration-library argument still lacks automatic discovery from legacy UserDefaults.
+- **G7c / #118**: trace export and Tier A budgets, branch `claude/gui-g7c-export`, worktree `g7c-export`. Local clean commit `8d3491e2` fixes concurrent trace rows, folded-stack counting and budget precision. All requested gates passed; 466 touched-crate tests plus final core rerun passed. Not pushed or marked ready yet.
+- **W4 / #119**: `history-service_propose-workflows`, branch `claude/reflective-w4-propose`, worktree `w4-propose`. Local clean commit `f5bd54c5` excludes privacy-reduced calls and inconsistent argument shapes, and bounds repeat arithmetic. All requested gates and touched-crate/capabilities tests passed. Not pushed or marked ready yet.
 
 Each branch has a session-log entry or commit message saying what remains.
 
@@ -27,7 +29,7 @@ Each branch has a session-log entry or commit message saying what remains.
 
 - **S3**: generate a scenario from a recorded session. Needs a live isolated app.
 - **G5**: `strict_args` by default on every service (D-G1 approved). Needs Tier B on five apps.
-- **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imbib, imprint and impart. Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
+- **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
 - **R3**: imprint's settings and chords through the registries.
@@ -48,4 +50,6 @@ Each branch has a session-log entry or commit message saying what remains.
 - Use cheaper models for implementation, with small packages. Large ones were abandoned without a start.
 - A worktree needs its xcframeworks copied from the main checkout (`cp -c -R`), and the store one rebuilt with `IMPRESS_SKIP_X86=1`. Never use `--fast`, because the iOS slice is needed.
 - Per PR, run the quick gates. Run the full workspace suite once on main after a batch.
+- Concurrent worktrees need separate Cargo target directories; sharing a target across differing branches caused a rustdoc dependency-load failure. Use the root cache serially, or a worktree's ignored `target-<pkg>-gates` directory.
+- imbib now honors `-httpAutomationPort` even with its legacy settings record. Use `--ui-testing` for its PID-owned file-backed workspace; this also isolates shared settings and notification payloads. Give proof builds a distinct bundle ID to isolate standard UserDefaults too.
 - Regenerate the verb tables from the tests' `dump` output (`cargo test -p impress-capabilities --test {census,descriptor,effects} -- --nocapture --test-threads=1 dump`); never edit them by hand.

@@ -151,6 +151,7 @@ mod tests {
                 caller,
                 verb: "layout-service_split",
                 store_override: None,
+                mutation_ids: Default::default(),
             })
         };
         sync_scope(context(CallerIdentity::agent("mcp")), || {

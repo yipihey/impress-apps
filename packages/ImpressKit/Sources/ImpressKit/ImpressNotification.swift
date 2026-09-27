@@ -123,7 +123,10 @@ public struct ImpressNotification: Sendable {
     // MARK: - Helpers
 
     private static func darwinNotificationName(event: String, app: SiblingApp) -> String {
-        "com.impress.suite.\(app.rawValue).\(event)"
+        // A scratch app must neither wake nor observe the researcher's apps.
+        let scope = ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess
+            ? "test.\(ProcessInfo.processInfo.processIdentifier)" : "suite"
+        return "com.impress.\(scope).\(app.rawValue).\(event)"
     }
 
     private static func darwinName(event: String, app: SiblingApp) -> String {

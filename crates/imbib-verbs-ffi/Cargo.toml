@@ -1,0 +1,26 @@
+[package]
+name = "imbib-verbs-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Per-app UniFFI dispatch target linking imbib-service outside the shared kit"
+
+[lib]
+crate-type = ["lib"]
+name = "imbib_verbs_ffi"
+
+[features]
+default = []
+native = ["uniffi"]
+
+[dependencies]
+impress-service-core = { workspace = true }
+imbib-service = { workspace = true }
+uniffi = { workspace = true, optional = true }
+thiserror = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+serde_json.workspace = true

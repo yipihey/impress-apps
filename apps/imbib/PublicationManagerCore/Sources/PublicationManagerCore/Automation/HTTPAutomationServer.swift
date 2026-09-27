@@ -69,13 +69,14 @@ public actor HTTPAutomationServer {
         }
 
         let settings = await AutomationSettingsStore.shared.settings
-        guard settings.isHTTPServerEnabled else {
+        let serverSettings = settings.serverSettings.applyingLaunchOverrides()
+        guard serverSettings.httpEnabled else {
             httpLogger.info("HTTP server is disabled in settings")
             return
         }
 
         let configuration = HTTPServerConfiguration(
-            settings: settings.serverSettings, loggerSubsystem: "com.imbib.app")
+            settings: serverSettings, loggerSubsystem: "com.imbib.app")
 
         await server.start(configuration: configuration)
     }
@@ -90,7 +91,7 @@ public actor HTTPAutomationServer {
         let settings = await AutomationSettingsStore.shared.settings
 
         let configuration = HTTPServerConfiguration(
-            settings: settings.serverSettings, loggerSubsystem: "com.imbib.app")
+            settings: settings.serverSettings.applyingLaunchOverrides(), loggerSubsystem: "com.imbib.app")
 
         await server.restart(configuration: configuration)
     }

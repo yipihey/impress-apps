@@ -70,6 +70,7 @@ PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressUndoHistory
     ../../imprint/Packages/ImprintCore
     ../ImbibRustCore
+    ../ImbibVerbsFFI
 "
 
 PMC_ALLOWED_REMOTE="

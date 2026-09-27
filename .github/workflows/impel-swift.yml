@@ -21,6 +21,8 @@ on:
       # it — a descriptor-only edit in PMC. (The `build-app` job also links PMC,
       # so it was already under-triggered.)
       - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
+      - 'crates/imbib-verbs-ffi/**'
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
       - 'crates/impress-ai/**'
@@ -96,11 +98,17 @@ jobs:
       # `swift test` resolves PMC's WHOLE binary-target closure even for
       # packages that never call into it — the campaign push failed here with
       # "does not contain a binary artifact" for helix and scix. This is the
-      # same five-crate closure imbib-tests.yml builds for PMC.
+      # same framework closure imbib-tests.yml builds for PMC.
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: IMPRESS_SKIP_IOS=1
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: IMPRESS_SKIP_IOS=1
 
       - name: ScixClientCore.xcframework
@@ -188,6 +196,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: IMPRESS_SKIP_IOS=1
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: IMPRESS_SKIP_IOS=1
 
       - name: ImpressHelix.xcframework

@@ -1645,6 +1645,11 @@ impl SqliteItemStore {
     /// It deliberately does NOT post the cross-process Darwin note: every
     /// call site here also calls [`Self::emit`], which posts it once.
     pub(crate) fn emit_mutation(&self, mutation: StoreMutation) {
+        crate::call_context::note_mutation(
+            mutation.item_id.to_string(),
+            matches!(mutation.kind, MutationKind::Created),
+            matches!(mutation.kind, MutationKind::Deleted),
+        );
         #[cfg(feature = "effects-spy")]
         crate::effects_spy::note_write(
             mutation.schema_ref.as_deref(),
@@ -6675,6 +6680,42 @@ mod tests {
             deleted.schema_ref.as_deref(),
             Some("task@1.0.0"),
             "the schema is captured BEFORE the row goes"
+        );
+    }
+
+    #[test]
+    fn committed_store_mutations_are_captured_by_the_current_call_only() {
+        use impress_service_core::pipeline::context::{sync_scope, CallContext, MutationIds};
+        use impress_service_core::pipeline::CallerIdentity;
+        use std::sync::Arc;
+
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let context = Arc::new(CallContext {
+            call_id: Uuid::new_v4().to_string(),
+            trace_id: Uuid::new_v4().to_string(),
+            parent_call: None,
+            caller: CallerIdentity::Person,
+            verb: "test-service_mutate",
+            store_override: None,
+            mutation_ids: MutationIds::default(),
+        });
+        let outside = store.insert(make_item("task@1.0.0", "outside")).unwrap();
+        let inside = sync_scope(context.clone(), || {
+            let id = store.insert(make_item("task@1.0.0", "inside")).unwrap();
+            store
+                .update(id, vec![FieldMutation::SetRead(true)])
+                .unwrap();
+            store.delete(outside).unwrap();
+            id
+        });
+        assert_eq!(
+            context.mutation_ids.snapshot(),
+            (vec![inside.to_string()], vec![outside.to_string()])
+        );
+        store.delete(inside).unwrap();
+        assert_eq!(
+            context.mutation_ids.snapshot(),
+            (vec![inside.to_string()], vec![outside.to_string()])
         );
     }
 

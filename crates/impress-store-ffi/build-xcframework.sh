@@ -87,7 +87,9 @@ fi
 if [ "$BUILD_IOS" = "1" ]; then
     cargo rustc --release --target $IOS_TARGET --features native --lib --crate-type staticlib
     cargo rustc --release --target $IOS_SIM_TARGET --features native --lib --crate-type staticlib
-    cargo rustc --release --target $IOS_SIM_X86_TARGET --features native --lib --crate-type staticlib
+    if [ "${IMPRESS_SKIP_X86:-0}" != "1" ]; then
+        cargo rustc --release --target $IOS_SIM_X86_TARGET --features native --lib --crate-type staticlib
+    fi
 fi
 
 echo "=== Creating framework structure ==="
@@ -111,10 +113,15 @@ fi
 
 if [ "$BUILD_IOS" = "1" ]; then
     echo "Creating universal iOS Simulator binary..."
-    lipo -create \
-        "$BUILD_DIR/$IOS_SIM_TARGET/release/lib${LIB_NAME}.a" \
-        "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/lib${LIB_NAME}.a" \
-        -output "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+    if [ "${IMPRESS_SKIP_X86:-0}" != "1" ]; then
+        lipo -create \
+            "$BUILD_DIR/$IOS_SIM_TARGET/release/lib${LIB_NAME}.a" \
+            "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/lib${LIB_NAME}.a" \
+            -output "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+    else
+        cp "$BUILD_DIR/$IOS_SIM_TARGET/release/lib${LIB_NAME}.a" \
+            "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+    fi
 fi
 
 echo "=== Generating Swift bindings ==="
