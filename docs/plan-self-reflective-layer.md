@@ -1525,3 +1525,70 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   files). E3 is next (`query_refs`/`invalidate_sources`, the safety-consistency test already lives
   in E1/E2's `effects.rs`, `capabilities-service_impact`); it should also pick up the store-spy
   blind spot noted above if it touches imbib-core's custom SQL paths.
+
+- 2026-09-26 — E3 (invalidation, consistency, impact) on a worktree of main at 640cf385, branch
+  `claude/reflective-e3-invalidation`. Read ADR-0036, the plan's E3 row and findings EF-4/D-R11,
+  docs/agent-surfaces.md § Sources' RS-S2 sentence, docs/review-2026-09-25-gui-layer.md's RS-S2, P1/E1/E2's
+  `effects.rs`/`descriptor.rs` and P2's `pipeline/policy.rs`.
+  **RS-S2/EF-4:** `impress-surface-service/src/runtime.rs`'s `query_refs()`/`invalidate_sources()`
+  now fold a `verb` source's linked `VerbDescriptor::effects.reads` (literal `Kind::Ref` only —
+  `target`/`children`/`prefix`/`any` stay this static walk's blind spot, same reasoning E2 gave for
+  the spy) into the refs a write has to name to re-run it. Proof: a new Tier A test in
+  `tests/coherence.rs`, `a_verb_source_reruns_on_a_write_to_its_declared_read`, over the REAL
+  `imbib-library-service_count-publications` (declares `reads = ["imbib/bibliography-entry"]`, the
+  row's named sibling of `triage-service_set-starred` on that kind, force-linked via a new
+  `imbib-service` dev-dependency of `impress-surface-service`) — inserts a paper, renders `"1"`,
+  writes a second paper, calls `invalidate_refs`, re-renders `"2"`. `imbib-service`'s own store
+  singleton is separate from `impress-store-service`'s (`ImbibStore` wraps `SqliteItemStore` by
+  PATH, not by injected `Arc`), so the test opens both at one real temp-file path
+  (`SqliteItemStore::open` + `init_imbib_store`) rather than the usual in-memory store. Updated
+  docs/agent-surfaces.md § Sources to say so.
+  **Safety-consistency test:** already lived in E1/E2's `effects.rs`
+  (`effects_agree_with_the_safety_class`: `read_only ⇒ writes = ∅`, `external reach ⇔ external
+  class`) — nothing to add.
+  **`capabilities-service_impact`:** new minimal crate `crates/capabilities-service` (D-G2's
+  spirit), one read-only verb, `impact(kind?, verb?)`: every linked verb declaring `kind` among its
+  literal reads/writes, the kinds a named verb declares, and the stored surfaces
+  (`impress-surface-service::SurfaceStore`) naming either (a text search over the stored spec, not a
+  parsed walk — every source/action serializes its verb as `"verb":"<name>"`). Scoped to verbs and
+  stored surfaces only: stored layouts have no suite-wide "list every layout" reader today
+  (`LayoutStore::all_rows` takes one `app_id`), and workflows/scenarios are later work packages (W,
+  S) this plan has not built — named as follow-up in the crate's module docs rather than guessed at.
+  Wired into `impress-capabilities` behind a new `impact` feature (implies `kit`); docs updated per
+  kit-manifest.md's rules (verb-coverage.md's service/crate-verdict/total/shape rows, verb-safety.md,
+  verb-effects.md, docs/verbs/ regenerated, workspace Cargo.toml). Example: `impact(verb:
+  "imbib-library-service_count-publications")` → `kinds_touched: [{verb: "imbib/bibliography-entry",
+  reads: true, writes: false}]`.
+  **D-R11:** `pipeline/policy.rs` gained an in-flight set keyed by declared write kind (literal
+  `Kind::Ref` only): a destructive/external call whose writes overlap another's still-held lease is
+  a new `Decision::Conflict` (`{ok: false, code: "conflict"}`); a mutating overlap is logged
+  (`tracing::warn!`) and still runs. Two real bugs in the first cut, both caught by the FULL test run
+  before this landed, not by the four unit tests added alongside the feature (worth flagging as a
+  process note: unit tests over the policy module in isolation proved the *mechanism*; only running
+  the dependent crates' own test suites proved it *safe to turn on*): (1) no release hook meant two
+  ordinary sequential destructive calls on one kind falsely conflicted within the (since-deleted) TTL
+  window — `impress-store-ffi`'s `every_mirrored_route_answers_its_verbs_result` (create then delete
+  one surface) failed this way; fixed with a real refcounted lease, taken only for a call actually
+  granted `Run` and given back by a new `policy::release(verb)` call in `pipeline/mod.rs`'s
+  `finish()` — the one line touching P2's file beyond the one new `Decision::Conflict` match arm in
+  `prepare()`, neither touching `audit.rs`/`context.rs`. (2) the set has no store identity (this
+  layer never sees one for most calls, and correctly so for ADR-0034's one process/one store) — wrong
+  for a test binary opening many temp stores in parallel, where unrelated tests writing the "same"
+  kind on different stores spuriously conflicted (`impress-store-ffi`'s whole suite, once (1) was
+  fixed). Fixed by making D-R11 opt-in like every other policy in this file:
+  `policy::enable_conflict_detection()` / `IMPRESS_VERB_CONFLICT_DETECTION=1`, off by default, so no
+  existing test or caller changes behaviour until a host that actually shares one store across
+  concurrent callers turns it on.
+  Gates (serial, `CARGO_TARGET_DIR=target-e3`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test -p impress-surface-service -p impress-service-core -p impress-capabilities -p
+  impress-store-ffi -p capabilities-service` green except one pre-existing flaky timing test
+  (`a_paper_written_anywhere_reaches_a_rendered_query_source`, a `recv_timeout(300ms)` race under
+  parallel `-p`-wide load; confirmed unrelated — passes alone against this exact code, and touches
+  neither E3 code path); `check-verb-coverage.sh` OK ("39 services declare, 439 verbs in
+  docs/verb-effects.md (251 exceptions)"); `check-verb-docs.sh` OK (regenerated, no diff);
+  `check-kit-deps.sh --strict` OK (`capabilities-service` correctly absent — it is not a kit crate);
+  `check-kit-standalone.sh --strict` OK (14 crates, `imbib-service` dev-dependency correctly dropped
+  from the copy); `check-schema-refs.sh` OK (392 call sites, 82 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged; `cargo hakari generate --diff` empty. Not
+  touched: `pipeline/audit.rs`, `pipeline/context.rs` (L1's files); `find()`/aliases/impress-mcp
+  legacy tools (P3's).
