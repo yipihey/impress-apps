@@ -1421,6 +1421,18 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   467-verb figures did not reproduce and the tables say what does. No production code; the walker
   and its JSON stay in the session scratchpad (appendix A is its output). ADR-0036 written as the
   decision record; draft PR opened; **stopped before Phase 2** as the brief requires.
+- 2026-09-26 — **P2 pipeline landed** (branch `claude/pipeline-p2-pipeline`, from main at c0277c7e;
+  see plan-verb-pipeline-and-transport.md's session log for the full account). Hooks H-P2-1..4 all
+  landed as this plan describes them: H-P2-1 (`Call { args, caller, trace, parent }` with the
+  pipeline generating the trace id when absent), H-P2-2 (`impress_core::call_context::CURRENT` set
+  around invoke, `batch_id = call_id` stamped on every operation the call writes), H-P2-3
+  (`Pipeline::invoke_on(store, …)`, the per-call store override — used here by the bench and by the
+  live audit proof, not yet by a Tier A scenario since S1 hasn't landed), H-P2-4 (the audit layer
+  writes one `core/verb-call@1.0.0` record per mutating call instead of a bare `core/operation`
+  row). Found and fixed live, not anticipated by this plan: the audit sink's own `flush()` (H-P2-2's
+  writer) was never called by `impress-cli`/`imprint-cli` before `std::process::exit`, so a one-shot
+  CLI process could race the writer thread and drop its own verb-call row; both binaries now flush
+  before exit.
 - 2026-09-26 — **E1 (declared effects)** on a worktree of main at d029648d, branch
   `claude/reflective-e1-effects`. `VerbDescriptor.effects: Effects { reads, writes, reach }` with
   `Kind = Ref | Target(arg) | Children(arg) | Prefix | Any(reason)` and `Reach = App(id) | Network |

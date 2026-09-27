@@ -968,6 +968,55 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   export changed), check-verb-coverage and the census. Tier A imprint 25/25. Tier B on imprint 8/8 (built into this worktree's own DerivedData and its own
   xcframeworks, launched with `-httpAutomationPort 23271`, quit afterwards; the user's imprint on
   23121 and their impel-taskd were never touched — the CLI/MCP proof ran on a scratch store).
+- 2026-09-26 — **P2 pipeline landed** (branch `claude/pipeline-p2-pipeline`, from main at
+  c0277c7e; a previous agent on this branch had already merged main and written the chain,
+  identity, strict args, reachability, policy, span, audit and every entry path rewired to it —
+  this session picked up from "run the bench alone" and closed it out). Layers and order as
+  designed: identity → strict args → reachability → policy → span → invoke → envelope → audit,
+  one `Vec<Box<dyn Layer>>` in `impress-service-core::pipeline`, no `Service`/`Layer` trait to
+  satisfy at any of the nine entry paths (a call-site test enumerates them and fails on a
+  `descriptor.handler`/`.apply` call outside the pipeline or the bench baseline). Entry paths
+  rewired: MCP flat and grouped, CLI, surface runtime, surface HTTP mirror, FFI layout `apply`,
+  impel-tools, impress-mcp-host, impress-ai-tools, and `call.rs`'s shared seat — all now call
+  `pipeline::invoke`/`invoke_blocking`/`invoke_sync_with`/`invoke_on`, not a descriptor's handler
+  directly. Overhead bench (`impress-capabilities/tests/pipeline_bench.rs`, release, alone,
+  ROUNDS=2000): `imbib-text-service_decode-latex` 11.88 → 13.06 µs (+1.18), `surface-demo-
+  service_series` 0.89 → 2.64 µs (+1.75), `layout-service_get-layout` 6.40 → 9.09 µs (+2.69),
+  `layout-service_get-pane` 5.38 → 8.46 µs (+3.09), `store-query-service_list-items` 7.75 → 9.29 µs
+  (+1.54); worst overhead 3.09 µs per call, well inside the ≤5 µs span budget and every chain
+  total inside the ~20 µs read-only budget. Gates: fmt, clippy rest, clippy imprint, `cargo test
+  --workspace --features native` (175 suites, ~4087 passed, 0 failed), check-schema-refs (392
+  call sites, 82 canonical refs, 0 divergences), check-kit-deps --strict (13 kit crates),
+  check-kit-standalone (14 crates), check-verb-coverage (75 crates verdicted, 38 services with a
+  row), check-uniffi-bindings (7 match, no export changed) — all clean. `cargo hakari verify`
+  fails on this branch, but the identical `impress-workspace-hack didn't work correctly` /
+  `cc@1.2.54` mismatch reproduces on a clean checkout of main at c0277c7e too (confirmed with a
+  throwaway `CARGO_TARGET_DIR`); pre-existing, not introduced here, left for whoever owns hakari
+  drift next. Narrowed, found live: `impress_store_service::audit::flush()` exists specifically
+  "for a test or a CLI that exits right after a mutating verb" (its own doc comment), but neither
+  `impress-cli` nor `imprint-cli` called it before `std::process::exit` — a one-shot CLI process
+  raced the audit sink's writer thread and could drop the `core/verb-call` row it just queued;
+  reproduced live (`impress create --binding generic …` against a scratch store left no
+  verb-call row), fixed by calling `flush()` before exit in both binaries, re-verified. `imbib-
+  cli` is untouched: `imbib-service` doesn't link `impress-store-service` at all, so it has no
+  sink to flush — its mutating verbs are counted in `audit::dropped()` by the documented design
+  for a process that doesn't link the store services, which is a separate, pre-existing gap this
+  branch did not create and did not close. Live proof: built `impress` Debug with
+  `IMPRESS_SKIP_INSTALL=1` into its own `IMPRESS_DERIVED` (`impress-p2-proof.noindex`, own
+  xcframeworks copied in from the main checkout plus a freshly built `impress-store-ffi` one,
+  `IMPRESS_SKIP_X86=1`), launched with `-httpAutomationPort 23281 -ApplePersistenceIgnoreState
+  YES` and `IMPRESS_DEVICE_ID=p2-proof`. Tier B 14/14. The audit proof: `impress --store-path
+  <scratch> create --binding generic --name p2-proof --kind-scope any` then `rename` on the
+  created collection left exactly one `core/verb-call@1.0.0` row per call and one `items` row
+  with `op_target_id` set and `batch_id` equal to the rename's call-row id — the `batch_id` join
+  D-R2 promises, shown against a live build rather than only the in-process unit test. The app
+  launched for the proof was quit afterwards. One thing left undone: this session's build of
+  `impress` updated the `~/MyApplications/impress.app` launcher symlink (an unconditional step in
+  `scripts/build-impress-app.sh`, independent of `IMPRESS_SKIP_INSTALL`) to point at
+  `impress-p2-proof.noindex` instead of the shared `impress-suite` DerivedData; restoring it was
+  blocked by this session's own sandbox as a destructive filesystem write, so it still points at
+  the proof build and needs a manual `ln -sfn` back to `~/Library/Developer/Xcode/DerivedData/
+  impress-suite/Build/Products/Debug/impress.app`.
 - 2026-09-26 — **B5 (build budget in CI) finished** on a worktree of main at c0277c7e, branch
   `claude/bc-b5-build-budget`. `scripts/build-cost.sh`, `scripts/check-build-budget.py`,
   `build-budget.json` and the `build-cost` job in `workspace-rust.yml` reviewed against this
@@ -1005,4 +1054,3 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   total lines/verb** — both under budget (2,000 / 6,000); +11 % total over the 5,123 baseline, which is P1's
   output schemas and P4's job verbs. The measured half (228 / 20 / 38 ms per verb) was taken at load 14–28
   and is not a baseline; the impress-mac job sets it.
-

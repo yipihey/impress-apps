@@ -83,17 +83,24 @@ fn main() {
     let echo_tool = McpToolDescriptor::iter()
         .find(|t| t.name.ends_with("_echo"))
         .expect("echo tool should be registered");
-    let result = runtime::block_on((echo_tool.handler)(json!({ "message": "hi" })))
-        .expect("echo should succeed");
+    let result = impress_service_core::pipeline::invoke_blocking(
+        echo_tool.verb,
+        impress_service_core::pipeline::Call::agent("example", json!({ "message": "hi" })),
+    )
+    .expect("echo should succeed");
     println!("  result: {result}\n");
 
     println!("== Invoking the `echoservice_repeat` handler ==");
     let repeat_tool = McpToolDescriptor::iter()
         .find(|t| t.name.ends_with("_repeat"))
         .expect("repeat tool should be registered");
-    let result = runtime::block_on((repeat_tool.handler)(
-        json!({ "message": "ho", "count": 3 }),
-    ))
+    let result = impress_service_core::pipeline::invoke_blocking(
+        repeat_tool.verb,
+        impress_service_core::pipeline::Call::agent(
+            "example",
+            json!({ "message": "ho", "count": 3 }),
+        ),
+    )
     .expect("repeat should succeed");
     println!("  result: {result}");
 

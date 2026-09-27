@@ -14,7 +14,7 @@
 //! The same inventory is what `crates/impress-mcp` serves over MCP, so agents
 //! inside and outside impel see one surface.
 
-use impress_service_core::{runtime, McpToolDescriptor};
+use impress_service_core::McpToolDescriptor;
 
 uniffi::setup_scaffolding!();
 
@@ -128,6 +128,7 @@ const REPROBE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60)
 /// probe use its own default port.
 #[uniffi::export]
 pub fn configure(imbib_url: Option<String>, imprint_url: Option<String>) -> ToolBackends {
+    install_gate();
     if let Some(existing) = BACKENDS.read().ok().and_then(|g| g.clone()) {
         return existing.backends;
     }
@@ -282,16 +283,34 @@ pub fn tool_app(name: String) -> Option<String> {
     app_of(&name).map(str::to_string)
 }
 
-/// The sibling app a tool belongs to, from its namespace prefix.
+/// The sibling app a tool belongs to, from its namespace prefix — the
+/// pipeline's one ownership table, restricted to the two apps this crate
+/// carries a backend for.
 fn app_of(name: &str) -> Option<&'static str> {
-    let ns = namespace_of(name)?;
-    if ns.starts_with("imbib-") {
-        Some("imbib")
-    } else if ns.starts_with("imprint-") {
-        Some("imprint")
-    } else {
-        None
-    }
+    namespace_of(name)?;
+    impress_service_core::pipeline::reachability::owner_of(name)
+        .filter(|app| matches!(*app, "imbib" | "imprint"))
+}
+
+/// Make this crate's backend table the pipeline's reachability probe
+/// (plan-verb-pipeline PL-2). `store_fallback: false`: inside an app, an
+/// owned verb whose app is down is refused, never run against the shared
+/// store behind the running app's back. An app that was closed at the
+/// first probe may be up now, so the probe asks again, rate-limited, before
+/// refusing (see `BACKENDS`).
+fn install_gate() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        impress_service_core::pipeline::reachability::install(
+            impress_service_core::pipeline::reachability::Config {
+                probe: std::sync::Arc::new(|app: &str| {
+                    backend_for(app, &reprobe_if_unavailable(app)) == Some(Backend::Http)
+                }),
+                store_fallback: false,
+                list_all: false,
+            },
+        );
+    });
 }
 
 fn app_backend(name: &str, backends: &ToolBackends) -> Option<Backend> {
@@ -322,18 +341,12 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
         .find(|d| d.name == name)
         .ok_or_else(|| ToolError::UnknownTool { name: name.clone() })?;
 
-    // Refuse before touching the handler: with no HTTP backend installed the
-    // call would silently operate on the shared store instead of the app.
-    if let Some(app) = app_of(&name) {
-        // An app that was closed at the first probe may be up now: ask again,
-        // rate-limited, before refusing (see `BACKENDS`).
-        if app_backend(&name, &reprobe_if_unavailable(app)) != Some(Backend::Http) {
-            return Err(ToolError::AppUnavailable {
-                app: app.to_string(),
-                name,
-            });
-        }
-    }
+    // Refusing before the handler runs — with no HTTP backend installed the
+    // call would silently operate on the shared store instead of the app —
+    // is the pipeline's reachability layer, configured below with this
+    // crate's re-probing backend table and NO store fallback (the one
+    // difference between a process inside an app and the MCP server).
+    install_gate();
 
     // MCP clients may omit arguments entirely; handlers deserialize from an
     // object, so an empty string and `null` both mean "no arguments".
@@ -347,10 +360,21 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
         })?
     };
 
-    let future = (descriptor.handler)(args);
-    match runtime::block_on(future) {
+    // impel's tool loop is an agent (ADR-0034 D3); the surface runtime in
+    // the app reaches this through `ImpressVerbHost` and is one too.
+    let outcome = impress_service_core::pipeline::invoke_blocking(
+        descriptor.verb,
+        impress_service_core::pipeline::Call::agent("impel", args),
+    );
+    match outcome {
         Ok(value) => Ok(value.to_string()),
-        Err(e) => {
+        Err(impress_service_core::pipeline::PipelineError::Unavailable { app, .. }) => {
+            Err(ToolError::AppUnavailable {
+                app: app.to_string(),
+                name,
+            })
+        }
+        Err(impress_service_core::pipeline::PipelineError::Handler(e)) => {
             // A failed call to an app's verb may mean the app has quit since
             // it was probed. Ask it again now: if it does not answer, it is
             // unavailable — said as such, and no longer advertised — rather
