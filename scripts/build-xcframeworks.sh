@@ -27,6 +27,7 @@ WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # explicitly (`build-xcframeworks.sh impart-core`) once it has a consumer.
 ALL_CRATES=(
     "imbib-core"
+    "imbib-verbs-ffi"
     "imprint-core"
     "implore-core"
     "impress-store-ffi"

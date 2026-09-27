@@ -20,6 +20,8 @@ on:
       - 'crates/impress-store-ffi/**'
       - 'crates/impress-ai/**'
       - 'crates/imbib-core/**'
+      - 'crates/imbib-verbs-ffi/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
       - 'packages/**'
       - '.github/workflows/imprint-apps.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
@@ -96,6 +98,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # ImpressScixCore's binary target arrived with the chassis unification and
