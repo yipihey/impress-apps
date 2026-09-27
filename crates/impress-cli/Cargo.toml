@@ -11,6 +11,10 @@ name = "impress"
 path = "src/main.rs"
 
 [dependencies]
+# G7b: installs the perf aggregator so a `perf-service_summary` run from
+# this same CLI invocation sees bucket history for the verbs it just ran.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 # ADR-0033 D4 / plan S2: the ONE place the `#[impress_service]` inventory is
 # linked, `features = ["full"]` so this binary keeps linking every capability
 # the old per-crate force-link consts below it did (impress-ai-service,

@@ -4511,8 +4511,11 @@ dependencies = [
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
+ "perf-service",
  "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "vw-impress-adapter",
 ]
 
@@ -4541,6 +4544,8 @@ dependencies = [
  "impress-store-service",
  "impress-workspace-hack",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4721,6 +4726,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4869,6 +4876,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uniffi",
  "uuid",
 ]
@@ -7109,6 +7117,23 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "perf-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "pest"

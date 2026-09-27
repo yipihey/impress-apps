@@ -12,6 +12,11 @@ name = "impress-mcp"
 path = "src/main.rs"
 
 [dependencies]
+# G7b: installs the perf aggregator (no store-ffi log sink here — stdio
+# transport has no Console to forward to) so `perf-service_summary` has
+# bucket history in this process too.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }
 # The embedding stack behind the three hand-written semantic-search tools.
 # All three features named explicitly even though imbib-core's `native` also

@@ -40,6 +40,7 @@
 pub mod audit;
 pub mod context;
 pub mod identity;
+pub mod perf;
 pub mod policy;
 pub mod reachability;
 
