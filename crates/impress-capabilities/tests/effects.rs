@@ -372,6 +372,27 @@ fn scratch_store() -> Arc<SqliteItemStore> {
             std::env::set_var("HOME", &dir);
             let store = Arc::new(SqliteItemStore::open(&path).expect("open scratch store"));
             impress_store_service::install_store(store.clone()).expect("install scratch store");
+            // S3 needs a recorded session before it can write a scenario.
+            // Seed outside the spy window: this fixture is not an effect
+            // of the verb being measured. Record stores its harmless list
+            // step for review; it does not execute that step.
+            impress_core::call_context::record_verb_call(
+                &store,
+                "56000000-0000-4000-8000-000000000003",
+                &impress_service_core::pipeline::CallerIdentity::Person,
+                serde_json::json!({
+                    "trace_id": "scenario-record-example",
+                    "started_at": "2026-09-27T00:00:00.000Z",
+                    "verb": "impress-scenario-service_scenario-list",
+                    "args": {}, "args_replayable": true,
+                    "result_ids": {}, "result_ids_truncated": false,
+                    "ok": true, "code": null,
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            )
+            .expect("seed S3 recording example");
             store
         })
         .clone()

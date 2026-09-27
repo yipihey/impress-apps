@@ -154,7 +154,7 @@ final class ScenarioRecordingProofTests: XCTestCase {
         let firstCapture = try XCTUnwrap(recordedSteps[0]["capture"] as? [String: String])
         XCTAssertTrue(firstCapture.values.contains("$.id"))
         let secondArgs = try XCTUnwrap(recordedSteps[1]["args"] as? [String: Any])
-        XCTAssertTrue((secondArgs["id"] as? String)?.hasPrefix("{{captures.") == true)
+        XCTAssertTrue((secondArgs["id"] as? String)?.hasPrefix("{{state.") == true)
 
         let fetched = try await cli.call("get-recorded", ["scenario-get", "--id", recordedID])
         XCTAssertEqual(fetched["ok"] as? Bool, true)

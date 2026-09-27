@@ -35,8 +35,8 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// This stores a document for review and editing; it executes no steps.
     #[impress_method(safety = mutating, effects(reads = ["core/verb-call@1.0.0", "impress/scenario@1.0.0"], writes = ["impress/scenario@1.0.0"]))]
     #[impress_example(
-        name = "empty-trace",
-        args = r#"{"trace_id":"scenario-record-empty-example"}"#
+        name = "recorded-session",
+        args = r#"{"trace_id":"scenario-record-example"}"#
     )]
     async fn scenario_record(
         &self,
