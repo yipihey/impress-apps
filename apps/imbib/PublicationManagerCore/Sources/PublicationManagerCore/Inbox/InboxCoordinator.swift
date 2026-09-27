@@ -109,6 +109,9 @@ public final class InboxCoordinator {
         Logger.inbox.infoCapture("Stopping InboxCoordinator...", category: "coordinator")
 
         await feedScheduler?.stop()
+        #if os(macOS)
+        WorkflowTickTimer.shared.stop()
+        #endif
         feedScheduler = nil
         paperFetchService = nil
 

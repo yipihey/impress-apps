@@ -178,13 +178,6 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         if reviewStoreOpenAttempted { return nil }
         reviewStoreOpenAttempted = true
         do {
-            // Same production-store guard as `shared` (see isUnitTestProcess).
-            if Self.isUnitTestProcess
-                || ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-                let s = try ImpressRustCore.SharedStore.openInMemory()
-                self.reviewSharedStore = s
-                return s
-            }
             // The kernel handle already IS a SharedStore on the exact file
             // the review queue needs — reuse it instead of paying a third
             // full store open (schema init + reader pool) at first sidebar
@@ -193,6 +186,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             if let kernelStore {
                 self.reviewSharedStore = kernelStore
                 return kernelStore
+            }
+            // A scratch adapter has a file-backed kernel too. Only a test
+            // adapter without that handle needs an in-memory review store.
+            if Self.isUnitTestProcess || ImpressRuntime.isUITestingProcess {
+                let s = try ImpressRustCore.SharedStore.openInMemory()
+                self.reviewSharedStore = s
+                return s
             }
             try SharedWorkspace.ensureDirectoryExists()
             let path = SharedWorkspace.databaseURL.path

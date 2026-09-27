@@ -21,6 +21,19 @@ import ImpressRustCore
 @MainActor
 final class AutomaticWorkUndoTests: XCTestCase {
 
+    func testWorkflowUsesTheScratchAdaptersFileBackedStore() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("impress.sqlite").path
+        let adapter = try RustStoreAdapter(scratchPath: path)
+        let workflowStore = try XCTUnwrap(adapter.sharedReviewStore())
+        let id = UUID().uuidString
+        try workflowStore.upsertItem(id: id, schemaRef: "task@1.0.0", payloadJson: "{\"title\":\"scratch proof\"}")
+        let reader = try SharedStore.open(path: path)
+        XCTAssertNotNil(try reader.getItem(id: id), "the workflow must use the adapter's file, not a second in-memory database")
+    }
+
     private var manager: UndoManager!
 
     /// No group is ever left open around automatic work: with
