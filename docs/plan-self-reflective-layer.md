@@ -1421,3 +1421,30 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   467-verb figures did not reproduce and the tables say what does. No production code; the walker
   and its JSON stay in the session scratchpad (appendix A is its output). ADR-0036 written as the
   decision record; draft PR opened; **stopped before Phase 2** as the brief requires.
+
+- 2026-09-26 — R1 (settings registry) finished on `claude/reflective-r1-settings`, worktree
+  `.claude/worktrees/r1-settings`. Merged origin/main (only conflict: `Cargo.lock`, regenerated
+  with `cargo generate-lockfile`); `cargo hakari manage-deps` added `impress-workspace-hack` to
+  `impress-fs-lock` and `impress-settings`, `cargo hakari generate` picked up main's hakari-config
+  change, `cargo hakari verify`'s remaining `cc` feature-set diagnostic was reproduced against a
+  clean checkout of origin/main and left alone as pre-existing. RG-1..3 confirmed against the
+  registry: retention's three keys and automation's five keys are each `setting!`'d once in
+  `crates/impress-settings/src/registry.rs` with their legacy `UserDefaults` spellings; D-R5 is
+  proved on both sides — `impress_settings::store::tests::legacy_import_runs_once_and_never_overrides`
+  in Rust and `SettingsRegistryTests.testLegacyValueIsCopiedOnFirstReadAndNeverRemoved` in
+  ImpressKit, neither of which deletes the old key. `impress/settings@1.0.0` is in
+  `schema-refs.json`; `docs/verb-coverage.md`, `docs/verb-safety.md`, `docs/kit-manifest.md`
+  (`impress-fs-lock` row) and `docs/chassis-capability-matrix.md` (the Retention pane) already
+  carried their rows from the prior session. Chords are R2's, untouched here. Two clippy lints
+  from the merged lint set fixed (`contains_key` over `get().is_none()` in a settings-store test;
+  `std::slice::from_ref` over a needless clone in the surface writer's tag slice) — everything
+  else was clean. Gates, serial, `CARGO_TARGET_DIR=target-r1`: fmt, clippy rest, clippy imprint,
+  `check-uniffi-bindings.sh` (7/7 match, no export changed so no regeneration needed),
+  `check-schema-refs.sh` (390 call sites, 0 divergences), `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`, `check-kit-packages.sh`, `check-chassis-deps.sh`,
+  `check-verb-coverage.sh` all green; `cargo test -p impress-fs-lock -p impress-settings
+  -p impress-store-service -p impress-ai -p impress-store-ffi -p impress-capabilities`: 323 passed,
+  0 failed; `swift test` in ImpressLayout (79 passed), ImpressKit (13 XCTest + 30 swift-testing,
+  0 failed — includes the D-R5 proof above), and PublicationManagerCore (2159 passed, 2 skipped,
+  0 failed). Live proof and the push/PR are recorded separately in the same session's report to
+  the R1 dispatcher.
