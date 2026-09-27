@@ -21,6 +21,7 @@ One page per service, generated from the linked `VerbDescriptor` inventory. Rege
 - [implore-service](implore-service.md) (20 verbs)
 - [impress-ai-service](impress-ai-service.md) (16 verbs)
 - [impress-bridges-service](impress-bridges-service.md) (18 verbs)
+- [impress-scenario-service](impress-scenario-service.md) (5 verbs)
 - [impress-surface-service](impress-surface-service.md) (15 verbs)
 - [imprint-app-service](imprint-app-service.md) (15 verbs)
 - [imprint-manuscript-service](imprint-manuscript-service.md) (17 verbs)
