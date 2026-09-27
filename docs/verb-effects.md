@@ -465,6 +465,8 @@ catalogue, 300 on the exception table.
 | `parsers-service_list-publisher-rules` | — | — | — | example ×1 |
 | `parsers-service_parse-mbox` | — | — | — | — |
 | `parsers-service_resolve-publisher-pdf` | — | — | network | — |
+| `perf-service_export-chrome-trace` | — | — | — | example ×1 |
+| `perf-service_export-folded-stacks` | — | — | — | example ×1 |
 | `perf-service_summary` | — | — | — | example ×2 |
 | `perf-service_trace` | — | — | — | example ×1 |
 | `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |

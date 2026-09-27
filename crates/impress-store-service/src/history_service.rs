@@ -34,7 +34,7 @@
 //! like every other service in this crate it converts arguments, reads the
 //! store, and turns errors into `ok: false` plus a message.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use chrono::{SecondsFormat, Utc};
@@ -498,28 +498,37 @@ fn mine_ngrams(seq: &[CallSummary], min_repeats: usize, max_len: usize) -> Vec<M
         if n / len < min_repeats {
             continue;
         }
-        let mut i = 0;
-        while i + len <= n {
-            if consumed[i..i + len].iter().any(|&c| c) {
-                i += 1;
+        // Index each currently available window once. The old scan walked
+        // the rest of the caller's history for every starting position,
+        // making varied histories quadratic even when nothing repeated.
+        let mut occurrences: BTreeMap<Vec<&str>, Vec<usize>> = BTreeMap::new();
+        for start in 0..=n - len {
+            if !consumed[start..start + len].contains(&true) {
+                let signature = seq[start..start + len]
+                    .iter()
+                    .map(|call| call.verb.as_str())
+                    .collect();
+                occurrences.entry(signature).or_default().push(start);
+            }
+        }
+
+        let mut processed: BTreeSet<Vec<&str>> = BTreeSet::new();
+        for i in 0..=n - len {
+            if consumed[i..i + len].contains(&true) {
                 continue;
             }
             let signature: Vec<&str> = seq[i..i + len].iter().map(|c| c.verb.as_str()).collect();
-            let mut match_starts = vec![i];
-            let mut j = i + len;
-            while j + len <= n {
-                if consumed[j..j + len].iter().any(|&c| c) {
-                    j += 1;
+            if !processed.insert(signature.clone()) {
+                continue;
+            }
+            let mut match_starts = Vec::new();
+            let mut next_allowed = i;
+            for &start in &occurrences[&signature] {
+                if start < next_allowed || consumed[start..start + len].contains(&true) {
                     continue;
                 }
-                let candidate: Vec<&str> =
-                    seq[j..j + len].iter().map(|c| c.verb.as_str()).collect();
-                if candidate == signature {
-                    match_starts.push(j);
-                    j += len;
-                } else {
-                    j += 1;
-                }
+                match_starts.push(start);
+                next_allowed = start + len;
             }
             if match_starts.len() >= min_repeats {
                 for &start in &match_starts {
@@ -531,9 +540,6 @@ fn mine_ngrams(seq: &[CallSummary], min_repeats: usize, max_len: usize) -> Vec<M
                     .map(|&start| seq[start..start + len].to_vec())
                     .collect();
                 groups.push(MinedGroup { verbs, matches });
-                i = match_starts[0] + len;
-            } else {
-                i += 1;
             }
         }
     }
@@ -1719,5 +1725,137 @@ mod tests {
         let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
         assert!(result.ok, "{}", result.message);
         assert!(result.proposed.is_empty(), "{:?}", result.proposed);
+    }
+
+    fn mined_call(index: usize, verb: &str) -> CallSummary {
+        CallSummary {
+            call_id: index.to_string(),
+            verb: verb.into(),
+            since: String::new(),
+            caller: json!({"kind": "agent", "name": "miner-test"}),
+            trace_id: String::new(),
+            parent_call: None,
+            surface: None,
+            args: json!({}),
+            ok: true,
+            code: None,
+            message_len: 0,
+            started_at: String::new(),
+            duration_ms: 0,
+            compacted: false,
+        }
+    }
+
+    /// The original position-by-position scan, kept only as an oracle for
+    /// overlap and minimum-repeat behavior on small deterministic fixtures.
+    fn reference_mine_ngrams(
+        seq: &[CallSummary],
+        min_repeats: usize,
+        max_len: usize,
+    ) -> Vec<MinedGroup> {
+        let n = seq.len();
+        let mut consumed = vec![false; n];
+        let mut groups = Vec::new();
+        for len in (2..=max_len.min(n)).rev() {
+            if n / len < min_repeats {
+                continue;
+            }
+            let mut i = 0;
+            while i + len <= n {
+                if consumed[i..i + len].contains(&true) {
+                    i += 1;
+                    continue;
+                }
+                let signature: Vec<&str> = seq[i..i + len]
+                    .iter()
+                    .map(|call| call.verb.as_str())
+                    .collect();
+                let mut starts = vec![i];
+                let mut j = i + len;
+                while j + len <= n {
+                    if consumed[j..j + len].contains(&true) {
+                        j += 1;
+                        continue;
+                    }
+                    let candidate: Vec<&str> = seq[j..j + len]
+                        .iter()
+                        .map(|call| call.verb.as_str())
+                        .collect();
+                    if candidate == signature {
+                        starts.push(j);
+                        j += len;
+                    } else {
+                        j += 1;
+                    }
+                }
+                if starts.len() >= min_repeats {
+                    for &start in &starts {
+                        consumed[start..start + len].fill(true);
+                    }
+                    groups.push(MinedGroup {
+                        verbs: signature.iter().map(|verb| verb.to_string()).collect(),
+                        matches: starts
+                            .iter()
+                            .map(|&start| seq[start..start + len].to_vec())
+                            .collect(),
+                    });
+                    i = starts[0] + len;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        groups
+    }
+
+    fn group_evidence(groups: Vec<MinedGroup>) -> Vec<(Vec<String>, Vec<Vec<String>>)> {
+        groups
+            .into_iter()
+            .map(|group| {
+                (
+                    group.verbs,
+                    group
+                        .matches
+                        .into_iter()
+                        .map(|calls| calls.into_iter().map(|call| call.call_id).collect())
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn indexed_miner_preserves_overlap_and_minimum_repeat_behavior() {
+        let fixtures: &[(&[&str], usize, usize)] = &[
+            (&["a", "a", "a", "a", "a", "a"], 2, 3),
+            (&["a", "b", "a", "b", "c", "d", "c", "d"], 2, 3),
+            (&["a", "b", "x", "a", "b", "a", "b", "x", "a", "b"], 2, 3),
+            (
+                &["a", "b", "c", "a", "b", "c", "d", "e", "d", "e", "a", "b"],
+                2,
+                3,
+            ),
+            (&["a", "b", "a", "b"], 3, 2),
+        ];
+        for &(verbs, min_repeats, max_len) in fixtures {
+            let calls: Vec<_> = verbs
+                .iter()
+                .enumerate()
+                .map(|(index, verb)| mined_call(index, verb))
+                .collect();
+            assert_eq!(
+                group_evidence(mine_ngrams(&calls, min_repeats, max_len)),
+                group_evidence(reference_mine_ngrams(&calls, min_repeats, max_len)),
+                "fixture: {verbs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn indexed_miner_handles_ten_thousand_varied_calls_without_proposals() {
+        let calls: Vec<_> = (0..10_000)
+            .map(|index| mined_call(index, &format!("unique-verb-{index}")))
+            .collect();
+        assert!(mine_ngrams(&calls, 3, 6).is_empty());
     }
 }

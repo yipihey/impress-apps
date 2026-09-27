@@ -2590,3 +2590,40 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   tests passed after the final logging change. The generated-reference-docs
   checker is run after committing, because it treats staged generated pages as
   dirty even when they match the generator output.
+
+- 2026-09-27 — **W4 integrated G7c after PR #118 landed on main.** Fresh
+  `origin/main` (`8d102646`) merged without rebasing. G7c's four-verb
+  `perf-service`, `perf` Console bridge, and scoped surface Tier A fixture
+  remain intact; W4's proposal logs use the already bridged `verb` category.
+  The full `semantic-search` census gave 475 verbs, 1,059 arguments (704
+  required), 122 described arguments, 80 strict verbs, and 949 scalar
+  arguments; the coverage totals were set from that dump. Reference pages
+  were regenerated with the existing default-feature generator (44 pages).
+
+  Review found the miner rescanned the remaining call history for each
+  candidate, which is quadratic on varied large histories. It now indexes
+  fixed-length verb windows once and processes each signature in earliest
+  start order, filtering consumed spans after a longer/earlier match. A
+  test-only reference of the old scan agrees on deterministic overlapping and
+  minimum-repeat fixtures, and a 10,000-call varied history produces no
+  spurious proposal. The store-service test for the `IMPRESS_STORE_PATH`
+  override now restores its caller's value with a drop guard and uses its own
+  temporary path. This prevents later tests in one process from falling back
+  to the user's default store.
+
+  **Verification:** fmt; clippy rest and imprint; source verb coverage;
+  strict kit dependencies; standalone kit (21 crates); UniFFI (8 bindings);
+  schema refs (403 sites, 85 refs); and `cargo hakari generate --diff` passed.
+  The combined touched-crate/capabilities suite, including the surface and
+  store FFI crates, passed 487 tests (0 failed, 3 ignored) with
+  `IMPRESS_STORE_PATH`, `IMBIB_STORE_PATH`, and `IMPRESS_WORKSPACE` set to
+  `/tmp/impress-w4-g7c-tests.sQ5WYZ`; it includes the repaired override test.
+  Earlier W4 test runs did not carry those process-wide overrides, so their
+  isolation is unverified; the final run is the acceptance evidence. Full
+  store and imbib-verbs xcframework rebuilds passed all three arm64 slices
+  each, with `--fast` unused, swiftformat unavailable, and generated Swift
+  bindings unchanged. Gate output is under `/tmp/impress-w4-g7c-*.log`;
+  framework output is `/tmp/impress-w4-store-build.log` and
+  `/tmp/impress-w4-imbib-verbs-build.log`. The generated-reference-docs
+  checker runs after the commit because it considers staged generated files
+  dirty even when they match the generator output.

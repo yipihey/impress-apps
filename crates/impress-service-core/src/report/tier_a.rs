@@ -28,7 +28,7 @@
 //! network, a device, a subprocess) keeps its exception in the effects
 //! table with a `tier = b`/`needs app` reason; this runner never touches it.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -66,8 +66,21 @@ pub struct ExampleResult {
 
 /// How long a single example may run before this runner calls it a failure.
 /// Generous: this is a correctness check, not the `budget_ms` performance
-/// gate (P1's `VerbDescriptor::budget_ms`, not yet declared on any verb).
+/// gate below.
 const EXAMPLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The multiplier this runner applies to a verb's declared `budget_ms`
+/// before failing an example on it (D-P2). Chosen over a re-run: the
+/// self-hosted runners are oversubscribed and shared
+/// (`docs/self-hosted-runners.md`, impress-mac-3/-4 capped off) — a re-run
+/// on the same loaded box would likely be slow again, costing wall-clock
+/// twice for the same false positive, where a slack factor pays the cost
+/// once and still catches a *real* regression (one that blows the budget by
+/// more than the slack, not just crosses it under load). `3` is generous
+/// enough that a verb whose budget was measured on a quiet machine does not
+/// flake under a loaded CI runner, while a genuine several-times-over
+/// regression still fails.
+const BUDGET_SLACK_FACTOR: u32 = 3;
 
 /// Run every example of one Tier A-eligible verb, checking `expect` where
 /// given. Does nothing (returns an empty vec) for a verb outside Tier A —
@@ -96,7 +109,8 @@ async fn run_one(v: &'static VerbDescriptor, ex: &Example) -> Outcome {
         v,
         crate::pipeline::Call::new(crate::pipeline::CallerIdentity::system("tier-a"), args),
     );
-    match tokio::time::timeout(EXAMPLE_TIMEOUT, call).await {
+    let started = Instant::now();
+    let outcome = match tokio::time::timeout(EXAMPLE_TIMEOUT, call).await {
         Err(_) => Outcome::Failed(format!(
             "`{}` example `{}` did not finish in {:?}",
             v.name, ex.name, EXAMPLE_TIMEOUT
@@ -124,7 +138,25 @@ async fn run_one(v: &'static VerbDescriptor, ex: &Example) -> Outcome {
                 Outcome::Passed { result }
             }
         }
+    };
+    // D-P2: a Tier A example whose verb declares `budget_ms` fails when it
+    // blows that budget by more than `BUDGET_SLACK_FACTOR` — checked after
+    // (never instead of) correctness, so a failing example is reported for
+    // failing, not for running long while broken.
+    if outcome.is_pass() {
+        if let Some(budget_ms) = v.budget_ms {
+            let elapsed_us = started.elapsed().as_micros() as u64;
+            let ceiling_ms = budget_ms.saturating_mul(u64::from(BUDGET_SLACK_FACTOR));
+            if elapsed_us > ceiling_ms.saturating_mul(1_000) {
+                return Outcome::Failed(format!(
+                    "`{}` example `{}` took {elapsed_us}us, over its {budget_ms}ms budget \
+                     (even with {BUDGET_SLACK_FACTOR}x CI slack, ceiling {ceiling_ms}ms)",
+                    v.name, ex.name
+                ));
+            }
+        }
     }
+    outcome
 }
 
 /// Whether `actual` matches the shape `expected` describes. This is a
@@ -185,5 +217,93 @@ mod tests {
             &serde_json::json!({"x": [1, 2, 3], "extra": true})
         ));
         assert!(!shape_matches(&expected, &serde_json::json!({"x": [1, 2]})));
+    }
+
+    use crate::descriptor::{Effects, Safety, SafetyClass, Source};
+    use crate::ServiceFuture;
+
+    fn schema() -> Value {
+        serde_json::json!({})
+    }
+
+    fn instant_ok(_: Value) -> ServiceFuture {
+        Box::pin(async { Ok(serde_json::json!({"ok": true})) })
+    }
+
+    fn slow_ok(_: Value) -> ServiceFuture {
+        Box::pin(async {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            Ok(serde_json::json!({"ok": true}))
+        })
+    }
+
+    fn budgeted_verb(
+        name: &'static str,
+        budget_ms: Option<u64>,
+        handler: fn(Value) -> ServiceFuture,
+    ) -> VerbDescriptor {
+        VerbDescriptor {
+            name,
+            service: "tier-a-budget-test",
+            method: "x",
+            description: "d",
+            input_schema: schema,
+            output_schema: schema,
+            safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effects: Effects::NONE,
+            since: "0.1.0",
+            deprecated: None,
+            aliases: &[],
+            examples: &[Example {
+                name: "default",
+                args: "{}",
+                expect: None,
+            }],
+            strict: false,
+            budget_ms,
+            source: Source::Linked,
+            handler,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_example_over_budget_even_with_slack_fails() {
+        static VERB: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        let verb = VERB.get_or_init(|| budgeted_verb("tier-a-budget-test_slow", Some(1), slow_ok));
+        let results = run_verb(verb).await;
+        assert_eq!(results.len(), 1);
+        assert!(
+            !results[0].outcome.is_pass(),
+            "a call several times over a 1ms budget must fail, not just log"
+        );
+        if let Outcome::Failed(message) = &results[0].outcome {
+            assert!(message.contains("budget"), "{message}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_example_inside_budget_passes() {
+        static VERB: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        let verb =
+            VERB.get_or_init(|| budgeted_verb("tier-a-budget-test_fast", Some(1_000), instant_ok));
+        let results = run_verb(verb).await;
+        assert_eq!(results.len(), 1);
+        assert!(results[0].outcome.is_pass());
+    }
+
+    #[tokio::test]
+    async fn no_budget_declared_means_no_ceiling() {
+        static VERB: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        let verb =
+            VERB.get_or_init(|| budgeted_verb("tier-a-budget-test_unbudgeted", None, slow_ok));
+        let results = run_verb(verb).await;
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].outcome.is_pass(),
+            "no budget_ms means no ceiling, however long the call took"
+        );
     }
 }

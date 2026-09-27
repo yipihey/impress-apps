@@ -662,6 +662,7 @@ mod collision_tests {
             aliases: &[],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: crate::Source::Linked,
             handler: apply,
         }
