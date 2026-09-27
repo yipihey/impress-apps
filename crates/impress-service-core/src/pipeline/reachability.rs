@@ -141,7 +141,8 @@ pub fn unavailable_reason(name: &str) -> Option<String> {
     Some(reason_text(app, name))
 }
 
-pub(crate) fn reason_text(app: &str, name: &str) -> String {
+/// Describe an app availability refusal consistently across entry paths.
+pub fn reason_text(app: &str, name: &str) -> String {
     format!(
         "{app} is not running, so {name} is unavailable. This capability \
          lives in the app rather than the shared store. Open {app} and try again."

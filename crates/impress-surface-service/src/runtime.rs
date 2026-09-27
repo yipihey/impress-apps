@@ -15,7 +15,7 @@
 //!
 //! `impress-capabilities` is the one crate meant to link every
 //! `#[impress_service]` trait — but this crate cannot depend on it (nor on
-//! `impress-capabilities-kit`): both already depend on
+//! `impress-capabilities`): both already depend on
 //! `impress-surface-service` itself, and a dependency back would be a cycle.
 //! [`call_verb`] therefore runs through `impress_service_core::call`, the one
 //! copy of "find the descriptor, run its handler" both of those re-export

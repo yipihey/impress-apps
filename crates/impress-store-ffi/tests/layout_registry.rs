@@ -1,7 +1,7 @@
 //! Review RL-L10: one app process, one layout session registry.
 //!
 //! The window's `SharedLayout` and every in-process inventory call of a
-//! `layout-service` verb (a surface effect, `impress_capabilities_kit::call`)
+//! `layout-service` verb (a surface effect, `impress_capabilities::call`)
 //! must share one registry. With two, both wrote the same row through the same
 //! connection — so `data_version` never moved — and each wrote its own stale
 //! tree over the other's.
@@ -57,7 +57,7 @@ fn an_inventory_verb_lands_in_the_windows_session_and_tells_it() {
         .expect("subscribe");
 
     // What an agent's verb, or a surface's `open` effect, does in-process.
-    let answer = impress_capabilities_kit::call(
+    let answer = impress_capabilities::call(
         "layout-service_split",
         serde_json::json!({
             "app_id": "registry-test",

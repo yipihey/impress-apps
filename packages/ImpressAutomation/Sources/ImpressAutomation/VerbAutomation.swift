@@ -138,6 +138,9 @@ public enum VerbAutomationRoutes {
         if let traceparent = request.headers["traceparent"], !traceparent.isEmpty {
             caller["trace_id"] = traceparent
         }
+        if let parent = request.headers["x-impress-parent-call"], !parent.isEmpty {
+            caller["parent_call"] = parent
+        }
         return (try? JSONSerialization.data(withJSONObject: caller))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"kind\":\"app\"}"
     }

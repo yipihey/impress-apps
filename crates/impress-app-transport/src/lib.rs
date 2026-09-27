@@ -25,11 +25,115 @@
 pub mod ports;
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use impress_service_core::refusal::{codes, Refusal};
 use serde_json::Value;
+
+use impress_service_core::pipeline::{self, context, reachability, transport};
+
+/// Install the one app transport for a client process. App-owned FFI entry
+/// points use their native backend; they do not install this client router.
+pub fn install(store_fallback: bool) {
+    transport::install(Arc::new(AppRouter { store_fallback }));
+    reachability::install(reachability::Config {
+        probe: Arc::new(|app: &str| cached_reachability(app).unwrap_or(true)),
+        store_fallback,
+        list_all: std::env::var("IMPRESS_MCP_LIST_ALL").as_deref() == Ok("1"),
+    });
+}
+
+fn backend_mode(app: &str) -> String {
+    std::env::var(format!("{}_BACKEND", app.to_uppercase())).unwrap_or_else(|_| "auto".into())
+}
+
+/// Probe an app with the same cache and overrides used by invocation.
+pub async fn probe_app(app: &str) -> bool {
+    if matches!(backend_mode(app).as_str(), "off" | "sqlite") {
+        return false;
+    }
+    match ports::base_url(app) {
+        Some(base) => is_reachable(app, &base).await,
+        None => false,
+    }
+}
+
+/// Startup/FFI helper for callers outside a Tokio runtime.
+pub fn probe_app_blocking(app: &str) -> bool {
+    impress_service_core::runtime::block_on(probe_app(app))
+}
+
+pub fn cached_reachability(app: &str) -> Option<bool> {
+    if matches!(backend_mode(app).as_str(), "off" | "sqlite") {
+        return Some(false);
+    }
+    let base = ports::base_url(app)?;
+    let cached = states().lock().unwrap();
+    let entry = cached.get(&(app.to_string(), base))?;
+    (entry.at.elapsed() < REPROBE_COOLDOWN).then_some(entry.verdict == Verdict::Up)
+}
+
+struct AppRouter {
+    store_fallback: bool,
+}
+
+fn refusal_value(refusal: Refusal) -> Value {
+    serde_json::json!({
+        "ok": false, "code": refusal.code, "message": refusal.message,
+        "wire_version": impress_service_core::wire::WIRE_VERSION,
+    })
+}
+
+impl transport::Router for AppRouter {
+    fn route(
+        &self,
+        verb: &'static impress_service_core::VerbDescriptor,
+        args: Value,
+    ) -> transport::RouteFuture {
+        let call = context::current();
+        let store_fallback = self.store_fallback;
+        Box::pin(async move {
+            let app = reachability::owner_of(verb.name)?;
+            // A scenario's explicit scratch store and an app serving its own
+            // HTTP request must never be redirected to another process.
+            if call.as_ref().is_some_and(|call| {
+                call.store_override.is_some()
+                    || matches!(&call.caller, pipeline::CallerIdentity::App(owner) if owner == app)
+            }) {
+                return None;
+            }
+            // An explicit store selection is authoritative for store-backed
+            // verbs. App-only verbs still require their owning process.
+            if store_fallback
+                && reachability::gated_app(verb.name).is_none()
+                && (std::env::var_os("IMPRESS_STORE_PATH").is_some()
+                    || std::env::var_os("IMBIB_STORE_PATH").is_some())
+            {
+                return None;
+            }
+            if !probe_app(app).await {
+                if store_fallback
+                    && reachability::gated_app(verb.name).is_none()
+                    && backend_mode(app) != "http"
+                {
+                    return None;
+                }
+                return Some(Ok(refusal_value(Refusal::new(
+                    codes::HOST_UNAVAILABLE,
+                    format!("{app} is unavailable for {}", verb.name),
+                ))));
+            }
+            let trace = call.as_ref().map(|call| call.trace_id.as_str());
+            Some(Ok(
+                match call_with_trace(app, verb.name, args, trace).await {
+                    Ok(value) => value,
+                    Err(refusal) => refusal_value(refusal),
+                },
+            ))
+        })
+    }
+}
 
 /// How long a probe itself may take before the app is treated as down.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -55,8 +159,8 @@ struct AppState {
     at: Instant,
 }
 
-fn states() -> &'static Mutex<HashMap<String, AppState>> {
-    static STATES: OnceLock<Mutex<HashMap<String, AppState>>> = OnceLock::new();
+fn states() -> &'static Mutex<HashMap<(String, String), AppState>> {
+    static STATES: OnceLock<Mutex<HashMap<(String, String), AppState>>> = OnceLock::new();
     STATES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -100,16 +204,28 @@ fn probe_client() -> reqwest::Client {
 /// probe (impel-tools' "an app that was up and has since quit" case) can
 /// call it directly; [`call`] calls it itself.
 pub async fn is_reachable(app: &str, base_url: &str) -> bool {
+    // Serialize only probes for this endpoint. A burst against a closed app
+    // pays one timeout, while unrelated apps can still be probed concurrently.
+    type ProbeLocks = Mutex<HashMap<(String, String), Arc<tokio::sync::Mutex<()>>>>;
+    static LOCKS: OnceLock<ProbeLocks> = OnceLock::new();
+    let probe_lock = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap()
+        .entry((app.to_string(), base_url.to_string()))
+        .or_default()
+        .clone();
+    let _probe = probe_lock.lock().await;
     {
         let cached = states().lock().unwrap();
-        if let Some(state) = cached.get(app) {
+        if let Some(state) = cached.get(&(app.to_string(), base_url.to_string())) {
             if state.at.elapsed() < REPROBE_COOLDOWN {
                 return state.verdict == Verdict::Up;
             }
         }
     }
     let up = probe(base_url).await;
-    record(app, up);
+    record(app, base_url, up);
     up
 }
 
@@ -123,10 +239,10 @@ async fn probe(base_url: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn record(app: &str, up: bool) {
+fn record(app: &str, base_url: &str, up: bool) {
     let mut cached = states().lock().unwrap();
     cached.insert(
-        app.to_string(),
+        (app.to_string(), base_url.to_string()),
         AppState {
             verdict: if up { Verdict::Up } else { Verdict::Down },
             at: Instant::now(),
@@ -145,8 +261,8 @@ fn record(app: &str, up: bool) {
 /// `app` is looked up in [`ports`]; an app this crate does not know is
 /// `not-found`, not a panic. A transport failure (connection refused, a
 /// timeout) is `host-unavailable` and also flips this app's cached
-/// reachability to down, so the very next call re-probes rather than
-/// retrying the same dead socket (TR-3).
+/// reachability to down, so subsequent calls refuse during the cooldown
+/// rather than retrying the same dead socket (TR-3).
 pub async fn call(app: &str, verb: &str, args: Value) -> Result<Value, Refusal> {
     call_with_trace(app, verb, args, None).await
 }
@@ -179,9 +295,12 @@ pub async fn call_with_trace(
         .map(str::to_string)
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     builder = builder.header("traceparent", traceparent);
+    if let Some(call) = context::current() {
+        builder = builder.header("x-impress-parent-call", &call.call_id);
+    }
 
     let response = builder.send().await.map_err(|error| {
-        record(app, false);
+        record(app, &base_url, false);
         Refusal::new(codes::HOST_UNAVAILABLE, format!("{app}/{verb}: {error}"))
     })?;
 
@@ -223,7 +342,7 @@ mod tests {
     use serde_json::json;
 
     fn reset_state(app: &str) {
-        states().lock().unwrap().remove(app);
+        states().lock().unwrap().retain(|(name, _), _| name != app);
     }
 
     #[tokio::test]

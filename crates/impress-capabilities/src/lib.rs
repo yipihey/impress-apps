@@ -32,15 +32,10 @@
 //! gates two: `imprint-service` and `imprint-selftest` are one capability
 //! family). `full` (the default) is every domain feature plus `kit`, for
 //! `impress-mcp` and `impress-cli`, which must see everything. `kit` is the
-//! ADR-0033 D7 standalone cut — store, layout and the two surface crates —
-//! and is a single dependency on `impress-capabilities-kit`, which holds
-//! those four crates directly (see that crate's module docs for why they
-//! live there and not here: `impress-store-ffi`, the crate `kit` exists for,
-//! cannot depend on this crate at all without a package cycle). This crate
-//! re-exports `impress-capabilities-kit`'s [`descriptors`], [`find`],
-//! [`call`], [`call_async`] and [`CallError`] behind the `kit` feature so
-//! every existing caller (`impress-mcp`'s `inventory_bridge`,
-//! `impress-cli`) compiles unchanged.
+//! ADR-0033 D7 standalone cut — store, layout and the two surface crates.
+//! Native bindings select `default-features = false, features = ["kit"]`;
+//! clients select their domain features or `full`. Domain services use the
+//! Rust store directly, so the FFI no longer needs a separate inventory crate.
 
 #![forbid(unsafe_code)]
 
@@ -124,27 +119,29 @@ use imbib_semantic_service as _force_link_imbib_semantic_service;
 /// own dispatch reads the process-wide `CliSubcommand` inventory through
 /// `impress_service_core::cli` rather than through anything this crate
 /// exports, so without an explicit call it would make no reference to
-/// `impress-capabilities` at all. Delegates to
-/// [`impress_capabilities_kit::force_link`] (behind the `kit` feature) for
-/// the four kit crates, on top of the domain `use X as _;` links above — its
-/// own body does nothing else observable; its only job is to exist as a
-/// real, callable symbol.
+/// this inventory at all.
 pub fn force_link() {
     #[cfg(feature = "kit")]
-    impress_capabilities_kit::force_link();
+    {
+        // Real relocations retain kit registrations even when no caller
+        // otherwise names their constructors (the S6 surface-demo regression).
+        let anchors: [*const (); 4] = [
+            impress_store_service::DefaultStoreQueryService::new as *const (),
+            impress_layout_service::DefaultLayoutService::new as *const (),
+            impress_surface_service::DefaultImpressSurfaceService::new as *const (),
+            surface_demo_service::DefaultSurfaceDemoService::new as *const (),
+        ];
+        std::hint::black_box(anchors);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Descriptor lookup and call
 // ---------------------------------------------------------------------------
 //
-// Moved to `impress-capabilities-kit` (ADR-0033 D7 / plan S6) so
-// `impress-store-ffi` can call them without depending on this crate at all —
-// see that crate's module docs for why. Re-exported here, verbatim, behind
-// the `kit` feature so every existing caller (`impress-mcp`'s
-// `inventory_bridge`, `impress-cli`) compiles unchanged.
-#[cfg(feature = "kit")]
-pub use impress_capabilities_kit::{
+// Lookup and calls belong to service-core so every invocation uses the
+// same pipeline, including a kit-only embedding.
+pub use impress_service_core::call::{
     call, call_as, call_async, call_async_as, descriptors, find, CallError,
 };
 
@@ -157,6 +154,15 @@ mod tests {
     /// an empty inventory here would mean every service crate's features
     /// silently failed to enable, the exact failure this crate exists to
     /// prevent.
+    #[cfg(feature = "kit")]
+    #[test]
+    fn kit_force_link_keeps_surface_demo_and_surface_verbs() {
+        force_link();
+        assert!(find("impress-surface-service_surface-schema").is_some());
+        let answer = call("surface-demo-service_series", json!({"freq":1.0,"n":16})).unwrap();
+        assert_eq!(answer["values"].as_array().unwrap().len(), 16);
+    }
+
     #[test]
     fn descriptors_are_non_empty() {
         assert!(

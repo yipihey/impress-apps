@@ -71,135 +71,31 @@ pub enum ToolError {
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// What the last probe of each app found, and when. Not a `OnceLock`: an app
-/// started AFTER the first probe stayed `Unavailable` for the life of the
-/// process — impress launched two seconds after imbib read "unavailable"
-/// until impress itself was relaunched (Mac, 2026-09-23) — so [`call_tool`]
-/// re-probes an unavailable app on demand, at most once per
-/// [`REPROBE_COOLDOWN`] PER APP (review RS-S19: one shared timestamp let a
-/// re-probe of imprint reset imbib's cooldown). And an app that was up and
-/// has since quit is found out the same way: a failed call re-probes its app
-/// at once, and a failed probe flips it to `Unavailable` — so its tools stop
-/// being advertised and its calls answer [`ToolError::AppUnavailable`], not
-/// a transport error, whatever order the apps were launched in.
-static BACKENDS: std::sync::RwLock<Option<Probed>> = std::sync::RwLock::new(None);
+/// Configuration is explicit: an unconfigured host never probes siblings or
+/// silently runs their store-backed defaults. Verdicts and cooldowns live only
+/// in AppTransport; this flag records whether the host authorized routing.
+static CONFIGURED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Set while one caller probes an app, so a burst of calls against a closed
-/// app pays the probe once, not once per caller.
-static PROBING_IMBIB: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static PROBING_IMPRINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[derive(Clone)]
-struct Probed {
-    backends: ToolBackends,
-    imbib_at: std::time::Instant,
-    imprint_at: std::time::Instant,
-}
-
-impl Probed {
-    fn at(&self, app: &str) -> std::time::Instant {
-        if app == "imprint" {
-            self.imprint_at
-        } else {
-            self.imbib_at
-        }
-    }
-}
-
-/// How long an `Unavailable` verdict stands before a call may re-probe. One
-/// second is what the probe itself costs, so a burst of calls against a
-/// closed app must not pay it every time; a minute is the rate the plan
-/// asks for, and is short enough that an app launched after impress is
-/// reachable on the next call a user makes rather than after a relaunch.
-const REPROBE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Point the service traits at the running sibling apps and report what
-/// installed. Call once, before `call_tool`.
-///
-/// **Why the result matters.** `maybe_install_http_backend` falls back to the
-/// default SQLite backend when its probe fails, and that fallback is silent.
-/// impel writing the shared store directly would bypass every in-memory cache
-/// in the running imbib and imprint — the failure class `apps/imbib/CLAUDE.md`
-/// warns about, and one that shows up as stale UI long after the write. So a
-/// failed probe is recorded as [`Backend::Unavailable`] and `call_tool` refuses
-/// that app's tools outright. Falling back is never the quiet default.
-///
-/// Passing `None` for a URL leaves the corresponding env var alone, letting the
-/// probe use its own default port.
+/// Configure the shared transport and report the two sibling app backends.
+/// Passing `None` preserves the environment's URL override and default port.
 #[uniffi::export]
 pub fn configure(imbib_url: Option<String>, imprint_url: Option<String>) -> ToolBackends {
-    install_gate();
-    if let Some(existing) = BACKENDS.read().ok().and_then(|g| g.clone()) {
-        return existing.backends;
-    }
-    if let Some(url) = imbib_url {
-        std::env::set_var("IMBIB_HTTP_URL", url);
-    }
-    if let Some(url) = imprint_url {
-        std::env::set_var("IMPRINT_HTTP_URL", url);
-    }
-    let now = std::time::Instant::now();
-    let probed = Probed {
-        backends: ToolBackends {
-            imbib: backend_of(imbib_service_http::maybe_install_http_backend()),
-            imprint: backend_of(imprint_service_http::maybe_install_http_backend()),
-        },
-        imbib_at: now,
-        imprint_at: now,
-    };
-    if let Ok(mut slot) = BACKENDS.write() {
-        *slot = Some(probed.clone());
-    }
-    probed.backends
-}
-
-/// Re-probe `app` if its backend is `Unavailable` and ITS cooldown has
-/// passed. Returns the (possibly updated) verdicts. `configure` must have run
-/// once — an unconfigured process stays refused, as before.
-fn reprobe_if_unavailable(app: &str) -> ToolBackends {
-    let Some(current) = BACKENDS.read().ok().and_then(|g| g.clone()) else {
-        return backends();
-    };
-    let stale = backend_for(app, &current.backends) == Some(Backend::Unavailable);
-    if !stale || current.at(app).elapsed() < REPROBE_COOLDOWN {
-        return current.backends;
-    }
-    probe(app).unwrap_or(current.backends)
-}
-
-/// Probe `app` now and record the verdict and its time. `None` when another
-/// caller is already probing it (that caller records the answer).
-fn probe(app: &str) -> Option<ToolBackends> {
-    use std::sync::atomic::Ordering;
-    let flag = match app {
-        "imbib" => &PROBING_IMBIB,
-        "imprint" => &PROBING_IMPRINT,
-        _ => return None,
-    };
-    if flag.swap(true, Ordering::SeqCst) {
-        return None;
-    }
-    let verdict = match app {
-        "imbib" => backend_of(imbib_service_http::maybe_install_http_backend()),
-        _ => backend_of(imprint_service_http::maybe_install_http_backend()),
-    };
-    let updated = BACKENDS.write().ok().and_then(|mut slot| {
-        let probed = slot.as_mut()?;
-        let now = std::time::Instant::now();
-        match app {
-            "imbib" => {
-                probed.backends.imbib = verdict;
-                probed.imbib_at = now;
-            }
-            _ => {
-                probed.backends.imprint = verdict;
-                probed.imprint_at = now;
-            }
+    static CONFIGURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = CONFIGURE.lock().unwrap_or_else(|error| error.into_inner());
+    if !CONFIGURED.load(std::sync::atomic::Ordering::Acquire) {
+        if let Some(url) = imbib_url {
+            std::env::set_var("IMPRESS_IMBIB_HTTP_URL", url);
         }
-        Some(probed.backends.clone())
-    });
-    flag.store(false, Ordering::SeqCst);
-    updated
+        if let Some(url) = imprint_url {
+            std::env::set_var("IMPRESS_IMPRINT_HTTP_URL", url);
+        }
+        impress_app_transport::install(false);
+        CONFIGURED.store(true, std::sync::atomic::Ordering::Release);
+    }
+    ToolBackends {
+        imbib: backend_of(impress_app_transport::probe_app_blocking("imbib")),
+        imprint: backend_of(impress_app_transport::probe_app_blocking("imprint")),
+    }
 }
 
 fn backend_for(app: &str, backends: &ToolBackends) -> Option<Backend> {
@@ -210,26 +106,21 @@ fn backend_for(app: &str, backends: &ToolBackends) -> Option<Backend> {
     }
 }
 
-fn backend_of(http_installed: bool) -> Backend {
-    if http_installed {
+fn backend_of(reachable: bool) -> Backend {
+    if reachable {
         Backend::Http
     } else {
         Backend::Unavailable
     }
 }
 
-/// What `configure` decided, or everything [`Backend::Unavailable`] if it was
-/// never called — refusing by default is the safe direction.
+/// Listing refreshes through the same bounded, cached probe as invocation.
 fn backends() -> ToolBackends {
-    BACKENDS
-        .read()
-        .ok()
-        .and_then(|g| g.clone())
-        .map(|p| p.backends)
-        .unwrap_or(ToolBackends {
-            imbib: Backend::Unavailable,
-            imprint: Backend::Unavailable,
-        })
+    let configured = CONFIGURED.load(std::sync::atomic::Ordering::Acquire);
+    ToolBackends {
+        imbib: backend_of(configured && impress_app_transport::probe_app_blocking("imbib")),
+        imprint: backend_of(configured && impress_app_transport::probe_app_blocking("imprint")),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +134,7 @@ fn backends() -> ToolBackends {
 /// they need the fastembed model, which impel has no reason to carry.
 #[uniffi::export]
 pub fn list_tools() -> Vec<ToolDescriptor> {
+    impress_capabilities::force_link();
     McpToolDescriptor::iter()
         .map(|d| ToolDescriptor {
             name: d.name.to_string(),
@@ -292,27 +184,6 @@ fn app_of(name: &str) -> Option<&'static str> {
         .filter(|app| matches!(*app, "imbib" | "imprint"))
 }
 
-/// Make this crate's backend table the pipeline's reachability probe
-/// (plan-verb-pipeline PL-2). `store_fallback: false`: inside an app, an
-/// owned verb whose app is down is refused, never run against the shared
-/// store behind the running app's back. An app that was closed at the
-/// first probe may be up now, so the probe asks again, rate-limited, before
-/// refusing (see `BACKENDS`).
-fn install_gate() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        impress_service_core::pipeline::reachability::install(
-            impress_service_core::pipeline::reachability::Config {
-                probe: std::sync::Arc::new(|app: &str| {
-                    backend_for(app, &reprobe_if_unavailable(app)) == Some(Backend::Http)
-                }),
-                store_fallback: false,
-                list_all: false,
-            },
-        );
-    });
-}
-
 fn app_backend(name: &str, backends: &ToolBackends) -> Option<Backend> {
     backend_for(app_of(name)?, backends)
 }
@@ -337,16 +208,19 @@ fn is_available(name: &str, backends: &ToolBackends) -> bool {
 /// code. There is no second implementation to drift.
 #[uniffi::export]
 pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
+    impress_capabilities::force_link();
     let descriptor = McpToolDescriptor::iter()
         .find(|d| d.name == name)
         .ok_or_else(|| ToolError::UnknownTool { name: name.clone() })?;
 
-    // Refusing before the handler runs — with no HTTP backend installed the
-    // call would silently operate on the shared store instead of the app —
-    // is the pipeline's reachability layer, configured below with this
-    // crate's re-probing backend table and NO store fallback (the one
-    // difference between a process inside an app and the MCP server).
-    install_gate();
+    if let Some(app) = app_of(&name) {
+        if !CONFIGURED.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(ToolError::AppUnavailable {
+                app: app.to_string(),
+                name,
+            });
+        }
+    }
 
     // MCP clients may omit arguments entirely; handlers deserialize from an
     // object, so an empty string and `null` both mean "no arguments".
@@ -367,6 +241,15 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
         impress_service_core::pipeline::Call::agent("impel", args),
     );
     match outcome {
+        Ok(value)
+            if value.get("code").and_then(serde_json::Value::as_str)
+                == Some("host-unavailable") =>
+        {
+            Err(ToolError::AppUnavailable {
+                app: app_of(&name).unwrap_or("app").to_string(),
+                name,
+            })
+        }
         Ok(value) => Ok(value.to_string()),
         Err(impress_service_core::pipeline::PipelineError::Unavailable { app, .. }) => {
             Err(ToolError::AppUnavailable {
@@ -374,26 +257,10 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
                 name,
             })
         }
-        Err(impress_service_core::pipeline::PipelineError::Handler(e)) => {
-            // A failed call to an app's verb may mean the app has quit since
-            // it was probed. Ask it again now: if it does not answer, it is
-            // unavailable — said as such, and no longer advertised — rather
-            // than a transport error the model would retry (review RS-S19).
-            if let Some(app) = app_of(&name) {
-                if let Some(after) = probe(app) {
-                    if backend_for(app, &after) == Some(Backend::Unavailable) {
-                        return Err(ToolError::AppUnavailable {
-                            app: app.to_string(),
-                            name,
-                        });
-                    }
-                }
-            }
-            Err(ToolError::Handler {
-                name,
-                message: e.to_string(),
-            })
-        }
+        Err(impress_service_core::pipeline::PipelineError::Handler(e)) => Err(ToolError::Handler {
+            name,
+            message: e.to_string(),
+        }),
     }
 }
 
@@ -574,69 +441,14 @@ mod tests {
 }
 
 #[cfg(test)]
-mod reprobe_tests {
+mod transport_tests {
     use super::*;
 
-    /// `BACKENDS` is process-global, so these two tests cannot run at the
-    /// same time: one seeds a verdict and the other asserts there is none.
-    /// Cargo runs them on separate threads of ONE process, and without this
-    /// they raced — `an_unconfigured_process_...` read the seeded
-    /// `imprint: Http` and failed on roughly two runs in three. Each test
-    /// takes this lock for its whole body and leaves `BACKENDS` as it found
-    /// it.
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// An unconfigured process refuses and does not probe: the pre-existing
-    /// safe direction, kept.
     #[test]
     fn an_unconfigured_process_stays_refused_without_probing() {
-        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(mut slot) = BACKENDS.write() {
-            *slot = None;
-        }
-        let verdict = reprobe_if_unavailable("imbib");
+        let verdict = backends();
         assert_eq!(verdict.imbib, Backend::Unavailable);
         assert_eq!(verdict.imprint, Backend::Unavailable);
-    }
-
-    /// Within the cooldown a verdict stands; the probe is not paid again.
-    #[test]
-    fn a_fresh_verdict_is_not_reprobed() {
-        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(mut slot) = BACKENDS.write() {
-            *slot = Some(Probed {
-                backends: ToolBackends {
-                    imbib: Backend::Unavailable,
-                    imprint: Backend::Http,
-                },
-                imbib_at: std::time::Instant::now(),
-                // imprint's probe was long ago: that must not make imbib's
-                // fresh verdict stale (RS-S19, one timestamp per app).
-                imprint_at: std::time::Instant::now() - 2 * REPROBE_COOLDOWN,
-            });
-        }
-        let before = std::time::Instant::now();
-        let verdict = reprobe_if_unavailable("imbib");
-        assert_eq!(verdict.imbib, Backend::Unavailable);
-        assert!(
-            before.elapsed() < std::time::Duration::from_millis(500),
-            "a probe (≈1 s) must not have run inside the cooldown"
-        );
-        if let Ok(mut slot) = BACKENDS.write() {
-            *slot = None;
-        }
-    }
-
-    /// A probe already in progress is not started twice: a burst of callers
-    /// against a closed app pays for one probe (RS-S19).
-    #[test]
-    fn a_probe_in_progress_is_not_repeated() {
-        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        PROBING_IMBIB.store(true, std::sync::atomic::Ordering::SeqCst);
-        let before = std::time::Instant::now();
-        assert!(probe("imbib").is_none());
-        assert!(before.elapsed() < std::time::Duration::from_millis(100));
-        PROBING_IMBIB.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[test]

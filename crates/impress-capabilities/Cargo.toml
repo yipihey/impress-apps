@@ -46,14 +46,12 @@ capabilities-service = { workspace = true, optional = true }
 # which reaches it the same way): the vw-* family has never had a workspace
 # alias, only relative `path` dependencies from each consumer.
 vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
-# The ADR-0033 D7 standalone-kit slice (store, layout, surface,
-# surface-demo) lives in its own crate so `impress-store-ffi` can depend on
-# exactly that list without depending on `impress-capabilities` itself,
-# which would be a package cycle (see `impress-capabilities-kit`'s and
-# `impress-store-ffi`'s module docs). The four kit service crates are NOT
-# direct dependencies here any more — they arrive transitively through
-# `impress-capabilities-kit`, so each is named in exactly one place.
-impress-capabilities-kit = { workspace = true, optional = true }
+# The kit is a feature of the one inventory. Native bindings select only
+# this feature; command-line hosts choose full explicitly.
+impress-layout-service = { workspace = true, optional = true }
+impress-store-service = { workspace = true, optional = true }
+impress-surface-service = { workspace = true, optional = true }
+surface-demo-service = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
 
 # The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run
@@ -81,7 +79,7 @@ tracing-subscriber = { workspace = true }
 perf = ["dep:perf-service"]
 # `full`: every capability the suite has, for the two binaries that must see
 # everything (impress-mcp, impress-cli). `kit`: the ADR-0033 D7 standalone
-# cut — store, layout and the two surface crates, via `impress-capabilities-kit`
+# cut — store, layout and the two surface crates
 # — none of the five per-app domain cores (imbib/imprint/implore/impart/impel),
 # which already ship as their own xcframeworks and must not be linked a
 # second time here.
@@ -104,7 +102,7 @@ full = [
     "perf",
     "workflow",
 ]
-kit = ["dep:impress-capabilities-kit"]
+kit = ["dep:impress-layout-service", "dep:impress-store-service", "dep:impress-surface-service", "dep:surface-demo-service"]
 scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]

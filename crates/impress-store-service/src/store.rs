@@ -40,6 +40,14 @@ pub fn default_store_path() -> PathBuf {
 /// Point the services at `path`, lazily. Call before the first service
 /// dispatch; returns `Err` if a path or store was already fixed.
 pub fn set_store_path(path: impl AsRef<Path>) -> Result<(), String> {
+    let cached = GLOBAL.lock();
+    if let Some(store) = cached.as_ref() {
+        let canonical = path
+            .as_ref()
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        checked_store_path(store, &canonical)?;
+    }
     STORE_PATH
         .set(path.as_ref().to_path_buf())
         .map_err(|_| "impress store path already set".to_string())
@@ -54,6 +62,46 @@ pub fn store_path() -> PathBuf {
 /// (injected here, or opened lazily by an earlier [`store_instance`] call).
 pub fn install_store(store: Arc<SqliteItemStore>) -> Result<(), String> {
     GLOBAL.install(store)
+}
+
+/// Bind a native domain to the GUI's exact open database, or fail before
+/// dispatch. An already-installed handle is reusable only for that same file;
+/// a stale path hint or an in-memory fallback cannot count as a match.
+pub fn install_store_at(
+    store: Arc<SqliteItemStore>,
+    path: impl AsRef<Path>,
+) -> Result<Arc<SqliteItemStore>, String> {
+    let path = path
+        .as_ref()
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    checked_store_path(&store, &path)?;
+    let mut cached = GLOBAL.lock();
+    if let Some(existing) = cached.as_ref() {
+        checked_store_path(existing, &path)?;
+    }
+    if let Some(selected) = STORE_PATH.get() {
+        let selected = selected.canonicalize().map_err(|error| error.to_string())?;
+        if selected != path {
+            return Err("impress store path already selects a different database".into());
+        }
+    } else {
+        STORE_PATH
+            .set(path)
+            .map_err(|_| "impress store path changed during initialization".to_string())?;
+    }
+    Ok(cached.get_or_insert(store).clone())
+}
+
+fn checked_store_path(store: &SqliteItemStore, expected: &Path) -> Result<(), String> {
+    let actual = store
+        .database_path()
+        .ok_or("impress store is in-memory, not the requested database")?;
+    let actual = actual.canonicalize().map_err(|error| error.to_string())?;
+    if actual != expected {
+        return Err("impress store already opened a different database".into());
+    }
+    Ok(())
 }
 
 /// Whether the store [`store_instance`] most recently handed out was the

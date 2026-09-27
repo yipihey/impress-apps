@@ -61,6 +61,9 @@ ROOT = os.getcwd()
 # regenerate. A second entry here would now demand back the duplicate that
 # change removed.
 BINDINGS = {
+    "implore-verbs-ffi": ["apps/implore/ImploreVerbsFFI/Sources/ImploreVerbsFFI/implore_verbs_ffi.swift"],
+    "impart-verbs-ffi": ["apps/impart/ImpartVerbsFFI/Sources/ImpartVerbsFFI/impart_verbs_ffi.swift"],
+    "imprint-verbs-ffi": ["apps/imprint/ImprintVerbsFFI/Sources/ImprintVerbsFFI/imprint_verbs_ffi.swift"],
     "imbib-verbs-ffi": ["apps/imbib/ImbibVerbsFFI/Sources/ImbibVerbsFFI/imbib_verbs_ffi.swift"],
     "imbib-core": ["apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift"],
     "imprint-core": [

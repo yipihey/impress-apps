@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+impress-app-transport.workspace = true
 async-trait.workspace = true
 impress-ai.workspace = true
 impress-ai-service.workspace = true

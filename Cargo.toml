@@ -63,6 +63,8 @@ members = [
     # outside the kit boundary impress-store-ffi keeps.
     "crates/implore-verbs-ffi",
     "crates/imbib-verbs-ffi",
+    "crates/imprint-verbs-ffi",
+    "crates/impart-verbs-ffi",
     "crates/impart-service",
     "crates/impart-service-http",
     "crates/impress-bridges-service",
@@ -111,7 +113,6 @@ members = [
     # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
     # surface, surface-demo) split out so impress-store-ffi can depend on it
     # without the impress-capabilities package cycle (plan-agent-surfaces.md S6)
-    "crates/impress-capabilities-kit",
     # ADR-0033 surface verbs, store records and runtime
     "crates/impress-surface-service",
     # ADR-0033 D8 demo capability: the scaffold's output and the worked example
@@ -252,7 +253,6 @@ impress-verb-surface = { path = "crates/impress-verb-surface" }
 impress-scenario = { path = "crates/impress-scenario" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
 impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
-impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
 perf-service = { path = "crates/perf-service" }
@@ -379,6 +379,8 @@ implore-service = { path = "crates/implore-service" }
 implore-service-http = { path = "crates/implore-service-http" }
 implore-verbs-ffi = { path = "crates/implore-verbs-ffi" }
 imbib-verbs-ffi = { path = "crates/imbib-verbs-ffi" }
+imprint-verbs-ffi = { path = "crates/imprint-verbs-ffi" }
+impart-verbs-ffi = { path = "crates/impart-verbs-ffi" }
 impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }

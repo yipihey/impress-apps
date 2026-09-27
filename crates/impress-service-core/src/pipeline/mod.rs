@@ -43,6 +43,7 @@ pub mod identity;
 pub mod perf;
 pub mod policy;
 pub mod reachability;
+pub mod transport;
 
 use std::sync::{Arc, Once};
 use std::time::Instant;
@@ -235,10 +236,17 @@ fn prepare(
 
     // 3. reachability.
     if let Some(app) = reachability::unavailable_app(verb.name) {
-        return Err(PipelineError::Unavailable {
-            app,
-            verb: verb.name,
-        });
+        // A native request is already executing inside its owning app. A
+        // client router co-linked in that process must not gate it on a
+        // second probe (or send it back over HTTP to itself).
+        // A scenario with an explicit store also runs locally, independent
+        // of the client's process-wide app availability configuration.
+        if store.is_none() && !matches!(&caller, CallerIdentity::App(owner) if owner == app) {
+            return Err(PipelineError::Unavailable {
+                app,
+                verb: verb.name,
+            });
+        }
     }
 
     // 4. policy.
@@ -423,7 +431,15 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
 
 /// Run `verb` through the chain with its own handler as the handler step.
 pub async fn invoke(verb: &'static VerbDescriptor, call: Call) -> Result<Value, PipelineError> {
-    invoke_with(verb, call, verb.handler).await
+    invoke_with(verb, call, |args| async move {
+        if let Some(router) = transport::current() {
+            if let Some(result) = router.route(verb, args.clone()).await {
+                return result;
+            }
+        }
+        (verb.handler)(args).await
+    })
+    .await
 }
 
 /// Run `verb` through the chain on `store` instead of the process-wide

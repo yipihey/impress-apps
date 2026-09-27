@@ -76,27 +76,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing_subscriber::registry().with(impress_service_core::pipeline::perf::layer());
         let _ = tracing::subscriber::set_global_default(subscriber);
     }
-    // Phase A/B/C: try the HTTP backend first (lets us drive the live store
-    // through the running imbib macOS app, bypassing macOS TCC restrictions
-    // on the sandboxed group container). Falls back silently to SQLite.
-    // The probes double as a reachability record: tools that only work while
-    // their app is running are withheld from tools/list when it is not, rather
-    // than advertised and answering with an empty list.
-    let imbib = imbib_service_http::maybe_install_http_backend();
-    // Phase E: same dance for imprint (port 23121).
-    let imprint = imprint_service_http::maybe_install_http_backend();
-    let implore = implore_service_http::maybe_install_http_backend();
-    let impart = impart_service_http::maybe_install_http_backend();
-    reachability::record(reachability::Reachable {
-        imbib,
-        imprint,
-        implore,
-        impart,
-    });
+    impress_app_transport::install(true);
+    reachability::refresh();
 
     let args: Vec<String> = std::env::args().collect();
 
-    let mut store_path = default_main_store_path();
+    let mut store_path = std::env::var_os("IMPRESS_STORE_PATH")
+        .or_else(|| std::env::var_os("IMBIB_STORE_PATH"))
+        .map(PathBuf::from)
+        .unwrap_or_else(default_main_store_path);
 
     // Parse CLI overrides
     let mut i = 1;
@@ -123,6 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--store-path" => {
                 i += 1;
                 store_path = PathBuf::from(args.get(i).expect("Missing value for --store-path"));
+                std::env::set_var("IMPRESS_STORE_PATH", &store_path);
             }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);

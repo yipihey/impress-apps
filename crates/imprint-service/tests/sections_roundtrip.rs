@@ -4,6 +4,7 @@
 //! used in unit tests) so we exercise the full open / persist / re-open path
 //! plus the on-disk content-addressed blob store.
 
+use impress_core::store::ItemStore;
 use imprint_service::{BlobStore, SectionMetadata, SectionStore, LARGE_BODY_THRESHOLD};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -174,7 +175,10 @@ fn sections_are_written_under_the_bare_ref_the_swift_readers_query() {
 
     // What the Swift readers ask for TODAY. Must be non-empty.
     let live = shared
-        .query_by_schema("manuscript-section".to_string(), 100, 0)
+        .query(&impress_core::query::ItemQuery {
+            schema: Some("manuscript-section".into()),
+            ..Default::default()
+        })
         .unwrap();
     assert_eq!(
         live.len(),
@@ -187,7 +191,10 @@ fn sections_are_written_under_the_bare_ref_the_swift_readers_query() {
     // quietly.
     let dead = shared
         // schema-ref-lint:allow — naming the dead spelling is the point.
-        .query_by_schema("manuscript-section@1.0.0".to_string(), 100, 0)
+        .query(&impress_core::query::ItemQuery {
+            schema: Some("manuscript-section@1.0.0".into()),
+            ..Default::default()
+        })
         .unwrap();
     assert!(
         dead.is_empty(),

@@ -48,7 +48,7 @@ fn refused(status: u16, code: &str, message: String) -> DispatchResult {
 /// token and headers, never from the verb's own arguments (ADR-0034 D3);
 /// this function trusts what it is given the same way every other pipeline
 /// entry path trusts its transport.
-fn parse_caller(caller_json: &str) -> (CallerIdentity, Option<String>) {
+fn parse_caller(caller_json: &str) -> (CallerIdentity, Option<String>, Option<String>) {
     let value: Value = serde_json::from_str(caller_json).unwrap_or(Value::Null);
     let kind = value.get("kind").and_then(Value::as_str).unwrap_or("app");
     let name = value
@@ -70,7 +70,12 @@ fn parse_caller(caller_json: &str) -> (CallerIdentity, Option<String>) {
         // caller with no name still gets the identity kind right.
         _ => CallerIdentity::App(name.unwrap_or_else(|| "unknown".into())),
     };
-    (identity, trace_id)
+    let parent_call = value
+        .get("parent_call")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    (identity, trace_id, parent_call)
 }
 
 /// Dispatch one verb by its qualified name (`<service>_<method>`) through
@@ -127,8 +132,9 @@ fn prepare(
         }
     };
 
-    let (caller, trace_id) = parse_caller(caller_json);
+    let (caller, trace_id, parent_call) = parse_caller(caller_json);
     let mut call = Call::new(caller, args);
+    call.parent_call = parent_call;
     if let Some(trace_id) = trace_id {
         call = call.with_trace(trace_id);
     }

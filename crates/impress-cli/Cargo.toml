@@ -11,6 +11,7 @@ name = "impress"
 path = "src/main.rs"
 
 [dependencies]
+impress-app-transport.workspace = true
 # G7b: installs the perf aggregator so a `perf-service_summary` run from
 # this same CLI invocation sees bucket history for the verbs it just ran.
 tracing = { workspace = true }

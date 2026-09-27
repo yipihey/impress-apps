@@ -82,41 +82,11 @@ impl ImpressToolAdapter {
         Ok(adapter)
     }
 
-    /// Make this adapter's live reachability the pipeline's reachability
-    /// layer for the process (plan-verb-pipeline PL-2: one rule, one probe
-    /// interface; the probe is this adapter's refreshed table, the store is
-    /// the fallback for owned namespaces as it always was here).
     fn install_gate(&self) {
-        let shared = self.reachable.clone();
-        impress_service_core::pipeline::reachability::install(
-            impress_service_core::pipeline::reachability::Config {
-                probe: std::sync::Arc::new(move |app: &str| {
-                    let table = shared.read().map(|r| *r).unwrap_or_default();
-                    match app {
-                        "imbib" => table.imbib,
-                        "imprint" => table.imprint,
-                        "implore" => table.implore,
-                        "impart" => table.impart,
-                        _ => false,
-                    }
-                }),
-                store_fallback: true,
-                list_all: false,
-            },
-        );
+        impress_app_transport::install(true);
     }
 
-    /// Re-probe and update the shared reachability. Long-running hosts
-    /// (impel-taskd) call this on a cadence so an app launched after the
-    /// daemon started brings its tools online — and so an app that has since
-    /// quit gives its backend back.
-    ///
-    /// Both directions work because the four service backend registries are
-    /// swappable slots ([`impress_service_core::BackendSlot`]) rather than
-    /// set-once latches: this probe installs an HTTP backend when an app
-    /// answers and clears it when one stops, so a client aimed at a dead port
-    /// never outlives the app it was built for. Reachability gating
-    /// separately withholds the `*-app-service` tools while an app is down.
+    /// Refresh the catalogue snapshot from the shared transport's probe cache.
     pub async fn refresh(&self) -> Result<Reachability> {
         let fresh = Self::probe_reachability().await?;
         if let Ok(mut guard) = self.reachable.write() {
@@ -126,14 +96,18 @@ impl ImpressToolAdapter {
     }
 
     async fn probe_reachability() -> Result<Reachability> {
-        tokio::task::spawn_blocking(|| Reachability {
-            imbib: imbib_service_http::maybe_install_http_backend(),
-            imprint: imprint_service_http::maybe_install_http_backend(),
-            implore: implore_service_http::maybe_install_http_backend(),
-            impart: impart_service_http::maybe_install_http_backend(),
+        let (imbib, imprint, implore, impart) = tokio::join!(
+            impress_app_transport::probe_app("imbib"),
+            impress_app_transport::probe_app("imprint"),
+            impress_app_transport::probe_app("implore"),
+            impress_app_transport::probe_app("impart"),
+        );
+        Ok(Reachability {
+            imbib,
+            imprint,
+            implore,
+            impart,
         })
-        .await
-        .map_err(|error| Error::Invalid(format!("tool backend probe failed: {error}")))
     }
 
     pub fn with_reachability(reachable: Reachability) -> Self {

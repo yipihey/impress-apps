@@ -83,6 +83,7 @@ fn take_store_path(args: Vec<String>) -> Vec<String> {
         if let Some(value) = arg.strip_prefix("--store-path=") {
             assert_store_reachable(std::path::Path::new(value));
             let _ = impress_store_service::set_store_path(value);
+            std::env::set_var("IMPRESS_STORE_PATH", value);
             continue;
         }
         if arg == "--store-path" {
@@ -90,6 +91,7 @@ fn take_store_path(args: Vec<String>) -> Vec<String> {
                 Some(value) => {
                     assert_store_reachable(std::path::Path::new(&value));
                     let _ = impress_store_service::set_store_path(&value);
+                    std::env::set_var("IMPRESS_STORE_PATH", &value);
                 }
                 None => {
                     eprintln!("error: --store-path requires a path");
@@ -101,33 +103,6 @@ fn take_store_path(args: Vec<String>) -> Vec<String> {
         out.push(arg);
     }
     out
-}
-
-/// Install the HTTP backend of the app whose verb is about to run, exactly
-/// as `impress-mcp` does at startup, so `impress <verb>` and the MCP tool of
-/// the same name reach the same implementation.
-///
-/// Only implore so far. Its verbs have no store-backed default: datasets and
-/// figures live in the running app, so without the probe every implore verb
-/// here answered "implore is not running" even with implore open
-/// (`impress create-figure` could never work). imbib, imprint and impart keep
-/// their store-backed defaults here; installing their HTTP backends would
-/// change what those verbs read, which is a separate decision.
-///
-/// The probe runs only for an implore verb, so no other command pays for a
-/// connection attempt or prints the probe's line on stderr.
-/// `IMPLORE_HTTP_URL` (another port) and `IMPLORE_BACKEND=off` apply as they
-/// do for impress-mcp.
-fn install_app_backend(matches: &clap::ArgMatches) {
-    let Some((name, _)) = matches.subcommand() else {
-        return;
-    };
-    let is_implore = cli::effective_names()
-        .into_iter()
-        .any(|(n, sub)| n == name && sub.qualified_name.starts_with("implore-service_"));
-    if is_implore {
-        implore_service_http::maybe_install_http_backend();
-    }
 }
 
 /// Strip `--wait` (ADR-0034 D6): a long-running verb answers with a job
@@ -184,7 +159,7 @@ fn main() {
              `job-events`, `job-wait`, `job-result`; stop it with `job-cancel`.",
         );
     let matches = app.get_matches_from(args);
-    install_app_backend(&matches);
+    impress_app_transport::install(true);
 
     match cli::dispatch_matches(&matches) {
         Ok(value) => {

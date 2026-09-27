@@ -37,7 +37,7 @@ pub enum ServiceError {
     },
 
     /// Failure in the underlying shared item store
-    /// (`impress-store-ffi::SharedStore` / `impress-core::SqliteItemStore`).
+    /// (`impress-core::SqliteItemStore`).
     #[error("store error: {0}")]
     Store(String),
 
@@ -72,16 +72,13 @@ impl From<serde_json::Error> for ServiceError {
     }
 }
 
-impl From<impress_store_ffi::SharedStoreError> for ServiceError {
-    fn from(e: impress_store_ffi::SharedStoreError) -> Self {
-        use impress_store_ffi::SharedStoreError as S;
-        match e {
-            S::NotFound { message } => ServiceError::NotFound(message),
-            S::AlreadyExists { message } => {
-                ServiceError::Store(format!("already exists: {message}"))
-            }
-            S::InvalidArgument { message } => ServiceError::InvalidArgument(message),
-            S::Storage { message } => ServiceError::Store(message),
+impl From<impress_core::store::StoreError> for ServiceError {
+    fn from(error: impress_core::store::StoreError) -> Self {
+        use impress_core::store::StoreError;
+        match error {
+            StoreError::NotFound(id) => Self::NotFound(id.to_string()),
+            StoreError::Validation(message) => Self::InvalidArgument(message),
+            other => Self::Store(other.to_string()),
         }
     }
 }

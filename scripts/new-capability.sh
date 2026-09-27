@@ -14,16 +14,10 @@
 #     (ADR-0033 D4: the inventory is linked once, behind per-capability
 #     features, so `full` links everything).
 #
-# That registration is for a DOMAIN capability. If <name> belongs in the
-# ADR-0033 D7 standalone kit instead (store/layout/surface-shaped, no
-# per-app domain core), it is registered differently: add <name>-service as
-# a plain (non-optional, non-feature-gated) dependency directly in
-# crates/impress-capabilities-kit/Cargo.toml, NOT in impress-capabilities —
-# the kit crate has no per-capability feature list, it force-links its whole
-# dependency set unconditionally (see that crate's module docs), and
-# impress-capabilities only re-exports it behind its own `kit` feature. This
-# script always registers the domain way below; undo that pair and add the
-# kit-crate dependency instead when the capability is kit-grade.
+# That registration is for a DOMAIN capability. A kit-grade capability uses
+# the same inventory crate: enable its optional dependency from `kit` instead
+# of `full`, add its force-link anchor, and declare it in docs/kit-manifest.md.
+# The kit checks then verify it brings no app dependencies into that feature.
 #
 # crates/impress-capabilities may not always have a [features] section to
 # insert into (e.g. a mid-refactor checkout). This script does not fail on
@@ -355,13 +349,8 @@ with open(ws_path, "w") as f:
 
 # --- crates/impress-capabilities/Cargo.toml (domain registration) --------
 #
-# This is the DOMAIN path (ADR-0033 D4: one feature + one optional
-# dependency per capability, so `full` links everything). For a KIT-grade
-# capability (ADR-0033 D7's standalone cut) the registration is different
-# and this script does not do it: add `{crate_name} = {{ workspace = true }}`
-# as a plain dependency directly in crates/impress-capabilities-kit/Cargo.toml
-# instead (no feature, no `optional = true` — the kit crate force-links its
-# whole dependency set unconditionally) and skip this section entirely.
+# Domain registration. A kit-grade capability keeps this optional dependency
+# but enables it from `kit` and registers an anchor in the same inventory.
 #
 # impress-capabilities may not always have [features] and [dependencies]
 # sections to anchor on (e.g. a mid-refactor checkout). If either is
@@ -382,7 +371,7 @@ if "[features]" not in cap_text or "[dependencies]" not in cap_text:
         f"NOTE: {cap_path} does not yet have both a [features] and a "
         "[dependencies] section to anchor on. Add the following by hand "
         "once it does (domain capability — for a kit-grade one, see the "
-        "impress-capabilities-kit note in this script's header instead):\n"
+        "kit feature note in this script's header instead):\n"
     )
     print("  [features]")
     print(f"  {feature_line.strip()}")
@@ -408,7 +397,6 @@ echo "  2. export CARGO_TARGET_DIR=/home/user/impress-apps/target"
 echo "  3. cargo test -p ${CRATE_NAME}"
 echo "  4. If impress-capabilities printed manual steps above, apply them once"
 echo "     that crate has a [features]/[dependencies] section."
-echo "  5. If ${CRATE_NAME} is a KIT-grade capability (ADR-0033 D7 standalone"
-echo "     cut), undo the impress-capabilities feature/dependency pair above"
-echo "     and instead add '${CRATE_NAME} = { workspace = true }' as a plain"
-echo "     dependency in crates/impress-capabilities-kit/Cargo.toml."
+echo "  5. If ${CRATE_NAME} belongs to the standalone kit, enable its optional"
+echo "     dependency from impress-capabilities' kit feature, add a force-link"
+echo "     anchor there, and declare the crate in docs/kit-manifest.md."

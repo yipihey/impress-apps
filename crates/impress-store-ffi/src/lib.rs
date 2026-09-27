@@ -55,22 +55,17 @@ mod workflow;
 // `McpToolDescriptor` inventory) would silently not find
 // `surface-demo-service_series`/`histogram` or the generic store verbs.
 //
-// This is the ONE dependency on the kit list ADR-0033 D4 wants, split out as
-// `impress-capabilities-kit` (ADR-0033 D7 / plan S6) so this crate can carry
-// it without depending on `impress-capabilities` itself — see `Cargo.toml`'s
-// module comment on this dependency for the cyclic-package error that still
-// blocks that. A bare `use impress_capabilities_kit as _;` is not enough on
-// its own (that only proves this crate references the *crate*, not that it
-// calls anything in it — the same reasoning `impress-capabilities-kit`'s own
-// module docs give for needing `force_link` at all), so this calls its
-// `force_link()` for real. The surface tests
+// P5 shares the inventory with full clients: this crate selects only its
+// `kit` feature. The domain services no longer depend on this FFI, so the
+// separate kit inventory and its package cycle are gone. Call force_link()
+// explicitly to retain registrations with no other references. The tests
 // (`surface.rs`'s tests driving `surface-demo-service_series` through the
 // inventory) are what catch a regression here: they fail if this link is
 // ever dropped.
 #[allow(unused_imports)]
-use impress_capabilities_kit as _force_link_impress_capabilities_kit;
+use impress_capabilities as _force_link_impress_capabilities;
 
-/// Calls [`impress_capabilities_kit::force_link`] so the two kit crates that
+/// Calls [`impress_capabilities::force_link`] so the two kit crates that
 /// have no other real reference in this crate — `impress-store-service` and
 /// `surface-demo-service` — are not dropped by the linker. See the module
 /// comment above for why the `use … as _;` alone does not already guarantee
@@ -79,7 +74,7 @@ use impress_capabilities_kit as _force_link_impress_capabilities_kit;
 /// every Swift caller — and every test in this crate — passes through before
 /// touching the store.
 fn force_link_kit() {
-    impress_capabilities_kit::force_link();
+    impress_capabilities::force_link();
 }
 
 pub use ai::{
@@ -938,7 +933,7 @@ impl SharedStore {
     /// Install the host's second verb inventory (ADR-0033 D4, amended
     /// 2026-09-23) — the callback [`SharedSurface`](surface::SharedSurface)'s
     /// executor and service consult for any verb this process did not link
-    /// into `impress-capabilities-kit`.
+    /// into `impress-capabilities`.
     ///
     /// **May be called after surfaces were already opened.** Every
     /// [`SharedSurface`](surface::SharedSurface) built from this store holds
@@ -1014,23 +1009,8 @@ impl SharedStore {
                 message: format!("invalid payload JSON: {e}"),
             })?;
 
-        let item = build_item(item_id, schema_ref, payload.clone());
-
-        match self.inner.insert(item) {
-            Ok(_) => Ok(()),
-            Err(StoreError::AlreadyExists(_)) => {
-                // Update each payload field individually (additive upsert).
-                let mutations: Vec<FieldMutation> = payload
-                    .into_iter()
-                    .map(|(k, v)| FieldMutation::SetPayload(k, v))
-                    .collect();
-                if !mutations.is_empty() {
-                    self.inner.update(item_id, mutations)?;
-                }
-                Ok(())
-            }
-            Err(e) => Err(e.into()),
-        }
+        self.inner.upsert_payload(item_id, schema_ref, payload)?;
+        Ok(())
     }
 
     /// Full-envelope upsert (Stage 0): like `upsert_item` but with real

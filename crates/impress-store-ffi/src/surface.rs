@@ -261,7 +261,7 @@ pub trait SharedSurfaceListener: Send + Sync {
 // ─── The verb host bridge (ADR-0033 D4, amended 2026-09-23 for wave 5) ────
 
 /// What the host process implements to answer a verb this crate's own
-/// linked inventory (`impress-capabilities-kit`) does not have — imbib's
+/// linked inventory (`impress-capabilities`) does not have — imbib's
 /// and imprint's own verbs, which cannot link into this crate a second time
 /// (ADR-0033 D4 forbids a second domain core; `impress-store-ffi`'s
 /// `Cargo.toml` has the cyclic-package details for why they cannot link
@@ -1585,7 +1585,7 @@ mod tests {
     }
 
     /// A self-contained spec whose one source calls [`FAKE_VERB`] — nothing
-    /// this crate's own linked inventory (`impress-capabilities-kit`) knows
+    /// this crate's own linked inventory (`impress-capabilities`) knows
     /// by that name, so it renders a placeholder without a host and the
     /// echoed value with one.
     fn fixture_host_spec() -> SurfaceSpec {
