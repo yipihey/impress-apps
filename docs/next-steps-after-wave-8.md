@@ -36,11 +36,24 @@ this handoff. W4's final Rust run and W3's live proof were explicitly isolated; 
 475-test run did not have explicit process-wide overrides. The fresh isolated main run checks
 their combined Rust behavior.
 
+## S3 verification
+
+S3 is implemented on `claude/reflective-s3-record` (`s3-record`), based on main `197cdfed`.
+It adds scenario recording from one caller's trace or time window, bounded replay metadata,
+output-ID captures and native surface auditing. Final isolated Rust tests passed 434 tests
+(0 failed, 3 ignored), following the broader 579-test run. Two hosted native proofs passed:
+direct triage records four calls with an ID capture; surface triage records three parent steps
+and reports their three children as omitted. Both stored/fetched/edited/replayed the scenario
+and checked paper state and live logs. The owned host PID 12083 exited. Evidence:
+`/tmp/impress-s3-proof-run-final.log` and
+`/tmp/impress-s3-proof-6f13b826-efab-4b6e-8e7b-78aa17735877/output/host-12083/`.
+The final archive cohort covers ImbibCore, ImbibVerbsFfi and ImpressStoreFfi's three arm64
+slices plus macOS ImpelTools. Full workspace verification above predates S3; the next batch
+needs a new main run. Ordinary publication-list actions remain outside audit, and native
+effects delegated through the Swift ImpelTools callback still lose parent identity/trace.
+
 ## Next packages
 
-- **S3 (in progress, not verified)**: generate a scenario from a recorded session. Worktree
-  `s3-record`, branch `claude/reflective-s3-record`, based on `f7af1c37`. Audit replay metadata and
-  the capture matcher are being implemented; service integration and a live isolated proof remain.
 - **G5**: `strict_args` by default on every service (D-G1 approved). Needs Tier B on five apps.
 - **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.

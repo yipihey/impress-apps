@@ -2693,3 +2693,27 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   Remaining boundary: linked native surface effects inherit the parent trace. Effects delegated
   through the Swift `SharedVerbHost`/ImpelTools callback still cross a context-losing boundary;
   expanding that callback's identity/trace contract is not part of this capture-matcher package.
+
+- 2026-09-27 — **S3 final native proof and schema review.** Both hosted tests passed on the
+  final rebuilt archive cohort: direct native triage (4 calls, no omissions, one ID capture)
+  and native surface triage (6 calls selected, 3 parent dispatch steps retained, 3 duplicate
+  children reported as omitted). Each stored and fetched the scenario, edited expectations
+  once, reset the scratch papers, replayed over HTTP, and verified their stars/tag/flag and live
+  verb logs. Both Tier B reports passed with no skips. The proof used port 23333, distinct
+  bundle `com.impress.s3proof.impress`, its own device ID and PID-owned workspace
+  `impress-unit-tests-12083/workspace`; PID 12083 exited after testing. Evidence is
+  `/tmp/impress-s3-proof-6f13b826-efab-4b6e-8e7b-78aa17735877/output/host-12083/`,
+  `/tmp/impress-s3-proof-run-final.log`, and its adjacent result bundle. These are native
+  dispatch tests, not GUI clicks or a claim about the unaudited ordinary publication list.
+
+  The first surface run correctly exposed a conservative false refusal: the result schema is
+  recursive even when the actual rendered tree is finite. Audit extraction now follows the
+  bounded actual value through local references and discriminated/nullable branches, retaining
+  the private/unknown-branch refusal. Regressions use the real `SurfaceDispatchResult` schema;
+  arbitrary table-row JSON IDs remain excluded. Eleven audit regressions and two real-schema
+  regressions passed. The post-review isolated native run passed 434 tests, 0 failed, 3 ignored
+  across seven affected packages; fmt and both workspace clippy shards passed. The earlier
+  broader 579-test run covers the other touched crates. Final native rebuilds covered all three
+  arm64 slices for ImbibCore, ImbibVerbsFfi and ImpressStoreFfi, plus macOS ImpelTools; generated
+  Swift bindings stayed unchanged. Logs: `/tmp/impress-s3-post-review-*.log`,
+  `/tmp/impress-s3-final-cohort-*.log`, `/tmp/impress-s3-proof-build-final.log`.
