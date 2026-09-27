@@ -67,12 +67,11 @@ public struct ImbibBridge: Sendable {
     /// `.bib` content string.
     public static func exportBibTeX(citeKeys: [String]) async throws -> String {
         guard !citeKeys.isEmpty else { return "" }
-        let env: ExportEnvelope = try await SiblingBridge.shared.get(
-            "/api/export",
-            from: .imbib,
-            query: ["keys": citeKeys.joined(separator: ","), "format": "bibtex"]
+        return try await SiblingBridge.shared.callVerb(
+            "imbib-library-service_export-bibtex",
+            on: .imbib,
+            arguments: ["ids": citeKeys]
         )
-        return env.content
     }
 
     // MARK: - Add to library
@@ -149,17 +148,20 @@ public struct ImbibBridge: Sendable {
 
     /// Create a new library and return its id.
     public static func createLibrary(name: String) async throws -> UUID {
-        let body = CreateLibraryRequest(name: name)
-        let env: CreateLibraryResponse = try await SiblingBridge.shared.post(
-            "/api/libraries",
-            to: .imbib,
-            body: body
+        let created: CreatedLibraryID? = try await SiblingBridge.shared.callVerb(
+            "imbib-library-service_create-library",
+            on: .imbib,
+            arguments: ["name": name]
         )
-        guard let id = UUID(uuidString: env.library.id) else {
+        guard let id = created.flatMap({ UUID(uuidString: $0.id) }) else {
             throw SiblingBridgeError.invalidResponse
         }
         return id
     }
+}
+
+private struct CreatedLibraryID: Decodable, Sendable {
+    let id: String
 }
 
 // MARK: - Public result types
@@ -603,10 +605,6 @@ private struct AddPapersRequest: Encodable, Sendable {
     let downloadPDFs: Bool
 }
 
-private struct CreateLibraryRequest: Encodable, Sendable {
-    let name: String
-}
-
 // MARK: - Response envelopes (internal)
 
 private struct SearchEnvelope: Decodable, Sendable {
@@ -621,18 +619,10 @@ private struct ExternalSearchEnvelope: Decodable, Sendable {
     let results: [ImbibExternalCandidate]
 }
 
-private struct ExportEnvelope: Decodable, Sendable {
-    let content: String
-}
-
 private struct LibrariesEnvelope: Decodable, Sendable {
     let libraries: [ImbibLibrary]
 }
 
 private struct CollectionsEnvelope: Decodable, Sendable {
     let collections: [ImbibCollection]
-}
-
-private struct CreateLibraryResponse: Decodable, Sendable {
-    let library: ImbibLibrary
 }

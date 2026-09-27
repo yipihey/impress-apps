@@ -10,14 +10,24 @@ public struct ImprintBridge: Sendable {
 
     /// Get a specific document's content.
     public static func getDocument(id: String) async throws -> DocumentContent? {
-        do {
-            return try await SiblingBridge.shared.get(
-                "/api/documents/\(id)",
-                from: .imprint
-            )
-        } catch SiblingBridgeError.httpError(statusCode: 404) {
-            return nil
-        }
+        let document: VerbDocumentSummary? = try await SiblingBridge.shared.callVerb(
+            "imprint-manuscript-service_get-document",
+            on: .imprint,
+            arguments: ["id": id]
+        )
+        guard let document else { return nil }
+        let source: String? = try await SiblingBridge.shared.callVerb(
+            "imprint-app-service_get-content",
+            on: .imprint,
+            arguments: ["document_id": id]
+        )
+        guard let source else { throw SiblingBridgeError.invalidResponse }
+        return DocumentContent(
+            id: document.id,
+            title: document.title,
+            source: source,
+            wordCount: source.split(whereSeparator: \.isWhitespace).count
+        )
     }
 
     /// Ask imprint to insert citations into a manuscript's open editor, at the
@@ -53,6 +63,11 @@ public struct ImprintBridge: Sendable {
     public static func isAvailable() async -> Bool {
         await SiblingBridge.shared.isAvailable(.imprint)
     }
+}
+
+private struct VerbDocumentSummary: Decodable, Sendable {
+    let id: String
+    let title: String
 }
 
 // MARK: - Result Types
