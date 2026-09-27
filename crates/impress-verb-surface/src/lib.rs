@@ -76,7 +76,8 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         }
     }
 
-    let review = desc.safety.class == SafetyClass::Destructive || desc.safety.class == SafetyClass::External;
+    let review =
+        desc.safety.class == SafetyClass::Destructive || desc.safety.class == SafetyClass::External;
 
     let mut column: Vec<Node> = Vec::new();
     column.push(
@@ -194,9 +195,9 @@ fn argument_field(name: &str, prop: &Value, required: bool, prefill: Option<Valu
         Shape::Number => Node::leaf(NodeKind::Field(FieldKind::Number(json!({})))),
         Shape::Boolean => Node::leaf(NodeKind::Field(FieldKind::Toggle(json!({})))),
         Shape::Date => Node::leaf(NodeKind::Field(FieldKind::Date(json!({})))),
-        Shape::Select(options) => {
-            Node::leaf(NodeKind::Field(FieldKind::Select(json!({ "options": options }))))
-        }
+        Shape::Select(options) => Node::leaf(NodeKind::Field(FieldKind::Select(
+            json!({ "options": options }),
+        ))),
         // Table 2 class b: array-of-scalars, ref-object, inline-object,
         // array-of-objects, map, tagged-union, other — one raw-JSON field,
         // the CLI's own precedent (`cli.rs` `PropertyKind::Json`).
@@ -312,7 +313,9 @@ fn result_node(output_schema: &Value) -> Node {
         ResultShape::Text => NodeKind::Text("{{state.result}}".to_string()),
         ResultShape::Raw => NodeKind::Text("{{state.result}}".to_string()),
     };
-    Node::leaf(node_kind).with_id("result-view").with_label("Result")
+    Node::leaf(node_kind)
+        .with_id("result-view")
+        .with_label("Result")
 }
 
 enum ResultShape {

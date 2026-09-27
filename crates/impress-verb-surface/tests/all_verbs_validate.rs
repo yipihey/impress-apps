@@ -25,7 +25,10 @@ fn every_linked_verb_gets_a_form_that_validates_with_zero_errors() {
         }
     }
 
-    assert!(count > 300, "expected the full inventory to be linked, saw {count} verbs");
+    assert!(
+        count > 300,
+        "expected the full inventory to be linked, saw {count} verbs"
+    );
     assert!(
         failures.is_empty(),
         "{} of {count} verbs produced an invalid surface:\n{}",
@@ -38,10 +41,7 @@ fn every_linked_verb_gets_a_form_that_validates_with_zero_errors() {
 fn the_catalogue_itself_validates() {
     let spec = impress_verb_surface::catalogue();
     let problems = validate::validate(&spec);
-    assert!(
-        problems.iter().all(|p| !p.is_error()),
-        "{problems:?}"
-    );
+    assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
 }
 
 #[test]
@@ -61,7 +61,11 @@ fn print_form_class_counts() {
                 }
             }
         }
-        if all_typed { a += 1 } else { b += 1 }
+        if all_typed {
+            a += 1
+        } else {
+            b += 1
+        }
     }
     eprintln!("VERBS total={total} class_a={a} class_b={b}");
 }

@@ -94,9 +94,7 @@ async fn the_catalogue_renders_and_the_generated_form_runs_a_verb_into_its_resul
 
     // 4. The result landed in state.result, and the result view (a `kv`
     // node, per table 3's flat-object rule for SeriesResult) resolves it.
-    let state = service
-        .surface_state_get(form_id, Some(HOST.into()))
-        .await;
+    let state = service.surface_state_get(form_id, Some(HOST.into())).await;
     assert!(state.ok, "{state:?}");
     let result = state
         .state
@@ -108,7 +106,11 @@ async fn the_catalogue_renders_and_the_generated_form_runs_a_verb_into_its_resul
         .get("values")
         .and_then(|v| v.as_array())
         .unwrap_or_else(|| panic!("state.result should be SeriesResult, got {result:?}"));
-    assert_eq!(values.len(), 16, "series(freq=2.0, n=16) returns 16 samples");
+    assert_eq!(
+        values.len(),
+        16,
+        "series(freq=2.0, n=16) returns 16 samples"
+    );
 
     let tree_text = dispatched
         .tree
@@ -143,7 +145,10 @@ fn the_series_verb_is_reached_only_through_the_pipeline() {
     )
     .expect("a strict-free verb never fails in transport");
     assert_eq!(
-        result.get("values").and_then(|v| v.as_array()).map(|a| a.len()),
+        result
+            .get("values")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len()),
         Some(8)
     );
 }
