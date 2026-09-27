@@ -1054,3 +1054,88 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   total lines/verb** — both under budget (2,000 / 6,000); +11 % total over the 5,123 baseline, which is P1's
   output schemas and P4's job verbs. The measured half (228 / 20 / 38 ms per verb) was taken at load 14–28
   and is not a baseline; the impress-mac job sets it.
+- 2026-09-26 — **P3b (rename pass) landed** on a worktree of main at 9aaf8544, branch
+  `claude/pipeline-p3b-rename-pass`. The table: `impress_service_core::lifecycle::RenameTable`
+  (verb renames + view-kind renames, `SHIPPED_RENAMES` starts empty) — put in `impress-service-core`
+  rather than `impress-core` or either tree crate because both rename passes already depend on it
+  and it is a fact about verb identity, the same tier `Deprecation`/`Source::Alias` will live at.
+  `RenameVisitor` is the H-P3-1 extension point (plan-self-reflective-layer.md): a thin trait naming
+  a document kind for logs, deliberately not unifying the two passes' error types, so a later
+  workflow/scenario visitor adds a third implementation in whichever crate owns that kind without
+  this trait or the table changing. Machinery reused: `SqliteItemStore::apply_operation` (every
+  rewrite is an attributed, `Durable` + `Editorial` write, so the previous value stays in the
+  operation log exactly like every other edit these services make — no separate "keep the original"
+  mechanism was needed); two small additions, `SqliteItemStore::get_store_metadata`/
+  `set_store_metadata` onto the existing `store_metadata` table (`origin_id`,
+  `task_schema_migration`'s marker), the widening `impress-layout-service/src/device.rs` had already
+  named as the right move when it was needed. **Passes:** `impress-layout-service::rename::RenamePass`
+  rewrites `pane.view_kind` in every stored layout and preset row (both store their tree under the
+  same `layout` payload field, so one code path visits either; Table LC found no verb name in either
+  kind, so this pass only touches view kinds). `impress-surface-service::rename::RenamePass` rewrites
+  `sources.*.verb`/`call.verb`/`open.view_kind` by walking the stored spec's own JSON (those keys
+  appear only at those sites in the vocabulary, so a blind recursive match finds all of them without a
+  second, mutable tree-walker beside `impress_surface::spec`'s read-only ones) and writes back through
+  `SurfaceStore::update`. System-seeded and user-edited rows are rewritten the same way — a rename
+  does not ask whether a row still matches what the suite shipped, unlike `upgrade_if_untouched`,
+  because an old name must stop working in a user's own row too. **Wiring:** each service's store
+  accessor (`DefaultLayoutService::resolved_store`, `DefaultImpressSurfaceService::store_arc`) calls
+  `RenamePass::run_if_needed` once per process (`OnceLock`-gated), which records the highest applied
+  `RenameTable::version` in `store_metadata` so a later launch does not redo it; the shipped table is
+  empty, so today this is one branch and zero store I/O. **Tests** (a test-only `RenameTable`, never
+  the shipped one): a seeded surface naming verb `a` is rewritten to `b`; an edited layout naming an
+  old view kind is rewritten and logged; an untouched seeded preset is upgraded; running twice is a
+  no-op; an empty table is a no-op; a surface naming neither old verb is left alone. **Gates:**
+  `./scripts/rust-gate.sh fmt`/`clippy rest`/`clippy imprint` clean; `cargo test -p impress-layout -p
+  impress-layout-service -p impress-surface -p impress-surface-service -p impress-store-ffi` — every
+  test passed (one `impress-store-ffi` burst-timing test was flaky under this Mac's load, confirmed
+  by re-running alone; unrelated to this change, not touched); `check-schema-refs.sh` (no new schema
+  ref — the marker rides the existing `store_metadata` table, not a new record kind),
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-uniffi-bindings.sh` (no FFI surface
+  touched) and `cargo hakari generate --diff` all clean. No real verb or view kind was renamed;
+  `SHIPPED_RENAMES` stays empty for P3a to append the first entry (ADR-0024 D7's four legacy tools).
+- 2026-09-26 — **P3a Lifecycle mechanism landed** (branch `claude/pipeline-p3-lifecycle`, from main at
+  9aaf8544). `since`/`deprecated`/`aliases` on `VerbDescriptor` (the fields existed, empty, since P1; P3a
+  fills them): `#[impress_method(deprecated(since = "…", note = "…"), aliases = ["old-name", …])]` — the
+  macro refuses `aliases` without `deprecated` on the same method (a rename implies deprecating the old
+  name). No `Source::Alias` second descriptor (the design note's own sketch): a canonical verb simply
+  carries its retired names in `aliases`, and `impress_service_core::call::find`/`call_as`/`call_async_as`
+  resolve an unmatched name against every linked verb's `aliases` before answering unknown — one dispatch
+  path, no second inventory to drift. The pipeline (`Call::requested_name`, a plain `Option<String>`, not
+  `&'static` — the caller-given name is not one) records the requested name as a span field
+  (`requested_name`) and a field on `core/verb-call`'s audit row (P2's record had room: an additive column,
+  no migration), so a retired name's traffic is counted under the name that was actually asked for. The
+  additive `"deprecated": {since, use, note}` envelope field lands on object results only (array/scalar/error
+  results are unchanged) and only where it is true: a direct call to a verb that declares `aliases` is NOT
+  deprecated (`VerbDescriptor::deprecation_notice`) — only a call that arrived via one of those aliases is
+  (`alias_deprecation_notice`); a verb deprecated with no rename (empty `aliases`) is deprecated on its own
+  canonical name. `cargo run -p impress-capabilities --bin gen-verb-docs` now prints a verb's aliases and
+  its own deprecation on its reference page (inert today: no linked verb declares either yet). Tests: macro
+  unit tests for the new attribute (capture, and the aliases-without-deprecated compile error);
+  `impress-service-core::descriptor`/`pipeline`/`call` unit tests cover both envelope cases end to end
+  against a real `inventory::submit!`-registered descriptor (not just a fixture struct) — direct call, no
+  notice; alias call, additive notice; array result, untouched.
+
+  **The four legacy MCP tools were NOT moved** (ADR-0024 D7's other half of this row), and that is reported
+  rather than quietly dropped. Built `imbib-semantic-service` (a real `#[impress_service]` trait wrapping
+  `search_papers`/`get_paper_chunks`/`list_indexed_papers` with `aliases` under their old flat names) and
+  wired it into `impress-mcp`; it worked end to end (a call to `search_papers` reached the inventory verb
+  and answered with the deprecation note) but `scripts/check-verb-coverage.sh` requires every
+  `impress_service_impl!` block under `crates/*/src` to have a row, and `crates/impress-capabilities`'s
+  census test requires that row's service to be **linked** in the `full` feature every other consumer
+  builds — CLI and `impel-tools` among them. `impress-mcp/Cargo.toml`'s own comment records a prior,
+  deliberate decision that the embedding stack behind these three tools (`impress-embeddings` with
+  `embedder` — fastembed, a model load that may reach the network) stays out of the shared inventory
+  precisely so CLI and impel-tools do not pay for it. Joining `full` would reverse that decision silently;
+  the two checks together assume no service crate sits outside it, so there is no smaller fix on the
+  table (an `unlinked` verdict for the coverage script, or a `semantic-search` feature carved out of
+  `full` for just this service, is itself a decision to ask about, not a mechanical patch). Reverted
+  cleanly rather than forced through; `render_pdf_page` (the fourth) was going to stay hand-written
+  regardless — it answers with rasterised image bytes ahead of any dispatch decision, which the additive
+  `deprecated` object field cannot reach. Left for P3b or an explicit ask-first decision on the coverage
+  check's scope.
+
+  Gates: `rust-gate.sh fmt` and `clippy rest`/`clippy imprint` clean; `cargo test -p impress-service-core
+  -p impress-service-macros -p impress-capabilities -p impress-mcp -p impress-mcp-host -p impress-cli` all
+  green; `check-verb-coverage.sh`, `check-verb-docs.sh` (no diff — no linked verb uses the new fields yet),
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`
+  and `cargo hakari generate --diff` all clean.

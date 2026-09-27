@@ -309,6 +309,17 @@ pub struct MethodMeta {
     /// service's default set.
     pub effects: Option<Effects>,
     pub examples: &'static [Example],
+    /// `#[impress_method(deprecated(since = "…", note = "…"))]` (P3). A
+    /// method that also declares `aliases` requires this — a rename implies
+    /// deprecating the old name — and the macro refuses one without the
+    /// other.
+    pub deprecated: Option<Deprecation>,
+    /// `#[impress_method(aliases = ["old-name", …])]` (P3): retired names
+    /// that still resolve to this verb through
+    /// [`crate::call::find`](crate::call), reported in `docs/verbs/` and
+    /// excluded from `tools/list` and the CLI's own listing — the alias is
+    /// dispatchable, never advertised.
+    pub aliases: &'static [&'static str],
 }
 
 /// Find a method's captured facts by identifier. `const` because
@@ -382,6 +393,29 @@ pub const fn resolve_examples(table: &'static [MethodMeta], method: &str) -> &'s
     }
 }
 
+/// A method's retirement notice (P3), declared with `#[impress_method(
+/// deprecated(since = "…", note = "…"))]`. `None` for every verb until a
+/// method declares one.
+pub const fn resolve_deprecated(table: &'static [MethodMeta], method: &str) -> Option<Deprecation> {
+    match method_meta(table, method) {
+        Some(meta) => meta.deprecated,
+        None => None,
+    }
+}
+
+/// The retired names that resolve to this method (P3), declared with
+/// `#[impress_method(aliases = ["old-name", …])]`. Empty for every verb
+/// until a method declares one.
+pub const fn resolve_aliases(
+    table: &'static [MethodMeta],
+    method: &str,
+) -> &'static [&'static str] {
+    match method_meta(table, method) {
+        Some(meta) => meta.aliases,
+        None => &[],
+    }
+}
+
 /// One verb, as every interface sees it.
 ///
 /// Field by field, where it comes from:
@@ -437,6 +471,43 @@ impl VerbDescriptor {
         Self::iter().find(|v| v.name == name)
     }
 
+    /// Whether an alias name resolves to this verb.
+    pub fn has_alias(&self, name: &str) -> bool {
+        self.aliases.contains(&name)
+    }
+
+    /// The additive `"deprecated"` envelope field for a call under this
+    /// verb's own canonical name (P3, plan-verb-pipeline § Lifecycle):
+    /// `since`/`use`/`note`, `use` naming the replacement when the
+    /// deprecation records one (`alias_of`), else this verb's own name.
+    /// `None` when the verb is not itself deprecated — in particular, when
+    /// it declares `aliases`: those retired names are what is deprecated,
+    /// not a direct call to the current, canonical name (see
+    /// [`Self::alias_deprecation_notice`]).
+    pub fn deprecation_notice(&self) -> Option<Value> {
+        if !self.aliases.is_empty() {
+            return None;
+        }
+        self.build_deprecation_notice()
+    }
+
+    /// The additive `"deprecated"` envelope field for a call that arrived
+    /// through one of [`Self::aliases`] — always present once the method
+    /// declared any aliases (the macro requires `deprecated(…)` alongside
+    /// `aliases = […]`).
+    pub fn alias_deprecation_notice(&self) -> Option<Value> {
+        self.build_deprecation_notice()
+    }
+
+    fn build_deprecation_notice(&self) -> Option<Value> {
+        let dep = self.deprecated?;
+        Some(json!({
+            "since": dep.since,
+            "use": dep.alias_of.unwrap_or(self.name),
+            "note": dep.note,
+        }))
+    }
+
     /// The MCP `annotations` object (MCP 2025-03-26 tool annotations), read
     /// off the safety class:
     /// - `readOnlyHint`: the class is `read_only`;
@@ -490,6 +561,8 @@ mod tests {
                 args: r#"{"id": "x"}"#,
                 expect: None,
             }],
+            deprecated: None,
+            aliases: &[],
         },
         MethodMeta {
             name: "set_flag",
@@ -498,6 +571,12 @@ mod tests {
             idempotent: Some(true),
             effects: None,
             examples: &[],
+            deprecated: Some(Deprecation {
+                since: "0.2.0",
+                alias_of: None,
+                note: "superseded by delete",
+            }),
+            aliases: &["old_set_flag"],
         },
     ];
 
@@ -600,6 +679,114 @@ mod tests {
         );
         assert!(resolve_examples(&TABLE, "set_flag").is_empty());
         assert!(resolve_examples(&TABLE, "missing").is_empty());
+    }
+
+    #[test]
+    fn deprecation_and_aliases_resolve_per_method() {
+        assert_eq!(resolve_deprecated(&TABLE, "delete"), None);
+        assert_eq!(resolve_aliases(&TABLE, "delete"), &[] as &[&str]);
+        assert_eq!(
+            resolve_deprecated(&TABLE, "set_flag"),
+            Some(Deprecation {
+                since: "0.2.0",
+                alias_of: None,
+                note: "superseded by delete",
+            })
+        );
+        assert_eq!(resolve_aliases(&TABLE, "set_flag"), &["old_set_flag"]);
+        assert_eq!(resolve_deprecated(&TABLE, "missing"), None);
+        assert_eq!(resolve_aliases(&TABLE, "missing"), &[] as &[&str]);
+    }
+
+    #[test]
+    fn deprecation_notice_names_the_replacement_or_falls_back_to_self() {
+        let mut verb = VerbDescriptor {
+            name: "t-service_x",
+            service: "t-service",
+            method: "x",
+            description: "d",
+            input_schema: schema,
+            output_schema: schema,
+            safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effects: Effects::NONE,
+            since: "0.1.0",
+            deprecated: None,
+            aliases: &[],
+            examples: &[],
+            strict: false,
+            source: Source::Linked,
+            handler,
+        };
+        assert_eq!(verb.deprecation_notice(), None);
+        verb.deprecated = Some(Deprecation {
+            since: "0.9.0",
+            alias_of: None,
+            note: "retired, no replacement",
+        });
+        assert_eq!(
+            verb.deprecation_notice(),
+            Some(
+                json!({"since": "0.9.0", "use": "t-service_x", "note": "retired, no replacement"})
+            )
+        );
+        verb.deprecated = Some(Deprecation {
+            since: "0.9.0",
+            alias_of: Some("t-service_y"),
+            note: "renamed",
+        });
+        assert_eq!(
+            verb.deprecation_notice(),
+            Some(json!({"since": "0.9.0", "use": "t-service_y", "note": "renamed"}))
+        );
+        assert!(!verb.has_alias("old-x"));
+        verb.aliases = &["old-x"];
+        assert!(verb.has_alias("old-x"));
+    }
+
+    #[test]
+    fn aliased_verbs_are_deprecated_only_by_their_old_name() {
+        let mut verb = VerbDescriptor {
+            name: "t-service_x",
+            service: "t-service",
+            method: "x",
+            description: "d",
+            input_schema: schema,
+            output_schema: schema,
+            safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effects: Effects::NONE,
+            since: "0.1.0",
+            deprecated: Some(Deprecation {
+                since: "0.5.0",
+                alias_of: None,
+                note: "renamed",
+            }),
+            aliases: &["old-x"],
+            examples: &[],
+            strict: false,
+            source: Source::Linked,
+            handler,
+        };
+        assert_eq!(
+            verb.deprecation_notice(),
+            None,
+            "a direct call to the live name is not deprecated"
+        );
+        assert_eq!(
+            verb.alias_deprecation_notice(),
+            Some(json!({"since": "0.5.0", "use": "t-service_x", "note": "renamed"}))
+        );
+        verb.aliases = &[];
+        assert_eq!(
+            verb.deprecation_notice(),
+            Some(json!({"since": "0.5.0", "use": "t-service_x", "note": "renamed"})),
+            "with no aliases, the verb itself is what's deprecated"
+        );
     }
 
     #[test]

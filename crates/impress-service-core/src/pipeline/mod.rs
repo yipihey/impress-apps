@@ -64,6 +64,13 @@ pub struct Call {
     pub parent_call: Option<String>,
     /// A per-call store override (H-P2-3), set by [`invoke_on`].
     pub store: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// The name the caller actually asked for (P3, plan-verb-pipeline §
+    /// Lifecycle), when it differs from `verb.name` — an alias resolved to
+    /// this verb. `None` for an ordinary call by its canonical name.
+    /// [`crate::call::call_as`]/[`crate::call::call_async_as`] set this;
+    /// recorded on the span and the audit row so a retired name's traffic
+    /// is measured before it is removed.
+    pub requested_name: Option<String>,
 }
 
 impl Call {
@@ -74,7 +81,14 @@ impl Call {
             trace_id: None,
             parent_call: None,
             store: None,
+            requested_name: None,
         }
+    }
+
+    /// [`Call::new`] with the alias name the caller actually asked for.
+    pub fn with_requested_name(mut self, name: impl Into<String>) -> Self {
+        self.requested_name = Some(name.into());
+        self
     }
 
     pub fn person(args: Value) -> Self {
@@ -159,6 +173,7 @@ struct Prepared {
     started_at: String,
     arg_bytes: usize,
     span: tracing::Span,
+    requested_name: Option<String>,
 }
 
 /// The layers before the handler: identity, strict args, reachability,
@@ -175,6 +190,7 @@ fn prepare(
         trace_id,
         parent_call,
         store,
+        requested_name,
     } = call;
     let args = if args.is_null() {
         Value::Object(Default::default())
@@ -228,6 +244,7 @@ fn prepare(
         target: "verb",
         "verb",
         name = verb.name,
+        requested_name = requested_name.as_deref().unwrap_or(""),
         caller = %caller,
         call_id = %call_id,
         trace_id = %trace_id,
@@ -253,6 +270,7 @@ fn prepare(
         started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         arg_bytes,
         span,
+        requested_name,
     }))
 }
 
@@ -280,6 +298,34 @@ fn outcome(result: &Result<Value, BoxError>) -> (bool, Option<String>, usize, us
     }
 }
 
+/// The additive `"deprecated"` envelope field (P3, plan-verb-pipeline §
+/// Lifecycle): a call that named one of `verb.aliases` gets
+/// [`VerbDescriptor::alias_deprecation_notice`]; any other call gets
+/// [`VerbDescriptor::deprecation_notice`], which answers only when the verb
+/// itself (not just an old name for it) is deprecated. Applied to object
+/// results only — array, scalar and error results are unchanged.
+fn apply_deprecation_notice(
+    verb: &'static VerbDescriptor,
+    requested_name: Option<&str>,
+    result: Result<Value, BoxError>,
+) -> Result<Value, BoxError> {
+    let via_alias = requested_name.is_some_and(|n| verb.has_alias(n));
+    let notice = if via_alias {
+        verb.alias_deprecation_notice()
+    } else {
+        verb.deprecation_notice()
+    };
+    match (notice, result) {
+        (Some(notice), Ok(mut value)) => {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("deprecated".to_string(), notice);
+            }
+            Ok(value)
+        }
+        (_, result) => result,
+    }
+}
+
 /// The layers after the handler: envelope and audit.
 fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Value, BoxError>) {
     // D-R11: give back the write lease `prepare`'s policy step took for this
@@ -292,6 +338,7 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
         started,
         started_at,
         arg_bytes,
+        requested_name,
         ..
     } = prepared;
     let duration = started.elapsed();
@@ -320,6 +367,7 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
             arg_bytes,
             result_bytes,
             store_override: context.store_override.clone(),
+            requested_name,
         });
     }
 }
@@ -365,6 +413,7 @@ where
         tracing::Instrument::instrument(context::scope(prepared.context.clone(), future), entered)
             .await
     };
+    let result = apply_deprecation_notice(verb, prepared.requested_name.as_deref(), result);
     finish(verb, prepared, &result);
     result.map_err(PipelineError::Handler)
 }
@@ -388,6 +437,7 @@ where
         let _guard = prepared.span.enter();
         context::sync_scope(prepared.context.clone(), || work(prepared.args.clone()))
     };
+    let result = apply_deprecation_notice(verb, prepared.requested_name.as_deref(), result);
     finish(verb, prepared, &result);
     result.map_err(PipelineError::Handler)
 }
@@ -442,6 +492,21 @@ mod tests {
         method: "fail",
         handler: failing,
         strict: false,
+        ..ECHO
+    };
+    /// A verb with a retired alias (P3): a direct call to `t-service_renamed`
+    /// gets no notice, but the same call by `t-service_old-echo` does.
+    static RENAMED: VerbDescriptor = VerbDescriptor {
+        name: "t-service_renamed",
+        method: "renamed",
+        handler: echo,
+        strict: false,
+        deprecated: Some(crate::Deprecation {
+            since: "0.7.0",
+            alias_of: None,
+            note: "renamed from t-service_old-echo",
+        }),
+        aliases: &["t-service_old-echo"],
         ..ECHO
     };
 
@@ -573,5 +638,54 @@ mod tests {
             crate::runtime::block_on(invoke_on(Arc::new(9u64), &READS, Call::person(json!({}))))
                 .unwrap();
         assert_eq!(seen, json!(9));
+    }
+
+    #[test]
+    fn a_direct_call_to_a_renamed_verb_carries_no_deprecation_notice() {
+        let answer = invoke_blocking(&RENAMED, Call::person(json!({}))).unwrap();
+        assert!(
+            answer.get("deprecated").is_none(),
+            "the live name is not deprecated: {answer}"
+        );
+    }
+
+    #[test]
+    fn a_call_by_the_retired_alias_gets_an_additive_deprecation_notice() {
+        let answer = invoke_blocking(
+            &RENAMED,
+            Call::person(json!({})).with_requested_name("t-service_old-echo"),
+        )
+        .unwrap();
+        assert_eq!(
+            answer["deprecated"],
+            json!({
+                "since": "0.7.0",
+                "use": "t-service_renamed",
+                "note": "renamed from t-service_old-echo",
+            })
+        );
+        // additive: the rest of the envelope is untouched.
+        assert_eq!(answer["ok"], true);
+        assert!(answer.get("echo").is_some());
+    }
+
+    #[test]
+    fn the_deprecation_notice_is_only_added_to_object_results() {
+        fn as_array(_: Value) -> ServiceFuture {
+            Box::pin(async { Ok(json!([1, 2, 3])) })
+        }
+        static ARRAY_RENAMED: VerbDescriptor = VerbDescriptor {
+            name: "t-service_array-renamed",
+            method: "array-renamed",
+            handler: as_array,
+            strict: false,
+            ..RENAMED
+        };
+        let answer = invoke_blocking(
+            &ARRAY_RENAMED,
+            Call::person(json!({})).with_requested_name("t-service_old-echo"),
+        )
+        .unwrap();
+        assert_eq!(answer, json!([1, 2, 3]), "an array result is unchanged");
     }
 }

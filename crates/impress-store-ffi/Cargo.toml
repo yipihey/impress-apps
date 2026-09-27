@@ -72,6 +72,8 @@ impress-surface-service.workspace = true
 # `surface-demo-service`) that had no real reference anywhere in this crate;
 # see `lib.rs`'s force-link comment for the mechanism.
 impress-capabilities-kit.workspace = true
+# R2: the one registry of app chords — a pure dependency, no store reach.
+impress-keymap.workspace = true
 # `Refusal`, the code-and-message every layout and surface refusal carries
 # across the FFI and HTTP (wave 7 T5).
 impress-service-core.workspace = true
