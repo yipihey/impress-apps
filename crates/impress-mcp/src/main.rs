@@ -7,9 +7,7 @@ mod inventory_bridge;
 mod raster;
 mod reachability;
 mod server;
-mod store;
 mod surface;
-mod tools;
 
 // ADR-0033 D4 / plan S2: the force-link list this comment used to carry
 // (fourteen `use X as _force_link_X;` lines, one per `*-service` crate) has
@@ -23,13 +21,6 @@ mod tools;
 // transitively, everything it names — out of the linker's dead-code path.
 
 use std::path::PathBuf;
-use tools::ToolContext;
-
-fn default_embeddings_path() -> PathBuf {
-    dirs::data_dir()
-        .expect("Could not determine data directory")
-        .join("imbib/embeddings.sqlite")
-}
 
 fn default_main_store_path() -> PathBuf {
     dirs::home_dir()
@@ -51,7 +42,7 @@ fn print_help(store_path: &std::path::Path) {
     println!("impress-mcp — the MCP server for the impress suite");
     println!();
     println!("USAGE");
-    println!("  impress-mcp [--store-path PATH] [--embeddings-path PATH]");
+    println!("  impress-mcp [--store-path PATH]");
     println!("  impress-mcp --help | --version");
     println!();
     println!("Speaks MCP over stdio; it is launched by a client, not run by hand.");
@@ -105,7 +96,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let mut embeddings_path = default_embeddings_path();
     let mut store_path = default_main_store_path();
 
     // Parse CLI overrides
@@ -124,11 +114,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("impress-mcp {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
-            "--embeddings-path" => {
-                i += 1;
-                embeddings_path =
-                    PathBuf::from(args.get(i).expect("Missing value for --embeddings-path"));
-            }
+            // `--embeddings-path` retired with P3c step 1: the three
+            // semantic-search tools now live in `imbib-semantic-service`,
+            // reached through the `#[impress_service]` inventory rather than
+            // a hand-written `ToolContext` this binary constructed itself,
+            // and that service picks its own default embeddings path
+            // (`SemanticState::default_embeddings_path`).
             "--store-path" => {
                 i += 1;
                 store_path = PathBuf::from(args.get(i).expect("Missing value for --store-path"));
@@ -149,21 +140,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // that never touch it pay nothing.
     let _ = impress_store_service::set_store_path(&store_path);
 
-    // The embedding stack (store + HNSW rebuild + fastembed model) is NOT
-    // built here. It is built on the first semantic-search call — see
-    // `ToolContext::semantic`. Building it eagerly cost seconds on a large
-    // library and could reach the network for the model, which made this
-    // binary unusable as a sidecar spawned at app launch (impel). Clients
-    // that only use the `#[impress_service]` inventory tools never pay it.
+    // The embedding stack (store + HNSW rebuild + fastembed model), and the
+    // main store `imbib-semantic-service` reads for publication metadata,
+    // are NOT built here. `imbib_semantic_service::SemanticState` builds them
+    // on the first semantic-search call, same as before P3c step 1 moved
+    // that logic out of this binary's own `ToolContext`. Building either
+    // eagerly cost seconds on a large library and could reach the network
+    // for the model, which made this binary unusable as a sidecar spawned at
+    // app launch (impel); a store that was large, locked, or mid-WAL-recovery
+    // delayed `initialize` past the client's patience.
 
-    // The store is NOT opened here. It is opened on first use — see
-    // `ToolContext::main_store`. Opening it eagerly meant that a store which
-    // was large, locked, or mid-WAL-recovery delayed startup past the client's
-    // patience, and because this happens before `run_server` the client got no
-    // `initialize` response at all. Protocol setup, `tools/list` and every
-    // store-independent call must work regardless of the store's state.
-
-    let ctx = ToolContext::deferred(embeddings_path, store_path);
-
-    server::run_server(ctx)
+    server::run_server()
 }

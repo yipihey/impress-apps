@@ -329,6 +329,16 @@ mod tests {
     use super::*;
     use tracing_subscriber::layer::SubscriberExt;
 
+    // `buckets()` is one process-wide table (by design — see the module doc's
+    // "process-wide table" note on `layer()`), so these tests race under the
+    // default parallel runner: `reset_for_test()` in one test can clear
+    // another's in-flight writes, or a concurrently-running test's spans can
+    // land in a `summary("")` a sibling test expected to be empty. A
+    // module-local mutex serializes just these three tests against each
+    // other without reaching for a `serial_test`-style crate dependency for
+    // one file.
+    static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn with_layer<F: FnOnce()>(f: F) {
         let subscriber = tracing_subscriber::registry().with(PerfAggregatorLayer);
         tracing::subscriber::with_default(subscriber, f);
@@ -336,6 +346,7 @@ mod tests {
 
     #[test]
     fn a_closed_verb_span_updates_its_bucket() {
+        let _serial = TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         reset_for_test();
         with_layer(|| {
             let span = tracing::info_span!(
@@ -366,6 +377,7 @@ mod tests {
 
     #[test]
     fn a_prefix_filters_the_summary() {
+        let _serial = TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         reset_for_test();
         with_layer(|| {
             for n in 0..3 {
@@ -400,6 +412,7 @@ mod tests {
 
     #[test]
     fn a_span_outside_the_aggregated_targets_is_ignored() {
+        let _serial = TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         reset_for_test();
         with_layer(|| {
             let span = tracing::info_span!(target: "layout", "layout-span");

@@ -26,6 +26,17 @@ impress-bridges-service = { workspace = true, optional = true }
 impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
+# W1 (plan-self-reflective-layer.md § Workflows): the workflow verbs
+# (validate/create/get/list/dry-run/enable/disable), store-tier over
+# `impress-workflow`'s pure spec, validator and planner.
+impress-workflow-service = { workspace = true, optional = true }
+# P3c step 1: the three legacy semantic-search MCP tools. Deliberately NOT in
+# `full` — the fastembed/tokenizers embedding stack behind it is a cost only
+# `impress-mcp` should pay (see this crate's `semantic-search` feature doc
+# below and `crates/impress-mcp/Cargo.toml`'s original comment). The P3a spike
+# that tried to fold it into `full` was reverted for exactly this reason —
+# see docs/plan-verb-pipeline-and-transport.md's session log.
+imbib-semantic-service = { workspace = true, optional = true }
 impress-scenario-service = { workspace = true, optional = true }
 # `capabilities-service_impact` (E3, ADR-0036 D-G2's spirit) reads the linked
 # inventory itself plus the stored surfaces (`impress-surface-service`, kit),
@@ -91,6 +102,7 @@ full = [
     "scenario",
     "impact",
     "perf",
+    "workflow",
 ]
 kit = ["dep:impress-capabilities-kit"]
 scenario = ["dep:impress-scenario-service"]
@@ -106,4 +118,13 @@ memory = ["dep:impress-memory-service"]
 parsers = ["dep:impress-parsers-service"]
 smart-search = ["dep:impress-smart-search-service"]
 vw = ["dep:vw-impress-adapter"]
+# P3c step 1: carved out of `full` on purpose — see `imbib-semantic-service`'s
+# dependency comment above. `impress-mcp` is the only consumer that enables
+# this feature; `impress-cli` and `impel-tools` build without it, so they
+# never link the fastembed/tokenizers stack behind it.
+# Proof: `cargo tree -p impress-cli -e normal -i fastembed` finds nothing;
+# `cargo tree -p impress-mcp -e normal -i fastembed` shows a path (both
+# recorded in docs/plan-verb-pipeline-and-transport.md's session log).
+semantic-search = ["dep:imbib-semantic-service"]
 impact = ["dep:capabilities-service", "kit"]
+workflow = ["dep:impress-workflow-service"]

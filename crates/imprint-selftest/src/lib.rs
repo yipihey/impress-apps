@@ -19,12 +19,21 @@
 use std::future::Future;
 use std::time::Instant;
 
-pub mod report;
+pub mod scenario_caller;
 pub mod service;
 pub mod tier_a;
 pub mod tier_b;
 
-pub use report::{CapabilityResult, SelfTestReport, Tier};
+// SC-1: imprint's own `CapabilityResult`/`SelfTestReport` copy
+// (`report.rs`) is retired in favour of the one type `impress-layout-service`
+// and `impress-surface-service` already share
+// (`impress_service_core::report`), per the finding's own text ("the three
+// catalogues keep their ids" — not their report *type*). This changes two
+// things a caller of `run-selftest` can observe: the report gains an `ok`
+// field, and a skipped capability now carries `pass: false` rather than
+// `pass: true` (the shared type's own rule, RL-L18: "a skipped capability has
+// pass: false — nothing was shown to work"). Every capability keeps its id.
+pub use impress_service_core::report::{CapabilityResult, SelfTestReport, Tier};
 pub use service::{DefaultImprintSelftestService, ImprintSelftestService};
 
 /// Run one capability check, timing it and packaging the outcome.
@@ -55,12 +64,15 @@ where
 }
 
 /// Convenience for a skipped capability (e.g. Tier B with no app running).
+///
+/// `pass: false` (SC-1, matching `impress_service_core::report`'s rule, not
+/// this crate's old one): a skip is not a pass, it is nothing having run.
 pub fn skipped(id: &str, description: &str, tier: Tier, reason: &str) -> CapabilityResult {
     CapabilityResult {
         id: id.to_string(),
         description: description.to_string(),
         tier,
-        pass: true,
+        pass: false,
         detail: reason.to_string(),
         duration_ms: 0,
         skipped: true,

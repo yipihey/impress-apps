@@ -1,0 +1,40 @@
+[package]
+name = "impress-workflow-service"
+description = "W1 (plan-self-reflective-layer): the workflow verbs, over impress-workflow's pure spec/validate/plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+# `sqlite`: this crate owns the store side of `impress/workflow@1.0.0`.
+# `schema`: the DTOs crossing an `#[impress_method]` boundary need
+# `schemars::JsonSchema`.
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# The pure vocabulary this crate stores, dry-runs and reviews: spec,
+# validate, plan. `schema` so `WorkflowSpec` publishes its JSON schema.
+impress-workflow = { workspace = true, features = ["schema"] }
+impress-surface = { workspace = true, features = ["schema"] }
+# `store_instance()` ONLY — the one shared `impress.sqlite` handle of the
+# process, exactly as `impress-surface-service` and `impress-store-service`'s
+# own verbs use it.
+impress-store-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in
+# tests/ (plan-verb-pipeline-and-transport § Build cost, B1).
+[[test]]
+name = "main"
+path = "tests/main.rs"

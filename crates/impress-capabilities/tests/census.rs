@@ -44,7 +44,18 @@ const VERDICTS: &[&str] = &[
     "covered-through",
     "internal",
     "should-be-verb",
+    "optional-feature",
 ];
+
+/// A crate whose `impress_service_impl!` block links only under a named
+/// Cargo feature (P3c step 2, Tom's decision) — `imbib-semantic-service`
+/// behind `impress-capabilities`'s `semantic-search` feature is the first.
+/// Its Reason column names the feature. A build without that feature does
+/// not link the crate's service, so the usual `verb-crate` bookkeeping (is
+/// it linked? does its row say `verb-crate`?) does not apply either way:
+/// this verdict is accepted whether or not the feature happens to be on for
+/// the build running the test.
+const OPTIONAL_FEATURE_VERDICT: &str = "optional-feature";
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -324,6 +335,16 @@ fn source_facts() -> SourceFacts {
     facts
 }
 
+/// The crate table's verdict per crate name, read straight from the doc
+/// (independent of `table_rows`' 4-column assumption, so this can be called
+/// from a test that only needs the verdict column).
+fn crate_verdicts(doc: &str) -> BTreeMap<String, String> {
+    table_rows(&marker_block(doc, "verb-coverage-crates"))
+        .into_iter()
+        .map(|row| (row[0].clone(), row[2].clone()))
+        .collect()
+}
+
 fn workspace_members() -> BTreeSet<String> {
     let toml = fs::read_to_string(repo_root().join("Cargo.toml")).expect("root Cargo.toml");
     let members = toml.split("members = [").nth(1).expect("workspace members");
@@ -423,25 +444,51 @@ fn every_linked_service_has_a_true_row() {
     let facts = source_facts();
     let counts = census(&verbs, &facts);
     let doc = coverage_doc();
+    let crate_verdicts = crate_verdicts(&doc);
     let rows = table_rows(&marker_block(&doc, "verb-coverage-services"));
+
+    // Whether `service`'s row is allowed to sit unmatched against the linked
+    // inventory: its crate is `optional-feature` and this build did not
+    // enable that feature, so the service simply is not linked right now.
+    let unlinked_but_optional = |service: &str| {
+        facts
+            .service_crate
+            .get(service)
+            .and_then(|c| crate_verdicts.get(c))
+            .is_some_and(|v| v == OPTIONAL_FEATURE_VERDICT)
+    };
 
     let mut problems = Vec::new();
     let mut seen = BTreeSet::new();
     for row in &rows {
         if row[0] == "Total" {
-            let expected = total_row(&counts, verb_crates(&counts, &facts).len());
-            let got = format!(
-                "| **Total** | {} | **{}** | **{}** | **{}** | **{}** | **{}** |",
-                row[1], row[2], row[3], row[4], row[5], row[6]
-            );
-            if got != expected {
-                problems.push(format!("total row is stale; it should read:\n  {expected}"));
+            // The recorded Total is "with every feature on" (the doc's own
+            // stated convention, § Services): only a build with
+            // `semantic-search` on links every service the doc counts, so
+            // only that build can check the total exactly. A build without
+            // it is missing `imbib-semantic-service`'s three verbs by
+            // design (P3c step 2) — that gap is what `unlinked_but_optional`
+            // already accepts per-row below, and checking the Total against
+            // a deliberately smaller count would just repeat the same
+            // complaint in aggregate.
+            if cfg!(feature = "semantic-search") {
+                let expected = total_row(&counts, verb_crates(&counts, &facts).len());
+                let got = format!(
+                    "| **Total** | {} | **{}** | **{}** | **{}** | **{}** | **{}** |",
+                    row[1], row[2], row[3], row[4], row[5], row[6]
+                );
+                if got != expected {
+                    problems.push(format!("total row is stale; it should read:\n  {expected}"));
+                }
             }
             continue;
         }
         let service = &row[0];
         seen.insert(service.clone());
         let Some(c) = counts.get(service) else {
+            if unlinked_but_optional(service) {
+                continue;
+            }
             problems.push(format!(
                 "`{service}` has a row but is not linked in `full`; delete the row"
             ));
@@ -509,10 +556,15 @@ fn argument_shapes_are_pinned() {
     for (shape, n) in &hist {
         expected.push_str(&format!("| `{shape}` | {n} |\n"));
     }
-    assert_eq!(
-        recorded, hist,
-        "the argument-shape table in docs/verb-coverage.md is stale; it should read:\n{expected}"
-    );
+    // Same convention as the Total row above: recorded "with every feature
+    // on" (P3c step 2), so only checked exactly when this build has
+    // `semantic-search` on too.
+    if cfg!(feature = "semantic-search") {
+        assert_eq!(
+            recorded, hist,
+            "the argument-shape table in docs/verb-coverage.md is stale; it should read:\n{expected}"
+        );
+    }
 }
 
 #[test]
@@ -538,7 +590,7 @@ fn every_workspace_crate_has_a_verdict() {
             ));
         }
         let is_verb_crate = verb_crates.contains(crate_name);
-        if is_verb_crate && verdict != "verb-crate" {
+        if is_verb_crate && verdict != "verb-crate" && verdict != OPTIONAL_FEATURE_VERDICT {
             problems.push(format!("`{crate_name}` holds an `impress_service_impl!` block but is `{verdict}`, not `verb-crate`"));
         }
         if !is_verb_crate && verdict == "verb-crate" {

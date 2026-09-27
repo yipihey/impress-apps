@@ -1,0 +1,14 @@
+{
+  "wire_version": 1,
+  "id": "app.cross_doc_search",
+  "description": "Live search index is queryable",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "imprint_search",
+      "args": { "query": "the", "limit": 5 },
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "hits", "gte": 0 }] }
+    }
+  ]
+}

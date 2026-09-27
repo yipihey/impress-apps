@@ -2,6 +2,10 @@
 //!
 //! Opens `impress.sqlite` to look up publication metadata (title, authors,
 //! year, cite_key) for items with `schema_ref LIKE '%bibliography-entry%'`.
+//!
+//! Copied verbatim from `crates/impress-mcp/src/store.rs` when the three
+//! hand-written semantic-search tools moved here (P3c step 1) — nothing
+//! about this module is transport-specific.
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -29,8 +33,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// WAL mode, and a read-only connection may not create or write the `-shm`
 /// index that WAL readers use; SQLite then falls back to scanning the whole WAL
 /// to build a private snapshot. Against the live store — ~317 MB with a 167 MB
-/// WAL — that took minutes, which is why `impress://store/schemas` appeared to
-/// hang and why opening the store at startup stalled `initialize`.
+/// WAL — that took minutes.
 ///
 /// So: open read-write so WAL indexing works normally, then forbid writes with
 /// `PRAGMA query_only`, which is enforced by SQLite itself rather than by
