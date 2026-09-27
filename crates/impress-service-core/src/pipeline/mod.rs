@@ -233,6 +233,9 @@ fn prepare(
         policy::Decision::Run => {}
         policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
         policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
+        // D-R11: a destructive verb whose declared writes overlap another
+        // call's still in flight on the same kind.
+        policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
     }
 
     // 5. span.
@@ -325,6 +328,10 @@ fn apply_deprecation_notice(
 
 /// The layers after the handler: envelope and audit.
 fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Value, BoxError>) {
+    // D-R11: give back the write lease `prepare`'s policy step took for this
+    // call (a no-op if it took none — read-only, no literal declared
+    // writes, or refused before reaching here).
+    policy::release(verb);
     let Prepared {
         context,
         span,

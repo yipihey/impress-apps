@@ -55,6 +55,9 @@
 // because the alias is never read; its only job is to be a real reference
 // the linker cannot ignore.
 
+#[cfg(feature = "impact")]
+#[allow(unused_imports)]
+use capabilities_service as _force_link_capabilities_service;
 #[cfg(feature = "imbib")]
 #[allow(unused_imports)]
 use imbib_service as _force_link_imbib_service;

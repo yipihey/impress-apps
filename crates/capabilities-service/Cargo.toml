@@ -1,0 +1,30 @@
+[package]
+name = "capabilities-service"
+description = "impact analysis over the linked #[impress_service] inventory's own declared effects (ADR-0036 D-G2 spirit, plan-self-reflective-layer E3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# `SurfaceStore::list()` is how `impact` finds the stored surfaces naming a
+# kind or a verb — the one already-linked reader of that table, rather than
+# a second `impress/ui/surface@1.0.0` reader this crate would have to keep
+# in step with `impress-surface-service`'s own.
+impress-surface-service = { workspace = true }
+# `store_instance()` ONLY, so `impact` reads surfaces off the same shared
+# `impress.sqlite` handle every other verb in the binary shares — never a
+# second store connection.
+impress-store-service = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }

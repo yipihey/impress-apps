@@ -38,14 +38,15 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 438 verbs declared; 70 verified by example, 93 by a Tier A
-catalogue, 275 on the exception table.
+Counts today: 439 verbs declared; 69 verified by example, 93 by a Tier A
+catalogue, 277 on the exception table.
 
 ## Every verb
 
 <!-- verb-effects:begin -->
 | Verb | Reads | Writes | Reach | Verified |
 |---|---|---|---|---|
+| `capabilities-service_impact` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | example ×2 |
 | `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
 | `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
@@ -199,6 +200,9 @@ catalogue, 275 on the exception table.
 | `imbib-search-service_get-smart-search` | "imbib/smart-search" | — | — | — |
 | `imbib-search-service_list-smart-searches` | "imbib/smart-search" | — | — | example ×1 |
 | `imbib-search-service_resolve-cite-key` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | — |
+| `imbib-semantic-service_get-paper-chunks` | any("reads the imbib embeddings sidecar") | — | — | — |
+| `imbib-semantic-service_list-indexed-papers` | any("reads the imbib embeddings sidecar and, for metadata, the shared impress store") | — | — | — |
+| `imbib-semantic-service_search-papers` | any("reads the imbib embeddings sidecar and, for metadata, the shared impress store") | — | — | — |
 | `imbib-tags-service_add-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_count-by-tag` | "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
@@ -623,6 +627,9 @@ when one lands).
 | `imbib-search-service_full-text-search` | no example |
 | `imbib-search-service_get-smart-search` | no example |
 | `imbib-search-service_resolve-cite-key` | no example |
+| `imbib-semantic-service_get-paper-chunks` | no example |
+| `imbib-semantic-service_list-indexed-papers` | no example |
+| `imbib-semantic-service_search-papers` | no example |
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_list-tags-with-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |

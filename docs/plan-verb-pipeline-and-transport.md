@@ -1221,3 +1221,78 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   -p impress-mcp -p impress-service-core -p impress-cli` all green (8 + 40 + 7 + 78 + doctests passed,
   0 failed); `check-kit-deps.sh --strict`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`, and `cargo
   hakari generate --diff` all clean (`cargo hakari manage-deps` reported no operations to perform).
+- 2026-09-27 — **P3c step 2: an `optional-feature` verdict for the coverage machinery** (same branch,
+  merged with `origin/main` first — the merge brought in `capabilities-service`/`impact` (independent, kept
+  both sides in `impress-capabilities/Cargo.toml`) and regenerated `Cargo.lock` rather than hand-resolving
+  the conflict). Tom's decision: a workspace crate can carry the verdict `optional-feature` in
+  `docs/verb-coverage.md`'s crate table, with the feature name in its *Reason* column —
+  `imbib-semantic-service` | verb-crate | optional-feature | `semantic-search` … | is the first.
+  `scripts/check-verb-coverage.sh`'s `VERDICTS` list gained it; the script does no verb-crate-vs-block
+  cross-check itself (that lives in `census.rs`), so this was the only script edit needed.
+
+  `crates/impress-capabilities/tests/census.rs`, `descriptor.rs` and `effects.rs` needed to both *see* the
+  semantic verbs (so their rows can be checked for real) and *not choke* when they are absent, since
+  `impress-capabilities`'s default features do not include `semantic-search` and `cargo test -p
+  impress-capabilities` must stay green either way. Chose the second of the two options the step offered
+  (teach the tests to accept a service linked only under a named optional feature) over gating the test
+  *targets* on `required-features = ["semantic-search"]`: the latter would make `census`/`descriptor`/`effects`
+  not run at all — silently, no failure, just absent from the default `cargo test -p impress-capabilities`
+  output — which is a worse floor than "these three rows are exempt right now." Mechanism: `census.rs` reads
+  each crate's verdict from the doc (`crate_verdicts`) and skips the usual "row present but not linked;
+  delete it" / "is_verb_crate but verdict isn't `verb-crate`" complaints when the row names a service whose
+  crate is `optional-feature`; `descriptor.rs` and `effects.rs`, which only ever see the verb by its
+  qualified name once unlinked (no `VerbDescriptor` to look a crate up from), instead carry a small
+  `OPTIONAL_FEATURE_VERB_PREFIXES`/`is_optional_feature_verb` const naming the qualified-name prefix
+  (`"imbib-semantic-service_"`) and skip the same "not a linked verb; delete the row" complaint for it. The
+  Total row and the argument-shape histogram in `census.rs` are recorded, per the doc's own stated
+  convention ("Counted from `McpToolDescriptor::iter()` with every feature on"), for a
+  `--features semantic-search` build — so those two specific assertions are behind `cfg!(feature =
+  "semantic-search")` rather than exempted row-by-row; everything else in all three files (safety class,
+  schema, effects declarations, naming lint) still checks every linked verb exactly, feature on or off.
+
+  Also fixed, found while running `descriptor.rs` with the feature on: its
+  `names_and_groups_are_derived_from_the_identifiers` test still asserted `v.aliases.is_empty()` for every
+  verb — true before this step because nothing linked in `full` used P3-lifecycle's `aliases` field yet
+  (main's `#[impress_method(aliases = …)]`, merged via #101, landed with zero adopters). `imbib-semantic-service`
+  is the first, so the assertion became `v.aliases.is_empty() || v.deprecated.is_some()` — the pairing the
+  macro actually requires (aliases needs `deprecated(…)` alongside it), not a blanket ban that stopped being
+  true when the feature is on.
+
+  **Regenerated** (never hand-typed) from the tests' own `dump`, each run as `-- --nocapture
+  --test-threads=1 dump` with `--features semantic-search` so `imbib-semantic-service` shows up:
+  `docs/verb-coverage.md`'s services table (18 crates, 40 services, 442 verbs, was 17/39/439) and
+  argument-shape histogram (`scalar` 915, was 911); `docs/verb-safety.md`'s per-verb table (+3
+  `imbib-semantic-service_*` rows, all `read_only`) and its "Counts today" line (178/128/33/103 — 442
+  verbs with the feature on, 439 without — both numbers recorded since the doc is read by both builds);
+  `docs/verb-effects.md`'s verb table (+3 rows, each `any(...)` reads, no writes, no external reach) and
+  exception table (+3 `no example` rows — none of the three ships an `#[impress_example]` yet). Moved
+  `EXCEPTION_CEILING` in `effects.rs` from 277 to 280 for exactly those three, with a comment saying so.
+  `docs/verb-coverage.md`'s "Crates" section gained an `optional-feature` bullet in the verdict list and the
+  `imbib-semantic-service` crate row (`verb-crate` role, `optional-feature` verdict, reason naming
+  `semantic-search`).
+
+  **`docs/verbs/` regenerated without the feature** (`cargo run -p impress-capabilities --bin gen-verb-docs`,
+  no `--features`): `scripts/check-verb-docs.sh` invokes the generator unconditionally, and changing that
+  script was out of this step's scope — so `imbib-semantic-service`'s pages are deliberately not part of the
+  committed `docs/verbs/` tree yet. Also picked up `docs/verbs/capabilities-service.md` (new) and a
+  `docs/verbs/README.md` diff from the `origin/main` merge (P3-impact's `capabilities-service`, unrelated to
+  this step).
+
+  **kit.yml**: not touched. Its own comment says the per-service counts "are checked by `cargo test -p
+  impress-capabilities` instead" — `kit.yml` never runs `census`/`effects`/`descriptor` itself, so the
+  step's conditional ("if the kit workflow runs them, exercise the feature once") does not apply. Where
+  those tests *do* run in CI is `workspace-rust.yml`'s `test`/`rest` shard
+  (`./scripts/rust-gate.sh test rest`, `cargo test --workspace --exclude imprint-* --features native`);
+  because `impress-mcp` (in the `imprint` shard, not `rest`) declares `impress-capabilities = { features =
+  ["full", "semantic-search"] }` unconditionally, and Cargo unifies a dependency's features across every
+  target requested in one invocation, a `--workspace` run already compiles `impress-capabilities` — and
+  therefore its `census`/`descriptor`/`effects` test binaries — with `semantic-search` on, even though no
+  shard passes the flag explicitly. Confirmed by running `cargo test -p impress-capabilities` alone (isolated,
+  no unification with `impress-mcp`) both with and without `--features semantic-search`, per the gates below.
+
+  Gates (serial, `CARGO_TARGET_DIR=$PWD/target-p3c`): `rust-gate.sh fmt`, `clippy rest`, `clippy imprint` all
+  clean; `cargo test -p impress-capabilities` green both with and without `--features semantic-search`;
+  `cargo test -p imbib-semantic-service -p impress-mcp` green (40 + 7 passed, 2 ignored — the fastembed-init
+  stdio smoke tests, as always); `check-verb-coverage.sh`, `check-verb-docs.sh`, `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh` and `cargo hakari generate
+  --diff` all clean.

@@ -32,6 +32,10 @@ impress-smart-search-service = { workspace = true, optional = true }
 # that tried to fold it into `full` was reverted for exactly this reason —
 # see docs/plan-verb-pipeline-and-transport.md's session log.
 imbib-semantic-service = { workspace = true, optional = true }
+# `capabilities-service_impact` (E3, ADR-0036 D-G2's spirit) reads the linked
+# inventory itself plus the stored surfaces (`impress-surface-service`, kit),
+# so it needs the `kit` feature on whenever it is on.
+capabilities-service = { workspace = true, optional = true }
 # Not a workspace.dependencies entry (see crates/impress-mcp/Cargo.toml,
 # which reaches it the same way): the vw-* family has never had a workspace
 # alias, only relative `path` dependencies from each consumer.
@@ -85,6 +89,7 @@ full = [
     "smart-search",
     "vw",
     "kit",
+    "impact",
 ]
 kit = ["dep:impress-capabilities-kit"]
 
@@ -107,3 +112,4 @@ vw = ["dep:vw-impress-adapter"]
 # `cargo tree -p impress-mcp -e normal -i fastembed` shows a path (both
 # recorded in docs/plan-verb-pipeline-and-transport.md's session log).
 semantic-search = ["dep:imbib-semantic-service"]
+impact = ["dep:capabilities-service", "kit"]
