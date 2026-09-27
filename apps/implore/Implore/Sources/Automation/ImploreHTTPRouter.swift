@@ -20,8 +20,6 @@ import ImpressLogging
 ///
 /// API Endpoints (GET):
 /// - `GET /api/status` - Server health and app state
-/// - `GET /api/datasets` - List open datasets
-/// - `GET /api/datasets/{id}` - Get dataset details
 /// - `GET /api/figures` - List all figures
 /// - `GET /api/figures/{id}` - Get figure details
 /// - `GET /api/figures/{id}/export` - Export figure to a file (params: format png|svg, width, height, scale)
@@ -160,16 +158,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
             return await handleStatus()
         }
 
-        if path == "/api/datasets" {
-            return await handleListDatasets()
-        }
-
-        // GET /api/datasets/{id}
-        if path.hasPrefix("/api/datasets/") && !path.contains("/export") {
-            let id = String(originalPath.dropFirst("/api/datasets/".count))
-            return await handleGetDataset(id: id)
-        }
-
         if path == "/api/figures" {
             return await handleListFigures(request)
         }
@@ -187,9 +175,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
 
         // RG viewer endpoints
-        if path == "/api/rg/state" {
-            return await handleRgState()
-        }
         if path == "/api/rg/slice/png" {
             return await handleRgSlicePng(request)
         }
@@ -198,9 +183,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
         if path == "/api/rg/statistics" {
             return await handleRgStatistics(request)
-        }
-        if path == "/api/rg/colormaps" {
-            return handleRgColormaps()
         }
 
         // Plot endpoints
@@ -236,14 +218,8 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
 
         // RG viewer POST endpoints
-        if path == "/api/rg/load" {
-            return await handleRgLoad(request)
-        }
         if path == "/api/rg/control" {
             return await handleRgControl(request)
-        }
-        if path == "/api/rg/slice/save" {
-            return await handleRgSliceSave(request)
         }
         if path == "/api/rg/batch" {
             return await handleRgBatch(request)
@@ -1142,16 +1118,12 @@ public actor ImploreHTTPRouter: HTTPRouter {
             "endpoints": [
                 // GET endpoints
                 "GET /api/status": "Server health and app state (includes RG viewer state if loaded)",
-                "GET /api/datasets": "List open datasets",
-                "GET /api/datasets/{id}": "Get dataset details with columns",
                 "GET /api/figures": "List all figures (params: dataset)",
                 "GET /api/figures/{id}": "Get figure configuration",
                 "GET /api/figures/{id}/export": "Export to <workspace>/exports/figures/<id>.<png|svg>; returns path, sha256, base64 data (params: format, width, height, scale)",
-                "GET /api/rg/state": "Current RG viewer state + dataset info",
                 "GET /api/rg/slice/png": "Export current slice as PNG (?format=base64 for JSON)",
                 "GET /api/rg/slice/raw": "Raw f32 values (?quantity, ?axis, ?position, ?downsample)",
                 "GET /api/rg/statistics": "Slice or field statistics (?quantity, ?scope=slice|field)",
-                "GET /api/rg/colormaps": "List available colormap names",
                 "GET /api/rg/cascade_plot": "Canonical mu-vs-level cascade statistics SVG",
                 "GET /api/plot/svg": "Render data series as SVG (?series=a,b&title=...)",
                 "GET /api/plot/histogram": "Render field histogram as SVG (?quantity, ?bins)",
@@ -1164,9 +1136,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 // POST endpoints
                 "POST /api/figures": "Create a figure and store its rendered PNG as data_hash (body: datasetId, type|plotType, xColumn|x?, yColumn|y?, title?, width?, height?, and data as series [{label?, x, y}] | spec (implore PlotSpec) | svg)",
                 "POST /api/figures/{id}/export": "Same as GET /api/figures/{id}/export, params in the body",
-                "POST /api/rg/load": "Load .npz file (body: {path})",
                 "POST /api/rg/control": "Change viewer params (body: {quantity?, axis?, position?, colormap?})",
-                "POST /api/rg/slice/save": "Save current slice PNG to disk (body: {path})",
                 "POST /api/rg/batch": "Capture multiple positions (body: {positions, quantity?, axis?, colormap?})",
                 // PATCH endpoints
                 "PATCH /api/figures/{id}": "Update a figure (same fields as POST); re-renders its artifact",
