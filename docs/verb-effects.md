@@ -38,8 +38,8 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 462 verbs declared; 73 verified by example, 93 by a Tier A
-catalogue, 296 on the exception table.
+Counts today: 471 verbs declared; 78 verified by example, 93 by a Tier A
+catalogue, 300 on the exception table.
 
 ## Every verb
 
@@ -325,6 +325,13 @@ catalogue, 296 on the exception table.
 | `impress-surface-service_surface-update` | "impress/ui/surface@1.0.0" | "impress/ui/surface@1.0.0" | — | catalogue:surface |
 | `impress-surface-service_surface-validate` | — | — | — | catalogue:surface |
 | `impress-surface-service_surface-wait` | "impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0" | — | — | catalogue:surface |
+| `impress-workflow-service_workflow-create` | "impress/workflow@1.0.0" | "impress/workflow@1.0.0" | — | example ×1 |
+| `impress-workflow-service_workflow-disable` | "impress/workflow@1.0.0" | "impress/workflow@1.0.0" | — | — |
+| `impress-workflow-service_workflow-dry-run` | "impress/workflow@1.0.0" | — | — | — |
+| `impress-workflow-service_workflow-enable` | "impress/workflow@1.0.0" | "impress/workflow@1.0.0" | — | — |
+| `impress-workflow-service_workflow-get` | "impress/workflow@1.0.0" | — | — | — |
+| `impress-workflow-service_workflow-list` | "impress/workflow@1.0.0" | — | — | example ×1 |
+| `impress-workflow-service_workflow-validate` | — | — | — | example ×1 |
 | `imprint-app-service_create-comment` | — | — | app("imprint") | — |
 | `imprint-app-service_create-document` | — | — | app("imprint") | — |
 | `imprint-app-service_delete-comment` | — | — | app("imprint") | — |
@@ -456,6 +463,8 @@ catalogue, 296 on the exception table.
 | `parsers-service_list-publisher-rules` | — | — | — | example ×1 |
 | `parsers-service_parse-mbox` | — | — | — | — |
 | `parsers-service_resolve-publisher-pdf` | — | — | network | — |
+| `perf-service_summary` | — | — | — | example ×2 |
+| `perf-service_trace` | — | — | — | example ×1 |
 | `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_list` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_reset` | — | "impress/settings@1.0.0" | fs | — |
@@ -738,6 +747,10 @@ when one lands).
 | `impress-bridges-service_search-all` | no example |
 | `impress-bridges-service_sync-figure` | needs a running app |
 | `impress-scenario-service_scenario-run` | leaves the process (network) |
+| `impress-workflow-service_workflow-disable` | no example |
+| `impress-workflow-service_workflow-dry-run` | no example |
+| `impress-workflow-service_workflow-enable` | no example |
+| `impress-workflow-service_workflow-get` | no example |
 | `imprint-app-service_create-comment` | needs a running app |
 | `imprint-app-service_create-document` | needs a running app |
 | `imprint-app-service_delete-comment` | needs a running app |

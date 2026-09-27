@@ -88,12 +88,18 @@ use impress_scenario_service as _force_link_scenario_service;
 #[cfg(feature = "smart-search")]
 #[allow(unused_imports)]
 use impress_smart_search_service as _force_link_smart_search_service;
+#[cfg(feature = "workflow")]
+#[allow(unused_imports)]
+use impress_workflow_service as _force_link_workflow_service;
 #[cfg(feature = "imprint")]
 #[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;
 #[cfg(feature = "imprint")]
 #[allow(unused_imports)]
 use imprint_service as _force_link_imprint_service;
+#[cfg(feature = "perf")]
+#[allow(unused_imports)]
+use perf_service as _force_link_perf_service;
 #[cfg(feature = "vw")]
 #[allow(unused_imports)]
 use vw_impress_adapter as _force_link_vw_impress_adapter;

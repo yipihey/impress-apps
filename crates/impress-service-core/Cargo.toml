@@ -16,6 +16,10 @@ default = []
 uniffi = ["dep:uniffi"]
 pyo3 = ["dep:pyo3"]
 cli = ["dep:clap"]
+# `pipeline::perf::reset_for_test` outside this crate's own tests — a
+# downstream crate's test harness (e.g. `perf-service`'s) that wants a
+# clean bucket table between cases.
+test-support = []
 
 [dependencies]
 serde = { workspace = true }
@@ -29,6 +33,10 @@ thiserror = { workspace = true }
 # audit record's timestamp and the argument summary's hash. All external;
 # this crate stays on the kit's pure tier.
 tracing = { workspace = true }
+# The perf aggregator (G7b): a `Layer` folding closed `verb`/`io` spans into
+# per-name buckets. Kept on the kit's pure tier like the rest of the
+# pipeline — no sink, no I/O, only in-process bucket state.
+tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 sha2 = "0.10"

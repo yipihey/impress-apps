@@ -2128,6 +2128,61 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `imprint-selftest`'s new `impress-scenario` dependency, already covered by the existing
   workspace-hack feature set).
 
+- 2026-09-27 — W1 (workflow crate and its verbs) finished on
+  `claude/reflective-w1-workflow`, worktree `.claude/worktrees/w1-workflow`. Two new crates:
+  `impress-workflow` (pure tier — `WorkflowSpec`, `Trigger`, `Guards`, `Review`, `validate`,
+  `plan`) and `impress-workflow-service` (store tier over it, mirroring
+  `impress-surface-service`'s own reach into `impress-core`). Workflows reuse the surface action
+  vocabulary directly (`steps: Vec<impress_surface::spec::Action>`) rather than forking it: `plan`
+  builds one synthetic single-node `SurfaceSpec` (id `"trigger"`, `on_submit` = the workflow's
+  `steps`) and drives `impress_surface::reduce` unchanged with a `submit` event — nothing in
+  `reduce` needed to change (WF-2). Registered `impress/workflow@1.0.0` properly in `impress-core`
+  (`schemas/workflow.rs`), which `impress-store-service::history_service::WORKFLOW_SCHEMA` now
+  re-exports rather than duplicating.
+
+  **Verbs** (`impress-workflow-service`, wired into `impress-capabilities` behind a new
+  `workflow` feature, in `full`): `workflow-validate`, `workflow-create`, `workflow-get`,
+  `workflow-list`, `workflow-dry-run`, `workflow-enable`, `workflow-disable`. D-R6: `create` from
+  an agent caller (`pipeline::context::current().caller.kind() == "agent"`) always stores
+  `state: proposed`, whatever the spec asked for; `enable` from an agent is refused
+  `review-pending` (`impress_service_core::pipeline::policy::REVIEW_PENDING`) and leaves the row
+  untouched; `disable` carries no such restriction. `dry-run` runs `plan` with the caller's event
+  and returns every `call` step as `would_call` (verb, args, the linked descriptor's own declared
+  safety and effects when known) — never executed.
+
+  **Proof:** validator fixtures in `impress-workflow` (schedule under 60s, `publish`/`open`
+  refused — no pane, a feedback-loop check when a verb's effects are supplied, empty steps is a
+  warning not an error) plus black-box fixtures in `tests/fixtures.rs`; `impress-workflow-service`'s
+  `tests/proof.rs` runs every case through the real pipeline (`VerbDescriptor::find` +
+  `pipeline::invoke_on`, never the service struct directly — `dry_run_returns_would_call`,
+  `agent_create_stores_proposed`, `person_create_keeps_the_named_state`,
+  `agent_enable_is_review_pending` (and that the row is unchanged after), `person_enable_runs_it`,
+  `agent_disable_is_unrestricted`, plus a strict-args and a list fixture). 24 tests total across
+  the two crates, plus `impress-capabilities`'s own `every_handler_call_site_is_the_pipeline` and
+  `every_tier_a_example_passes` cover the three new `#[impress_example]`s for free.
+
+  Docs: `docs/agent-surfaces.md` § Workflows added; `docs/verb-coverage.md` (new service row,
+  crate verdicts for both new crates, updated shape histogram and total), `docs/verb-safety.md`
+  (7 rows) and `docs/verb-effects.md` (7 rows, 4 new `no example` exceptions —
+  `EXCEPTION_CEILING` 289 → 293, `workflow-validate` itself ships an example so it needed none) all
+  from the `dump` tests' own printed text; `docs/verbs/` regenerated with `gen-verb-docs`.
+  `schema-refs.json`: `impress/workflow@1.0.0`'s entry rewritten to name the real writers
+  (`save-macro` and `workflow-create`) and registered in `registries.impress-core`.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-w1`, machine loaded): fmt clean; `clippy rest` and
+  `clippy imprint` clean; `cargo test -p impress-workflow -p impress-workflow-service
+  -p impress-capabilities -p impress-surface -p impress-core` all green (13 + 9 in the two new
+  crates, 603 in impress-core including the schema-ref manifest test, 118 in
+  impress-store-service, every impress-capabilities suite including `effects.rs` and `descriptor.rs`
+  against the workflow rows); `check-verb-coverage.sh`, `check-verb-docs.sh` (after regenerating),
+  `check-schema-refs.sh` (396 call sites, 84 canonical refs, 0 divergences), `check-kit-deps.sh
+  --strict` and `check-kit-standalone.sh --strict` (neither new crate is in the kit manifest, so
+  both pass unchanged — 17 kit crates build standalone as before), `check-uniffi-bindings.sh` (7
+  bindings, unchanged) all OK; `cargo hakari manage-deps` and `cargo hakari generate` both reported
+  no changes. **Left for W2**: the planner that turns `(workflows, clock, cursors)` into which
+  workflows fire right now, wired as `impel-taskd`'s fourth spawn rule and the app's FFI tick under
+  `SchedulerConfig::start_delay`; this package's `plan` answers "given one trigger event, what do
+  the steps do", which is what `dry-run` already needed.
 - 2026-09-27 — **S2b (kit joins, layout+surface scenarios)** on a worktree of main,
   branch `claude/reflective-s2b-kit-scenarios`. Tom's decision (2026-09-27, named in
   the task): `impress-scenario` joins the kit. Added its row to

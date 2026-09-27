@@ -71,7 +71,8 @@ use serde_json::Value;
 /// (behind the `semantic-search` feature) each declare a `reads` but ship no
 /// `#[impress_example]` yet, landing all three on the exception table as
 /// "no example" — not a regression in a verb that was already covered.
-const EXCEPTION_CEILING: usize = 296;
+/// Raised further in W1: the workflow verbs have no headless example yet.
+const EXCEPTION_CEILING: usize = 300;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

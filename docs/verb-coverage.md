@@ -65,6 +65,7 @@ prints the row as it should now read.
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 0 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
+| `perf-service` | perf-service | 2 | 2 | 2 (1) | 0 | 2 |
 | `impress-scenario-service` | impress-scenario-service | 5 | 5 | 7 (4) | 7 | 5 |
 | `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
@@ -74,7 +75,8 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 19 crates, 43 services | **462** | **462** | **1044 (693)** | **117** | **68** |
+| `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
+| **Total** | 21 crates, 45 services | **471** | **471** | **1053 (700)** | **119** | **77** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -94,11 +96,11 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 |---|---:|
 | `array-of-objects` | 3 |
 | `array-of-scalars` | 52 |
-| `inline-object` | 4 |
+| `inline-object` | 6 |
 | `map` | 2 |
-| `other` | 6 |
+| `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 937 |
+| `scalar` | 943 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -191,6 +193,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-pane-query` | kit-pure | covered-through | the pane-query algebra `layout-service` verbs take as arguments |
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
+| `impress-py` | library | internal | the P6 Python binding: `list_verbs()`/`call(verb, args)`; no capability of its own, it reaches a verb another crate already holds |
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
 | `impress-scenario` | library | covered-through | `impress-scenario-service` exposes validate/interpret over it |
 | `impress-scenario-service` | verb-crate | verb-crate | |
@@ -207,12 +210,15 @@ and the implore owner decides between verbs and deletion.
 | `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |
 | `impress-toolbox` | binary | internal | `execute::{handle_execute, handle_execute_file}` run a local command — deliberately unsandboxed, deliberately no verb |
 | `impress-verb-surface` | kit-pure | covered-through | `capabilities-service` exposes `verb_surface`/`catalogue` as `verb-surface`/`catalogue-surface` (ADR-0035 D2) |
+| `impress-workflow` | library | covered-through | `impress-workflow-service` exposes the spec, validator and planner |
+| `impress-workflow-service` | verb-crate | verb-crate | |
 | `impress-workspace-hack` | tooling | internal | the generated cargo-hakari crate: dependency glue, no code (plan-verb-pipeline-and-transport § Build cost, B4) |
 | `imprint-cli` | binary | internal | the CLI binary over the inventory |
 | `imprint-core` | domain-core | should-be-verb | reached by `imprint-service` through `{project, render, latex, citations, presentation}`; `sourcemap::{generate_source_map, source_map_lookup}` and ≈22 `uniffi::export` items have no verb (`selection` is UI-bound and correctly internal) |
 | `imprint-selftest` | verb-crate | verb-crate | |
 | `imprint-service` | verb-crate | verb-crate | |
 | `imprint-service-http` | service-http | internal | the HTTP adapter of `imprint-service`; no capability of its own |
+| `perf-service` | verb-crate | verb-crate | |
 | `scix-client-ffi` | ffi | should-be-verb | `scix_search`, `scix_count`, `scix_fetch_{references, citations, similar, coreads}` — the ADS citation graph, 19 exports, all Swift-only |
 | `surface-demo-service` | verb-crate | verb-crate | |
 | `uniffi-bindgen` | tooling | internal | the bindgen binary |
@@ -222,9 +228,36 @@ and the implore owner decides between verbs and deletion.
 | `vw-service` | library | internal | holds the `vw-diagnostic-service` trait; the verbs are emitted by `vw-impress-adapter`'s impl block |
 <!-- verb-coverage-crates:end -->
 
+### The internal binding-tell (G6)
+
+Table 5's rule for "should be a verb" (appendix A5, above) names the tell for
+a gap: "a function with two or three bindings (Swift, Python, a private MCP
+server) and zero verbs". `scripts/check-verb-coverage.sh` enforces the
+converse of that reflex on every `internal` row: a `pub fn`/`impl` under
+`crates/<name>/src` marked with `#[uniffi::export]`, `#[pyfunction]` /
+`#[pymodule]`, or an HTTP route registration (`.route(`) *is* a binding, so an
+`internal` crate that has one is either wrong (its capability is
+agent-facing and belongs in the inventory) or already justified — an `ffi` /
+`service-http` role crate (the binding is the crate's whole job), or one of
+the five rows below, each with a reason the binding does not make it
+agent-facing. Adding an `internal` crate here without moving or explaining it
+is what the check is for; the table is the only way past it, the same shape
+as `docs/kit-manifest.md`'s open findings.
+
+<!-- verb-coverage-internal-bindings:begin -->
+| Crate | Binding | Reason |
+|---|---|---|
+| `impel-tools` | `#[uniffi::export]` | projects the inventory into impel's agent loop; the binding is the glue itself, not a second capability |
+| `impress-py` | `#[pyfunction]`/`#[pymodule]` | the P6 Python binding: `list_verbs()`/`call(verb, args)` project the linked inventory into a Python process; the binding is the glue itself, not a second capability |
+| `impress-ai-http` | `.route(` | the HTTP transport of `impress-ai-service`'s chat completion, mirrored not duplicated (D-A above) |
+| `impress-helix` | `#[uniffi::export]` | `HelixState`/`FfiHelixEditor::handle_key` crosses to Swift because it is a keystroke state machine bound to a live editor buffer — rule (b) excludes it regardless of the binding |
+| `impress-mcp-host` | `.route(` | hosts the linked inventory for an in-process MCP client; the route serves verbs already in the census, not a new capability |
+| `impress-toolbox` | `.route(` | `execute::{handle_execute, handle_execute_file}` run a local command over its own server — deliberately unsandboxed, deliberately outside the inventory |
+<!-- verb-coverage-internal-bindings:end -->
+
 ## How each check enforces it
 
 | Check | What it proves | How it fails |
 |---|---|---|
 | `crates/impress-capabilities/tests/census.rs` | Every service in the linked `full` inventory has a row whose counts match; no row names an unlinked service — except a service whose crate is `optional-feature` in the crates table, which is allowed to sit unmatched when this build did not turn its feature on (P3c step 2); every workspace member has a verdict; a crate holding a linked `impress_service_impl!` block is `verb-crate` (or `optional-feature`) and no other crate is; the shape histogram and Total row match exactly for a `--features semantic-search` build, the doc's own recorded convention; at most 20 crates are `should-be-verb`. `cargo test -p impress-capabilities --features semantic-search --test census -- --nocapture dump` prints the tables as they should read now. | A list of the stale rows, each with its replacement. |
-| `scripts/check-verb-coverage.sh` | Without a build: every workspace member has a row with a known verdict (`verb-crate`, `covered-through`, `internal`, `should-be-verb`, `optional-feature`), every `impress_service_impl!` block under `crates/*/src` names a service that has a row, and the `should-be-verb` count is at most the ceiling. | `FAIL: …` per problem. Exit 1. |
+| `scripts/check-verb-coverage.sh` | Without a build: every workspace member has a row with a known verdict (`verb-crate`, `covered-through`, `internal`, `should-be-verb`, `optional-feature`), every `impress_service_impl!` block under `crates/*/src` names a service that has a row, the `should-be-verb` count is at most the ceiling, and no `internal` crate outside an `ffi`/`service-http` role or the internal-binding table above has gained a `#[uniffi::export]`, `#[pyfunction]`/`#[pymodule]` or `.route(` binding (G6, the tell of table 5/A5). `--self-test` feeds the binding classifier known-good and known-bad fixtures. | `FAIL: …` per problem. Exit 1. |
