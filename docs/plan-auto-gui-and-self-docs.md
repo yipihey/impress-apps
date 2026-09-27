@@ -782,6 +782,28 @@ crates) is real and is held, not closed, by this plan.
   already covers as class b, so completeness statement 1 holds without them; they are left as a named
   follow-up rather than attempted here. The kit-demo `--prove` GUI proof and G6's coverage-line
   finishing (the `internal` binding-tell) are the next packages' work, per the row's own dependency arrow.
+- 2026-09-27 — **G6 landed** on a worktree of `origin/main`, branch `claude/gui-g6-coverage`. The crate
+  table between `docs/verb-coverage.md`'s `verb-coverage-crates` markers was already finished by G0/G1's
+  first draft (every row has a verdict, every `should-be-verb` row names what should become a verb, every
+  `internal` row gives a reason) — checked mechanically (no empty *Reason* cell on either verdict) rather
+  than reworded. What G6 adds is the `internal` binding-tell itself: `scripts/check-verb-coverage.sh`
+  now greps `crates/<name>/src` for `#[uniffi::export]`, `#[pyfunction]`/`#[pymodule]` and `.route(` on
+  every `internal`-verdict crate (comment lines excluded), and fails naming the crate unless its role is
+  `ffi`/`service-http` (the binding is that role's whole job) or it is listed in a new marker table,
+  `verb-coverage-internal-bindings` — the same shape as `kit-manifest.md`'s open findings — with the
+  binding and a reason it does not make the crate agent-facing. Five crates needed that table today:
+  `impel-tools` and `impress-mcp-host` (the binding is the inventory-glue itself), `impress-ai-http` and
+  `impress-toolbox` (an HTTP transport/local-exec surface already named `internal` with a reason before
+  G6), and `impress-helix` (a `#[uniffi::export]`ed keystroke state machine that fails rule (b) — a live
+  key event — regardless of the binding). The check's own fixture test, `check-verb-coverage.sh
+  --self-test`, drives `has_binding`/`is_binding_exempt` directly on five tmp-dir source fixtures (a real
+  `#[uniffi::export]`, a real `#[pyfunction]`, a real `.route(`, the same attribute named only in a `//!`
+  doc comment, and a plain `pub fn`) plus five role/allowlist cases and two end-to-end ones, mirroring
+  `check-kit-deps.sh --self-test`'s pattern (pure `classify` function, `expect` helper). The
+  `should-be-verb` ceiling stays at 20 in `census.rs` — nothing moved to `covered` this package. Gates
+  (serial, `CARGO_TARGET_DIR` on a scratch dir): `rust-gate.sh fmt`, `cargo test -p impress-capabilities`
+  (18 tests across census/effects/keymap_coverage/pipeline/policy/tier_a), `check-verb-coverage.sh` and
+  its `--self-test`, `check-kit-deps.sh --strict` — all clean.
 
 ## Appendix A1 — every verb
 

@@ -213,9 +213,35 @@ and the implore owner decides between verbs and deletion.
 | `vw-service` | library | internal | holds the `vw-diagnostic-service` trait; the verbs are emitted by `vw-impress-adapter`'s impl block |
 <!-- verb-coverage-crates:end -->
 
+### The internal binding-tell (G6)
+
+Table 5's rule for "should be a verb" (appendix A5, above) names the tell for
+a gap: "a function with two or three bindings (Swift, Python, a private MCP
+server) and zero verbs". `scripts/check-verb-coverage.sh` enforces the
+converse of that reflex on every `internal` row: a `pub fn`/`impl` under
+`crates/<name>/src` marked with `#[uniffi::export]`, `#[pyfunction]` /
+`#[pymodule]`, or an HTTP route registration (`.route(`) *is* a binding, so an
+`internal` crate that has one is either wrong (its capability is
+agent-facing and belongs in the inventory) or already justified — an `ffi` /
+`service-http` role crate (the binding is the crate's whole job), or one of
+the five rows below, each with a reason the binding does not make it
+agent-facing. Adding an `internal` crate here without moving or explaining it
+is what the check is for; the table is the only way past it, the same shape
+as `docs/kit-manifest.md`'s open findings.
+
+<!-- verb-coverage-internal-bindings:begin -->
+| Crate | Binding | Reason |
+|---|---|---|
+| `impel-tools` | `#[uniffi::export]` | projects the inventory into impel's agent loop; the binding is the glue itself, not a second capability |
+| `impress-ai-http` | `.route(` | the HTTP transport of `impress-ai-service`'s chat completion, mirrored not duplicated (D-A above) |
+| `impress-helix` | `#[uniffi::export]` | `HelixState`/`FfiHelixEditor::handle_key` crosses to Swift because it is a keystroke state machine bound to a live editor buffer — rule (b) excludes it regardless of the binding |
+| `impress-mcp-host` | `.route(` | hosts the linked inventory for an in-process MCP client; the route serves verbs already in the census, not a new capability |
+| `impress-toolbox` | `.route(` | `execute::{handle_execute, handle_execute_file}` run a local command over its own server — deliberately unsandboxed, deliberately outside the inventory |
+<!-- verb-coverage-internal-bindings:end -->
+
 ## How each check enforces it
 
 | Check | What it proves | How it fails |
 |---|---|---|
 | `crates/impress-capabilities/tests/census.rs` | Every service in the linked `full` inventory has a row whose counts match; no row names an unlinked service; every workspace member has a verdict; a crate holding a linked `impress_service_impl!` block is `verb-crate` and no other crate is; the shape histogram matches; at most 20 crates are `should-be-verb`. `cargo test -p impress-capabilities --test census -- --nocapture dump` prints the tables as they should read now. | A list of the stale rows, each with its replacement. |
-| `scripts/check-verb-coverage.sh` | Without a build: every workspace member has a row with a known verdict, every `impress_service_impl!` block under `crates/*/src` names a service that has a row, and the `should-be-verb` count is at most the ceiling. | `FAIL: …` per problem. Exit 1. |
+| `scripts/check-verb-coverage.sh` | Without a build: every workspace member has a row with a known verdict, every `impress_service_impl!` block under `crates/*/src` names a service that has a row, the `should-be-verb` count is at most the ceiling, and no `internal` crate outside an `ffi`/`service-http` role or the internal-binding table above has gained a `#[uniffi::export]`, `#[pyfunction]`/`#[pymodule]` or `.route(` binding (G6, the tell of table 5/A5). `--self-test` feeds the binding classifier known-good and known-bad fixtures. | `FAIL: …` per problem. Exit 1. |
