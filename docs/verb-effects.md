@@ -38,15 +38,18 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 456 verbs declared; 73 verified by example, 93 by a Tier A
-catalogue, 290 on the exception table.
+Counts today: 459 verbs declared; 73 verified by example, 93 by a Tier A
+catalogue, 293 on the exception table.
 
 ## Every verb
 
 <!-- verb-effects:begin -->
 | Verb | Reads | Writes | Reach | Verified |
 |---|---|---|---|---|
+| `capabilities-service_catalogue-surface` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
 | `capabilities-service_impact` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | example ×2 |
+| `capabilities-service_list-verbs` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
+| `capabilities-service_verb-surface` | any("the linked inventory's own effect declarations and the stored impress/ui/surface rows") | — | — | — |
 | `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
 | `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
@@ -514,6 +517,9 @@ when one lands).
 <!-- verb-effects-exceptions:begin -->
 | Verb | Reason |
 |---|---|
+| `capabilities-service_catalogue-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `capabilities-service_list-verbs` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `capabilities-service_verb-surface` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_add-members` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_member-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
@@ -804,4 +810,5 @@ when one lands).
 | `vw-diagnostic-service_record-procedure-step` | no example |
 | `vw-diagnostic-service_search-photos` | no example |
 | `vw-diagnostic-service_start-procedure` | no example |
+
 <!-- verb-effects-exceptions:end -->

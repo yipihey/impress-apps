@@ -62,7 +62,12 @@ use serde_json::Value;
 /// app — neither is available to a headless example runner, so it joins
 /// the table with `leaves the process (network)`, exactly the reason this
 /// table already gives every other `app(...)`/`network` verb.
-const EXCEPTION_CEILING: usize = 290;
+/// Raised further in plan G4: the three new `capabilities-service` verbs
+/// (`list-verbs`, `verb-surface`, `catalogue-surface`) touch only the linked
+/// inventory itself (`any(…)`, no store call), so their examples run and the
+/// store spy observes nothing — the same "exercised, unobserved" shape as
+/// every other pure-computation verb already on this table.
+const EXCEPTION_CEILING: usize = 293;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

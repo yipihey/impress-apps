@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 186 read-only, 133 mutating,
-33 destructive, 104 external — 456 verbs.
+Counts today: 189 read-only, 133 mutating,
+33 destructive, 104 external — 459 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -83,7 +83,10 @@ per-method overrides. Derived from the table below, recorded here for reading.
 <!-- verb-safety:begin -->
 | Tool | Class | Evidence |
 |---|---|---|
+| `capabilities-service_catalogue-surface` | read_only | name/doc |
 | `capabilities-service_impact` | read_only | name/doc |
+| `capabilities-service_list-verbs` | read_only | name/doc |
+| `capabilities-service_verb-surface` | read_only | name/doc |
 | `collection-service_add-members` | mutating | name/doc |
 | `collection-service_create` | mutating | name/doc |
 | `collection-service_delete` | destructive | crates/impress-store-service/src/collection_service.rs:577 collection_ops::delete -> crates/impress-core/src/collection_ops.rs:1035 store.delete(id); kernel returns a restore snapshot but the service drops it (collect… |
