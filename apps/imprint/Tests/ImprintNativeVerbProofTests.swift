@@ -141,6 +141,53 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         let finalContent = try await call("get-content", ["document_id": id.uuidString])
         XCTAssertEqual(finalContent.status, 200)
         XCTAssertEqual(try value(finalContent) as? String, session.source)
+
+        // The comment service is bound to this owned manuscript and scratch
+        // Rust store. Native records must retain the document and real anchor.
+        let comments = CommentService(authorId: "p5b-proof")
+        comments.attach(manuscriptID: id, body: session.source)
+        CommentRegistry.shared.register(comments, for: id)
+        defer { CommentRegistry.shared.unregister(documentID: id) }
+        let createdComment = try await call("create-comment", [
+            "document_id": id.uuidString, "body": "Check this phrase", "anchor": "agent"])
+        XCTAssertEqual(createdComment.status, 200, String(decoding: createdComment.body, as: UTF8.self))
+        let comment = try XCTUnwrap(value(createdComment) as? [String: Any])
+        let commentID = try XCTUnwrap(comment["id"] as? String)
+        XCTAssertEqual(comment["document_id"] as? String, id.uuidString)
+        XCTAssertEqual(comment["body"] as? String, "Check this phrase")
+        XCTAssertEqual(comment["anchor"] as? String, "agent")
+        XCTAssertEqual(comment["status"] as? String, "open")
+        let storedBefore = ManuscriptCommentStore.list(manuscriptID: id)
+        XCTAssertTrue(storedBefore.contains { $0.id.uuidString == commentID })
+
+        let listedComments = try await call("list-comments", ["document_id": id.uuidString])
+        XCTAssertEqual(listedComments.status, 200)
+        let listed = try XCTUnwrap(value(listedComments) as? [[String: Any]])
+        let listedComment = try XCTUnwrap(listed.first { $0["id"] as? String == commentID })
+        XCTAssertEqual(listedComment["document_id"] as? String, id.uuidString)
+        XCTAssertEqual(listedComment["anchor"] as? String, "agent")
+
+        // Accept/reject need suggestion semantics, so neither may mutate a
+        // comment by silently treating the status as merely resolved.
+        for unsupported in ["accepted", "rejected"] {
+            let refusal = try await call("update-comment", [
+                "comment_id": commentID, "body": "must not be saved", "status": unsupported])
+            XCTAssertEqual(refusal.status, 400, String(decoding: refusal.body, as: UTF8.self))
+            let error = try XCTUnwrap(value(refusal) as? [String: Any])
+            XCTAssertTrue((error["message"] as? String)?.contains(unsupported) == true)
+            XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.content,
+                           "Check this phrase")
+            XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved,
+                           false)
+            XCTAssertEqual(ManuscriptCommentStore.list(manuscriptID: id), storedBefore)
+        }
+
+        let resolved = try await call("update-comment", ["comment_id": commentID, "status": "resolved"])
+        XCTAssertEqual(resolved.status, 200)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved, true)
+        let reopened = try await call("update-comment", ["comment_id": commentID, "status": "open"])
+        XCTAssertEqual(reopened.status, 200)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved, false)
     }
 
     private func requireIsolation(_ condition: Bool, _ message: String) throws {

@@ -9,6 +9,12 @@ import PublicationManagerCore
 private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
     private let router = ImprintHTTPRouter()
 
+    private struct AnchorSnapshot: Sendable {
+        let start: Int
+        let end: Int
+        let text: String
+    }
+
     func invoke(method: String, argsJson: String) async -> NativeReply {
         guard let data = argsJson.data(using: .utf8),
               let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -116,7 +122,9 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
             if let status = string("status") {
                 switch status {
                 case "open": body?["isResolved"] = false
-                case "resolved", "accepted", "rejected": body?["isResolved"] = true
+                case "resolved": body?["isResolved"] = true
+                case "accepted", "rejected":
+                    return failure(400, "Comment status '\(status)' requires a suggestion action and is not supported by update-comment")
                 default: return failure(400, "Unsupported comment status")
                 }
             }
@@ -164,21 +172,75 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
         }
         if method == "list_comments" || method == "create_comment" {
             var normalized = object
+            let documentID = object["documentId"] as? String
+            let anchors = method == "list_comments"
+                ? await resolvedAnchors(documentID: documentID)
+                : [:]
             if let list = object["comments"] as? [[String: Any]] {
-                normalized["comments"] = list.map(normalizeComment)
+                normalized["comments"] = list.map { comment in
+                    let id = comment["id"] as? String
+                    let range = comment["range"] as? [String: Int]
+                    let snapshot = id.flatMap { anchors[$0] }
+                    let anchor = snapshot.flatMap { snapshot -> String? in
+                        guard range?["start"] == snapshot.start,
+                              range?["end"] == snapshot.end else { return nil }
+                        return snapshot.text
+                    }
+                    return normalizeComment(comment, documentID: documentID, anchor: anchor)
+                }
             }
             if let comment = object["comment"] as? [String: Any] {
-                normalized["comment"] = normalizeComment(comment)
+                normalized["comment"] = normalizeComment(
+                    comment, documentID: documentID, anchor: string("anchor"))
             }
             return success(normalized)
         }
         return success(object)
     }
 
-    private func normalizeComment(_ source: [String: Any]) -> [String: Any] {
+    /// Return only anchors that still resolve to a valid UTF-16 range in the
+    /// current manuscript source. The response range must also match before
+    /// exposing the text, since an open editor may have newer unsaved edits.
+    private func resolvedAnchors(documentID: String?) async -> [String: AnchorSnapshot] {
+        await MainActor.run {
+            guard let documentID, let uuid = UUID(uuidString: documentID),
+                  let source = ManuscriptSessionRegistry.shared.session(for: uuid)?.source
+                    ?? ManuscriptStoreAdapter.shared.manuscript(id: uuid)?.body else {
+                return [:]
+            }
+            let hash = ManuscriptStoreAdapter.bodyContentHash(source)
+            var anchors: [String: AnchorSnapshot] = [:]
+            for stored in ManuscriptCommentStore.list(manuscriptID: uuid) {
+                guard stored.parentID == nil, let knownText = stored.anchorText,
+                      !knownText.isEmpty else { continue }
+                let resolution = ManuscriptCommentStore.resolve(
+                    anchorStart: stored.anchorStart,
+                    anchorEnd: stored.anchorEnd,
+                    anchorText: knownText,
+                    anchoredBodyHash: stored.anchoredBodyHash,
+                    body: source,
+                    currentBodyHash: hash)
+                let byteRange: Range<Int>
+                switch resolution {
+                case .exact(let range), .moved(let range): byteRange = range
+                case .orphaned: continue
+                }
+                guard let nsRange = ManuscriptCommentStore.nsRange(forByteRange: byteRange, in: source),
+                      let range = Range(nsRange, in: source),
+                      String(source[range]) == knownText else { continue }
+                anchors[stored.id.uuidString] = AnchorSnapshot(
+                    start: nsRange.location, end: nsRange.location + nsRange.length, text: knownText)
+            }
+            return anchors
+        }
+    }
+
+    private func normalizeComment(_ source: [String: Any], documentID: String?, anchor: String?) -> [String: Any] {
         var item = source
+        item["document_id"] = documentID
         item["body"] = source["content"]
         item["status"] = (source["isResolved"] as? Bool == true) ? "resolved" : "open"
+        item["anchor"] = anchor
         return item
     }
 
