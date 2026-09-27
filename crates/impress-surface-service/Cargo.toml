@@ -57,6 +57,13 @@ impress-service-core = { workspace = true, features = ["cli"] }
 # they exist. See `tier_a.rs`'s module docs for what happens when they do not
 # exist yet.
 surface-demo-service = { workspace = true }
+# E3 (ADR-0036, RS-S2): `tests/coherence.rs`'s verb-source-invalidation test
+# force-links a REAL read-only verb that declares a literal read
+# (`imbib-library-service_count-publications`, reads `imbib/bibliography-entry`)
+# so the proof is over the linked inventory's own declaration, not a test
+# double. Dev-only, like `surface-demo-service` above; `check-kit-standalone.sh`
+# drops the module that uses it from the copy and names it.
+imbib-service = { workspace = true }
 # `tests/doc_wire.rs` checks docs/agent-surfaces.md's argument examples
 # against each verb's own input schema.
 jsonschema = { version = "0.33", default-features = false }
