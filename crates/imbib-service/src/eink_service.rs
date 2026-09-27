@@ -468,7 +468,11 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     #[impress_method(effects(reads = ["imbib/eink-mirror"], writes = ["imbib/eink-mirror"]))]
     async fn eink_resend(&self, mirror_ids: Vec<String>) -> MutationResult;
     /// Mirror rows for a device, optionally filtered by state.
-    #[impress_method(safety = read_only)]
+    // The device-marker cache (`crate::eink::store::EinkMarkerCache`) that
+    // marks each row is fingerprinted against `imbib/eink-device`, so a call
+    // reads that kind too, not just `imbib/eink-mirror` — found by the store
+    // spy once it stopped early-returning on an empty query (plan E2b).
+    #[impress_method(safety = read_only, effects(reads = ["imbib/eink-mirror", "imbib/eink-device"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_list_mirrored(
         &self,
@@ -476,7 +480,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
         state: Option<String>,
     ) -> Vec<EinkMirrorRecord>;
     /// Marked papers that still need their PDF/ePUB fetched.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/eink-mirror", "imbib/eink-device"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn eink_awaiting_source(
         &self,

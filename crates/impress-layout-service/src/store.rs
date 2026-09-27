@@ -680,7 +680,10 @@ pub fn layout_of(item: &Item) -> Result<Layout> {
     serde_json::from_value(json).map_err(|e| Refusal::store(format!("read layout tree: {e}")))
 }
 
-fn layout_value(layout: &Layout) -> Result<Value> {
+/// `pub(crate)`: [`crate::rename`]'s pass reuses this instead of a second
+/// encoder for the same tree, on both a layout row and a preset row (they
+/// store their tree under the same `layout` field).
+pub(crate) fn layout_value(layout: &Layout) -> Result<Value> {
     let json = serde_json::to_value(layout)
         .map_err(|e| Refusal::store(format!("encode layout tree: {e}")))?;
     serde_json::from_value(json).map_err(|e| Refusal::store(format!("encode layout tree: {e}")))
