@@ -82,12 +82,34 @@ fn parse_caller(caller_json: &str) -> (CallerIdentity, Option<String>) {
 /// [`parse_caller`]'s shape. Never panics: a malformed `args_json` is
 /// `invalid-argument`, not a crash reaching the FFI caller.
 pub fn dispatch(name: &str, args_json: &str, caller_json: &str) -> DispatchResult {
+    let (verb, call) = match prepare(name, args_json, caller_json) {
+        Ok(prepared) => prepared,
+        Err(refused) => return refused,
+    };
+    finish(pipeline::invoke_blocking(verb, call))
+}
+
+/// The same dispatch for native backends with async Swift callbacks. Awaiting
+/// the callback leaves the main actor free to service app state and persistence.
+pub async fn dispatch_async(name: &str, args_json: &str, caller_json: &str) -> DispatchResult {
+    let (verb, call) = match prepare(name, args_json, caller_json) {
+        Ok(prepared) => prepared,
+        Err(refused) => return refused,
+    };
+    finish(pipeline::invoke(verb, call).await)
+}
+
+fn prepare(
+    name: &str,
+    args_json: &str,
+    caller_json: &str,
+) -> Result<(&'static VerbDescriptor, Call), DispatchResult> {
     let Some(verb) = VerbDescriptor::find(name) else {
-        return refused(
+        return Err(refused(
             404,
             refusal::codes::NOT_FOUND,
             format!("no such verb: {name}"),
-        );
+        ));
     };
 
     let args: Value = if args_json.trim().is_empty() {
@@ -96,11 +118,11 @@ pub fn dispatch(name: &str, args_json: &str, caller_json: &str) -> DispatchResul
         match serde_json::from_str(args_json) {
             Ok(value) => value,
             Err(error) => {
-                return refused(
+                return Err(refused(
                     400,
                     refusal::codes::INVALID_ARGUMENT,
                     format!("args_json did not parse: {error}"),
-                )
+                ))
             }
         }
     };
@@ -111,7 +133,11 @@ pub fn dispatch(name: &str, args_json: &str, caller_json: &str) -> DispatchResul
         call = call.with_trace(trace_id);
     }
 
-    match pipeline::invoke_blocking(verb, call) {
+    Ok((verb, call))
+}
+
+fn finish(result: Result<Value, pipeline::PipelineError>) -> DispatchResult {
+    match result {
         Ok(value) => {
             let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);
             let status = if ok {

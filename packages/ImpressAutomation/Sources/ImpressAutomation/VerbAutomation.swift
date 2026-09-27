@@ -2,25 +2,15 @@
 //  VerbAutomation.swift
 //  ImpressAutomation
 //
-//  P5 transport, server side (plan-verb-pipeline-and-transport.md § P5,
-//  ADR-0034 D2): `POST /api/verb/<name>` for every app, one door down from
-//  `LayoutAutomationRoutes` and `SurfaceAutomationRoutes` but simpler than
-//  either — no live-window host to find, because a verb dispatch needs
-//  only the process-wide store to be open, which `impress-store-ffi` and
-//  its `dispatch_verb` already assume (the same assumption `LoopbackToken`
-//  makes calling into this package's existing `ImpressRustCore` link — see
-//  its file header). No registration, no weak reference to a controller:
-//  this route is a direct call.
+//  P5 transport, server side (ADR-0034 D2): one POST /api/verb/<name>
+//  route. The host registers its domain service namespaces against its own
+//  UniFFI inventory. Other names go to the kit inventory in ImpressRustCore.
+//  Both use the same Rust invoker pipeline; Swift owns no argument schema.
 //
-//  THE ROUTE IS RUST'S TO ANSWER. `dispatch_verb` (`impress-store-ffi`)
-//  looks the verb up in whatever `*-service` crates this app's binary
-//  links, runs it through `impress_service_core::pipeline::invoke_blocking`
-//  — the same chain MCP, the CLI and every other entry path runs through —
-//  and hands back a status and a wire-convention body. Swift maps a path
-//  segment to a name and a header to a caller; it decides no verb
-//  semantics (P5a scope note: today every app's binary links the same
-//  `impress-store-ffi`, which links `implore-service` unconditionally —
-//  see that crate's `verb.rs` module doc for why and what P5b narrows).
+//  Domain ownership is chosen before dispatch. A real not-found result is
+//  returned intact, never treated as permission to try a different backend.
+//  Async domain dispatch lets a native backend await MainActor state without
+//  blocking that actor or making a loopback HTTP request to itself.
 //
 //  CALLER IDENTITY (ADR-0034 D3). This route only answers a request that
 //  already passed `HTTPAuthPolicy` (the P0 loopback token, or the network
@@ -47,11 +37,50 @@
 import Foundation
 import ImpressRustCore
 
+/// The native dispatcher returns Rust's wire body without Swift reshaping it.
+public struct VerbDispatchResponse: Sendable {
+    public let status: Int
+    public let bodyJSON: String
+
+    public init(status: Int, bodyJSON: String) {
+        self.status = status
+        self.bodyJSON = bodyJSON
+    }
+}
+
+private final class DomainDispatchers: @unchecked Sendable {
+    typealias Dispatch = @Sendable (String, String, String) async -> VerbDispatchResponse
+    private let lock = NSLock()
+    private var services: [String: Dispatch] = [:]
+
+    func register(_ names: Set<String>, dispatch: @escaping Dispatch) {
+        lock.withLock {
+            for name in names { services[name] = dispatch }
+        }
+    }
+
+    func dispatcher(for verb: String) -> Dispatch? {
+        guard let separator = verb.firstIndex(of: "_") else { return nil }
+        return lock.withLock { services[String(verb[..<separator])] }
+    }
+}
+
 /// The verb-dispatch half of the shared routing table.
 ///
 /// Mounted by `SharedAutomationRoutes.route(_:)`; nothing calls this
 /// directly except its tests.
 public enum VerbAutomationRoutes {
+    private static let domains = DomainDispatchers()
+
+    /// Install the app-owned FFI for these service namespaces. Ownership is
+    /// selected before invocation: a domain's business refusal, including a
+    /// missing record, must never be retried against another store or backend.
+    public static func registerDomainDispatcher(
+        services: Set<String>,
+        dispatch: @escaping @Sendable (String, String, String) async -> VerbDispatchResponse
+    ) {
+        domains.register(services, dispatch: dispatch)
+    }
 
     /// `impress_service_core::wire::WIRE_VERSION` — see
     /// `LayoutAutomationRoutes.wireVersion`'s comment for why this package
@@ -73,6 +102,14 @@ public enum VerbAutomationRoutes {
 
         let argsJSON = request.body ?? "{}"
         let callerJSON = callerJSONFor(request)
+        if let dispatch = domains.dispatcher(for: name) {
+            let result = await dispatch(name, argsJSON, callerJSON)
+            return HTTPResponse(
+                status: result.status,
+                statusText: statusText(result.status),
+                headers: ["Content-Type": "application/json; charset=utf-8"],
+                body: Data(result.bodyJSON.utf8))
+        }
         // `dispatch_verb` runs the pipeline's own handler under
         // `invoke_blocking` — blocking, on the caller's thread, exactly
         // like `applyLayoutVerb`'s FFI call already does from this same
