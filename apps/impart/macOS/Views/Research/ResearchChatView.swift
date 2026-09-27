@@ -6,6 +6,7 @@
 //
 
 import ImpressKit
+import ImpressLogging
 import SwiftUI
 import MessageManagerCore
 
@@ -28,7 +29,7 @@ struct ResearchChatView: View {
         self.isNewConversation = isNewConversation
         _viewModel = StateObject(wrappedValue: ResearchConversationViewModel(
             persistenceController: .shared,
-            provenanceService: ProvenanceService(),
+            provenanceService: .shared,
             artifactService: ArtifactService(persistenceController: .shared),
             userId: "user@example.com"
         ))
@@ -150,6 +151,14 @@ struct ResearchChatView: View {
             // Load existing conversation from persistence
             await viewModel.loadConversation(id: conversationId)
         }
+        .onNotifications([
+            (.impartResearchConversationsDidChange, { _ in
+                Task {
+                    await viewModel.loadConversation(id: conversationId)
+                    logInfo("Displayed native research conversation \(conversationId) with \(viewModel.messages.count) messages", category: "research-native")
+                }
+            })
+        ])
         .onAppear {
             isInputFocused = true
         }

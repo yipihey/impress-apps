@@ -130,6 +130,44 @@ public actor ResearchConversationRepository {
         }
     }
 
+    /// Persist and attach an artifact to an existing research conversation.
+    /// The relationship is the UI's source for the conversation's artifact bar.
+    public func recordArtifact(
+        uri: ArtifactURI,
+        title: String,
+        in conversationId: UUID
+    ) async throws {
+        try await persistenceController.performBackgroundTask { context in
+            let conversationRequest = CDResearchConversation.fetchRequest()
+            conversationRequest.predicate = NSPredicate(format: "id == %@", conversationId as CVarArg)
+            conversationRequest.fetchLimit = 1
+            guard let conversation = try context.fetch(conversationRequest).first else {
+                throw RepositoryError.conversationNotFound(conversationId)
+            }
+
+            let artifactRequest = CDArtifactReference.fetchRequest()
+            artifactRequest.predicate = NSPredicate(
+                format: "uriString == %@ AND sourceConversation.id == %@",
+                uri.uri, conversationId as CVarArg)
+            artifactRequest.fetchLimit = 1
+            let artifact: CDArtifactReference
+            if let existing = try context.fetch(artifactRequest).first {
+                artifact = existing
+            } else {
+                artifact = CDArtifactReference(context: context)
+                artifact.id = UUID()
+                artifact.uriString = uri.uri
+                artifact.typeRaw = uri.type.rawValue
+                artifact.displayName = title
+                artifact.version = uri.version
+                artifact.introducedAt = Date()
+            }
+            conversation.mutableSetValue(forKey: "artifacts").add(artifact)
+            conversation.lastActivityAt = Date()
+            try context.save()
+        }
+    }
+
     // MARK: - Message Operations
 
     /// Fetch messages for a conversation.
@@ -186,6 +224,7 @@ public actor ResearchConversationRepository {
             cd.correlationId = message.correlationId
             cd.causationId = message.causationId
             cd.isSideConversationSynthesis = message.isSideConversationSynthesis
+            cd.sideConversationId = message.sideConversationId
             cd.tokenCount = Int32(message.tokenCount ?? 0)
             cd.processingDurationMs = Int32(message.processingDurationMs ?? 0)
             cd.conversation = conversation

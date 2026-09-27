@@ -19,6 +19,7 @@ let package = Package(
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
         .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0"),
         .package(path: "../ImpartRustCore"),
+        .package(path: "../ImpartVerbsFFI"),
         .package(path: "../../../packages/ImpressAutomation"),
         .package(path: "../../../packages/ImpressAI"),
         .package(path: "../../../packages/ImpressKit"),
@@ -40,6 +41,7 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "HighlightSwift", package: "HighlightSwift"),
                 "ImpartRustCore",
+                "ImpartVerbsFFI",
                 "ImpressAutomation",
                 "ImpressAI",
                 "ImpressKit",
@@ -60,7 +62,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MessageManagerCoreTests",
-            dependencies: ["MessageManagerCore"],
+            dependencies: ["MessageManagerCore", "ImpartVerbsFFI"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]

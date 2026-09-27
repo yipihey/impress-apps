@@ -47,6 +47,8 @@ packages:
     path: ../../packages/ImpressAutomation
   ImpressKit:
     path: ../../packages/ImpressKit
+  ImpressLogging:
+    path: ../../packages/ImpressLogging
   ImpressFTUI:
     path: ../../packages/ImpressFTUI
   ImpressMailStyle:
@@ -117,6 +119,7 @@ targets:
       - package: ImpressAI
       - package: ImpressAutomation
       - package: ImpressKit
+      - package: ImpressLogging
       - package: ImpressFTUI
       - package: ImpressMailStyle
       - package: ImpressSpotlight

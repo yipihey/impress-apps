@@ -6,6 +6,7 @@
 //
 
 import ImpressKit
+import ImpressLogging
 import SwiftUI
 import MessageManagerCore
 
@@ -121,6 +122,11 @@ struct ResearchConversationListView: View {
         .task {
             await loadConversations()
         }
+        .onNotifications([
+            (.impartResearchConversationsDidChange, { _ in
+                Task { await loadConversations() }
+            })
+        ])
     }
 
     private var filteredConversations: [ResearchConversation] {
@@ -139,6 +145,7 @@ struct ResearchConversationListView: View {
         do {
             let loaded = try await repository.fetchConversations()
             conversations = loaded
+            logInfo("Displayed \(loaded.count) research conversations", category: "research-native")
         } catch {
             errorMessage = "Failed to load: \(error.localizedDescription)"
         }
