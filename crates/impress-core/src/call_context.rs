@@ -17,7 +17,9 @@ use std::collections::BTreeMap;
 use chrono::Utc;
 use uuid::Uuid;
 
-pub use impress_service_core::pipeline::context::{current, current_call_id, CallContext};
+pub use impress_service_core::pipeline::context::{
+    current, current_call_id, note_mutation, CallContext,
+};
 pub use impress_service_core::pipeline::CallerIdentity;
 
 use crate::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};

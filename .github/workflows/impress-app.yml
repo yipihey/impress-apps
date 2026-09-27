@@ -23,6 +23,7 @@ on:
       - 'apps/impress/**'
       # The chassis, which is nearly all of impress.
       - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
       - 'packages/**'
       # The Rust cores impress links through PMC. Enumerated rather than
       # 'crates/**' so an unrelated crate does not queue a mac job.
@@ -30,6 +31,7 @@ on:
       - 'crates/impress-store-ffi/**'
       - 'crates/impress-ai/**'
       - 'crates/imbib-core/**'
+      - 'crates/imbib-verbs-ffi/**'
       - 'crates/imprint-core/**'
       - 'crates/impress-helix/**'
       - 'crates/scix-client-ffi/**'
@@ -131,6 +133,12 @@ jobs:
           # MACOSX_DEPLOYMENT_TARGET is the script's own default, stated
           # explicitly so this job shares one cache entry with the other lanes.
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ScixClientCore.xcframework
@@ -270,6 +278,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ScixClientCore.xcframework

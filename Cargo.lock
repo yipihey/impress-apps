@@ -3996,14 +3996,22 @@ dependencies = [
  "async-trait",
  "dirs",
  "imbib-core",
+ "impress-core",
  "impress-service-core",
  "impress-service-macros",
+ "impress-settings",
+ "impress-store-service",
  "impress-tags",
+ "impress-workflow",
+ "impress-workflow-service",
  "impress-workspace-hack",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4016,6 +4024,19 @@ dependencies = [
  "impress-workspace-hack",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "imbib-verbs-ffi"
+version = "0.1.0"
+dependencies = [
+ "imbib-service",
+ "impress-service-core",
+ "impress-workspace-hack",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "uniffi",
 ]
 
 [[package]]

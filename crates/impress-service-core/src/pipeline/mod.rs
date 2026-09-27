@@ -263,6 +263,7 @@ fn prepare(
         caller,
         verb: verb.name,
         store_override: store,
+        mutation_ids: context::MutationIds::default(),
     });
     Ok(Ok(Prepared {
         context,
@@ -352,6 +353,7 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
 
     if verb.safety.class != SafetyClass::ReadOnly || audit::log_all() {
         let args_summary = audit::summarize_args(&prepared.args, input_schema(verb));
+        let (inserted_ids, deleted_ids) = context.mutation_ids.snapshot();
         audit::record(audit::VerbCallRecord {
             call_id: context.call_id.clone(),
             verb: verb.name,
@@ -360,6 +362,8 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
             trace_id: context.trace_id.clone(),
             parent_call: context.parent_call.clone(),
             args: args_summary,
+            inserted_ids,
+            deleted_ids,
             ok,
             code,
             message_len,
@@ -569,6 +573,27 @@ mod tests {
             record.trace_id, call_id,
             "a fresh call starts its own trace"
         );
+    }
+
+    #[test]
+    fn audit_payload_contains_the_handlers_created_and_deleted_ids() {
+        let sink = captured();
+        let answer = invoke_sync_with(&ECHO, Call::person(json!({})), |_| {
+            context::note_mutation("b".into(), true, false);
+            context::note_mutation("a".into(), true, false);
+            context::note_mutation("b".into(), true, false);
+            context::note_mutation("z".into(), false, true);
+            Ok(json!({"call": context::current_call_id()}))
+        })
+        .unwrap();
+        let call_id = answer["call"].as_str().unwrap();
+        let records = sink.0.lock().unwrap();
+        let record = records.iter().find(|r| r.call_id == call_id).unwrap();
+        assert_eq!(record.inserted_ids, ["a", "b"]);
+        assert_eq!(record.deleted_ids, ["z"]);
+        let payload = record.payload();
+        assert_eq!(payload["inserted_ids"], json!(["a", "b"]));
+        assert_eq!(payload["deleted_ids"], json!(["z"]));
     }
 
     #[test]

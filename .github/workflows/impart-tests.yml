@@ -41,6 +41,7 @@ on:
       # impart targets link the chassis, so a PMC-only edit can break impart
       # while touching nothing under apps/impart/.
       - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imbib/ImbibVerbsFFI/**'
       - 'apps/imprint/Packages/ImprintCore/**'
       - 'packages/**'
       # The Rust cores whose xcframeworks this lane's targets link, directly or
@@ -51,6 +52,7 @@ on:
       - 'crates/impress-store-ffi/**'
       - 'crates/impress-ai/**'
       - 'crates/imbib-core/**'
+      - 'crates/imbib-verbs-ffi/**'
       - 'crates/imprint-core/**'
       - 'crates/impress-helix/**'
       - 'crates/scix-client-ffi/**'
@@ -213,6 +215,12 @@ jobs:
           crate: imbib-core
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
         with:
@@ -317,6 +325,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       - name: ScixClientCore.xcframework

@@ -15,7 +15,7 @@ public struct SharedDefaults: Sendable {
     /// tests are hermetic, while instances within one process still share
     /// state.
     public static let suite: UserDefaults = {
-        if ImpressRuntime.isUnitTestProcess {
+        if ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess {
             let name = "com.impress.unittest.\(ProcessInfo.processInfo.processIdentifier)"
             if let perProcess = UserDefaults(suiteName: name) {
                 perProcess.removePersistentDomain(forName: name)

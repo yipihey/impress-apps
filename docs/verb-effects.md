@@ -179,6 +179,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_remove-from-collection` | "imbib/collection" | "imbib/collection" | — | — |
+| `imbib-library-service_retention-cleanup` | "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper" | — | example ×1 |
 | `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | — |
 | `imbib-library-service_set-flag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-library-service_set-library-default` | "imbib/library" | "imbib/library" | — | — |
@@ -829,5 +830,4 @@ when one lands).
 | `vw-diagnostic-service_record-procedure-step` | no example |
 | `vw-diagnostic-service_search-photos` | no example |
 | `vw-diagnostic-service_start-procedure` | no example |
-
 <!-- verb-effects-exceptions:end -->

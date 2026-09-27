@@ -27,6 +27,8 @@ pub mod field {
     pub const TRACE_ID: &str = "trace_id";
     pub const PARENT_CALL: &str = "parent_call";
     pub const ARGS: &str = "args";
+    pub const INSERTED_IDS: &str = "inserted_ids";
+    pub const DELETED_IDS: &str = "deleted_ids";
     pub const OK: &str = "ok";
     pub const CODE: &str = "code";
     pub const MESSAGE_LEN: &str = "message_len";
@@ -82,6 +84,14 @@ pub fn verb_call_schema() -> Schema {
                 field(field::ARGS, FieldType::Object, true),
                 "The privacy-filtered argument summary: ids and short scalars \
                  by value, long strings as length + hash, objects as their keys.",
+            ),
+            described(
+                field(field::INSERTED_IDS, FieldType::StringArray, false),
+                "Deduplicated ids of items created during this call.",
+            ),
+            described(
+                field(field::DELETED_IDS, FieldType::StringArray, false),
+                "Deduplicated ids of items deleted during this call.",
             ),
             described(field(field::OK, FieldType::Bool, true), "The outcome."),
             described(

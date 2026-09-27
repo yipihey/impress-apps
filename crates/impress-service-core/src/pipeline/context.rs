@@ -22,9 +22,51 @@
 //! `ops` count.
 
 use std::any::Any;
-use std::sync::Arc;
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
 
 use super::identity::CallerIdentity;
+
+/// Created and deleted item ids observed while one handler runs. Each call
+/// gets its own instance, including a call nested inside another handler.
+#[derive(Debug, Clone, Default)]
+pub struct MutationIds(Arc<Mutex<MutationIdSets>>);
+
+#[derive(Debug, Default)]
+struct MutationIdSets {
+    inserted: BTreeSet<String>,
+    deleted: BTreeSet<String>,
+}
+
+impl MutationIds {
+    fn note(&self, id: String, created: bool, deleted: bool) {
+        if !created && !deleted {
+            return;
+        }
+        let mut ids = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if created {
+            ids.inserted.insert(id.clone());
+        }
+        if deleted {
+            ids.deleted.insert(id);
+        }
+    }
+
+    /// A stable, deduplicated snapshot for the audit record.
+    pub fn snapshot(&self) -> (Vec<String>, Vec<String>) {
+        let ids = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (
+            ids.inserted.iter().cloned().collect(),
+            ids.deleted.iter().cloned().collect(),
+        )
+    }
+}
 
 /// What every call runs under.
 #[derive(Debug, Clone)]
@@ -45,6 +87,8 @@ pub struct CallContext {
     /// Type-erased because this crate is on the kit's pure tier and cannot
     /// name `SqliteItemStore`; [`store_override`] downcasts it.
     pub store_override: Option<Arc<dyn Any + Send + Sync>>,
+    /// Item creations and deletions observed during this call only.
+    pub mutation_ids: MutationIds,
 }
 
 tokio::task_local! {
@@ -59,6 +103,12 @@ pub fn current() -> Option<Arc<CallContext>> {
 /// The current call's id — what the store stamps as `batch_id`.
 pub fn current_call_id() -> Option<String> {
     CURRENT.try_with(|c| c.call_id.clone()).ok()
+}
+
+/// Record a store mutation in the current call, if there is one. The store
+/// invokes this only after a successful mutation has been committed.
+pub fn note_mutation(id: String, created: bool, deleted: bool) {
+    let _ = CURRENT.try_with(|context| context.mutation_ids.note(id, created, deleted));
 }
 
 /// The store the current call was told to use, when it was told one.
@@ -93,6 +143,7 @@ mod tests {
             caller: CallerIdentity::Person,
             verb: "x-service_y",
             store_override: None,
+            mutation_ids: MutationIds::default(),
         })
     }
 
@@ -128,5 +179,47 @@ mod tests {
             assert_eq!(store_override::<u64>().as_deref(), Some(&42));
             assert!(store_override::<String>().is_none());
         });
+    }
+
+    #[tokio::test]
+    async fn nested_and_concurrent_calls_keep_their_mutation_ids_separate() {
+        let outer = context("outer");
+        let concurrent = context("concurrent");
+        let concurrent_result = tokio::spawn(scope(concurrent.clone(), async move {
+            note_mutation("concurrent-id".into(), true, false);
+            tokio::task::yield_now().await;
+            concurrent.mutation_ids.snapshot()
+        }));
+
+        scope(outer.clone(), async {
+            note_mutation("outer-id".into(), true, false);
+            let inner = context("inner");
+            scope(inner.clone(), async {
+                note_mutation("inner-id".into(), false, true);
+                note_mutation("inner-id".into(), false, true);
+                tokio::task::yield_now().await;
+            })
+            .await;
+            assert_eq!(
+                inner.mutation_ids.snapshot(),
+                (vec![], vec!["inner-id".into()])
+            );
+            note_mutation("outer-id".into(), true, false);
+        })
+        .await;
+
+        assert_eq!(
+            outer.mutation_ids.snapshot(),
+            (vec!["outer-id".into()], vec![])
+        );
+        assert_eq!(
+            concurrent_result.await.unwrap(),
+            (vec!["concurrent-id".into()], vec![])
+        );
+        note_mutation("outside".into(), true, true);
+        assert_eq!(
+            outer.mutation_ids.snapshot(),
+            (vec!["outer-id".into()], vec![])
+        );
     }
 }

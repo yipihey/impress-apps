@@ -62,6 +62,19 @@ impl HttpImbibLibraryService {
 
 #[async_trait::async_trait]
 impl ImbibLibraryService for HttpImbibLibraryService {
+    async fn retention_cleanup(
+        &self,
+        exploration_library_id: Option<String>,
+    ) -> imbib_service::library_service::RetentionCleanupReport {
+        self.client
+            .retention_cleanup(exploration_library_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("retention_cleanup", e);
+                Default::default()
+            })
+    }
+
     async fn list_libraries(&self) -> Vec<LibraryRecord> {
         self.client.list_libraries().await.unwrap_or_else(|e| {
             log_err("list_libraries", e);

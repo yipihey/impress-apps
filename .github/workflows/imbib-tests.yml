@@ -71,6 +71,12 @@ jobs:
           crate: imbib-core
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
       # produced on the runner too.
@@ -174,6 +180,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
@@ -280,6 +292,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImbibVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust

@@ -3,6 +3,12 @@ import Foundation
 /// Process-environment introspection shared across the impress suite.
 public enum ImpressRuntime {
 
+    /// An isolated app launched by the UI test runner or a live proof.
+    public static let isUITestingProcess: Bool = {
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--ui-testing") || args.contains("--uitesting")
+    }()
+
     /// True when running inside an XCTest host (swift test / xctest worker),
     /// as opposed to a real app process.
     ///
