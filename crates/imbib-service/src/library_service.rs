@@ -1423,18 +1423,22 @@ mod retention {
         store: &ImbibStore,
         row: &imbib_core::unified::shaped_queries::BibliographyRow,
     ) -> bool {
-        if store
-            .dismiss_paper(
-                row.doi.clone(),
-                row.arxiv_id.clone(),
-                row.bibcode.clone(),
-                Some(row.cite_key.clone()),
-            )
-            .is_err()
-        {
+        if let Err(error) = store.dismiss_paper(
+            row.doi.clone(),
+            row.arxiv_id.clone(),
+            row.bibcode.clone(),
+            Some(row.cite_key.clone()),
+        ) {
+            tracing::warn!(target: "workflow", paper_id = %row.id, %error, "retention dismissal failed; paper kept");
             return false;
         }
-        store.delete_item(row.id.clone()).is_ok()
+        match store.delete_item(row.id.clone()) {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(target: "workflow", paper_id = %row.id, %error, "retention delete failed");
+                false
+            }
+        }
     }
 
     fn cleanup_inbox(store: &ImbibStore) -> u32 {
@@ -1520,7 +1524,12 @@ mod retention {
                 continue; // never refreshed: age unknown, never swept
             };
             if executed < cutoff {
-                removed += u32::from(store.delete_smart_search(search.id.clone()).is_ok());
+                match store.delete_smart_search(search.id.clone()) {
+                    Ok(()) => removed += 1,
+                    Err(error) => {
+                        tracing::warn!(target: "workflow", search_id = %search.id, %error, "retention exploration delete failed")
+                    }
+                }
             }
         }
         removed
@@ -1530,10 +1539,18 @@ mod retention {
         store: &ImbibStore,
         exploration_library_id: Option<&str>,
     ) -> RetentionCleanupReport {
+        tracing::info!(target: "workflow", exploration_library_id, "retention cleanup requested");
+        // Match the retired Swift cleanup order. Removing an expired
+        // exploration search first prevents its own feed policy from deleting
+        // the papers linked to a search that no longer exists.
+        let inbox_removed = cleanup_inbox(store);
+        let exploration_removed = cleanup_exploration(store, exploration_library_id);
+        let feed_removed = cleanup_feed_collections(store);
+        tracing::info!(target: "workflow", inbox_removed, exploration_removed, feed_removed, "retention cleanup saved");
         RetentionCleanupReport {
-            inbox_removed: cleanup_inbox(store),
-            feed_removed: cleanup_feed_collections(store),
-            exploration_removed: cleanup_exploration(store, exploration_library_id),
+            inbox_removed,
+            feed_removed,
+            exploration_removed,
         }
     }
 }
@@ -1789,5 +1806,72 @@ mod tests {
         let report = super::ImbibLibraryService::retention_cleanup(&service, None).await;
         assert_eq!(report.inbox_removed, 0);
         assert!(store.get_publication(read_forever_id).unwrap().is_some());
+
+        // Swift removed expired exploration searches before sweeping feeds.
+        // If a search has both policies, its linked paper belongs to the
+        // surviving library and must not be deleted with the stale search.
+        settings
+            .set("imbib.retention.exploration_days", &serde_json::json!(1))
+            .unwrap();
+        let exploration = store.create_library("Exploration".into()).unwrap();
+        let expired_search = store
+            .create_smart_search(
+                "Expired exploration".into(),
+                "topic".into(),
+                exploration.id.clone(),
+                None,
+                100,
+                false,
+                false,
+                3600,
+            )
+            .unwrap();
+        store
+            .update_int_field(expired_search.id.clone(), "retention_days".into(), Some(1))
+            .unwrap();
+        store
+            .update_bool_field(expired_search.id.clone(), "auto_remove_read".into(), true)
+            .unwrap();
+        let two_days_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+            - 2 * 24 * 60 * 60 * 1000;
+        store
+            .update_int_field(
+                expired_search.id.clone(),
+                "last_executed".into(),
+                Some(two_days_ago),
+            )
+            .unwrap();
+        let exploration_paper_id = store
+            .import_bibtex(
+                "@article{ExplorationPaper2024, title={Exploration paper}}".into(),
+                exploration.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        store
+            .add_to_collection(
+                vec![exploration_paper_id.clone()],
+                expired_search.id.clone(),
+            )
+            .unwrap();
+        store
+            .set_read(vec![exploration_paper_id.clone()], true)
+            .unwrap();
+
+        let report =
+            super::ImbibLibraryService::retention_cleanup(&service, Some(exploration.id)).await;
+        assert_eq!(report.exploration_removed, 1);
+        assert_eq!(report.feed_removed, 0);
+        assert!(store.get_smart_search(expired_search.id).unwrap().is_none());
+        assert!(store
+            .get_publication(exploration_paper_id)
+            .unwrap()
+            .is_some());
+        assert!(!store
+            .is_paper_dismissed(None, None, None, Some("ExplorationPaper2024".into()))
+            .unwrap());
     }
 }

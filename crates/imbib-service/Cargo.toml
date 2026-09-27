@@ -16,6 +16,7 @@ impress-service-macros = { workspace = true }
 impress-settings = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tracing = { workspace = true }
 async-trait = { workspace = true }
 # The proc macro emits `derive(schemars::JsonSchema)` which needs schemars
 # resolvable as a top-level crate at the call site, not just via re-export.
