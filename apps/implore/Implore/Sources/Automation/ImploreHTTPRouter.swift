@@ -100,7 +100,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
             return await handleGetDataset(id: id)
         case "list_figures":
             var params: [String: String] = [:]
-            if let id = string("dataset_id") { params["datasetId"] = id }
+            if let id = string("dataset_id") { params["dataset"] = id }
             return await handleListFigures(HTTPRequest(method: "GET", path: "/api/figures", queryParams: params))
         case "get_figure":
             guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
