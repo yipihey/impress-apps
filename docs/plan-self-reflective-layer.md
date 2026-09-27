@@ -2127,3 +2127,112 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   above); `check-kit-standalone.sh` OK; `cargo hakari generate --diff` clean (only
   `imprint-selftest`'s new `impress-scenario` dependency, already covered by the existing
   workspace-hack feature set).
+
+- 2026-09-27 — **S2b (kit joins, layout+surface scenarios)** on a worktree of main,
+  branch `claude/reflective-s2b-kit-scenarios`. Tom's decision (2026-09-27, named in
+  the task): `impress-scenario` joins the kit. Added its row to
+  `docs/kit-manifest.md`'s pure tier with the reason and the confirmation
+  (`cargo tree -p impress-scenario --no-default-features`: only `async-trait`,
+  `impress-service-core`, `impress-surface`, `serde`/`serde_json`, `thiserror`,
+  `uuid` and the workspace-hack stub — no `impress-core`, no store, no IO beyond
+  those crates' own). `check-kit-deps.sh --strict` and `check-kit-standalone.sh
+  --strict` needed no script edits — both read the manifest table directly, as the
+  manifest's own header says ("they do not keep a second list") — and both ran green
+  once the row and the two new kit-crate dependencies below existed.
+
+  **The caller had to move, not just the interpreter.** `impress-scenario` is
+  `pure` tier and may not reach `impress-core`; the existing Tier B `Caller`
+  (`impress-scenario-service::TierBCaller`) needs `impress_core::loopback_token`
+  for the per-launch bearer, and `impress-scenario-service` itself is not a kit
+  crate (S1: "not the layout+surface kit"), so neither `impress-layout-service`
+  nor `impress-surface-service` could depend on it without a second, bigger
+  manifest change. Relocated `TierBCaller` (and its `LoopbackClient`) to
+  `crates/impress-layout-service/src/scenario_caller.rs` instead — layout-service
+  is already `store` tier (reaches `impress-core` for its own persistence) and
+  already carried the exact `reqwest` + loopback-token client this caller needs
+  (it used to be its private `tier_b.rs::Http`). `impress-surface-service` already
+  depends on `impress-layout-service` (for `surface_show`'s composed verbs), so it
+  reuses the relocated module for free; `impress-scenario-service`'s own `tier_b`
+  module is now a one-line re-export (`pub use impress_layout_service::
+  scenario_caller::{LoopbackClient, TierBCaller};`) instead of a second copy —
+  SC-1's "one runner", carried one level further. Fixed a real latent bug while
+  moving it: the generic `layout-service_*` `call` arm used to forward a `call`
+  step's `args` verbatim as the `/api/layout/verb` body, which only ever worked
+  for a `gesture` step (whose JSON already carries the `"verb"` tag by hand) — a
+  `call` step names the verb in `call`, matching Tier A's own dispatch-by-name, so
+  the arm now injects `"verb": "<call name, `layout-service_` stripped>"` before
+  posting.
+
+  **Converted: three.** `layout.apply_preset`, `layout.saved_round_trip`,
+  `layout.wire_contract` — stored `impress/scenario@1.0.0` documents under
+  `crates/impress-layout-service/scenarios/*.json`, `include_str!`'d and run
+  through `scenario_caller::run_embedded` against the shared `TierBCaller`;
+  `run()`'s `CATALOGUE` array (ids and descriptions) is untouched, so the
+  auto-skip tests and the wire IDs `run_selftest`'s report carries are unchanged
+  — only which function produces each entry's `CapabilityResult` changed.
+  `layout.wire_contract`'s stale-`expected_revision` check now works entirely
+  from literal `{"role": "list"}` / `{"role": "detail"}` pane references plus a
+  `{{state.rev0}}` capture from the first step's `$.revision` — no tile-id lookup
+  needed, because a `PaneRef` already resolves a role over the wire; the
+  interpreter's own `template::resolve` (proven by `template.rs`'s own tests)
+  mounts captures at the `state` root, not `captures` as `spec.rs`'s doc comment
+  says — followed the tested behavior, not the comment.
+
+  **Kept as code: nineteen** (unchanged catalogue ids everywhere) — the twelve
+  named in S2's own account (the six dynamic-lookup entries
+  `layout.version_moves`/`.channel_selection`/`.hidden_share`/
+  `.outline_collection_row`/`.source_pane_session`/`.console_pane`, plus
+  `layout.reading_pdf_pane`/`.reading_preset` — a live *store* predicate search
+  via `first_row_of`, the same "no expressions" limit one level down from the
+  tree — `app.reachable` — the tier's own gate, not a step — and imprint's
+  `manuscripts.detail_and_history`/`store.wal_health`, S2's class iii/iv), plus
+  `layout.restored` (closes over `run()`'s own mutable state — whether the park
+  succeeded, which surfaces this run actually created — across every OTHER
+  capability's run; a stored document is self-contained and cannot see another
+  capability's outcome, and this is the step that restores a person's live
+  arrangement, so guessing wrong here silently is worse than leaving it
+  hand-written), `surface.show_and_dispatch` and all three of
+  `impress-surface-service`'s catalogue (`surface.http.routes/.strict/
+  .invalid_spec`) — a **found blocker, not carried into this pass**: every one of
+  these builds a surface spec whose own `bind`/`on_click` fields use the surface
+  engine's `{{state.…}}` template syntax, and `impress_scenario::template::
+  resolve` walks every string in a `call` step's `args` and resolves `{{…}}`
+  against the *scenario's own* captures before the step runs — embedding such a
+  spec as `args` fails immediately (`a missing capture is an error`) because the
+  scenario has no matching capture. Confirmed by reading, not by a failed run
+  (Tier B needs a live app this worktree does not have); converting either
+  catalogue's surface-creating entries needs an escape for a literal `{{…}}` the
+  scenario interpreter should not touch, which does not exist yet — left named
+  here rather than guessed at. This session's count (3 converted, 19 code) is
+  short of the task's illustrative "~11 converted, 6 code": the six the task
+  named are exactly right, but four more (`layout.restored`, `.reading_pdf_pane`,
+  `.reading_preset`, `app.reachable`) and all three of surface's catalogue turned
+  out to need machinery — a "best effort, no per-step assertion" step kind, a
+  store-predicate step kind, and a template escape — that the interpreter does
+  not have yet; naming them here is this pass's version of S2's own "fails
+  loudly" standard rather than a bigger number.
+
+  **Test (task requirement 3):** `crates/impress-scenario-service/tests/
+  catalogue_scenarios.rs` needed no edit — it already walks every
+  `crates/*/scenarios/*.json`, so the three new documents were picked up as
+  soon as they existed; `every_stored_scenario_document_is_structurally_valid`
+  and `every_tier_a_document_runs_headlessly` both green (the three new
+  documents are Tier B, so the Tier A loop parses and skips them, same as S2's
+  six).
+
+  Gates (serial, `CARGO_TARGET_DIR=target-s2b`, from the worktree root): fmt
+  clean; `clippy rest` and `clippy imprint` clean; `cargo test -p impress-scenario
+  -p impress-scenario-service -p impress-layout-service -p impress-surface-service
+  -p impress-capabilities` all green (0 failed, every count run to completion —
+  4+0+4+7+6+1+6+1+1+1+73+2+18+8+0+8+16+38 passed across the five crates' unit and
+  integration binaries); `check-kit-deps.sh --strict` OK (`impress-scenario` now
+  pure-tier in the table; `impress-layout-service`/`impress-surface-service` each
+  reach it, both still within their `store`-tier allowance); `check-kit-standalone.sh
+  --strict` OK (19 crates, up from 18, build with nothing else from this
+  repository); `check-kit-packages.sh` OK; `check-verb-coverage.sh` OK (43
+  services declare, 462 verbs in `docs/verb-effects.md`, 85 crates with a
+  verdict, ceiling 20 unchanged); `check-schema-refs.sh` OK (396 call sites, 85
+  canonical refs, 0 divergences, unaffected — no schema ref touched);
+  `cargo hakari generate --diff` clean (the two new `impress-scenario`
+  dependency edges already covered by the existing workspace-hack feature set,
+  same as S2's note for imprint-selftest's).
