@@ -38,8 +38,8 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 439 verbs declared; 69 verified by example, 93 by a Tier A
-catalogue, 277 on the exception table.
+Counts today: 445 verbs declared; 69 verified by example, 93 by a Tier A
+catalogue, 283 on the exception table.
 
 ## Every verb
 

@@ -49,11 +49,10 @@ use serde_json::Value;
 /// recording anything when nothing matched) reclassified 10 verbs from a
 /// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
 /// positive, not gained real coverage, so the ceiling moves to say so.
-// Raised again for R1 (settings registry): the six settings-service verbs
-// have no headless example (each needs a `SettingsStore` seeded over a temp
-// directory the harness's example format has no seed step for). Set to
-// 1000 here as a temporary merge-train marker; reset below from the dump.
-const EXCEPTION_CEILING: usize = 1000; // TEMP: raised for merge-train regeneration, will be reset below
+// Raised 277 → 283 for R1 (settings registry): the six settings-service
+// verbs have no headless example (each needs a `SettingsStore` seeded over
+// a temp directory the harness's example format has no seed step for).
+const EXCEPTION_CEILING: usize = 283;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
