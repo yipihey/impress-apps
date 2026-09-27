@@ -1051,6 +1051,15 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
         idempotent: false,
     },
     since: "0.1.0",
+    // The layout service's own set (its `impress_service_impl!` default).
+    effects: impress_service_core::Effects {
+        reads: &[
+            impress_service_core::Kind::Ref("impress/ui/layout@1.0.0"),
+            impress_service_core::Kind::Ref("impress/ui/preset@1.0.0"),
+        ],
+        writes: &[impress_service_core::Kind::Ref("impress/ui/layout@1.0.0")],
+        reach: &[],
+    },
     deprecated: None,
     aliases: &[],
     examples: &[],

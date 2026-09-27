@@ -90,7 +90,12 @@ pub async fn run_verb(v: &'static VerbDescriptor) -> Vec<ExampleResult> {
 
 async fn run_one(v: &'static VerbDescriptor, ex: &Example) -> Outcome {
     let args = ex.args_value();
-    let call = (v.handler)(args);
+    // Through the pipeline like every other path (ADR-0034 D2), as the
+    // Tier A runner: a system caller, so policy never queues it for review.
+    let call = crate::pipeline::invoke(
+        v,
+        crate::pipeline::Call::new(crate::pipeline::CallerIdentity::system("tier-a"), args),
+    );
     match tokio::time::timeout(EXAMPLE_TIMEOUT, call).await {
         Err(_) => Outcome::Failed(format!(
             "`{}` example `{}` did not finish in {:?}",

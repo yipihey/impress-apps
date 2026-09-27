@@ -422,6 +422,7 @@ mod tests {
             idempotent: false,
         },
         since: "0.1.0",
+        effects: crate::Effects::NONE,
         deprecated: None,
         aliases: &[],
         examples: &[],
