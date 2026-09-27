@@ -192,7 +192,7 @@ impl LayoutStore {
                 }
                 Err(error) => {
                     let name = self.quarantine(&item, &error.message, actor)?;
-                    log::error!(
+                    tracing::error!(
                         target: "layout",
                         "live layout row {} ({app_id}/{device}) does not decode: {error} — \
                          kept as the saved layout '{name}' and replaced by a fresh preset",
@@ -221,7 +221,7 @@ impl LayoutStore {
             .logical_clock_of(id)
             .map_err(|e| Refusal::store(format!("read layout {id}: {e}")))?
             .ok_or_else(|| Refusal::store("the cold-started layout vanished"))?;
-        log::info!(
+        tracing::info!(
             target: "layout",
             "{app_id}/{device}: no live layout row; cold-started one ({id}) as {actor:?}"
         );
