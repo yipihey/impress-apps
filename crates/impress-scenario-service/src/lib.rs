@@ -16,6 +16,7 @@
 //! * [`service`] — `ImpressScenarioService`, the five verbs.
 
 pub mod dto;
+pub mod record;
 pub mod service;
 pub mod store;
 pub mod tier_a;
