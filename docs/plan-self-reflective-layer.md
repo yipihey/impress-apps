@@ -2444,3 +2444,49 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   live proof (xcodebuild + `/api/logs`); `docs/chassis-capability-matrix.md` was checked for a
   RetentionCleanupService row and has none to update. Pushed as a WIP branch with a **draft** PR —
   do not merge before a follow-up session finishes the gate list above.
+
+- 2026-09-27 — **W3 verified and submitted as [PR #121](https://github.com/yipihey/impress-apps/pull/121)**
+  after merging main at 633aeeef. Review found that the app had never linked the domain verb:
+  added the approved P5b imbib-owned `imbib-verbs-ffi` target and its Swift package/build-lane
+  provisioning. The kit still has no domain dependency. The GUI initializes the service at its
+  exact database path, and both store/settings singletons retain that path. Anchor the engine's
+  startup clock at store open, rather than imposing a second 90-second delay after Swift's gate;
+  run ticks off the main actor and stop the timer with the coordinator. Seed only when the host
+  links the retention verb, and never overwrite an existing workflow.
+
+  Retention review fixed feed scope (Contains members, not the entire owning library), preserved
+  the inbox's zero-days keep-forever setting, required dismissal to succeed before deletion,
+  counted only successful deletes, and kept exploration cleanup before feed cleanup. The automatic
+  workflow still covers inbox/feed; the existing explicit exploration-library argument remains
+  the follow-up described in the original entry.
+
+  The acceptance proof exposed a missing L1/L2 seam: call rows had no inserted/deleted IDs, despite
+  D-R7 relying on them. Added per-call task-local deduplicated capture at the store mutation seam,
+  wrote the two fields into the existing call schema, and taught `why` to include call-only
+  evidence (`operation_id: null`) without duplicating operation-backed calls. No new schema ref
+  or operation source. Nested/concurrent isolation and the actual retention-to-why path are tested.
+
+  Scratch launches now share one file-backed store for the workflow, domain verbs and settings;
+  shared preferences/notification payloads are isolated too. A live attempt found imbib ignoring
+  `-httpAutomationPort`; its legacy settings adapter now applies process-only overrides through
+  ImpressAutomation. The first attempt was stopped without fixture calls; the subsequent scratch
+  store mismatch was fixed and pinned by a Swift two-connection regression test.
+
+  **Gates green:** fmt; clippy rest + imprint; verb coverage and generated reference docs; strict
+  kit dependencies; standalone kit (21 crates); UniFFI (8 bindings); schema refs (401 sites,
+  85 refs); chassis dependencies; hakari generate --diff. Rust touched/workflow/capabilities tests:
+  1,063 passed, 0 failed. PMC: 2,159 XCTest (2 skipped), 112 Swift Testing, then the final 9-test
+  regression suite. ImpressKit: 13 + 30 tests; ImpressAutomation: 20 + 78. Store, imbib core and
+  imbib verbs xcframeworks rebuilt for arm64 macOS/iOS/simulator with swiftformat absent and no
+  `--fast`. Verb marker tables regenerated from the census/descriptor/effects dump with optional
+  semantic-search verbs linked. Both pushes passed the unmodified pre-push hook's macOS and iOS
+  builds; a scoped xcodebuild wrapper supplied only a worktree-owned derived-data path and disabled
+  installation, without skipping any check.
+
+  **Live proof:** own derived build, bundle `com.impress.imbib.w3proof`, port 23331, device
+  `w3-retention-proof`, PID 66655 and its PID-owned scratch workspace. All three papers remained
+  at 89.749 seconds; by 97.810 seconds the stale paper was gone while starred/fresh papers remained.
+  `history-service_why` named `System(workflow:d3d02d6b-df59-4f3e-a432-2f1b43925a9b)`;
+  `/api/logs?category=workflow` recorded the tick. `SHKSharingServicePicker` count: 0. Only that
+  launched PID was stopped. Evidence: `/tmp/impress-w3-live-proof.json` and
+  `/tmp/impress-w3-live-proof-run.log`. No launcher or real store was changed.
