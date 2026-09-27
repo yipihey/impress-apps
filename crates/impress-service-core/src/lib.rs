@@ -22,6 +22,7 @@ use std::pin::Pin;
 pub mod call;
 pub mod descriptor;
 pub mod job;
+pub mod lifecycle;
 pub mod pipeline;
 pub mod refusal;
 pub mod report;
