@@ -41,6 +41,8 @@ mod tracing_bridge;
 mod ui_feed;
 /// The P5 transport's server side: `dispatch_verb` (plan-verb-pipeline P5a).
 mod verb;
+/// W2: `workflow_tick()`, the in-app host for the trigger engine.
+mod workflow;
 
 // Force the linker to keep all four ADR-0033 D4 `kit` service crates linked
 // into this crate: `impress-layout-service` (used throughout `layout.rs`)
@@ -840,6 +842,17 @@ impl SharedStore {
     /// entirely and for a file-backed one would be a second write lock.
     pub(crate) fn core(&self) -> Arc<SqliteItemStore> {
         self.inner.clone()
+    }
+
+    /// The workspace directory (`blob_root`'s parent) — `None` for an
+    /// in-memory store. `workflow.rs`'s lease and cursor files live here,
+    /// beside `blobs/` and (on the live store) `runtime/` — the same
+    /// directory `impel-taskd` leases against.
+    pub(crate) fn blob_root_parent(&self) -> Option<std::path::PathBuf> {
+        self.blob_root
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
     }
 }
 

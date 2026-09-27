@@ -22,6 +22,9 @@ impress-surface = { workspace = true, features = ["schema"] }
 impress-store-service = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
+# W2: the daemon-vs-app lease (`WorkflowLease`), impel's `WorkerLease` pattern
+# lifted the same way settings and preferences already share it (D-R8).
+impress-fs-lock = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }

@@ -2183,3 +2183,90 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   workflows fire right now, wired as `impel-taskd`'s fourth spawn rule and the app's FFI tick under
   `SchedulerConfig::start_delay`; this package's `plan` answers "given one trigger event, what do
   the steps do", which is what `dry-run` already needed.
+
+- 2026-09-27 — **W2 (the planner in both hosts)** finished on
+  `claude/reflective-w2-planner`, worktree `.claude/worktrees/w2-planner`. The trigger engine is
+  split the way `impress-workflow`/`impress-workflow-service` already are: `impress_workflow::trigger`
+  (new module, pure) is `tick(enabled_workflows, now_ms, start_delay_ms, cursors, signals) ->
+  Vec<DueRun>` — no I/O, no clock of its own (`Clock`/`SystemClock` exist for a host that wants one,
+  but `tick` itself just takes `now_ms`), so it is driven by injected values in every test. The
+  `start_delay` rule lives here exactly once: `EngineCursors::started_at_ms` is stamped when a host
+  creates its engine, and no `tick` call before `started_at_ms + start_delay_ms` produces a run,
+  whatever signals are handed in. `schedule` triggers are computed from the clock and a persisted
+  per-workflow `last_schedule_run_ms`; `store`/`message`/`job`/`call` triggers fire off
+  host-resolved `Signal`s (the host already had to query the store to find them, so this crate
+  never guesses at a schema). `store`/`message` debounce per workflow (a window collapses to one
+  run); `job`/`call` fire once per matched signal (a finished job or a completed call is a discrete
+  event, not a stream).
+
+  `impress_workflow_service::runner` (new module, store-tier) wires the pure engine to a real
+  store: `WorkflowEngine::run_once(store, now_ms, workspace)` reads every `state: enabled` row,
+  resolves signals with `SqliteItemStore::items_arrived_after`'s rowid keyset (impel-taskd's own
+  cross-process trigger-scan primitive, one cursor per schema — the store's declared `kinds`,
+  `task@1.0.0` filtered by `verb`/`state` for `job`, `core/verb-call@1.0.0` filtered by `verb`/`ok`
+  for `call`), calls `impress_workflow::trigger::tick`, and for each due run acquires a
+  [`WorkflowLease`] (new: `impress_fs_lock::FileLock::try_exclusive` on
+  `<workspace>/runtime/workflow-<id>.lock`, impel's `WorkerLease` pattern lifted per-workflow rather
+  than per-process, so two *different* workflows may run concurrently on the daemon and the app) —
+  skipping a run whose lease is already held elsewhere, never retrying it until the next signal.
+  `run_workflow` plans with `impress_workflow::plan` and runs every `Effect::Call` through
+  `impress_service_core::pipeline::invoke_on` as `CallerIdentity::system("workflow:<id>")`
+  (`VerbDescriptor::find` on the name), landing every run in the call log
+  (`core/verb-call@1.0.0`) — exactly the plan's "Who runs it" wording.
+
+  **Two hosts.** `impel-taskd` (`main.rs`): a fourth block in the main loop, after the throughline
+  scans — `WorkflowEngine::new(now_ms, delay * 1000)` created once at startup (the SAME `now_ms`
+  and `delay` the daemon's own settling sleep already computed, so the daemon's 90s guard and the
+  engine's `start_delay` are one number), `run_once` called every pass (not gated on
+  `store_changed`, since a `schedule` trigger is due on the clock alone). Added
+  `impress-workflow`/`impress-workflow-service`/`impress-capabilities` (`full`, so
+  `VerbDescriptor::find` resolves a workflow step's verb — the daemon links the whole inventory the
+  same way `impress-mcp`/`impress-cli` do) as dependencies; no cycle (`cargo check -p impel-taskd`
+  is the proof — `impress-capabilities` does not reach back to `impel-taskd`, a binary). `impress-store-ffi`
+  (`workflow.rs`, new): `SharedStore.workflow_tick() -> [String]` — one UniFFI export, one
+  process-wide `WorkflowEngine` behind a `OnceLock<Mutex<_>>` anchored at the module's first call
+  (close enough to "the app started"; a late anchor only makes the guard stricter). Returns nothing
+  for an in-memory store (no workspace to lease against). `impress-workflow`/`impress-workflow-service`
+  added to the kit (`docs/kit-manifest.md`, both kit-safe: `impress-workflow` reaches only
+  `impress-surface`, `impress-workflow-service` only the kit's own store-tier crates) so
+  `impress-store-ffi` can link them without the `impress-capabilities` cycle its own doc comments
+  already explain. Regenerated Swift bindings (`build-xcframework.sh`, swiftformat off `PATH`):
+  one new method, `workflowTick()`, nothing lost. The app's own timer that calls this on a cadence
+  is not part of this package (the row: "Don't wire the app-side timer into Swift beyond the
+  export").
+
+  **Proof (Tier A, injectable clock, no real sleeps):** `impress_workflow::trigger`'s own tests —
+  `no_run_before_start_delay` (a signal inside the window is dropped, the SAME signal fires once
+  `start_delay` has passed), `store_trigger_fires_once_per_debounce_window` (two signals in one
+  window collapse to one run; a signal outside it fires again), `job_trigger_fires_on_done`,
+  `a_workflow_not_enabled_never_fires`, `schedule_trigger_runs_every_interval_after_start_delay` (5
+  tests). `impress_workflow_service::runner`'s own tests, through a real in-memory store:
+  `no_run_before_start_delay_through_the_engine` (a matching store row inserted before `start_delay`
+  produces nothing until a tick past it; caught a real bug in the first draft — signals resolved
+  before the gate check silently consumed the pre-delay row's arrival cursor, so it was never seen
+  again once the gate opened; fixed by gating signal resolution on `start_delay` too, not just the
+  runs `tick` returns) and `the_lease_prevents_a_double_run` (2 tests). `impress-store-ffi`'s
+  `workflow::tests` cover the FFI edge (in-memory store is a no-op; a fresh file-backed workspace
+  with no rows ticks cleanly) (2 tests).
+
+  Gates (serial, `CARGO_TARGET_DIR=target-w2`, machine loaded): fmt clean (after `cargo fmt`);
+  `clippy rest` and `clippy imprint` clean; `cargo test -p impress-workflow -p
+  impress-workflow-service -p impel-taskd -p impel-core -p impress-store-ffi --features
+  impress-store-ffi/native -p impress-capabilities` all green (18 + 2 in impress-workflow, 9 + 2 in
+  impress-workflow-service, 4 in impel-taskd, 110 + 1 in impress-store-ffi including the two new
+  `workflow::tests`, 9 in impress-capabilities's pipeline/policy/tier_a suites — one
+  `impress-store-ffi` test, `a_hard_delete_in_another_process_reaches_the_feed_and_the_sources`,
+  failed under the default parallel run and passed alone and under `--test-threads=1`: pre-existing
+  test-order flakiness from process-wide singleton state, not a regression, confirmed by running it
+  in isolation before touching anything); `check-verb-coverage.sh`, `check-schema-refs.sh` (399
+  call sites, 85 canonical refs, 0 divergences), `check-kit-deps.sh --strict` (19 kit crates, the
+  two new ones reach only what the manifest says), `check-kit-standalone.sh` (unchanged),
+  `check-uniffi-bindings.sh` (7 bindings; `workflowTick` gained, nothing lost) all OK; `cargo hakari
+  generate --diff` reported no changes both before and after the new dependency edges (no new
+  third-party crate entered the graph). **Left for W3**: migrating any Swift background service
+  onto a workflow row (this package built the planner and its two hosts, not a Swift migration);
+  **left generally**: a job-wrapped run (`task@1.0.0` per workflow run, P4's inline-runner
+  precedent) — this package runs a fired workflow's `call` effects through the pipeline directly, as
+  the row's execution bullet asked, but does not yet wrap the whole run in its own job handle, so a
+  running workflow has no `task-event` progress ring of its own yet (its calls are each on the
+  record in the call log, which is the row's actual acceptance bar).

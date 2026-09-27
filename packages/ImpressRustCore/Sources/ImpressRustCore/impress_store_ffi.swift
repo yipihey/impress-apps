@@ -3285,6 +3285,21 @@ public protocol SharedStoreProtocol : AnyObject {
      */
     func watchedRecordProduced(fileId: String, producedIds: [String], replace: Bool) throws  -> SharedProducedRowsReport
     
+    /**
+     * One tick of W2's trigger engine: resolves `store`/`job`/`call`
+     * signals since the last tick, runs every `enabled` workflow that
+     * fired (through the pipeline, as `System("workflow:<id>")`), and
+     * returns the ids of the workflows that ran. Returns nothing (and
+     * touches no lease) for an in-memory store — there is no workspace
+     * directory to lease against, which only tests open.
+     *
+     * The app calls this on a timer (e.g. every 5–15s); nothing in this
+     * crate schedules that call itself — see CLAUDE.md "Background
+     * Services Must Defer Startup Work" for why the engine, not the
+     * timer, is what enforces the startup delay.
+     */
+    func workflowTick()  -> [String]
+    
 }
 
 /**
@@ -4760,6 +4775,26 @@ open func watchedRecordProduced(fileId: String, producedIds: [String], replace: 
         FfiConverterString.lower(fileId),
         FfiConverterSequenceString.lower(producedIds),
         FfiConverterBool.lower(replace),$0
+    )
+})
+}
+    
+    /**
+     * One tick of W2's trigger engine: resolves `store`/`job`/`call`
+     * signals since the last tick, runs every `enabled` workflow that
+     * fired (through the pipeline, as `System("workflow:<id>")`), and
+     * returns the ids of the workflows that ran. Returns nothing (and
+     * touches no lease) for an in-memory store — there is no workspace
+     * directory to lease against, which only tests open.
+     *
+     * The app calls this on a timer (e.g. every 5–15s); nothing in this
+     * crate schedules that call itself — see CLAUDE.md "Background
+     * Services Must Defer Startup Work" for why the engine, not the
+     * timer, is what enforces the startup delay.
+     */
+open func workflowTick() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedstore_workflow_tick(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -18454,11 +18489,11 @@ public func dispatchVerb(name: String, argsJson: String, callerJson: String) -> 
 })
 }
 /**
- * Install `sink` as the destination of the layout and surface crates' log
+ * Install `sink` as the destination of the layout, surface and verb-span
  * lines, at `level` (`error` | `warning` | `info` | `debug`; anything else
  * is `info`). Installing again replaces the sink and the level. Returns
- * false when this process already had a different `log` logger, in which
- * case nothing is bridged — the host logs that.
+ * false when this process already had a different global `tracing`
+ * subscriber, in which case nothing is bridged — the host logs that.
  */
 public func installLogSink(sink: SharedLogSink, level: String) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
@@ -18712,7 +18747,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_dispatch_verb() != 2837) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 14824) {
+    if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 36421) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_keymap_json() != 61155) {
@@ -19274,6 +19309,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_record_produced() != 53538) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_workflow_tick() != 41157) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_app_id() != 7654) {

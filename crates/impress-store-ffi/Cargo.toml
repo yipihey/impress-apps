@@ -72,6 +72,15 @@ impress-surface-service.workspace = true
 # `surface-demo-service`) that had no real reference anywhere in this crate;
 # see `lib.rs`'s force-link comment for the mechanism.
 impress-capabilities-kit.workspace = true
+# W2: the in-app host for the trigger engine (`workflow_tick`, a thin
+# UniFFI export the app calls on its own timer). `impress-workflow` for the
+# pure `tick`/`Clock`; `impress-workflow-service` for `WorkflowEngine`,
+# which reads `impress/workflow@1.0.0` rows and runs a fired workflow's
+# steps through the pipeline. Both are kit-grade (`docs/kit-manifest.md`)
+# and neither reaches back to this crate — no cycle, the same shape
+# `impress-layout-service`/`impress-surface-service` are above.
+impress-workflow.workspace = true
+impress-workflow-service.workspace = true
 # The settings registry (ADR-0036 D5): `settings.rs` binds `SharedSettings`
 # over its files; the verbs and the process-wide instance are
 # `impress-store-service`'s, which this crate already links.

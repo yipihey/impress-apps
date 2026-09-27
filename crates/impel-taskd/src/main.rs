@@ -62,6 +62,7 @@ use impress_core::store::ItemStore;
 use impress_sources::arxiv::ArxivSource;
 use impress_sources::crossref::CrossrefSource;
 use impress_sources::openalex::OpenAlexSource;
+use impress_workflow_service::WorkflowEngine;
 use tokio::sync::RwLock;
 
 const ACTOR: &str = "impel-taskd";
@@ -987,6 +988,16 @@ async fn main() {
     let tl_rule = ThroughlineSpawnRule;
     let tl_source_rule = ThroughlineSourceSpawnRule;
 
+    // W2's fourth spawn rule: workflows (`impress/workflow@1.0.0`, `state:
+    // enabled`). `now_ms` anchors the engine's own `start_delay` — the SAME
+    // instant this daemon started, before the sleep above, so the rule
+    // holds even though the engine's first `run_once` call happens after
+    // it. `delay` (0 for `--workspace`, 90 live unless overridden) is both
+    // this daemon's own settling delay AND the engine's `start_delay`: one
+    // number, one owner (plan § Workflows, "The 90-second rule therefore
+    // has one owner").
+    let mut workflow_engine = WorkflowEngine::new(now_ms, (delay as i64) * 1000);
+
     // ── Scan cursors (persisted; see ScanCursors) ──────────────────────
     //
     // NO BACKFILL BURST, still: with the default `backfill_hours == 0` a
@@ -1277,6 +1288,29 @@ async fn main() {
                     }
                     Ok(_) => {}
                     Err(e) => eprintln!("impel-taskd: memory planning failed: {e}"),
+                }
+            }
+        }
+
+        // ── Workflows (W2's fourth spawn rule) ──────────────────────────
+        // Runs every pass, not gated on `store_changed`: a `schedule`
+        // trigger becomes due on the CLOCK, not on a store write, so it
+        // must be checked whether or not anything else happened this pass.
+        // `WorkflowEngine::run_once` itself enforces `start_delay` and
+        // resolves the store/job/call signals a `store`/`job`/`call`
+        // trigger needs.
+        if !args.dry_run {
+            let pass_now_ms = chrono::Utc::now().timestamp_millis();
+            for outcome in workflow_engine.run_once(&store, pass_now_ms, &workspace) {
+                match outcome.error {
+                    Some(e) => eprintln!(
+                        "impel-taskd: workflow '{}' ({}) ran {} call(s), then failed: {e}",
+                        outcome.name, outcome.workflow_id, outcome.calls
+                    ),
+                    None => eprintln!(
+                        "impel-taskd: workflow '{}' ({}) ran {} call(s)",
+                        outcome.name, outcome.workflow_id, outcome.calls
+                    ),
                 }
             }
         }
