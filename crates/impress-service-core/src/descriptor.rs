@@ -320,6 +320,11 @@ pub struct MethodMeta {
     /// excluded from `tools/list` and the CLI's own listing — the alias is
     /// dispatchable, never advertised.
     pub aliases: &'static [&'static str],
+    /// `#[impress_method(budget_ms = …)]` (D-P2, G7c): the wall-clock ceiling
+    /// a Tier A example may take before the runner fails it. `None` — the
+    /// default for every verb until one declares a budget — means no ceiling
+    /// is enforced.
+    pub budget_ms: Option<u64>,
 }
 
 /// Find a method's captured facts by identifier. `const` because
@@ -393,6 +398,16 @@ pub const fn resolve_examples(table: &'static [MethodMeta], method: &str) -> &'s
     }
 }
 
+/// A method's Tier A time budget (D-P2, G7c), declared with
+/// `#[impress_method(budget_ms = …)]`. `None` for every verb until one
+/// declares a ceiling.
+pub const fn resolve_budget_ms(table: &'static [MethodMeta], method: &str) -> Option<u64> {
+    match method_meta(table, method) {
+        Some(meta) => meta.budget_ms,
+        None => None,
+    }
+}
+
 /// A method's retirement notice (P3), declared with `#[impress_method(
 /// deprecated(since = "…", note = "…"))]`. `None` for every verb until a
 /// method declares one.
@@ -456,6 +471,10 @@ pub struct VerbDescriptor {
     /// `impress_service_impl! { strict_args = true }`: an argument the schema
     /// does not name is refused `invalid-argument`.
     pub strict: bool,
+    /// `#[impress_method(budget_ms = …)]` (D-P2, G7c): a Tier A example of
+    /// this verb that takes longer than this fails the run. `None` when no
+    /// budget is declared.
+    pub budget_ms: Option<u64>,
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -563,6 +582,7 @@ mod tests {
             }],
             deprecated: None,
             aliases: &[],
+            budget_ms: Some(5),
         },
         MethodMeta {
             name: "set_flag",
@@ -577,6 +597,7 @@ mod tests {
                 note: "superseded by delete",
             }),
             aliases: &["old_set_flag"],
+            budget_ms: None,
         },
     ];
 
@@ -599,6 +620,13 @@ mod tests {
             resolve_effects(&TABLE, "missing", SERVICE_EFFECTS),
             SERVICE_EFFECTS
         );
+    }
+
+    #[test]
+    fn a_budget_declaration_is_resolved_and_defaults_to_none() {
+        assert_eq!(resolve_budget_ms(&TABLE, "delete"), Some(5));
+        assert_eq!(resolve_budget_ms(&TABLE, "set_flag"), None);
+        assert_eq!(resolve_budget_ms(&TABLE, "missing"), None);
     }
 
     #[test]
@@ -717,6 +745,7 @@ mod tests {
             aliases: &[],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: Source::Linked,
             handler,
         };
@@ -769,6 +798,7 @@ mod tests {
             aliases: &["old-x"],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: Source::Linked,
             handler,
         };
@@ -824,6 +854,7 @@ mod tests {
             aliases: &[],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: Source::Linked,
             handler,
         };

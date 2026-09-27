@@ -21,7 +21,15 @@ use impress_service_macros::{impress_service, impress_service_impl};
 #[impress_service]
 pub trait ImbibTextService: Send + Sync + 'static {
     /// Decode LaTeX-encoded text into Unicode (e.g. `\'{e}` → `é`).
-    #[impress_method]
+    // D-P2, G7c: a hot, argument-shaped verb (`pipeline_bench.rs`'s own
+    // per-call overhead case). Generous on purpose — Tier A's first call of
+    // a verb pays a one-time cost (`pipeline::input_schema`'s schema build,
+    // process warm-up) that the breach mechanism itself must not flake on;
+    // the mechanism is proven by a dedicated test
+    // (`impress_service_core::report::tier_a`'s
+    // `an_example_over_budget_even_with_slack_fails`), not by this budget
+    // ever tripping in CI.
+    #[impress_method(budget_ms = 200)]
     #[impress_example(name = "default", args = r#"{"input": "Schr\\\"odinger"}"#)]
     async fn decode_latex(&self, input: String) -> String;
 

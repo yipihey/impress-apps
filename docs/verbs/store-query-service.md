@@ -40,6 +40,7 @@ Payloads are deliberately omitted; call `get_item` for the ones that look intere
 Nothing is withheld here — dismissed items included. Unlike a search, a browse that silently omits rows makes its own counts a lie.
 
 - **safety**: `read_only`, idempotent
+- **budget**: `200ms` — a Tier A example that exceeds it (with CI slack) fails the run
 - **reads**: any("the schema_ref argument names the kind")
 - **writes**: —
 - **reach**: —

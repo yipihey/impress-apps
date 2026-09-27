@@ -989,22 +989,24 @@ mod paper_triage_loop {
     #[tokio::test]
     async fn the_paper_triage_loop_stars_the_selected_row_via_the_real_triage_verb() {
         let world = World::open();
+        // Nested inventory calls inherit the store override from this task
+        // context. Keep this test's real triage verb on its scratch store
+        // without installing a process-wide store: other Tier A tests may
+        // have already initialized that singleton.
+        let context = std::sync::Arc::new(impress_service_core::pipeline::context::CallContext {
+            call_id: uuid::Uuid::new_v4().to_string(),
+            trace_id: uuid::Uuid::new_v4().to_string(),
+            parent_call: None,
+            caller: impress_service_core::pipeline::CallerIdentity::agent("surface-test"),
+            verb: "surface-test",
+            store_override: Some(world.store.clone()),
+            mutation_ids: Default::default(),
+        });
+        impress_service_core::pipeline::context::scope(context, paper_triage_loop_body(world))
+            .await;
+    }
 
-        // `triage-service_set-starred` is dispatched through the linked
-        // INVENTORY (`crate::runtime::call_verb`), which builds its own
-        // `DefaultTriageService::new()` per call (see
-        // `impress_service_impl!` in `triage_service.rs`) rather than taking
-        // `world`'s store — so by default it reads/writes
-        // `impress_store_service::store_instance()`'s process-wide store,
-        // not `world.store`, and the assertions below would silently pass
-        // against the WRONG (fallback, in-memory, never-seeded) store.
-        // `install_store` makes the two the same store for the rest of this
-        // process, exactly the escape hatch its module docs describe tests
-        // using. Only one caller per process may install (a second call
-        // errors), and nothing else in this crate's test binary does.
-        impress_store_service::install_store(world.store.clone())
-            .expect("install this test's store as the process store (something else already did)");
-
+    async fn paper_triage_loop_body(world: World) {
         let paper_a = seed_publication(&world.store, "A dark matter survey", 2024, "Zwicky, F.");
         let paper_b =
             seed_publication(&world.store, "Signal processing notes", 2023, "Shannon, C.");

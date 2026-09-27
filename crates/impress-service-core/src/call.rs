@@ -163,6 +163,7 @@ mod tests {
         aliases: &["call-test-service_old-name"],
         examples: &[],
         strict: false,
+        budget_ms: None,
         source: Source::Linked,
         handler,
     };

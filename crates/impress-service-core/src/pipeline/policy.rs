@@ -397,6 +397,7 @@ mod tests {
             aliases: &[],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: Source::Linked,
             handler,
         }
@@ -431,6 +432,7 @@ mod tests {
             aliases: &[],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: Source::Linked,
             handler,
         }

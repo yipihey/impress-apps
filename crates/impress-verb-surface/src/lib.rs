@@ -522,6 +522,7 @@ mod tests {
             aliases: &[],
             examples: &[],
             strict: false,
+            budget_ms: None,
             source: Source::Linked,
             handler: |_| Box::pin(async { Ok(Value::Null) }),
         }
