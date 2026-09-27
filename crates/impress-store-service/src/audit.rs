@@ -304,13 +304,19 @@ mod tests {
         )
         .with_trace(trace_id.clone());
 
-        let answer_a =
-            impress_service_core::runtime::block_on(pipeline::invoke_on(store.clone(), verb, call_a))
-                .expect("verb a ran");
+        let answer_a = impress_service_core::runtime::block_on(pipeline::invoke_on(
+            store.clone(),
+            verb,
+            call_a,
+        ))
+        .expect("verb a ran");
         assert_eq!(answer_a["ok"], true, "{answer_a}");
-        let answer_b =
-            impress_service_core::runtime::block_on(pipeline::invoke_on(store.clone(), verb, call_b))
-                .expect("verb b ran");
+        let answer_b = impress_service_core::runtime::block_on(pipeline::invoke_on(
+            store.clone(),
+            verb,
+            call_b,
+        ))
+        .expect("verb b ran");
         assert_eq!(answer_b["ok"], true, "{answer_b}");
         flush();
 
@@ -322,11 +328,15 @@ mod tests {
         let batch_b = ops_b[0].batch_id.clone().expect("b's ops have a batch id");
         assert_ne!(batch_a, batch_b, "each call keeps its own batch id");
         assert!(
-            ops_a.iter().all(|op| op.batch_id.as_deref() == Some(batch_a.as_str())),
+            ops_a
+                .iter()
+                .all(|op| op.batch_id.as_deref() == Some(batch_a.as_str())),
             "every op of call a carries call a's id"
         );
         assert!(
-            ops_b.iter().all(|op| op.batch_id.as_deref() == Some(batch_b.as_str())),
+            ops_b
+                .iter()
+                .all(|op| op.batch_id.as_deref() == Some(batch_b.as_str())),
             "every op of call b carries call b's id"
         );
 
@@ -382,16 +392,22 @@ mod tests {
         // then send one more.
         let (sender, _receiver_never_drained) = sync_channel::<VerbCallRecord>(CHANNEL_CAPACITY);
         for n in 0..CHANNEL_CAPACITY {
-            sender.try_send(record_of(n)).expect("fits within the bound");
+            sender
+                .try_send(record_of(n))
+                .expect("fits within the bound");
         }
 
-        let before = dropped();
+        // A local counter, not the crate's shared statics: this test
+        // exercises the channel's own overflow behaviour (the same bound
+        // and the same `try_send` [`ChannelSink::record`] uses), without
+        // racing every other test in this binary that reads or writes
+        // `DROPPED`/`WRITTEN` concurrently.
+        let local_dropped = AtomicU64::new(0);
         let started = std::time::Instant::now();
         match sender.try_send(record_of(CHANNEL_CAPACITY)) {
             Ok(()) => panic!("the channel was full; this send should not have fit"),
             Err(std::sync::mpsc::TrySendError::Full(_)) => {
-                DROPPED.fetch_add(1, Ordering::Relaxed);
-                pipeline_audit::count_dropped();
+                local_dropped.fetch_add(1, Ordering::Relaxed);
             }
             Err(other) => panic!("unexpected: {other:?}"),
         }
@@ -401,18 +417,28 @@ mod tests {
             elapsed < std::time::Duration::from_millis(50),
             "an overflow must not block the caller: took {elapsed:?}"
         );
-        assert_eq!(dropped(), before + 1, "the overflow is counted, not silent");
+        assert_eq!(
+            local_dropped.load(Ordering::Relaxed),
+            1,
+            "the overflow is counted, not silent"
+        );
     }
 
     /// `health()` shows the backlog `/api/health` will surface: the plan's
-    /// "a dropped record is never silent" as a number, not a log line.
+    /// "a dropped record is never silent" as a number, not a log line. Reads
+    /// the real shared counters (monotonic, never reset) rather than
+    /// mutating them, so this does not race the other tests in this binary
+    /// that also touch `DROPPED`/`WRITTEN`/`FAILED` concurrently.
     #[test]
-    fn health_reports_the_dropped_counter() {
-        let before = health()["dropped"].as_u64().unwrap_or(0);
-        DROPPED.fetch_add(1, Ordering::Relaxed);
-        let after = health();
-        assert_eq!(after["dropped"].as_u64().unwrap(), before + 1);
-        assert_eq!(after["channel_capacity"].as_u64().unwrap() as usize, CHANNEL_CAPACITY);
+    fn health_reports_the_shared_counters_and_the_channel_bound() {
+        let snapshot = health();
+        assert_eq!(snapshot["dropped"].as_u64().unwrap(), dropped());
+        assert_eq!(snapshot["written"].as_u64().unwrap(), written());
+        assert_eq!(snapshot["failed"].as_u64().unwrap(), failed());
+        assert_eq!(
+            snapshot["channel_capacity"].as_u64().unwrap() as usize,
+            CHANNEL_CAPACITY
+        );
     }
 
     /// A read-only verb leaves no row (D-R3).

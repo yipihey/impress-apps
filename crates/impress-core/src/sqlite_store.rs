@@ -5085,9 +5085,8 @@ impl SqliteItemStore {
                 "wire_version": full.get("wire_version").cloned().unwrap_or(serde_json::Value::Null),
                 "compacted": true,
             });
-            let degraded_json = serde_json::to_string(&degraded).map_err(|e| {
-                StoreError::Storage(format!("compact_verb_calls serialize: {}", e))
-            })?;
+            let degraded_json = serde_json::to_string(&degraded)
+                .map_err(|e| StoreError::Storage(format!("compact_verb_calls serialize: {}", e)))?;
             conn.execute(
                 "UPDATE items SET payload = ?1 WHERE id = ?2",
                 params![degraded_json, id],
@@ -7465,7 +7464,10 @@ mod tests {
         let second_pass = store.compact_verb_calls(30, 1).unwrap();
         assert_eq!(second_pass, 1, "the second row is reduced on the next pass");
         let third_pass = store.compact_verb_calls(30, 10).unwrap();
-        assert_eq!(third_pass, 0, "nothing left eligible; the recent row is untouched");
+        assert_eq!(
+            third_pass, 0,
+            "nothing left eligible; the recent row is untouched"
+        );
 
         for old_id in [old_a, old_b] {
             let row = store.get(old_id).unwrap().unwrap();
