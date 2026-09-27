@@ -1422,23 +1422,27 @@ mod retention {
     fn dismiss_and_delete(
         store: &ImbibStore,
         row: &imbib_core::unified::shaped_queries::BibliographyRow,
-    ) {
-        let _ = store.dismiss_paper(
-            row.doi.clone(),
-            row.arxiv_id.clone(),
-            row.bibcode.clone(),
-            Some(row.cite_key.clone()),
-        );
-        let _ = store.delete_item(row.id.clone());
+    ) -> bool {
+        if store
+            .dismiss_paper(
+                row.doi.clone(),
+                row.arxiv_id.clone(),
+                row.bibcode.clone(),
+                Some(row.cite_key.clone()),
+            )
+            .is_err()
+        {
+            return false;
+        }
+        store.delete_item(row.id.clone()).is_ok()
     }
 
     fn cleanup_inbox(store: &ImbibStore) -> u32 {
         let days = setting_i64("imbib.retention.inbox_days", 30);
+        let Some(cutoff) = cutoff_ms(days) else {
+            return 0; // 0 = keep forever, including when auto-remove-read is on
+        };
         let auto_remove_read = setting_bool("imbib.retention.auto_remove_read", false);
-        let cutoff = cutoff_ms(days);
-        if cutoff.is_none() && !auto_remove_read {
-            return 0; // nothing to do: keep forever, and not removing on read either
-        }
         let Ok(Some(inbox)) = store.get_inbox_library() else {
             return 0;
         };
@@ -1452,11 +1456,10 @@ mod retention {
             if pub_row.is_starred {
                 continue;
             }
-            let is_old = cutoff.is_some_and(|c| pub_row.date_added < c);
+            let is_old = pub_row.date_added < cutoff;
             let should_remove_as_read = auto_remove_read && pub_row.is_read;
             if is_old || should_remove_as_read {
-                dismiss_and_delete(store, pub_row);
-                removed += 1;
+                removed += u32::from(dismiss_and_delete(store, pub_row));
             }
         }
         removed
@@ -1474,12 +1477,16 @@ mod retention {
             let Some(cutoff) = cutoff_ms(days as i64) else {
                 continue;
             };
-            let Some(library_id) = search.library_id.clone() else {
-                continue;
-            };
-            let Ok(publications) =
-                store.query_publications(library_id, "created".into(), true, None, None)
-            else {
+            // A smart search lives under a library, but its papers are linked
+            // by Contains edges from the search itself. Querying library_id
+            // here sweeps every paper in that library for one feed's policy.
+            let Ok(publications) = store.list_collection_members(
+                search.id.clone(),
+                "created".into(),
+                true,
+                None,
+                None,
+            ) else {
                 continue;
             };
             for pub_row in &publications {
@@ -1489,8 +1496,7 @@ mod retention {
                 let is_old = pub_row.date_added < cutoff;
                 let should_remove_as_read = search.auto_remove_read && pub_row.is_read;
                 if is_old || should_remove_as_read {
-                    dismiss_and_delete(store, pub_row);
-                    removed += 1;
+                    removed += u32::from(dismiss_and_delete(store, pub_row));
                 }
             }
         }
@@ -1514,8 +1520,7 @@ mod retention {
                 continue; // never refreshed: age unknown, never swept
             };
             if executed < cutoff {
-                let _ = store.delete_smart_search(search.id.clone());
-                removed += 1;
+                removed += u32::from(store.delete_smart_search(search.id.clone()).is_ok());
             }
         }
         removed
@@ -1634,7 +1639,7 @@ mod tests {
     /// this verb exists to keep: a starred paper is never removed, whatever
     /// its read state or the auto-remove-read setting.
     #[tokio::test]
-    async fn retention_cleanup_removes_read_inbox_papers_but_never_starred_ones() {
+    async fn retention_cleanup_only_removes_eligible_papers_in_each_source() {
         // Isolate the settings workspace this test's `retention_cleanup`
         // call resolves (`store_singleton::default_workspace_dir`) from
         // whatever this machine's real imbib app has written.
@@ -1680,16 +1685,79 @@ mod tests {
             .unwrap()
             .remove(0);
 
+        // The feed's parent library contains unrelated read papers too. Its
+        // retention policy may touch only Contains-linked members of this
+        // smart search, including when both papers are equally eligible.
+        let feed_library = store.create_library("Feeds".into()).unwrap();
+        let feed = store
+            .create_smart_search(
+                "Feed".into(),
+                "topic".into(),
+                feed_library.id.clone(),
+                None,
+                100,
+                false,
+                false,
+                3600,
+            )
+            .unwrap();
+        store
+            .update_int_field(feed.id.clone(), "retention_days".into(), Some(1))
+            .unwrap();
+        store
+            .update_bool_field(feed.id.clone(), "auto_remove_read".into(), true)
+            .unwrap();
+        let member_id = store
+            .import_bibtex(
+                "@article{FeedMember2024, title={Feed member}}".into(),
+                feed_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let unrelated_id = store
+            .import_bibtex(
+                "@article{Unrelated2024, title={Unrelated}}".into(),
+                feed_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let starred_member_id = store
+            .import_bibtex(
+                "@article{StarredFeed2024, title={Starred feed member}}".into(),
+                feed_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        store
+            .add_to_collection(vec![member_id.clone(), starred_member_id.clone()], feed.id)
+            .unwrap();
+        store
+            .set_read(
+                vec![
+                    member_id.clone(),
+                    unrelated_id.clone(),
+                    starred_member_id.clone(),
+                ],
+                true,
+            )
+            .unwrap();
+        store
+            .set_starred(vec![starred_member_id.clone()], true)
+            .unwrap();
+
         let service = super::DefaultImbibLibraryService::new(store.clone());
         let report = super::ImbibLibraryService::retention_cleanup(&service, None).await;
 
         assert_eq!(report.inbox_removed, 1, "only the read, unstarred paper");
-        assert_eq!(report.feed_removed, 0);
+        assert_eq!(report.feed_removed, 1, "only the unstarred feed member");
         assert_eq!(report.exploration_removed, 0);
 
         assert!(store.get_publication(read_id).unwrap().is_none());
         assert!(store.get_publication(starred_read_id).unwrap().is_some());
         assert!(store.get_publication(unread_id).unwrap().is_some());
+        assert!(store.get_publication(member_id).unwrap().is_none());
+        assert!(store.get_publication(unrelated_id).unwrap().is_some());
+        assert!(store.get_publication(starred_member_id).unwrap().is_some());
 
         // The removed inbox paper is recorded dismissed so it never
         // re-enters the inbox (imbib CLAUDE.md's dismissed-papers
@@ -1698,5 +1766,28 @@ mod tests {
         assert!(store
             .is_paper_dismissed(None, None, None, Some("Read2024".into()))
             .unwrap());
+        assert!(store
+            .is_paper_dismissed(None, None, None, Some("FeedMember2024".into()))
+            .unwrap());
+        assert!(!store
+            .is_paper_dismissed(None, None, None, Some("Unrelated2024".into()))
+            .unwrap());
+
+        // The legacy service treats zero inbox days as an unconditional keep
+        // forever setting, even when auto-remove-read is enabled.
+        settings
+            .set("imbib.retention.inbox_days", &serde_json::json!(0))
+            .unwrap();
+        let read_forever_id = store
+            .import_bibtex(
+                "@article{ReadForever2024, title={Read forever}}".into(),
+                inbox.id,
+            )
+            .unwrap()
+            .remove(0);
+        store.set_read(vec![read_forever_id.clone()], true).unwrap();
+        let report = super::ImbibLibraryService::retention_cleanup(&service, None).await;
+        assert_eq!(report.inbox_removed, 0);
+        assert!(store.get_publication(read_forever_id).unwrap().is_some());
     }
 }
