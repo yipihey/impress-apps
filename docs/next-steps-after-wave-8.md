@@ -1,14 +1,13 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-Main at `10ee5acd` includes W3, G7c, W4 and S3. The full workspace result below is
-for the earlier `f7af1c37` batch; the post-S3 full run is still in progress. The older full workspace result (4,264 passed at
-`f5a29bb8`) does not verify this combined main. A fresh isolated
-`cargo test --workspace --features native -- --test-threads=1` passed there: **4,291 passed,
-0 failed, 23 ignored**, including doctests (220 result groups). The initial parallel run hit the
-known impel-tools global-backend race; the full serial rerun passed. Logs are
-`/tmp/impress-open-packages-workspace-test.log` and
-`/tmp/impress-open-packages-workspace-serial.log`. Detail for each package
-is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transport.md`,
+Main at `10ee5acd` includes W3, G7c, W4 and S3. A fresh isolated
+`cargo test --workspace --features native -- --test-threads=1` passed on that main:
+**4,324 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
+Evidence is `/tmp/impress-s3-main-workspace.log`; its workspace was
+`/tmp/impress-cargo-tests.m00DSW/workspace`. The earlier `f7af1c37` batch also passed
+4,291 tests, with 23 ignored, in `/tmp/impress-open-packages-workspace-serial.log`.
+Its initial parallel run hit the known impel-tools global-backend race; the serial rerun passed.
+Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-transport.md`,
 `docs/plan-auto-gui-and-self-docs.md` and `docs/plan-self-reflective-layer.md`.
 
 ## Merged
@@ -51,20 +50,23 @@ and checked paper state and live logs. The owned host PID 12083 exited. Evidence
 `/tmp/impress-s3-proof-run-final.log` and
 `/tmp/impress-s3-proof-6f13b826-efab-4b6e-8e7b-78aa17735877/output/host-12083/`.
 The final archive cohort covers ImbibCore, ImbibVerbsFfi and ImpressStoreFfi's three arm64
-slices plus macOS ImpelTools. Full workspace verification above predates S3; the next batch
-needs a new main run. Ordinary publication-list actions remain outside audit, and native
+slices plus macOS ImpelTools. The full workspace verification above includes S3. Ordinary publication-list actions remain outside audit, and native
 effects delegated through the Swift ImpelTools callback still lose parent identity/trace.
 
 ## Next packages
 
 - **G5 (in progress)**: `g5-strict` / `claude/gui-g5-strict`, based on `10ee5acd`.
   The macro now defaults strict, all 476 descriptors are strict, and 136 isolated Rust tests
-  passed (3 ignored). Five hosted native proofs and final quick gates are underway. Legacy
+  passed (3 ignored). All quick gates passed; five hosted native proofs are underway. Legacy
   mail/figure/Core Data stores, imbib's derived index, and background service startup needed
   test-isolation fixes before launching those hosts. `scripts/prove-strict-args.py` runs each
   app with a unique bundle, port and device, then asserts its actual native store/token paths.
   Its new Tier B scenario checks both a valid call and an unknown-key refusal through the real
-  HTTP route. No proof app has been launched yet. The proof/archives must finish before push.
+  HTTP route. Full native archive rebuilds finished. Imprint and impel passed the direct
+  positive/refusal checks; imprint also passed the stored scenario and surface catalogue.
+  Its layout catalogue exposed a stale-revision fixture that can focus an already-focused pane;
+  that fixture is being made deterministic before the final five-host run. Owned hosts from
+  completed runs exited. The live proofs and pre-push builds remain before push/merge.
 - **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).

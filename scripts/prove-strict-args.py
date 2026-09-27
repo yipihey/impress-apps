@@ -50,6 +50,9 @@ def main():
                 "-derivedDataPath", str(derived), "-jobs", "6",
                 "-only-testing:" + args.app + "Tests/StrictArgumentsProofTests",
                 "CODE_SIGNING_ALLOWED=NO", "IMPRESS_SKIP_INSTALL=1",
+                # Package test products do not inherit the app project's setting.
+                # They co-link the same Rust archives and need the same stripping.
+                "DEAD_CODE_STRIPPING=YES",
                 "PRODUCT_BUNDLE_IDENTIFIER=com.impress.g5proof." + args.app,
             ], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
     if args.build_only:
