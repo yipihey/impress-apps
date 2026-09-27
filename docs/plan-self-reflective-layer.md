@@ -2627,3 +2627,21 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `/tmp/impress-w4-imbib-verbs-build.log`. The generated-reference-docs
   checker runs after the commit because it considers staged generated files
   dirty even when they match the generator output.
+
+- 2026-09-27 — **W3 and W4 completion.** [W3 PR #121](https://github.com/yipihey/impress-apps/pull/121)
+  merged on main as `35ea75fa`; [W4 PR #119](https://github.com/yipihey/impress-apps/pull/119)
+  merged as `f7af1c37`, after G7c. W3's isolated live proof already established the 90-second
+  startup guard, stale-paper deletion, preservation of starred/fresh papers, and a
+  `history-service_why` result naming the workflow run. W4's final explicitly isolated
+  touched-crate/capabilities run passed 487 tests, 0 failed, 3 ignored. All requested local quick
+  gates, full store and imbib-verbs xcframework rebuilds for macOS arm64, iOS device arm64 and iOS
+  simulator arm64, and the unmodified pre-push macOS/iOS builds passed for both packages. W4's
+  store-service test helper restores its environment override. Earlier Rust test runs without
+  explicit process-wide store/workspace overrides have unverified isolation; the observed failure
+  showed an initialized singleton, not a path or data change. No real store was inspected for
+  this completion handoff. The automatic W3 workflow still cannot discover the exploration-library
+  ID held only in legacy UserDefaults; explicit `exploration_library_id` remains available.
+  S3 and the other follow-on items listed in the handoff have not started. A fresh isolated full
+  workspace suite on main at
+  `f7af1c37` is running, with output in `/tmp/impress-open-packages-workspace-test.log`; its
+  result is pending.
