@@ -950,6 +950,25 @@ crates) is real and is held, not closed, by this plan.
   `rust-gate.sh` (fmt/clippy), `check-kit-*.sh`, `check-uniffi-bindings.sh`, `check-schema-refs.sh` and
   `cargo hakari generate --diff` were not run to completion in this session (`cargo fmt --all` was run).
   See the PR for what remains.
+- 2026-09-27 — **G7c draft review and gate completion** after merging fresh `origin/main` into
+  `claude/gui-g7c-export`. Review found three export defects: folded stacks included non-leaf calls
+  despite the root-to-leaf contract; concurrent sibling spans at the same depth overlapped on one
+  Chrome synthetic thread; and I/O spans were exported with the `verb` category. The folded export now
+  counts only retained leaves, Chrome rows are assigned by time overlap (with a regression test for
+  concurrent siblings), and event categories follow their `verb:`/`io:` keys. Budget breach comparison
+  now uses the same integer-microsecond precision for the bucket count and Console warning, and Tier A
+  checks its slack ceiling at microsecond precision. No verb, argument, schema, widget or action kind
+  was added; generated verb tables were left untouched.
+
+  The requested gates passed: `rust-gate.sh fmt`, `clippy rest`, `clippy imprint`;
+  `check-verb-coverage.sh`, `check-verb-docs.sh`, `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh --strict` (21 crates), `check-uniffi-bindings.sh` (7 bindings),
+  `check-schema-refs.sh` (399 call sites), and `cargo hakari generate --diff` (empty diff).
+  `cargo test` for the ten crates touched by G7c, including `impress-capabilities`, passed 466 tests
+  with zero failures (four ignored); a final `impress-service-core` rerun after the precision edit
+  passed 81 tests. Outputs are in `/tmp/g7c-*.log`. The final Cargo tests and clippy checks used the
+  private `target-g7c-gates` directory because W3 was building in another worktree; no app or real
+  store was opened. PR #118 remains a draft for the W3 merge and follow-up verification.
 
 ## Appendix A1 — every verb
 

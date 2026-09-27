@@ -58,7 +58,7 @@
 //! `total_nanos`/`min_nanos`/`max_nanos` are exact over every call ever
 //! seen, not just the retained samples.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::Instant;
@@ -284,8 +284,8 @@ pub fn trace(trace_id: &str) -> Vec<SpanRecord> {
 /// one complete (`"ph": "X"`) event per span, `ts`/`dur` in microseconds off
 /// this layer's own relative epoch (never a wall-clock timestamp). Opens in
 /// Perfetto (ui.perfetto.dev) or `chrome://tracing`. Every span lands on a
-/// synthetic thread (`tid`) derived from its nesting depth within the trace,
-/// so a caller and its callee never draw on the same row.
+/// synthetic thread (`tid`) at or below its nesting depth. Overlapping spans
+/// use different rows, including concurrent siblings at the same depth.
 pub fn trace_chrome_json(trace_id: &str) -> serde_json::Value {
     let spans = trace(trace_id);
     let depth_of = |record: &SpanRecord, spans: &[SpanRecord]| -> u64 {
@@ -302,17 +302,42 @@ pub fn trace_chrome_json(trace_id: &str) -> serde_json::Value {
         }
         depth
     };
+    // A depth alone is not a thread: concurrent siblings have the same depth
+    // and can overlap. Allocate the first free row at or below each span's
+    // depth, in start-time order, so Chrome never sees overlapping complete
+    // events on one synthetic thread.
+    let depths: Vec<u64> = spans
+        .iter()
+        .map(|record| depth_of(record, &spans))
+        .collect();
+    let mut by_start: Vec<usize> = (0..spans.len()).collect();
+    by_start.sort_by_key(|&index| (spans[index].start_us, depths[index]));
+    let mut row_end_us: Vec<u64> = Vec::new();
+    let mut rows = vec![0usize; spans.len()];
+    for index in by_start {
+        let record = &spans[index];
+        let mut row = depths[index] as usize;
+        while row < row_end_us.len() && row_end_us[row] > record.start_us {
+            row += 1;
+        }
+        if row >= row_end_us.len() {
+            row_end_us.resize(row + 1, 0);
+        }
+        row_end_us[row] = record.start_us.saturating_add(record.duration_us);
+        rows[index] = row;
+    }
     let events: Vec<serde_json::Value> = spans
         .iter()
-        .map(|record| {
+        .enumerate()
+        .map(|(index, record)| {
             serde_json::json!({
                 "name": record.key,
-                "cat": "verb",
+                "cat": record.key.split_once(':').map_or("verb", |(target, _)| target),
                 "ph": "X",
                 "ts": record.start_us,
                 "dur": record.duration_us,
                 "pid": 1,
-                "tid": depth_of(record, &spans),
+                "tid": rows[index],
                 "args": {
                     "callId": record.call_id,
                     "parentCall": record.parent_call,
@@ -344,8 +369,15 @@ pub fn trace_folded_stacks(trace_id: &str) -> Vec<String> {
         frames.reverse();
         frames.join(";")
     };
+    let parents: BTreeSet<&str> = spans
+        .iter()
+        .filter_map(|record| record.parent_call.as_deref())
+        .collect();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    for record in &spans {
+    for record in spans
+        .iter()
+        .filter(|record| !parents.contains(record.call_id.as_str()))
+    {
         *counts.entry(path_of(record, &spans)).or_insert(0) += 1;
     }
     counts
@@ -758,10 +790,50 @@ mod tests {
         let folded = trace_folded_stacks("trace-nest");
         assert_eq!(
             folded,
-            vec![
-                "verb:perf-aggregator-test_parent 1".to_string(),
-                "verb:perf-aggregator-test_parent;verb:perf-aggregator-test_child 1".to_string(),
-            ]
+            vec!["verb:perf-aggregator-test_parent;verb:perf-aggregator-test_child 1".to_string()]
+        );
+    }
+
+    #[test]
+    fn concurrent_siblings_get_distinct_chrome_rows() {
+        let _serial = TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        reset_for_test();
+        push_span_record(SpanRecord {
+            key: "verb:parent".into(),
+            trace_id: "parallel".into(),
+            call_id: "parent".into(),
+            parent_call: None,
+            start_us: 0,
+            duration_us: 100,
+            ok: true,
+            code: None,
+        });
+        for (call_id, start_us) in [("child-a", 10), ("child-b", 20)] {
+            push_span_record(SpanRecord {
+                key: "verb:child".into(),
+                trace_id: "parallel".into(),
+                call_id: call_id.into(),
+                parent_call: Some("parent".into()),
+                start_us,
+                duration_us: 50,
+                ok: true,
+                code: None,
+            });
+        }
+        let chrome = trace_chrome_json("parallel");
+        let events = chrome["traceEvents"].as_array().unwrap();
+        let first = events
+            .iter()
+            .find(|event| event["args"]["callId"] == "child-a")
+            .unwrap();
+        let second = events
+            .iter()
+            .find(|event| event["args"]["callId"] == "child-b")
+            .unwrap();
+        assert_ne!(first["tid"], second["tid"]);
+        assert_eq!(
+            trace_folded_stacks("parallel"),
+            vec!["verb:parent;verb:child 2"]
         );
     }
 

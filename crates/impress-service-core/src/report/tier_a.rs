@@ -145,11 +145,11 @@ async fn run_one(v: &'static VerbDescriptor, ex: &Example) -> Outcome {
     // failing, not for running long while broken.
     if outcome.is_pass() {
         if let Some(budget_ms) = v.budget_ms {
-            let elapsed_ms = started.elapsed().as_millis() as u64;
+            let elapsed_us = started.elapsed().as_micros() as u64;
             let ceiling_ms = budget_ms.saturating_mul(u64::from(BUDGET_SLACK_FACTOR));
-            if elapsed_ms > ceiling_ms {
+            if elapsed_us > ceiling_ms.saturating_mul(1_000) {
                 return Outcome::Failed(format!(
-                    "`{}` example `{}` took {elapsed_ms}ms, over its {budget_ms}ms budget \
+                    "`{}` example `{}` took {elapsed_us}us, over its {budget_ms}ms budget \
                      (even with {BUDGET_SLACK_FACTOR}x CI slack, ceiling {ceiling_ms}ms)",
                     v.name, ex.name
                 ));

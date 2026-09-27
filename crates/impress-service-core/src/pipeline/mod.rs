@@ -358,14 +358,17 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
     // bridged category `impress-store-ffi::tracing_bridge` forwards to the
     // Console (G7a) — never a refusal, the call already answered.
     if let Some(budget_ms) = verb.budget_ms {
-        let duration_ms = duration.as_millis() as u64;
-        if duration_ms > budget_ms {
+        // The aggregator records integer microseconds from this same
+        // duration. Compare at that resolution so its breach_count and the
+        // Console warning agree at a sub-millisecond boundary.
+        let duration_us = duration.as_micros() as u64;
+        if duration_us > budget_ms.saturating_mul(1_000) {
             tracing::warn!(
                 target: "perf",
                 verb = verb.name,
                 budget_ms,
-                duration_ms,
-                "{} took {duration_ms}ms, over its {budget_ms}ms budget",
+                duration_us,
+                "{} took {duration_us}us, over its {budget_ms}ms budget",
                 verb.name,
             );
         }
