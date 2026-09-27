@@ -237,12 +237,110 @@ fn safe_id(value: &Value) -> bool {
         })
 }
 
-fn output_schema_private(schema: &Value, root: &Value) -> bool {
-    let schema = resolved_schema(schema, root);
-    schema.get("x-private") == Some(&Value::Bool(true))
-        || ["allOf", "anyOf", "oneOf"]
+/// A union has no single property schema to descend through. Inspect every
+/// reachable branch, following local references; uncertainty fails closed.
+fn reachable_private_or_unknown(
+    schema: &Value,
+    root: &Value,
+    budget: &mut usize,
+    active_refs: &mut Vec<String>,
+    depth: usize,
+) -> bool {
+    if *budget == 0 || depth >= 32 {
+        return true;
+    }
+    *budget -= 1;
+    match schema {
+        Value::Object(fields) => {
+            if fields.get("x-private") == Some(&Value::Bool(true)) {
+                return true;
+            }
+            if let Some(reference) = fields.get("$ref") {
+                let Some(reference) = reference.as_str() else {
+                    return true;
+                };
+                let Some(pointer) = reference.strip_prefix('#') else {
+                    return true;
+                };
+                if active_refs.iter().any(|seen| seen == reference) || active_refs.len() >= 16 {
+                    return true;
+                }
+                let Some(target) = root.pointer(pointer) else {
+                    return true;
+                };
+                active_refs.push(reference.to_owned());
+                let unsafe_ref =
+                    reachable_private_or_unknown(target, root, budget, active_refs, depth + 1);
+                active_refs.pop();
+                if unsafe_ref {
+                    return true;
+                }
+            }
+            fields
+                .iter()
+                .filter(|(key, _)| key.as_str() != "$ref")
+                .any(|(_, child)| {
+                    reachable_private_or_unknown(child, root, budget, active_refs, depth + 1)
+                })
+        }
+        Value::Array(items) => items
             .iter()
-            .any(|key| schema.get(key).is_some_and(schema_contains_private))
+            .any(|child| reachable_private_or_unknown(child, root, budget, active_refs, depth + 1)),
+        _ => false,
+    }
+}
+
+fn output_schema_private(schema: &Value, root: &Value) -> bool {
+    fn inspect(schema: &Value, root: &Value, depth: usize, active_refs: &mut Vec<String>) -> bool {
+        if depth >= 16 {
+            return true;
+        }
+        let Some(fields) = schema.as_object() else {
+            return false;
+        };
+        if fields.get("x-private") == Some(&Value::Bool(true)) {
+            return true;
+        }
+        if let Some(reference) = fields.get("$ref") {
+            let Some(reference) = reference.as_str() else {
+                return true;
+            };
+            let Some(pointer) = reference.strip_prefix('#') else {
+                return true;
+            };
+            if active_refs.iter().any(|seen| seen == reference) {
+                return true;
+            }
+            let Some(target) = root.pointer(pointer) else {
+                return true;
+            };
+            active_refs.push(reference.to_owned());
+            let unsafe_ref = inspect(target, root, depth + 1, active_refs);
+            active_refs.pop();
+            if unsafe_ref {
+                return true;
+            }
+            // `$ref` siblings are active schema constraints. Descending only
+            // into the referenced target would miss a private sibling field.
+            let mut budget = 1024;
+            if fields
+                .iter()
+                .filter(|(key, _)| key.as_str() != "$ref")
+                .any(|(_, child)| {
+                    reachable_private_or_unknown(child, root, &mut budget, active_refs, 0)
+                })
+            {
+                return true;
+            }
+        }
+        let mut budget = 1024;
+        ["allOf", "anyOf", "oneOf"].iter().any(|key| {
+            fields.get(*key).is_some_and(|branch| {
+                reachable_private_or_unknown(branch, root, &mut budget, active_refs, 0)
+            })
+        })
+    }
+    inspect(schema, root, 0, &mut Vec::new())
 }
 
 struct IdCollector<'a> {
@@ -581,6 +679,34 @@ mod tests {
         assert!(truncated);
         let (ids, truncated) = result_ids(&json!({"ambiguous.path": {"id": "x"}}), &json!({}));
         assert!(ids.is_empty());
+        assert!(truncated);
+    }
+
+    #[test]
+    fn union_references_and_ref_siblings_cannot_expose_private_ids() {
+        let schema = json!({"type": "object", "properties": {
+            "public_id": {"type": "string"},
+            "union": {"anyOf": [{"$ref": "#/$defs/PrivateObject"}]},
+            "sibling": {"$ref": "#/$defs/PublicObject", "properties": {
+                "id": {"x-private": true}
+            }},
+            "unknown": {"$ref": "#/$defs/Missing"},
+            "cycle": {"$ref": "#/$defs/Cycle"}
+        }, "$defs": {
+            "PrivateObject": {"type": "object", "properties": {
+                "id": {"type": "string", "x-private": true}
+            }},
+            "PublicObject": {"type": "object", "properties": {
+                "id": {"type": "string"}
+            }},
+            "Cycle": {"$ref": "#/$defs/Cycle"}
+        }});
+        let raw = json!({"public_id": "safe-1", "union": {"id": "hidden-1"},
+            "sibling": {"id": "hidden-2"}, "unknown": {"id": "hidden-3"},
+            "cycle": {"id": "hidden-4"}});
+        let (ids, truncated) = result_ids(&raw, &schema);
+        assert_eq!(ids.get("$.public_id"), Some(&json!("safe-1")));
+        assert_eq!(ids.len(), 1, "{ids:?}");
         assert!(truncated);
     }
 
