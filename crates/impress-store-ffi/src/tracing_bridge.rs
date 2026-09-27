@@ -46,8 +46,11 @@ use tracing_subscriber::Layer;
 
 /// The categories bridged into the host's Console: the `tracing` targets the
 /// layout and surface crates use (spelled as the Swift half spells them),
-/// plus `verb`, this crate's own per-call span (P2).
-pub const BRIDGED_CATEGORIES: &[&str] = &["layout", "surface", "verb"];
+/// `verb` (this crate's own per-call span, P2), and `perf` — a budget
+/// breach warning (`impress_service_core::pipeline::finish`, D-P2, G7c),
+/// forwarded as an ordinary event through [`Layer::on_event`] like any other
+/// bridged category (it opens no span of its own).
+pub const BRIDGED_CATEGORIES: &[&str] = &["layout", "surface", "verb", "perf"];
 
 /// What the host implements to receive the Rust half's log lines.
 #[cfg_attr(feature = "native", uniffi::export(callback_interface))]

@@ -60,6 +60,12 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
                 ""
             }
         ));
+        if let Some(budget_ms) = v.budget_ms {
+            out.push_str(&format!(
+                "- **budget**: `{budget_ms}ms` — a Tier A example that exceeds it \
+                 (with CI slack) fails the run\n"
+            ));
+        }
         if let Some(dep) = v.deprecated {
             if v.aliases.is_empty() {
                 out.push_str(&format!(

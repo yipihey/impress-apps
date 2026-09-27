@@ -282,7 +282,14 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// Nothing is withheld here — dismissed items included. Unlike a search,
     /// a browse that silently omits rows makes its own counts a lie.
-    #[impress_method(effects(reads = [any("the schema_ref argument names the kind")]))]
+    // D-P2, G7c: one of `pipeline_bench.rs`'s own hot cases. Generous on
+    // purpose — see `imbib-service`'s `decode_latex` budget comment; the
+    // breach mechanism is proven by a dedicated test, not by this one
+    // tripping under Tier A's cold first call.
+    #[impress_method(
+        effects(reads = [any("the schema_ref argument names the kind")]),
+        budget_ms = 200
+    )]
     #[impress_example(
         name = "default",
         args = r#"{"schema_ref": "manuscript", "limit": 5, "offset": 0}"#

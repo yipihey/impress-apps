@@ -255,7 +255,11 @@ fn prepare(
         code = tracing::field::Empty,
         result_bytes = tracing::field::Empty,
         duration_us = tracing::field::Empty,
+        budget_ms = tracing::field::Empty,
     );
+    if let Some(budget_ms) = verb.budget_ms {
+        span.record("budget_ms", budget_ms);
+    }
     let context = Arc::new(CallContext {
         call_id,
         trace_id,
@@ -349,6 +353,23 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
     span.record("result_bytes", result_bytes);
     span.record("duration_us", duration.as_micros() as u64);
     drop(span);
+
+    // D-P2: a budget breach is a warning on the `perf` target, the same
+    // bridged category `impress-store-ffi::tracing_bridge` forwards to the
+    // Console (G7a) — never a refusal, the call already answered.
+    if let Some(budget_ms) = verb.budget_ms {
+        let duration_ms = duration.as_millis() as u64;
+        if duration_ms > budget_ms {
+            tracing::warn!(
+                target: "perf",
+                verb = verb.name,
+                budget_ms,
+                duration_ms,
+                "{} took {duration_ms}ms, over its {budget_ms}ms budget",
+                verb.name,
+            );
+        }
+    }
 
     if verb.safety.class != SafetyClass::ReadOnly || audit::log_all() {
         let args_summary = audit::summarize_args(&prepared.args, input_schema(verb));
@@ -485,6 +506,7 @@ mod tests {
         aliases: &[],
         examples: &[],
         strict: true,
+        budget_ms: None,
         source: Source::Linked,
         handler: echo,
     };
@@ -493,6 +515,7 @@ mod tests {
         method: "fail",
         handler: failing,
         strict: false,
+        budget_ms: None,
         ..ECHO
     };
     /// A verb with a retired alias (P3): a direct call to `t-service_renamed`
@@ -502,6 +525,7 @@ mod tests {
         method: "renamed",
         handler: echo,
         strict: false,
+        budget_ms: None,
         deprecated: Some(crate::Deprecation {
             since: "0.7.0",
             alias_of: None,
@@ -586,6 +610,7 @@ mod tests {
             method: "outer",
             handler: nested,
             strict: false,
+            budget_ms: None,
             ..ECHO
         };
         let sink = captured();
@@ -633,6 +658,7 @@ mod tests {
             method: "reads",
             handler: reads_store,
             strict: false,
+            budget_ms: None,
             ..ECHO
         };
         let seen =
@@ -680,6 +706,7 @@ mod tests {
             method: "array-renamed",
             handler: as_array,
             strict: false,
+            budget_ms: None,
             ..RENAMED
         };
         let answer = invoke_blocking(

@@ -897,6 +897,59 @@ crates) is real and is held, not closed, by this plan.
   `check-schema-refs.sh`, `cargo hakari manage-deps && cargo hakari generate` (no changes — the new
   crate's dependencies were already unified). **Not done, deliberately out of scope for this slice**:
   trace export (Chrome/Perfetto JSON, folded stacks) and Tier A budgets on examples — G7c.
+- 2026-09-27 — **G7c landed (WIP)** (the last slice of G7 Profiling: trace export and budgets) on a
+  worktree of `origin/main`, branch `claude/gui-g7c-export`. **The span log**:
+  `impress_service_core::pipeline::perf` keeps a bounded ring (`SPAN_LOG_CAP = 4096`) of the last
+  closed `verb`/`io`-target spans as `SpanRecord { key, trace_id, call_id, parent_call, start_us,
+  duration_us, ok, code }` — no argument value, the same P7 rule the bucket table already held to;
+  `perf::trace(trace_id)` returns every retained record for one trace, and `perf-service_trace` now
+  answers from it instead of refusing `unavailable` (empty for an unknown or evicted trace id, never an
+  error — the same "no rows, not an error" contract `summary` already had). **Export**: two new
+  read-only verbs, `perf-service_export-chrome-trace` (`{"traceEvents": […]}`, `ts`/`dur` in
+  microseconds off the aggregator's own relative epoch, nested calls on separate synthetic `tid` rows so
+  a caller and callee never overlap — opens in Perfetto/`chrome://tracing`) and
+  `perf-service_export-folded-stacks` (one line per distinct root-to-leaf call path, `;`-joined, plus its
+  occurrence count — the `inferno`/flamegraph.pl format); both are thin wrappers over
+  `perf::trace_chrome_json`/`perf::trace_folded_stacks`, which walk the span log's `parent_call` chain
+  (bounded by the ring itself, so no cycle guard is needed). **Budgets (D-P2)**: `budget_ms: Option<u64>`
+  added to `MethodMeta` and `VerbDescriptor`, parsed from `#[impress_method(budget_ms = …)]` and resolved
+  by a new `resolve_budget_ms` alongside the existing `resolve_*` family — the eight other
+  `VerbDescriptor` literal construction sites across the workspace (tests and two hand-rolled verbs in
+  `impress-store-ffi`/`impress-mcp-host`) each gained the field. The pipeline's `verb` span gained a
+  `budget_ms` field (set only when the verb declares one); on close, a breach is a `tracing::warn!(target:
+  "perf", …)` — `perf` joined `BRIDGED_CATEGORIES` in `impress-store-ffi::tracing_bridge` so it reaches
+  the Console like `layout`/`surface`/`verb` already do — and the aggregator's `Bucket` now tracks a real
+  `budget_nanos`/`breach_count` (previously always `None`/`0`), so `perf-service_summary` shows them once
+  a verb declares a budget. **The Tier A runner** (`impress_service_core::report::tier_a::run_one`) times
+  each example and fails it when the elapsed time exceeds `budget_ms × BUDGET_SLACK_FACTOR` (chosen `3`,
+  a slack factor rather than a re-run: the self-hosted runners are already oversubscribed
+  (`docs/self-hosted-runners.md`), and a re-run on the same loaded box would likely be slow again, paying
+  wall-clock twice for the same false positive where a slack factor pays it once and still catches a
+  regression several times over budget) — checked only after correctness, so a failing example is
+  reported for failing, not for running long while broken. Budgets declared on two hot read verbs to
+  prove the mechanism end to end (`imbib-text-service_decode-latex`, `store-query-service_list_items`,
+  both from `pipeline_bench.rs`'s own cases) at a deliberately generous 200ms — Tier A's *first* call of a
+  verb pays a one-time cost (`pipeline::input_schema`'s schema build) the breach mechanism itself must
+  not flake on, so the mechanism is proven by dedicated tests instead
+  (`impress_service_core::report::tier_a`'s `an_example_over_budget_even_with_slack_fails`/
+  `an_example_inside_budget_passes`/`no_budget_declared_means_no_ceiling`, and
+  `pipeline::perf`'s `a_budget_breach_is_counted_and_a_call_inside_budget_is_not`). `docs/verbs/`
+  regenerated (`gen-verb-docs` now prints a `**budget**: …ms` line when one is declared); the three verb
+  tables (`verb-coverage.md`, `verb-safety.md`, `verb-effects.md`) updated from the census/descriptor/
+  effects tests' own failure output for `perf-service`'s two new verbs (2 → 4 verbs, both read-only, both
+  with one example each). **The release bench** (`pipeline_bench.rs --release --ignored`): layer-off
+  worst case `layout-service_get-layout` 106.23 µs chain overhead (the same pre-existing noisy outlier
+  G7b measured, not attributable to this package); with the aggregator (now also writing the span log
+  on every closed span) that same case measured 97.41 µs — down, within that case's own run-to-run
+  noise. Every other case's delta stayed under the 5 µs budget: `decode-latex` +1.31, `series` +1.73,
+  `get-pane` −2.19 (noise), `list-items` +0.34. **Status: work-in-progress, committed at a clean but not
+  fully gated state** — the session ran out of budget before finishing the serial gate run;
+  `impress-service-core`, `impress-service-macros`, `impress-capabilities`, `perf-service`,
+  `imbib-service` and `impress-store-service` all pass `cargo test` individually, the release bench
+  above ran clean, and the whole workspace builds (`cargo check --workspace --lib --tests`), but
+  `rust-gate.sh` (fmt/clippy), `check-kit-*.sh`, `check-uniffi-bindings.sh`, `check-schema-refs.sh` and
+  `cargo hakari generate --diff` were not run to completion in this session (`cargo fmt --all` was run).
+  See the PR for what remains.
 
 ## Appendix A1 — every verb
 

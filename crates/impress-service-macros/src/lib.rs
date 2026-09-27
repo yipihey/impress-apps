@@ -207,6 +207,10 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     None => quote! { ::core::option::Option::None },
                 };
                 let aliases = &overrides.aliases;
+                let budget_ms = match &overrides.budget_ms {
+                    Some(lit) => quote! { ::core::option::Option::Some(#lit) },
+                    None => quote! { ::core::option::Option::None },
+                };
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -217,6 +221,7 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         examples: &[#(#example_tokens),*],
                         deprecated: #deprecated,
                         aliases: &[#(#aliases),*],
+                        budget_ms: #budget_ms,
                     }
                 });
             }
@@ -275,6 +280,9 @@ struct MethodOverrides {
     /// Requires `deprecated(…)` on the same method — a rename implies
     /// deprecating the old name.
     aliases: Vec<syn::LitStr>,
+    /// `budget_ms = …` (D-P2, G7c): a Tier A example ceiling in whole
+    /// milliseconds.
+    budget_ms: Option<syn::LitInt>,
 }
 
 /// `deprecated(since = "…", note = "…")` as written on `#[impress_method]`.
@@ -536,10 +544,14 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
             } else if meta.path.is_ident("aliases") {
                 out.aliases = parse_aliases_attr(&meta)?;
                 Ok(())
+            } else if meta.path.is_ident("budget_ms") {
+                let lit: syn::LitInt = meta.value()?.parse()?;
+                out.budget_ms = Some(lit);
+                Ok(())
             } else {
                 Err(meta.error(
                     "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
-                     `effects(…)`, `deprecated(…)` or `aliases = […]`",
+                     `effects(…)`, `deprecated(…)`, `aliases = […]` or `budget_ms = …`",
                 ))
             }
         })?;
@@ -1190,6 +1202,7 @@ fn expand_method(
                 aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),
                 examples: ::impress_service_core::resolve_examples(&#meta_table, #method_name_str),
                 strict: #strict_args,
+                budget_ms: ::impress_service_core::resolve_budget_ms(&#meta_table, #method_name_str),
                 source: ::impress_service_core::Source::Linked,
                 handler: #invoker_fn,
             };
