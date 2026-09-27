@@ -38,8 +38,8 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 445 verbs declared; 69 verified by example, 93 by a Tier A
-catalogue, 283 on the exception table.
+Counts today: 451 verbs declared; 69 verified by example, 93 by a Tier A
+catalogue, 289 on the exception table.
 
 ## Every verb
 
@@ -69,6 +69,12 @@ catalogue, 283 on the exception table.
 | `docs-import-service_record-produced-rows` | "watched-file@1.0.0" | "watched-file@1.0.0" | — | — |
 | `docs-import-service_remove-watched-folder` | "watched-folder@1.0.0", "watched-file@1.0.0" | "watched-folder@1.0.0", "watched-file@1.0.0" | — | — |
 | `docs-import-service_update-watched-folder` | "watched-folder@1.0.0" | "watched-folder@1.0.0" | — | — |
+| `history-service_calls` | any("history reads any kind's operations and every call row") | — | — | — |
+| `history-service_health` | any("history reads any kind's operations and every call row") | — | — | — |
+| `history-service_replay` | "core/verb-call@1.0.0" | any("re-invokes an arbitrary recorded verb, whose own writes are its own") | — | — |
+| `history-service_save-macro` | "core/verb-call@1.0.0" | "impress/workflow@1.0.0" | — | — |
+| `history-service_trace` | any("history reads any kind's operations and every call row") | — | — | — |
+| `history-service_why` | any("history reads any kind's operations and every call row") | — | — | — |
 | `imbib-annotations-service_count-annotations` | "imbib/annotation" | — | — | — |
 | `imbib-annotations-service_create-annotation` | "imbib/linked-file" | "imbib/annotation" | — | — |
 | `imbib-annotations-service_create-comment` | "imbib/bibliography-entry" | "imbib/comment" | — | — |
@@ -522,6 +528,12 @@ when one lands).
 | `docs-import-service_record-produced-rows` | no example |
 | `docs-import-service_remove-watched-folder` | no example |
 | `docs-import-service_update-watched-folder` | no example |
+| `history-service_calls` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `history-service_health` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `history-service_replay` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `history-service_save-macro` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `history-service_trace` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `history-service_why` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-annotations-service_count-annotations` | no example |
 | `imbib-annotations-service_create-annotation` | no example |
 | `imbib-annotations-service_create-comment` | no example |
@@ -786,4 +798,5 @@ when one lands).
 | `vw-diagnostic-service_record-procedure-step` | no example |
 | `vw-diagnostic-service_search-photos` | no example |
 | `vw-diagnostic-service_start-procedure` | no example |
+
 <!-- verb-effects-exceptions:end -->

@@ -52,7 +52,11 @@ use serde_json::Value;
 // Raised 277 → 283 for R1 (settings registry): the six settings-service
 // verbs have no headless example (each needs a `SettingsStore` seeded over
 // a temp directory the harness's example format has no seed step for).
-const EXCEPTION_CEILING: usize = 283;
+// Raised 283 → 289 for L2 (history verbs): the six history-service verbs
+// have no headless example for the same reason (each needs a populated
+// `core/verb-call@1.0.0` audit trail the harness's example format has no
+// seed step for).
+const EXCEPTION_CEILING: usize = 289;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

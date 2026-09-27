@@ -5,6 +5,7 @@ One page per service, generated from the linked `VerbDescriptor` inventory. Rege
 - [capabilities-service](capabilities-service.md) (1 verbs)
 - [collection-service](collection-service.md) (12 verbs)
 - [docs-import-service](docs-import-service.md) (10 verbs)
+- [history-service](history-service.md) (6 verbs)
 - [imbib-annotations-service](imbib-annotations-service.md) (9 verbs)
 - [imbib-app-service](imbib-app-service.md) (17 verbs)
 - [imbib-artifacts-service](imbib-artifacts-service.md) (9 verbs)

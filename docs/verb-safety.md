@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 179 read-only, 130 mutating,
-33 destructive, 103 external — 445 verbs.
+Counts today: 183 read-only, 132 mutating,
+33 destructive, 103 external — 451 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -39,6 +39,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 |---|---|---:|---:|
 | `collection-service` | mutating | 12 | 5 |
 | `docs-import-service` | mutating | 10 | 5 |
+| `history-service` | read_only | 6 | 2 |
 | `imbib-annotations-service` | read_only | 9 | 4 |
 | `imbib-app-service` | external | 17 | 0 |
 | `imbib-artifacts-service` | read_only | 9 | 4 |
@@ -105,6 +106,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `docs-import-service_record-produced-rows` | mutating | name/doc |
 | `docs-import-service_remove-watched-folder` | destructive | crates/impress-store-service/src/docs_import_service.rs:1296 -> crates/impress-core/src/watched_folder_ops.rs:685-690 store.delete of every watched-file row when delete_file_rows, then store.delete(folder); no undo; d… |
 | `docs-import-service_update-watched-folder` | mutating | name/doc |
+| `history-service_calls` | read_only | name/doc |
+| `history-service_health` | read_only | name/doc |
+| `history-service_replay` | mutating | name/doc |
+| `history-service_save-macro` | mutating | name/doc |
+| `history-service_trace` | read_only | name/doc |
+| `history-service_why` | read_only | name/doc |
 | `imbib-annotations-service_count-annotations` | read_only | name/doc |
 | `imbib-annotations-service_create-annotation` | mutating | name/doc |
 | `imbib-annotations-service_create-comment` | mutating | name/doc |
