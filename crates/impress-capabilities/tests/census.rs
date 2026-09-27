@@ -291,6 +291,25 @@ struct SourceFacts {
     strict_services: BTreeSet<String>,
 }
 
+fn strict_args_from_source_head(head: &str) -> bool {
+    // Mirror the macro's default while honoring the one explicit escape.
+    !head
+        .split("strict_args =")
+        .nth(1)
+        .is_some_and(|s| s.trim_start().starts_with("false"))
+}
+
+#[test]
+fn source_census_uses_the_macro_strict_default_and_escape() {
+    assert!(strict_args_from_source_head("service = ExampleService,"));
+    assert!(strict_args_from_source_head(
+        "service = ExampleService, strict_args = true,"
+    ));
+    assert!(!strict_args_from_source_head(
+        "service = ExampleService, strict_args = false,"
+    ));
+}
+
 fn source_facts() -> SourceFacts {
     let mut facts = SourceFacts {
         service_crate: BTreeMap::new(),
@@ -304,7 +323,7 @@ fn source_facts() -> SourceFacts {
         rust_sources(&crate_dir.join("src"), &mut files);
         for file in files {
             let text = fs::read_to_string(&file).unwrap_or_default();
-            // `impress_service_impl! { service = X, ..., strict_args = true, ... }`
+            // `impress_service_impl! { service = X, ..., strict_args = false, ... }`
             // is what emits the inventory entries, so the crate holding it is
             // the verb crate (vw-service holds only the trait; the verbs are
             // vw-impress-adapter's).
@@ -319,10 +338,7 @@ fn source_facts() -> SourceFacts {
                         .collect();
                     (!name.is_empty()).then_some(name)
                 });
-                let strict = head
-                    .split("strict_args =")
-                    .nth(1)
-                    .is_some_and(|s| s.trim_start().starts_with("true"));
+                let strict = strict_args_from_source_head(head);
                 let Some(service) = service else { continue };
                 let service = kebab(&service);
                 if strict {

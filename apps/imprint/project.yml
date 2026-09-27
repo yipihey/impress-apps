@@ -22,6 +22,8 @@ configs:
 
 settings:
   base:
+    # Shared Rust archives contain overlapping unused exports (as in imbib/impress).
+    DEAD_CODE_STRIPPING: YES
     SWIFT_VERSION: "5.9"
     PRODUCT_NAME: imprint
     DEVELOPMENT_TEAM: QG3MEYVHMS
@@ -238,6 +240,7 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      - path: ../../tests/native/StrictArgumentsProofTests.swift
       - path: Tests
     dependencies:
       - target: imprint

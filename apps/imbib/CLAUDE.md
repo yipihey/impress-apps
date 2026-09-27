@@ -431,6 +431,13 @@ easy to get wrong in the generalized shape:
 
 ### Critical Invariants
 
+**Test-store isolation includes derived indexes.** (2026-09-27.) A scratch
+SQLite path is not enough: `FullTextSearchService` can repair or rebuild its
+Tantivy directory at launch. Unit and UI test processes put that directory
+under `SharedContainer.rootDirectory`, alongside their scratch workspace;
+they must never open the production `Application Support/imbib/search_index`.
+`FullTextSearchIsolationTests` pins this path before an index is opened.
+
 **Sidebar tree builders take snapshot data, never store handles — the ratchet
 test is the law.** (Sidebar plan P0–P5, 2026-09-01.) A `childrenOf:` builder or
 section gate in `ImbibSidebarViewModel` reads `SidebarTreeData` /

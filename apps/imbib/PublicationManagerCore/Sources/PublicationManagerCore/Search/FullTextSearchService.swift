@@ -9,6 +9,7 @@
 import Foundation
 import OSLog
 import ImbibRustCore
+import ImpressKit
 
 // MARK: - Full-Text Search Service
 
@@ -44,11 +45,16 @@ public actor FullTextSearchService {
     // MARK: - Initialization
 
     private init() {
-        // Set up index path in Application Support
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let indexDir = appSupport.appendingPathComponent("imbib/search_index", isDirectory: true)
-            self.indexPath = indexDir
-        }
+        self.indexPath = Self.indexDirectory
+    }
+
+    /// The test store and its derived index must share the same isolation.
+    /// A scratch SQLite file alone does not isolate Tantivy's repair/rebuild.
+    nonisolated static var indexDirectory: URL? {
+        let base = (ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess)
+            ? SharedContainer.rootDirectory.appendingPathComponent("Application Support", isDirectory: true)
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return base?.appendingPathComponent("imbib/search_index", isDirectory: true)
     }
 
     // MARK: - Public API
@@ -498,4 +504,3 @@ public struct FullTextSearchResult: Sendable, Identifiable {
         self.snippet = snippet
     }
 }
-

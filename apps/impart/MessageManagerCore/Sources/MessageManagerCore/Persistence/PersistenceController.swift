@@ -7,6 +7,7 @@
 
 import CoreData
 import Foundation
+import ImpressKit
 import OSLog
 
 // MARK: - Persistence Controller
@@ -55,15 +56,15 @@ public final class PersistenceController: Sendable {
         let model = CoreDataModelBuilder.createModel()
         container = NSPersistentCloudKitContainer(name: "Impart", managedObjectModel: model)
 
-        // Configure store description
-        let storeURL: URL
-        if inMemory {
-            storeURL = URL(fileURLWithPath: "/dev/null")
-        } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let impartDir = appSupport.appendingPathComponent("impart", isDirectory: true)
-            try? FileManager.default.createDirectory(at: impartDir, withIntermediateDirectories: true)
-            storeURL = impartDir.appendingPathComponent("Impart.sqlite")
+        // A hosted XCTest or `--ui-testing` launch must never open the real
+        // legacy mail database. Keep a file-backed store in tests so the
+        // Core Data -> shared-store bridge exercises production topology.
+        // Explicit preview `inMemory` remains `/dev/null` as before.
+        let storeURL = Self.selectedStoreURL(inMemory: inMemory)
+        if !inMemory {
+            try? FileManager.default.createDirectory(
+                at: storeURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
         }
 
         let description = NSPersistentStoreDescription(url: storeURL)
@@ -108,6 +109,22 @@ public final class PersistenceController: Sendable {
 
         // Pin to current query generation for consistent reads
         try? container.viewContext.setQueryGenerationFrom(.current)
+    }
+
+    /// Select the legacy Core Data location before opening it. Tests can
+    /// inspect this without constructing a CloudKit container in an
+    /// unentitled XCTest worker.
+    static func selectedStoreURL(inMemory: Bool) -> URL {
+        if inMemory {
+            return URL(fileURLWithPath: "/dev/null")
+        }
+        if ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess {
+            return SharedContainer.rootDirectory
+                .appendingPathComponent("legacy-mail/Impart.sqlite")
+        }
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("impart/Impart.sqlite")
     }
 
     // MARK: - Background Context

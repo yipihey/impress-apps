@@ -29,6 +29,15 @@
     },
     {
       "call": "layout-service_focus",
+      "args": { "target": { "role": "list" } },
+      "as": "agent:scenario",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "revision", "present": true }]
+      }
+    },
+    {
+      "call": "layout-service_focus",
       "args": { "target": { "role": "detail" } },
       "as": "agent:scenario",
       "expect": {

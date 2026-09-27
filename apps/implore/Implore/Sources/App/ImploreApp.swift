@@ -89,6 +89,8 @@ struct ImploreApp: App {
 
                     // Spotlight — deferred 90s per startup grace period
                     Task.detached {
+                        guard !ImpressRuntime.isUnitTestProcess,
+                              !ImpressRuntime.isUITestingProcess else { return }
                         try? await Task.sleep(for: .seconds(90))
                         guard !Task.isCancelled else { return }
                         let coordinator = SpotlightSyncCoordinator(provider: ImploreSpotlightProvider())
@@ -416,4 +418,3 @@ enum UITestingSupport {
         #endif
     }
 }
-

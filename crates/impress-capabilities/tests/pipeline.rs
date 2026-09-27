@@ -353,3 +353,23 @@ fn a_strict_refusal_is_byte_identical_to_the_invokers() {
     assert!(message.starts_with("layout-service_split: "), "{message}");
     assert!(message.contains("unknown field 'nope'"), "{message}");
 }
+
+/// CollectionService omits `strict_args`; the default must now refuse an
+/// unknown key before its otherwise lenient serde argument struct sees it.
+#[test]
+fn an_implicit_strict_service_refuses_an_unknown_key() {
+    let descriptor = VerbDescriptor::find("collection-service_tree").expect("linked");
+    assert!(descriptor.strict, "an omitted flag defaults to strict");
+    let answer = run(
+        &scratch(),
+        CallerIdentity::agent("cli"),
+        descriptor.name,
+        json!({ "binding": "generic", "nope": 1 }),
+    );
+    assert_eq!(answer["ok"], false);
+    assert_eq!(answer["code"], "invalid-argument");
+    assert!(answer["message"]
+        .as_str()
+        .unwrap()
+        .contains("unknown field 'nope'"));
+}

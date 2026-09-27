@@ -1,13 +1,13 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-Main at `f7af1c37` includes W3, G7c and W4. The older full workspace result (4,264 passed at
-`f5a29bb8`) does not verify this combined main. A fresh isolated
-`cargo test --workspace --features native -- --test-threads=1` passed there: **4,291 passed,
-0 failed, 23 ignored**, including doctests (220 result groups). The initial parallel run hit the
-known impel-tools global-backend race; the full serial rerun passed. Logs are
-`/tmp/impress-open-packages-workspace-test.log` and
-`/tmp/impress-open-packages-workspace-serial.log`. Detail for each package
-is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transport.md`,
+Main at `10ee5acd` includes W3, G7c, W4 and S3. A fresh isolated
+`cargo test --workspace --features native -- --test-threads=1` passed on that main:
+**4,324 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
+Evidence is `/tmp/impress-s3-main-workspace.log`; its workspace was
+`/tmp/impress-cargo-tests.m00DSW/workspace`. The earlier `f7af1c37` batch also passed
+4,291 tests, with 23 ignored, in `/tmp/impress-open-packages-workspace-serial.log`.
+Its initial parallel run hit the known impel-tools global-backend race; the serial rerun passed.
+Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-transport.md`,
 `docs/plan-auto-gui-and-self-docs.md` and `docs/plan-self-reflective-layer.md`.
 
 ## Merged
@@ -16,7 +16,7 @@ is in the session logs of the three plans: `docs/plan-verb-pipeline-and-transpor
 |---|---|
 | Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P6 Python, B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
 | GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
-| Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
+| Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), S3 session recording ([PR #123](https://github.com/yipihey/impress-apps/pull/123), merge `10ee5acd`), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
 
 ## Completed package verification
 
@@ -38,7 +38,9 @@ their combined Rust behavior.
 
 ## S3 verification
 
-S3 is implemented on `claude/reflective-s3-record` (`s3-record`), based on main `197cdfed`.
+S3 merged in [PR #123](https://github.com/yipihey/impress-apps/pull/123) as `10ee5acd`,
+after all requested local gates and the unmodified pre-push hook passed. GitHub Linux checks
+passed; hosted macOS jobs were still queued at merge, as were earlier main jobs.
 It adds scenario recording from one caller's trace or time window, bounded replay metadata,
 output-ID captures and native surface auditing. Final isolated Rust tests passed 434 tests
 (0 failed, 3 ignored), following the broader 579-test run. Two hosted native proofs passed:
@@ -48,13 +50,22 @@ and checked paper state and live logs. The owned host PID 12083 exited. Evidence
 `/tmp/impress-s3-proof-run-final.log` and
 `/tmp/impress-s3-proof-6f13b826-efab-4b6e-8e7b-78aa17735877/output/host-12083/`.
 The final archive cohort covers ImbibCore, ImbibVerbsFfi and ImpressStoreFfi's three arm64
-slices plus macOS ImpelTools. Full workspace verification above predates S3; the next batch
-needs a new main run. Ordinary publication-list actions remain outside audit, and native
+slices plus macOS ImpelTools. The full workspace verification above includes S3. Ordinary publication-list actions remain outside audit, and native
 effects delegated through the Swift ImpelTools callback still lose parent identity/trace.
 
 ## Next packages
 
-- **G5**: `strict_args` by default on every service (D-G1 approved). Needs Tier B on five apps.
+- **G5 (verified, PR #124 awaiting merge)**: `g5-strict` / `claude/gui-g5-strict`, based on
+  `10ee5acd`. All 476 descriptors are strict. All requested quick gates and the normal pre-push
+  macOS/iOS builds passed. Isolated macro/core/capabilities tests passed 136 (3 ignored); the
+  deterministic layout-fixture fix passed 98 layout tests. All five native proofs passed their
+  valid call, unknown-key refusal, stored Tier B scenario and surface catalogue; the four chassis
+  apps also passed all 14 layout entries, with no skips. All five owned hosts exited. Evidence is
+  `/tmp/impress-g5-proof-summary.json` and the dated G5 entry in the GUI plan. The archive cohort
+  was fully rebuilt for every supported arm64 slice. Test-only legacy storage/index paths and
+  background startup were isolated without changing production paths or schemas. No build
+  artifacts are committed. Domain dispatch remains P5b. Verify fresh main ancestry and merge
+  [PR #124](https://github.com/yipihey/impress-apps/pull/124) before beginning P5b.
 - **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).

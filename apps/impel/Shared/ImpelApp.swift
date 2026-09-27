@@ -62,6 +62,11 @@ struct ImpelApp: App {
                     // Load mock data for development
                     await client.loadMockData()
 
+                    // Keep native automation proofs on their scratch workspace.
+                    // Counsel opens a separate legacy database and mail listeners.
+                    guard !ImpressRuntime.isUnitTestProcess,
+                          !ImpressRuntime.isUITestingProcess else { return }
+
                     // Register AI providers
                     await AIProviderManager.shared.registerBuiltInProviders()
 

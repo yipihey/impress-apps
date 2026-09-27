@@ -111,6 +111,8 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         // imbib's MEMORY but at a milder 5s — phase 3 is one-shot work,
         // not a recurring background service).
         Task { @MainActor in
+            guard !ImpressRuntime.isUnitTestProcess,
+                  !ImpressRuntime.isUITestingProcess else { return }
             try? await Task.sleep(for: .seconds(5))
             _ = ManuscriptMigrationRunner.runIfNeeded()
         }
@@ -177,12 +179,16 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
 
         // Auto-launch impress-toolbox for LaTeX compilation (bypasses sandbox)
         Task.detached {
+            guard !ImpressRuntime.isUnitTestProcess,
+                  !ImpressRuntime.isUITestingProcess else { return }
             await ToolboxLifecycle.shared.ensureRunning()
         }
 
         // Discover TeX distribution early so LaTeX compilation works without
         // opening Settings first.
         Task { @MainActor in
+            guard !ImpressRuntime.isUnitTestProcess,
+                  !ImpressRuntime.isUITestingProcess else { return }
             await TeXDistributionManager.shared.discoverDistribution()
         }
 
@@ -229,6 +235,8 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
 
         // Spotlight indexing — deferred 90s per startup grace period
         Task.detached {
+            guard !ImpressRuntime.isUnitTestProcess,
+                  !ImpressRuntime.isUITestingProcess else { return }
             try? await Task.sleep(for: .seconds(90))
             guard !Task.isCancelled else { return }
 

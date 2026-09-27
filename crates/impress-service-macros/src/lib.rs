@@ -712,12 +712,12 @@ struct ImplMacroInput {
     service: Ident,
     instance: syn::Expr,
     methods: Vec<MethodDecl>,
-    /// `strict_args = true`: an argument object carrying a field the method's
+    /// By default, an argument object carrying a field the method's
     /// input schema does not name — or one that does not parse — is answered
     /// with a refusal envelope (`{"ok": false, "code": "invalid-argument",
     /// …}`) rather than parsed leniently or failed as a transport error. See
-    /// `impress_service_core::strict`. Opt-in per service, so a service whose
-    /// callers send extra keys is not broken by another's contract.
+    /// `impress_service_core::strict`. `strict_args = false` is the explicit
+    /// escape for a service whose callers still send extra keys.
     strict_args: bool,
     /// `safety = read_only`: the service's default class; a method departs
     /// from it with `#[impress_method(safety = …)]` on the trait.
@@ -765,7 +765,7 @@ impl syn::parse::Parse for ImplMacroInput {
         let mut service: Option<Ident> = None;
         let mut instance: Option<syn::Expr> = None;
         let mut methods: Option<Vec<MethodDecl>> = None;
-        let mut strict_args = false;
+        let mut strict_args = true;
         let mut safety: Option<String> = None;
         let mut since: Option<syn::LitStr> = None;
         let mut effects: Option<EffectsDecl> = None;
@@ -1270,6 +1270,34 @@ mod tests {
 
     fn expand(src: &str) -> syn::Result<TokenStream2> {
         expand_service(syn::parse_str::<ItemTrait>(src).expect("parses"))
+    }
+
+    #[test]
+    fn strict_arguments_default_on_and_explicit_false_keeps_lenient_handler() {
+        let base = "service = EchoService, instance = || Echo, safety = read_only, \
+                    since = \"0.1.0\", effects = {}, methods = [echo(message: String) -> String]";
+        let default: ImplMacroInput = syn::parse_str(base).expect("default parses");
+        assert!(default.strict_args);
+        let default_tokens = expand_impl(default).expect("default expands").to_string();
+        assert!(default_tokens.contains("strict : true"), "{default_tokens}");
+        assert!(
+            default_tokens.contains("strict :: parse_refusal"),
+            "{default_tokens}"
+        );
+
+        let lenient: ImplMacroInput =
+            syn::parse_str(&base.replace("methods =", "strict_args = false, methods ="))
+                .expect("explicit false parses");
+        assert!(!lenient.strict_args);
+        let lenient_tokens = expand_impl(lenient).expect("escape expands").to_string();
+        assert!(
+            lenient_tokens.contains("strict : false"),
+            "{lenient_tokens}"
+        );
+        assert!(
+            !lenient_tokens.contains("strict :: parse_refusal"),
+            "{lenient_tokens}"
+        );
     }
 
     #[test]

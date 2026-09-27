@@ -2,6 +2,7 @@ import Foundation
 import ImploreCore
 import ImploreRustCore
 import ImpressLogging
+import ImpressKit
 import PublicationManagerCore
 import SwiftUI
 
@@ -36,7 +37,9 @@ public final class LibraryManager {
 
     private init() {
         // Determine library storage location
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = (ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess)
+            ? SharedContainer.rootDirectory.appendingPathComponent("Application Support", isDirectory: true)
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let imploreDir = appSupport.appendingPathComponent("implore", isDirectory: true)
         self.libraryURL = imploreDir.appendingPathComponent("library.json")
 
@@ -302,4 +305,3 @@ public final class LibraryManager {
         }
     }
 }
-

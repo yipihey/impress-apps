@@ -16,6 +16,8 @@ options:
 
 settings:
   base:
+    # Shared Rust archives contain overlapping unused exports (as in imbib/impress).
+    DEAD_CODE_STRIPPING: YES
     PRODUCT_NAME: implore
     MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: 1
@@ -151,6 +153,20 @@ targets:
           - QG3MEYVHMS.com.impress.shared
           - QG3MEYVHMS.com.impress.suite
 
+  imploreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ../../tests/native/StrictArgumentsProofTests.swift
+    dependencies:
+      - target: implore
+    settings:
+      base:
+        PRODUCT_NAME: imploreTests
+        PRODUCT_MODULE_NAME: imploreTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.implore.tests
+        GENERATE_INFOPLIST_FILE: YES
+
   imploreUITests:
     type: bundle.ui-testing
     platform: macOS
@@ -176,6 +192,7 @@ schemes:
     test:
       config: Debug
       targets:
+        - imploreTests
         - imploreUITests
     profile:
       config: Release
