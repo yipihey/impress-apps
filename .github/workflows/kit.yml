@@ -47,8 +47,10 @@ on:
       - '.config/hakari.toml'
       - 'scripts/check-kit-*.sh'
       - 'scripts/check-verb-coverage.sh'
+      - 'scripts/check-verb-docs.sh'
       - 'docs/kit-manifest.md'
       - 'docs/verb-coverage.md'
+      - 'docs/verbs/**'
       - 'packages/ImpressLayout/**'
       - 'packages/ImpressSurface/**'
       - 'packages/ImpressRustCore/**'
@@ -65,8 +67,10 @@ on:
       - '.config/hakari.toml'
       - 'scripts/check-kit-*.sh'
       - 'scripts/check-verb-coverage.sh'
+      - 'scripts/check-verb-docs.sh'
       - 'docs/kit-manifest.md'
       - 'docs/verb-coverage.md'
+      - 'docs/verbs/**'
       - 'packages/ImpressLayout/**'
       - 'packages/ImpressSurface/**'
       - 'packages/ImpressRustCore/**'
@@ -139,6 +143,21 @@ jobs:
 
       - name: Verb coverage table is complete (plan-auto-gui G0)
         run: ./scripts/check-verb-coverage.sh
+
+  verb-docs:
+    name: docs/verbs/ is generated, not hand-edited (plan-auto-gui G3)
+    # Builds the whole `full`-featured inventory (every service crate), so
+    # this needs the same runner class as `standalone`, not the text-only
+    # `coverage` job.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: docs/verbs/*.md matches the linked descriptors (D-1, D-2)
+        run: ./scripts/check-verb-docs.sh
 
   packages:
     name: Kit Swift packages depend only on kit-grade packages
