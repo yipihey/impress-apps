@@ -165,6 +165,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-git` | library | should-be-verb | `commands::{status_cmd, commit_cmd, log_cmd, diff_cmd, push_cmd, pull_cmd, clone_cmd}` and the porcelain parsers have no verb |
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
+| `impress-keymap` | kit-pure | internal | R2: declares every GUI chord as data (`Chord`, `Binding`, the coverage test); no capability of its own — `keymap_json` is exported by `impress-store-ffi`, not this crate |
 | `impress-layout` | library | covered-through | `impress-layout-service` exposes the D8 verbs over it |
 | `impress-layout-service` | verb-crate | verb-crate | |
 | `impress-mcp` | binary | should-be-verb | `tools::{tool_search_papers, tool_get_paper_chunks, tool_list_indexed_papers}` and `render_pdf_page` are hand-written MCP tools outside the inventory (ADR-0024 D7) |
