@@ -15,16 +15,18 @@
 //!   single-node spec, returning the same `Effect`s a surface's own
 //!   `reduce` would (a `Call` is returned, never executed here).
 //!
-//! **No I/O, no store, no async, no time, no verb inventory.** Running a
-//! workflow *on a schedule* — turning `(workflows, clock, cursors)` into
-//! which ones fire right now — is W2's planner in `impel-taskd`, not this
-//! crate; storing, dry-running and reviewing a workflow is
-//! `impress-workflow-service` (a sibling `store`-tier crate), which calls
-//! into this one exactly as `impress-surface-service` calls into
-//! `impress-surface`.
+//! - [`trigger::tick`] (W2) — pure: `(enabled workflows, clock, signals) ->
+//!   which fire right now`, with the `start_delay` startup rule built in.
+//!
+//! **No I/O, no store, no async, no verb inventory.** A host resolving
+//! store/job/call signals and running a fired workflow's steps through the
+//! pipeline is `impress-workflow-service` (a sibling `store`-tier crate) and
+//! its two hosts (`impel-taskd`, the app's FFI tick) — this crate decides,
+//! it never fetches or calls.
 
 pub mod plan;
 pub mod spec;
+pub mod trigger;
 pub mod validate;
 
 pub use plan::{plan, to_surface_spec, Effect, ReduceError};
@@ -32,4 +34,5 @@ pub use spec::{
     Author, Guards, Review, Trigger, WorkflowSpec, WorkflowState, WORKFLOW_SCHEMA_REF,
     WORKFLOW_WIRE_VERSION,
 };
+pub use trigger::{parse_duration_ms, Clock, DueRun, EngineCursors, Signal, SystemClock};
 pub use validate::{validate, validate_with, Problem, Severity, VerbEffects};

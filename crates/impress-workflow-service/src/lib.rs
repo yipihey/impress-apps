@@ -8,7 +8,9 @@
 //! docs for exactly how.
 
 pub mod dto;
+pub mod runner;
 pub mod service;
 pub mod store;
 
+pub use runner::{RunOutcome, WorkflowEngine, WorkflowLease};
 pub use service::{DefaultWorkflowService, ImpressWorkflowService};

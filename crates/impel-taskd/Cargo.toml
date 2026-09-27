@@ -19,6 +19,14 @@ impress-ai-tools = { workspace = true }
 imprint-service = { workspace = true }
 impress-sources = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }
+# W2: the fourth spawn rule — `impress-workflow-service::WorkflowEngine`
+# plans and runs due workflows; `impress-capabilities` (`full`, the same set
+# `impress-mcp`/`impress-cli` link) is what makes `VerbDescriptor::find`
+# resolve a workflow step's verb name for `pipeline::invoke_on` to run.
+impress-workflow = { workspace = true }
+impress-workflow-service = { workspace = true }
+impress-capabilities = { workspace = true, features = ["full"] }
+impress-service-core = { workspace = true }
 
 tokio = { workspace = true }
 dirs = { workspace = true }
