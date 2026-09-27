@@ -49,7 +49,7 @@ use serde_json::Value;
 /// recording anything when nothing matched) reclassified 10 verbs from a
 /// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
 /// positive, not gained real coverage, so the ceiling moves to say so.
-const EXCEPTION_CEILING: usize = 1000; // TEMP: raised for merge-train regeneration, will be reset below
+const EXCEPTION_CEILING: usize = 277;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
