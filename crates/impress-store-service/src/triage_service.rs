@@ -48,20 +48,36 @@ pub struct TriageResult {
 pub trait TriageService: Send + Sync + 'static {
     /// Star or unstar an item.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "starred": true}"#
+    )]
     async fn set_starred(&self, id: String, starred: bool) -> TriageResult;
 
     /// Set an item's flag colour ("red", "orange", "blue", … — free-form), or
     /// clear the flag by passing null.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "color": "red"}"#
+    )]
     async fn set_flag(&self, id: String, color: Option<String>) -> TriageResult;
 
     /// Add a tag to an item. Tag paths are hierarchical and slash-separated
     /// ("reading/queue"). Idempotent.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#
+    )]
     async fn add_tag(&self, id: String, tag: String) -> TriageResult;
 
     /// Remove a tag from an item. A tag the item does not carry is a no-op.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#
+    )]
     async fn remove_tag(&self, id: String, tag: String) -> TriageResult;
 
     /// Set the item's lifecycle `status`, or clear it with null.
@@ -78,6 +94,10 @@ pub trait TriageService: Send + Sync + 'static {
     /// impel tasks do not either: their state moves only through the kernel's
     /// `transition`.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "status": "archived"}"#
+    )]
     async fn set_status(&self, id: String, status: Option<String>) -> TriageResult;
 }
 
@@ -170,11 +190,39 @@ impress_service_impl! {
     impl = DefaultTriageService,
     instance = DefaultTriageService::new,
     methods = [
-        set_starred(id: String, starred: bool) -> TriageResult,
-        set_flag(id: String, color: Option<String>) -> TriageResult,
-        add_tag(id: String, tag: String) -> TriageResult,
-        remove_tag(id: String, tag: String) -> TriageResult,
-        set_status(id: String, status: Option<String>) -> TriageResult,
+        set_starred(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// True to star it, false to unstar.
+            starred: bool,
+        ) -> TriageResult,
+        set_flag(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// A free-form color name ("red", "orange", "blue", …); `None`
+            /// clears the flag.
+            color: Option<String>,
+        ) -> TriageResult,
+        add_tag(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// A hierarchical, slash-separated tag path ("reading/queue").
+            tag: String,
+        ) -> TriageResult,
+        remove_tag(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// The tag path to remove; a no-op if the item does not carry it.
+            tag: String,
+        ) -> TriageResult,
+        set_status(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// The lifecycle status string ("dismissed", "archived", or a
+            /// schema-owned value); `None` clears it. Does not work for
+            /// publications — see the trait doc.
+            status: Option<String>,
+        ) -> TriageResult,
     ],
 }
 

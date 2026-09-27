@@ -237,6 +237,10 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// no longer exists are skipped. Pass 0 for the default limit (50); values
     /// above 500 are clamped.
     #[impress_method(effects(reads = [target(id), any("walks references across kinds")]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "limit": 10}"#
+    )]
     async fn related_items(&self, id: String, limit: i64) -> RelatedResult;
 
     /// Read ONE item of ANY record kind: its universal envelope (title,
@@ -256,6 +260,10 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// An unknown id is `ok: false` with "not found", never an empty success.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000"}"#
+    )]
     async fn get_item(&self, id: String) -> ItemResult;
 
     /// Browse the store: a page of envelopes for one record kind, newest
@@ -593,10 +601,33 @@ impress_service_impl! {
     impl = DefaultStoreQueryService,
     instance = DefaultStoreQueryService::new,
     methods = [
-        search_all(query: String, limit_per_schema: i64) -> SearchResult,
-        related_items(id: String, limit: i64) -> RelatedResult,
-        get_item(id: String) -> ItemResult,
-        list_items(schema_ref: String, limit: i64, offset: i64) -> ItemListResult,
+        search_all(
+            /// The search text, treated as prefix-matched words, never FTS5
+            /// syntax.
+            query: String,
+            /// Cap per record kind; 0 for the default (20), clamped above 200.
+            limit_per_schema: i64,
+        ) -> SearchResult,
+        related_items(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+            /// Cap on the number of edges returned; 0 for the default (50),
+            /// clamped above 500.
+            limit: i64,
+        ) -> RelatedResult,
+        get_item(
+            /// The item's id, a lowercase UUID string, of any record kind.
+            id: String,
+        ) -> ItemResult,
+        list_items(
+            /// The exact kind string (`"manuscript"`, `"imbib/bibliography-entry"`,
+            /// …); empty string or `"any"` walks every kind at once.
+            schema_ref: String,
+            /// Page size; 0 for the default (50), clamped above 200.
+            limit: i64,
+            /// Rows to skip before the page starts.
+            offset: i64,
+        ) -> ItemListResult,
     ],
 }
 
