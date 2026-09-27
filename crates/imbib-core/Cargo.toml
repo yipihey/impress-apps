@@ -94,6 +94,7 @@ strsim = "0.11"
 # Serialization for domain models
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { workspace = true }
 
 # UUID generation for domain models
 uuid = { workspace = true, features = ["js", "v5"] }

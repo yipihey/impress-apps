@@ -137,7 +137,10 @@ pub mod undo_service;
 
 // Pluggable backend registry (HTTP / SQLite).
 pub mod backend;
-pub use backend::{clear_backend, has_custom_backend, register_backend, ImbibBackend};
+pub use backend::{
+    clear_backend, has_custom_backend, register_app_backend, register_backend,
+    register_manuscripts_backend, ImbibBackend,
+};
 
 pub use annotations_service::{
     AnnotationRecord, CommentRecord, DefaultImbibAnnotationsService, ImbibAnnotationsService,

@@ -72,6 +72,18 @@ pub trait ImbibBackend: Send + Sync + 'static {
 }
 
 static BACKEND: BackendSlot<dyn ImbibBackend> = BackendSlot::new();
+// The GUI only needs to replace app-owned capabilities. Keep every other
+// namespace on the store-backed implementation in the same process.
+static APP_BACKEND: BackendSlot<dyn ImbibAppService> = BackendSlot::new();
+static MANUSCRIPTS_BACKEND: BackendSlot<dyn ImbibManuscriptsService> = BackendSlot::new();
+
+pub fn register_app_backend(backend: Box<dyn ImbibAppService>) {
+    APP_BACKEND.install(Arc::from(backend));
+}
+
+pub fn register_manuscripts_backend(backend: Box<dyn ImbibManuscriptsService>) {
+    MANUSCRIPTS_BACKEND.install(Arc::from(backend));
+}
 
 /// Install (or replace) a non-default backend, typically HTTP. Called by
 /// `imbib_service_http::maybe_install_http_backend` on every reachability
@@ -123,6 +135,9 @@ pub fn search_service_instance() -> Arc<dyn ImbibSearchService> {
 }
 
 pub fn manuscripts_service_instance() -> Arc<dyn ImbibManuscriptsService> {
+    if let Some(manuscripts) = MANUSCRIPTS_BACKEND.get() {
+        return manuscripts;
+    }
     match BACKEND.get() {
         Some(b) => b.manuscripts(),
         None => Arc::new(DefaultImbibManuscriptsService::new(store_instance())),
@@ -130,6 +145,9 @@ pub fn manuscripts_service_instance() -> Arc<dyn ImbibManuscriptsService> {
 }
 
 pub fn app_service_instance() -> Arc<dyn ImbibAppService> {
+    if let Some(app) = APP_BACKEND.get() {
+        return app;
+    }
     match BACKEND.get() {
         Some(b) => b.app(),
         None => Arc::new(DefaultImbibAppService::new()),

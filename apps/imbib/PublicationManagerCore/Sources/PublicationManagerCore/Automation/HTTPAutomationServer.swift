@@ -75,6 +75,8 @@ public actor HTTPAutomationServer {
             return
         }
 
+        await installNativeVerbs()
+
         let configuration = HTTPServerConfiguration(
             settings: serverSettings, loggerSubsystem: "com.imbib.app")
 
@@ -90,10 +92,21 @@ public actor HTTPAutomationServer {
     public func restart() async {
         let settings = await AutomationSettingsStore.shared.settings
 
+        await installNativeVerbs()
+
         let configuration = HTTPServerConfiguration(
             settings: settings.serverSettings.applyingLaunchOverrides(), loggerSubsystem: "com.imbib.app")
 
         await server.restart(configuration: configuration)
+    }
+
+    private func installNativeVerbs() async {
+        let router = self.router
+        do {
+            try await MainActor.run { try ImbibNativeVerbs.install(router: router) }
+        } catch {
+            httpLogger.error("Imbib native verbs unavailable: \(error.localizedDescription)")
+        }
     }
 
     /// Check if the server is currently running.

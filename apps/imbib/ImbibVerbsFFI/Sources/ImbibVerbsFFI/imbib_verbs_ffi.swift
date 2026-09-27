@@ -415,6 +415,30 @@ fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -451,6 +475,72 @@ fileprivate struct FfiConverterString: FfiConverter {
         writeInt(&buf, len)
         writeBytes(&buf, value.utf8)
     }
+}
+
+
+public struct NativeCallResult {
+    public var status: UInt16
+    public var bodyJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: UInt16, bodyJson: String) {
+        self.status = status
+        self.bodyJson = bodyJson
+    }
+}
+
+
+
+extension NativeCallResult: Equatable, Hashable {
+    public static func ==(lhs: NativeCallResult, rhs: NativeCallResult) -> Bool {
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.bodyJson != rhs.bodyJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(status)
+        hasher.combine(bodyJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNativeCallResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NativeCallResult {
+        return
+            try NativeCallResult(
+                status: FfiConverterUInt16.read(from: &buf), 
+                bodyJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NativeCallResult, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.status, into: &buf)
+        FfiConverterString.write(value.bodyJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNativeCallResult_lift(_ buf: RustBuffer) throws -> NativeCallResult {
+    return try FfiConverterTypeNativeCallResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNativeCallResult_lower(_ value: NativeCallResult) -> RustBuffer {
+    return FfiConverterTypeNativeCallResult.lower(value)
 }
 
 
@@ -589,6 +679,243 @@ extension ImbibVerbStoreError: Foundation.LocalizedError {
         String(reflecting: self)
     }
 }
+
+
+
+
+public protocol ImbibNativeCallbacks : AnyObject {
+    
+    func invoke(method: String, argsJson: String) async  -> NativeCallResult
+    
+}
+
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceImbibNativeCallbacks {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceImbibNativeCallbacks = UniffiVTableCallbackInterfaceImbibNativeCallbacks(
+        invoke: { (
+            uniffiHandle: UInt64,
+            method: RustBuffer,
+            argsJson: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> NativeCallResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceImbibNativeCallbacks.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return await uniffiObj.invoke(
+                     method: try FfiConverterString.lift(method),
+                     argsJson: try FfiConverterString.lift(argsJson)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: NativeCallResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeNativeCallResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsync(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceImbibNativeCallbacks.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface ImbibNativeCallbacks: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitImbibNativeCallbacks() {
+    uniffi_imbib_verbs_ffi_fn_init_callback_vtable_imbibnativecallbacks(&UniffiCallbackInterfaceImbibNativeCallbacks.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceImbibNativeCallbacks {
+    fileprivate static var handleMap = UniffiHandleMap<ImbibNativeCallbacks>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceImbibNativeCallbacks : FfiConverter {
+    typealias SwiftType = ImbibNativeCallbacks
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
+private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
+
+fileprivate let uniffiContinuationHandleMap = UniffiHandleMap<UnsafeContinuation<Int8, Never>>()
+
+fileprivate func uniffiRustCallAsync<F, T>(
+    rustFutureFunc: () -> UInt64,
+    pollFunc: (UInt64, @escaping UniffiRustFutureContinuationCallback, UInt64) -> (),
+    completeFunc: (UInt64, UnsafeMutablePointer<RustCallStatus>) -> F,
+    freeFunc: (UInt64) -> (),
+    liftFunc: (F) throws -> T,
+    errorHandler: ((RustBuffer) throws -> Swift.Error)?
+) async throws -> T {
+    // Make sure to call uniffiEnsureInitialized() since future creation doesn't have a
+    // RustCallStatus param, so doesn't use makeRustCall()
+    uniffiEnsureInitialized()
+    let rustFuture = rustFutureFunc()
+    defer {
+        freeFunc(rustFuture)
+    }
+    var pollResult: Int8;
+    repeat {
+        pollResult = await withUnsafeContinuation {
+            pollFunc(
+                rustFuture,
+                uniffiFutureContinuationCallback,
+                uniffiContinuationHandleMap.insert(obj: $0)
+            )
+        }
+    } while pollResult != UNIFFI_RUST_FUTURE_POLL_READY
+
+    return try liftFunc(makeRustCall(
+        { completeFunc(rustFuture, $0) },
+        errorHandler: errorHandler
+    ))
+}
+
+// Callback handlers for an async calls.  These are invoked by Rust when the future is ready.  They
+// lift the return value or error and resume the suspended function.
+fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: Int8) {
+    if let continuation = try? uniffiContinuationHandleMap.remove(handle: handle) {
+        continuation.resume(returning: pollResult)
+    } else {
+        print("uniffiFutureContinuationCallback invalid handle")
+    }
+}
+private func uniffiTraitInterfaceCallAsync<T>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> ()
+) -> UniffiForeignFuture {
+    let task = Task {
+        do {
+            handleSuccess(try await makeCall())
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+        }
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    return UniffiForeignFuture(handle: handle, free: uniffiForeignFutureFree)
+
+}
+
+private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    lowerError: @escaping (E) -> RustBuffer
+) -> UniffiForeignFuture {
+    let task = Task {
+        do {
+            handleSuccess(try await makeCall())
+        } catch let error as E {
+            handleError(CALL_ERROR, lowerError(error))
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+        }
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    return UniffiForeignFuture(handle: handle, free: uniffiForeignFutureFree)
+}
+
+// Borrow the callback handle map implementation to store foreign future handles
+// TODO: consolidate the handle-map code (https://github.com/mozilla/uniffi-rs/pull/1823)
+fileprivate var UNIFFI_FOREIGN_FUTURE_HANDLE_MAP = UniffiHandleMap<UniffiForeignFutureTask>()
+
+// Protocol for tasks that handle foreign futures.
+//
+// Defining a protocol allows all tasks to be stored in the same handle map.  This can't be done
+// with the task object itself, since has generic parameters.
+protocol UniffiForeignFutureTask {
+    func cancel()
+}
+
+extension Task: UniffiForeignFutureTask {}
+
+private func uniffiForeignFutureFree(handle: UInt64) {
+    do {
+        let task = try UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.remove(handle: handle)
+        // Set the cancellation flag on the task.  If it's still running, the code can check the
+        // cancellation flag or call `Task.checkCancellation()`.  If the task has completed, this is
+        // a no-op.
+        task.cancel()
+    } catch {
+        print("uniffiForeignFutureFree: handle missing from handlemap")
+    }
+}
+
+// For testing
+public func uniffiForeignFutureHandleCountImbibVerbsFfi() -> Int {
+    UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
+}
 /**
  * Dispatch one registered verb through the shared invoker pipeline.
  */
@@ -602,6 +929,24 @@ public func dispatchVerb(name: String, argsJson: String, callerJson: String) -> 
 })
 }
 /**
+ * Await app-owned callbacks without blocking the main actor.
+ */
+public func dispatchVerbAsync(name: String, argsJson: String, callerJson: String)async  -> SharedVerbDispatchResult {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_imbib_verbs_ffi_fn_func_dispatch_verb_async(FfiConverterString.lower(name),FfiConverterString.lower(argsJson),FfiConverterString.lower(callerJson)
+                )
+            },
+            pollFunc: ffi_imbib_verbs_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_imbib_verbs_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_imbib_verbs_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSharedVerbDispatchResult.lift,
+            errorHandler: nil
+            
+        )
+}
+/**
  * Open the service singleton at the GUI's exact database path before the
  * first verb dispatch. Repeating that path is safe; changing it is not.
  */
@@ -610,6 +955,25 @@ public func initializeVerbStore(path: String)throws  {try rustCallWithError(FfiC
         FfiConverterString.lower(path),$0
     )
 }
+}
+/**
+ * Only install the callback after the GUI's exact store path was pinned.
+ */
+public func registerNativeBackend(callback: ImbibNativeCallbacks)throws  {try rustCallWithError(FfiConverterTypeImbibVerbStoreError.lift) {
+    uniffi_imbib_verbs_ffi_fn_func_register_native_backend(
+        FfiConverterCallbackInterfaceImbibNativeCallbacks.lower(callback),$0
+    )
+}
+}
+/**
+ * Descriptors, rather than a Swift method list, identify direct store writes.
+ */
+public func verbWritesStore(name: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_imbib_verbs_ffi_fn_func_verb_writes_store(
+        FfiConverterString.lower(name),$0
+    )
+})
 }
 
 private enum InitializationResult {
@@ -630,10 +994,23 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_verbs_ffi_checksum_func_dispatch_verb() != 51822) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_verbs_ffi_checksum_func_dispatch_verb_async() != 58260) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_verbs_ffi_checksum_func_initialize_verb_store() != 45712) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_verbs_ffi_checksum_func_register_native_backend() != 35043) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_verbs_ffi_checksum_func_verb_writes_store() != 7311) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_verbs_ffi_checksum_method_imbibnativecallbacks_invoke() != 14651) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitImbibNativeCallbacks()
     return InitializationResult.ok
 }()
 

@@ -690,7 +690,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// collection reliably means "these papers belong here". Returns the papers
     /// created and the pre-existing ones linked, kept separate so undo can
     /// remove only what the import created.
-    #[impress_method]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/bibliography-entry", "imbib/collection"]))]
     async fn import_bibtex_into_collection(
         &self,
         bibtex: String,
@@ -1308,8 +1308,34 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             })
     }
     async fn export_bibtex(&self, ids: Vec<String>) -> String {
-        self.store.export_bibtex(ids).unwrap_or_else(|e| {
-            log("export_bibtex", e);
+        // The former HTTP path accepted cite keys in its `keys=` query,
+        // while store callers also pass UUIDs. Resolve both to the exact
+        // publication ids the exporter expects, preserving input order.
+        let mut resolved = Vec::with_capacity(ids.len());
+        for identifier in ids {
+            if uuid::Uuid::parse_str(&identifier).is_ok() {
+                resolved.push(identifier);
+                continue;
+            }
+            match self.store.find_by_cite_key(identifier, None) {
+                Ok(Some(paper)) => resolved.push(paper.id),
+                Ok(None) => {} // HTTP export likewise omitted unknown keys.
+                Err(error) => {
+                    log("export_bibtex/find_by_cite_key", &error);
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::STORE_ERROR,
+                        error.to_string(),
+                    );
+                    return String::new();
+                }
+            }
+        }
+        self.store.export_bibtex(resolved).unwrap_or_else(|error| {
+            log("export_bibtex", &error);
+            impress_service_core::pipeline::context::report_refusal(
+                impress_service_core::refusal::codes::STORE_ERROR,
+                error.to_string(),
+            );
             String::new()
         })
     }
@@ -1616,6 +1642,7 @@ impress_service_impl! {
         // BibTeX I/O
         import_papers(papers: Vec<PaperImport>, library_id: String) -> ImportSummary,
         import_bibtex(bibtex: String, library_id: String) -> Vec<String>,
+        import_bibtex_into_collection(bibtex: String, library_id: String, collection_id: String) -> BibtexImportOutcome,
         export_bibtex(ids: Vec<String>) -> String,
         export_all_bibtex(library_id: String) -> String,
         // Linked files
@@ -1634,7 +1661,26 @@ pub fn init_imbib_library_service(store_path: std::path::PathBuf) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
+    use super::ImbibLibraryService;
     use impress_service_core::McpToolDescriptor;
+
+    #[tokio::test]
+    async fn bibtex_export_accepts_http_cite_keys_and_store_ids() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Research".into()).unwrap();
+        let id = store
+            .import_bibtex(
+                "@article{Key2026, title={Native transport parity}}".into(),
+                library.id,
+            )
+            .unwrap()
+            .remove(0);
+        let service = super::DefaultImbibLibraryService::new(store);
+        let by_key = service.export_bibtex(vec!["Key2026".into()]).await;
+        let by_id = service.export_bibtex(vec![id]).await;
+        assert!(by_key.contains("Key2026"), "{by_key}");
+        assert_eq!(by_key, by_id);
+    }
 
     #[test]
     fn library_service_methods_registered() {

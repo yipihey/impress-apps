@@ -35,7 +35,7 @@ pub struct PurgeOutcome {
 /// `existing` was already in the store before this import touched it, and
 /// deleting it because it happened to appear in a `.bib` file would destroy
 /// the user's data.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
 pub struct BibtexImportOutcome {
     /// Publications this import created.

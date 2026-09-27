@@ -14,6 +14,7 @@ import ImpressAutomation
 import ImpressKit
 import ImpressLogging
 import ImpressRustCore
+import ImbibVerbsFFI
 import ImprintCore
 import OSLog
 
@@ -5343,6 +5344,280 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if let f = p.flag?.color { dict["flag_color"] = f }
         return dict
     }
+}
+
+// MARK: - App-owned service verbs
+
+/// Calls the same private handlers as the legacy routes without sending a
+/// request to this process's HTTP port. The old routing arms can be removed
+/// after hosted parity without changing this callback.
+extension HTTPAutomationRouter {
+    func invokeNativeVerb(method: String, argsJSON: String) async -> NativeCallResult {
+        guard let data = argsJSON.data(using: .utf8),
+              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nativeFailure(400, "invalid-args", "Invalid native arguments")
+        }
+        if Self.nativeManuscriptMethods.contains(method) {
+            return await invokeNativeManuscriptVerb(method: method, args: args)
+        }
+        func string(_ key: String) -> String? { args[key] as? String }
+        func strings(_ key: String) -> [String]? { args[key] as? [String] }
+        func uuid(_ key: String) -> UUID? { string(key).flatMap(UUID.init(uuidString:)) }
+        func request(_ method: String, _ body: [String: Any] = [:], query: [String: String] = [:]) -> HTTPRequest {
+            let json = try? JSONSerialization.data(withJSONObject: body)
+            return HTTPRequest(method: method, path: "/native/imbib-app-service", queryParams: query,
+                               body: json.flatMap { String(data: $0, encoding: .utf8) })
+        }
+        var response: HTTPResponse
+        var field: String?
+        switch method {
+        case "search_sources":
+            guard let query = string("query") else { return nativeFailure(400, "invalid-args", "Missing query") }
+            var q = ["q": query, "limit": String((args["limit"] as? Int) ?? 20)]
+            if let sources = string("sources") { q["source"] = sources }
+            response = await handleSearchExternal(request("GET", query: q))
+            return nativeMapped(response) { body in
+                guard let results = body["results"] as? [[String: Any]] else { return nil }
+                return results.map { item -> [String: Any] in
+                    var paper = item
+                    paper["abstract_text"] = item["abstract"]
+                    return paper
+                }
+            }
+        case "recent_activity":
+            var q = ["limit": String((args["limit"] as? Int) ?? 0)]
+            if let parent = string("parent_id") { q["parentId"] = parent }
+            response = await handleQueryRecentActivity(request("GET", query: q)); field = "papers"
+        case "download_pdfs":
+            guard let ids = strings("publication_ids") else { return nativeFailure(400, "invalid-args", "Missing publication_ids") }
+            if ids.isEmpty { return nativeSuccess(0) }
+            response = await handleDownloadPDFs(request("POST", ["identifiers": ids])); field = "downloaded"
+        case "open_manuscript_papers":
+            guard let id = uuid("manuscript_id") else { return nativeFailure(400, "invalid-args", "Invalid manuscript_id") }
+            response = await handleOpenManuscriptPapers(manuscriptID: id)
+            if response.status == 200,
+               let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
+               body["opened"] as? Bool == false,
+               body["message"] is String {
+                return nativeSuccess(body)
+            }
+            return nativeMapped(response) { $0 }
+        case "sync_nudge":
+            response = await handleSyncNudge()
+            return nativeMapped(response) { ["accepted": $0["accepted"] ?? false, "reason": $0["reason"] ?? NSNull()] }
+        case "sync_status":
+            response = await handleSyncStatus()
+            return nativeStatus(response)
+        case "status":
+            response = await handleStatus()
+            return nativeStatus(response)
+        case "get_logs":
+            var q = ["limit": String((args["limit"] as? Int) ?? 100)]
+            for key in ["level", "category", "search"] { if let value = string(key) { q[key] = value } }
+            response = await LogEndpointHandler.handle(request("GET", query: q))
+            return nativeMapped(response) { ($0["data"] as? [String: Any])?["entries"] }
+        case "get_notes":
+            guard let key = string("cite_key") else { return nativeFailure(400, "invalid-args", "Missing cite_key") }
+            response = await handleGetNotes(citeKey: key)
+            if response.status == 404 { return nativeSuccess(NSNull()) }
+            field = "notes"
+        case "update_notes":
+            guard let key = string("cite_key"), let notes = string("notes") else {
+                return nativeFailure(400, "invalid-args", "Missing cite_key or notes")
+            }
+            response = await handleUpdateNotes(citeKey: key, request: request("PUT", ["notes": notes]))
+            return nativeMapped(response) { _ in true }
+        case "delete_annotation":
+            guard let id = uuid("annotation_id") else { return nativeFailure(400, "invalid-args", "Invalid annotation_id") }
+            response = await handleDeleteAnnotation(annotationID: id); field = "deleted"
+        case "delete_comment":
+            guard let id = uuid("comment_id") else { return nativeFailure(400, "invalid-args", "Invalid comment_id") }
+            response = await handleDeleteComment(commentID: id); field = "deleted"
+        case "delete_collection":
+            guard let id = uuid("collection_id") else { return nativeFailure(400, "invalid-args", "Invalid collection_id") }
+            response = await handleDeleteCollection(collectionID: id); field = "deleted"
+        case "delete_smart_searches":
+            guard let ids = strings("ids") else { return nativeFailure(400, "invalid-args", "Missing ids") }
+            response = await handleDeleteSmartSearchesBatch(request("DELETE", ["identifiers": ids])); field = "deleted"
+        case "tag_artifact":
+            guard let id = uuid("artifact_id"), let tags = strings("tags") else {
+                return nativeFailure(400, "invalid-args", "Invalid artifact_id or tags")
+            }
+            return await setNativeArtifactTags(id: id, tags: tags)
+        case "resolve_identifier":
+            guard let identifier = string("identifier") else { return nativeFailure(400, "invalid-args", "Missing identifier") }
+            response = await handleResolvePaper(request("POST", [
+                "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
+            return nativeMapped(response) { ($0["paper"] as? [String: Any])?["citeKey"] ?? NSNull() }
+        case "add_to_library":
+            guard let ids = strings("publication_ids"), let library = string("library_id") else {
+                return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")
+            }
+            if ids.isEmpty { return nativeSuccess(0) }
+            response = await handleAddToLibrary(request("POST", ["identifiers": ids, "libraryID": library]))
+            return nativeMapped(response) { (($0["assigned"] as? [Any])?.count).map { $0 as Any } }
+        default:
+            return nativeFailure(404, "verb-not-found", "Unknown imbib native method")
+        }
+        guard let field else { return nativeFailure(500, "internal", "No native result field") }
+        return nativeMapped(response) { $0[field] }
+    }
+
+    @MainActor private func setNativeArtifactTags(id: UUID, tags: [String]) -> NativeCallResult {
+        let adapter = RustStoreAdapter.shared
+        guard let artifact = adapter.getArtifact(id: id) else {
+            return nativeFailure(404, "not-found", "Artifact not found")
+        }
+        let old = Set(artifact.tags.map(\.path))
+        let desired = Set(tags)
+        do {
+            for tag in old.subtracting(desired) {
+                _ = try adapter.imbibStore.removeTag(ids: [id.uuidString], tagPath: tag)
+            }
+            for tag in desired.subtracting(old) {
+                _ = try adapter.imbibStore.addTag(ids: [id.uuidString], tagPath: tag)
+            }
+            if old != desired { adapter.notifyMutationFromBackground() }
+            routerLogger.infoCapture("Native artifact tags saved id=\(id) count=\(desired.count)", category: "automation")
+            return nativeSuccess(true)
+        } catch {
+            adapter.notifyMutationFromBackground()
+            return nativeFailure(500, "store-error", "Could not update artifact tags: \(error.localizedDescription)")
+        }
+    }
+}
+
+extension HTTPAutomationRouter {
+    private static let nativeManuscriptMethods: Set<String> = [
+        "list_manuscripts", "get_manuscript", "create_manuscript", "write_manuscript_body",
+        "compile_manuscript", "list_templates", "create_manuscript_from_template",
+    ]
+
+    private func invokeNativeManuscriptVerb(method: String, args: [String: Any]) async -> NativeCallResult {
+        switch method {
+        case "list_manuscripts":
+            do {
+                let rows = try await MainActor.run {
+                    try RustStoreAdapter.shared.imbibStore.listManuscripts(
+                        collectionId: nil, status: nil, sortField: "modified", ascending: false,
+                        limit: nil, offset: nil)
+                }
+                return nativeSuccess(rows.map { row in
+                    ["id": row.id, "title": row.title, "format": row.format, "status": row.status]
+                })
+            } catch {
+                return nativeFailure(500, "store-error", error.localizedDescription)
+            }
+        case "get_manuscript":
+            guard let text = args["manuscript_id"] as? String, let id = UUID(uuidString: text) else {
+                return nativeFailure(400, "invalid-args", "Invalid manuscript_id")
+            }
+            do {
+                guard let detail = try await MainActor.run(body: {
+                    try RustStoreAdapter.shared.imbibStore.getManuscriptDetail(id: id.uuidString)
+                }) else { return nativeSuccess(NSNull()) }
+                return nativeSuccess([
+                    "id": detail.id, "title": detail.title, "format": detail.format,
+                    "manuscriptStatus": detail.status,
+                    "contentHash": detail.bodyContentHash.map { $0 as Any } ?? NSNull(),
+                ])
+            } catch {
+                return nativeFailure(500, "store-error", error.localizedDescription)
+            }
+        case "create_manuscript":
+            guard let title = args["title"] as? String, !title.isEmpty else {
+                return nativeFailure(400, "invalid-args", "Missing title")
+            }
+            let format = (args["format"] as? String) ?? "typst"
+            guard let row = await MainActor.run(body: {
+                RustStoreAdapter.shared.createManuscript(title: title, format: format)
+            }) else { return nativeFailure(500, "store-error", "Could not create manuscript") }
+            routerLogger.infoCapture("Native manuscript saved id=\(row.id)", category: "manuscripts")
+            return nativeSuccess(["id": row.id, "title": row.title, "format": row.format])
+        case "write_manuscript_body":
+            guard let text = args["manuscript_id"] as? String, let id = UUID(uuidString: text),
+                  let body = args["body"] as? String,
+                  let expected = args["expected_hash"] as? String else {
+                return nativeFailure(400, "invalid-args", "Invalid manuscript body arguments")
+            }
+            guard let outcome = await MainActor.run(body: {
+                RustStoreAdapter.shared.setManuscriptBody(id: id, body: body, expectedHash: expected)
+            }) else { return nativeFailure(404, "not-found", "Manuscript could not be written") }
+            if !outcome.applied {
+                return nativeSuccess([
+                    "ok": false, "content_hash": NSNull(),
+                    "message": "Manuscript changed since it was read; re-read before writing",
+                ])
+            }
+            routerLogger.infoCapture("Native manuscript body saved id=\(id)", category: "manuscripts")
+            return nativeSuccess([
+                "ok": true, "content_hash": outcome.newHash.map { $0 as Any } ?? NSNull(),
+                "message": "Manuscript body replaced.",
+            ])
+        case "compile_manuscript":
+            guard let text = args["manuscript_id"] as? String, let id = UUID(uuidString: text) else {
+                return nativeFailure(400, "invalid-args", "Invalid manuscript_id")
+            }
+            let response = await Self.compileManuscript(id: id, includePDF: false)
+            guard let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any] else {
+                return nativeFailure(500, "internal", "Compile returned invalid JSON")
+            }
+            // A Typst diagnostic is a typed CompileResult, not a transport error.
+            if response.status == 422, body["ok"] as? Bool == false { return nativeSuccess(body) }
+            return nativeMapped(response) { $0 }
+        case "list_templates":
+            return nativeSuccess(TemplateCatalog.all().map { TemplateCatalog.dictionary(for: $0) })
+        case "create_manuscript_from_template":
+            guard let template = args["template_id"] as? String,
+                  let title = args["title"] as? String, !title.isEmpty else {
+                return nativeFailure(400, "invalid-args", "Missing template_id or title")
+            }
+            guard let starter = TemplateCatalog.starterDocument(
+                templateID: template, title: title, authors: []) else {
+                return nativeFailure(404, "not-found", "Unknown manuscript template")
+            }
+            guard let row = await MainActor.run(body: {
+                RustStoreAdapter.shared.createManuscript(title: title, format: "typst", body: starter)
+            }) else { return nativeFailure(500, "store-error", "Could not create template manuscript") }
+            routerLogger.infoCapture("Native template manuscript saved id=\(row.id)", category: "manuscripts")
+            return nativeSuccess(["id": row.id, "title": row.title, "format": row.format])
+        default:
+            return nativeFailure(404, "verb-not-found", "Unknown manuscript method")
+        }
+    }
+}
+
+private func nativeStatus(_ response: HTTPResponse) -> NativeCallResult {
+    nativeMapped(response) { body in
+        let json = (try? JSONSerialization.data(withJSONObject: body)).flatMap { String(data: $0, encoding: .utf8) }
+        return json.map { ["running": true, "detail": $0] }
+    }
+}
+
+private func nativeMapped(_ response: HTTPResponse, extract: ([String: Any]) -> Any?) -> NativeCallResult {
+    guard let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any] else {
+        return nativeFailure(500, "internal", "Native handler returned invalid JSON")
+    }
+    if !(200..<300).contains(response.status) || (body["status"] as? String) == "error" {
+        return nativeFailure(UInt16(clamping: response.status == 200 ? 422 : response.status),
+                             body["code"] as? String ?? "verb-failed",
+                             body["error"] as? String ?? body["message"] as? String ?? "imbib operation failed")
+    }
+    guard let value = extract(body) else { return nativeFailure(500, "internal", "Native handler omitted required result") }
+    return nativeSuccess(value)
+}
+
+private func nativeSuccess(_ value: Any) -> NativeCallResult {
+    guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+          let json = String(data: data, encoding: .utf8) else {
+        return nativeFailure(500, "internal", "Could not encode native result")
+    }
+    return NativeCallResult(status: 200, bodyJson: json)
+}
+
+private func nativeFailure(_ status: UInt16, _ code: String, _ message: String) -> NativeCallResult {
+    let data = try? JSONSerialization.data(withJSONObject: ["code": code, "message": message])
+    return NativeCallResult(status: status, bodyJson: data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}")
 }
 
 // MARK: - API Response Types
