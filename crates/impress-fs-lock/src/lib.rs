@@ -1,5 +1,13 @@
-//! Advisory file locks shared by the device-local files this crate owns
-//! (the worker lease and the preferences file).
+//! Advisory file locks for the device-local files the suite owns outside the
+//! store: `impress-ai`'s worker lease and preferences file, and
+//! `impress-settings`'s per-scope settings files (ADR-0036 D5).
+//!
+//! Lifted out of `impress-ai` by plan-self-reflective-layer R1 (decision
+//! D-R8): `impress-settings` is a pure kit crate and may not reach a
+//! store-tier crate for sixty lines of `flock`, and copying them would be a
+//! second definition. This crate depends on nothing.
+
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind};
@@ -50,7 +58,7 @@ fn open(path: &Path) -> io::Result<File> {
 }
 
 #[cfg(unix)]
-pub(crate) fn lock_exclusive(file: &File, blocking: bool) -> io::Result<()> {
+pub fn lock_exclusive(file: &File, blocking: bool) -> io::Result<()> {
     const LOCK_EX: i32 = 2;
     const LOCK_NB: i32 = 4;
     let operation = if blocking { LOCK_EX } else { LOCK_EX | LOCK_NB };
@@ -64,7 +72,7 @@ pub(crate) fn lock_exclusive(file: &File, blocking: bool) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-pub(crate) fn unlock(file: &File) -> io::Result<()> {
+pub fn unlock(file: &File) -> io::Result<()> {
     const LOCK_UN: i32 = 8;
     // SAFETY: `file` owns a valid descriptor for the duration of the call.
     let result = unsafe { flock(file.as_raw_fd(), LOCK_UN) };
@@ -81,7 +89,7 @@ unsafe extern "C" {
 }
 
 #[cfg(not(unix))]
-pub(crate) fn lock_exclusive(_file: &File, _blocking: bool) -> io::Result<()> {
+pub fn lock_exclusive(_file: &File, _blocking: bool) -> io::Result<()> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "advisory file locks require a Unix host",
@@ -89,7 +97,7 @@ pub(crate) fn lock_exclusive(_file: &File, _blocking: bool) -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
-pub(crate) fn unlock(_file: &File) -> io::Result<()> {
+pub fn unlock(_file: &File) -> io::Result<()> {
     Ok(())
 }
 

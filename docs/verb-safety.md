@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 174 read-only, 128 mutating,
-33 destructive, 103 external — 438 verbs.
+Counts today: 186 read-only, 133 mutating,
+33 destructive, 104 external — 456 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -39,6 +39,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 |---|---|---:|---:|
 | `collection-service` | mutating | 12 | 5 |
 | `docs-import-service` | mutating | 10 | 5 |
+| `history-service` | read_only | 6 | 2 |
 | `imbib-annotations-service` | read_only | 9 | 4 |
 | `imbib-app-service` | external | 17 | 0 |
 | `imbib-artifacts-service` | read_only | 9 | 4 |
@@ -68,6 +69,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `manuscript-collab-service` | read_only | 4 | 1 |
 | `memory-service` | mutating | 7 | 4 |
 | `parsers-service` | read_only | 6 | 0 |
+| `settings-service` | read_only | 6 | 2 |
 | `smart-search-service` | read_only | 10 | 0 |
 | `source-service` | mutating | 9 | 5 |
 | `store-query-service` | read_only | 4 | 0 |
@@ -81,6 +83,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 <!-- verb-safety:begin -->
 | Tool | Class | Evidence |
 |---|---|---|
+| `capabilities-service_impact` | read_only | name/doc |
 | `collection-service_add-members` | mutating | name/doc |
 | `collection-service_create` | mutating | name/doc |
 | `collection-service_delete` | destructive | crates/impress-store-service/src/collection_service.rs:577 collection_ops::delete -> crates/impress-core/src/collection_ops.rs:1035 store.delete(id); kernel returns a restore snapshot but the service drops it (collect… |
@@ -103,6 +106,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `docs-import-service_record-produced-rows` | mutating | name/doc |
 | `docs-import-service_remove-watched-folder` | destructive | crates/impress-store-service/src/docs_import_service.rs:1296 -> crates/impress-core/src/watched_folder_ops.rs:685-690 store.delete of every watched-file row when delete_file_rows, then store.delete(folder); no undo; d… |
 | `docs-import-service_update-watched-folder` | mutating | name/doc |
+| `history-service_calls` | read_only | name/doc |
+| `history-service_health` | read_only | name/doc |
+| `history-service_replay` | mutating | name/doc |
+| `history-service_save-macro` | mutating | name/doc |
+| `history-service_trace` | read_only | name/doc |
+| `history-service_why` | read_only | name/doc |
 | `imbib-annotations-service_count-annotations` | read_only | name/doc |
 | `imbib-annotations-service_create-annotation` | mutating | name/doc |
 | `imbib-annotations-service_create-comment` | mutating | name/doc |
@@ -327,6 +336,11 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impress-bridges-service_resolve-artifact` | read_only | name/doc |
 | `impress-bridges-service_search-all` | read_only | name/doc |
 | `impress-bridges-service_sync-figure` | external | E/D: crates/impress-bridges-service/src/lib.rs:507 implore_service::service_instance().export_figure — default crates/implore-service/src/lib.rs:484 refuses (ok:false), HTTP backend crates/implore-service-http/src/lib.rs:3… |
+| `impress-scenario-service_scenario-create` | mutating | name/doc |
+| `impress-scenario-service_scenario-get` | read_only | name/doc |
+| `impress-scenario-service_scenario-list` | read_only | name/doc |
+| `impress-scenario-service_scenario-run` | external | a scenario's steps may call any verb, including a mutating or destructive one, and a Tier B run leaves the process over loopback HTTP |
+| `impress-scenario-service_scenario-validate` | read_only | name/doc |
 | `impress-surface-service_surface-create` | mutating | name/doc |
 | `impress-surface-service_surface-delete` | destructive | crates/impress-surface-service/src/service.rs:744-772 surfaces_for_write().delete -> store.rs:378-394 store.delete() of every state row, every event row and the surface row (hard deletes, no operation/undo), then regi… |
 | `impress-surface-service_surface-dispatch` | mutating | name/doc |
@@ -473,6 +487,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `parsers-service_list-publisher-rules` | read_only | name/doc |
 | `parsers-service_parse-mbox` | read_only | name/doc |
 | `parsers-service_resolve-publisher-pdf` | read_only | name/doc |
+| `settings-service_get` | read_only | name/doc |
+| `settings-service_list` | read_only | name/doc |
+| `settings-service_reset` | mutating | `settings_service.rs` — forgets a stored value in a scope file; the default stands and the file is rewritten atomically |
+| `settings-service_schema` | read_only | name/doc |
+| `settings-service_set` | mutating | `settings_service.rs` — writes one key into `<workspace>/settings/<scope>.json` (or the synced row) under a flock |
+| `settings-service_surface` | read_only | name/doc |
 | `smart-search-service_build-ads-query` | read_only | name/doc |
 | `smart-search-service_classify-search-input` | read_only | name/doc |
 | `smart-search-service_clean-ads-query` | read_only | name/doc |

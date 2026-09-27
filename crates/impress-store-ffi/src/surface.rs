@@ -514,6 +514,15 @@ async fn off_caller<T: Send + 'static>(
         .map_err(|e| Refusal::internal(format!("surface task failed: {e}")))
 }
 
+impl SharedSurface {
+    /// The surface rows this handle reads and writes — for the settings
+    /// pane installer (`crate::settings`), which stores a generated spec
+    /// where the `surface` view kind will find it.
+    pub(crate) fn surface_store(&self) -> &SurfaceStore {
+        &self.core.surfaces
+    }
+}
+
 #[cfg_attr(feature = "native", uniffi::export)]
 impl SharedSurface {
     /// Bind to the surfaces of the given `store`, for the app `app_id` (the
