@@ -691,6 +691,10 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// created and the pre-existing ones linked, kept separate so undo can
     /// remove only what the import created.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/bibliography-entry", "imbib/collection"]))]
+    #[impress_example(
+        name = "scratch-paper-into-collection",
+        args = r#"{"bibtex":"@article{P5bEffects2026, title={P5b Effects Paper}, author={Doe, Jane}, year={2026}}","library_id":"56000000-0000-4000-8000-000000000041","collection_id":"56000000-0000-4000-8000-000000000042"}"#
+    )]
     async fn import_bibtex_into_collection(
         &self,
         bibtex: String,
