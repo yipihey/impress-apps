@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Build and run G5's hosted Tier B proof without installing or opening user apps.
+
+Run once per app after rebuilding the Rust archive cohort. The test verifies
+its actual native store and token paths before sending any request.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import plistlib
+import socket
+import subprocess
+import tempfile
+import uuid
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("app", choices=("imbib", "imprint", "implore", "impel", "impart"))
+    parser.add_argument("--cli", type=Path, required=True)
+    parser.add_argument("--skip-build", action="store_true")
+    args = parser.parse_args()
+    repo = Path(__file__).resolve().parent.parent
+    cli = args.cli.resolve(strict=True)
+    if not os.access(cli, os.X_OK):
+        parser.error("--cli must be an executable from this revision")
+    app_dir = repo / ("apps/imbib/imbib" if args.app == "imbib" else "apps/" + args.app)
+    derived = repo / ("target-g5-proof-" + args.app)
+    proof = Path(tempfile.mkdtemp(prefix="impress-g5-proof-", dir="/tmp"))
+    bootstrap = proof / "bootstrap"
+    bootstrap.mkdir()
+    output = proof / "output"
+    output.mkdir()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    env = dict(os.environ, IMPRESS_SKIP_INSTALL="1")
+    print("Owned proof:", proof, flush=True)
+    if not args.skip_build:
+        with (proof / "build.log").open("w") as log:
+            subprocess.run(["xcodegen", "generate"], cwd=app_dir, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+            subprocess.run([
+                "/usr/bin/xcodebuild", "build-for-testing", "-project", str(app_dir / (args.app + ".xcodeproj")),
+                "-scheme", args.app, "-configuration", "Debug", "-destination", "platform=macOS",
+                "-derivedDataPath", str(derived), "-jobs", "6",
+                "-only-testing:" + args.app + "Tests/StrictArgumentsProofTests",
+                "CODE_SIGNING_ALLOWED=NO", "IMPRESS_SKIP_INSTALL=1",
+                "PRODUCT_BUNDLE_IDENTIFIER=com.impress.g5proof." + args.app,
+            ], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    products = derived / "Build/Products"
+    candidates = [p for p in products.glob("*.xctestrun") if p.name != "g5-proof.xctestrun"]
+    if len(candidates) != 1:
+        raise RuntimeError("Expected exactly one built xctestrun: " + str(candidates))
+    config = plistlib.loads(candidates[0].read_bytes())
+    target_name = args.app + "Tests"
+    target = config[target_name]
+    target["CommandLineArguments"] = [
+        "--ui-testing", "-httpAutomationPort", str(port), "-httpAutomationEnabled", "YES",
+        "-ApplePersistenceIgnoreState", "YES",
+    ]
+    overrides = {
+        "IMPRESS_G5_PROOF": "1", "IMPRESS_G5_APP": args.app, "IMPRESS_G5_PORT": str(port),
+        "IMPRESS_G5_CLI": str(cli), "IMPRESS_G5_ROOT": str(proof), "IMPRESS_G5_OUTPUT": str(output),
+        "IMPRESS_STORE_PATH": str(bootstrap / "impress.sqlite"),
+        "IMBIB_STORE_PATH": str(bootstrap / "impress.sqlite"),
+        "IMPRESS_WORKSPACE": str(bootstrap), "IMPRESS_DEVICE_ID": "codex-g5-" + str(uuid.uuid4()),
+        "IMBIB_LIBRARY_FILES_MIGRATION": "off",
+    }
+    target.setdefault("EnvironmentVariables", {}).update(overrides)
+    configured = products / "g5-proof.xctestrun"
+    configured.write_bytes(plistlib.dumps(config))
+    command = [
+        "/usr/bin/xcodebuild", "test-without-building", "-xctestrun", str(configured),
+        "-destination", "platform=macOS", "-only-testing:" + target_name + "/StrictArgumentsProofTests",
+        "-parallel-testing-enabled", "NO", "-resultBundlePath", str(proof / "result.xcresult"),
+    ]
+    if args.app == "imprint":
+        command.append("-only-testing:imprintTests/LegacyPersistenceIsolationTests")
+    with (proof / "test.log").open("w") as log:
+        subprocess.run(command, cwd=repo, env=dict(env, **overrides), stdout=log, stderr=subprocess.STDOUT, check=True)
+    evidence = json.loads((output / "proof.json").read_text())
+    print(json.dumps({"app": args.app, "proof": str(proof), "pid": evidence["pid"],
+                      "scenario": evidence["scenario"], "surface": evidence["surface"], "layout": evidence["layout"]}, indent=2))
+
+
+if __name__ == "__main__":
+    main()

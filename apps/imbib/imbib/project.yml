@@ -633,6 +633,7 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      - path: ../../../tests/native/StrictArgumentsProofTests.swift
       - path: imbibTests
         optional: true
     dependencies:

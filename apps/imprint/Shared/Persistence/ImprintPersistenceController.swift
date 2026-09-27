@@ -14,6 +14,7 @@ import Foundation
 import CoreData
 import OSLog
 import ImpressLogging
+import ImpressKit
 
 // MARK: - Persistence Controller
 
@@ -23,7 +24,8 @@ public final class ImprintPersistenceController: @unchecked Sendable {
 
     public static let shared: ImprintPersistenceController = {
         Logger.persistence.infoCapture("Using local-only storage for project hierarchy", category: "persistence")
-        return ImprintPersistenceController()
+        return ImprintPersistenceController(
+            inMemory: ImpressRuntime.isUnitTestProcess || ImpressRuntime.isUITestingProcess)
     }()
 
     /// Preview/testing instance with in-memory store
