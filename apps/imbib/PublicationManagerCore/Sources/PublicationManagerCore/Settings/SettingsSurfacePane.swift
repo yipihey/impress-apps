@@ -17,13 +17,28 @@
 //  logs the stored value (save), and the model's render logs the tree
 //  (display).
 //
+//  ImpressLayout — where `SurfacePaneModel` lives — links macOS only
+//  (`PublicationManagerCore/Package.swift`, `condition: .when(platforms:
+//  [.macOS])`), so the macOS body below is the whole pane for now; iOS gets
+//  an honest placeholder rather than a second copy of the render/dispatch
+//  model over kit-grade-only dependencies (that copy would need its own
+//  `SharedSurface`/`SharedSurfaceChange` Sendable conformances, and
+//  `ImpressLayout` already declares those retroactively — a second
+//  declaration in this module would be a DUPLICATE conformance the moment
+//  both modules link into the same macOS binary, which is a runtime hazard,
+//  not just a lint). Wiring iOS is tracked as R1 follow-up, not silently
+//  dropped: see plan-self-reflective-layer.md table RG-S.
+//
 
 import ImpressKit
-import ImpressLayout
 import ImpressLogging
 import ImpressRustCore
 import ImpressSurface
 import SwiftUI
+
+#if os(macOS)
+import ImpressLayout
+#endif
 
 /// One registry section as a pane. `section` is a registry section id
 /// (`imbib.retention`); an undeclared one is the unavailable state, named.
@@ -31,14 +46,37 @@ public struct SettingsSurfacePane: View {
 
     public let section: String
 
-    @State private var model: SurfacePaneModel?
-    @State private var failure: String?
-
     public init(section: String) {
         self.section = section
     }
 
     public var body: some View {
+        #if os(macOS)
+        SettingsSurfacePaneMacOS(section: section)
+        #else
+        ContentUnavailableView(
+            "Settings Unavailable", systemImage: "slider.horizontal.3",
+            description: Text(
+                "The generated \(section) pane is macOS-only for now — "
+                    + "plan-self-reflective-layer R1 wires iOS next."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("settings.surface.\(section)")
+        #endif
+    }
+}
+
+#if os(macOS)
+/// The macOS body: unchanged from the pane's original implementation, over
+/// `ImpressLayout.SurfacePaneModel` (see the file header on why iOS does not
+/// get a second copy of this).
+private struct SettingsSurfacePaneMacOS: View {
+
+    let section: String
+
+    @State private var model: SurfacePaneModel?
+    @State private var failure: String?
+
+    var body: some View {
         Group {
             if let model, let tree = model.tree {
                 VStack(alignment: .leading, spacing: 0) {
@@ -98,3 +136,4 @@ public struct SettingsSurfacePane: View {
         active.stop()
     }
 }
+#endif
