@@ -79,6 +79,19 @@ fn table() -> BTreeMap<String, (SafetyClass, String)> {
     rows
 }
 
+/// Qualified-name prefixes of verbs whose service crate carries the
+/// `optional-feature` verdict in `docs/verb-coverage.md`'s crate table
+/// (P3c step 2) — this build's `full` may not link them, in which case the
+/// doc row for them is allowed to exist unmatched rather than being flagged
+/// stale. Keep this in step with that table's `optional-feature` rows.
+const OPTIONAL_FEATURE_VERB_PREFIXES: &[&str] = &["imbib-semantic-service_"];
+
+fn is_optional_feature_verb(tool: &str) -> bool {
+    OPTIONAL_FEATURE_VERB_PREFIXES
+        .iter()
+        .any(|p| tool.starts_with(p))
+}
+
 fn verbs() -> Vec<&'static VerbDescriptor> {
     impress_capabilities::force_link();
     let mut out: Vec<_> = VerbDescriptor::iter().collect();
@@ -118,7 +131,7 @@ fn every_verb_declares_the_class_the_table_records() {
         }
     }
     for tool in table.keys() {
-        if !seen.contains(tool) {
+        if !seen.contains(tool) && !is_optional_feature_verb(tool) {
             problems.push(format!(
                 "docs/verb-safety.md lists `{tool}`, which is not a linked verb; delete the row"
             ));
@@ -218,8 +231,15 @@ fn names_and_groups_are_derived_from_the_identifiers() {
                 v.name
             );
         }
-        // Lifecycle fields are P3's; nothing declares them yet.
-        assert!(v.deprecated.is_none() && v.aliases.is_empty(), "{}", v.name);
+        // Lifecycle fields are P3's; P3c step 1 gave `imbib-semantic-service`
+        // real aliases, each with the `deprecated(…)` the macro requires
+        // alongside `aliases = […]` — so the invariant left to check is that
+        // pairing, not that the fields stay empty.
+        assert!(
+            v.aliases.is_empty() || v.deprecated.is_some(),
+            "{} declares aliases without a deprecated(...) notice",
+            v.name
+        );
     }
 }
 

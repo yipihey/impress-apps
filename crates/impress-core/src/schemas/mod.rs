@@ -28,6 +28,7 @@ pub mod ui;
 pub mod verb_call;
 pub mod veusz_plot;
 pub mod watched_folder;
+pub mod workflow;
 
 pub use ai::{
     register_ai_schemas, AI_IMPORT_LEDGER_SCHEMA, CONTENT_BLOB_SCHEMA, CONVERSATION_SCHEMA,
@@ -86,6 +87,7 @@ pub use watched_folder::{
     VOLUME_STATES, VOLUME_STATE_INDEXED, VOLUME_STATE_SCAN_ON_DEMAND, VOLUME_STATE_UNAVAILABLE,
     VOLUME_STATE_UNINDEXED, WATCHED_FILE_SCHEMA, WATCHED_FOLDER_SCHEMA,
 };
+pub use workflow::{register_workflow_schema, WORKFLOW_SCHEMA};
 
 /// Register all canonical impress-core schemas into the registry.
 ///
@@ -135,6 +137,10 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // nothing — the record kinds a folder ingests are named by `kind_scope`,
     // not by an inherits edge.
     register_watched_folder_schemas(registry);
+    // The workflow record (W1, plan-self-reflective-layer.md § Workflows).
+    // Depends on nothing here — `steps`/`trigger`/`guards` are opaque JSON
+    // to this registry, structured by `impress-workflow`'s own validator.
+    register_workflow_schema(registry);
     // Suite-scoped memory (claims, episodes, instructions) — knowledge objects
     // per ADR-0012 D39. Registered after the knowledge objects they share a
     // convention with; depends on nothing, since a memory's subject is an

@@ -25,9 +25,6 @@ mod ai_registry;
 /// The ADR-0031 layout tree as Swift drives it (work package L5).
 mod keymap;
 mod layout;
-/// The layout and surface crates' `log` lines, forwarded to the host's
-/// Console (wave 7 T5).
-mod log_bridge;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
@@ -35,6 +32,10 @@ pub mod reading_list;
 mod settings;
 /// The ADR-0033 agent-surface tree as Swift drives it (work package S6).
 mod surface;
+/// The layout and surface crates' `tracing` events, and this crate's own
+/// per-verb `tracing` spans, forwarded to the host's Console (wave 7 T5;
+/// G7a moved this off the `log` facade, D-P1).
+mod tracing_bridge;
 /// The pieces `layout`'s and `surface`'s invalidation feeds share (ADR-0033
 /// D6) — see that module's docs.
 mod ui_feed;
@@ -91,12 +92,12 @@ pub use layout::{
     SharedLayoutListener, SharedLayoutRow, SharedLayoutSnapshot, SharedPane, SharedPaneRows,
     SharedWindow,
 };
-pub use log_bridge::{install_log_sink, refusal_http_status, SharedLogSink};
 pub use settings::{SharedSettingValue, SharedSettings, SharedSettingsError};
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
     SharedSurfaceListener, SharedSurfaceRow, SharedVerbHost,
 };
+pub use tracing_bridge::{install_log_sink, refusal_http_status, SharedLogSink};
 pub use verb::{dispatch_verb, SharedVerbDispatchResult};
 
 pub use ai_registry::{

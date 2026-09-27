@@ -1221,7 +1221,7 @@ fn snapshot_of(layout: &Layout, version: u64) -> Result<SharedLayoutSnapshot> {
             geometry_json: w.geometry.as_ref().and_then(|g| {
                 serde_json::to_string(g)
                     .map_err(|e| {
-                        log::warn!(target: "layout", "window {} geometry does not encode: {e}", w.id)
+                        tracing::warn!(target: "layout", "window {} geometry does not encode: {e}", w.id)
                     })
                     .ok()
             }),
@@ -1344,7 +1344,7 @@ impl InvalidationFeed {
                     // A saved layout deleted elsewhere (`impress-cli
                     // delete-layout`). The row is gone, so whose it was is
                     // unknowable; the list is cheap to re-read.
-                    log::info!(
+                    tracing::info!(
                         target: "layout",
                         "{}/{}: {} layout row(s) deleted elsewhere; the saved-layout list reloads",
                         self.app_id,
@@ -1364,7 +1364,7 @@ impl InvalidationFeed {
                             // made itself is not an external change.
                             let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
                             if *told != Some(item.logical_clock) {
-                                log::info!(
+                                tracing::info!(
                                     target: "layout",
                                     "{}/{}: live row {} changed elsewhere (revision {:?} → {}); \
                                      the window reloads",
@@ -1379,7 +1379,7 @@ impl InvalidationFeed {
                             }
                         }
                         RowOwner::ThisAppsLayouts => {
-                            log::debug!(
+                            tracing::debug!(
                                 target: "layout",
                                 "{}: saved layout or preset {} changed elsewhere",
                                 self.app_id,
@@ -1419,7 +1419,7 @@ impl InvalidationFeed {
                         // First sight: whatever the host read, it read this.
                         (None, Some(now)) => *told = Some(now),
                         (Some(previous), Some(now)) if previous != now => {
-                            log::debug!(
+                            tracing::debug!(
                                 target: "layout",
                                 "{}/{}: another object in this process moved the tree \
                                  ({previous} → {now})",
@@ -1528,7 +1528,7 @@ impl InvalidationFeed {
             Err(e) => {
                 // No pane is invalidated until the next version bump rebuilds
                 // this: say so, rather than go quiet (review RL-L6).
-                log::warn!(
+                tracing::warn!(
                     target: "layout",
                     "{}/{}: could not read the tree to rebuild pane subscriptions ({e}); \
                      no pane is refreshed by store writes until the tree changes again",
@@ -1648,7 +1648,7 @@ fn encode_static(value: &impl serde::Serialize, what: &str) -> String {
     match serde_json::to_string(value) {
         Ok(json) => json,
         Err(e) => {
-            log::error!(target: "layout", "{what} does not encode: {e}");
+            tracing::error!(target: "layout", "{what} does not encode: {e}");
             debug_assert!(false, "{what} does not encode: {e}");
             "{}".into()
         }
@@ -2852,7 +2852,7 @@ mod tests {
     /// RL-L11, RL-L6).
     #[test]
     fn a_refused_verb_carries_its_code_and_is_logged() {
-        let sink = crate::log_bridge::tests::captured();
+        let sink = crate::tracing_bridge::tests::captured();
         let store = SharedStore::open_in_memory().expect("open");
         let layout = SharedLayout::open(store, "t5-refusal".into(), Some("t5".into()));
         let err = layout

@@ -3,38 +3,53 @@
 //! `layout` target with who asked, at the verb path's levels: `info` when
 //! done, `warn` when refused (plan wave 7, T5's finding 3; wave 8 U2).
 //!
-//! Its own test binary, because the logger is process-wide.
+//! Its own test binary, because the subscriber is process-wide.
+//!
+//! G7a moved these lines off the `log` facade onto `tracing` (D-P1); this
+//! test captures them with a small `tracing_subscriber::Layer` instead of a
+//! `log::Log`.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
-use log::{Level, Log, Metadata, Record};
+use tracing::field::{Field, Visit};
+use tracing::{Event, Level, Subscriber};
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::Layer;
 
 const APP: &str = "imbib";
 
 struct Capture(Mutex<Vec<(Level, String, String)>>);
 
-impl Log for Capture {
-    fn enabled(&self, _: &Metadata) -> bool {
-        true
+struct MessageVisitor(String);
+impl Visit for MessageVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{value:?}");
+        }
     }
-    fn log(&self, record: &Record) {
+}
+
+impl<S: Subscriber> Layer<S> for &'static Capture {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let mut visitor = MessageVisitor(String::new());
+        event.record(&mut visitor);
         self.0.lock().unwrap().push((
-            record.level(),
-            record.target().to_string(),
-            record.args().to_string(),
+            *event.metadata().level(),
+            event.metadata().target().to_string(),
+            visitor.0,
         ));
     }
-    fn flush(&self) {}
 }
 
 fn capture() -> &'static Capture {
     static CAPTURE: OnceLock<&'static Capture> = OnceLock::new();
     CAPTURE.get_or_init(|| {
         let capture: &'static Capture = Box::leak(Box::new(Capture(Mutex::new(Vec::new()))));
-        log::set_logger(capture).expect("the only logger in this binary");
-        log::set_max_level(log::LevelFilter::Trace);
+        let subscriber = tracing_subscriber::registry().with(capture);
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("the only subscriber in this binary");
         capture
     })
 }
@@ -72,7 +87,7 @@ async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor()
         .await;
     assert!(saved.ok, "{}", saved.message);
     let (level, line) = line_with("save_layout 'Logged'");
-    assert_eq!(level, Level::Info, "{line}");
+    assert_eq!(level, Level::INFO, "{line}");
     assert!(line.starts_with("imbib: human save_layout"), "{line}");
 
     let applied = svc
@@ -87,7 +102,7 @@ async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor()
         .await;
     assert!(applied.ok, "{}", applied.message);
     let (level, line) = line_with("apply_layout 'Logged'");
-    assert_eq!(level, Level::Info, "{line}");
+    assert_eq!(level, Level::INFO, "{line}");
     assert!(line.starts_with("imbib: agent apply_layout"), "{line}");
 
     let deleted = svc
@@ -95,7 +110,7 @@ async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor()
         .await;
     assert!(deleted.ok, "{}", deleted.message);
     let (level, line) = line_with("delete_layout 'Logged'");
-    assert_eq!(level, Level::Info, "{line}");
+    assert_eq!(level, Level::INFO, "{line}");
     assert!(line.starts_with("imbib: human delete_layout"), "{line}");
 
     // A preset is never deleted: refused, and the refusal is logged.
@@ -104,7 +119,7 @@ async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor()
         .await;
     assert!(!refused.ok);
     let (level, line) = line_with("delete_layout 'Triage' refused");
-    assert_eq!(level, Level::Warn, "{line}");
+    assert_eq!(level, Level::WARN, "{line}");
     assert!(
         line.contains("agent") && line.contains("[preset-not-deletable]"),
         "{line}"
@@ -117,7 +132,7 @@ async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor()
         .await;
     assert!(!refused.ok);
     let (level, line) = line_with("save_preset 'Mine' refused");
-    assert_eq!(level, Level::Warn, "{line}");
+    assert_eq!(level, Level::WARN, "{line}");
     assert!(line.starts_with("imbib: human save_preset"), "{line}");
 
     // And a commit of a kind nothing can materialize yet.
@@ -133,6 +148,6 @@ async fn save_apply_delete_and_the_preset_refusals_are_logged_with_their_actor()
         .await;
     assert!(!refused.ok);
     let (level, line) = line_with("commit 'Fig' as 'figure' refused");
-    assert_eq!(level, Level::Warn, "{line}");
+    assert_eq!(level, Level::WARN, "{line}");
     assert!(line.contains("[invalid-argument]"), "{line}");
 }

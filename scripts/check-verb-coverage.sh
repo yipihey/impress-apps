@@ -43,7 +43,7 @@ cd "$ROOT"
 
 DOC="docs/verb-coverage.md"
 TEST="crates/impress-capabilities/tests/census.rs"
-VERDICTS="verb-crate covered-through internal should-be-verb"
+VERDICTS="verb-crate covered-through internal should-be-verb optional-feature"
 BINDING_PATTERN='#\[uniffi::export\]|#\[pyfunction\]|#\[pymodule\]|\.route\('
 SELF_TEST=0
 

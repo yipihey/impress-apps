@@ -1,0 +1,14 @@
+{
+  "wire_version": 1,
+  "id": "app.reachable",
+  "description": "imprint HTTP API is reachable",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "imprint_status",
+      "args": {},
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "status", "present": true }] }
+    }
+  ]
+}

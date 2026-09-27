@@ -1,0 +1,14 @@
+{
+  "wire_version": 1,
+  "id": "app.compile_pdf",
+  "description": "Live Typst compile returns a non-empty PDF",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "imprint_compile-typst",
+      "args": { "source": "= Hello\n\nThis is a self-test document.\n" },
+      "as": "agent:scenario",
+      "expect": { "status": 200, "fields": [{ "path": "bytes", "gte": 1 }] }
+    }
+  ]
+}

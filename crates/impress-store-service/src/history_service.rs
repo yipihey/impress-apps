@@ -33,7 +33,7 @@ use std::sync::Arc;
 use chrono::{SecondsFormat, Utc};
 use impress_core::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
 use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
-use impress_core::schemas::VERB_CALL_SCHEMA;
+use impress_core::schemas::{VERB_CALL_SCHEMA, WORKFLOW_SCHEMA as CORE_WORKFLOW_SCHEMA};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_service_core::async_trait;
@@ -49,13 +49,12 @@ use impress_service_macros::impress_method;
 
 use crate::store::store_instance;
 
-/// The canonical spelling of a saved macro's kind — one new record kind,
-/// pre-approved (D-R1) and named for this exact use by the plan's §
-/// Workflows: `history-service_save-macro` "writes an `impress/workflow@1.0.0`
-/// with `trigger: manual` whose steps are the calls". W1 builds the crate
-/// that validates, plans and *runs* a workflow document; until then this is a
-/// `state: "proposed"` document nothing executes — a record, not a runtime.
-pub const WORKFLOW_SCHEMA: &str = "impress/workflow@1.0.0";
+/// The canonical spelling of a saved macro's kind (schema-refs.json;
+/// `impress_core::schemas::WORKFLOW_SCHEMA`, registered by W1). Re-exported
+/// under this crate's own name because every call site here already spells
+/// it `WORKFLOW_SCHEMA` and existed before W1 registered the canonical
+/// definition in `impress-core` — see that module's doc comment.
+pub const WORKFLOW_SCHEMA: &str = CORE_WORKFLOW_SCHEMA;
 
 // ---------------------------------------------------------------------------
 // DTOs
