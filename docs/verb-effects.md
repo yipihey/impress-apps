@@ -292,6 +292,11 @@ catalogue, 275 on the exception table.
 | `impress-bridges-service_resolve-artifact` | any("resolves a URI to whichever kind it names") | — | — | — |
 | `impress-bridges-service_search-all` | any("searches every kind") | — | — | — |
 | `impress-bridges-service_sync-figure` | target(figure_id) | — | app("implore"), fs | — |
+| `impress-scenario-service_scenario-create` | "impress/scenario@1.0.0" | "impress/scenario@1.0.0" | — | example ×1 |
+| `impress-scenario-service_scenario-get` | "impress/scenario@1.0.0" | — | — | example ×1 |
+| `impress-scenario-service_scenario-list` | "impress/scenario@1.0.0" | — | — | example ×1 |
+| `impress-scenario-service_scenario-run` | "impress/scenario@1.0.0" | any("a scenario's steps may call any verb, including a mutating one") | network | — |
+| `impress-scenario-service_scenario-validate` | — | — | — | example ×1 |
 | `impress-surface-service_surface-create` | "impress/ui/surface@1.0.0" | "impress/ui/surface@1.0.0" | — | catalogue:surface |
 | `impress-surface-service_surface-delete` | "impress/ui/surface@1.0.0" | "impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0" | — | catalogue:surface |
 | `impress-surface-service_surface-dispatch` | "impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", any("evaluates the surface's verb sources") | "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0", any("runs the surface's actions") | — | catalogue:surface |
@@ -701,6 +706,7 @@ when one lands).
 | `impress-bridges-service_resolve-artifact` | no example |
 | `impress-bridges-service_search-all` | no example |
 | `impress-bridges-service_sync-figure` | needs a running app |
+| `impress-scenario-service_scenario-run` | leaves the process (network) |
 | `imprint-app-service_create-comment` | needs a running app |
 | `imprint-app-service_create-document` | needs a running app |
 | `imprint-app-service_delete-comment` | needs a running app |

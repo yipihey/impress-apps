@@ -62,6 +62,7 @@ prints the row as it should now read.
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 0 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
+| `impress-scenario-service` | impress-scenario-service | 5 | 5 | 7 (4) | 7 | 5 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
 | `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 0 |
@@ -69,7 +70,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 16 crates, 38 services | **438** | **438** | **1010 (674)** | **88** | **51** |
+| **Total** | 17 crates, 39 services | **443** | **443** | **1017 (678)** | **95** | **56** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -88,12 +89,12 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | Shape | Arguments |
 |---|---:|
 | `array-of-objects` | 3 |
-| `array-of-scalars` | 49 |
+| `array-of-scalars` | 50 |
 | `inline-object` | 4 |
 | `map` | 2 |
-| `other` | 3 |
+| `other` | 5 |
 | `ref-object` | 40 |
-| `scalar` | 909 |
+| `scalar` | 913 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -175,6 +176,8 @@ and the implore owner decides between verbs and deletion.
 | `impress-parsers-service` | verb-crate | verb-crate | |
 | `impress-plot` | library | should-be-verb | `render::{LinePlot::render, Hist2DFigure::render, ContourFigure::render}` are reached only through a project figure build; no spec-to-SVG/Typst verb |
 | `impress-remarkable` | library | covered-through | `imbib-eink-service` reaches it through `imbib-core::eink`; `rm::parse_rm` (strokes of a page) has no verb |
+| `impress-scenario` | library | covered-through | `impress-scenario-service` exposes validate/interpret over it |
+| `impress-scenario-service` | verb-crate | verb-crate | |
 | `impress-service-core` | glue/inventory | internal | runtime types of the macro pipeline |
 | `impress-service-macros` | glue/inventory | internal | the proc macros |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |

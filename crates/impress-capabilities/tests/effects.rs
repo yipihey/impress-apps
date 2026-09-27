@@ -49,7 +49,13 @@ use serde_json::Value;
 /// recording anything when nothing matched) reclassified 10 verbs from a
 /// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
 /// positive, not gained real coverage, so the ceiling moves to say so.
-const EXCEPTION_CEILING: usize = 277;
+/// Raised to 278 in plan-self-reflective-layer S1: `scenario-service_run`
+/// is `external` (it can drive a running app over loopback HTTP) and its
+/// own example would need a stored scenario and, for a Tier B run, a live
+/// app — neither is available to a headless example runner, so it joins
+/// the table with `leaves the process (network)`, exactly the reason this
+/// table already gives every other `app(...)`/`network` verb.
+const EXCEPTION_CEILING: usize = 278;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

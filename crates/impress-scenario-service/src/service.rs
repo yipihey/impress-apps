@@ -31,17 +31,20 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// that a `call` step names a real verb without the inventory, so it
     /// adds that check on top of `impress-scenario`'s own structural pass.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}"#)]
     async fn scenario_validate(&self, spec: SpecArg) -> ScenarioValidateResult;
 
     /// Store a spec as a new `impress/scenario@1.0.0` row, after validating
     /// it exactly as `scenario_validate` does. Refused `invalid-spec` with
     /// every problem when any is found; nothing is stored.
     #[impress_method(safety = mutating, effects(reads = ["impress/scenario@1.0.0"], writes = ["impress/scenario@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}"#)]
     async fn scenario_create(&self, spec: SpecArg, tags: Option<Vec<String>>) -> ScenarioResult;
 
     /// One stored scenario, by its row id OR its stable `scenario_id`
     /// (`layout.saved_round_trip`) — whichever `id` names.
     #[impress_method(effects(reads = ["impress/scenario@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"id": "example.noop"}"#)]
     async fn scenario_get(&self, id: String) -> ScenarioResult;
 
     /// Every stored scenario, oldest first, without their specs (see
@@ -53,10 +56,12 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// Run one stored scenario by its `scenario_id`, Tier A on a fresh
     /// scratch store or Tier B against `base_url` (default: this device's
     /// own app, resolved the way the layout Tier B catalogue does).
-    /// Read-only or mutating depending on what the scenario itself does —
-    /// declared `mutating` here because most scenarios call at least one
-    /// mutating verb.
-    #[impress_method(safety = mutating, effects(reads = ["impress/scenario@1.0.0"], writes = [any("a scenario's steps may call any verb, including a mutating one")], reach = [network]))]
+    /// `external`: a Tier B run leaves the process over loopback HTTP, and
+    /// a scenario's steps may call any verb, including a mutating or
+    /// destructive one — the same reasoning that makes `workflow-service_run`
+    /// (and every other "run arbitrary steps" verb) an external safety class
+    /// rather than trying to infer a tighter one from what happens to run.
+    #[impress_method(safety = external, effects(reads = ["impress/scenario@1.0.0"], writes = [any("a scenario's steps may call any verb, including a mutating one")], reach = [network]))]
     async fn scenario_run(&self, scenario_id: String, tier: Option<String>, base_url: Option<String>) -> ScenarioRunResult;
 }
 

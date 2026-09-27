@@ -4451,6 +4451,7 @@ dependencies = [
  "impress-layout-service",
  "impress-memory-service",
  "impress-parsers-service",
+ "impress-scenario-service",
  "impress-service-core",
  "impress-smart-search-service",
  "impress-store-service",

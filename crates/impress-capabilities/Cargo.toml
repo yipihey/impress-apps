@@ -25,6 +25,7 @@ impress-bridges-service = { workspace = true, optional = true }
 impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
+impress-scenario-service = { workspace = true, optional = true }
 # Not a workspace.dependencies entry (see crates/impress-mcp/Cargo.toml,
 # which reaches it the same way): the vw-* family has never had a workspace
 # alias, only relative `path` dependencies from each consumer.
@@ -78,8 +79,10 @@ full = [
     "smart-search",
     "vw",
     "kit",
+    "scenario",
 ]
 kit = ["dep:impress-capabilities-kit"]
+scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]
