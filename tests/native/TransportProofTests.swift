@@ -1,0 +1,258 @@
+#if os(macOS)
+import Foundation
+import ImpressAutomation
+import ImpressKit
+import PublicationManagerCore
+import XCTest
+
+/// Opt-in hosted proof of the native /api/verb transport in each app. Every
+/// write is confined to the test host's PID-owned workspace.
+@MainActor
+final class TransportProofTests: XCTestCase {
+    private var calls: [[String: Any]] = []
+
+    func testNativeTransportPersistsAndReadsBack() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["IMPRESS_P5B_TRANSPORT_PROOF"] == "1" else {
+            throw XCTSkip("Run scripts/prove-app-transport.py with an isolated hosted build")
+        }
+        let app = try XCTUnwrap(env["IMPRESS_P5B_APP"])
+        let port = try XCTUnwrap(env["IMPRESS_P5B_PORT"].flatMap(UInt16.init))
+        let output = URL(fileURLWithPath: try XCTUnwrap(env["IMPRESS_P5B_OUTPUT"]), isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let proofRoot = URL(fileURLWithPath: try XCTUnwrap(env["IMPRESS_P5B_ROOT"]), isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let temporaryRoot = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .resolvingSymlinksInPath()
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let root = SharedContainer.rootDirectory.standardizedFileURL.resolvingSymlinksInPath()
+        let expectedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("impress-unit-tests-\(pid)")
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let db = SharedWorkspace.databaseURL.standardizedFileURL.resolvingSymlinksInPath()
+        let tokenPath = LoopbackToken.path(port: port)
+
+        try require(ImpressRuntime.isUnitTestProcess && ImpressRuntime.isUITestingProcess,
+                    "test launch flags")
+        try require(Bundle.main.bundleIdentifier == "com.impress.p5bproof.\(app)",
+                    "distinct proof bundle")
+        try require(root == expectedRoot, "PID-owned container")
+        try require(db == root.appendingPathComponent("workspace/impress.sqlite"),
+                    "PID-owned store")
+        try require(RustStoreAdapter.shared.databaseLocation == SharedWorkspace.databasePath,
+                    "native Rust store agrees")
+        try require(tokenPath.hasPrefix(root.path + "/"), "PID-owned bearer path")
+        try require(UserDefaults.standard.integer(forKey: "httpAutomationPort") == Int(port),
+                    "owned HTTP port")
+        try require(env["IMPRESS_DEVICE_ID"]?.hasPrefix("codex-p5b-") == true,
+                    "owned device")
+        try require(proofRoot.path.hasPrefix(temporaryRoot.path + "/impress-p5b-transport-"),
+                    "owned proof root")
+        try require(output.path.hasPrefix(proofRoot.path + "/"), "owned output")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+
+        var token: String?
+        for _ in 0..<100 {
+            if let candidate = try? String(contentsOfFile: tokenPath, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines), !candidate.isEmpty {
+                token = candidate
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let bearer = try XCTUnwrap(token, "Isolated HTTP server did not publish a bearer")
+        let base = "http://127.0.0.1:\(port)"
+
+        // The kit route must be available in every shell, independent of its
+        // app-specific inventory. Fractions distinguish the actual series
+        // computation from an empty or canned success.
+        let series = try await verb(base, bearer, "surface-demo-service_series",
+                                    ["freq": 1.5, "n": 4])
+        let seriesValue = try object(series, "kit series")
+        try require(seriesValue["x"] as? [Double] == [0, 0.25, 0.5, 0.75],
+                    "kit series returned real coordinates")
+        try require((seriesValue["values"] as? [Any])?.count == 4,
+                    "kit series returned four values")
+
+        switch app {
+        case "imbib": try await proveImbib(base, bearer)
+        case "imprint": try await proveImprint(base, bearer)
+        case "impart": try await proveImpart(base, bearer)
+        case "implore": try await proveImplore(base, bearer)
+        case "impel": break // kit series is the app-independent transport proof
+        default: throw failure("unknown proof app: \(app)")
+        }
+        let logs = try await request(base, bearer, "/api/logs?limit=200", nil)
+        try require(logs.status == 200, "logs HTTP \(logs.status): \(logs.value)")
+        let evidence: [String: Any] = [
+            "app": app, "pid": pid, "port": Int(port), "store": db.path,
+            "calls": calls, "logs": logs.value,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: evidence,
+                                              options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: output.appendingPathComponent("proof.json"), options: .atomic)
+    }
+
+    private func proveImbib(_ base: String, _ bearer: String) async throws {
+        let status = try object(try await verb(base, bearer, "imbib-app-service_status", [:]),
+                                "imbib status")
+        try require(status["running"] as? Bool == true, "imbib app status is running")
+        let title = "P5b transport library \(UUID().uuidString)"
+        let library = try object(try await verb(base, bearer,
+            "imbib-library-service_create-library", ["name": title]), "created library")
+        let libraryID = try XCTUnwrap(library["id"] as? String)
+        try require(UUID(uuidString: libraryID) != nil && library["name"] as? String == title,
+                    "created library has its persisted identity and title")
+        let libraries = try array(try await verb(base, bearer,
+            "imbib-library-service_list-libraries", [:]), "library readback")
+        try require(libraries.contains { ($0 as? [String: Any])?["id"] as? String == libraryID },
+                    "created library reads back")
+        let key = "p5bproof" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let paperTitle = "P5b Transport Paper"
+        let bibtex = "@article{\(key), title={\(paperTitle)}, author={Doe, Jane}, year={2026}}"
+        let imported = try array(try await verb(base, bearer,
+            "imbib-library-service_import-bibtex",
+            ["bibtex": bibtex, "library_id": libraryID]), "BibTeX import")
+        let paperID = try XCTUnwrap(imported.first as? String)
+        try require(UUID(uuidString: paperID) != nil, "BibTeX import returned a paper UUID")
+        let paper = try object(try await verb(base, bearer,
+            "imbib-library-service_get-publication", ["id": paperID]), "paper readback")
+        try require(paper["id"] as? String == paperID &&
+                    (paper["title"] as? String)?.contains(paperTitle) == true,
+                    "BibTeX paper reads back with its title")
+        let exported = try string(try await verb(base, bearer,
+            "imbib-library-service_export-bibtex", ["ids": [paperID]]), "BibTeX export")
+        try require(exported.contains(paperTitle), "imported BibTeX exports from the store")
+    }
+
+    private func proveImprint(_ base: String, _ bearer: String) async throws {
+        let status = try object(try await verb(base, bearer, "imprint-app-service_status", [:]),
+                                "imprint status")
+        try require(status["running"] as? Bool == true, "imprint app status is running")
+        let title = "P5b transport manuscript \(UUID().uuidString)"
+        let created = try string(try await verb(base, bearer,
+            "imprint-app-service_create-document", ["title": title, "format": "typst"]),
+            "created document")
+        try require(UUID(uuidString: created) != nil, "created document has a UUID")
+        let source = "= Native transport proof\n\nPersisted text."
+        let inserted = try boolean(try await verb(base, bearer,
+            "imprint-app-service_insert-text",
+            ["document_id": created, "offset": 0, "text": source]), "insert text")
+        try require(inserted, "native insert reported a write")
+        let content = try string(try await verb(base, bearer,
+            "imprint-app-service_get-content", ["document_id": created]), "read content")
+        try require(content == source, "native insert reads back from the app")
+        let renamed = title + " edited"
+        let updated = try boolean(try await verb(base, bearer,
+            "imprint-app-service_update-document",
+            ["document_id": created, "title": renamed]), "rename document")
+        try require(updated, "native rename reported a write")
+        let documents = try array(try await verb(base, bearer,
+            "imprint-manuscript-service_list-documents", [:]), "document readback")
+        try require(documents.contains { item in
+            guard let row = item as? [String: Any] else { return false }
+            return row["id"] as? String == created && row["title"] as? String == renamed
+        }, "renamed manuscript reads back through the native store service")
+    }
+
+    private func proveImpart(_ base: String, _ bearer: String) async throws {
+        let status = try object(try await verb(base, bearer, "impart-service_status", [:]),
+                                "impart status")
+        try require(status["running"] as? Bool == true, "impart app status is running")
+        let title = "P5b research conversation \(UUID().uuidString)"
+        let conversation = try object(try await verb(base, bearer,
+            "impart-service_create-conversation", ["title": title, "summary": NSNull()]),
+            "created conversation")
+        let id = try XCTUnwrap(conversation["id"] as? String)
+        try require(UUID(uuidString: id) != nil && conversation["title"] as? String == title,
+                    "conversation created with real ID")
+        let content = "Transport message \(UUID().uuidString)"
+        let message = try object(try await verb(base, bearer,
+            "impart-service_add-message",
+            ["conversation_id": id, "content": content, "role": "user"]), "added message")
+        let messageID = try XCTUnwrap(message["id"] as? String)
+        try require(UUID(uuidString: messageID) != nil && message["content"] as? String == content,
+                    "message is persisted and identified")
+        let artifact = try boolean(try await verb(base, bearer,
+            "impart-service_record-artifact", ["conversation_id": id,
+                "title": "Reference paper", "kind": "paper",
+                "reference": "impress://imbib/papers/example"]), "record artifact")
+        try require(artifact, "artifact relationship was written")
+        let read = try object(try await verb(base, bearer,
+            "impart-service_get-conversation", ["conversation_id": id]),
+            "conversation readback")
+        try require(read["id"] as? String == id && (read["message_count"] as? Int ?? 0) >= 1,
+                    "conversation and message count read back")
+        let detail = try object(try await request(base, bearer,
+            "/api/research/conversations/\(id)", nil), "conversation detail")
+        let messages = detail["messages"] as? [[String: Any]] ?? []
+        let stats = detail["statistics"] as? [String: Any] ?? [:]
+        try require(messages.contains { $0["id"] as? String == messageID &&
+            $0["contentMarkdown"] as? String == content }, "message reads back in detail")
+        try require((stats["artifactCount"] as? Int ?? 0) >= 1,
+                    "recorded artifact reads back in statistics")
+    }
+
+    private func proveImplore(_ base: String, _ bearer: String) async throws {
+        let status = try object(try await verb(base, bearer, "implore-service_status", [:]),
+                                "implore status")
+        try require(status["running"] as? Bool == true, "implore app status is running")
+        // ImploreNativeVerbProofTests separately loads the owned rg-volume
+        // fixture and asserts the five formerly-dead verbs against its viewer.
+    }
+
+    private struct Reply {
+        let status: Int
+        let value: Any
+    }
+
+    private func verb(_ base: String, _ bearer: String, _ name: String,
+                      _ args: [String: Any]) async throws -> Reply {
+        try await request(base, bearer, "/api/verb/\(name)", args)
+    }
+
+    private func request(_ base: String, _ bearer: String, _ path: String,
+                         _ body: [String: Any]?) async throws -> Reply {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: base + path)))
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = try XCTUnwrap(response as? HTTPURLResponse).statusCode
+        let value = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        calls.append(["path": path, "status": status, "args": body ?? [:], "result": value])
+        return Reply(status: status, value: value)
+    }
+
+    private func object(_ reply: Reply, _ label: String) throws -> [String: Any] {
+        try require(reply.status == 200, "\(label) HTTP \(reply.status): \(reply.value)")
+        let value = try XCTUnwrap(reply.value as? [String: Any], "\(label) did not return an object")
+        try require(value["ok"] as? Bool != false, "\(label) refused: \(value)")
+        return value
+    }
+    private func array(_ reply: Reply, _ label: String) throws -> [Any] {
+        try require(reply.status == 200, "\(label) HTTP \(reply.status): \(reply.value)")
+        return try XCTUnwrap(reply.value as? [Any], "\(label) did not return an array")
+    }
+    private func string(_ reply: Reply, _ label: String) throws -> String {
+        try require(reply.status == 200, "\(label) HTTP \(reply.status): \(reply.value)")
+        return try XCTUnwrap(reply.value as? String, "\(label) did not return a string")
+    }
+    private func boolean(_ reply: Reply, _ label: String) throws -> Bool {
+        try require(reply.status == 200, "\(label) HTTP \(reply.status): \(reply.value)")
+        return try XCTUnwrap(reply.value as? Bool, "\(label) did not return a boolean")
+    }
+    private func require(_ condition: Bool, _ message: String) throws {
+        XCTAssertTrue(condition, message)
+        if !condition { throw failure(message) }
+    }
+    private func failure(_ message: String) -> NSError {
+        NSError(domain: "ImpressP5bTransportProof", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+#endif

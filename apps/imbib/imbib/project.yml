@@ -634,6 +634,7 @@ targets:
     platform: macOS
     sources:
       - path: ../../../tests/native/StrictArgumentsProofTests.swift
+      - path: ../../../tests/native/TransportProofTests.swift
       - path: imbibTests
         optional: true
     dependencies:
