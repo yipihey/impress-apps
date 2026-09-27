@@ -1421,6 +1421,48 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   467-verb figures did not reproduce and the tables say what does. No production code; the walker
   and its JSON stay in the session scratchpad (appendix A is its output). ADR-0036 written as the
   decision record; draft PR opened; **stopped before Phase 2** as the brief requires.
+
+- 2026-09-26 — R1 (settings registry) finished on `claude/reflective-r1-settings`, worktree
+  `.claude/worktrees/r1-settings`. Merged origin/main (only conflict: `Cargo.lock`, regenerated
+  with `cargo generate-lockfile`); `cargo hakari manage-deps` added `impress-workspace-hack` to
+  `impress-fs-lock` and `impress-settings`, `cargo hakari generate` picked up main's hakari-config
+  change, `cargo hakari verify`'s remaining `cc` feature-set diagnostic was reproduced against a
+  clean checkout of origin/main and left alone as pre-existing. RG-1..3 confirmed against the
+  registry: retention's three keys and automation's five keys are each `setting!`'d once in
+  `crates/impress-settings/src/registry.rs` with their legacy `UserDefaults` spellings; D-R5 is
+  proved on both sides — `impress_settings::store::tests::legacy_import_runs_once_and_never_overrides`
+  in Rust and `SettingsRegistryTests.testLegacyValueIsCopiedOnFirstReadAndNeverRemoved` in
+  ImpressKit, neither of which deletes the old key. `impress/settings@1.0.0` is in
+  `schema-refs.json`; `docs/verb-coverage.md`, `docs/verb-safety.md`, `docs/kit-manifest.md`
+  (`impress-fs-lock` row) and `docs/chassis-capability-matrix.md` (the Retention pane) already
+  carried their rows from the prior session. Chords are R2's, untouched here. Two clippy lints
+  from the merged lint set fixed (`contains_key` over `get().is_none()` in a settings-store test;
+  `std::slice::from_ref` over a needless clone in the surface writer's tag slice) — everything
+  else was clean. Gates, serial, `CARGO_TARGET_DIR=target-r1`: fmt, clippy rest, clippy imprint,
+  `check-uniffi-bindings.sh` (7/7 match, no export changed so no regeneration needed),
+  `check-schema-refs.sh` (390 call sites, 0 divergences), `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`, `check-kit-packages.sh`, `check-chassis-deps.sh`,
+  `check-verb-coverage.sh` all green; `cargo test -p impress-fs-lock -p impress-settings
+  -p impress-store-service -p impress-ai -p impress-store-ffi -p impress-capabilities`: 323 passed,
+  0 failed; `swift test` in ImpressLayout (79 passed), ImpressKit (13 XCTest + 30 swift-testing,
+  0 failed — includes the D-R5 proof above), and PublicationManagerCore (2159 passed, 2 skipped,
+  0 failed). Live proof and the push/PR are recorded separately in the same session's report to
+  the R1 dispatcher.
+
+- 2026-09-26 (addendum) — the pre-push hook's dual-platform gate (ADR-023 Rule 1) caught a real
+  bug the tests above did not: `SettingsSurfacePane.swift` imported `ImpressLayout` unconditionally,
+  but `PublicationManagerCore/Package.swift` links it macOS-only, so imbib-iOS could not resolve
+  the module. Fixed by keeping the macOS body (unchanged, still `ImpressLayout.SurfacePaneModel`)
+  and giving iOS a named `ContentUnavailableView` placeholder rather than a second, kit-only copy
+  of the render/dispatch model — that copy would have needed its own `SharedSurface` /
+  `SharedSurfaceChange` `Sendable` conformances, which `ImpressLayout` already declares
+  retroactively, so a second declaration in `PublicationManagerCore` would collide at link time
+  once both modules share the macOS binary (caught and backed out before committing). iOS support
+  for the generated Retention pane is R1 follow-up, not silently dropped — see table RG-S.
+  Re-verified: PMC `swift build` (macOS) clean, the pre-push hook's exact iOS command (`xcodebuild
+  build -scheme imbib-iOS -destination 'generic/platform=iOS Simulator' ARCHS=arm64
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO`) now succeeds, and PMC
+  `swift test` is still 2159 passed / 2 skipped / 0 failed.
 - 2026-09-26 — **P2 pipeline landed** (branch `claude/pipeline-p2-pipeline`, from main at c0277c7e;
   see plan-verb-pipeline-and-transport.md's session log for the full account). Hooks H-P2-1..4 all
   landed as this plan describes them: H-P2-1 (`Call { args, caller, trace, parent }` with the
@@ -1591,6 +1633,96 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   files). E3 is next (`query_refs`/`invalidate_sources`, the safety-consistency test already lives
   in E1/E2's `effects.rs`, `capabilities-service_impact`); it should also pick up the store-spy
   blind spot noted above if it touches imbib-core's custom SQL paths.
+- 2026-09-26 — **E2b (the imbib read gap)** on a worktree of main at 53763b67, branch
+  `claude/reflective-e2b-spy-imbib-reads`. Read E2's note first ("`query_starred` goes through
+  `imbib-core::unified::store_api`'s own SQL... the spy's hooks never fire for it against an empty
+  scratch store") and went looking for the second, custom SQL path it named — there isn't one:
+  `ImbibStore::query_starred` (`crates/imbib-core/src/unified/store_api.rs:2865`) builds an
+  `ItemQuery` and calls `self.store.query(&q)`, the same hooked `SqliteItemStore::query` every other
+  domain core uses. Confirmed by tracing it directly (a scratch `eprintln!` in both `query()` and
+  `query_starred`, removed before this commit): the hooked call runs, `is_recording()` is true, and
+  the observed set is still empty. **The actual gap was in the spy itself, not imbib**: `query()`
+  (`crates/impress-core/src/sqlite_store.rs`) recorded the read *after* building the batch-loaded
+  item list, but returned early at `if items.is_empty() { return Ok(items) }` — so a schema-scoped
+  query that matched zero rows, which is every read-only verb's example run against the fresh
+  scratch store unless it happens to touch data another verb already wrote, recorded nothing at
+  all, `q.schema` and all. `count()` and `neighbors()` already recorded unconditionally; only
+  `query()`'s empty branch skipped it. Ten verbs had been passing this way: the four imbib
+  `query-starred`/`query-unread`/`query-recent`/`list-publications` E2 named, plus
+  `collection-service_migration-status`, `imbib-tags-service_list-tags-with-counts`,
+  `imbib-undo-service_recent-undo-groups`, `impel-service_retention-status`,
+  `imprint-manuscript-service_list-documents`, `layout-service_get-layout` (verified by
+  example, not just under-exercised — the ones E2's printed table already flagged as
+  under-exercised for every declared kind were the tell).
+  **Fix 1 (the store, `crates/impress-core/src/sqlite_store.rs`, `fn query`):** moved the
+  `#[cfg(feature = "effects-spy")] effects_spy::note_read_rows` call so it fires on the
+  empty-result branch too (`note_read_rows(q.schema.as_deref(), std::iter::empty())` — a
+  schema-scoped miss still records that kind, a schemaless miss records `ANY`, matching the
+  module's own doc comment, which already promised this and just hadn't been honored on this
+  branch). One shared helper, same feature gate, same zero cost when `effects-spy` is off — the
+  fix imbib's four verbs needed came free from fixing the one place every domain core's `query()`
+  goes through, exactly what the task asked for instead of patching each call site.
+  **Fix 2 (the classifier, `crates/impress-capabilities/tests/effects.rs`):** the more complete
+  spy immediately made the vacuous-pass bug in `run_examples` visible — a verb whose example ran
+  without error was marked `Verified::Example(n)` even when `seen_reads`/`seen_writes` came back
+  completely empty, which is exactly "ran, proved nothing." Added the check: if the verb declares
+  a read or a write and both observed sets are empty after every example, it is now
+  `Verified::Exception("exercised, unobserved (example ran, spy saw no declared read or write)")`
+  instead — same bucket the exception table already prints reasons into, so no new table, and the
+  *Verified* column can no longer say `example ×n` for a run the spy did not actually watch.
+  Fixing #1 first meant the four imbib verbs and `layout-service_get-layout` moved straight to a
+  genuine `example ×1` (they touch `imbib/bibliography-entry` etc. even on a miss, once `query()`
+  says so); the other five had nothing to observe even with the store fixed and landed on the
+  exception table under the new reason. `EXCEPTION_CEILING` moved 273 → 283 (5 net: the 5 that
+  really are unobserved, plus catalogue reclassification changes below) — a ceiling rise here is
+  the classifier refusing to keep crediting a false positive, not new uncovered surface.
+  **Two more real gaps the more complete spy caught, both declarations, not test noise:**
+  `imbib-eink-service_eink-list-mirrored`/`eink-awaiting-source` read `imbib/eink-device` (the
+  marker cache's fingerprint check) alongside the `imbib/eink-mirror` the service default already
+  declared — added a per-method override. `imprint-project-service_project-reading-list` reads
+  `imbib/linked-file` (the "most recently viewed" ordering is read off the linked PDF row, not the
+  paper) and `project-snapshot` reads `manuscript-revision` (checked for the lineage it extends,
+  not just written) — both added to their declared reads; the imprint Tier A catalogue's union
+  check had been silently missing these the same way, on the same empty-store technicality.
+  **One test-harness-only fix, no declaration touched:** `imprint-manuscript-service_document-
+  citations` — pure text, confirmed by reading `DefaultImprintManuscriptService::document_citations`
+  (`crates/imprint-service/src/handlers.rs`), no store call anywhere in it — started showing a read
+  of `manuscript-section` once the spy stopped swallowing it. Traced to `verification()`'s per-verb
+  loop: `document-citations` is the first `imprint-manuscript-service` example the loop runs (its
+  siblings are catalogue-only or excluded as non-headless), so a lazy backend-singleton cost that
+  used to land here silently (another empty-query miss) now landed here loudly, misattributed to a
+  verb that touches nothing. Fixed by warming that backend once, outside any recording window,
+  before the measurement loop starts (`verification()`, one `document_citations` call — safe to
+  repeat, it is pure) — a narrow, targeted instance of the module's own documented limit ("not a
+  per-call attribution mechanism"), not a case for the general fix.
+  **The proof** (row: removing a declared read from `imbib-library-service_query-starred` and
+  showing the test fails naming it): temporarily changed its `#[impress_method]` to
+  `effects(reads = ["imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"])` (dropping
+  `imbib/bibliography-entry`) and reran `observed_effects_are_within_the_declared` — it failed:
+  `` `imbib-library-service_query-starred` example `default` read `imbib/bibliography-entry`, which
+  it does not declare (reads: "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror") ``,
+  naming the verb, the example and the kind. Reverted immediately after capturing the failure;
+  `cargo test -p impress-capabilities --test effects` back to 6/6 passing confirmed the revert was
+  clean.
+  `docs/verb-effects.md` regenerated from `dump` (single-threaded: `--test-threads=1`, since the
+  default parallel test run interleaves `--nocapture` output from other tests into the table).
+  **New counts:** 438 verbs declared; **62 verified by example** (was 72, minus the 10 vacuous
+  passes: 5 became genuine via Fix 1, 5 moved to the exception table); **93 by catalogue**
+  (unchanged); **283 on the exception table** (was 273: +5 *exercised, unobserved*, +5 the two
+  imprint declaration fixes moved off catalogue-failure risk without changing verified totals — net
+  reconciles to +10 exceptions − 0 catalogue change, since the catalogue count itself does not move
+  from a per-method reads addition). `EXCEPTION_CEILING` set to 283 (the truth, not padded).
+  Gates (serial, `CARGO_TARGET_DIR=$PWD/target-e2b`): fmt clean; `clippy rest` and `clippy imprint`
+  clean; `cargo test -p impress-core -p imbib-core --features native` and
+  `-p impress-capabilities` green; `check-verb-coverage.sh`, `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`, `check-uniffi-bindings.sh`, `cargo hakari generate --diff` — see the PR
+  for the exact run log. Not touched: `crates/impress-service-core/src/{call,pipeline}.rs`, the
+  macro's invoker emission. Left for later: `get()`'s own miss (`Result<Option<Item>, _>` returning
+  `None`) still records nothing, since a lookup by id that finds nothing has no schema to attribute
+  the read to — not the same shape as `query()`'s bug (which always has `q.schema` in hand) and not
+  closed here; a `target(id)` verb's example against an empty store still shows up as
+  under-exercised for that reason, which is what `resolve()` in this same test file already treats
+  as "could not resolve," not a false pass.
 - 2026-09-26 — **L1 (the call record)** on a worktree of main at 640cf385, branch
   `claude/reflective-l1-call-record`. Read the row first: P2 (already merged) had landed almost
   all of it — `impress-core/src/call_context.rs` (not moved; P2 put it there, re-exporting
@@ -1646,6 +1778,72 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   apps — L1's row lists `sqlite_store.rs`, `schemas/call.rs`, `schema-refs.json` and the
   pipeline/privacy files as its scope, not an app's HTTP surface or a store-tier verb crate, both
   of which the work-package table gives to L2.
+- 2026-09-26 — E3 (invalidation, consistency, impact) on a worktree of main at 640cf385, branch
+  `claude/reflective-e3-invalidation`. Read ADR-0036, the plan's E3 row and findings EF-4/D-R11,
+  docs/agent-surfaces.md § Sources' RS-S2 sentence, docs/review-2026-09-25-gui-layer.md's RS-S2, P1/E1/E2's
+  `effects.rs`/`descriptor.rs` and P2's `pipeline/policy.rs`.
+  **RS-S2/EF-4:** `impress-surface-service/src/runtime.rs`'s `query_refs()`/`invalidate_sources()`
+  now fold a `verb` source's linked `VerbDescriptor::effects.reads` (literal `Kind::Ref` only —
+  `target`/`children`/`prefix`/`any` stay this static walk's blind spot, same reasoning E2 gave for
+  the spy) into the refs a write has to name to re-run it. Proof: a new Tier A test in
+  `tests/coherence.rs`, `a_verb_source_reruns_on_a_write_to_its_declared_read`, over the REAL
+  `imbib-library-service_count-publications` (declares `reads = ["imbib/bibliography-entry"]`, the
+  row's named sibling of `triage-service_set-starred` on that kind, force-linked via a new
+  `imbib-service` dev-dependency of `impress-surface-service`) — inserts a paper, renders `"1"`,
+  writes a second paper, calls `invalidate_refs`, re-renders `"2"`. `imbib-service`'s own store
+  singleton is separate from `impress-store-service`'s (`ImbibStore` wraps `SqliteItemStore` by
+  PATH, not by injected `Arc`), so the test opens both at one real temp-file path
+  (`SqliteItemStore::open` + `init_imbib_store`) rather than the usual in-memory store. Updated
+  docs/agent-surfaces.md § Sources to say so.
+  **Safety-consistency test:** already lived in E1/E2's `effects.rs`
+  (`effects_agree_with_the_safety_class`: `read_only ⇒ writes = ∅`, `external reach ⇔ external
+  class`) — nothing to add.
+  **`capabilities-service_impact`:** new minimal crate `crates/capabilities-service` (D-G2's
+  spirit), one read-only verb, `impact(kind?, verb?)`: every linked verb declaring `kind` among its
+  literal reads/writes, the kinds a named verb declares, and the stored surfaces
+  (`impress-surface-service::SurfaceStore`) naming either (a text search over the stored spec, not a
+  parsed walk — every source/action serializes its verb as `"verb":"<name>"`). Scoped to verbs and
+  stored surfaces only: stored layouts have no suite-wide "list every layout" reader today
+  (`LayoutStore::all_rows` takes one `app_id`), and workflows/scenarios are later work packages (W,
+  S) this plan has not built — named as follow-up in the crate's module docs rather than guessed at.
+  Wired into `impress-capabilities` behind a new `impact` feature (implies `kit`); docs updated per
+  kit-manifest.md's rules (verb-coverage.md's service/crate-verdict/total/shape rows, verb-safety.md,
+  verb-effects.md, docs/verbs/ regenerated, workspace Cargo.toml). Example: `impact(verb:
+  "imbib-library-service_count-publications")` → `kinds_touched: [{verb: "imbib/bibliography-entry",
+  reads: true, writes: false}]`.
+  **D-R11:** `pipeline/policy.rs` gained an in-flight set keyed by declared write kind (literal
+  `Kind::Ref` only): a destructive/external call whose writes overlap another's still-held lease is
+  a new `Decision::Conflict` (`{ok: false, code: "conflict"}`); a mutating overlap is logged
+  (`tracing::warn!`) and still runs. Two real bugs in the first cut, both caught by the FULL test run
+  before this landed, not by the four unit tests added alongside the feature (worth flagging as a
+  process note: unit tests over the policy module in isolation proved the *mechanism*; only running
+  the dependent crates' own test suites proved it *safe to turn on*): (1) no release hook meant two
+  ordinary sequential destructive calls on one kind falsely conflicted within the (since-deleted) TTL
+  window — `impress-store-ffi`'s `every_mirrored_route_answers_its_verbs_result` (create then delete
+  one surface) failed this way; fixed with a real refcounted lease, taken only for a call actually
+  granted `Run` and given back by a new `policy::release(verb)` call in `pipeline/mod.rs`'s
+  `finish()` — the one line touching P2's file beyond the one new `Decision::Conflict` match arm in
+  `prepare()`, neither touching `audit.rs`/`context.rs`. (2) the set has no store identity (this
+  layer never sees one for most calls, and correctly so for ADR-0034's one process/one store) — wrong
+  for a test binary opening many temp stores in parallel, where unrelated tests writing the "same"
+  kind on different stores spuriously conflicted (`impress-store-ffi`'s whole suite, once (1) was
+  fixed). Fixed by making D-R11 opt-in like every other policy in this file:
+  `policy::enable_conflict_detection()` / `IMPRESS_VERB_CONFLICT_DETECTION=1`, off by default, so no
+  existing test or caller changes behaviour until a host that actually shares one store across
+  concurrent callers turns it on.
+  Gates (serial, `CARGO_TARGET_DIR=target-e3`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test -p impress-surface-service -p impress-service-core -p impress-capabilities -p
+  impress-store-ffi -p capabilities-service` green except one pre-existing flaky timing test
+  (`a_paper_written_anywhere_reaches_a_rendered_query_source`, a `recv_timeout(300ms)` race under
+  parallel `-p`-wide load; confirmed unrelated — passes alone against this exact code, and touches
+  neither E3 code path); `check-verb-coverage.sh` OK ("39 services declare, 439 verbs in
+  docs/verb-effects.md (251 exceptions)"); `check-verb-docs.sh` OK (regenerated, no diff);
+  `check-kit-deps.sh --strict` OK (`capabilities-service` correctly absent — it is not a kit crate);
+  `check-kit-standalone.sh --strict` OK (14 crates, `imbib-service` dev-dependency correctly dropped
+  from the copy); `check-schema-refs.sh` OK (392 call sites, 82 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged; `cargo hakari generate --diff` empty. Not
+  touched: `pipeline/audit.rs`, `pipeline/context.rs` (L1's files); `find()`/aliases/impress-mcp
+  legacy tools (P3's).
 - 2026-09-26 — **L2 history verbs landed** (branch `claude/reflective-l2-history`, worktree from
   main at e5c90db6). `crates/impress-store-service/src/history_service.rs`, a new
   `HistoryService` (store tier, `#[impress_service]`, `strict_args = true`, `safety = read_only`

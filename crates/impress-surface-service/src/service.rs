@@ -225,6 +225,27 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 /// Store-backed `ImpressSurfaceService`. `new()` uses the process-wide store and
 /// session registry, matching `impress-layout-service::DefaultLayoutService`;
 /// `with_store` gives hermetic tests their own of each.
+/// Run [`crate::rename::RenamePass`] against `store` once per process — see
+/// `impress-layout-service::service`'s `ensure_renamed`, which this mirrors.
+/// The shipped table
+/// ([`impress_service_core::lifecycle::SHIPPED_RENAMES`]) is empty, so this
+/// costs one branch and touches the store not at all until a real rename is
+/// appended.
+fn ensure_renamed(store: &Arc<SqliteItemStore>) {
+    use impress_service_core::lifecycle::SHIPPED_RENAMES;
+    if SHIPPED_RENAMES.is_empty() {
+        return;
+    }
+    static RAN: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    RAN.get_or_init(|| {
+        if let Err(e) =
+            crate::rename::RenamePass::new(store.clone()).run_if_needed(&SHIPPED_RENAMES)
+        {
+            log::error!(target: "surface", "rename pass: {e}");
+        }
+    });
+}
+
 #[derive(Clone, Default)]
 pub struct DefaultImpressSurfaceService {
     store: Option<Arc<SqliteItemStore>>,
@@ -282,9 +303,12 @@ impl DefaultImpressSurfaceService {
     }
 
     fn store_arc(&self) -> Arc<SqliteItemStore> {
-        self.store
+        let store = self
+            .store
             .clone()
-            .unwrap_or_else(impress_store_service::store_instance)
+            .unwrap_or_else(impress_store_service::store_instance);
+        ensure_renamed(&store);
+        store
     }
 
     fn surfaces(&self) -> SurfaceStore {

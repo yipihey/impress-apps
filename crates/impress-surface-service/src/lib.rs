@@ -38,6 +38,7 @@ use std::time::Instant;
 pub mod dto;
 /// The self-test report types: one copy, in `impress-service-core` (RS-S21).
 pub use impress_service_core::report;
+pub mod rename;
 pub mod runtime;
 pub mod selftest;
 pub mod service;

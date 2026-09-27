@@ -31,6 +31,8 @@ mod log_bridge;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
+/// The settings registry as Swift reads it (ADR-0036 D5, plan R1).
+mod settings;
 /// The ADR-0033 agent-surface tree as Swift drives it (work package S6).
 mod surface;
 /// The pieces `layout`'s and `surface`'s invalidation feeds share (ADR-0033
@@ -88,6 +90,7 @@ pub use layout::{
     SharedWindow,
 };
 pub use log_bridge::{install_log_sink, refusal_http_status, SharedLogSink};
+pub use settings::{SharedSettingValue, SharedSettings, SharedSettingsError};
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
     SharedSurfaceListener, SharedSurfaceRow, SharedVerbHost,

@@ -44,8 +44,15 @@ use serde_json::Value;
 /// The plan expects the exception table to start near 180 rows and shrink
 /// as G3 writes examples; the test fails when it grows past the count last
 /// accepted here. Lower it when examples land; raising it is a plan
-/// decision, not a test edit.
-const EXCEPTION_CEILING: usize = 251;
+/// decision, not a test edit. Raised to 283 in plan E2b (277 after G3's examples merged): closing the
+/// spy's empty-result gap (the store's `query()` used to return before
+/// recording anything when nothing matched) reclassified 10 verbs from a
+/// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
+/// positive, not gained real coverage, so the ceiling moves to say so.
+// Raised 277 → 283 for R1 (settings registry): the six settings-service
+// verbs have no headless example (each needs a `SettingsStore` seeded over
+// a temp directory the harness's example format has no seed step for).
+const EXCEPTION_CEILING: usize = 283;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
@@ -214,13 +221,27 @@ fn row_text(v: &VerbDescriptor, verified: &str) -> String {
 /// How one verb was verified, or why it could not be.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Verified {
-    /// `n` examples ran, every observed kind declared.
+    /// `n` examples ran, every observed kind declared, and at least one
+    /// declared read or write was actually seen (or the verb declares none).
     Example(usize),
     /// Its service is exercised by a Tier A catalogue whose union check held.
     Catalogue(&'static str),
-    /// On the exception table, with the reason the test computed.
+    /// On the exception table, with the reason the test computed. Covers both
+    /// "could not run" (no example, needs a running app, leaves the process)
+    /// and "ran but proved nothing": a verb that declares a read or a write
+    /// whose example completed without the spy observing any kind at all is
+    /// *exercised, unobserved* — running is not the same as being watched,
+    /// and this table must not claim the latter for the former (plan E2b).
     Exception(String),
 }
+
+/// The exception reason for a verb whose example(s) ran and returned without
+/// error, but the spy's recording window came back empty on every one of
+/// them even though the verb declares a read or a write to look for. Kept as
+/// one named constant so `every_verb_declares_what_the_table_records` and the
+/// classifier in [`run_examples`] agree on the exact string.
+const EXERCISED_UNOBSERVED: &str =
+    "exercised, unobserved (example ran, spy saw no declared read or write)";
 
 impl Verified {
     fn cell(&self) -> String {
@@ -406,6 +427,20 @@ async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: 
             out.under_exercised.push(format!("`{}` writes {k}", v.name));
         }
     }
+    // Running is not the same as being watched. A verb that declares a read
+    // or a write must have the spy actually see one of them somewhere across
+    // its examples, or this is a vacuous pass — every declared kind sits in
+    // `under_exercised` and the table would otherwise say "example ×n" for a
+    // run that verified nothing (plan E2b; the store's own `query()` early
+    // return on an empty result was one such gap, fixed alongside this).
+    let declares_something = !v.effects.reads.is_empty() || !v.effects.writes.is_empty();
+    if declares_something && seen_reads.is_empty() && seen_writes.is_empty() {
+        out.verified.insert(
+            v.name,
+            Verified::Exception(EXERCISED_UNOBSERVED.to_string()),
+        );
+        return;
+    }
     out.verified.insert(v.name, Verified::Example(ran));
 }
 
@@ -501,6 +536,29 @@ fn verification() -> &'static Verification {
             .build()
             .expect("runtime");
         rt.block_on(async {
+            // Warm lazy per-service backend singletons outside any recording
+            // window. Some `instance = || …` constructors do their first
+            // store touch (a cache warm, a schema check) on first use, and
+            // that cost landed inside whichever verb's window happened to
+            // run first for that service — `imprint-manuscript-service`'s
+            // did, misattributing a read of `manuscript-section` to
+            // `document-citations`, a pure-text verb that touches nothing
+            // (plan E2b; the store's `query()` early return had been masking
+            // this the same way it masked the imbib gap, since the warm-up
+            // read used to match zero rows and record nothing either).
+            // `document_citations` is pure text, safe to call twice.
+            if let Some(warm) =
+                VerbDescriptor::find("imprint-manuscript-service_document-citations")
+            {
+                let _ = impress_service_core::pipeline::invoke(
+                    warm,
+                    impress_service_core::pipeline::Call::new(
+                        impress_service_core::pipeline::CallerIdentity::system("effects-spy"),
+                        serde_json::json!({"source": ""}),
+                    ),
+                )
+                .await;
+            }
             let mut out = Verification::default();
             for v in &verbs {
                 if !is_headless(v) {

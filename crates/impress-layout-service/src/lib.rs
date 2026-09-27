@@ -46,6 +46,7 @@ pub mod device;
 pub mod dto;
 pub mod outline;
 pub mod presets;
+pub mod rename;
 /// The self-test report types: one copy, in `impress-service-core` (RS-S21).
 pub use impress_service_core::report;
 pub mod selftest;
