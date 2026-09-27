@@ -1465,3 +1465,69 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   mismatch (`impress-workspace-hack` built with `parallel` vs. a fixup pass with no features) —
   pre-existing build-graph variance this branch's diff does not touch (no `Cargo.toml` dependency
   edits), not fixed here.
+- 2026-09-26 — **R2 (keymap registry)**, Rust half, on a worktree of main, branch
+  `claude/reflective-r2-keymap`. New pure crate `crates/impress-keymap`: `Chord` (a key plus
+  ⌃/⌥/⇧/⌘, `Display` round-tripping the grammar's glyph spelling), `Scope` (`Global` /
+  `Window(kind)` / `Pane(view_kind)`), `Target` (`Verb(name)` | `Command(id)`), `Binding` (chord +
+  scope + target + label + section + `chordless`), declared as a plain Rust table
+  (`imbib::bindings()`) rather than a macro or a data file — the plan named `keymap! { … }` but a
+  bindings-returning function reads the same and needed no proc-macro crate for one app's seed.
+  `keymap_json()` (`{"wire_version": 1, "bindings": [...]}`) is exported by `impress-store-ffi`
+  next to `layout_vocabulary_json`; `docs/keyboard.md` is generated from the same registry
+  (`render_markdown`) and a test fails on a diff (regenerate with
+  `cargo test -p impress-keymap write_docs -- --ignored`). **66 chords seeded**, all of imbib's
+  macOS main-window `Commands` (`imbibApp.swift`) plus the three universal pane toggles
+  (`PaneLayoutCommands.swift`) and the two Notes/BibTeX-detached ⌘S saves
+  (`DetachedViews.swift`); iOS and sheet-local `.cancelAction`/`.defaultAction` shortcuts were not
+  seeded (out of scope for this pass — the plan's own DoD names imbib's sites, not iOS's). Collected
+  with `grep -rn "keyboardShortcut(" apps/imbib packages/ --include="*.swift"` (152 raw hits, most
+  sheet-local). RG-4's three disagreements, each decided per `docs/keyboard-grammar.md` and recorded
+  in a comment beside the binding:
+  - **⌃⌘S** is the sidebar toggle, only (`imbib.pane.toggle_sidebar`) — Paper ▸ Save to Library lost
+    its ⌃⌘S in the 2026-09-24 fix already in `imbibApp.swift` and is seeded `chordless: true`, a
+    palette-only `Command`, per the doc's account of that fix.
+  - **⌘5 / ⌘6** are Notes / BibTeX — already correct in the current source (the swap the plan named
+    was fixed before this pass; the seed just confirms it and would fail loudly if it regressed).
+  - **⇧⌘F ×3**: Paper ▸ Share... (`imbibApp.swift`, the 2026-09-25 decision) is seeded; two other
+    claimants in the same main-window scope — `ContentView.swift`'s hidden "Filter" button and
+    `FindCoordinator.swift`'s "Find" — are recorded as superseded in a comment rather than seeded a
+    second time, since seeding both would just be the fixture's collision with no decision made.
+  - **⌘S ×2**: Edit ▸ Find ▸ "Smart Search (AI)..." owns plain ⌘S in the main window;
+    `DetachedViews.swift`'s two ⌘S "Save" bindings (Notes-detached, BibTeX-detached) are a separate
+    `Scope::Window("imbib.detached-content")` and do not collide — verified by the coverage test's
+    same-scope-only collision rule.
+  Coverage: the crate's own tests cover no-duplicate-chord-in-a-colliding-scope, chordless ⇒
+  `Command` (never a bare `Verb`), `keymap_json` round-trips, and a fixture with a duplicated chord
+  the same check rejects (`fixture_tests`, never added to `all()`). The verb-existence half (a
+  `Target::Verb` must name a verb in the linked inventory) lives in
+  `crates/impress-capabilities/tests/keymap_coverage.rs` instead, so `impress-keymap` keeps no
+  dependency on `impress-service-core`'s descriptor machinery (RG-6) — none of imbib's seeded
+  bindings are `Verb` targets, so this test is presently vacuous but wired for the first app that
+  binds a chord straight to a verb. `docs/verb-coverage.md` gets a `kit-pure`/`internal` row for
+  the new crate; `docs/kit-manifest.md` gets a `pure`-tier row (it must: `impress-store-ffi`, a kit
+  crate, now links it to export `keymap_json`, so `check-kit-deps.sh --strict` would otherwise see
+  a kit crate reaching outside the table). FFI: `impress-store-ffi::keymap_json` is a thin
+  pass-through (the JSON string travels as-is, no `encode_static` re-encoding); the xcframework
+  rebuilt with `IMPRESS_SKIP_X86=1` and `uniffi-bindgen` (swiftformat off `PATH`) produced a pure
+  addition to `ImpressRustCore/Sources/ImpressRustCore/impress_store_ffi.swift` — one function, one
+  checksum guard, zero declarations moved or lost. No Swift call site added in this pass (scope was
+  deliberately Rust-only); Settings ▸ Keyboard reading the registry is Swift work for a later pass.
+  **A concurrency lesson worth keeping:** the xcframework build was started twice by mistake (an
+  untracked `nohup` background job, then a second one through the proper backgrounding tool) and
+  the two collided on `crates/impress-store-ffi/frameworks/` — one's `rm -rf` deleted the other's
+  in-progress output, and the second reported `cp: …/libimpress_store_ffi.a: No such file or
+  directory` and exit 1 while the first finished cleanly seconds later with the binding it produced
+  intact. Never start the same build twice against the same output directory, even by accident;
+  when one does, read past the failing invocation's log to confirm whether a sibling run actually
+  finished before treating the directory as broken.
+  Gates (serial, `CARGO_TARGET_DIR=target-r2`): `rust-gate.sh fmt` clean; `clippy rest` clean;
+  `clippy imprint` clean; `cargo test -p impress-keymap -p impress-store-ffi -p impress-capabilities`
+  — 99 passed in `impress-store-ffi` (2 pre-existing, unrelated `surface.rs` timing failures under
+  this machine's concurrent-agent load — confirmed by `git diff --stat` showing `surface.rs`
+  untouched by this branch), 6 passed in `impress-keymap`, 1 passed in the new
+  `keymap_coverage.rs`; `check-uniffi-bindings.sh` OK, 7 bindings (1 changed: `impress-store-ffi`,
+  a pure addition); `check-kit-deps.sh --strict` OK (15 kit crates, `impress-keymap` now among
+  them); `check-kit-standalone.sh --strict` OK (15 crates build with nothing else from this
+  repository); `check-verb-coverage.sh` OK (76 crates with a verdict, 20 `should-be-verb` at the
+  ceiling, unchanged); `check-schema-refs.sh` OK (388 call sites, 0 divergences, unaffected);
+  `cargo hakari generate --diff` clean.
