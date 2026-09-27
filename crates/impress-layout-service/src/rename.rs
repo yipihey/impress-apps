@@ -268,7 +268,14 @@ mod tests {
         let layout_store = LayoutStore::new(store.clone());
         let seeded = layout_with_kind("a");
         let row = layout_store
-            .save_named("test-app", "Seeded", None, &seeded, ActorKind::System, "seed")
+            .save_named(
+                "test-app",
+                "Seeded",
+                None,
+                &seeded,
+                ActorKind::System,
+                "seed",
+            )
             .expect("save");
 
         let pass = RenamePass::new(store);
@@ -295,7 +302,14 @@ mod tests {
         let layout_store = LayoutStore::new(store.clone());
         let edited = layout_with_kind("a");
         layout_store
-            .save_named("test-app", "Mine", None, &edited, ActorKind::Human, "the user's own")
+            .save_named(
+                "test-app",
+                "Mine",
+                None,
+                &edited,
+                ActorKind::Human,
+                "the user's own",
+            )
             .expect("save");
 
         let pass = RenamePass::new(store);
@@ -352,7 +366,14 @@ mod tests {
         let layout_store = LayoutStore::new(store.clone());
         let seeded = layout_with_kind("a");
         layout_store
-            .save_named("test-app", "Seeded", None, &seeded, ActorKind::System, "seed")
+            .save_named(
+                "test-app",
+                "Seeded",
+                None,
+                &seeded,
+                ActorKind::System,
+                "seed",
+            )
             .expect("save");
 
         let pass = RenamePass::new(store);

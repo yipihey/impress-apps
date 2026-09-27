@@ -238,7 +238,8 @@ fn ensure_renamed(store: &Arc<SqliteItemStore>) {
     }
     static RAN: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     RAN.get_or_init(|| {
-        if let Err(e) = crate::rename::RenamePass::new(store.clone()).run_if_needed(&SHIPPED_RENAMES)
+        if let Err(e) =
+            crate::rename::RenamePass::new(store.clone()).run_if_needed(&SHIPPED_RENAMES)
         {
             log::error!(target: "surface", "rename pass: {e}");
         }

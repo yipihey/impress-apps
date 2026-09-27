@@ -217,8 +217,8 @@ mod tests {
 
     use impress_core::item::ActorKind;
     use impress_core::sqlite_store::SqliteItemStore;
-    use impress_surface::spec::SurfaceSpec;
     use impress_service_core::lifecycle::RenameTable;
+    use impress_surface::spec::SurfaceSpec;
 
     use super::*;
 
