@@ -50,6 +50,9 @@ impress-layout-service = { workspace = true }
 impress-surface-service = { workspace = true }
 imprint-selftest = { workspace = true }
 tokio = { workspace = true }
+# R2: the keymap coverage test's verb-existence half lives here so
+# `impress-keymap` itself keeps no inventory dependency (RG-6).
+impress-keymap = { workspace = true }
 
 [features]
 # `full`: every capability the suite has, for the two binaries that must see

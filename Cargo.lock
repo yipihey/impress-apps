@@ -4454,6 +4454,7 @@ dependencies = [
  "impress-bridges-service",
  "impress-capabilities-kit",
  "impress-core",
+ "impress-keymap",
  "impress-layout-service",
  "impress-memory-service",
  "impress-parsers-service",
@@ -4596,6 +4597,15 @@ dependencies = [
  "serde",
  "tokio",
  "uniffi",
+]
+
+[[package]]
+name = "impress-keymap"
+version = "0.1.0"
+dependencies = [
+ "impress-workspace-hack",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4834,6 +4844,7 @@ dependencies = [
  "impress-ai",
  "impress-capabilities-kit",
  "impress-core",
+ "impress-keymap",
  "impress-layout",
  "impress-layout-service",
  "impress-service-core",

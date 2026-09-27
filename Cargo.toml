@@ -16,6 +16,8 @@ members = [
     "crates/impress-collab",
     "crates/impress-flags",
     "crates/impress-tags",
+    # R2: the one registry of app chords (plan-self-reflective-layer.md § Registries)
+    "crates/impress-keymap",
     "crates/imprint-core",
     "crates/imbib-core",
     # local-network (SFTP) transport for reMarkable tablets
@@ -193,6 +195,7 @@ im-identifiers = { path = "crates/im-identifiers" }
 impress-collab = { path = "crates/impress-collab" }
 impress-flags = { path = "crates/impress-flags" }
 impress-tags = { path = "crates/impress-tags" }
+impress-keymap = { path = "crates/impress-keymap" }
 imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
 imprint-selftest = { path = "crates/imprint-selftest" }
