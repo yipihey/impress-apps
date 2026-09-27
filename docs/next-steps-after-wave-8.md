@@ -1,10 +1,11 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-Main at `85cf0520` includes W3, G7c, W4, S3 and G5. A fresh isolated
-`cargo test --workspace --features native -- --test-threads=1` passed on the pre-G5 main `10ee5acd`:
-**4,324 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
-Evidence is `/tmp/impress-s3-main-workspace.log`; its workspace was
-`/tmp/impress-cargo-tests.m00DSW/workspace`. The earlier `f7af1c37` batch also passed
+Main at `7d28f88c` includes W3, G7c, W4, S3, G5 and the audit-flush barrier (#125).
+A fresh isolated `cargo test --workspace --features native -- --test-threads=1` passed there:
+**4,330 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
+Evidence is `/tmp/impress-post-audit-main-workspace.log`; its workspace was
+`/tmp/impress-cargo-tests.tgkKla/workspace`. The pre-G5 run at `10ee5acd` also passed
+4,324 tests in `/tmp/impress-s3-main-workspace.log`. The earlier `f7af1c37` batch also passed
 4,291 tests, with 23 ignored, in `/tmp/impress-open-packages-workspace-serial.log`.
 Its initial parallel run hit the known impel-tools global-backend race; the serial rerun passed.
 Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-transport.md`,
@@ -65,14 +66,19 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   was fully rebuilt for every supported arm64 slice. Test-only legacy storage/index paths and
   background startup were isolated without changing production paths or schemas. No build
   artifacts are committed. Domain dispatch remains P5b. Fresh main ancestry was verified before normal merge; GitHub jobs were still queued.
-  The post-G5 full workspace run failed at
+  The initial post-G5 full run failed at
   `impress-workflow-service::runner::tests::a_proposed_workflow_never_runs_through_the_engine`
-  (zero proposals instead of one). Its fresh-scratch focused rerun passed; native feature
-  unification and the audit flush heuristic are under investigation. Do not call the post-G5
-  full run green; resolve and rerun it before the next merge.
+  (zero proposals instead of one); focused reruns passed. PR #125 replaced heuristic audit
+  flushing with a FIFO writer acknowledgement and explicit timeout/disconnection errors.
+  It also waits for the final job event before checking its cursor. The original failure
+  was not conclusively attributed to either race; the fresh full main run above is green.
 - **P5b (in progress)**: `p5b-transport` / `claude/pipeline-p5b-transport` from `85cf0520`.
   Shared async native dispatch and refusal propagation are committed as `05e14e9c` (91 core
-  tests and 7 Swift route tests passed); implore and impart native state bridges are in progress.
+  tests and 7 Swift route tests passed). All four native state bridges now have full three-slice
+  arm64 xcframework builds; imprint final hosted-test compilation is pending. The four Rust
+  entry points use the shared router; all 185 actual old adapter trait methods pass forwarding
+  and refusal parity against a mock server. This is transport coverage, not native semantic
+  coverage. Swift cross-app callers still require migration before mirrored route removal.
   No P5b proof app has launched. Acceptance still requires the whole transport migration:
   package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
@@ -114,6 +120,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
     export IMBIB_STORE_PATH="$IMPRESS_STORE_PATH"
     export IMPRESS_WORKSPACE="$impress_test_root/workspace"
     export IMPRESS_DEVICE_ID="test-$$"
+    export IMPRINT_COMPILE_CACHE_DIR="$impress_test_root/compile-cache"
     cargo test --workspace --features native
   )
   ```

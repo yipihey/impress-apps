@@ -26,6 +26,10 @@ let package = Package(
         // renderer (transitively links ImprintRustCore + ImprintCore.xcframework);
         // ImpressSyntaxHighlight backs the source editor's highlighting.
         .package(path: "../../imprint/Packages/ImprintCore"),
+        // PMC uses the re-exported plot records directly. Xcode may split
+        // these products into dynamic libraries; the direct product edge
+        // keeps their Swift symbols in PMC's link closure in that case.
+        .package(path: "../../imprint/ImprintRustCore"),
         .package(path: "../../../packages/ImpressSyntaxHighlight"),
         .package(path: "../../../packages/ImpressRustCore"),
         .package(path: "../../../packages/ImpressScixCore"),
@@ -72,6 +76,7 @@ let package = Package(
                 "ImbibRustCore",
                 "ImbibVerbsFFI",
                 .product(name: "ImprintCore", package: "ImprintCore"),
+                .product(name: "ImprintRustCore", package: "ImprintRustCore"),
                 "ImpressSyntaxHighlight",
                 "ImpressRustCore",
                 "ImpressScixCore",
