@@ -969,6 +969,28 @@ crates) is real and is held, not closed, by this plan.
   passed 81 tests. Outputs are in `/tmp/g7c-*.log`. The final Cargo tests and clippy checks used the
   private `target-g7c-gates` directory because W3 was building in another worktree; no app or real
   store was opened. PR #118 remains a draft for the W3 merge and follow-up verification.
+- 2026-09-27 — **G7c integrated W3** by fetching and merging `origin/main` at W3 PR #121's
+  `35ea75fa` into `claude/gui-g7c-export` (merge `13f27b86`). The sole conflict was the generated
+  service coverage table. Its service and shape blocks were regenerated from the census dump with
+  `semantic-search` enabled, preserving the optional search rows alongside W3's new
+  `imbib-verbs-ffi` inventory row; the result has 474 verbs, 45 services and 90 workspace crates.
+  Review confirmed W3's inserted/deleted `mutation_ids` snapshot and G7c's span budget reporting
+  coexist in the merged pipeline. The merged branch passes `rust-gate.sh fmt`, `clippy rest`,
+  `clippy imprint`, `check-verb-coverage.sh`, `check-verb-docs.sh`,
+  `check-kit-deps.sh --strict`, `check-kit-standalone.sh --strict` (21 crates),
+  `check-uniffi-bindings.sh` (8 bindings), `check-schema-refs.sh` (402 call sites), and
+  `cargo hakari generate --diff` (empty diff). Outputs are in `/tmp/g7c-w3-*.log`.
+  The first concurrent touched-crate test run exposed a surface-feed timing failure; that test
+  passed alone. A serial rerun then exposed an order-dependent test harness failure: the
+  `paper_triage_loop` fixture tried to install a process-wide store after another Tier A test
+  initialized it. The fixture now scopes its scratch store through the pipeline's per-call
+  override, so nested real triage verb calls use the fixture store without process-wide mutation.
+  All 11 touched/integrated crates then passed serial `cargo test`: 475 passed, zero failed, four
+  ignored (`/tmp/g7c-w3-test-touched-serial-fixed.log`). The G7c `impress-store-ffi` and W3
+  `imbib-verbs-ffi` XCFrameworks were rebuilt for macOS arm64, iOS device arm64 and iOS simulator
+  arm64, without `--fast`; both generated Swift bindings were byte-identical
+  (`/tmp/impress-g7c-store-build.log`, `/tmp/impress-g7c-imbib-verbs-build.log`). The parent is
+  handling the final hook and PR update.
 
 ## Appendix A1 — every verb
 
