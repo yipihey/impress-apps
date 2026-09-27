@@ -55,12 +55,15 @@ fn main() {
             let value = impress_store_service::job::cli_finish(value, wait);
             match serde_json::to_string_pretty(&value) {
                 Ok(s) => {
-                    println!("{s}");
                     // See the matching comment in `impress-cli/src/main.rs`:
                     // without this, a one-shot process can exit out from
                     // under the audit sink's writer thread and drop the
                     // `core/verb-call` row it just wrote.
-                    impress_store_service::audit::flush();
+                    if let Err(error) = impress_store_service::audit::flush() {
+                        eprintln!("error: audit call log did not flush: {error}");
+                        std::process::exit(2);
+                    }
+                    println!("{s}");
                     // A refusal is not a success (review AC-F12): the verb's own
                     // `ok: false` sets the status a script tests, as in `impress`.
                     std::process::exit(impress_service_core::refusal::exit_status(&value));

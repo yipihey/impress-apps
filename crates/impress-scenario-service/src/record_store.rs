@@ -91,7 +91,8 @@ impl Selection {
     pub(crate) fn read(self, store: &SqliteItemStore) -> Result<Vec<RecordedCall>, Refusal> {
         // Include calls already queued by this process. Other processes own
         // their own flush; the caller records after the selected session ends.
-        impress_store_service::audit::flush();
+        impress_store_service::audit::flush()
+            .map_err(|error| Refusal::store(format!("drain recording audit: {error}")))?;
         let rows = store
             .query(&ItemQuery {
                 schema: Some(VERB_CALL_SCHEMA.into()),

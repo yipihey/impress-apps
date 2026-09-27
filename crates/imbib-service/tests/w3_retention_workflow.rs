@@ -119,7 +119,7 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
 
     // And its call landed in the log — through the injected store, per
     // `pipeline::invoke_on`'s `store_override`.
-    impress_store_service::audit::flush();
+    impress_store_service::audit::flush().expect("audit flush");
     let rows = engine_store
         .query(&ItemQuery {
             schema: Some("core/verb-call@1.0.0".into()),

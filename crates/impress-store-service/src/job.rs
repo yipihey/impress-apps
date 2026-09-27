@@ -540,6 +540,20 @@ mod tests {
         wait_until_done(&store, id, Duration::from_secs(5))
             .await
             .unwrap();
+        // The terminal row is written before its final event. Wait for that
+        // event explicitly before treating max_seq as a fully consumed cursor.
+        let finished_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let events = job::events_after(&store, id, 0, 0).unwrap();
+            if events.iter().any(|event| event.name == "finished") {
+                break;
+            }
+            assert!(
+                Instant::now() < finished_deadline,
+                "terminal job never emitted its finished event"
+            );
+            tokio::task::yield_now().await;
+        }
         let last = job::max_seq(&store, id).unwrap();
         let started = Instant::now();
         let w = wait(&store, id, last, Duration::from_secs(30))
