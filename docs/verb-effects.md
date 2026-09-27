@@ -74,6 +74,7 @@ catalogue, 300 on the exception table.
 | `docs-import-service_update-watched-folder` | "watched-folder@1.0.0" | "watched-folder@1.0.0" | — | — |
 | `history-service_calls` | any("history reads any kind's operations and every call row") | — | — | — |
 | `history-service_health` | any("history reads any kind's operations and every call row") | — | — | — |
+| `history-service_propose-workflows` | "core/verb-call@1.0.0" | "impress/workflow@1.0.0" | — | — |
 | `history-service_replay` | "core/verb-call@1.0.0" | any("re-invokes an arbitrary recorded verb, whose own writes are its own") | — | — |
 | `history-service_save-macro` | "core/verb-call@1.0.0" | "impress/workflow@1.0.0" | — | — |
 | `history-service_trace` | any("history reads any kind's operations and every call row") | — | — | — |
@@ -556,6 +557,7 @@ when one lands).
 | `docs-import-service_update-watched-folder` | no example |
 | `history-service_calls` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `history-service_health` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `history-service_propose-workflows` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `history-service_replay` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `history-service_save-macro` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `history-service_trace` | exercised, unobserved (example ran, spy saw no declared read or write) |

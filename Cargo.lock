@@ -5056,6 +5056,7 @@ dependencies = [
  "impress-service-macros",
  "impress-settings",
  "impress-surface",
+ "impress-workflow",
  "impress-workspace-hack",
  "log",
  "schemars 0.8.22",

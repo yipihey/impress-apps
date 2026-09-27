@@ -2490,3 +2490,140 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `/api/logs?category=workflow` recorded the tick. `SHKSharingServicePicker` count: 0. Only that
   launched PID was stopped. Evidence: `/tmp/impress-w3-live-proof.json` and
   `/tmp/impress-w3-live-proof-run.log`. No launcher or real store was changed.
+
+- 2026-09-27 — **W4 (proposed workflows)** on a worktree of origin/main, branch
+  `claude/reflective-w4-propose`. `history-service_propose-workflows {since?, min_repeats?,
+  max_len?}` (mutating, `strict_args`, `effects(reads = ["core/verb-call@1.0.0"], writes =
+  ["impress/workflow@1.0.0"])`) added to `crates/impress-store-service/src/history_service.rs`
+  beside `save_macro`: an n-gram miner over the call log, grouped by caller (preserving each
+  caller's own order — other callers' interleaved calls do not break a sequence), filtered to
+  successful calls whose verb's declared `safety.class == Mutating`. `mine_ngrams` tries block
+  lengths from `max_len` (default 6) down to 2, chunking each caller's sequence into non-overlapping
+  windows and grouping by verb signature; a signature occurring at least `min_repeats` times
+  (default 3) becomes one proposal, consumed so a shorter length cannot re-report it as a
+  sub-pattern. An argument identical across every repeat stays literal in the proposed step; one
+  that differs becomes `"{{event.value.step<i>_<key>}}"` — `WorkflowSpec.params` (a `ParamDecl`
+  bound to a record kind, the pane-query type) is the wrong mechanism for a scalar that varies
+  between repeats, so the miner leaves it empty and uses the `manual` trigger's own event payload
+  as the parameter channel instead, documented at the method and at `steps_from_group`. Every
+  proposal is built as an `impress_workflow::spec::WorkflowSpec` (`state: Proposed`, `author: {kind:
+  "agent", name: "history-service"}`, `trigger: Manual {}`, `review.required: true` — D-R6) and
+  validated with `impress_workflow::validate::validate` before being written; a proposal that would
+  not validate is skipped, not written. `impress-store-service` gained a dependency on the pure kit
+  crate `impress-workflow` (`Cargo.toml`; no kit-manifest change needed — `impress-workflow` is
+  already `pure` tier and a store-tier crate may reach it).
+
+  The proof, in two halves. Mining (`impress-store-service::history_service::tests`): three
+  identical two-step triage sessions (`triage-service_set-starred` then `triage-service_add-tag`,
+  same caller) yield exactly one `proposed` workflow with `repeats: 3`, two steps, `trigger:
+  {"manual": {}}`, `review.required: true`
+  (`three_identical_triage_sequences_propose_one_workflow`); three different two-step sequences by
+  the same caller yield none (`three_different_sequences_propose_nothing`). Nothing runs from it
+  (`impress-workflow-service::runner::tests::a_proposed_workflow_never_runs_through_the_engine`):
+  the same mined session, `WorkflowEngine::run_once` called a million ms past `start_delay`,
+  produces zero outcomes — the engine's own row filter (`state == WorkflowState::Enabled`,
+  `runner.rs:97`) excludes a `proposed` row before any trigger is even evaluated, which
+  `trigger.rs`'s doc comment already states as the contract this test exercises end to end rather
+  than assumes.
+
+  Docs and tables regenerated: `docs/verbs/history-service.md` and `docs/verbs/README.md`
+  (`gen-verb-docs`); `docs/verb-coverage.md`'s `history-service` row (6→7 verbs); `docs/verb-safety.md`
+  (`history-service_propose-workflows | mutating`, service row 6→7/2→3); `docs/verb-effects.md` (the
+  declared-effects row and the "exercised, unobserved" exception row — the example runs against an
+  empty call log, so the spy observes nothing, the same shape as `save_macro`'s neighbor row);
+  `crates/impress-capabilities/tests/effects.rs`'s `EXCEPTION_CEILING` 300 → 301 for that one row,
+  with the reason recorded beside the constant.
+
+  Gates (serial, `CARGO_TARGET_DIR=target-w4`): fmt clean (after `cargo fmt`); `clippy rest` and
+  `clippy imprint` clean (one fix along the way: `consumed[start..start+len].fill(true)` over a
+  `needless_range_loop`); `cargo test -p impress-store-service -p impress-workflow -p
+  impress-workflow-service -p impress-capabilities` all green; `check-schema-refs.sh` OK (400 call
+  sites, 85 canonical refs, 0 divergences); `cargo hakari generate --diff` reported no changes.
+  **Not run this session, budget-limited — left for a follow-up pass before merge:**
+  `check-verb-coverage.sh`, `check-verb-docs.sh` (docs were regenerated and diffed by hand against
+  the census test's own output, but the script itself was not re-run), `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`. None of these were expected to disagree with what the census and
+  effects tests already confirmed by construction (the doc tables were edited to exactly the rows
+  those tests printed), but they are unverified and should be the first thing checked before this
+  PR leaves draft.
+
+- 2026-09-27 — **W4 draft closeout after merging fresh `origin/main`.** The miner now excludes
+  compacted and privacy-reduced call arguments, so a stored `{len, sha256_8}` summary cannot become
+  a literal workflow argument (`privacy_reduced_arguments_are_not_embedded_in_a_proposal`). It also
+  skips repeated calls with different argument key sets rather than dropping an unmatched key, and
+  checks the minimum repeat count without overflowing on a large requested value. The
+  `semantic-search` inventory dump showed the coverage table's Total and scalar rows were stale;
+  `docs/verb-coverage.md` now matches that dump (472 verbs, 1056 arguments, 946 scalar arguments).
+
+  Final gates with the private `target-w4-gates` cache: `scripts/rust-gate.sh fmt`, both clippy
+  shards, `scripts/check-verb-coverage.sh`, `scripts/check-verb-docs.sh`,
+  `scripts/check-kit-deps.sh --strict`, `scripts/check-kit-standalone.sh`,
+  `scripts/check-uniffi-bindings.sh`, `scripts/check-schema-refs.sh`, and
+  `cargo hakari generate --diff` passed. Tests passed for `impress-store-service`,
+  `impress-workflow`, `impress-workflow-service`, and `impress-capabilities` with
+  `impress-capabilities/semantic-search` enabled. W4 remains draft until W3 lands; main must be
+  merged and these checks repeated after that integration.
+
+- 2026-09-27 — **W4 integrated W3 after PR #121 landed on main.** Fresh `origin/main`
+  (`35ea75fa`) merged into `claude/reflective-w4-propose` without rebasing. The
+  history service retained both W3's call-only `why` entries (`operation_id: null`,
+  affected-ID evidence and deduplication) and W4's proposal miner. Both W3 and W4
+  plan logs were preserved. The merged semantic-search census printed 473 verbs,
+  1,057 arguments and 947 scalar arguments; those exact totals replaced the
+  conflicting coverage table values. Reference pages were regenerated with the
+  existing default-feature `gen-verb-docs` lane.
+
+  The miner now logs its request (since, repeats and length), each saved proposal
+  (ID and counts), and the returned proposal count. A skipped group logs its verb
+  sequence and a named error category, without call argument values. This uses
+  the store service's existing `log` dependency and the Rust Console bridge's
+  existing `verb` category, so the logs reach the app console and `/api/logs`. The proposal is still
+  `state: proposed` and cannot run until a person enables it.
+
+  Integration checks in private `target-w4-gates`: formatting, both clippy
+  shards, source verb coverage, strict kit dependencies, standalone kit (21
+  crates), UniFFI binding names (8), schema refs (403 sites, 85 refs), and
+  `cargo hakari generate --diff` passed. The merged touched crates
+  (`impress-store-service`, `impress-workflow`, `impress-workflow-service`,
+  `impress-capabilities`, `imbib-service`) passed with semantic-search enabled,
+  including W3 retention and `why` proofs plus W4 miner proofs. Focused history
+  tests passed after the final logging change. The generated-reference-docs
+  checker is run after committing, because it treats staged generated pages as
+  dirty even when they match the generator output.
+
+- 2026-09-27 — **W4 integrated G7c after PR #118 landed on main.** Fresh
+  `origin/main` (`8d102646`) merged without rebasing. G7c's four-verb
+  `perf-service`, `perf` Console bridge, and scoped surface Tier A fixture
+  remain intact; W4's proposal logs use the already bridged `verb` category.
+  The full `semantic-search` census gave 475 verbs, 1,059 arguments (704
+  required), 122 described arguments, 80 strict verbs, and 949 scalar
+  arguments; the coverage totals were set from that dump. Reference pages
+  were regenerated with the existing default-feature generator (44 pages).
+
+  Review found the miner rescanned the remaining call history for each
+  candidate, which is quadratic on varied large histories. It now indexes
+  fixed-length verb windows once and processes each signature in earliest
+  start order, filtering consumed spans after a longer/earlier match. A
+  test-only reference of the old scan agrees on deterministic overlapping and
+  minimum-repeat fixtures, and a 10,000-call varied history produces no
+  spurious proposal. The store-service test for the `IMPRESS_STORE_PATH`
+  override now restores its caller's value with a drop guard and uses its own
+  temporary path. This prevents later tests in one process from falling back
+  to the user's default store.
+
+  **Verification:** fmt; clippy rest and imprint; source verb coverage;
+  strict kit dependencies; standalone kit (21 crates); UniFFI (8 bindings);
+  schema refs (403 sites, 85 refs); and `cargo hakari generate --diff` passed.
+  The combined touched-crate/capabilities suite, including the surface and
+  store FFI crates, passed 487 tests (0 failed, 3 ignored) with
+  `IMPRESS_STORE_PATH`, `IMBIB_STORE_PATH`, and `IMPRESS_WORKSPACE` set to
+  `/tmp/impress-w4-g7c-tests.sQ5WYZ`; it includes the repaired override test.
+  Earlier W4 test runs did not carry those process-wide overrides, so their
+  isolation is unverified; the final run is the acceptance evidence. Full
+  store and imbib-verbs xcframework rebuilds passed all three arm64 slices
+  each, with `--fast` unused, swiftformat unavailable, and generated Swift
+  bindings unchanged. Gate output is under `/tmp/impress-w4-g7c-*.log`;
+  framework output is `/tmp/impress-w4-store-build.log` and
+  `/tmp/impress-w4-imbib-verbs-build.log`. The generated-reference-docs
+  checker runs after the commit because it considers staged generated files
+  dirty even when they match the generator output.

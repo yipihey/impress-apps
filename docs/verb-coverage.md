@@ -34,7 +34,7 @@ prints the row as it should now read.
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 0 |
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 0 | 0 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 0 | 0 |
-| `history-service` | impress-store-service | 6 | 6 | 12 (7) | 11 | 6 |
+| `history-service` | impress-store-service | 7 | 7 | 15 (9) | 14 | 7 |
 | `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 0 | 0 |
 | `imbib-app-service` | imbib-service | 17 | 17 | 24 (19) | 0 | 0 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 0 | 0 |
@@ -76,7 +76,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 21 crates, 45 services | **474** | **474** | **1056 (702)** | **119** | **79** |
+| **Total** | 21 crates, 45 services | **475** | **475** | **1059 (704)** | **122** | **80** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -100,7 +100,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 946 |
+| `scalar` | 949 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)

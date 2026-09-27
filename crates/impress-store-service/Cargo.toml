@@ -19,6 +19,9 @@ impress-core = { workspace = true, features = ["sqlite", "schema", "collab"] }
 # adds the verbs, the process-wide instance and the synced store row.
 impress-settings = { workspace = true }
 impress-surface = { workspace = true }
+# W4: `propose_workflows`' n-gram miner validates each proposal against the
+# pure validator before writing it (`impress_workflow::validate`).
+impress-workflow = { workspace = true }
 log = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

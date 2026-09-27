@@ -316,18 +316,25 @@ mod tests {
     #[test]
     fn default_path_honours_the_environment_override() {
         // `default_store_path` is pure with respect to the singletons, so this
-        // does not disturb whatever the rest of the suite resolved.
-        std::env::set_var(
-            "IMPRESS_STORE_PATH",
-            "/tmp/impress-store-service-test.sqlite",
-        );
-        assert_eq!(
-            default_store_path(),
-            PathBuf::from("/tmp/impress-store-service-test.sqlite")
-        );
-        std::env::remove_var("IMPRESS_STORE_PATH");
-        assert!(default_store_path()
-            .to_string_lossy()
-            .ends_with("workspace/impress.sqlite"));
+        // does not disturb whatever the rest of the suite resolved. Restore
+        // the caller's override even on a failed assertion: removing it would
+        // send subsequent tests back to the user's App Group store.
+        struct RestoreOverride(Option<std::ffi::OsString>);
+        impl Drop for RestoreOverride {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(path) => std::env::set_var("IMPRESS_STORE_PATH", path),
+                    None => std::env::remove_var("IMPRESS_STORE_PATH"),
+                }
+            }
+        }
+        let original_path = std::env::var_os("IMPRESS_STORE_PATH");
+        let previous = RestoreOverride(original_path.clone());
+        let scratch = tempfile::tempdir().expect("test store directory");
+        let path = scratch.path().join("override.sqlite");
+        std::env::set_var("IMPRESS_STORE_PATH", &path);
+        assert_eq!(default_store_path(), path);
+        drop(previous);
+        assert_eq!(std::env::var_os("IMPRESS_STORE_PATH"), original_path);
     }
 }
