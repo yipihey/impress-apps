@@ -1139,6 +1139,78 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   green; `check-verb-coverage.sh`, `check-verb-docs.sh` (no diff — no linked verb uses the new fields yet),
   `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`
   and `cargo hakari generate --diff` all clean.
+- 2026-09-26 — **P5a transport (first half)** on a worktree of main at ad9a0796, branch
+  `claude/pipeline-p5a-transport`. **Client side:** new `crates/impress-app-transport` —
+  `call(app, verb, args) -> Result<Value, Refusal>` over `POST http://127.0.0.1:<port>/api/verb/<name>`,
+  the P0 loopback token attached (`impress_core::loopback_token::client_token_for_url`), a
+  `traceparent` header carried on every call (hook H-P5-1), and one probe-with-60 s-cooldown
+  (`impress-app-transport::is_reachable`, the same rule impel-tools used) replacing the four copies
+  TR-3 found. `impress-app-transport::ports` is the Rust side's port table, pinned to
+  `SiblingApp.descriptors` (Swift's one authoritative table, CLAUDE.md) by a test that greps the
+  Swift file for each literal port. **Server side:** `impress_service_core::dispatch::dispatch` —
+  one generic lookup-and-invoke (`VerbDescriptor::find` → `pipeline::invoke_blocking` → the wire
+  envelope), added to `impress-service-core` rather than `impress-store-ffi` so it can be shared by
+  a kit crate and a non-kit one (below); `impress-store-ffi::verb::dispatch_verb` is its UniFFI
+  wrapper (`#[uniffi::export] fn dispatch_verb(name, args_json, caller_json) -> SharedVerbDispatchResult`),
+  and `packages/ImpressAutomation/Sources/ImpressAutomation/VerbAutomation.swift` is `POST
+  /api/verb/<name>`, mounted in `SharedAutomationRoutes` one door down from `/api/layout/*` and
+  `/api/surface/*` — a direct call into `ImpressRustCore` (this package already links it for
+  `LoopbackToken`), not a registered host, since a verb dispatch needs only the process-wide store
+  to be open. Caller identity is `CallerIdentity::App(<bundle-id's last component>)` (ADR-0034 D3);
+  `traceparent`, when present, becomes `caller_json.trace_id`, which the pipeline joins as the call's
+  trace (H-P5-1's own line: "one id joins a surface click, its verb, the job it started").
+  **Narrowed live, and why:** the plan's own alternative to a per-app UniFFI target — "the store FFI
+  linking the app's services behind features" — was tried first (`implore-service` as an
+  unconditional dependency of `impress-store-ffi`) and caught live by
+  `scripts/check-kit-deps.sh --strict`: "impress-store-ffi reaches implore-core, a domain core. ASK
+  FIRST … this is not a dependency to allowlist." `impress-store-ffi` is a kit crate
+  (`docs/kit-manifest.md`); the check does not offer a manifest-only fix for a domain-core reach, by
+  design. So P5a builds the plan's *other* alternative instead — the per-app UniFFI target the § P5
+  design section names first ("App side: a per-app UniFFI target … linking the app's own `*-service`
+  crate") — as a new, non-kit crate `crates/implore-verbs-ffi`: it links `implore-service` directly
+  (cycle-free — `implore-service` itself has no edge back to `impress-app-client`, unlike
+  `implore-service-http`), force-links its inventory the same way `impress-store-ffi::force_link_kit`
+  does for the kit crates it cannot reach by name, and re-exports the same `dispatch_verb` shape over
+  its own `dispatch_verb` UniFFI function calling the shared `impress_service_core::dispatch::dispatch`.
+  `./scripts/check-kit-deps.sh --strict` is clean again with `implore-service` removed from
+  `impress-store-ffi`. **What is finished and proven, and what is not:** `implore-verbs-ffi` compiles,
+  is unit-tested (its own tests assert the five previously-dead verbs — `plot-series`,
+  `plot-histogram`, `rg-statistics`, `rg-slice-raw`, `rg-slice-png` — are no longer `not-found`), and
+  the parity test below drives it through the full transport. What it does **not** yet have is its
+  own xcframework, a `Package.swift` and Xcode wiring into `apps/implore` so a *running* implore's
+  `/api/verb/<name>` route actually calls into it — today that route only calls
+  `impress-store-ffi`'s kit dispatch, so a live implore still answers `not-found` for these five
+  until that packaging lands (P5b). This is the plan's own escape valve ("implement it for one app;
+  say what remains") landing exactly there: the per-app *Rust* target is real and proven; the
+  per-app *xcframework* is not yet built. **Parity test**
+  (`crates/impress-app-transport/tests/implore_parity.rs`): a stub axum server whose one route calls
+  `implore_verbs_ffi::dispatch_verb` directly — the same function a real `/api/verb/<name>` would
+  call once P5b's packaging lands — proves `impress-app-transport::call("implore", …)` reaches three
+  previously-live verbs (`status`, `list-datasets`, `list-figures`) and all five previously-dead ones
+  without a `not-found`, and that an unknown verb name still refuses `not-found` through the same
+  path. Not yet deleted (P5b's to do, per D-P7): the four `*-service-http` crates,
+  `impress-app-client`, the 160 mirrored Swift arms. **Live proof on implore:** not run this session
+  — the escape valve above ("implement it for one app; say what remains") is exactly why: the
+  packaging that would make implore's *running* HTTP route answer through `implore-verbs-ffi` is
+  the part left for P5b, so a live curl against a built implore would show its existing behaviour
+  (the five routes still 404, `impress-store-ffi`'s kit verbs answering through `/api/verb/<name>`
+  for every app) rather than anything this session's Rust-side work changed on the wire; running the
+  build-and-launch cycle to prove that negative was not worth the machine time this session had.
+  **Gates:** `./scripts/rust-gate.sh fmt` clean (after one `cargo fmt` pass); `clippy rest`,
+  `cargo test -p impress-app-transport -p impress-store-ffi -p impress-service-core -p
+  implore-verbs-ffi -p impress-capabilities`, `check-uniffi-bindings.sh`, `check-kit-deps.sh
+  --strict`, `check-kit-standalone.sh`, `check-kit-packages.sh`, `check-chassis-deps.sh`,
+  `check-schema-refs.sh`, `check-verb-coverage.sh` (two new verdict rows: `impress-app-transport`
+  internal, `implore-verbs-ffi` ffi/internal), `cargo hakari manage-deps && cargo hakari generate`
+  (no changes), `swift test` in `ImpressAutomation` and `PublicationManagerCore` — see the PR for the
+  actual run's numbers, taken on a Mac shared with other agents' builds. **What remains for P5b:**
+  the `implore-verbs-ffi` xcframework, its `Package.swift`, wiring it into `apps/implore`'s Xcode
+  project, and a Swift-side fallback in `VerbAutomationRoutes` (or a registered second host) so
+  `/api/verb/<name>` tries implore's own dispatch when the kit's says `not-found`; the same per-app
+  split for imbib/imprint/impart (each currently has no domain verbs behind `/api/verb` beyond the
+  kit's); migrating the actual entry paths (impress-mcp, impress-cli, impel-tools,
+  impress-ai-tools) onto `impress-app-transport::call` and deleting the four adapters +
+  `impress-app-client` + the 160 mirrored Swift arms (D-P7).
 - 2026-09-27 — **P3c step 1: `imbib-semantic-service` given real lifecycle** (branch
   `claude/pipeline-p3c-semantic-search`, from main at 6a464881, which carries P3a #101). Tom's decision on
   ADR-0024 D7's other half, taken up after the P3a session log reported the reverted spike: a

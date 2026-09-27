@@ -2185,6 +2185,356 @@ public func FfiConverterTypeSharedLayout_lower(_ value: SharedLayout) -> UnsafeM
 
 
 /**
+ * The GUI's handle on the settings registry. One per process; `open` also
+ * makes it the `settings-service` verbs' store.
+ */
+public protocol SharedSettingsProtocol : AnyObject {
+    
+    /**
+     * Has any scope file been written since `updated_at_ms`? Cheap (a
+     * `stat` per file); the host polls it and re-reads on `true`.
+     */
+    func changedSince(updatedAtMs: Int64)  -> Bool
+    
+    /**
+     * Where the scope files live.
+     */
+    func directory()  -> String
+    
+    /**
+     * The current value of `key`: what is stored, else the default.
+     */
+    func get(key: String) throws  -> SharedSettingValue
+    
+    /**
+     * Copy a legacy `UserDefaults` value in, once: writes only when nothing
+     * is stored for `key` yet and answers whether it did. The caller leaves
+     * the `UserDefaults` value where it is (D-R5). A value the type cannot
+     * read is not imported (`false`); the default stands.
+     */
+    func importLegacyJson(key: String, valueJson: String) throws  -> Bool
+    
+    /**
+     * Store (or refresh) the generated pane for `section` as an
+     * `impress/ui/surface@1.0.0` row the `surface` view kind renders, and
+     * reseed this host's state row with the current values, so the pane
+     * opens on what the files say even after a CLI `set`. The row is found
+     * by its `settings:<section>` tag, so there is one per section per
+     * store. Answers the surface id.
+     */
+    func installSectionSurface(surface: SharedSurface, section: String) throws  -> String
+    
+    /**
+     * Every declared key, in registry order.
+     */
+    func knownKeys()  -> [String]
+    
+    /**
+     * Every setting of `section` (or all, when empty) as `[SettingDto…]`
+     * JSON with values — what a pane or a debugger lists.
+     */
+    func listJson(section: String) throws  -> String
+    
+    /**
+     * Forget the stored value so `key` answers its default.
+     */
+    func reset(key: String) throws  -> SharedSettingValue
+    
+    /**
+     * The registry as JSON: `{"settings": [SettingDto…]}` — every declared
+     * key with its type, default, scope, section, legacy keys and doc.
+     */
+    func schemaJson()  -> String
+    
+    /**
+     * The generated pane for `section` as `SurfaceSpec` JSON, seeded with
+     * the current values.
+     */
+    func sectionSurfaceJson(section: String) throws  -> String
+    
+    /**
+     * Store `value_json` (a JSON text: `30`, `true`, `"1 Month"`) for `key`.
+     * The wrong type is refused and nothing is written.
+     */
+    func setJson(key: String, valueJson: String) throws  -> SharedSettingValue
+    
+    /**
+     * The newest write across the scope files — the cursor a poller keeps.
+     */
+    func updatedAtMs()  -> Int64
+    
+}
+
+/**
+ * The GUI's handle on the settings registry. One per process; `open` also
+ * makes it the `settings-service` verbs' store.
+ */
+open class SharedSettings:
+    SharedSettingsProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_impress_store_ffi_fn_clone_sharedsettings(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_impress_store_ffi_fn_free_sharedsettings(pointer, $0) }
+    }
+
+    
+    /**
+     * `workspace_path` is the directory holding `impress.sqlite`
+     * (`SharedWorkspace.workspaceDirectory` in Swift); the files live beside
+     * it under `settings/`. The synced scope reaches the process-wide store
+     * the app's `SharedStore.open` installed.
+     */
+public static func `open`(workspacePath: String)throws  -> SharedSettings {
+    return try  FfiConverterTypeSharedSettings.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_constructor_sharedsettings_open(
+        FfiConverterString.lower(workspacePath),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Has any scope file been written since `updated_at_ms`? Cheap (a
+     * `stat` per file); the host polls it and re-reads on `true`.
+     */
+open func changedSince(updatedAtMs: Int64) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_changed_since(self.uniffiClonePointer(),
+        FfiConverterInt64.lower(updatedAtMs),$0
+    )
+})
+}
+    
+    /**
+     * Where the scope files live.
+     */
+open func directory() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_directory(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The current value of `key`: what is stored, else the default.
+     */
+open func get(key: String)throws  -> SharedSettingValue {
+    return try  FfiConverterTypeSharedSettingValue.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_get(self.uniffiClonePointer(),
+        FfiConverterString.lower(key),$0
+    )
+})
+}
+    
+    /**
+     * Copy a legacy `UserDefaults` value in, once: writes only when nothing
+     * is stored for `key` yet and answers whether it did. The caller leaves
+     * the `UserDefaults` value where it is (D-R5). A value the type cannot
+     * read is not imported (`false`); the default stands.
+     */
+open func importLegacyJson(key: String, valueJson: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_import_legacy_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(key),
+        FfiConverterString.lower(valueJson),$0
+    )
+})
+}
+    
+    /**
+     * Store (or refresh) the generated pane for `section` as an
+     * `impress/ui/surface@1.0.0` row the `surface` view kind renders, and
+     * reseed this host's state row with the current values, so the pane
+     * opens on what the files say even after a CLI `set`. The row is found
+     * by its `settings:<section>` tag, so there is one per section per
+     * store. Answers the surface id.
+     */
+open func installSectionSurface(surface: SharedSurface, section: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_install_section_surface(self.uniffiClonePointer(),
+        FfiConverterTypeSharedSurface.lower(surface),
+        FfiConverterString.lower(section),$0
+    )
+})
+}
+    
+    /**
+     * Every declared key, in registry order.
+     */
+open func knownKeys() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_known_keys(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Every setting of `section` (or all, when empty) as `[SettingDto…]`
+     * JSON with values — what a pane or a debugger lists.
+     */
+open func listJson(section: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_list_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(section),$0
+    )
+})
+}
+    
+    /**
+     * Forget the stored value so `key` answers its default.
+     */
+open func reset(key: String)throws  -> SharedSettingValue {
+    return try  FfiConverterTypeSharedSettingValue.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_reset(self.uniffiClonePointer(),
+        FfiConverterString.lower(key),$0
+    )
+})
+}
+    
+    /**
+     * The registry as JSON: `{"settings": [SettingDto…]}` — every declared
+     * key with its type, default, scope, section, legacy keys and doc.
+     */
+open func schemaJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_schema_json(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The generated pane for `section` as `SurfaceSpec` JSON, seeded with
+     * the current values.
+     */
+open func sectionSurfaceJson(section: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_section_surface_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(section),$0
+    )
+})
+}
+    
+    /**
+     * Store `value_json` (a JSON text: `30`, `true`, `"1 Month"`) for `key`.
+     * The wrong type is refused and nothing is written.
+     */
+open func setJson(key: String, valueJson: String)throws  -> SharedSettingValue {
+    return try  FfiConverterTypeSharedSettingValue.lift(try rustCallWithError(FfiConverterTypeSharedSettingsError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_set_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(key),
+        FfiConverterString.lower(valueJson),$0
+    )
+})
+}
+    
+    /**
+     * The newest write across the scope files — the cursor a poller keeps.
+     */
+open func updatedAtMs() -> Int64 {
+    return try!  FfiConverterInt64.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedsettings_updated_at_ms(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSettings: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = SharedSettings
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedSettings {
+        return SharedSettings(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: SharedSettings) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSettings {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: SharedSettings, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSettings_lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedSettings {
+    return try FfiConverterTypeSharedSettings.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSettings_lower(_ value: SharedSettings) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeSharedSettings.lower(value)
+}
+
+
+
+
+/**
  * A handle to the shared impress-core SQLite database.
  *
  * Construct with `SharedStore.open(path:)` or `SharedStore.openInMemory()`.
@@ -12343,6 +12693,166 @@ public func FfiConverterTypeSharedSearchHit_lower(_ value: SharedSearchHit) -> R
 
 
 /**
+ * A setting with its current value, as Swift reads it. `value_json` and
+ * `default_json` are JSON texts (`30`, `true`, `"…"`), typed by `ty`, so
+ * the Swift wrapper decodes into the property's own type and a misspelt key
+ * never reaches this record at all (`NotFound`).
+ */
+public struct SharedSettingValue {
+    public var key: String
+    /**
+     * `bool`, `integer`, `number` or `string`.
+     */
+    public var ty: String
+    public var valueJson: String
+    public var defaultJson: String
+    /**
+     * `stored` or `default`.
+     */
+    public var source: String
+    /**
+     * `device`, `app:<id>`, `library` or `synced`.
+     */
+    public var scope: String
+    /**
+     * The `UserDefaults` keys to import from, in order, when nothing is stored.
+     */
+    public var legacy: [String]
+    public var section: String
+    public var label: String
+    public var doc: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(key: String, 
+        /**
+         * `bool`, `integer`, `number` or `string`.
+         */ty: String, valueJson: String, defaultJson: String, 
+        /**
+         * `stored` or `default`.
+         */source: String, 
+        /**
+         * `device`, `app:<id>`, `library` or `synced`.
+         */scope: String, 
+        /**
+         * The `UserDefaults` keys to import from, in order, when nothing is stored.
+         */legacy: [String], section: String, label: String, doc: String) {
+        self.key = key
+        self.ty = ty
+        self.valueJson = valueJson
+        self.defaultJson = defaultJson
+        self.source = source
+        self.scope = scope
+        self.legacy = legacy
+        self.section = section
+        self.label = label
+        self.doc = doc
+    }
+}
+
+
+
+extension SharedSettingValue: Equatable, Hashable {
+    public static func ==(lhs: SharedSettingValue, rhs: SharedSettingValue) -> Bool {
+        if lhs.key != rhs.key {
+            return false
+        }
+        if lhs.ty != rhs.ty {
+            return false
+        }
+        if lhs.valueJson != rhs.valueJson {
+            return false
+        }
+        if lhs.defaultJson != rhs.defaultJson {
+            return false
+        }
+        if lhs.source != rhs.source {
+            return false
+        }
+        if lhs.scope != rhs.scope {
+            return false
+        }
+        if lhs.legacy != rhs.legacy {
+            return false
+        }
+        if lhs.section != rhs.section {
+            return false
+        }
+        if lhs.label != rhs.label {
+            return false
+        }
+        if lhs.doc != rhs.doc {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(key)
+        hasher.combine(ty)
+        hasher.combine(valueJson)
+        hasher.combine(defaultJson)
+        hasher.combine(source)
+        hasher.combine(scope)
+        hasher.combine(legacy)
+        hasher.combine(section)
+        hasher.combine(label)
+        hasher.combine(doc)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSettingValue: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSettingValue {
+        return
+            try SharedSettingValue(
+                key: FfiConverterString.read(from: &buf), 
+                ty: FfiConverterString.read(from: &buf), 
+                valueJson: FfiConverterString.read(from: &buf), 
+                defaultJson: FfiConverterString.read(from: &buf), 
+                source: FfiConverterString.read(from: &buf), 
+                scope: FfiConverterString.read(from: &buf), 
+                legacy: FfiConverterSequenceString.read(from: &buf), 
+                section: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                doc: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedSettingValue, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.ty, into: &buf)
+        FfiConverterString.write(value.valueJson, into: &buf)
+        FfiConverterString.write(value.defaultJson, into: &buf)
+        FfiConverterString.write(value.source, into: &buf)
+        FfiConverterString.write(value.scope, into: &buf)
+        FfiConverterSequenceString.write(value.legacy, into: &buf)
+        FfiConverterString.write(value.section, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.doc, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSettingValue_lift(_ buf: RustBuffer) throws -> SharedSettingValue {
+    return try FfiConverterTypeSharedSettingValue.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSettingValue_lower(_ value: SharedSettingValue) -> RustBuffer {
+    return FfiConverterTypeSharedSettingValue.lower(value)
+}
+
+
+/**
  * A file discovery declined to record, and why. Never silently dropped.
  */
 public struct SharedSkippedFile {
@@ -12753,6 +13263,78 @@ public func FfiConverterTypeSharedSyncCollectionOutcome_lift(_ buf: RustBuffer) 
 #endif
 public func FfiConverterTypeSharedSyncCollectionOutcome_lower(_ value: SharedSyncCollectionOutcome) -> RustBuffer {
     return FfiConverterTypeSharedSyncCollectionOutcome.lower(value)
+}
+
+
+/**
+ * What [`dispatch_verb`] answers: an HTTP status and the wire body —
+ * `{"ok": true, "wire_version", …}` or `{"ok": false, "wire_version",
+ * "code", "message"}` — exactly the convention `/api/layout/…` and
+ * `/api/surface/…` already answer (`impress_service_core::wire`).
+ */
+public struct SharedVerbDispatchResult {
+    public var status: UInt16
+    public var bodyJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: UInt16, bodyJson: String) {
+        self.status = status
+        self.bodyJson = bodyJson
+    }
+}
+
+
+
+extension SharedVerbDispatchResult: Equatable, Hashable {
+    public static func ==(lhs: SharedVerbDispatchResult, rhs: SharedVerbDispatchResult) -> Bool {
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.bodyJson != rhs.bodyJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(status)
+        hasher.combine(bodyJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedVerbDispatchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedVerbDispatchResult {
+        return
+            try SharedVerbDispatchResult(
+                status: FfiConverterUInt16.read(from: &buf), 
+                bodyJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedVerbDispatchResult, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.status, into: &buf)
+        FfiConverterString.write(value.bodyJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedVerbDispatchResult_lift(_ buf: RustBuffer) throws -> SharedVerbDispatchResult {
+    return try FfiConverterTypeSharedVerbDispatchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedVerbDispatchResult_lower(_ value: SharedVerbDispatchResult) -> RustBuffer {
+    return FfiConverterTypeSharedVerbDispatchResult.lower(value)
 }
 
 
@@ -15212,6 +15794,93 @@ public struct FfiConverterTypeSharedLayoutError: FfiConverterRustBuffer {
 extension SharedLayoutError: Equatable, Hashable {}
 
 extension SharedLayoutError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
+/**
+ * One case per `SettingsError` family.
+ */
+public enum SharedSettingsError {
+
+    
+    
+    /**
+     * The key (or section) is not declared in the registry.
+     */
+    case NotFound(message: String
+    )
+    /**
+     * The value has the wrong type, or an argument would not parse.
+     */
+    case InvalidArgument(message: String
+    )
+    /**
+     * A file or the synced row could not be read or written.
+     */
+    case Storage(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSettingsError: FfiConverterRustBuffer {
+    typealias SwiftType = SharedSettingsError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSettingsError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .NotFound(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .InvalidArgument(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Storage(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SharedSettingsError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .NotFound(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .InvalidArgument(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Storage(message):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension SharedSettingsError: Equatable, Hashable {}
+
+extension SharedSettingsError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -17771,6 +18440,20 @@ public func compilePaneQuery(queryJson: String, declsJson: String, bindingsJson:
 })
 }
 /**
+ * Dispatch one verb by its qualified name (`<service>_<method>`) through
+ * the invoker pipeline, on whatever `*-service` crates this binary links
+ * (the kit, for this crate — see the module doc for what that excludes).
+ */
+public func dispatchVerb(name: String, argsJson: String, callerJson: String) -> SharedVerbDispatchResult {
+    return try!  FfiConverterTypeSharedVerbDispatchResult.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_dispatch_verb(
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(argsJson),
+        FfiConverterString.lower(callerJson),$0
+    )
+})
+}
+/**
  * Install `sink` as the destination of the layout and surface crates' log
  * lines, at `level` (`error` | `warning` | `info` | `debug`; anything else
  * is `info`). Installing again replaces the sink and the level. Returns
@@ -18026,6 +18709,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_compile_pane_query() != 7773) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_func_dispatch_verb() != 2837) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_func_install_log_sink() != 14824) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18276,6 +18962,42 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_version() != 17861) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_changed_since() != 41471) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_directory() != 8341) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_get() != 37284) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_import_legacy_json() != 31555) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_install_section_surface() != 15414) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_known_keys() != 15546) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_list_json() != 53354) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_reset() != 25636) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_schema_json() != 11574) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_section_surface_json() != 4006) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_set_json() != 37033) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedsettings_updated_at_ms() != 34554) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_reference() != 26356) {
@@ -18597,6 +19319,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedlayout_open() != 42182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_constructor_sharedsettings_open() != 29998) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open() != 6376) {

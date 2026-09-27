@@ -151,7 +151,7 @@ impl LayoutSession {
                 Ok(())
             }
             LiveWrite::Moved { revision: now } => {
-                log::warn!(
+                tracing::warn!(
                     target: "layout",
                     "{}/{}: live row {} moved ({revision} → {now:?}) under a write ('{intent}'); \
                      nothing written, the session reloads",
@@ -406,7 +406,7 @@ impl LayoutSession {
     }
 
     fn log_refused_step(&self, word: &str, error: &LayoutError) {
-        log::info!(
+        tracing::info!(
             target: "layout",
             "{}/{}: {word} refused and dropped: {error}",
             self.app_id,
@@ -498,7 +498,7 @@ impl SessionRegistry {
                         .values()
                         .map(|ring| ring.done.len() + ring.undone.len())
                         .sum::<usize>();
-                log::info!(
+                tracing::info!(
                     target: "layout",
                     "{app_id}/{device}: live row {} moved ({:?} → {stored:?}); reloading, \
                      {steps} undo step(s) dropped",

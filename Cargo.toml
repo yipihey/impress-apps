@@ -26,6 +26,12 @@ members = [
     "crates/imbib-semantic-service",
     # local-network (SFTP) transport for reMarkable tablets
     "crates/impress-remarkable",
+    # impress-fs-lock - the advisory flock impress-ai and impress-settings
+    # share; pure, no dependencies (ADR-0036 D-R8)
+    "crates/impress-fs-lock",
+    # impress-settings - the declared settings registry and its per-scope
+    # files (ADR-0036 D5); pure
+    "crates/impress-settings",
     # provenance-first local/remote inference over the shared item graph
     "crates/impress-ai",
     "crates/impress-ai-service",
@@ -52,6 +58,10 @@ members = [
     # implore/impart service traits (TypeScript MCP retirement)
     "crates/implore-service",
     "crates/implore-service-http",
+    # implore-verbs-ffi - implore's own per-app UniFFI target (plan-verb-
+    # pipeline-and-transport.md § P5): links implore-service directly,
+    # outside the kit boundary impress-store-ffi keeps.
+    "crates/implore-verbs-ffi",
     "crates/impart-service",
     "crates/impart-service-http",
     "crates/impress-bridges-service",
@@ -84,6 +94,10 @@ members = [
     "crates/impress-pane-query",
     # ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure
     "crates/impress-surface",
+    # ADR-0035 D2: verb_surface(&VerbDescriptor) -> SurfaceSpec + catalogue(), pure (plan G4)
+    "crates/impress-verb-surface",
+    "crates/impress-scenario",
+    "crates/impress-scenario-service",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
     "crates/impress-capabilities",
     # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
@@ -139,6 +153,11 @@ members = [
     # impress-app-client - typed Rust HTTP client for imbib/imprint
     # automation APIs. Backs HttpImbib*Service impls.
     "crates/impress-app-client",
+    # impress-app-transport - the P5 transport's client side: one
+    # `call(app, verb, args)` over `POST /api/verb/<name>` (plan-verb-
+    # pipeline-and-transport.md § P5), replacing the four `*-service-http`
+    # adapters' probe/retry/cooldown machinery with one copy.
+    "crates/impress-app-transport",
     # imbib-service-http - HTTP-backed impls of the 7 imbib-service traits +
     # install() helper that probes localhost:23120 and installs the backend.
     "crates/imbib-service-http",
@@ -214,7 +233,10 @@ impress-layout = { path = "crates/impress-layout" }
 impress-layout-service = { path = "crates/impress-layout-service" }
 impress-pane-query = { path = "crates/impress-pane-query" }
 impress-surface = { path = "crates/impress-surface" }
-impress-capabilities = { path = "crates/impress-capabilities" }
+impress-verb-surface = { path = "crates/impress-verb-surface" }
+impress-scenario = { path = "crates/impress-scenario" }
+impress-scenario-service = { path = "crates/impress-scenario-service" }
+impress-capabilities = { path = "crates/impress-capabilities", default-features = false }
 impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
@@ -233,6 +255,8 @@ impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-remarkable = { path = "crates/impress-remarkable" }
+impress-fs-lock = { path = "crates/impress-fs-lock" }
+impress-settings = { path = "crates/impress-settings" }
 impress-ai = { path = "crates/impress-ai" }
 impress-ai-service = { path = "crates/impress-ai-service" }
 impress-ai-tools = { path = "crates/impress-ai-tools" }
@@ -301,6 +325,11 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Bridges any remaining `log` caller (a dependency; G7a moved the workspace's
+# own `log`-facade crates onto `tracing`, D-P1) into whatever `tracing`
+# subscriber is installed — `impress-store-ffi`'s bridge layer calls
+# `LogTracer::init()`.
+tracing-log = "0.2"
 
 # Persona/config loading
 toml = "0.8"
@@ -325,10 +354,12 @@ imprint-cli = { path = "crates/imprint-cli" }
 
 # HTTP transport for the unified storage (Phase A/B/C from we-are-planning-…).
 impress-app-client = { path = "crates/impress-app-client" }
+impress-app-transport = { path = "crates/impress-app-transport" }
 imbib-service-http = { path = "crates/imbib-service-http" }
 imprint-service-http = { path = "crates/imprint-service-http" }
 implore-service = { path = "crates/implore-service" }
 implore-service-http = { path = "crates/implore-service-http" }
+implore-verbs-ffi = { path = "crates/implore-verbs-ffi" }
 impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }

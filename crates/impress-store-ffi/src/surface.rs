@@ -195,7 +195,7 @@ fn reply(status: u16, body: String) -> SharedHttpReply {
 /// "code", "message", "wire_version": 1}`, at the status the code maps to
 /// (`impress_service_core::refusal::http_status`).
 fn refusal_reply(refusal: &Refusal) -> SharedHttpReply {
-    log::info!(
+    tracing::info!(
         target: "surface",
         "http refused [{}]: {}",
         refusal.code,
@@ -350,7 +350,7 @@ impl VerbHost for HostAdapter {
         let args_json = serde_json::to_string(&args)
             .map_err(|e| Refusal::internal(format!("encode args for '{name}': {e}")))?;
         let reply_json = host.call_verb(name.to_string(), args_json).map_err(|e| {
-            log::warn!(target: "surface", "verb host refused '{name}': {e}");
+            tracing::warn!(target: "surface", "verb host refused '{name}': {e}");
             match e {
                 SharedVerbHostError::Unavailable { app, verb } => Refusal::new(
                     codes::HOST_UNAVAILABLE,
@@ -512,6 +512,15 @@ async fn off_caller<T: Send + 'static>(
         .spawn(work)
         .await
         .map_err(|e| Refusal::internal(format!("surface task failed: {e}")))
+}
+
+impl SharedSurface {
+    /// The surface rows this handle reads and writes — for the settings
+    /// pane installer (`crate::settings`), which stores a generated spec
+    /// where the `surface` view kind will find it.
+    pub(crate) fn surface_store(&self) -> &SurfaceStore {
+        &self.core.surfaces
+    }
 }
 
 #[cfg_attr(feature = "native", uniffi::export)]
@@ -858,7 +867,7 @@ impl SurfaceCore {
             }
             Err(e) => SurfaceDispatchResult::refused(e),
         };
-        log::info!(
+        tracing::info!(
             target: "surface",
             "surface {surface_id} ({}): {} dispatch {}: {}",
             self.host,
@@ -987,7 +996,7 @@ impl SurfaceCore {
             _ => 200,
         };
         if status != 200 {
-            log::info!(
+            tracing::info!(
                 target: "surface",
                 "http {method} {path_only} → {status} [{}]: {}",
                 answer.get("code").and_then(serde_json::Value::as_str).unwrap_or("?"),
@@ -1231,7 +1240,7 @@ impl SurfaceFeed {
                 if changes.is_empty() {
                     continue;
                 }
-                log::debug!(
+                tracing::debug!(
                     target: "surface",
                     "feed: {} surface(s) changed: {:?}",
                     changes.len(),
@@ -2226,7 +2235,7 @@ mod tests {
     /// and its failed effect (review RS-S11, AC-F18).
     #[test]
     fn a_dispatch_and_its_failed_effect_are_logged_under_surface() {
-        let sink = crate::log_bridge::tests::captured();
+        let sink = crate::tracing_bridge::tests::captured();
         let (store, surface) = open();
         let id = create(&store, &publish_spec());
         surface

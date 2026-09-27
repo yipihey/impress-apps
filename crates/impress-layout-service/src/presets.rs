@@ -1225,7 +1225,7 @@ impl PresetStore {
         let print = fingerprint(layout, &stored.queries, &stored.roles);
         let Some(from) = is_older_shipped(shipped.app_id, shipped.name, shipped.version, &print)
         else {
-            log::info!(
+            tracing::info!(
                 target: "layout",
                 "preset '{}' of {} left at {:?}: it matches no revision the suite shipped \
                  (fingerprint {print}), so it is the user's",
@@ -1249,7 +1249,7 @@ impl PresetStore {
                 shipped.name, shipped.version
             ),
         )?;
-        log::info!(
+        tracing::info!(
             target: "layout",
             "preset '{}' of {} upgraded from shipped revision {from} to {}",
             shipped.name,

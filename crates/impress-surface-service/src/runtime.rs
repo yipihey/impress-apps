@@ -372,7 +372,7 @@ impl DefaultExecutor {
                     }
                 }
             }
-            Err(e) => log::warn!(target: "surface", "list live layouts on {device}: {e}"),
+            Err(e) => tracing::warn!(target: "surface", "list live layouts on {device}: {e}"),
         }
         apps
     }
@@ -1057,7 +1057,7 @@ impl SurfaceRuntime {
                         progressed = true;
                     }
                     Err(why) => {
-                        log::warn!(
+                        tracing::warn!(
                             target: "surface",
                             "surface {} ({}): source '{}' failed [{}]: {}",
                             self.surface_id,
@@ -1222,7 +1222,7 @@ impl SurfaceRuntime {
         flush_gesture(executor, gesture.take(), &mut outcomes, actor).await;
         for outcome in &outcomes {
             if outcome.ok {
-                log::debug!(
+                tracing::debug!(
                     target: "surface",
                     "surface {} ({}): {} effect ok: {}",
                     self.surface_id,
@@ -1231,7 +1231,7 @@ impl SurfaceRuntime {
                     outcome.message
                 );
             } else {
-                log::warn!(
+                tracing::warn!(
                     target: "surface",
                     "surface {} ({}): {} effect failed [{}]: {}",
                     self.surface_id,

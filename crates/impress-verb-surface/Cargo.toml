@@ -1,0 +1,48 @@
+[package]
+name = "impress-verb-surface"
+description = "verb_surface(&VerbDescriptor) -> SurfaceSpec: a generated form, Run button and result view for every linked verb, plus the catalogue (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The descriptor (name, schemas, safety, examples) — pure, no store, no IO;
+# see the kit line `scripts/check-kit-deps.sh` pins for this crate.
+impress-service-core = { workspace = true }
+# The vocabulary this crate builds: `SurfaceSpec`, `Node`, `Action`, `Source`.
+impress-surface = { workspace = true }
+serde_json = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+# The completeness-1 test iterates the linked inventory: every verb every
+# other service crate links gets a form that validates. `full` minus
+# `impact`/`kit`'s `capabilities-service`: that crate will depend on THIS
+# one for its generated verbs, and a dev-dependency back onto it would be a
+# real (non-dev) cycle through capabilities-service's normal dependency on
+# impress-verb-surface — so this test proves completeness over every other
+# linked service instead (433 verbs minus capabilities-service's own 3).
+impress-capabilities = { workspace = true, default-features = false, features = [
+    "imbib",
+    "impart",
+    "impel",
+    "implore",
+    "imprint",
+    "ai",
+    "bridges",
+    "memory",
+    "parsers",
+    "smart-search",
+    "vw",
+] }
+impress-surface-service = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite"] }
+surface-demo-service = { workspace = true }
+tokio = { workspace = true }
+# The catalogue names `capabilities-service_list-verbs`/`verb-surface`, which
+# `surface_create` checks against the linked inventory — this proof needs
+# them linked. `capabilities-service`'s own normal dependency on THIS crate
+# is a dev-dependency cycle, which cargo permits (the dev graph is built
+# after the lib graph); see `tests/proof_catalogue_and_run.rs`'s doc comment.
+capabilities-service = { workspace = true }

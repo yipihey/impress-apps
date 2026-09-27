@@ -171,7 +171,7 @@ impl ExternalPoll {
         let dv = match store.data_version() {
             Ok(dv) => dv,
             Err(e) => {
-                log::warn!(target: "layout", "external poll: data_version failed: {e}");
+                tracing::warn!(target: "layout", "external poll: data_version failed: {e}");
                 return ExternalBatch::default();
             }
         };
@@ -182,7 +182,7 @@ impl ExternalPoll {
         let items = match store.items_modified_since(prefix, since) {
             Ok(items) => items,
             Err(e) => {
-                log::warn!(
+                tracing::warn!(
                     target: "layout",
                     "external poll: reading {prefix}* rows failed ({e}); retried next poll"
                 );
@@ -197,7 +197,7 @@ impl ExternalPoll {
                     gone
                 }
                 Err(e) => {
-                    log::warn!(
+                    tracing::warn!(
                         target: "layout",
                         "external poll: listing {schema} ids failed ({e}); retried next poll"
                     );

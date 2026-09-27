@@ -32,6 +32,7 @@ impress-smart-search-service = { workspace = true, optional = true }
 # that tried to fold it into `full` was reverted for exactly this reason —
 # see docs/plan-verb-pipeline-and-transport.md's session log.
 imbib-semantic-service = { workspace = true, optional = true }
+impress-scenario-service = { workspace = true, optional = true }
 # `capabilities-service_impact` (E3, ADR-0036 D-G2's spirit) reads the linked
 # inventory itself plus the stored surfaces (`impress-surface-service`, kit),
 # so it needs the `kit` feature on whenever it is on.
@@ -89,9 +90,11 @@ full = [
     "smart-search",
     "vw",
     "kit",
+    "scenario",
     "impact",
 ]
 kit = ["dep:impress-capabilities-kit"]
+scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]
