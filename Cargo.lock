@@ -3953,6 +3953,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "imbib-semantic-service"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "imbib-core",
+ "impress-embeddings",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-workspace-hack",
+ "rusqlite",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "imbib-service"
 version = "0.1.0"
 dependencies = [
@@ -4439,6 +4456,7 @@ dependencies = [
 name = "impress-capabilities"
 version = "0.1.0"
 dependencies = [
+ "imbib-semantic-service",
  "imbib-service",
  "impart-service",
  "impel-service",
@@ -4643,19 +4661,16 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",
- "imbib-core",
  "imbib-service-http",
  "impart-service-http",
  "implore-service-http",
  "impress-capabilities",
- "impress-embeddings",
  "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-service",
  "imprint-service-http",
- "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
