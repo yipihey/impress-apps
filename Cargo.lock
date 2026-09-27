@@ -4475,6 +4475,7 @@ dependencies = [
  "impress-smart-search-service",
  "impress-store-service",
  "impress-surface-service",
+ "impress-workflow-service",
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
@@ -4996,6 +4997,38 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "impress-workflow"
+version = "0.1.0"
+dependencies = [
+ "impress-surface",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "impress-workflow-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "impress-surface",
+ "impress-workflow",
+ "impress-workspace-hack",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]
