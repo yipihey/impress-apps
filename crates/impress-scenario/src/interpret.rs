@@ -163,11 +163,11 @@ async fn run_step(
             .map_err(|e| format!("step {index} (event): {e}"))?;
             let event: EventBody = serde_json::from_value(resolved)
                 .map_err(|e| format!("step {index} (event): {e}"))?;
-            caller
+            let outcome = caller
                 .event(&event)
                 .await
-                .map(|_| ())
-                .map_err(|e| format!("step {index} (event): {e}"))
+                .map_err(|e| format!("step {index} (event): {e}"))?;
+            check_event_outcome(&outcome).map_err(|e| format!("step {index} (event): {e}"))
         }
         Step::Gesture(GestureStep { gesture }) => {
             let resolved = template::resolve(gesture, &captures_value)
@@ -183,6 +183,21 @@ async fn run_step(
             .await
             .map_err(|e| format!("step {index} (wait): {e}")),
     }
+}
+
+// An event has no `expect` field: unlike a call step, a refusal can never be
+// an expected result. Check both the transport and the service envelope so a
+// replay cannot report success when the dispatch did nothing.
+fn check_event_outcome(outcome: &CallOutcome) -> Result<(), String> {
+    if let Some(status) = outcome.status {
+        if !(200..300).contains(&status) {
+            return Err(format!("dispatch returned HTTP {status}"));
+        }
+    }
+    if outcome.result.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err("dispatch did not return ok=true".to_string());
+    }
+    Ok(())
 }
 
 async fn run_call(
@@ -356,5 +371,36 @@ fn skipped(scenario: &Scenario, tier: Tier, started: Instant, reason: String) ->
         detail: format!("skipped: {reason}"),
         duration_ms: started.elapsed().as_millis() as u64,
         skipped: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn event_outcome_requires_successful_status_and_envelope() {
+        for outcome in [
+            CallOutcome {
+                result: json!({"ok": true}),
+                status: Some(404),
+            },
+            CallOutcome {
+                result: json!({"ok": false}),
+                status: Some(200),
+            },
+            CallOutcome {
+                result: json!({"message": "missing envelope"}),
+                status: Some(200),
+            },
+        ] {
+            assert!(check_event_outcome(&outcome).is_err(), "{outcome:?}");
+        }
+        assert!(check_event_outcome(&CallOutcome {
+            result: json!({"ok": true}),
+            status: Some(200),
+        })
+        .is_ok());
     }
 }

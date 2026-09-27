@@ -411,6 +411,12 @@ impl Caller for TierBCaller {
             .http
             .post(&format!("/api/surface/{}/dispatch", event.surface), &body)
             .await?;
+        if !(200..300).contains(&status) {
+            return Err(format!("surface event dispatch returned HTTP {status}"));
+        }
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err("surface event dispatch did not return ok=true".to_string());
+        }
         self.wrote.insert("impress/ui/surface@1.0.0".to_string());
         Ok(CallOutcome {
             result: value,
@@ -645,5 +651,37 @@ mod tests {
             "POST /api/verb/impress-surface-service_surface-dispatch HTTP/1.1"
         );
         assert_eq!(body, args);
+    }
+
+    #[tokio::test]
+    async fn event_requires_success_before_counting_a_surface_effect() {
+        let event = EventBody {
+            surface: "surface-1".to_string(),
+            widget: "go".to_string(),
+            kind: "click".to_string(),
+            value: Value::Null,
+        };
+        for (status, response) in [
+            (404, json!({"ok": false, "code": "not-found"})),
+            (200, json!({"ok": false, "code": "effect-failed"})),
+        ] {
+            let (base, mock) = mock_once(status, response);
+            let mut caller = TierBCaller::new(&base);
+            let error = caller.event(&event).await.unwrap_err();
+            assert!(error.contains("surface event dispatch"), "{error}");
+            assert!(!caller.wrote("impress/ui/surface@1.0.0"));
+            let (request, body) = mock.join().unwrap();
+            assert_eq!(request, "POST /api/surface/surface-1/dispatch HTTP/1.1");
+            assert_eq!(
+                body,
+                json!({"widget": "go", "kind": "click", "value": null})
+            );
+        }
+
+        let (base, mock) = mock_once(200, json!({"ok": true}));
+        let mut caller = TierBCaller::new(&base);
+        assert_eq!(caller.event(&event).await.unwrap().status, Some(200));
+        assert!(caller.wrote("impress/ui/surface@1.0.0"));
+        mock.join().unwrap();
     }
 }
