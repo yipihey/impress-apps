@@ -11,6 +11,21 @@
 //! The base url is `IMPRESS_SURFACE_SELFTEST_BASE_URL`, else
 //! `IMPRESS_LAYOUT_SELFTEST_BASE_URL` (so one variable points both
 //! self-tests at one app), else impress's own port.
+//!
+//! **SC-1, kept as code (docs/plan-self-reflective-layer.md § Scenarios,
+//! table SC-1; S2's row).** Unlike `impress-layout-service`'s catalogue, this
+//! one is already a near-literal call+capture+assert sequence (`routes`
+//! captures the created surface's `id` and reuses it in later paths exactly
+//! as a scenario's `{{state.id}}` would) — the reason it stays code this
+//! round is purely the kit boundary: `impress-surface-service` is a kit
+//! crate (`docs/kit-manifest.md`, ADR-0033 D7), `check-kit-deps.sh --strict`
+//! refuses a workspace dependency the manifest's table does not list, and
+//! `impress-scenario` (the interpreter imprint's converted entries run
+//! through) is deliberately not in that table (S1's session log: "not the
+//! layout+surface kit"). Adding it here without first amending the manifest
+//! is an ask-first kit-boundary change (D7), out of this pass's remit — a
+//! natural next candidate once that decision is made, since nothing else
+//! here blocks it.
 
 use std::time::Duration;
 

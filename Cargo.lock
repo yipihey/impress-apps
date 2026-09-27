@@ -5304,6 +5304,7 @@ dependencies = [
  "chrono",
  "impress-app-client",
  "impress-core",
+ "impress-scenario",
  "impress-service-core",
  "impress-service-macros",
  "impress-store-ffi",

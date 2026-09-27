@@ -14,7 +14,7 @@ use impress_service_core::async_trait;
 use impress_service_macros::impress_method;
 use impress_service_macros::{impress_service, impress_service_impl};
 
-use crate::report::SelfTestReport;
+use crate::SelfTestReport;
 use crate::DEFAULT_BASE_URL;
 
 /// Run imprint's capability self-tests and return a structured report.
