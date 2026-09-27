@@ -219,7 +219,7 @@ fn an_agents_claim_to_be_human_is_recorded_as_the_agent() {
         }),
     );
     assert_eq!(answer["ok"], true, "{answer}");
-    impress_store_service::audit::flush();
+    impress_store_service::audit::flush().expect("audit flush");
 
     let ops = authors_of(&store, "core/operation");
     assert!(!ops.is_empty(), "the split wrote operations");
@@ -254,7 +254,7 @@ fn the_person_is_recorded_as_the_person() {
         }),
     );
     assert_eq!(answer["ok"], true, "{answer}");
-    impress_store_service::audit::flush();
+    impress_store_service::audit::flush().expect("audit flush");
     let ops = authors_of(&store, "core/operation");
     assert!(ops.iter().all(|(_, kind)| kind == "Human"), "{ops:?}");
     let calls = authors_of(&store, impress_core::schemas::VERB_CALL_SCHEMA);
@@ -286,7 +286,7 @@ fn the_call_row_is_the_batch_of_its_operations() {
         json!({ "binding": "generic", "id": id, "name": "renamed" }),
     );
     assert_eq!(renamed["ok"], true, "{renamed}");
-    impress_store_service::audit::flush();
+    impress_store_service::audit::flush().expect("audit flush");
 
     let ops = store
         .operations_for(id.parse().expect("uuid"), None)
@@ -322,7 +322,7 @@ fn the_call_row_is_the_batch_of_its_operations() {
         "collection-service_tree",
         json!({ "binding": "generic" }),
     );
-    impress_store_service::audit::flush();
+    impress_store_service::audit::flush().expect("audit flush");
     let after = store
         .count(&ItemQuery {
             schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),

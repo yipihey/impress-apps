@@ -545,7 +545,7 @@ mod tests {
             ))
             .expect("tag ran");
         }
-        impress_store_service::audit::flush();
+        impress_store_service::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store.clone());
         let proposal = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));

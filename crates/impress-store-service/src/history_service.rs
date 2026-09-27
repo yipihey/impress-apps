@@ -1410,7 +1410,7 @@ mod tests {
         let id = item(&store);
         let answer = set_starred(store.clone(), id, "test-agent");
         assert_eq!(answer["ok"], true, "{answer}");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store);
         let result = impress_service_core::runtime::block_on(svc.why(id.to_string()));
@@ -1470,7 +1470,7 @@ mod tests {
         let store = crate::test_support::test_store();
         let id = item(&store);
         set_starred(store.clone(), id, "test-agent");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
         let call_id = store.operations_for(id, None).unwrap()[0]
             .batch_id
             .clone()
@@ -1509,7 +1509,7 @@ mod tests {
             .unwrap();
         impress_service_core::runtime::block_on(pipeline::invoke_on(store.clone(), verb, call_b))
             .unwrap();
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store);
         let result = impress_service_core::runtime::block_on(svc.trace(trace_id.clone()));
@@ -1533,7 +1533,7 @@ mod tests {
         ))
         .expect("verb ran");
         assert_eq!(answer["ok"], true, "{answer}");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let calls = impress_service_core::runtime::block_on(
             DefaultHistoryService::with_store(store.clone()).calls(
@@ -1566,7 +1566,7 @@ mod tests {
         let store = crate::test_support::test_store();
         let id = item(&store);
         set_starred(store.clone(), id, "test");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let calls = impress_service_core::runtime::block_on(
             DefaultHistoryService::with_store(store.clone()).calls(None, None, None, None, None, 0),
@@ -1590,7 +1590,7 @@ mod tests {
         let store = crate::test_support::test_store();
         let id = item(&store);
         set_starred(store.clone(), id, "test");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let calls = impress_service_core::runtime::block_on(
             DefaultHistoryService::with_store(store.clone()).calls(None, None, None, None, None, 0),
@@ -1625,7 +1625,7 @@ mod tests {
         let store = crate::test_support::test_store();
         let id = item(&store);
         set_starred(store.clone(), id, "test");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store);
         let health = impress_service_core::runtime::block_on(svc.health());
@@ -1656,7 +1656,7 @@ mod tests {
             set_starred(store.clone(), id, "triage-agent");
             add_tag(store.clone(), id, "reading/queue", "triage-agent");
         }
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store.clone());
         let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
@@ -1722,7 +1722,7 @@ mod tests {
         set_starred(store.clone(), b, "triage-agent");
         set_starred(store.clone(), c, "triage-agent");
         set_starred(store.clone(), c, "triage-agent");
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store);
         let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));
@@ -1739,7 +1739,7 @@ mod tests {
             set_starred(store.clone(), id, "triage-agent");
             add_tag(store.clone(), id, &long_tag, "triage-agent");
         }
-        crate::audit::flush();
+        crate::audit::flush().expect("audit flush");
 
         let svc = DefaultHistoryService::with_store(store);
         let result = impress_service_core::runtime::block_on(svc.propose_workflows(None, 0, 0));

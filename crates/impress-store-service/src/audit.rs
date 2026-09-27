@@ -17,8 +17,9 @@
 //! its calls without an init call anyone has to remember.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::mpsc::{channel, sync_channel, RecvTimeoutError, Sender, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, OnceLock, TryLockError};
+use std::time::{Duration, Instant};
 
 use impress_core::call_context::record_verb_call;
 use impress_core::sqlite_store::SqliteItemStore;
@@ -31,6 +32,34 @@ pub const CHANNEL_CAPACITY: usize = 4096;
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 static WRITTEN: AtomicU64 = AtomicU64::new(0);
 static FAILED: AtomicU64 = AtomicU64::new(0);
+static SINK: OnceLock<Arc<ChannelSink>> = OnceLock::new();
+
+/// The barrier travels through the same FIFO as records and needs no store.
+#[derive(Debug)]
+// The marker is rare; boxing every record to equalize variants would add an
+// allocation to every mutating call on the audit hot path.
+#[allow(clippy::large_enum_variant)]
+enum QueueMessage {
+    Record(VerbCallRecord),
+    Flush(Sender<()>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum FlushError {
+    TimedOut,
+    WriterDisconnected,
+}
+
+impl std::fmt::Display for FlushError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TimedOut => formatter.write_str("timed out waiting for audit writer"),
+            Self::WriterDisconnected => formatter.write_str("audit writer disconnected"),
+        }
+    }
+}
+
+impl std::error::Error for FlushError {}
 
 /// Records the writer could not keep because the channel was full.
 pub fn dropped() -> u64 {
@@ -64,17 +93,22 @@ pub fn health() -> serde_json::Value {
 
 /// The sink: one sender, one writer thread.
 pub struct ChannelSink {
-    sender: Mutex<SyncSender<VerbCallRecord>>,
+    sender: Mutex<SyncSender<QueueMessage>>,
 }
 
 impl ChannelSink {
     fn start() -> Arc<Self> {
-        let (sender, receiver) = sync_channel::<VerbCallRecord>(CHANNEL_CAPACITY);
+        let (sender, receiver) = sync_channel::<QueueMessage>(CHANNEL_CAPACITY);
         std::thread::Builder::new()
             .name("impress-verb-call-writer".into())
             .spawn(move || {
-                for record in receiver {
-                    write(record);
+                for message in receiver {
+                    match message {
+                        QueueMessage::Record(record) => write(record),
+                        QueueMessage::Flush(ack) => {
+                            let _ = ack.send(());
+                        }
+                    }
                 }
             })
             .expect("the verb-call writer thread starts");
@@ -82,12 +116,55 @@ impl ChannelSink {
             sender: Mutex::new(sender),
         })
     }
+
+    fn flush_until(&self, deadline: Instant) -> Result<(), FlushError> {
+        let (ack, finished) = channel();
+        // The sender lock orders the marker after every record() that has
+        // returned. Release it between retries so a full queue does not make
+        // concurrent callers wait for the writer through this mutex.
+        let mut message = QueueMessage::Flush(ack);
+        loop {
+            if Instant::now() >= deadline {
+                return Err(FlushError::TimedOut);
+            }
+            let sender = loop {
+                match self.sender.try_lock() {
+                    Ok(sender) => break sender,
+                    Err(TryLockError::Poisoned(error)) => break error.into_inner(),
+                    Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(TryLockError::WouldBlock) => return Err(FlushError::TimedOut),
+                }
+            };
+            let sent = sender.try_send(message);
+            drop(sender);
+            match sent {
+                Ok(()) => break,
+                Err(TrySendError::Full(pending)) => {
+                    if Instant::now() >= deadline {
+                        return Err(FlushError::TimedOut);
+                    }
+                    message = pending;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    return Err(FlushError::WriterDisconnected);
+                }
+            }
+        }
+        match finished.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(()) => Ok(()),
+            Err(RecvTimeoutError::Timeout) => Err(FlushError::TimedOut),
+            Err(RecvTimeoutError::Disconnected) => Err(FlushError::WriterDisconnected),
+        }
+    }
 }
 
 impl Sink for ChannelSink {
     fn record(&self, record: VerbCallRecord) {
         let sender = self.sender.lock().unwrap_or_else(|e| e.into_inner());
-        match sender.try_send(record) {
+        match sender.try_send(QueueMessage::Record(record)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 DROPPED.fetch_add(1, Ordering::Relaxed);
@@ -135,7 +212,6 @@ fn write(record: VerbCallRecord) {
 /// through the [`Installer`] below, and a test or an embedder may call it
 /// directly.
 pub fn install() {
-    static SINK: OnceLock<Arc<ChannelSink>> = OnceLock::new();
     let sink = SINK.get_or_init(ChannelSink::start).clone();
     if !pipeline_audit::has_sink() {
         pipeline_audit::install(sink);
@@ -149,29 +225,15 @@ impress_service_core::inventory::submit! {
     }
 }
 
-/// Block until every record handed in before this call has been written —
-/// for a test or a CLI that exits right after a mutating verb.
-pub fn flush() {
-    // A marker record would need a store; instead wait for the queue to
-    // drain by polling the counters against a short deadline.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let pending = {
-            // `sync_channel` exposes no length; approximate by giving the
-            // writer a chance and checking it is idle: two consecutive
-            // reads with equal counters and no thread work in between.
-            let before = WRITTEN.load(Ordering::Relaxed)
-                + FAILED.load(Ordering::Relaxed)
-                + DROPPED.load(Ordering::Relaxed);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            let after = WRITTEN.load(Ordering::Relaxed)
-                + FAILED.load(Ordering::Relaxed)
-                + DROPPED.load(Ordering::Relaxed);
-            before != after
-        };
-        if !pending || std::time::Instant::now() > deadline {
-            break;
-        }
+/// Block until every accepted record submission completed before this call
+/// has been processed by the writer. Failed writes remain visible in [`failed`]. A
+/// timeout or disconnected writer is returned rather than reported as a
+/// successful drain. Used by tests and CLIs after mutating verbs.
+pub fn flush() -> Result<(), FlushError> {
+    if let Some(sink) = SINK.get() {
+        sink.flush_until(Instant::now() + Duration::from_secs(5))
+    } else {
+        Ok(())
     }
 }
 
@@ -182,6 +244,32 @@ mod tests {
     use impress_core::store::ItemStore;
     use impress_service_core::pipeline::{self, Call};
     use impress_service_core::VerbDescriptor;
+
+    fn record_of(n: usize) -> VerbCallRecord {
+        VerbCallRecord {
+            call_id: format!("c{n}"),
+            verb: "t-service_x",
+            since: "0.1.0",
+            requested_name: None,
+            caller: impress_service_core::pipeline::CallerIdentity::Person,
+            trace_id: "t".into(),
+            parent_call: None,
+            args: serde_json::Value::Null,
+            args_replayable: false,
+            result_ids: Default::default(),
+            result_ids_truncated: false,
+            inserted_ids: vec![],
+            deleted_ids: vec![],
+            ok: true,
+            code: None,
+            message_len: 0,
+            started_at: String::new(),
+            duration_ms: 0,
+            arg_bytes: 0,
+            result_bytes: 0,
+            store_override: None,
+        }
+    }
 
     fn item(store: &SqliteItemStore) -> uuid::Uuid {
         let now = chrono::Utc::now();
@@ -250,7 +338,7 @@ mod tests {
             .flatten()
             .expect("the batch id is the call id, not None");
 
-        flush();
+        flush().expect("audit flush");
         let row = store
             .get(uuid::Uuid::parse_str(&call_id).expect("a uuid"))
             .expect("read")
@@ -318,7 +406,7 @@ mod tests {
         ))
         .expect("verb b ran");
         assert_eq!(answer_b["ok"], true, "{answer_b}");
-        flush();
+        flush().expect("audit flush");
 
         let ops_a = store.operations_for(id_a, None).expect("ops a");
         let ops_b = store.operations_for(id_b, None).expect("ops b");
@@ -366,40 +454,12 @@ mod tests {
     /// never drained, so the writer thread cannot race the assertion.
     #[test]
     fn a_full_channel_drops_and_counts_rather_than_block_the_caller() {
-        use std::sync::mpsc::sync_channel;
-
-        fn record_of(n: usize) -> VerbCallRecord {
-            VerbCallRecord {
-                call_id: format!("c{n}"),
-                verb: "t-service_x",
-                since: "0.1.0",
-                requested_name: None,
-                caller: impress_service_core::pipeline::CallerIdentity::Person,
-                trace_id: "t".into(),
-                parent_call: None,
-                args: serde_json::Value::Null,
-                args_replayable: false,
-                result_ids: Default::default(),
-                result_ids_truncated: false,
-                inserted_ids: vec![],
-                deleted_ids: vec![],
-                ok: true,
-                code: None,
-                message_len: 0,
-                started_at: String::new(),
-                duration_ms: 0,
-                arg_bytes: 0,
-                result_bytes: 0,
-                store_override: None,
-            }
-        }
-
         // An undrained channel of the sink's own bound: fill it exactly,
         // then send one more.
-        let (sender, _receiver_never_drained) = sync_channel::<VerbCallRecord>(CHANNEL_CAPACITY);
+        let (sender, _receiver_never_drained) = sync_channel::<QueueMessage>(CHANNEL_CAPACITY);
         for n in 0..CHANNEL_CAPACITY {
             sender
-                .try_send(record_of(n))
+                .try_send(QueueMessage::Record(record_of(n)))
                 .expect("fits within the bound");
         }
 
@@ -410,7 +470,7 @@ mod tests {
         // `DROPPED`/`WRITTEN` concurrently.
         let local_dropped = AtomicU64::new(0);
         let started = std::time::Instant::now();
-        match sender.try_send(record_of(CHANNEL_CAPACITY)) {
+        match sender.try_send(QueueMessage::Record(record_of(CHANNEL_CAPACITY))) {
             Ok(()) => panic!("the channel was full; this send should not have fit"),
             Err(std::sync::mpsc::TrySendError::Full(_)) => {
                 local_dropped.fetch_add(1, Ordering::Relaxed);
@@ -427,6 +487,94 @@ mod tests {
             local_dropped.load(Ordering::Relaxed),
             1,
             "the overflow is counted, not silent"
+        );
+    }
+
+    /// A stable counter reading while the writer is busy cannot mean the
+    /// queue has drained. The marker must wait behind both accepted records.
+    #[test]
+    fn flush_waits_for_a_held_writer_and_queued_record() {
+        let (sender, receiver) = sync_channel::<QueueMessage>(2);
+        let sink = Arc::new(ChannelSink {
+            sender: Mutex::new(sender),
+        });
+        let (writer_held, writer_started) = channel();
+        let (release_writer, released) = channel();
+        let (processed, processed_count) = channel();
+        let writer = std::thread::spawn(move || {
+            let mut records = 0;
+            for message in receiver {
+                match message {
+                    QueueMessage::Record(_) => {
+                        if records == 0 {
+                            writer_held.send(()).expect("signal held writer");
+                            released.recv().expect("release held writer");
+                        }
+                        records += 1;
+                    }
+                    QueueMessage::Flush(ack) => {
+                        processed.send(records).expect("report processed records");
+                        ack.send(()).expect("acknowledge marker");
+                        break;
+                    }
+                }
+            }
+        });
+
+        sink.record(record_of(0));
+        writer_started
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer has the first record");
+        sink.record(record_of(1));
+
+        let (flush_started, flushing) = channel();
+        let (flush_finished, result) = channel();
+        let flushing_sink = sink.clone();
+        let flusher = std::thread::spawn(move || {
+            flush_started.send(()).expect("signal flush start");
+            let flushed = flushing_sink.flush_until(Instant::now() + Duration::from_secs(2));
+            flush_finished.send(flushed).expect("report flush result");
+        });
+        flushing.recv().expect("flush thread started");
+        assert_eq!(
+            result.recv_timeout(Duration::from_millis(50)),
+            Err(RecvTimeoutError::Timeout),
+            "flush cannot finish while the writer holds a preceding record"
+        );
+
+        release_writer.send(()).expect("release writer");
+        assert_eq!(
+            result.recv_timeout(Duration::from_secs(1)),
+            Ok(Ok(())),
+            "flush completes after the writer acknowledges the marker"
+        );
+        assert_eq!(processed_count.recv().expect("processed count"), 2);
+        flusher.join().expect("flush thread");
+        writer.join().expect("writer thread");
+    }
+
+    #[test]
+    fn flush_reports_timeout_and_writer_disconnect() {
+        let (sender, _receiver_never_drained) = sync_channel::<QueueMessage>(1);
+        sender
+            .try_send(QueueMessage::Record(record_of(0)))
+            .expect("fill channel");
+        let sink = ChannelSink {
+            sender: Mutex::new(sender),
+        };
+        assert_eq!(
+            sink.flush_until(Instant::now() + Duration::from_millis(20)),
+            Err(FlushError::TimedOut)
+        );
+
+        let (sender, receiver) = sync_channel::<QueueMessage>(1);
+        drop(receiver);
+        let sink = ChannelSink {
+            sender: Mutex::new(sender),
+        };
+        assert_eq!(
+            sink.flush_until(Instant::now() + Duration::from_secs(1)),
+            Err(FlushError::WriterDisconnected)
         );
     }
 
@@ -457,7 +605,7 @@ mod tests {
             verb,
             Call::agent("test", serde_json::json!({})),
         ));
-        flush();
+        flush().expect("audit flush");
         let rows = store
             .count(&impress_core::query::ItemQuery {
                 schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),
