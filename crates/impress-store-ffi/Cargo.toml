@@ -81,9 +81,15 @@ impress-keymap.workspace = true
 # `Refusal`, the code-and-message every layout and surface refusal carries
 # across the FFI and HTTP (wave 7 T5).
 impress-service-core.workspace = true
-# The facade `impress-layout-service` and `impress-surface-service` log
-# through; `log_bridge.rs` forwards it to the host's Console (wave 7 T5).
-log = { version = "0.4", features = ["std"] }
+# `impress-layout-service` and `impress-surface-service` log through this
+# (target `layout`/`surface`), and this crate's own `verb` spans close
+# through it too; `tracing_bridge.rs` forwards it to the host's Console
+# (wave 7 T5; G7a moved the bridge off `log` onto a `tracing` subscriber
+# layer, D-P1). `tracing-log` re-points any remaining `log` caller in a
+# dependency at the same layer.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-log = { workspace = true }
 futures-util = "0.3"
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }

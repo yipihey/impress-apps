@@ -782,6 +782,38 @@ crates) is real and is held, not closed, by this plan.
   already covers as class b, so completeness statement 1 holds without them; they are left as a named
   follow-up rather than attempted here. The kit-demo `--prove` GUI proof and G6's coverage-line
   finishing (the `internal` binding-tell) are the next packages' work, per the row's own dependency arrow.
+- 2026-09-27 — **G7a landed** (first slice of G7 Profiling) on a worktree of `origin/main`, branch
+  `claude/gui-g7a-tracing`. **D-P1 resolved**: Rust logging moves from `log` to `tracing` rather than
+  bridging the two facades. The three `log`-only crates the census named (`impress-layout-service`,
+  `impress-surface-service`, `impress-store-ffi`; no others had picked up `log` since) had their 38
+  call sites mechanically switched from `log::{info,warn,error,debug}!` to the `tracing::` equivalents
+  — same levels, same explicit `target: "layout"`/`"surface"` spellings (most call sites carry no
+  explicit target and so were never bridged to Swift before this change either; that is unchanged),
+  same message text, so Console search over `/api/logs?category=layout|surface` keeps working
+  unaltered. `crates/impress-store-ffi/src/log_bridge.rs` (a `log::Log` impl) is replaced by
+  `tracing_bridge.rs`, a `tracing_subscriber::Layer` on a `tracing_subscriber::registry()` set as the
+  process's global default subscriber: `on_event` forwards `layout`/`surface` events (and any other
+  bridged-category event) at their own level; `on_new_span`/`on_record` capture a `verb`-target span's
+  fields (P2's per-call span in `impress-service-core::pipeline`) as they're set; `on_close` forwards
+  the finished span at `info`, formatted `"{name} ok=… code=… duration_us=… result_bytes=…"` — the
+  third bridged category, `verb`, alongside `layout`/`surface`. `tracing_log::LogTracer::init()` runs
+  alongside the subscriber so a `log` call surviving in a dependency still reaches it (uncategorized,
+  same as before). `install_log_sink`/`refusal_http_status`/`SharedLogSink` keep their exact
+  signatures — no UniFFI export changed, `check-uniffi-bindings.sh` confirms all seven committed
+  bindings still match with zero regeneration needed. Two new tests:
+  `an_event_from_each_target_reaches_the_bridge` (one event per bridged target, including a closed
+  `verb` span, reaches the sink) alongside the pre-existing target-isolation test, both moved onto
+  `tracing`; `crates/impress-layout-service/tests/logging.rs` (the one integration test that opened
+  its own process-wide logger to assert actor-tagged lines) rewritten onto a
+  `tracing_subscriber::Layer` capture, same assertions, unchanged. `log` dropped as a dependency of all
+  three crates (workspace `tracing = { workspace = true }` added instead); workspace `tracing-log =
+  "0.2"` added; `cargo hakari manage-deps && cargo hakari generate` re-pointed `workspace-hack`
+  (`log` remains there only as a transitive unification entry other crates' dependencies still pull
+  in). Full gate green: `rust-gate.sh fmt`, `clippy rest`, `clippy imprint`; `cargo test` across the
+  five named crates (362 tests, 0 failed); `check-kit-deps.sh --strict`, `check-kit-standalone.sh`,
+  `check-uniffi-bindings.sh`, `check-schema-refs.sh`, `cargo hakari generate --diff`, all clean.
+  **Not done, deliberately out of scope for this slice**: the aggregator reading these spans into
+  `PerfBucketStat`-shaped rows, the `perf_summary` verb, trace export and budgets on examples — G7b/G7c.
 
 ## Appendix A1 — every verb
 

@@ -78,7 +78,7 @@ pub fn actor_from(raw: Option<&str>) -> ActorKind {
         Some(context) => {
             let derived = impress_core::call_context::actor_kind_of(&context.caller);
             if raw.is_some_and(|r| !r.trim().is_empty()) && claimed != derived {
-                log::warn!(
+                tracing::warn!(
                     target: "layout",
                     "{}: actor argument {raw:?} ignored — the caller is {} (ADR-0034 D3; \
                      the argument is derived since P2 and removed in P3)",

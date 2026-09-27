@@ -633,7 +633,7 @@ fn ensure_renamed(store: &Arc<SqliteItemStore>) {
         if let Err(e) =
             crate::rename::RenamePass::new(store.clone()).run_if_needed(&SHIPPED_RENAMES)
         {
-            log::error!(target: "layout", "rename pass: {e}");
+            tracing::error!(target: "layout", "rename pass: {e}");
         }
     });
 }
@@ -689,7 +689,7 @@ impl DefaultLayoutService {
             return None;
         }
         serde_json::to_string(layout)
-            .map_err(|e| log::error!(target: "layout", "the tree does not encode: {e}"))
+            .map_err(|e| tracing::error!(target: "layout", "the tree does not encode: {e}"))
             .ok()
     }
 
@@ -883,7 +883,7 @@ impl DefaultLayoutService {
             });
             match flatten(outcome) {
                 Ok(Some((intent, applied, revision, tree))) => {
-                    log::info!(
+                    tracing::info!(
                         target: "layout",
                         "{app_id}/{device}: {} {intent} (revision {revision:?}, {} pane(s) affected{})",
                         actor_name(actor_kind),
@@ -980,7 +980,7 @@ impl DefaultLayoutService {
             });
             match flatten(outcome) {
                 Ok(Some((intent, applied, revision, tree))) => {
-                    log::info!(
+                    tracing::info!(
                         target: "layout",
                         "{app_id}/{device}: {} {intent} (revision {revision:?}, {} pane(s) affected)",
                         actor_name(actor_kind),
@@ -993,7 +993,7 @@ impl DefaultLayoutService {
                 }
                 Ok(None) => continue,
                 Err(refusal) => {
-                    log::warn!(
+                    tracing::warn!(
                         target: "layout",
                         "{app_id}/{device}: {} [{label}] refused as one gesture, nothing applied \
                          [{}]: {}",
@@ -1248,7 +1248,7 @@ impl DefaultLayoutService {
     ) -> LayoutVerbResult {
         match outcome {
             Ok(result) => {
-                log::info!(
+                tracing::info!(
                     target: "layout",
                     "{app_id}: {} {verb} {target}: {} (revision {:?})",
                     actor_name(actor),
@@ -1258,7 +1258,7 @@ impl DefaultLayoutService {
                 result
             }
             Err(refusal) => {
-                log::warn!(
+                tracing::warn!(
                     target: "layout",
                     "{app_id}: {} {verb} {target} refused [{}]: {}",
                     actor_name(actor),
@@ -1322,7 +1322,7 @@ impl DefaultLayoutService {
     ) -> PresetResult {
         match outcome {
             Ok(result) => {
-                log::info!(
+                tracing::info!(
                     target: "layout",
                     "{app_id}: {} {verb} {target}: {}",
                     actor_name(actor),
@@ -1331,7 +1331,7 @@ impl DefaultLayoutService {
                 result
             }
             Err(refusal) => {
-                log::warn!(
+                tracing::warn!(
                     target: "layout",
                     "{app_id}: {} {verb} {target} refused [{}]: {}",
                     actor_name(actor),
@@ -1390,7 +1390,7 @@ fn refused_verb(
     verb: Option<&Verb>,
     refusal: Refusal,
 ) -> LayoutVerbResult {
-    log::warn!(
+    tracing::warn!(
         target: "layout",
         "{app_id}/{device}: {} {} refused [{}]: {}",
         actor_name(actor),
