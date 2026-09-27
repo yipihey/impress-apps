@@ -27,6 +27,10 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 impress-service-core = { workspace = true, features = ["cli"] }
+# force-linked by tests/proof_scenarios.rs so `surface.http.routes`'s verb
+# resolves — this crate's own production code never depends on
+# impress-surface-service.
+impress-surface-service = { workspace = true }
 
 [[test]]
 name = "main"
