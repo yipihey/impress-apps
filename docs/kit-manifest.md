@@ -31,6 +31,7 @@ change with it. They do not keep a second list.
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
 | `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
 | `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities-kit`. |
+| `impress-keymap` | pure | R2: the one registry of app chords (`Chord`, `Binding`, `keymap_json`, the coverage test), declared as data with no store or inventory dependency. In the kit because `impress-store-ffi` links it to export `keymap_json`. |
 | `impress-store-service` | store | Store-generic verbs (the collection kernel, triage, the settings registry's `settings-service`), with no app dependency. **Added in W6:** `impress-layout-service` calls its `store_instance()` to share the one store connection, and `impress-capabilities-kit` links it. |
 | `impress-layout-service` | store | The layout verbs over a store-backed live layout (`impress/ui/layout@1.0.0` rows), plus the Tier-B catalogue. |
 | `impress-surface-service` | store | The surface verbs, surface records and the runtime that executes a surface's effects. |

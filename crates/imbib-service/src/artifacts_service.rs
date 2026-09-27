@@ -116,12 +116,13 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     #[impress_method]
     async fn get_artifact(&self, id: String) -> Option<ArtifactRecord>;
     /// Count research artifacts, optionally only those of one schema.
-    #[impress_method]
+    #[impress_method(effects(reads = [prefix("impress/artifact/")]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn count_artifacts(&self, schema_filter: Option<String>) -> u32;
     /// Create a research artifact in imbib. Artifacts are non-paper items:
     /// notes, webpages, datasets, presentations, posters, media, code, or
     /// general files.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/tag-definition"], writes = [prefix("impress/artifact/"), "imbib/tag-definition"]))]
     async fn create_artifact(
         &self,
         schema: String,
@@ -141,7 +142,7 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     ) -> Option<ArtifactRecord>;
     /// Update an artifact's metadata fields; a field left null keeps its
     /// current value.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = [target(id)], writes = [target(id)]))]
     async fn update_artifact(
         &self,
         id: String,
@@ -155,18 +156,18 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
         event_date: Option<String>,
     ) -> MutationResult;
     /// Delete a research artifact. This permanently removes it.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = [target(id)], writes = [target(id)]))]
     async fn delete_artifact(&self, id: String) -> MutationResult;
     /// Link a research artifact to a paper in the bibliography. Creates a
     /// bidirectional relationship.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = [target(artifact_id), "imbib/bibliography-entry"], writes = [target(artifact_id)]))]
     async fn link_artifact_to_publication(
         &self,
         artifact_id: String,
         publication_id: String,
     ) -> MutationResult;
     /// List the relationships an artifact has to papers and other items.
-    #[impress_method]
+    #[impress_method(effects(reads = [target(id)]))]
     async fn get_artifact_relations(&self, id: String) -> Vec<ArtifactRelationRecord>;
 }
 
@@ -357,6 +358,11 @@ impress_service_impl! {
     service = ImbibArtifactsService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [prefix("impress/artifact/"), "imbib/tag-definition"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImbibArtifactsService,
     instance = || crate::backend::artifacts_service_instance(),
     methods = [

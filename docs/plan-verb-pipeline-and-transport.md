@@ -968,3 +968,89 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   export changed), check-verb-coverage and the census. Tier A imprint 25/25. Tier B on imprint 8/8 (built into this worktree's own DerivedData and its own
   xcframeworks, launched with `-httpAutomationPort 23271`, quit afterwards; the user's imprint on
   23121 and their impel-taskd were never touched — the CLI/MCP proof ran on a scratch store).
+- 2026-09-26 — **P2 pipeline landed** (branch `claude/pipeline-p2-pipeline`, from main at
+  c0277c7e; a previous agent on this branch had already merged main and written the chain,
+  identity, strict args, reachability, policy, span, audit and every entry path rewired to it —
+  this session picked up from "run the bench alone" and closed it out). Layers and order as
+  designed: identity → strict args → reachability → policy → span → invoke → envelope → audit,
+  one `Vec<Box<dyn Layer>>` in `impress-service-core::pipeline`, no `Service`/`Layer` trait to
+  satisfy at any of the nine entry paths (a call-site test enumerates them and fails on a
+  `descriptor.handler`/`.apply` call outside the pipeline or the bench baseline). Entry paths
+  rewired: MCP flat and grouped, CLI, surface runtime, surface HTTP mirror, FFI layout `apply`,
+  impel-tools, impress-mcp-host, impress-ai-tools, and `call.rs`'s shared seat — all now call
+  `pipeline::invoke`/`invoke_blocking`/`invoke_sync_with`/`invoke_on`, not a descriptor's handler
+  directly. Overhead bench (`impress-capabilities/tests/pipeline_bench.rs`, release, alone,
+  ROUNDS=2000): `imbib-text-service_decode-latex` 11.88 → 13.06 µs (+1.18), `surface-demo-
+  service_series` 0.89 → 2.64 µs (+1.75), `layout-service_get-layout` 6.40 → 9.09 µs (+2.69),
+  `layout-service_get-pane` 5.38 → 8.46 µs (+3.09), `store-query-service_list-items` 7.75 → 9.29 µs
+  (+1.54); worst overhead 3.09 µs per call, well inside the ≤5 µs span budget and every chain
+  total inside the ~20 µs read-only budget. Gates: fmt, clippy rest, clippy imprint, `cargo test
+  --workspace --features native` (175 suites, ~4087 passed, 0 failed), check-schema-refs (392
+  call sites, 82 canonical refs, 0 divergences), check-kit-deps --strict (13 kit crates),
+  check-kit-standalone (14 crates), check-verb-coverage (75 crates verdicted, 38 services with a
+  row), check-uniffi-bindings (7 match, no export changed) — all clean. `cargo hakari verify`
+  fails on this branch, but the identical `impress-workspace-hack didn't work correctly` /
+  `cc@1.2.54` mismatch reproduces on a clean checkout of main at c0277c7e too (confirmed with a
+  throwaway `CARGO_TARGET_DIR`); pre-existing, not introduced here, left for whoever owns hakari
+  drift next. Narrowed, found live: `impress_store_service::audit::flush()` exists specifically
+  "for a test or a CLI that exits right after a mutating verb" (its own doc comment), but neither
+  `impress-cli` nor `imprint-cli` called it before `std::process::exit` — a one-shot CLI process
+  raced the audit sink's writer thread and could drop the `core/verb-call` row it just queued;
+  reproduced live (`impress create --binding generic …` against a scratch store left no
+  verb-call row), fixed by calling `flush()` before exit in both binaries, re-verified. `imbib-
+  cli` is untouched: `imbib-service` doesn't link `impress-store-service` at all, so it has no
+  sink to flush — its mutating verbs are counted in `audit::dropped()` by the documented design
+  for a process that doesn't link the store services, which is a separate, pre-existing gap this
+  branch did not create and did not close. Live proof: built `impress` Debug with
+  `IMPRESS_SKIP_INSTALL=1` into its own `IMPRESS_DERIVED` (`impress-p2-proof.noindex`, own
+  xcframeworks copied in from the main checkout plus a freshly built `impress-store-ffi` one,
+  `IMPRESS_SKIP_X86=1`), launched with `-httpAutomationPort 23281 -ApplePersistenceIgnoreState
+  YES` and `IMPRESS_DEVICE_ID=p2-proof`. Tier B 14/14. The audit proof: `impress --store-path
+  <scratch> create --binding generic --name p2-proof --kind-scope any` then `rename` on the
+  created collection left exactly one `core/verb-call@1.0.0` row per call and one `items` row
+  with `op_target_id` set and `batch_id` equal to the rename's call-row id — the `batch_id` join
+  D-R2 promises, shown against a live build rather than only the in-process unit test. The app
+  launched for the proof was quit afterwards. One thing left undone: this session's build of
+  `impress` updated the `~/MyApplications/impress.app` launcher symlink (an unconditional step in
+  `scripts/build-impress-app.sh`, independent of `IMPRESS_SKIP_INSTALL`) to point at
+  `impress-p2-proof.noindex` instead of the shared `impress-suite` DerivedData; restoring it was
+  blocked by this session's own sandbox as a destructive filesystem write, so it still points at
+  the proof build and needs a manual `ln -sfn` back to `~/Library/Developer/Xcode/DerivedData/
+  impress-suite/Build/Products/Debug/impress.app`.
+- 2026-09-26 — **B5 (build budget in CI) finished** on a worktree of main at c0277c7e, branch
+  `claude/bc-b5-build-budget`. `scripts/build-cost.sh`, `scripts/check-build-budget.py`,
+  `build-budget.json` and the `build-cost` job in `workspace-rust.yml` reviewed against this
+  section and matched it (two halves, one job, ledger artifact, re-run-once on a measured
+  breach only). Ran end to end on this Mac, heavily loaded by other concurrent builds
+  (`uptime` load average 13.67 at start, 28.31 by the time the touch rebuilds and llvm-lines
+  loop finished — roughly double, from other agents' builds on the same machine, not this
+  script): `CARGO_TARGET_DIR=$PWD/target-b5 scripts/build-cost.sh` printed
+  `{"commit":"c0277c7e","toolchain":"1.98.1","verbs":438,"macro_lines_per_verb":1641,"total_lines_per_verb":11361,"cold_ms_per_verb":228,"incr_service_ms_per_verb":20,"incr_core_ms_per_verb":38,"unit_time_sum_s":36.1}`.
+  Piped through `check-build-budget.py` against the committed `build-budget.json`:
+  `DET_FAIL=total_lines_per_verb=11361>6000`, `MEASURED_FAIL=cold_ms_per_verb=228>150|incr_service_ms_per_verb=20>12|incr_core_ms_per_verb=38>20`.
+  Budgets were **not** weakened. The measured half's numbers are plausibly load-inflated (a
+  literally 2×'d load average mid-run, this Mac shared with other agents' builds, is far
+  outside the ±6% the plan measured on an idle desktop) and the job's own re-run-once logic is
+  exactly the mechanism for that. The deterministic half is a different story:
+  `macro_lines_per_verb` (1641) is still under its 2,000 budget, but `total_lines_per_verb`
+  (11,361) is more than double the 6,000 budget and is not something load can explain —
+  `cargo llvm-lines` IR-line counts do not depend on machine load. `verbs=438` here is close to
+  the "catalogue of 433 verbs" the Recommendation section anticipates, so the grep and verb
+  count look right; the honest read is that total per-verb IR has grown well past the
+  `measured_baseline` (5,123) recorded against `baseline_commit: 3222f573`, sometime across
+  B1–B4 or otherwise since planning, and the check is correctly catching that rather than
+  malfunctioning. Left as a finding for whoever re-baselines next (ask-first, § Build cost):
+  merging this job as-is will make `build-cost` fail red on `main` immediately, which is the
+  job doing its one job — a re-measure-and-rebaseline PR (or a first look at what grew) should
+  follow, not a same-PR fix folded into B5's own scope.
+  Validated: `.github/workflows/workspace-rust.yml` parses as YAML; `bash -n scripts/build-cost.sh`
+  is clean; `shellcheck` is not installed on this Mac and was skipped; `./scripts/rust-gate.sh fmt`
+  passed clean. Removed a stray `target-b5/` left by the prior agent's interrupted run before
+  measuring (build artefacts, gitignored, not committed).
+- 2026-09-26 — **B5 correction** (orchestrator): the first B5 run's `total_lines_per_verb` of 11,361 was a
+  counting bug, not growth — `cargo llvm-lines` prints its own `(TOTAL)` row first and the script summed it
+  with the per-function rows, doubling every crate. Fixed (the TOTAL row is the crate total; macro lines are
+  summed from the function rows only). Re-measured on c0277c7e: 438 verbs, **1,641 macro lines/verb, 5,680
+  total lines/verb** — both under budget (2,000 / 6,000); +11 % total over the 5,123 baseline, which is P1's
+  output schemas and P4's job verbs. The measured half (228 / 20 / 38 ms per verb) was taken at load 14–28
+  and is not a baseline; the impress-mac job sets it.

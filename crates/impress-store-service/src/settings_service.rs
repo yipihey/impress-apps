@@ -376,7 +376,7 @@ pub trait SettingsService: Send + Sync + 'static {
     /// The registry as data: every declared setting (key, type, default,
     /// scope, section, legacy `UserDefaults` keys, doc, choices) and the
     /// sections, without values. What a settings UI or an agent reads first.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = [], reach = []))]
     async fn schema(&self) -> SettingsSchemaResult;
 
     /// Every setting with its current value — stored, else the registry
@@ -392,11 +392,19 @@ pub trait SettingsService: Send + Sync + 'static {
     /// label (`"1 Month"`) or the string spelling of a number or bool is
     /// accepted, anything else is refused and nothing changes. Writes the
     /// scope's file (or the synced row) so every app sees it.
-    #[impress_method(safety = mutating, idempotent = true)]
+    #[impress_method(
+        safety = mutating,
+        idempotent = true,
+        effects(reads = [], writes = ["impress/settings@1.0.0"], reach = [fs])
+    )]
     async fn set(&self, key: String, value: Value) -> SettingResult;
 
     /// Forget the stored value so the key answers its registry default.
-    #[impress_method(safety = mutating, idempotent = true)]
+    #[impress_method(
+        safety = mutating,
+        idempotent = true,
+        effects(reads = [], writes = ["impress/settings@1.0.0"], reach = [fs])
+    )]
     async fn reset(&self, key: String) -> SettingResult;
 
     /// The generated settings pane for one section: a `SurfaceSpec` with one
@@ -553,6 +561,16 @@ impress_service_impl! {
     service = SettingsService,
     // Four of six read; `set` and `reset` override to `mutating` on the trait.
     safety = read_only,
+    // The registry's own row (`impress/settings@1.0.0`, the synced scope)
+    // plus the per-scope files under `<workspace>/settings/` every method
+    // reads or writes through `SettingsStore` (device/app/library scopes are
+    // files, so `reach: [fs]`). `schema` overrides to empty — it lists the
+    // registry's static declarations and never touches a value.
+    effects = {
+        reads: ["impress/settings@1.0.0"],
+        writes: [],
+        reach: [fs],
+    },
     since = "0.1.0",
     impl = DefaultSettingsService,
     instance = DefaultSettingsService::new,

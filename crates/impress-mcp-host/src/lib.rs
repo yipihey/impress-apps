@@ -321,8 +321,18 @@ fn handle_tool_call(config: &HostConfig, id: Value, request: &Value) -> Value {
         Some(value) if !value.is_null() => value.clone(),
         _ => json!({}),
     };
-    let result = impress_service_core::runtime::block_on((descriptor.handler)(arguments))
-        .map_err(|error| error.to_string());
+    // A hosted MCP client is an agent named by its profile (ADR-0034 D3).
+    let result = impress_service_core::pipeline::invoke_blocking(
+        descriptor.verb,
+        impress_service_core::pipeline::Call::agent(
+            format!("mcp-host:{}", config.server_name),
+            arguments,
+        ),
+    )
+    .map_err(|error| match error {
+        impress_service_core::pipeline::PipelineError::Handler(e) => e.to_string(),
+        unavailable => unavailable.to_string(),
+    });
     tool_result(id, result)
 }
 
@@ -419,6 +429,7 @@ mod tests {
             idempotent: true,
         },
         since: "0.1.0",
+        effects: impress_service_core::Effects::NONE,
         deprecated: None,
         aliases: &[],
         examples: &[],

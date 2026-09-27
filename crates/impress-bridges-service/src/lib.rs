@@ -88,18 +88,18 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// assembled from `@` references at compile time, so nothing else needs
     /// editing. Fails loudly when the key is not in imbib rather than inserting
     /// a reference that will not compile.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/library"], reach = [app("imprint")]))]
     async fn cite_paper(&self, cite_key: String, document_id: String) -> CitationResult;
 
     /// Cite several papers at once. Prefer this to repeated single calls: it is
     /// one pass over the library and one document write.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/tag-definition"], reach = [app("imprint")]))]
     async fn cite_multiple(&self, cite_keys: Vec<String>, document_id: String) -> CitationResult;
 
     /// Cite a paper inside a specific section rather than at the end of the
     /// document. Section writes are compare-and-set, so this cannot clobber a
     /// concurrent edit the way a whole-document append can.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "manuscript", "manuscript-section"], writes = ["manuscript-section", "citation-usage"]))]
     async fn cite_in_section(
         &self,
         cite_key: String,
@@ -110,7 +110,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Papers in imbib that look relevant to what a manuscript already cites —
     /// a starting point for "what am I missing?", not a verdict. Returns cite
     /// keys, which you then cite explicitly.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"], reach = [app("imprint")]))]
     async fn get_citation_suggestions(&self, document_id: String, limit: u32) -> Vec<String>;
 
     // ---- implore → imprint: figures ---------------------------------------
@@ -118,13 +118,13 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Figures in implore that can be embedded into a manuscript, with the ids
     /// the embed tools take. Call this first: figure ids are implore's, not
     /// imprint's.
-    #[impress_method]
+    #[impress_method(effects(reach = [app("implore")]))]
     async fn list_available_figures(&self) -> Vec<String>;
 
     /// Embed an implore figure into an imprint manuscript: exports the figure
     /// to a file and inserts a Typst `#image(...)` reference pointing at it.
     /// `format` is `png`, `pdf` or `svg` — use `pdf` or `svg` for print.
-    #[impress_method]
+    #[impress_method(effects(reads = [target(figure_id)], reach = [app("implore"), app("imprint"), fs]))]
     async fn embed_figure(
         &self,
         figure_id: String,
@@ -134,7 +134,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
 
     /// Insert only the `#image(...)` reference, without re-exporting. Use when
     /// the file already exists and you are re-linking it.
-    #[impress_method]
+    #[impress_method(effects(reads = [target(figure_id)], reach = [app("imprint")]))]
     async fn embed_figure_reference(
         &self,
         figure_id: String,
@@ -145,7 +145,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Re-export a figure that is already embedded, so the manuscript picks up
     /// changes made in implore. The reference is left alone; only the file it
     /// points at is rewritten.
-    #[impress_method]
+    #[impress_method(effects(reads = [target(figure_id)], reach = [app("implore"), fs]))]
     async fn sync_figure(&self, figure_id: String, format: String) -> FigureEmbedResult;
 
     // ---- text and conversations → imbib -----------------------------------
@@ -153,11 +153,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Pull paper identifiers — DOIs, arXiv ids, ISBNs — out of arbitrary text.
     /// Useful on an email body, a reviewer's note, a README. Finds candidates;
     /// it does not import them.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects())]
     async fn extract_papers_from_text(&self, text: String) -> Vec<ExtractedIdentifier>;
 
     /// The same extraction over every message in an impart conversation.
-    #[impress_method]
+    #[impress_method(effects(reach = [app("impart"), network]))]
     async fn extract_papers_from_conversation(
         &self,
         conversation_id: String,
@@ -174,7 +174,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
 
     /// BibTeX for every paper an impart conversation mentions that is already
     /// in imbib — the bibliography for a manuscript grown out of that thread.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/linked-file", "imbib/tag-definition"], reach = [app("impart"), fs]))]
     async fn export_conversation_citations(&self, conversation_id: String) -> String;
 
     // ---- impart → imprint: structure --------------------------------------
@@ -182,14 +182,14 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Decisions recorded in a conversation. These are what turn a discussion
     /// into a methods section — they were recorded deliberately rather than
     /// inferred from the messages.
-    #[impress_method]
+    #[impress_method(effects(reach = [app("impart")]))]
     async fn conversation_decisions(&self, conversation_id: String) -> Vec<String>;
 
     /// A manuscript outline distilled from a research conversation: its
     /// sections, the decisions behind them, and the references it touches.
     /// Deterministic — it reads what was recorded, it does not invent
     /// structure.
-    #[impress_method]
+    #[impress_method(effects(reach = [app("impart"), provider]))]
     async fn conversation_to_outline(&self, conversation_id: String)
         -> Option<ConversationOutline>;
 
@@ -199,22 +199,22 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// artifacts — in the one store they share. Reads the store directly, so it
     /// works with every app closed. The right opener when you do not yet know
     /// which app owns what you are looking for.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = [any("searches every kind")]))]
     async fn search_all(&self, query: String, limit: u32) -> Vec<StoreItem>;
 
     /// One item from the shared store by id, whichever app wrote it.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = [target(item_id)]))]
     async fn get_item(&self, item_id: String) -> Option<StoreItem>;
 
     /// Items linked to this one. NOTE: the store's edges are BIDIRECTIONAL, so
     /// this answers "what is connected?" and never "what does this depend on?".
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = [target(item_id), any("walks references across kinds")]))]
     async fn get_related(&self, item_id: String, limit: u32) -> Vec<StoreItem>;
 
     /// Resolve an `impress://` URI to whatever it names — an imbib paper, an
     /// imprint document, an impart conversation — so a reference can be passed
     /// between apps without the caller knowing which app owns it.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = [any("resolves a URI to whichever kind it names")]))]
     async fn resolve_artifact(&self, uri: String) -> Option<StoreItem>;
 }
 
@@ -732,6 +732,11 @@ impress_service_impl! {
     service = ImpressBridgesService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: ["conversation@1.0.0", "chat-message", "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"],
+        writes: ["imbib/bibliography-entry"],
+        reach: [app("impart"), network],
+    },
     impl = DefaultImpressBridgesService,
     instance = DefaultImpressBridgesService::new,
     methods = [

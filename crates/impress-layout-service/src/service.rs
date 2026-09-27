@@ -390,7 +390,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// same verb with a different `as_kind` and arrives with the implore and
     /// preset work (L7); asking for one now is refused rather than
     /// approximated.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0", "impress/ui/surface@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
     async fn commit(
         &self,
         app_id: String,
@@ -441,7 +441,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// is not a saved layout) and any preset (`reset-preset` is how a preset
     /// goes back to shipped); deleting a name that does not exist is `ok:
     /// false` with a message, never an error.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
     async fn delete_layout(
         &self,
         app_id: String,
@@ -483,7 +483,14 @@ pub trait LayoutService: Send + Sync + 'static {
     /// The whole live tree for this scope: windows, the tile arena, channel
     /// state. Creates the three-column preset on a cold start, so a caller
     /// never has to ask whether a layout exists.
-    #[impress_method(safety = read_only)]
+    // Mutating, not read-only: on a device with no live row this writes the
+    // default layout (the store spy observed it, plan self-reflective-layer
+    // E1); idempotent thereafter.
+    #[impress_method(safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"app_id": "impress", "device": "effects-device"}"#
+    )]
     async fn get_layout(&self, app_id: String, device: Option<String>) -> LayoutResult;
 
     /// One pane: its spec, its query COMPILED against the record-kind manifest
@@ -493,7 +500,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// The compiled `item_query` is literally what the store will be asked —
     /// which is how "why is this pane empty?" becomes a question with an
     /// answer instead of a debugging session.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", any("compiles the pane's query over the kind it names")]))]
     async fn get_pane(
         &self,
         app_id: String,
@@ -503,7 +510,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// What a channel currently carries, per record kind, and which panes it
     /// drives. `channel` is `1`–`8` or `follow`.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
     async fn get_channel(
         &self,
         app_id: String,
@@ -514,7 +521,7 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// What a pane reference resolves to right now — "which pane is `right`?"
     /// answered without doing anything to it.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
     async fn resolve_reference(
         &self,
         app_id: String,
@@ -526,7 +533,11 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// Their ordinals are OFFSET by the app's presets, which come first in
     /// the union `apply_layout(ordinal:)` recalls — see `list_presets`.
-    #[impress_method(safety = read_only)]
+    // Mutating, not read-only: the first call on a store seeds the shipped
+    // presets (the store spy observed the write, plan self-reflective-layer
+    // E1); idempotent thereafter.
+    #[impress_method(safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
     async fn list_layouts(&self, app_id: String) -> LayoutListResult;
 
     // --------------------------------------------------------------- presets
@@ -540,7 +551,8 @@ pub trait LayoutService: Send + Sync + 'static {
     /// chords: presets first, then named layouts. The answer also carries the
     /// sections this app permits that are NOT expressible as queries, with
     /// the reason (ADR-0031 D2).
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
     async fn list_presets(&self, app_id: String) -> PresetListResult;
 
     /// Apply a preset: the live arrangement becomes its tree, and the live
@@ -569,7 +581,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// rather than approximated. Editing a shipped preset leaves its
     /// `version` alone, so "the user edited Triage" stays distinguishable
     /// from "we shipped a newer Triage" and `reset_preset` can undo it.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0", "impress/ui/layout@1.0.0"]))]
     async fn save_preset(
         &self,
         app_id: String,
@@ -584,7 +596,7 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// Refused for a name the suite does not ship: there would be nothing to
     /// restore it to, and the refusal names what IS shipped.
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
     async fn reset_preset(
         &self,
         app_id: String,
@@ -2700,6 +2712,11 @@ impress_service_impl! {
     service = LayoutService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"],
+        writes: ["impress/ui/layout@1.0.0"],
+        reach: [],
+    },
     impl = DefaultLayoutService,
     instance = DefaultLayoutService::new,
     // A field the input schema does not name is refused with

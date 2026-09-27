@@ -10,6 +10,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod tier_a;
+
 /// Which layer a capability exercises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]

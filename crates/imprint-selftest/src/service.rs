@@ -52,6 +52,11 @@ impress_service_impl! {
     service = ImprintSelftestService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [any("runs the catalogue's capabilities")],
+        writes: [any("runs the catalogue's capabilities")],
+        reach: [app("imprint"), fs, subprocess],
+    },
     impl = DefaultImprintSelftestService,
     instance = || selftest_instance(),
     methods = [

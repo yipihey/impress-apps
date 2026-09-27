@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 176 read-only, 128 mutating,
-32 destructive, 103 external — 439 verbs.
+Counts today: 178 read-only, 130 mutating,
+33 destructive, 103 external — 444 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -64,7 +64,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imprint-text-service` | read_only | 5 | 0 |
 | `imprint-throughline-service` | mutating | 9 | 5 |
 | `layout-selftest-service` | external | 1 | 0 |
-| `layout-service` | mutating | 36 | 13 |
+| `layout-service` | mutating | 36 | 11 |
 | `manuscript-collab-service` | read_only | 4 | 1 |
 | `memory-service` | mutating | 7 | 4 |
 | `parsers-service` | read_only | 6 | 0 |
@@ -431,9 +431,9 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `layout-service_focus` | mutating | name/doc |
 | `layout-service_focus-direction` | mutating | name/doc |
 | `layout-service_get-channel` | read_only | name/doc |
-| `layout-service_get-layout` | read_only | name/doc |
+| `layout-service_get-layout` | mutating | the store spy (crates/impress-capabilities/tests/effects.rs) observed a write to impress/ui/layout@1.0.0: a device with no live row gets the default layout written on first read; idempotent thereafter |
 | `layout-service_get-pane` | read_only | name/doc |
-| `layout-service_list-layouts` | read_only | name/doc |
+| `layout-service_list-layouts` | mutating | the store spy observed a write to impress/ui/preset@1.0.0: the first call seeds the shipped presets (ensure_shipped_presets); idempotent thereafter |
 | `layout-service_list-presets` | read_only | name/doc |
 | `layout-service_maximize` | mutating | name/doc |
 | `layout-service_move-tile` | mutating | name/doc |

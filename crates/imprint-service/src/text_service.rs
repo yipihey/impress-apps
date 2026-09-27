@@ -47,6 +47,7 @@ pub trait ImprintTextService: Send + Sync + 'static {
     /// formatter (indent body of `\begin{env}` … `\end{env}` blocks, trim
     /// trailing whitespace, collapse runs of blank lines). Idempotent.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"source": "\\section{A}"}"#)]
     async fn format_latex(&self, source: String) -> String;
 
     /// Extract the unique sorted set of cite keys from a manuscript source.
@@ -54,6 +55,10 @@ pub trait ImprintTextService: Send + Sync + 'static {
     /// `syntax` accepts `typst`, `latex`, or `mixed` (case-insensitive).
     /// Unknown values fall back to `mixed`, which runs both extractors.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"source": "@abel2026", "syntax": "typst"}"#
+    )]
     async fn extract_cite_keys(&self, source: String, syntax: String) -> Vec<String>;
 
     /// Extract every cite-key usage from a manuscript source, in source
@@ -61,11 +66,19 @@ pub trait ImprintTextService: Send + Sync + 'static {
     ///
     /// `syntax` accepts `typst`, `latex`, or `mixed` (case-insensitive).
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"source": "@abel2026", "syntax": "typst"}"#
+    )]
     async fn extract_cite_key_usages(&self, source: String, syntax: String) -> Vec<CiteKeyUsage>;
 
     /// Compose an inline citation token. `format` = `typst` | `latex`.
     /// Typst → `@key`, LaTeX → `\cite{key}`; `append_space` prepends one space.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"cite_key": "abel2026", "format": "typst", "append_space": false}"#
+    )]
     async fn compose_citation(
         &self,
         cite_key: String,
@@ -75,6 +88,10 @@ pub trait ImprintTextService: Send + Sync + 'static {
 
     /// Compose a heading line at `level` (1-based). `format` = `typst` | `latex`.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"title": "Introduction", "level": 1, "format": "typst"}"#
+    )]
     async fn compose_heading(&self, title: String, level: i64, format: String) -> String;
 }
 
@@ -140,6 +157,11 @@ impress_service_impl! {
     service = ImprintTextService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImprintTextService,
     instance = || crate::backend::text_service_instance(),
     methods = [
@@ -192,16 +214,19 @@ mod tests {
 
     #[test]
     fn format_latex_round_trips_through_inventory() {
-        use impress_service_core::runtime;
         use impress_service_core::serde_json::json;
 
         let tool = McpToolDescriptor::iter()
             .find(|d| d.name == "imprint-text-service_format-latex")
             .expect("format-latex tool");
 
-        let result = runtime::block_on((tool.handler)(json!({
-            "source": "\\begin{document}\nhi\n\\end{document}\n"
-        })))
+        let result = impress_service_core::pipeline::invoke_blocking(
+            tool.verb,
+            impress_service_core::pipeline::Call::agent(
+                "test",
+                json!({ "source": "\\begin{document}\nhi\n\\end{document}\n" }),
+            ),
+        )
         .expect("handler succeeded");
 
         let s = result.as_str().expect("string return");

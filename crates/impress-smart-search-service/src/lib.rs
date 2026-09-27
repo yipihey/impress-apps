@@ -125,6 +125,7 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// names, uppercase boolean operators, and reorder `author:"First Last"`
     /// to `author:"Last, F"`. Reports every change it made.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"query": "author:abel"}"#)]
     async fn normalize_ads_query(&self, query: String) -> AdsNormalizationReport;
 
     /// Rewrite free-text input into an ADS query without a language model,
@@ -132,6 +133,10 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// YYYY" extraction, `refereed` and `by <Author>` recognition, and
     /// `abs:(...)` for the residue. `this_year` anchors every relative range.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"input": "galaxy formation", "this_year": 2026}"#
+    )]
     async fn rewrite_free_text_query(&self, input: String, this_year: i64) -> QueryRewriteReport;
 
     /// Assemble an ADS query from already-extracted structured fields — the
@@ -157,11 +162,16 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// separators, `title:"multi word"` → `title:(multi word)`, collapsed
     /// whitespace, then full normalization.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"query": "author:abel"}"#)]
     async fn clean_ads_query(&self, query: String) -> String;
 
     /// Split a pasted bibliography into individual reference blocks
     /// (`\bibitem`, numbered markers, or blank-line separated).
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"text": "[1] Abel 2026. [2] Baker 2025."}"#
+    )]
     async fn split_reference_blocks(&self, text: String) -> Vec<String>;
 
     /// Extract paper identifiers and the `<title>` from a page's HTML. This is
@@ -192,6 +202,10 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// fields from free text. Exposed so an agent can see (and A/B) the exact
     /// contract instead of guessing at it.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"input": "galaxy formation", "this_year": 2026, "today": "2026-09-26"}"#
+    )]
     async fn free_text_extraction_prompt(
         &self,
         input: String,
@@ -202,6 +216,7 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// Build the prompt imbib sends to the on-device model to parse a single
     /// citation reference.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"block": "Abel, T. 2026, ApJ, 1, 1"}"#)]
     async fn reference_parse_prompt(&self, block: String) -> String;
 }
 
@@ -339,6 +354,11 @@ impress_service_impl! {
     service = SmartSearchService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultSmartSearchService,
     instance = || smart_search_instance(),
     methods = [

@@ -1,16 +1,22 @@
 //! Running a linked verb by its MCP tool name.
 //!
-//! The one copy of "find the descriptor, run its handler". It lives here
-//! rather than in `impress-capabilities-kit` because `impress-surface-service`
-//! runs verbs too (a surface's sources and `call` effects), and the kit
-//! depends on that crate, so the crate cannot depend back on the kit (review
-//! RS-S21). Every crate that links an inventory already depends on this one.
+//! The one copy of "find the descriptor, run it through the pipeline". It
+//! lives here rather than in `impress-capabilities-kit` because
+//! `impress-surface-service` runs verbs too (a surface's sources and `call`
+//! effects), and the kit depends on that crate, so the crate cannot depend
+//! back on the kit (review RS-S21). Every crate that links an inventory
+//! already depends on this one.
 //!
 //! `impress-capabilities-kit` re-exports all of it, and `impress-capabilities`
-//! re-exports the kit's, so every existing caller compiles unchanged.
+//! re-exports the kit's, so every existing caller compiles unchanged. Since
+//! P2 every call here goes through [`crate::pipeline::invoke`]; the caller
+//! identity is the entry path's to state — [`call`] and [`call_async`] keep
+//! their signatures and run as `Agent("unknown")` unless a call context is
+//! already current, which the pipeline then inherits.
 
 use serde_json::Value;
 
+use crate::pipeline::{self, Call, CallerIdentity, PipelineError};
 use crate::{runtime, McpToolDescriptor};
 
 /// Error from [`call`] / [`call_async`].
@@ -20,17 +26,30 @@ use crate::{runtime, McpToolDescriptor};
 /// S2), preserved again here (`"Unknown tool: {name}"` and
 /// `"{descriptor}: {handler error}"`); `Display` on this type reproduces
 /// those exact strings so callers that used to `.to_string()` the old
-/// `Result<Value, String>` see byte-identical error text.
+/// `Result<Value, String>` see byte-identical error text. `Unavailable` is
+/// the reachability layer's refusal, in the words impress-mcp always used.
 #[derive(Debug, thiserror::Error)]
 pub enum CallError {
     /// No descriptor with this name is registered — either a typo, or the
     /// crate that would have linked it is not linked into this binary.
     #[error("Unknown tool: {0}")]
     UnknownTool(String),
+    /// The verb's app is not running.
+    #[error("{0}")]
+    Unavailable(String),
     /// The descriptor's handler future resolved to `Err`. The message is
     /// already formatted as `"{descriptor.name}: {handler error}"`.
     #[error("{0}")]
     Handler(String),
+}
+
+impl CallError {
+    fn from_pipeline(name: &str, error: PipelineError) -> Self {
+        match error {
+            PipelineError::Unavailable { .. } => CallError::Unavailable(error.to_string()),
+            PipelineError::Handler(e) => CallError::Handler(format!("{name}: {e}")),
+        }
+    }
 }
 
 /// Every MCP tool descriptor linked into this binary — the one process-wide
@@ -45,23 +64,43 @@ pub fn find(name: &str) -> Option<&'static McpToolDescriptor> {
     McpToolDescriptor::iter().find(|d| d.name == name)
 }
 
-/// Invoke an inventory tool synchronously, running its handler future to
-/// completion on the shared `impress-service` runtime
-/// ([`runtime::block_on`]).
+/// The identity [`call`] and [`call_async`] run as when nothing says
+/// otherwise.
+fn unknown_agent() -> CallerIdentity {
+    CallerIdentity::agent("unknown")
+}
+
+/// Invoke an inventory tool synchronously, running it to completion on the
+/// shared `impress-service` runtime ([`runtime::block_on`]).
 ///
 /// Use this from a synchronous context (CLI dispatch, an FFI shim); use
 /// [`call_async`] from a context already running on a Tokio runtime, where
-/// `block_on` would panic.
+/// `block_on` would panic. Prefer [`call_as`] where the entry path knows who
+/// is calling.
 pub fn call(name: &str, args: Value) -> Result<Value, CallError> {
+    call_as(name, unknown_agent(), args)
+}
+
+/// [`call`] with the caller's identity stated.
+pub fn call_as(name: &str, caller: CallerIdentity, args: Value) -> Result<Value, CallError> {
     let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    let future = (descriptor.handler)(args);
-    runtime::block_on(future).map_err(|e| CallError::Handler(format!("{}: {}", descriptor.name, e)))
+    runtime::block_on(pipeline::invoke(descriptor.verb, Call::new(caller, args)))
+        .map_err(|e| CallError::from_pipeline(descriptor.name, e))
 }
 
 /// The `async` counterpart to [`call`], for callers already on the runtime.
 pub async fn call_async(name: &str, args: Value) -> Result<Value, CallError> {
+    call_async_as(name, unknown_agent(), args).await
+}
+
+/// [`call_async`] with the caller's identity stated.
+pub async fn call_async_as(
+    name: &str,
+    caller: CallerIdentity,
+    args: Value,
+) -> Result<Value, CallError> {
     let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    (descriptor.handler)(args)
+    pipeline::invoke(descriptor.verb, Call::new(caller, args))
         .await
-        .map_err(|e| CallError::Handler(format!("{}: {}", descriptor.name, e)))
+        .map_err(|e| CallError::from_pipeline(descriptor.name, e))
 }

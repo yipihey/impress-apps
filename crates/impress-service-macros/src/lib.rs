@@ -64,6 +64,20 @@
 //! table every declaration is checked against. Examples go beside the method
 //! as `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]`.
 //!
+//! Effects (ADR-0036 D1) are declared the same way — once per service,
+//! `impress_service_impl! { effects = { reads: ["imbib/bibliography-entry"],
+//! writes: [target(id)], reach: [fs] }, … }`, with per-method exceptions
+//! `#[impress_method(effects(reads = […], writes = […], reach = […]))]` that
+//! replace the whole set. A kind is a canonical ref from `schema-refs.json`
+//! (checked here at expansion time; a misspelt ref is a compile error),
+//! `target(arg)` / `children(arg)` for the kind an argument names,
+//! `prefix("impress/ui/")`, or `any("reason")`. Reach is `fs | network |
+//! subprocess | device | provider | app("imbib")`. `docs/verb-effects.md` is
+//! the table every declaration is checked against, and the store spy verifies
+//! it over the examples. An argument the call log must never store by value
+//! is marked `#[impress_private]` in `methods = […]`, which sets
+//! `"x-private": true` on its input-schema property.
+//!
 //! Anything more elaborate (custom DTOs, error mapping nuances) is deferred to
 //! Phase 1+.
 
@@ -71,6 +85,10 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Ident, ItemTrait, TraitItem, Type};
+
+mod schema_refs {
+    include!(concat!(env!("OUT_DIR"), "/schema_refs.rs"));
+}
 
 /// `#[impress_service]` attribute on a trait.
 ///
@@ -174,12 +192,20 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     Some(flag) => quote! { ::core::option::Option::Some(#flag) },
                     None => quote! { ::core::option::Option::None },
                 };
+                let effects = match &overrides.effects {
+                    Some(decl) => {
+                        let literal = decl.literal();
+                        quote! { ::core::option::Option::Some(#literal) }
+                    }
+                    None => quote! { ::core::option::Option::None },
+                };
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
                         doc: #doc,
                         safety: #safety,
                         idempotent: #idempotent,
+                        effects: #effects,
                         examples: &[#(#example_tokens),*],
                     }
                 });
@@ -224,12 +250,204 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
     })
 }
 
-/// What `#[impress_method(safety = …, idempotent = …)]` declares.
+/// What `#[impress_method(safety = …, idempotent = …, effects(…))]` declares.
 #[derive(Default)]
 struct MethodOverrides {
     /// The `SafetyClass` variant name (`ReadOnly`, …), validated.
     safety: Option<String>,
     idempotent: Option<bool>,
+    effects: Option<EffectsDecl>,
+}
+
+/// An effect set as written — `reads`, `writes` and `reach` lists, each
+/// already turned into `impress_service_core::{Kind, Reach}` tokens. The
+/// three keys are each optional and default to empty; the set as a whole is
+/// what a method declaration replaces.
+#[derive(Default)]
+struct EffectsDecl {
+    reads: Vec<TokenStream2>,
+    writes: Vec<TokenStream2>,
+    reach: Vec<TokenStream2>,
+}
+
+impl EffectsDecl {
+    fn literal(&self) -> TokenStream2 {
+        let reads = &self.reads;
+        let writes = &self.writes;
+        let reach = &self.reach;
+        quote! {
+            ::impress_service_core::Effects {
+                reads: &[#(#reads),*],
+                writes: &[#(#writes),*],
+                reach: &[#(#reach),*],
+            }
+        }
+    }
+
+    /// One `key = [ … ]` (attribute form) or `key: [ … ]` (impl-macro form)
+    /// entry, the list already opened. Returns `false` for an unknown key.
+    fn take(&mut self, key: &Ident, list: syn::parse::ParseStream) -> syn::Result<bool> {
+        match key.to_string().as_str() {
+            "reads" => self.reads = parse_kind_list(list)?,
+            "writes" => self.writes = parse_kind_list(list)?,
+            "reach" => self.reach = parse_reach_list(list)?,
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+}
+
+const KIND_VOCABULARY: &str =
+    "a canonical ref string, `target(arg)`, `children(arg)`, `prefix(\"…\")` or `any(\"reason\")`";
+const REACH_VOCABULARY: &str =
+    "`fs`, `network`, `subprocess`, `device`, `provider` or `app(\"<id>\")`";
+
+/// `[ "imbib/library", target(id), children(collection_id), prefix("impress/ui/"), any("…") ]`.
+/// A ref string must be a key of `schema-refs.json`'s `canonical` table when
+/// the manifest was beside the workspace at build time.
+fn parse_kind_list(input: syn::parse::ParseStream) -> syn::Result<Vec<TokenStream2>> {
+    let content;
+    syn::bracketed!(content in input);
+    let mut out = Vec::new();
+    while !content.is_empty() {
+        if content.peek(syn::LitStr) {
+            let lit: syn::LitStr = content.parse()?;
+            let value = lit.value();
+            if !schema_refs::CANONICAL_SCHEMA_REFS.is_empty()
+                && !schema_refs::CANONICAL_SCHEMA_REFS.contains(&value.as_str())
+            {
+                return Err(syn::Error::new(
+                    lit.span(),
+                    format!(
+                        "`{value}` is not a canonical schema ref in schema-refs.json; copy the \
+                         spelling from the manifest (the store matches `schema_ref` by exact \
+                         equality, so a misspelt ref reads zero rows forever)"
+                    ),
+                ));
+            }
+            out.push(quote! { ::impress_service_core::Kind::Ref(#lit) });
+        } else {
+            let head: Ident = content.parse()?;
+            let inner;
+            syn::parenthesized!(inner in content);
+            match head.to_string().as_str() {
+                "target" | "children" => {
+                    let arg: Ident = inner.parse()?;
+                    let arg = arg.to_string();
+                    let variant = if head == "target" {
+                        quote! { Target }
+                    } else {
+                        quote! { Children }
+                    };
+                    out.push(quote! { ::impress_service_core::Kind::#variant(#arg) });
+                }
+                "prefix" => {
+                    let lit: syn::LitStr = inner.parse()?;
+                    out.push(quote! { ::impress_service_core::Kind::Prefix(#lit) });
+                }
+                "any" => {
+                    let lit: syn::LitStr = inner.parse()?;
+                    if lit.value().trim().is_empty() {
+                        return Err(syn::Error::new(lit.span(), "`any(…)` needs a reason"));
+                    }
+                    out.push(quote! { ::impress_service_core::Kind::Any(#lit) });
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        head.span(),
+                        format!("unknown kind `{other}`; one of {KIND_VOCABULARY}"),
+                    ));
+                }
+            }
+            if !inner.is_empty() {
+                return Err(inner.error("one argument"));
+            }
+        }
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `[ fs, network, app("imbib") ]`.
+fn parse_reach_list(input: syn::parse::ParseStream) -> syn::Result<Vec<TokenStream2>> {
+    let content;
+    syn::bracketed!(content in input);
+    let mut out = Vec::new();
+    while !content.is_empty() {
+        let head: Ident = content.parse()?;
+        let token = match head.to_string().as_str() {
+            "fs" => quote! { ::impress_service_core::Reach::Fs },
+            "network" => quote! { ::impress_service_core::Reach::Network },
+            "subprocess" => quote! { ::impress_service_core::Reach::Subprocess },
+            "device" => quote! { ::impress_service_core::Reach::Device },
+            "provider" => quote! { ::impress_service_core::Reach::Provider },
+            "app" => {
+                let inner;
+                syn::parenthesized!(inner in content);
+                let lit: syn::LitStr = inner.parse()?;
+                quote! { ::impress_service_core::Reach::App(#lit) }
+            }
+            other => {
+                return Err(syn::Error::new(
+                    head.span(),
+                    format!("unknown reach `{other}`; one of {REACH_VOCABULARY}"),
+                ));
+            }
+        };
+        out.push(token);
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `effects(reads = […], writes = […], reach = […])` inside `#[impress_method(…)]`.
+/// `effects()` — every key absent — is a method that touches nothing under
+/// a service whose default touches something, so the parentheses may be
+/// empty (which `parse_nested_meta` would refuse).
+fn parse_effects_attr(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<EffectsDecl> {
+    let mut decl = EffectsDecl::default();
+    let content;
+    syn::parenthesized!(content in meta.input);
+    while !content.is_empty() {
+        let key: Ident = content.parse()?;
+        content.parse::<syn::Token![=]>()?;
+        if !decl.take(&key, &content)? {
+            return Err(syn::Error::new(
+                key.span(),
+                "unknown effects key; `reads`, `writes` or `reach`",
+            ));
+        }
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(decl)
+}
+
+/// `{ reads: […], writes: […], reach: […] }` after `effects =` in
+/// `impress_service_impl!`.
+fn parse_effects_block(input: syn::parse::ParseStream) -> syn::Result<EffectsDecl> {
+    let content;
+    syn::braced!(content in input);
+    let mut decl = EffectsDecl::default();
+    while !content.is_empty() {
+        let key: Ident = content.parse()?;
+        content.parse::<syn::Token![:]>()?;
+        if !decl.take(&key, &content)? {
+            return Err(syn::Error::new(
+                key.span(),
+                "unknown effects key; `reads`, `writes` or `reach`",
+            ));
+        }
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(decl)
 }
 
 /// `read_only` → `ReadOnly`, or `None` for anything outside the vocabulary.
@@ -267,8 +485,13 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                 let flag: syn::LitBool = meta.value()?.parse()?;
                 out.idempotent = Some(flag.value);
                 Ok(())
+            } else if meta.path.is_ident("effects") {
+                out.effects = Some(parse_effects_attr(&meta)?);
+                Ok(())
             } else {
-                Err(meta.error("unknown #[impress_method] key; `safety = …` or `idempotent = …`"))
+                Err(meta.error(
+                    "unknown #[impress_method] key; `safety = …`, `idempotent = …` or `effects(…)`",
+                ))
             }
         })?;
     }
@@ -374,6 +597,10 @@ struct ImplMacroInput {
     safety: String,
     /// `since = "0.1.0"`: the version every verb of the service appeared in.
     since: syn::LitStr,
+    /// `effects = { reads: […], writes: […], reach: […] }`: the service's
+    /// default effect set; a method departs from it with
+    /// `#[impress_method(effects(…))]` on the trait (ADR-0036 D1).
+    effects: EffectsDecl,
 }
 
 struct MethodDecl {
@@ -383,6 +610,10 @@ struct MethodDecl {
     /// become the args-struct field's doc attributes and so its JSON-schema
     /// `description` (MCP `inputSchema`, CLI `--help`).
     args: Vec<(Vec<syn::Attribute>, Ident, Type)>,
+    /// Arguments marked `#[impress_private]`: their input-schema property
+    /// carries `"x-private": true`, and the call log stores them as a length
+    /// and a hash, never by value (ADR-0036 D2's privacy rule).
+    private_args: Vec<String>,
     ret: Option<Type>,
 }
 
@@ -410,6 +641,7 @@ impl syn::parse::Parse for ImplMacroInput {
         let mut strict_args = false;
         let mut safety: Option<String> = None;
         let mut since: Option<syn::LitStr> = None;
+        let mut effects: Option<EffectsDecl> = None;
 
         while !input.is_empty() {
             // Accept both regular identifiers and keywords-as-identifiers
@@ -456,6 +688,7 @@ impl syn::parse::Parse for ImplMacroInput {
                     }
                     since = Some(version);
                 }
+                "effects" => effects = Some(parse_effects_block(input)?),
                 "methods" => {
                     let content;
                     syn::bracketed!(content in input);
@@ -498,6 +731,13 @@ impl syn::parse::Parse for ImplMacroInput {
             })?,
             since: since
                 .ok_or_else(|| syn::Error::new(input.span(), "missing `since = \"<version>\"`"))?,
+            effects: effects.ok_or_else(|| {
+                syn::Error::new(
+                    input.span(),
+                    "missing `effects = { reads: […], writes: […], reach: […] }` (the service's \
+                     default effect set, ADR-0036 D1; `{}` for a service that touches nothing)",
+                )
+            })?,
         })
     }
 }
@@ -512,19 +752,32 @@ fn parse_method_decl(input: syn::parse::ParseStream) -> syn::Result<MethodDecl> 
     syn::parenthesized!(arg_content in input);
 
     let mut args = Vec::new();
+    let mut private_args = Vec::new();
     while !arg_content.is_empty() {
-        // `/// doc` lines on an argument describe it in the generated schema.
-        // Only doc attributes are kept; anything else is a mistake here.
-        let arg_attrs = arg_content.call(syn::Attribute::parse_outer)?;
-        if let Some(bad) = arg_attrs.iter().find(|a| !a.path().is_ident("doc")) {
+        // `/// doc` lines on an argument describe it in the generated schema;
+        // `#[impress_private]` marks it `x-private`. Anything else is a
+        // mistake here.
+        let mut arg_attrs = arg_content.call(syn::Attribute::parse_outer)?;
+        if let Some(bad) = arg_attrs
+            .iter()
+            .find(|a| !a.path().is_ident("doc") && !a.path().is_ident("impress_private"))
+        {
             return Err(syn::Error::new_spanned(
                 bad,
-                "only `///` doc comments are allowed on an impress_service_impl! argument",
+                "only `///` doc comments and `#[impress_private]` are allowed on an \
+                 impress_service_impl! argument",
             ));
         }
+        let private = arg_attrs
+            .iter()
+            .any(|a| a.path().is_ident("impress_private"));
+        arg_attrs.retain(|a| a.path().is_ident("doc"));
         let arg_name: Ident = arg_content.parse()?;
         arg_content.parse::<syn::Token![:]>()?;
         let arg_ty: Type = arg_content.parse()?;
+        if private {
+            private_args.push(arg_name.to_string());
+        }
         args.push((arg_attrs, arg_name, arg_ty));
         if arg_content.peek(syn::Token![,]) {
             arg_content.parse::<syn::Token![,]>()?;
@@ -543,6 +796,7 @@ fn parse_method_decl(input: syn::parse::ParseStream) -> syn::Result<MethodDecl> 
         name,
         doc,
         args,
+        private_args,
         ret,
     })
 }
@@ -662,6 +916,8 @@ fn expand_method(
     };
     let default_safety = format_ident!("{}", input.safety);
     let since = &input.since;
+    let default_effects = input.effects.literal();
+    let private_args = &method.private_args;
 
     let args_struct = format_ident!("__Impress_{}_{}_Args", service, name);
     let invoker_fn = format_ident!("__impress_{}_{}_invoke", service, name);
@@ -716,16 +972,22 @@ fn expand_method(
         __instance.#name(#( __args.#arg_idents ),*).await
     };
 
+    // The invoker parses nothing but its own args struct (plan-verb-pipeline
+    // P2): the strict schema check is the pipeline's strict-args layer,
+    // which runs before this handler for every verb of a `strict_args`
+    // service. What stays here for a strict service is the envelope a type
+    // error answers — `{ok: false, code: "invalid-argument", …}` naming the
+    // tool, as before — so a refused argument is a result, not a transport
+    // error, on every path.
     let parse_args = if strict_args {
         quote! {
-            let __args: #args_struct = match ::impress_service_core::strict::args(
-                concat!(#service_kebab, "_", #kebab_name),
-                __json,
-                &#schema_fn(),
-            ) {
+            let __args: #args_struct = match ::impress_service_core::serde_json::from_value(__json) {
                 Ok(args) => args,
-                Err(refusal) => {
-                    return Ok(::impress_service_core::strict::refusal_value(&refusal));
+                Err(e) => {
+                    return Ok(::impress_service_core::strict::parse_refusal(
+                        concat!(#service_kebab, "_", #kebab_name),
+                        e,
+                    ));
                 }
             };
         }
@@ -754,8 +1016,9 @@ fn expand_method(
         #[allow(non_snake_case)]
         pub fn #schema_fn() -> ::impress_service_core::serde_json::Value {
             let schema = ::impress_service_core::schemars::schema_for!(#args_struct);
-            ::impress_service_core::serde_json::to_value(schema)
-                .unwrap_or(::impress_service_core::serde_json::Value::Null)
+            let schema = ::impress_service_core::serde_json::to_value(schema)
+                .unwrap_or(::impress_service_core::serde_json::Value::Null);
+            ::impress_service_core::mark_private(schema, &[#(#private_args),*])
         }
 
         // The output schema is derived from the return type, which is why
@@ -813,6 +1076,11 @@ fn expand_method(
                         ),
                     ),
                 },
+                effects: ::impress_service_core::resolve_effects(
+                    &#meta_table,
+                    #method_name_str,
+                    #default_effects,
+                ),
                 since: #since,
                 deprecated: ::core::option::Option::None,
                 aliases: &[],
@@ -1046,11 +1314,140 @@ mod tests {
         .err()
         .expect("no since");
         assert!(err.to_string().contains("missing `since"), "{err}");
-        let ok = parse(
+        let err = parse(
             "service = EchoService, impl = DemoEcho, instance = || DemoEcho, safety = mutating, since = \"0.1.0\", methods = []",
         )
-        .unwrap_or_else(|e| panic!("both declared: {e}"));
+        .err()
+        .expect("no effects");
+        assert!(err.to_string().contains("missing `effects"), "{err}");
+        let ok = parse(
+            "service = EchoService, impl = DemoEcho, instance = || DemoEcho, safety = mutating, since = \"0.1.0\", effects = {}, methods = []",
+        )
+        .unwrap_or_else(|e| panic!("all declared: {e}"));
         assert_eq!(ok.safety, "Mutating");
         assert_eq!(ok.since.value(), "0.1.0");
+        assert!(ok.effects.reads.is_empty() && ok.effects.writes.is_empty());
+    }
+
+    /// The service-level effect set: every kind and reach spelling, and a ref
+    /// checked against the manifest embedded at build time.
+    #[test]
+    fn the_impl_macro_parses_the_effects_vocabulary() {
+        let parse = |src: &str| syn::parse_str::<ImplMacroInput>(src);
+        let ok = parse(
+            r#"service = S, impl = D, instance = || D, safety = mutating, since = "0.1", methods = [],
+               effects = { reads: ["imbib/bibliography-entry", target(id), children(collection_id), prefix("impress/ui/")],
+                           writes: [any("dispatches whatever the surface calls")],
+                           reach: [fs, network, subprocess, device, provider, app("imbib")] }"#,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let text = ok.effects.literal().to_string();
+        assert!(
+            text.contains("Kind :: Ref (\"imbib/bibliography-entry\")"),
+            "{text}"
+        );
+        assert!(text.contains("Kind :: Target (\"id\")"), "{text}");
+        assert!(
+            text.contains("Kind :: Children (\"collection_id\")"),
+            "{text}"
+        );
+        assert!(text.contains("Kind :: Prefix (\"impress/ui/\")"), "{text}");
+        assert!(text.contains("Kind :: Any ("), "{text}");
+        assert!(text.contains("Reach :: App (\"imbib\")"), "{text}");
+        assert_eq!(ok.effects.reach.len(), 6);
+
+        let err = parse(
+            r#"service = S, impl = D, instance = || D, safety = mutating, since = "0.1", methods = [],
+               effects = { reach: [telepathy] }"#,
+        )
+        .err()
+        .expect("outside the vocabulary");
+        assert!(
+            err.to_string().contains("unknown reach `telepathy`"),
+            "{err}"
+        );
+
+        let err = parse(
+            r#"service = S, impl = D, instance = || D, safety = mutating, since = "0.1", methods = [],
+               effects = { reads: [nothing(x)] }"#,
+        )
+        .err()
+        .expect("outside the vocabulary");
+        assert!(err.to_string().contains("unknown kind `nothing`"), "{err}");
+
+        // The manifest check runs whenever the manifest was beside the
+        // workspace at build time, which it is in this repository.
+        if !schema_refs::CANONICAL_SCHEMA_REFS.is_empty() {
+            let err = parse(
+                r#"service = S, impl = D, instance = || D, safety = mutating, since = "0.1", methods = [],
+                   effects = { reads: ["imbib/bibliography-entry@1.0.0"] }"#,
+            )
+            .err()
+            .expect("a misspelt ref");
+            assert!(
+                err.to_string().contains("not a canonical schema ref"),
+                "{err}"
+            );
+        }
+    }
+
+    /// A method's `effects(…)` replaces the service's set and lands in the
+    /// method table; the undeclared method carries `None`.
+    #[test]
+    fn method_effects_are_captured() {
+        let ts = expand(
+            r#"
+            pub trait S: Send + Sync + 'static {
+                /// Star it.
+                #[impress_method(effects(writes = [target(id)], reach = [fs]))]
+                async fn set_starred(&self, id: String) -> bool;
+                /// Read it.
+                #[impress_method]
+                async fn get(&self, id: String) -> String;
+            }
+            "#,
+        )
+        .expect("expands")
+        .to_string();
+        assert!(ts.contains("Kind :: Target (\"id\")"), "{ts}");
+        assert!(ts.contains("Reach :: Fs"), "{ts}");
+        assert!(
+            ts.contains("effects : :: core :: option :: Option :: None"),
+            "{ts}"
+        );
+        let err = expand(
+            r#"
+            pub trait S: Send + Sync + 'static {
+                /// Doc.
+                #[impress_method(effects(touches = [target(id)]))]
+                async fn f(&self, id: String) -> bool;
+            }
+            "#,
+        )
+        .expect_err("unknown effects key");
+        assert!(err.to_string().contains("unknown effects key"), "{err}");
+    }
+
+    /// `#[impress_private]` on a `methods = […]` argument is recorded (and
+    /// stripped from the field, so the args struct stays plain serde).
+    #[test]
+    fn private_arguments_are_recorded() {
+        let ok = syn::parse_str::<ImplMacroInput>(
+            r#"service = S, impl = D, instance = || D, safety = mutating, since = "0.1", effects = {},
+               methods = [ note(id: String, #[impress_private] body: String) -> bool ]"#,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(ok.methods[0].private_args, vec!["body".to_string()]);
+        assert!(ok.methods[0]
+            .args
+            .iter()
+            .all(|(attrs, _, _)| attrs.is_empty()));
+        let err = syn::parse_str::<ImplMacroInput>(
+            r#"service = S, impl = D, instance = || D, safety = mutating, since = "0.1", effects = {},
+               methods = [ note(#[serde(default)] body: String) ]"#,
+        )
+        .err()
+        .expect("only doc and impress_private");
+        assert!(err.to_string().contains("impress_private"), "{err}");
     }
 }

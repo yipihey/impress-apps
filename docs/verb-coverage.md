@@ -42,7 +42,7 @@ prints the row as it should now read.
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 0 | 0 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 0 | 0 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 0 | 0 |
-| `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 0 | 0 |
+| `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 20 | 0 |
 | `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 0 | 0 |
 | `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 0 | 0 |
 | `impart-service` | impart-service | 10 | 10 | 22 (14) | 0 | 0 |
@@ -65,12 +65,12 @@ prints the row as it should now read.
 | `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
-| `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
+| `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 0 |
 | `surface-demo-service` | surface-demo-service | 2 | 2 | 4 (4) | 0 | 0 |
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
-| `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 0 | 0 |
+| `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 16 crates, 39 services | **444** | **444** | **1016 (679)** | **56** | **57** |
+| **Total** | 16 crates, 39 services | **444** | **444** | **1016 (679)** | **94** | **57** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -167,6 +167,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-git` | library | should-be-verb | `commands::{status_cmd, commit_cmd, log_cmd, diff_cmd, push_cmd, pull_cmd, clone_cmd}` and the porcelain parsers have no verb |
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
+| `impress-keymap` | kit-pure | internal | R2: declares every GUI chord as data (`Chord`, `Binding`, the coverage test); no capability of its own — `keymap_json` is exported by `impress-store-ffi`, not this crate |
 | `impress-layout` | library | covered-through | `impress-layout-service` exposes the D8 verbs over it |
 | `impress-layout-service` | verb-crate | verb-crate | |
 | `impress-mcp` | binary | should-be-verb | `tools::{tool_search_papers, tool_get_paper_chunks, tool_list_indexed_papers}` and `render_pdf_page` are hand-written MCP tools outside the inventory (ADR-0024 D7) |

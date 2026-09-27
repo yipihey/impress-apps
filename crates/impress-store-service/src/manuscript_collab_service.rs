@@ -108,7 +108,7 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
     /// `base_heads` diffs against the current text (last-writer for
     /// overlapping regions, no loss elsewhere). `author` labels the change in
     /// history (e.g. your agent id). Refused for watched-folder manuscripts.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"]))]
     async fn commit_manuscript_body(
         &self,
         id: String,
@@ -294,11 +294,16 @@ impress_service_impl! {
     service = ManuscriptCollabService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultManuscriptCollabService,
     instance = DefaultManuscriptCollabService::new,
     methods = [
         manuscript_heads(id: String) -> CollabHeadsResult,
-        commit_manuscript_body(id: String, base_heads: Vec<String>, body: String, author: String) -> CollabCommitResult,
+        commit_manuscript_body(id: String, base_heads: Vec<String>, #[impress_private] body: String, author: String) -> CollabCommitResult,
         manuscript_change_history(id: String) -> CollabHistoryResult,
         manuscript_text_at(id: String, heads: Vec<String>) -> CollabTextAtResult,
     ],

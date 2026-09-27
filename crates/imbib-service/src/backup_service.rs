@@ -160,7 +160,7 @@ pub trait ImbibBackupService: Send + Sync + 'static {
     /// Replace the whole library with a backup. **Requires the imbib app to be
     /// running**: it refuses while iCloud sync is on, and it must tell the UI
     /// that every cached row is gone. Both guarantees live in the app.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reach = [app("imbib"), fs]))]
     async fn restore_backup(&self, path: String) -> RestoreReport;
 
     /// Delete one backup file and its manifest sidecar.
@@ -299,6 +299,11 @@ impress_service_impl! {
     service = ImbibBackupService,
     safety = destructive,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [fs],
+    },
     impl = DefaultImbibBackupService,
     instance = crate::backend::backup_service_instance,
     // NOTE: these `///` comments are the tool descriptions the model sees.

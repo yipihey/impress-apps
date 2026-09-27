@@ -32,6 +32,8 @@ on:
       - 'scripts/clippy-each-crate.sh'
       - '.config/hakari.toml'
       - '.github/workflows/workspace-rust.yml'
+      - 'scripts/build-cost.sh'
+      - 'build-budget.json'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
 env:
@@ -212,3 +214,85 @@ jobs:
 
       - name: Run tests
         run: ./scripts/rust-gate.sh test ${{ matrix.shard.name }}
+
+  # Build budget (plan-verb-pipeline-and-transport.md § Build cost, B5). Two
+  # halves in one job, both from scripts/build-cost.sh:
+  #   deterministic — cargo llvm-lines per service crate, divided by the
+  #   strict verb count; reproducible for a given toolchain, so it fails the
+  #   PR the day a heavier expansion lands, no re-run.
+  #   measured — cold `cargo build -p impress-mcp --timings`, then an
+  #   imbib-service touch and an impress-service-core touch, each divided by
+  #   the verb count; noisy on a shared runner, so a breach only fails after
+  #   one re-run. `impress-mac` only (the other three runners' target dirs are
+  #   independent, so the same commit measures differently depending on which
+  #   one draws the job — see docs/self-hosted-runners.md).
+  build-cost:
+    name: Build budget
+    runs-on: [impress-mac]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Its own persistent target dir, like the isolated/clippy/test jobs
+      # above — outside the checkout, survives `git clean -ffdx`, not subject
+      # to the repo's cache quota. A build-cost run and a clippy/test run
+      # sharing one dir would pollute each other's incremental state and the
+      # touch-rebuild timings this job depends on.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-build-cost"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Install cargo-llvm-lines
+        run: command -v cargo-llvm-lines >/dev/null || cargo binstall -y cargo-llvm-lines
+
+      - name: Measure and check the build budget
+        run: |
+          set -euo pipefail
+          json="$(./scripts/build-cost.sh)"
+          echo "$json"
+          echo "$json" | python3 scripts/check-build-budget.py > result.env
+          cat result.env
+          # shellcheck disable=SC1091
+          source result.env
+
+          if [ -n "$DET_FAIL" ]; then
+              echo "::error::Deterministic build budget breached: $DET_FAIL"
+              echo "$json" > build-cost-record.jsonl
+              exit 1
+          fi
+
+          if [ -n "$MEASURED_FAIL" ]; then
+              echo "::warning::Measured build budget breached on first run ($MEASURED_FAIL); re-running once before failing (§ Build cost B5: measured half is noisy, fails at +25% after one re-run)."
+              json="$(./scripts/build-cost.sh)"
+              echo "$json"
+              echo "$json" | python3 scripts/check-build-budget.py > result.env
+              cat result.env
+              # shellcheck disable=SC1091
+              source result.env
+              if [ -n "$MEASURED_FAIL" ]; then
+                  echo "::error::Measured build budget breached on the re-run too: $MEASURED_FAIL"
+                  echo "$json" > build-cost-record.jsonl
+                  exit 1
+              fi
+          fi
+
+          echo "$json" > build-cost-record.jsonl
+
+      - name: Append to the ledger
+        if: always()
+        run: |
+          [ -f build-cost-record.jsonl ] || echo '{"commit":"${{ github.sha }}","error":"no record produced"}' > build-cost-record.jsonl
+          mkdir -p ledger
+          cp build-cost-record.jsonl "ledger/build-cost-$(date +%Y%m%dT%H%M%S)-${{ github.sha }}.jsonl"
+
+      - name: Upload ledger artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-cost-ledger
+          path: ledger/*.jsonl
+          retention-days: 90

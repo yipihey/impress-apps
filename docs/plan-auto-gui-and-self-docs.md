@@ -711,6 +711,35 @@ crates) is real and is held, not closed, by this plan.
   is now 433 of 433 and the census pins it. The module doc's uniffi/pyo3 claim (G-3) and the crate's
   Cargo description ("Swift/Python/MCP/CLI bindings") are gone. `strict_args` was **not** flipped —
   D-G1 is G5's, after the pipeline (P2) owns argument validation. The invoker is unchanged.
+- 2026-09-26 — **G3 landed a first slice** on a worktree of `origin/main`, branch
+  `claude/gui-g3-examples`. Landed: `impress_service_core::report::tier_a`, a generic Tier A example
+  runner (headless eligibility from `effects.reach`, per-example timeout, a subset `expect`-shape
+  match) with no store dependency of its own; `crates/impress-capabilities/tests/tier_a.rs` runs it
+  against the same process-wide scratch-store pattern `tests/effects.rs` already uses — P2's per-call
+  store override has not landed, so every example in one test binary still shares one store; noted as
+  the limit in both files' doc comments. `crates/impress-capabilities/src/bin/gen-verb-docs.rs`
+  generates `docs/verbs/<service>.md` (one page per service: description, arguments with their schema
+  `description`, safety, effects, examples) from the linked `VerbDescriptor` inventory;
+  `scripts/check-verb-docs.sh` regenerates and diffs, wired into `.github/workflows/kit.yml` as a new
+  `verb-docs` job. Examples added to 22 verbs across `store-query-service` (`get-item`,
+  `related-items`), `imbib-tags-service` (six mutating/read verbs) and `collection-service` (nine
+  verbs), plus `triage-service`'s five verbs — all Tier A-eligible, all now pass under
+  `cargo test -p impress-capabilities --test tier_a`. Argument `///` docs written for every method
+  touched (`query_service.rs`, `tags_service.rs`, `triage_service.rs`, `collection_service.rs`),
+  raising the workspace's "args described" count from 50 to 88 of 1001 in `docs/verb-coverage.md`.
+  `crates/impress-capabilities/tests/effects.rs`'s exception table shrank by 22 rows (275 verbs on it
+  -> 253); `EXCEPTION_CEILING` lowered to match.
+  **Not done, and sized honestly rather than claimed**: the plan's full scope is examples on every
+  Tier A-eligible verb (333 by the linked inventory; 92 now have one, roughly 170 still on the
+  exception table's "no example" rows — `docs-import-service`, `imbib-library-service`,
+  `imbib-search-service`, `imbib-eink-service`, `impress-ai-service`, `impress-bridges-service`,
+  `smart-search-service`, `source-service`, `vw-diagnostic-service`, `memory-service`,
+  `impel-service`, `manuscript-collab-service`, `imbib-artifacts-service`,
+  `imbib-annotations-service`, `imbib-scix-service`, `imbib-backup-service`, `imbib-undo-service`,
+  `parsers-service` remain untouched) and argument docs across all 36 services (~950 lines; 88
+  written here). A follow-on G3 session should continue the same pattern verb by verb, lowering
+  `EXCEPTION_CEILING` and raising the described-arguments count as it goes, rather than attempt the
+  remainder in one pass.
 
 ## Appendix A1 — every verb
 

@@ -69,7 +69,7 @@ use std::collections::{HashMap, HashSet};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::{Map, Value};
 
-use crate::{runtime, BoxError, CliSubcommand};
+use crate::{BoxError, CliSubcommand};
 
 /// Build a `clap::Command` for the binary named `app_name`, with one
 /// subcommand per registered [`CliSubcommand`].
@@ -275,7 +275,16 @@ pub fn dispatch_matches(matches: &ArgMatches) -> Result<Value, BoxError> {
     let schema = (descriptor.input_schema)();
     let json_args = matches_to_json(sub_matches, &schema)?;
 
-    runtime::block_on((descriptor.apply)(json_args))
+    // The CLI is an agent (ADR-0034 D3): whoever runs it, its verbs go
+    // through the pipeline as `Agent("cli")`, never as the person.
+    match crate::pipeline::invoke_blocking(
+        descriptor.verb,
+        crate::pipeline::Call::agent("cli", json_args),
+    ) {
+        Ok(value) => Ok(value),
+        Err(crate::pipeline::PipelineError::Handler(e)) => Err(e),
+        Err(unavailable) => Err(unavailable.to_string().into()),
+    }
 }
 
 fn matches_to_json(matches: &ArgMatches, schema: &Value) -> Result<Value, BoxError> {
@@ -648,6 +657,7 @@ mod collision_tests {
                 idempotent: true,
             },
             since: "0.1.0",
+            effects: crate::Effects::NONE,
             deprecated: None,
             aliases: &[],
             examples: &[],

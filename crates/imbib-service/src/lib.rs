@@ -22,16 +22,22 @@ use impress_service_macros::{impress_service, impress_service_impl};
 pub trait ImbibTextService: Send + Sync + 'static {
     /// Decode LaTeX-encoded text into Unicode (e.g. `\'{e}` → `é`).
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"input": "Schr\\\"odinger"}"#)]
     async fn decode_latex(&self, input: String) -> String;
 
     /// Expand a BibTeX journal-name macro to its full form (e.g.
     /// `ApJ` → `Astrophysical Journal`).
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"value": "\\apj"}"#)]
     async fn expand_journal_macro(&self, value: String) -> String;
 
     /// Generate a BibTeX cite key in the `{LastName}{Year}{TitleWord}`
     /// convention.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"author": "Abel", "title": "Declared effects", "year": "2026"}"#
+    )]
     async fn generate_cite_key(
         &self,
         author: Option<String>,
@@ -41,10 +47,12 @@ pub trait ImbibTextService: Send + Sync + 'static {
 
     /// Normalize a single tag segment ("Dark Energy" → "dark-energy").
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"segment": "Reading Queue"}"#)]
     async fn normalize_tag_segment(&self, segment: String) -> String;
 
     /// Normalize a hierarchical tag path.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"path": "Reading/Queue"}"#)]
     async fn normalize_tag_path(&self, path: String) -> String;
 }
 
@@ -79,6 +87,11 @@ impress_service_impl! {
     service = ImbibTextService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultImbibTextService,
     instance = || DefaultImbibTextService,
     methods = [
@@ -181,14 +194,16 @@ mod tests {
 
     #[test]
     fn decode_latex_round_trips_through_inventory() {
-        use impress_service_core::runtime;
         use impress_service_core::serde_json::json;
 
         let tool = McpToolDescriptor::iter()
             .find(|d| d.name == "imbib-text-service_decode-latex")
             .expect("decode-latex tool");
-        let result = runtime::block_on((tool.handler)(json!({ "input": "Caf\\'{e}" })))
-            .expect("handler succeeded");
+        let result = impress_service_core::pipeline::invoke_blocking(
+            tool.verb,
+            impress_service_core::pipeline::Call::agent("test", json!({ "input": "Caf\\'{e}" })),
+        )
+        .expect("handler succeeded");
         assert_eq!(result.as_str(), Some("Café"));
     }
 

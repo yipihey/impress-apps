@@ -227,6 +227,15 @@ fn with_deadline<T: Send + 'static>(
 /// operations (the collections migration) consult and refuse on. The
 /// fallback is never cached, so a later call retries the real open.
 pub fn store_instance() -> Arc<SqliteItemStore> {
+    // A verb running under `Pipeline::invoke_on(store, …)` (H-P2-3, D-R9) —
+    // a Tier A scenario on its own store — gets that store; the process-wide
+    // one stays the default for every other call.
+    if let Some(store) =
+        impress_service_core::pipeline::context::store_override::<SqliteItemStore>()
+    {
+        GLOBAL.handed_fallback.store(false, Ordering::Relaxed);
+        return store;
+    }
     GLOBAL.acquire(&store_path(), OPEN_DEADLINE)
 }
 

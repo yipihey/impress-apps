@@ -117,7 +117,9 @@ pub fn force_link() {
 // the same code rather than a copy of it. Re-exported here so
 // `impress-store-ffi` and `impress-capabilities` (behind its `kit` feature)
 // compile unchanged.
-pub use impress_service_core::call::{call, call_async, descriptors, find, CallError};
+pub use impress_service_core::call::{
+    call, call_as, call_async, call_async_as, descriptors, find, CallError,
+};
 
 #[cfg(test)]
 mod tests {

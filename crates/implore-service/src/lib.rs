@@ -569,6 +569,11 @@ impress_service_impl! {
     service = ImploreService,
     safety = external,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [app("implore")],
+    },
     impl = DefaultImploreService,
     instance = service_instance,
     methods = [
@@ -658,7 +663,11 @@ mod tests {
     }
 
     fn call(args: Value) -> Value {
-        impress_service_core::runtime::block_on((create_figure_tool().handler)(args)).unwrap()
+        impress_service_core::pipeline::invoke_blocking(
+            create_figure_tool().verb,
+            impress_service_core::pipeline::Call::agent("test", args),
+        )
+        .unwrap()
     }
 
     fn base() -> Value {

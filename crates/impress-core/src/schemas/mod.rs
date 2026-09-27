@@ -24,6 +24,7 @@ pub mod source;
 pub mod task;
 pub mod throughline;
 pub mod ui;
+pub mod verb_call;
 pub mod veusz_plot;
 pub mod watched_folder;
 
@@ -76,6 +77,7 @@ pub use ui::{
     surface_state_schema, LAYOUT_SCHEMA_REF, PRESET_SCHEMA_REF, SURFACE_EVENT_SCHEMA_REF,
     SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF, UI_SCHEMA_REFS,
 };
+pub use verb_call::{register_verb_call_schema, VERB_CALL_SCHEMA};
 pub use veusz_plot::register_veusz_plot_schema;
 pub use watched_folder::{
     register_watched_folder_schemas, FILE_STATES, FILE_STATE_MISSING, FILE_STATE_PRESENT,
@@ -147,6 +149,10 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // The synced settings row (ADR-0036 D5): one row, carried by sync; the
     // registry that says which keys it holds is `impress-settings`.
     register_settings_schema(registry);
+    // The verb call record (ADR-0036 D2): one row per non-read-only verb
+    // call, joined to the operations it wrote by `batch_id`. Depends on
+    // nothing — the join is a batch key, not an edge.
+    register_verb_call_schema(registry);
 }
 
 #[cfg(test)]

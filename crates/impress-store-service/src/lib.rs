@@ -34,6 +34,7 @@
 //! halves of that; `docs/chassis-capability-matrix.md` § "MCP surface" records
 //! which matrix cells they automate.
 
+pub mod audit;
 pub mod browse;
 pub mod collection_service;
 pub mod docs_import_service;

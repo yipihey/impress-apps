@@ -158,6 +158,7 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     /// and `freq` must be finite and greater than zero; an invalid call
     /// returns empty `x`/`values` and a populated `error`.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"n": 10, "freq": 1.0}"#)]
     async fn series(&self, freq: f64, n: u32) -> SeriesResult;
 
     /// An equal-width histogram of `values` over `bins` buckets spanning
@@ -167,6 +168,7 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     /// finite; an invalid call returns empty `counts`/`edges`, a null `plot`,
     /// and a populated `error`.
     #[impress_method]
+    #[impress_example(name = "default", args = r#"{"values": [1, 2, 3], "bins": 3}"#)]
     async fn histogram(&self, values: Vec<f64>, bins: u32) -> HistogramResult;
 }
 
@@ -276,6 +278,11 @@ impress_service_impl! {
     service = SurfaceDemoService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [],
+    },
     impl = DefaultSurfaceDemoService,
     instance = DefaultSurfaceDemoService::new,
     methods = [
@@ -299,7 +306,11 @@ mod tests {
         let tool = McpToolDescriptor::iter()
             .find(|t| t.name == name)
             .unwrap_or_else(|| panic!("{name} should be registered in the inventory"));
-        runtime::block_on((tool.handler)(args)).unwrap_or_else(|e| panic!("{name} failed: {e}"))
+        impress_service_core::pipeline::invoke_blocking(
+            tool.verb,
+            impress_service_core::pipeline::Call::agent("test", args),
+        )
+        .unwrap_or_else(|e| panic!("{name} failed: {e}"))
     }
 
     // ------------------------------------------------------------- series

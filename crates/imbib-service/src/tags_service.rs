@@ -71,12 +71,14 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// one number use `imbib-library-service_count-publications` (kind:'by-tag'); when you only
     /// need to attach a tag, just call `imbib-tags-service_add-tag`, which creates missing
     /// tags on the fly.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags(&self) -> Vec<TagRecord>;
     /// List every tag with the number of papers carrying it. As expensive as
     /// `imbib-tags-service_list-tags`: each count is recomputed, so on a large
     /// vocabulary prefer `imbib-tags-service_count-by-tag` for one tag.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
     /// Create a tag in the library's tag vocabulary, optionally with
     /// light/dark display colors. Paths are hierarchical with '/' (e.g.
@@ -84,7 +86,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// `imbib-tags-service_add-tag` does that, and it creates missing tags implicitly, so
     /// reach for this tool only when the user wants a category to exist up
     /// front or wants to give a brand-new tag a color.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/tag-definition"], writes = ["imbib/tag-definition"]))]
+    #[impress_example(name = "default", args = r#"{"path": "effects/example"}"#)]
     async fn create_tag(
         &self,
         path: String,
@@ -98,11 +101,16 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// operation log, so `imbib-undo-service_undo-batch` cannot restore the tag or its
     /// memberships (verified live 2026-07-25). Check the blast radius first
     /// with `imbib-library-service_count-publications` (kind:'by-tag').
-    #[impress_method(safety = destructive)]
+    #[impress_method(safety = destructive, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"], writes = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{"path": "effects/example"}"#)]
     async fn delete_tag_undoable(&self, path: String) -> MutationResult;
     /// Set a tag's light and dark display colors; its path and memberships
     /// are unchanged (rename with `imbib-tags-service_rename-tag`).
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/tag-definition"], writes = ["imbib/tag-definition"]))]
+    #[impress_example(
+        name = "default",
+        args = r##"{"path": "effects/example", "color_light": "#4287f5", "color_dark": "#1a3d6b"}"##
+    )]
     async fn update_tag(
         &self,
         path: String,
@@ -116,7 +124,11 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// papers without touching the vocabulary. Not undoable by `imbib-undo-service_undo-batch`
     /// (tag CRUD bypasses the operation log) — but it is trivially
     /// reversible by renaming back, as long as you remember the old path.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"], writes = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"old_path": "effects/example", "new_path": "effects/example-renamed"}"#
+    )]
     async fn rename_tag(&self, old_path: String, new_path: String) -> MutationResult;
     /// Attach a tag to specific papers. Tags use hierarchical paths like
     /// 'methods/sims' or 'topic/cosmology'; missing tags (and their
@@ -125,16 +137,28 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     /// tag vocabulary itself use `imbib-tags-service_create-tag` / `imbib-tags-service_rename-tag` /
     /// `imbib-tags-service_delete-tag-undoable`.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"ids": [], "tag_path": "effects/example"}"#
+    )]
     async fn add_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
     /// Detach a tag from the papers you name. The tag itself survives and
     /// stays on every other paper — to remove it from the library entirely
     /// use `imbib-tags-service_delete-tag-undoable`. This one IS recorded in the operation log, so
     /// it can be reversed with `imbib-undo-service_recent-undo-groups` + `imbib-undo-service_undo-batch`.
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"ids": [], "tag_path": "effects/example"}"#
+    )]
     async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
     /// List the papers carrying a tag, optionally within one library or
     /// collection (`parent_id`), sorted.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"]))]
+    #[impress_example(
+        name = "default",
+        args = r#"{"tag_path": "effects/example", "parent_id": null, "sort_field": "date_added", "ascending": true, "limit": 10}"#
+    )]
     async fn query_by_tag(
         &self,
         tag_path: String,
@@ -145,7 +169,8 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     ) -> Vec<PublicationSummary>;
     /// Count the papers carrying a tag, optionally within one library or
     /// collection.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{"tag_path": "effects/example"}"#)]
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32;
 }
 
@@ -292,18 +317,77 @@ impress_service_impl! {
     service = ImbibTagsService,
     safety = mutating,
     since = "0.1.0",
+    effects = {
+        reads: ["imbib/bibliography-entry"],
+        writes: ["imbib/bibliography-entry"],
+        reach: [],
+    },
     impl = DefaultImbibTagsService,
     instance = || crate::backend::tags_service_instance(),
     methods = [
         list_tags() -> Vec<TagRecord>,
         list_tags_with_counts() -> Vec<TagWithCount>,
-        create_tag(path: String, color_light: Option<String>, color_dark: Option<String>) -> MutationResult,
-        delete_tag_undoable(path: String) -> MutationResult,
-        update_tag(path: String, color_light: Option<String>, color_dark: Option<String>) -> MutationResult,
-        rename_tag(old_path: String, new_path: String) -> MutationResult,
-        add_tag(ids: Vec<String>, tag_path: String) -> MutationResult,
-        remove_tag(ids: Vec<String>, tag_path: String) -> MutationResult,
-        query_by_tag(tag_path: String, parent_id: Option<String>, sort_field: String, ascending: bool, limit: u32) -> Vec<PublicationSummary>,
-        count_by_tag(tag_path: String, parent_id: Option<String>) -> u32,
+        create_tag(
+            /// The hierarchical path to create, e.g. `"methods/sims"`.
+            path: String,
+            /// Light-mode display color, a CSS hex string; `None` keeps the
+            /// default.
+            color_light: Option<String>,
+            /// Dark-mode display color, a CSS hex string; `None` keeps the
+            /// default.
+            color_dark: Option<String>,
+        ) -> MutationResult,
+        delete_tag_undoable(
+            /// The tag's hierarchical path to remove from the whole library.
+            path: String,
+        ) -> MutationResult,
+        update_tag(
+            /// The tag's hierarchical path.
+            path: String,
+            /// New light-mode display color, a CSS hex string; `None` leaves
+            /// it unchanged.
+            color_light: Option<String>,
+            /// New dark-mode display color, a CSS hex string; `None` leaves
+            /// it unchanged.
+            color_dark: Option<String>,
+        ) -> MutationResult,
+        rename_tag(
+            /// The tag's current hierarchical path.
+            old_path: String,
+            /// The path to move it to; every paper carrying the tag keeps it.
+            new_path: String,
+        ) -> MutationResult,
+        add_tag(
+            /// The publication ids to attach the tag to.
+            ids: Vec<String>,
+            /// The hierarchical tag path; created automatically if missing.
+            tag_path: String,
+        ) -> MutationResult,
+        remove_tag(
+            /// The publication ids to detach the tag from.
+            ids: Vec<String>,
+            /// The hierarchical tag path.
+            tag_path: String,
+        ) -> MutationResult,
+        query_by_tag(
+            /// The hierarchical tag path to list papers for.
+            tag_path: String,
+            /// Restrict to one library or collection id; `None` searches
+            /// everywhere.
+            parent_id: Option<String>,
+            /// The field to sort by; empty string defaults to `"date_added"`.
+            sort_field: String,
+            /// Sort ascending rather than descending.
+            ascending: bool,
+            /// Page size; 0 defaults to 50.
+            limit: u32,
+        ) -> Vec<PublicationSummary>,
+        count_by_tag(
+            /// The hierarchical tag path to count papers for.
+            tag_path: String,
+            /// Restrict to one library or collection id; `None` counts
+            /// everywhere.
+            parent_id: Option<String>,
+        ) -> u32,
     ],
 }

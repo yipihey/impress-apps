@@ -164,12 +164,12 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// List models for `provider` (or the device's resolved default provider
     /// when omitted): the static catalogue merged with live discovery,
     /// including load state, context limit, modalities and the helper flag.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reach = [provider]))]
     async fn list_models(&self, provider: Option<String>) -> ModelsResult;
 
     /// Every catalogued AI provider with this device's endpoint, readiness
     /// and credential status (which fields are set — never their values).
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reach = [provider, fs]))]
     async fn list_providers(&self) -> ProvidersResult;
 
     /// The device-local AI preferences: selected provider/model, endpoint
@@ -194,21 +194,21 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// Passive reachability probe for `provider` (or the resolved default):
     /// never launches a host. For oMLX it reports version, loaded/total
     /// models and memory.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reach = [provider]))]
     async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult;
 
     /// List durable AI conversations from the shared Impress item graph.
-    #[impress_method]
+    #[impress_method(effects(reads = ["conversation@1.0.0"]))]
     async fn list_conversations(&self, include_archived: bool) -> ConversationsResult;
 
     /// Read a conversation with its ordered messages and pending durable
     /// response tasks.
-    #[impress_method]
+    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message"]))]
     async fn get_conversation(&self, conversation_id: String) -> ConversationResult;
 
     /// Create a durable conversation. Enabled tools are stable capability ids
     /// such as `scix`, `impress-mcp`, and `web`.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["conversation@1.0.0"]))]
     #[allow(clippy::too_many_arguments)]
     async fn create_conversation(
         &self,
@@ -225,7 +225,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Atomically append a user message and queue its offline-capable response
     /// task. Attachment ids must already identify content-blob items.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["chat-message", "task@1.0.0"]))]
     async fn queue_message(
         &self,
         conversation_id: String,
@@ -234,7 +234,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
     ) -> QueuedMessageResult;
 
     /// Replace the conversation's enabled tool-capability policy.
-    #[impress_method(safety = mutating)]
+    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["conversation@1.0.0"]))]
     async fn set_enabled_tools(
         &self,
         conversation_id: String,
@@ -242,28 +242,28 @@ pub trait ImpressAiService: Send + Sync + 'static {
     ) -> ConversationMutationResult;
 
     /// Read durable scheduler/run progress for a queued response task.
-    #[impress_method]
+    #[impress_method(effects(reads = ["task@1.0.0"]))]
     async fn task_status(&self, task_id: String) -> TaskStatusResult;
 
     /// Return the latest model run lineage for a response task: canonical
     /// inputs, tool invocations, and attributed outputs.
-    #[impress_method]
+    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0"]))]
     async fn task_provenance(&self, task_id: String) -> ProvenanceResult;
 
     /// Return complete lineage for a specific agent-run item.
-    #[impress_method]
+    #[impress_method(effects(reads = ["agent-run@1.0.0", "tool-invocation@1.0.0"]))]
     async fn run_provenance(&self, run_id: String) -> ProvenanceResult;
 
     /// Store-hygiene health from the AI daemon: db/WAL/freelist sizes, the
     /// maintenance lease, last verb outcomes, and the trailing-24h op rate.
     /// `daemon_reachable: false` (never an error) when it isn't running.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reach = [network]))]
     async fn ai_health(&self) -> AiHealthResult;
 
     /// Mint a single-use browser pairing link for the AI daemon (15-minute
     /// expiry). Requires the local keychain bearer (`com.impress.ai-http`),
     /// so this works on the Mac that runs the daemon, not remotely.
-    #[impress_method(safety = external)]
+    #[impress_method(safety = external, effects(reach = [network]))]
     async fn mint_pairing_link(&self) -> PairingLinkResult;
 }
 
@@ -764,6 +764,11 @@ impress_service_impl! {
     service = ImpressAiService,
     safety = read_only,
     since = "0.1.0",
+    effects = {
+        reads: [],
+        writes: [],
+        reach: [fs],
+    },
     impl = DefaultImpressAiService,
     instance = || service_instance(),
     methods = [
@@ -788,7 +793,7 @@ impress_service_impl! {
         ) -> ConversationMutationResult,
         queue_message(
             conversation_id: String,
-            body: String,
+            #[impress_private] body: String,
             attachment_ids: Vec<String>
         ) -> QueuedMessageResult,
         set_enabled_tools(

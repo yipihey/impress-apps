@@ -40,9 +40,12 @@ async fn call(tool: &str, args: serde_json::Value) -> serde_json::Value {
             .into_iter()
             .find(|d| d.name == tool)
             .unwrap_or_else(|| panic!("no tool {tool}"));
-    (descriptor.handler)(args)
-        .await
-        .unwrap_or_else(|e| panic!("{tool} failed as a transport error, not a refusal: {e}"))
+    impress_service_core::pipeline::invoke(
+        descriptor.verb,
+        impress_service_core::pipeline::Call::agent("test", args),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{tool} failed as a transport error, not a refusal: {e}"))
 }
 
 fn global_store() {

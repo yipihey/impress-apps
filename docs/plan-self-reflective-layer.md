@@ -1463,3 +1463,173 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   build -scheme imbib-iOS -destination 'generic/platform=iOS Simulator' ARCHS=arm64
   CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO`) now succeeds, and PMC
   `swift test` is still 2159 passed / 2 skipped / 0 failed.
+- 2026-09-26 — **P2 pipeline landed** (branch `claude/pipeline-p2-pipeline`, from main at c0277c7e;
+  see plan-verb-pipeline-and-transport.md's session log for the full account). Hooks H-P2-1..4 all
+  landed as this plan describes them: H-P2-1 (`Call { args, caller, trace, parent }` with the
+  pipeline generating the trace id when absent), H-P2-2 (`impress_core::call_context::CURRENT` set
+  around invoke, `batch_id = call_id` stamped on every operation the call writes), H-P2-3
+  (`Pipeline::invoke_on(store, …)`, the per-call store override — used here by the bench and by the
+  live audit proof, not yet by a Tier A scenario since S1 hasn't landed), H-P2-4 (the audit layer
+  writes one `core/verb-call@1.0.0` record per mutating call instead of a bare `core/operation`
+  row). Found and fixed live, not anticipated by this plan: the audit sink's own `flush()` (H-P2-2's
+  writer) was never called by `impress-cli`/`imprint-cli` before `std::process::exit`, so a one-shot
+  CLI process could race the writer thread and drop its own verb-call row; both binaries now flush
+  before exit.
+- 2026-09-26 — **E1 (declared effects)** on a worktree of main at d029648d, branch
+  `claude/reflective-e1-effects`. `VerbDescriptor.effects: Effects { reads, writes, reach }` with
+  `Kind = Ref | Target(arg) | Children(arg) | Prefix | Any(reason)` and `Reach = App(id) | Network |
+  Fs | Subprocess | Device | Provider` (`impress-service-core/src/descriptor.rs`, `resolve_effects`
+  beside `resolve_safety_class`); declared as `impress_service_impl! { effects = { reads: […],
+  writes: […], reach: […] } }` with `#[impress_method(effects(…))]` replacing the whole set per
+  method, and `#[impress_private]` on a `methods = […]` argument → `"x-private": true` in the input
+  schema (H-P1-1, H-P1-2). The macro embeds `schema-refs.json` at build time (`build.rs`), so a
+  misspelt ref is a compile error; the standalone kit scratch has no manifest and skips the check
+  there, and the Tier A test re-checks every ref. Seeding pass from appendix A read against the
+  services: **438 of 438** verbs declared (P4's five `job-*` verbs joined since the appendix), 38
+  service defaults, 231 method exceptions. The walker's over-approximations were not carried over
+  (`triage-service` writes `target(id)`, not the surface kind; the 25 layout verbs the walker
+  called dynamic touch `impress/ui/layout@1.0.0`). `App(id)` reach is declared, not derived: P1
+  made no `needs_app` derivation the macro could read. The store spy is
+  `impress_core::effects_spy` (feature `effects-spy`, hooks on `get`/`query`/`count`/`neighbors`
+  and `emit_mutation`), process-wide because the services reach the store through singletons.
+  `crates/impress-capabilities/tests/effects.rs` runs every headless verb's examples and the three
+  Tier A catalogues under it: **70 verbs verified by example** (a first batch of 70 examples on
+  headless verbs — G3 adds more), **93 by catalogue** (service-level union for layout, surface and
+  the four imprint services, since the catalogues call the traits directly), **275 on the exception
+  table** (85 `needs a running app`, 20 `leaves the process`, 170 `no example`), ceiling pinned at
+  275. `docs/verb-effects.md` is the marker table (rows and reasons written by the test);
+  `check-verb-coverage.sh` checks the source-only half. The safety-consistency check lives in the
+  same test (`read_only ⇒ writes = ∅`; reach beyond `fs` ⇔ `external`, allowlist of two read-only
+  verbs with P1's evidence). **The spy's first run found three things the declarations and P1's
+  table had wrong:** `list-libraries` also reads the entries; `layout-service_get-layout` writes the
+  live row on a cold device and `list-layouts` seeds the shipped presets — both reclassed
+  `mutating` (idempotent) in `docs/verb-safety.md` with the evidence; `project-build` runs as a
+  job and touches `task@1.0.0`/`task-event@1.0.0`. Not done here, by the package split: the surface
+  `verb`-source invalidation (RS-S2, `query_refs`) and `capabilities-service_impact` are E3's;
+  per-verb attribution for the catalogues waits for the call log (L1). Gates (serial,
+  `CARGO_TARGET_DIR=target-e1`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test --workspace --features native` **4064 passed, 0 failed** (the effects-spy feature
+  is an unconditional dev-dependency of `impress-capabilities`, so `tests/effects.rs` ran in that
+  total — no separate spy invocation needed); `check-verb-coverage.sh` OK (38 services declare,
+  438 verbs in `docs/verb-effects.md`, 275 exceptions; 75 crates with a verdict, 20
+  `should-be-verb` at the ceiling); `check-kit-deps.sh --strict` OK; `check-kit-standalone.sh` OK
+  (14 crates); `check-schema-refs.sh` OK (388 call sites, 81 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged (no export moved); `cargo hakari generate`
+  found nothing to regenerate, but `cargo hakari verify` still fails on a `cc` crate feature-set
+  mismatch (`impress-workspace-hack` built with `parallel` vs. a fixup pass with no features) —
+  pre-existing build-graph variance this branch's diff does not touch (no `Cargo.toml` dependency
+  edits), not fixed here.
+- 2026-09-26 — **R2 (keymap registry)**, Rust half, on a worktree of main, branch
+  `claude/reflective-r2-keymap`. New pure crate `crates/impress-keymap`: `Chord` (a key plus
+  ⌃/⌥/⇧/⌘, `Display` round-tripping the grammar's glyph spelling), `Scope` (`Global` /
+  `Window(kind)` / `Pane(view_kind)`), `Target` (`Verb(name)` | `Command(id)`), `Binding` (chord +
+  scope + target + label + section + `chordless`), declared as a plain Rust table
+  (`imbib::bindings()`) rather than a macro or a data file — the plan named `keymap! { … }` but a
+  bindings-returning function reads the same and needed no proc-macro crate for one app's seed.
+  `keymap_json()` (`{"wire_version": 1, "bindings": [...]}`) is exported by `impress-store-ffi`
+  next to `layout_vocabulary_json`; `docs/keyboard.md` is generated from the same registry
+  (`render_markdown`) and a test fails on a diff (regenerate with
+  `cargo test -p impress-keymap write_docs -- --ignored`). **66 chords seeded**, all of imbib's
+  macOS main-window `Commands` (`imbibApp.swift`) plus the three universal pane toggles
+  (`PaneLayoutCommands.swift`) and the two Notes/BibTeX-detached ⌘S saves
+  (`DetachedViews.swift`); iOS and sheet-local `.cancelAction`/`.defaultAction` shortcuts were not
+  seeded (out of scope for this pass — the plan's own DoD names imbib's sites, not iOS's). Collected
+  with `grep -rn "keyboardShortcut(" apps/imbib packages/ --include="*.swift"` (152 raw hits, most
+  sheet-local). RG-4's three disagreements, each decided per `docs/keyboard-grammar.md` and recorded
+  in a comment beside the binding:
+  - **⌃⌘S** is the sidebar toggle, only (`imbib.pane.toggle_sidebar`) — Paper ▸ Save to Library lost
+    its ⌃⌘S in the 2026-09-24 fix already in `imbibApp.swift` and is seeded `chordless: true`, a
+    palette-only `Command`, per the doc's account of that fix.
+  - **⌘5 / ⌘6** are Notes / BibTeX — already correct in the current source (the swap the plan named
+    was fixed before this pass; the seed just confirms it and would fail loudly if it regressed).
+  - **⇧⌘F ×3**: Paper ▸ Share... (`imbibApp.swift`, the 2026-09-25 decision) is seeded; two other
+    claimants in the same main-window scope — `ContentView.swift`'s hidden "Filter" button and
+    `FindCoordinator.swift`'s "Find" — are recorded as superseded in a comment rather than seeded a
+    second time, since seeding both would just be the fixture's collision with no decision made.
+  - **⌘S ×2**: Edit ▸ Find ▸ "Smart Search (AI)..." owns plain ⌘S in the main window;
+    `DetachedViews.swift`'s two ⌘S "Save" bindings (Notes-detached, BibTeX-detached) are a separate
+    `Scope::Window("imbib.detached-content")` and do not collide — verified by the coverage test's
+    same-scope-only collision rule.
+  Coverage: the crate's own tests cover no-duplicate-chord-in-a-colliding-scope, chordless ⇒
+  `Command` (never a bare `Verb`), `keymap_json` round-trips, and a fixture with a duplicated chord
+  the same check rejects (`fixture_tests`, never added to `all()`). The verb-existence half (a
+  `Target::Verb` must name a verb in the linked inventory) lives in
+  `crates/impress-capabilities/tests/keymap_coverage.rs` instead, so `impress-keymap` keeps no
+  dependency on `impress-service-core`'s descriptor machinery (RG-6) — none of imbib's seeded
+  bindings are `Verb` targets, so this test is presently vacuous but wired for the first app that
+  binds a chord straight to a verb. `docs/verb-coverage.md` gets a `kit-pure`/`internal` row for
+  the new crate; `docs/kit-manifest.md` gets a `pure`-tier row (it must: `impress-store-ffi`, a kit
+  crate, now links it to export `keymap_json`, so `check-kit-deps.sh --strict` would otherwise see
+  a kit crate reaching outside the table). FFI: `impress-store-ffi::keymap_json` is a thin
+  pass-through (the JSON string travels as-is, no `encode_static` re-encoding); the xcframework
+  rebuilt with `IMPRESS_SKIP_X86=1` and `uniffi-bindgen` (swiftformat off `PATH`) produced a pure
+  addition to `ImpressRustCore/Sources/ImpressRustCore/impress_store_ffi.swift` — one function, one
+  checksum guard, zero declarations moved or lost. No Swift call site added in this pass (scope was
+  deliberately Rust-only); Settings ▸ Keyboard reading the registry is Swift work for a later pass.
+  **A concurrency lesson worth keeping:** the xcframework build was started twice by mistake (an
+  untracked `nohup` background job, then a second one through the proper backgrounding tool) and
+  the two collided on `crates/impress-store-ffi/frameworks/` — one's `rm -rf` deleted the other's
+  in-progress output, and the second reported `cp: …/libimpress_store_ffi.a: No such file or
+  directory` and exit 1 while the first finished cleanly seconds later with the binding it produced
+  intact. Never start the same build twice against the same output directory, even by accident;
+  when one does, read past the failing invocation's log to confirm whether a sibling run actually
+  finished before treating the directory as broken.
+  Gates (serial, `CARGO_TARGET_DIR=target-r2`): `rust-gate.sh fmt` clean; `clippy rest` clean;
+  `clippy imprint` clean; `cargo test -p impress-keymap -p impress-store-ffi -p impress-capabilities`
+  — 99 passed in `impress-store-ffi` (2 pre-existing, unrelated `surface.rs` timing failures under
+  this machine's concurrent-agent load — confirmed by `git diff --stat` showing `surface.rs`
+  untouched by this branch), 6 passed in `impress-keymap`, 1 passed in the new
+  `keymap_coverage.rs`; `check-uniffi-bindings.sh` OK, 7 bindings (1 changed: `impress-store-ffi`,
+  a pure addition); `check-kit-deps.sh --strict` OK (15 kit crates, `impress-keymap` now among
+  them); `check-kit-standalone.sh --strict` OK (15 crates build with nothing else from this
+  repository); `check-verb-coverage.sh` OK (76 crates with a verdict, 20 `should-be-verb` at the
+  ceiling, unchanged); `check-schema-refs.sh` OK (388 call sites, 0 divergences, unaffected);
+  `cargo hakari generate --diff` clean.
+- 2026-09-26 — **E2 (the spy)** on a worktree of main at 95335f75, branch `claude/reflective-e2-spy`.
+  Read E1 first: it had already built the row's whole shape — `impress_core::effects_spy` (feature
+  `effects-spy`, hooks on `get`/`query`/`count`/`neighbors`/`emit_mutation`), the Tier A runner in
+  `crates/impress-capabilities/tests/effects.rs` (`run_examples`/`run_catalogue`/`verification`)
+  asserting `observed ⊆ declared` for every headless verb's examples and the three Tier A
+  catalogues, the printed under-exercised table, and a *Verified* column in `docs/verb-effects.md`
+  the test computes and refuses to let drift from a hand-typed value (`every_verb_declares_what_the_table_records`).
+  **Kept the spy at `crates/impress-core/src/effects_spy.rs`**, not moved to `store/spy.rs` as the
+  plan's path names it: it is already wired into five call sites in `sqlite_store.rs` and is a
+  top-level module of `impress-core` (there is no `store/` submodule to move it into without
+  churning those call sites for no behavioural change), so this is a location the plan's text
+  didn't quite match, not a gap E2 needed to fill.
+  **What E2 did add:** two examples (`imbib-library-service_query-unread`,
+  `_query-starred`, `#[impress_example(args = "{parent_id: null, sort_field: "title", ascending:
+  true, limit: 5}")]`, matching the pattern already used by `list-publications`/`query-recent`),
+  moving both off the exception table and lowering `EXCEPTION_CEILING` 275 → 273 (confirmed by
+  `dump`: "declared: 438 · verified by example: 72 · by catalogue: 93 · exceptions: 273"). Looked
+  for more cheap wins first: 170 of 273 exceptions are `target(id)`/`children(id)` verbs (including
+  the row's own `triage-service_set-starred`) whose example would need a real row already in the
+  scratch store — the example format has no seed step, so making one of those "cheap" would mean
+  adding seed support to the harness, which is more than a one-line fix and was left alone.
+  **The proof** (row: "removing a declared kind from `triage-service_set-starred`'s effects fails
+  the build naming the example" — `triage-service_set-starred` has no example, so this ran on the
+  nearest verified `target`/write verb instead): first tried removing a read kind from
+  `imbib-library-service_query-starred`'s declaration and re-running — the test still passed,
+  because `query_starred` goes through `imbib-core::unified::store_api`'s own SQL, not
+  `impress_core::sqlite_store::SqliteItemStore`'s generic `query`/`count`, so the spy's hooks never
+  fire for it against an empty scratch store (confirmed: every `imbib-library-service_*` and
+  `imbib-tags-service_list-*` read-only example is in the printed under-exercised table, all reads,
+  none written). This is a real blind spot EF-3 anticipated ("a static tool can seed the
+  declarations and cannot verify them") but for the *store spy itself*, not just the walker — noted
+  here for E3/L1, not fixed. Retried on `imbib-tags-service_create-tag` (writes go through the
+  generic store's `emit_mutation`, which every write already hits): temporarily changed
+  `writes = ["imbib/tag-definition"]` to `writes = []` and reran
+  `observed_effects_are_within_the_declared` — it failed:
+  `` `imbib-tags-service_create-tag` example `default` wrote `imbib/tag-definition`, which it does
+  not declare (writes: —) ``, naming the verb, the example and the kind exactly as the row
+  requires. Reverted immediately after capturing the failure. Gates (serial,
+  `CARGO_TARGET_DIR=target-e2`): fmt clean; `clippy rest` and `clippy imprint` clean;
+  `cargo test -p impress-capabilities -p impress-core -p impress-service-core` all green (600 + 67 +
+  25 + smaller suites, 0 failed); `check-verb-coverage.sh` OK ("38 services declare, 438 verbs in
+  docs/verb-effects.md (273 exceptions)"); `check-kit-deps.sh --strict` OK; `check-kit-standalone.sh`
+  OK (14 crates); `check-schema-refs.sh` OK (388 call sites, 81 canonical refs, 0 divergences);
+  `check-uniffi-bindings.sh` OK, 7 bindings unchanged; `cargo hakari generate --diff` empty. Not
+  touched: `crates/impress-service-core/src/{call,pipeline}.rs`, the macro's invoker emission (P2's
+  files). E3 is next (`query_refs`/`invalidate_sources`, the safety-consistency test already lives
+  in E1/E2's `effects.rs`, `capabilities-service_impact`); it should also pick up the store-spy
+  blind spot noted above if it touches imbib-core's custom SQL paths.

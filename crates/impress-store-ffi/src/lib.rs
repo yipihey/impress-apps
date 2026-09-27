@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 mod ai;
 mod ai_registry;
 /// The ADR-0031 layout tree as Swift drives it (work package L5).
+mod keymap;
 mod layout;
 /// The layout and surface crates' `log` lines, forwarded to the host's
 /// Console (wave 7 T5).
@@ -80,6 +81,7 @@ pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
     AiQueuedTurn, AiWorkerStatus, SharedAiStore,
 };
+pub use keymap::keymap_json;
 pub use layout::{
     cold_start_layout_json, compile_pane_query, kind_manifest_json, layout_vocabulary_json,
     outline_cleared_verbs_json, outline_row_verbs_json, outline_sections_json, pane_spec_json,
