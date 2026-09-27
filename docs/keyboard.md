@@ -140,9 +140,9 @@ diff tell you what changed.
 | ⇧⌘? | Search Help... | window:imbib |
 | ⌘/ | Keyboard Shortcuts | window:imbib |
 
-## Detached PDF window
+## Detached content window (Notes / BibTeX)
 
 | Chord | Action | Scope |
 |---|---|---|
-| ⌘S | Save | window:imbib.pdf-detached |
+| ⌘S | Save | window:imbib.detached-content |
 

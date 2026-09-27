@@ -9,9 +9,13 @@
 //! Scope model: `Scope::Window("imbib")` is imbib's one macOS main window —
 //! both `imbibApp.swift`'s `Commands` (app-wide, but this app has one
 //! window) and `ContentView.swift`'s in-window buttons live there, so a
-//! chord bound in both really does collide. `Scope::Window("imbib.pdf-
-//! detached")` is the separate scene `DetachedViews.swift` opens, which does
-//! NOT collide with the main window.
+//! chord bound in both really does collide. `Scope::Window("imbib.detached-
+//! content")` is `DetachedViews.swift`'s Notes-detached and BibTeX-detached
+//! windows — two separate scenes, but only one is ever open+focused at a
+//! time and both bind the same ⌘S "Save" to the same effect on that window's
+//! own content, so they are seeded as one row in one scope rather than two
+//! rows that would otherwise look like an unresolved duplicate. Neither
+//! collides with the main window.
 //!
 //! Where imbib's own sites disagree (RG-4: ⌘5/⌘6, ⇧⌘F ×3, ⌘S ×2), the
 //! decision and its source are recorded per binding below, per
@@ -21,7 +25,7 @@ use super::{Binding, Chord, Scope, Target};
 
 pub fn bindings() -> Vec<Binding> {
     let main = Scope::Window("imbib");
-    let detached = Scope::Window("imbib.pdf-detached");
+    let detached = Scope::Window("imbib.detached-content");
 
     vec![
         // ── Universal chords (docs/keyboard-grammar.md § Universal chords),
@@ -136,7 +140,7 @@ pub fn bindings() -> Vec<Binding> {
             // Decision (RG-4, "⌘S ×2"): `imbibApp.swift`'s Edit ▸ Find ▸
             // "Smart Search (AI)..." owns plain ⌘S in the main window.
             // `DetachedViews.swift`'s two ⌘S "Save" bindings are in the
-            // separate `imbib.pdf-detached` scope below and do not collide.
+            // separate `imbib.detached-content` scope below and do not collide.
             chord: Chord::new("s").cmd(),
             scope: main.clone(),
             target: Target::Command("imbib.edit.smart_search"),
@@ -583,15 +587,16 @@ pub fn bindings() -> Vec<Binding> {
             section: "Help",
             chordless: false,
         },
-        // The detached PDF window (`Chassis/Windows/DetachedViews.swift`) —
-        // its own scope, so its two ⌘S "Save" bindings do not collide with
-        // the main window's ⌘S (Smart Search).
+        // The Notes-detached and BibTeX-detached windows
+        // (`Chassis/Windows/DetachedViews.swift`) — their own scope, so their
+        // two ⌘S "Save" bindings do not collide with the main window's ⌘S
+        // (Smart Search).
         Binding {
             chord: Chord::new("s").cmd(),
             scope: detached.clone(),
             target: Target::Command("imbib.detached.save"),
             label: "Save",
-            section: "Detached PDF window",
+            section: "Detached content window (Notes / BibTeX)",
             chordless: false,
         },
     ]
