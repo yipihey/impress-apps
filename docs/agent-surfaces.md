@@ -682,3 +682,101 @@ created them, not so anyone can mine 10,000 surfaces' worth of button clicks
 afterward — which is also why there is no verb that lists events across
 surfaces, only per-surface, and why the ring is bounded rather than kept
 forever.
+
+## Scenarios
+
+docs/plan-self-reflective-layer.md work package S1 (findings SC-1/SC-2). A
+scenario is a starting state, a sequence of steps and expectations — the
+declarative replacement for a hand-coded Tier A/B self-test entry, stored as
+`impress/scenario@1.0.0` and run by `impress-scenario-service`.
+
+### Spec
+
+```json
+{
+  "wire_version": 1,
+  "id": "layout.saved_round_trip",
+  "description": "…",
+  "tier": "a",
+  "requires": {"app": "impress", "preset": "…", "kinds_present": ["manuscript"]},
+  "seed": [{"kind": "imbib/bibliography-entry", "payload": {"…": "…"}, "as": "paper"}],
+  "steps": [
+    {"call": "layout-service_save-layout", "args": {"name": "{{uuid}}"}, "as": "person",
+     "expect": {"ok": true, "fields": [{"path": "revision", "gte": 1}]},
+     "capture": {"name": "$.name"}},
+    {"event": {"surface": "{{state.surface_id}}", "widget": "bins", "kind": "change", "value": 17}},
+    {"gesture": {"verb": "split", "target": {"role": "detail"}, "direction": "right"}},
+    {"wait": {"job": "{{state.job}}", "state": "done", "timeout_ms": 30000}},
+    {"wait": {"log": {"category": "layout", "contains": "pane display", "timeout_ms": 3000}}},
+    {"call": "layout-service_delete-layout", "args": {"name": "{{state.name}}"},
+     "expect": {"ok": false, "code": "conflict"}}
+  ],
+  "teardown": [{"call": "layout-service_delete-layout", "args": {"name": "{{state.name}}"}}],
+  "expect_effects": {"writes": ["impress/ui/layout@1.0.0"]}
+}
+```
+
+`requires` makes a scenario **skipped**, never failed, when unmet (no app up,
+no such preset, no row of a needed kind) — the pure crate's rule, checked by
+whichever `Caller` the tier supplies. A `seed` record's `as` and a `call`
+step's `capture` both land in the same `captures` map, referenced later as
+`{{state.<name>}}` — the crate reuses `impress_surface::template`'s resolver
+(`Context`/`resolve_value`) with captures standing in for the `state` root,
+extended with a text pre-pass that substitutes a fresh `{{uuid}}` per
+occurrence. `expect` is the closed set ADR-0033 D3 requires of a spec —
+`ok`, `code`, `status`, and `fields` entries of `equals`, `contains`, `gte`,
+`lte`, `within {value, tol}`, `len`, `present`, `absent` on a `$.a.b.0` path
+into the step's result — never an expression.
+
+### Crates
+
+`impress-scenario` (pure: the spec, `validate`, and the interpreter's
+`run`/`Caller` trait — it never touches a store or the pipeline, so it stays
+kit-discipline pure even though it is not part of the layout+surface kit
+itself) and `impress-scenario-service` (store tier: the five verbs, the
+`impress/scenario@1.0.0` row, and the two `Caller` implementations).
+
+### Runners
+
+One interpreter (`impress_scenario::run`), two `Caller`s:
+
+* **Tier A** (`impress_scenario_service::TierACaller`) opens its own
+  in-memory `SqliteItemStore` per scenario and runs every `call` step
+  through `impress_service_core::pipeline::invoke_on` (H-P2-3) — never the
+  bare handler (a workspace test,
+  `crates/impress-capabilities/tests/pipeline.rs`'s
+  `every_handler_call_site_is_the_pipeline`, enforces this for every
+  `descriptor.handler` call site in the tree, this one included).
+  `event`/`wait` steps refuse by name: Tier A has no surface-hosting store
+  or job runner of its own in S1. `wrote(kind)` — the effects check — is a
+  proxy, not a real spy: it re-queries the scratch store for any row of the
+  named kind after every step, since the store starts empty per scenario.
+  A real spy (P2/L1's `SpyStore`) is a straightforward drop-in later.
+* **Tier B** (`impress_scenario_service::TierBCaller`) drives a running app
+  over `impress_scenario_service::LoopbackClient` — the layout Tier B
+  catalogue's `Http` helper, lifted here as the one shared client, with the
+  loopback token from `impress_core::loopback_token`. `gesture` always
+  means `POST /api/layout/verb`; `event` always means `POST
+  /api/surface/{id}/dispatch`; `wait.log` polls `GET /api/logs?category=`.
+  A `call` step reaches a verb only through a small, named dispatch table
+  (the layout op/verb routes, the surface dispatch route) until H-P5-1
+  (`POST /api/verb/<name>`, P5) lands — naming any other verb is refused
+  by name rather than silently doing nothing.
+
+Reports are the shared `impress_service_core::report` shape (`Tier`,
+`CapabilityResult`, `SelfTestReport`) — one report type for every catalogue
+in the suite, ending SC-1's three copies disagreeing about what `skipped`
+means.
+
+### Verbs
+
+`scenario-service_validate` (structural problems, plus — since this crate
+links the inventory — every `call` step naming a verb that does not exist),
+`scenario-service_create`/`_get`/`_list` (the `impress/scenario@1.0.0` row),
+`scenario-service_run(scenario_id, tier?, base_url?)` (runs the stored
+scenario; `external` safety, since its steps may call any verb the
+inventory has, including a mutating or destructive one, and a Tier B run
+leaves the process). The three existing `run_selftest` verbs
+(`imprint-selftest`, `layout-selftest-service`, `surface-selftest-service`)
+keep their own names, ids and catalogues unchanged — converting their
+entries into stored scenarios is work package S2, not S1.

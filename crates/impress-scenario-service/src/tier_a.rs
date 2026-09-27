@@ -1,0 +1,177 @@
+//! The Tier A `Caller`: the pipeline against a scratch store, per scenario
+//! (H-P2-3, `impress_service_core::pipeline::invoke_on` — landed, SC-2).
+//!
+//! Every scenario gets its own in-memory store, so scenarios cannot see
+//! each other's rows and can run in any order — the same discipline
+//! `impress-layout-service/src/tier_a.rs`'s catalogue already follows.
+//!
+//! # The effects check, honestly
+//!
+//! `expect_effects` is checked by re-querying the scratch store for a
+//! non-empty result of each named kind after every step has run, not by an
+//! instrumented spy on the store's write path. A real "did THIS scenario's
+//! steps write this kind" spy is P2/L1 work (`impress-core`'s `SpyStore`,
+//! not landed as of this crate); on a store that starts empty per scenario,
+//! "the kind now has at least one row" is a correct proxy for "a write
+//! happened", but it cannot distinguish which step did it, and it cannot
+//! catch a write immediately deleted within the same scenario. `wrote`'s
+//! doc comment says so; a real spy is a straightforward drop-in once it
+//! exists (this caller already holds the one store every step ran
+//! against).
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use impress_core::query::ItemQuery;
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::ItemStore;
+use impress_scenario::{CallOutcome, Caller, EventBody, WaitBody};
+use impress_service_core::pipeline::{self, Call, CallerIdentity};
+use serde_json::Value;
+
+/// Run every step through the pipeline against a fresh in-memory store.
+pub struct TierACaller {
+    store: Arc<SqliteItemStore>,
+}
+
+impl TierACaller {
+    pub fn open() -> Result<Self, String> {
+        let store =
+            SqliteItemStore::open_in_memory().map_err(|e| format!("open scratch store: {e}"))?;
+        Ok(Self {
+            store: Arc::new(store),
+        })
+    }
+
+    pub fn store(&self) -> &Arc<SqliteItemStore> {
+        &self.store
+    }
+}
+
+fn caller_identity(as_ident: &str) -> CallerIdentity {
+    match as_ident.strip_prefix("agent:") {
+        Some(name) => CallerIdentity::agent(name.to_string()),
+        None => CallerIdentity::Person,
+    }
+}
+
+#[async_trait]
+impl Caller for TierACaller {
+    async fn call(
+        &mut self,
+        verb: &str,
+        args: Value,
+        as_ident: &str,
+    ) -> Result<CallOutcome, String> {
+        let descriptor = impress_service_core::VerbDescriptor::find(verb)
+            .ok_or_else(|| format!("no such verb: {verb}"))?;
+        let call = Call::new(caller_identity(as_ident), args);
+        let result = pipeline::invoke_on(self.store.clone(), descriptor, call)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(CallOutcome {
+            result,
+            status: None,
+        })
+    }
+
+    async fn event(&mut self, _event: &EventBody) -> Result<CallOutcome, String> {
+        Err(
+            "a `event` step needs a surface-hosting store per scenario, not yet supported in \
+             Tier A (S1); run this scenario in Tier B"
+                .to_string(),
+        )
+    }
+
+    async fn gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
+        let verb = gesture
+            .get("verb")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "a `gesture` step needs a `verb` field".to_string())?;
+        self.call(
+            &format!("layout-service_{verb}"),
+            gesture.clone(),
+            "agent:scenario",
+        )
+        .await
+    }
+
+    async fn wait(&mut self, wait: &WaitBody) -> Result<(), String> {
+        // Tier A has no job runner and no log stream of its own; a `wait`
+        // step in a Tier A scenario is a modelling error today. Named
+        // clearly rather than silently passing.
+        Err(format!(
+            "`wait` is not supported in Tier A (S1): {wait:?}; run this scenario in Tier B"
+        ))
+    }
+
+    async fn seed(&mut self, kind: &str, payload: &Value) -> Result<Value, String> {
+        use impress_core::item::{ActorKind, Item, Priority, Visibility};
+        let payload_map = payload
+            .as_object()
+            .ok_or_else(|| format!("seed `{kind}`: payload must be a JSON object"))?;
+        let mut fields = std::collections::BTreeMap::new();
+        for (k, v) in payload_map {
+            fields.insert(k.clone(), json_to_item_value(v));
+        }
+        let now = chrono::Utc::now();
+        let item = Item {
+            id: uuid::Uuid::new_v4(),
+            schema: kind.to_string(),
+            payload: fields,
+            created: now,
+            modified: now,
+            author: "agent:scenario".to_string(),
+            author_kind: ActorKind::Agent,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::None,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        };
+        let id = self
+            .store
+            .insert(item)
+            .map_err(|e| format!("seed `{kind}`: {e}"))?;
+        Ok(serde_json::json!({ "id": id.to_string() }))
+    }
+
+    fn wrote(&self, kind: &str) -> bool {
+        let query = ItemQuery {
+            schema: Some(kind.to_string()),
+            ..Default::default()
+        };
+        self.store
+            .query(&query)
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+    }
+}
+
+fn json_to_item_value(v: &Value) -> impress_core::item::Value {
+    use impress_core::item::Value as ItemValue;
+    match v {
+        Value::Null => ItemValue::Null,
+        Value::Bool(b) => ItemValue::Bool(*b),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                ItemValue::Int(i)
+            } else {
+                ItemValue::Float(n.as_f64().unwrap_or_default())
+            }
+        }
+        Value::String(s) => ItemValue::String(s.clone()),
+        Value::Array(items) => ItemValue::Array(items.iter().map(json_to_item_value).collect()),
+        Value::Object(_) => ItemValue::String(v.to_string()),
+    }
+}

@@ -25,6 +25,7 @@ impress-bridges-service = { workspace = true, optional = true }
 impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
+impress-scenario-service = { workspace = true, optional = true }
 # `capabilities-service_impact` (E3, ADR-0036 D-G2's spirit) reads the linked
 # inventory itself plus the stored surfaces (`impress-surface-service`, kit),
 # so it needs the `kit` feature on whenever it is on.
@@ -82,9 +83,11 @@ full = [
     "smart-search",
     "vw",
     "kit",
+    "scenario",
     "impact",
 ]
 kit = ["dep:impress-capabilities-kit"]
+scenario = ["dep:impress-scenario-service"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]

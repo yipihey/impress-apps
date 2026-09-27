@@ -30,7 +30,7 @@ use crate::dto::{ShowTargetDto, SplitTargetDto};
 use crate::report::{CapabilityResult, Tier};
 use crate::service::{DefaultImpressSurfaceService, ImpressSurfaceService};
 use crate::store::EVENT_RING_CAPACITY;
-use crate::{check, Result};
+use crate::{check, skipped, Result};
 
 const APP: &str = "surface-selftest";
 /// Fixed, so the catalogue never depends on the host's name.
@@ -108,6 +108,7 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_wait_times_out_with_nothing_new().await,
         cap_examples().await,
         cap_event_ring_is_pruned().await,
+        cap_settings_pane_round_trip().await,
     ]
 }
 
@@ -1212,4 +1213,118 @@ mod paper_triage_loop {
             events.events
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// The generated settings pane (ADR-0036 D5, plan-self-reflective-layer R1)
+// ---------------------------------------------------------------------------
+
+/// The settings registry's pane is a surface: `settings-service_surface`
+/// generates it, `surface_create` stores it, a `change` on one of its fields
+/// runs `settings-service_set` as an effect, and `settings-service_get`
+/// answers the value the pane set — the CLI/MCP and the pane read one file.
+///
+/// The settings files are the process-wide `impress_store_service`
+/// instance's. This capability installs a scratch one FIRST, and is skipped
+/// (saying so) when the process already has one — an app running its own
+/// self-test must never have a scratch write land in the user's settings.
+async fn cap_settings_pane_round_trip() -> CapabilityResult {
+    const ID: &str = "settings-pane";
+    const DOC: &str = "the registry's generated settings pane: settings-service_surface → \
+                       surface_create → a field change runs settings-service_set, \
+                       and settings-service_get answers the value the pane set";
+    let scratch = std::env::temp_dir().join(format!(
+        "impress-surface-selftest-settings-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let settings = Arc::new(impress_settings::SettingsStore::open(&scratch));
+    if impress_store_service::install_settings(settings.clone()).is_err() {
+        return skipped(
+            ID,
+            DOC,
+            Tier::A,
+            "a settings store is already installed in this process (an app's own files); \
+             run from `cargo test` or the CLI to exercise the pane on scratch files",
+        );
+    }
+    let result = check(ID, DOC, Tier::A, || async {
+        use impress_store_service::{DefaultSettingsService, SettingsService};
+        let world = World::open();
+        let settings_service = DefaultSettingsService::with_store(settings.clone());
+        let generated = settings_service.surface("imbib.retention".into()).await;
+        want(
+            generated.ok,
+            format!("settings-service_surface refused: {}", generated.message),
+        )?;
+        let spec_json = generated
+            .spec
+            .ok_or("settings-service_surface returned no spec")?;
+        let spec: SurfaceSpec =
+            serde_json::from_value(spec_json).map_err(|e| format!("spec did not parse: {e}"))?;
+        let created = world.service.surface_create(spec.into(), None, None).await;
+        want(
+            created.ok,
+            format!(
+                "surface_create refused the generated pane: {}",
+                created.message
+            ),
+        )?;
+        let id = created.id.ok_or("create returned no id")?;
+
+        let rendered = world.service.surface_render(id.clone(), None, None).await;
+        want(rendered.ok, format!("render failed: {}", rendered.message))?;
+        let tree = serde_json::to_string(&rendered.tree).unwrap_or_default();
+        want(
+            tree.contains("imbib.retention.inbox_days"),
+            "the rendered pane has no field for imbib.retention.inbox_days",
+        )?;
+
+        let event = Event {
+            widget: "imbib.retention.inbox_days".to_string(),
+            kind: EventKind::Change,
+            value: json!("3 Months"),
+        };
+        let dispatched = world
+            .service
+            .surface_dispatch(id.clone(), event, None, None)
+            .await;
+        want(
+            dispatched.ok,
+            format!("dispatch failed: {}", dispatched.message),
+        )?;
+        let failed: Vec<String> = dispatched
+            .effects
+            .iter()
+            .filter(|e| !e.ok)
+            .map(|e| format!("{}: {}", e.kind, e.message))
+            .collect();
+        want(
+            failed.is_empty(),
+            format!("the set effect failed: {failed:?}"),
+        )?;
+
+        let got = settings_service
+            .get("imbib.retention.inbox_days".into())
+            .await;
+        want(
+            got.ok,
+            format!("settings-service_get refused: {}", got.message),
+        )?;
+        let value = got
+            .setting
+            .and_then(|s| s.value)
+            .ok_or("get returned no value")?;
+        want(
+            value == json!(90),
+            format!("the pane's change did not reach the file: get answered {value}"),
+        )?;
+        want(
+            scratch.join("settings").join("device.json").exists(),
+            "no device.json was written under the scratch workspace",
+        )?;
+        Ok("generated pane → change → settings-service_set → get = 90".to_string())
+    })
+    .await;
+    let _ = std::fs::remove_dir_all(&scratch);
+    result
 }
