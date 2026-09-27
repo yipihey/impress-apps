@@ -63,10 +63,18 @@ fn layout_refused(code: Option<String>, message: String) -> Refusal {
 /// `impress_service_core::call` (see the module docs). The message is
 /// [`CallError`]'s own text: `Unknown tool: {name}` or `{tool}: {error}`.
 pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
-    call::call_async(name, args).await.map_err(|e| match e {
-        CallError::UnknownTool(_) => Refusal::new("unknown-verb", e.to_string()),
-        CallError::Handler(_) => Refusal::new(codes::VERB_FAILED, e.to_string()),
-    })
+    // A surface's sources and effects run inside the surface verb's own call
+    // when one encloses them, and the pipeline then inherits its caller and
+    // trace (H-P2-1); with nothing enclosing, the surface runtime is itself
+    // the agent.
+    let caller = impress_service_core::pipeline::CallerIdentity::agent("surface");
+    call::call_async_as(name, caller, args)
+        .await
+        .map_err(|e| match e {
+            CallError::UnknownTool(_) => Refusal::new("unknown-verb", e.to_string()),
+            CallError::Unavailable(_) => Refusal::new(codes::HOST_UNAVAILABLE, e.to_string()),
+            CallError::Handler(_) => Refusal::new(codes::VERB_FAILED, e.to_string()),
+        })
 }
 
 /// Whether a verb name is in the linked inventory — what `surface_validate`

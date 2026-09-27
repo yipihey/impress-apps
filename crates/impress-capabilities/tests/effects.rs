@@ -44,12 +44,12 @@ use serde_json::Value;
 /// The plan expects the exception table to start near 180 rows and shrink
 /// as G3 writes examples; the test fails when it grows past the count last
 /// accepted here. Lower it when examples land; raising it is a plan
-/// decision, not a test edit. Raised 273 → 283 in plan E2b: closing the
+/// decision, not a test edit. Raised to 283 in plan E2b (277 after G3's examples merged): closing the
 /// spy's empty-result gap (the store's `query()` used to return before
 /// recording anything when nothing matched) reclassified 10 verbs from a
 /// vacuous `example ×n` to *exercised, unobserved* — the table lost a false
 /// positive, not gained real coverage, so the ceiling moves to say so.
-const EXCEPTION_CEILING: usize = 283;
+const EXCEPTION_CEILING: usize = 277;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
@@ -337,6 +337,20 @@ fn scratch_store() -> Arc<SqliteItemStore> {
         .clone()
 }
 
+/// The pipeline's own audit record (ADR-0034 D-P3 as amended by ADR-0036
+/// D-R2): every non-read-only call writes one `core/verb-call` row, by
+/// construction, on every path. It is the pipeline's write, not the verb's
+/// effect, so no verb declares it and the spy's window must not charge it
+/// to the verb.
+const PIPELINE_AUDIT_KIND: &str = "core/verb-call@1.0.0";
+
+fn verb_observed() -> effects_spy::Observed {
+    let mut observed = effects_spy::stop();
+    observed.writes.remove(PIPELINE_AUDIT_KIND);
+    observed.reads.remove(PIPELINE_AUDIT_KIND);
+    observed
+}
+
 async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: &mut Verification) {
     let mut seen_reads = BTreeSet::new();
     let mut seen_writes = BTreeSet::new();
@@ -346,10 +360,16 @@ async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: 
         effects_spy::start();
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            (v.handler)(args.clone()),
+            impress_service_core::pipeline::invoke(
+                v,
+                impress_service_core::pipeline::Call::new(
+                    impress_service_core::pipeline::CallerIdentity::system("effects-spy"),
+                    args.clone(),
+                ),
+            ),
         )
         .await;
-        let observed = effects_spy::stop();
+        let observed = verb_observed();
         match result {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
@@ -449,7 +469,7 @@ async fn run_catalogue(
             .collect(),
         other => unreachable!("no catalogue named {other}"),
     };
-    let observed = effects_spy::stop();
+    let observed = verb_observed();
     let failed: Vec<_> = results
         .iter()
         .filter(|(_, pass, skipped)| !pass && !skipped)
@@ -527,7 +547,14 @@ fn verification() -> &'static Verification {
             if let Some(warm) =
                 VerbDescriptor::find("imprint-manuscript-service_document-citations")
             {
-                let _ = (warm.handler)(serde_json::json!({"source": ""})).await;
+                let _ = impress_service_core::pipeline::invoke(
+                    warm,
+                    impress_service_core::pipeline::Call::new(
+                        impress_service_core::pipeline::CallerIdentity::system("effects-spy"),
+                        serde_json::json!({"source": ""}),
+                    ),
+                )
+                .await;
             }
             let mut out = Verification::default();
             for v in &verbs {

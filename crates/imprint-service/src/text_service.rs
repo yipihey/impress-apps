@@ -214,16 +214,19 @@ mod tests {
 
     #[test]
     fn format_latex_round_trips_through_inventory() {
-        use impress_service_core::runtime;
         use impress_service_core::serde_json::json;
 
         let tool = McpToolDescriptor::iter()
             .find(|d| d.name == "imprint-text-service_format-latex")
             .expect("format-latex tool");
 
-        let result = runtime::block_on((tool.handler)(json!({
-            "source": "\\begin{document}\nhi\n\\end{document}\n"
-        })))
+        let result = impress_service_core::pipeline::invoke_blocking(
+            tool.verb,
+            impress_service_core::pipeline::Call::agent(
+                "test",
+                json!({ "source": "\\begin{document}\nhi\n\\end{document}\n" }),
+            ),
+        )
         .expect("handler succeeded");
 
         let s = result.as_str().expect("string return");

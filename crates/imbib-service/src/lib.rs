@@ -194,14 +194,16 @@ mod tests {
 
     #[test]
     fn decode_latex_round_trips_through_inventory() {
-        use impress_service_core::runtime;
         use impress_service_core::serde_json::json;
 
         let tool = McpToolDescriptor::iter()
             .find(|d| d.name == "imbib-text-service_decode-latex")
             .expect("decode-latex tool");
-        let result = runtime::block_on((tool.handler)(json!({ "input": "Caf\\'{e}" })))
-            .expect("handler succeeded");
+        let result = impress_service_core::pipeline::invoke_blocking(
+            tool.verb,
+            impress_service_core::pipeline::Call::agent("test", json!({ "input": "Caf\\'{e}" })),
+        )
+        .expect("handler succeeded");
         assert_eq!(result.as_str(), Some("Café"));
     }
 

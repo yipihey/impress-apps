@@ -39,6 +39,9 @@ vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
 impress-capabilities-kit = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
 
+# The pipeline tests (tests/pipeline.rs, policy.rs, pipeline_bench.rs) run
+# linked verbs on a scratch store through `Pipeline::invoke_on` and read
+# the rows back.
 # The effects test (`tests/effects.rs`, ADR-0036 D1) runs every headless
 # verb's examples and the three Tier A catalogues under impress-core's store
 # spy. Dev-dependencies only: this crate's library still depends on the
@@ -50,6 +53,9 @@ impress-layout-service = { workspace = true }
 impress-surface-service = { workspace = true }
 imprint-selftest = { workspace = true }
 tokio = { workspace = true }
+# R2: the keymap coverage test's verb-existence half lives here so
+# `impress-keymap` itself keeps no inventory dependency (RG-6).
+impress-keymap = { workspace = true }
 
 [features]
 # `full`: every capability the suite has, for the two binaries that must see

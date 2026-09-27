@@ -972,16 +972,22 @@ fn expand_method(
         __instance.#name(#( __args.#arg_idents ),*).await
     };
 
+    // The invoker parses nothing but its own args struct (plan-verb-pipeline
+    // P2): the strict schema check is the pipeline's strict-args layer,
+    // which runs before this handler for every verb of a `strict_args`
+    // service. What stays here for a strict service is the envelope a type
+    // error answers — `{ok: false, code: "invalid-argument", …}` naming the
+    // tool, as before — so a refused argument is a result, not a transport
+    // error, on every path.
     let parse_args = if strict_args {
         quote! {
-            let __args: #args_struct = match ::impress_service_core::strict::args(
-                concat!(#service_kebab, "_", #kebab_name),
-                __json,
-                &#schema_fn(),
-            ) {
+            let __args: #args_struct = match ::impress_service_core::serde_json::from_value(__json) {
                 Ok(args) => args,
-                Err(refusal) => {
-                    return Ok(::impress_service_core::strict::refusal_value(&refusal));
+                Err(e) => {
+                    return Ok(::impress_service_core::strict::parse_refusal(
+                        concat!(#service_kebab, "_", #kebab_name),
+                        e,
+                    ));
                 }
             };
         }

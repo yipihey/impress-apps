@@ -38,16 +38,16 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 438 verbs declared; 62 verified by example, 93 by a Tier A
-catalogue, 283 on the exception table (plan E2b: 10 verbs the spy's own empty-
-result early return had been passing vacuously moved to *exercised,
-unobserved* on the exception table once that gap closed).
+Counts today: 438 verbs declared; 70 verified by example, 93 by a Tier A
+catalogue, 275 on the exception table.
 
 ## Every verb
 
 <!-- verb-effects:begin -->
+| Verb | Reads | Writes | Reach | Verified |
+|---|---|---|---|---|
 | `collection-service_add-members` | "collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids) | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
+| `collection-service_create` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | example ×1 |
 | `collection-service_delete` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_member-counts` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | — |
 | `collection-service_migrate` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection" | — | — |
@@ -57,7 +57,7 @@ unobserved* on the exception table once that gap closed).
 | `collection-service_reorder` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_reparent` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
 | `collection-service_rollback` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — |
-| `collection-service_tree` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | — |
+| `collection-service_tree` | "collection", "imbib/collection", "manuscript-collection", "figure-collection" | — | — | example ×1 |
 | `docs-import-service_add-watched-folder` | "watched-folder@1.0.0" | "watched-folder@1.0.0" | fs | — |
 | `docs-import-service_finish-watched-scan` | "watched-folder@1.0.0", "watched-file@1.0.0" | "watched-folder@1.0.0", "watched-file@1.0.0" | — | — |
 | `docs-import-service_import-directory` | "manuscript", "manuscript-file@1.0.0", "watched-file@1.0.0" | "manuscript", "manuscript-file@1.0.0" | fs | — |
@@ -202,13 +202,13 @@ unobserved* on the exception table once that gap closed).
 | `imbib-tags-service_add-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_count-by-tag` | "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
-| `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | — |
+| `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-tags-service_list-tags` | "imbib/tag-definition" | — | — | example ×1 |
 | `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | — |
-| `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
+| `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-tags-service_remove-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
-| `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | — |
-| `imbib-tags-service_update-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | — |
+| `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-tags-service_update-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
 | `imbib-text-service_decode-latex` | — | — | — | example ×1 |
 | `imbib-text-service_expand-journal-macro` | — | — | — | example ×1 |
 | `imbib-text-service_generate-cite-key` | — | — | — | example ×1 |
@@ -494,18 +494,18 @@ implementation cannot take headless), or `no example` (G3 writes them; the row l
 when one lands).
 
 <!-- verb-effects-exceptions:begin -->
-| `collection-service_add-members` | no example |
-| `collection-service_create` | no example |
-| `collection-service_delete` | no example |
-| `collection-service_member-counts` | no example |
+| Verb | Reason |
+|---|---|
+| `collection-service_add-members` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `collection-service_delete` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `collection-service_member-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_migrate` | no example |
 | `collection-service_migration-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `collection-service_remove-members` | no example |
-| `collection-service_rename` | no example |
-| `collection-service_reorder` | no example |
-| `collection-service_reparent` | no example |
+| `collection-service_remove-members` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `collection-service_rename` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `collection-service_reorder` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `collection-service_reparent` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `collection-service_rollback` | no example |
-| `collection-service_tree` | no example |
 | `docs-import-service_add-watched-folder` | no example |
 | `docs-import-service_finish-watched-scan` | no example |
 | `docs-import-service_import-directory` | no example |
@@ -623,13 +623,9 @@ when one lands).
 | `imbib-search-service_full-text-search` | no example |
 | `imbib-search-service_get-smart-search` | no example |
 | `imbib-search-service_resolve-cite-key` | no example |
-| `imbib-tags-service_add-tag` | no example |
-| `imbib-tags-service_delete-tag-undoable` | no example |
+| `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_list-tags-with-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `imbib-tags-service_query-by-tag` | no example |
-| `imbib-tags-service_remove-tag` | no example |
-| `imbib-tags-service_rename-tag` | no example |
-| `imbib-tags-service_update-tag` | no example |
+| `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_undo-batch` | no example |
 | `imbib-undo-service_undo-operation` | no example |
@@ -754,16 +750,16 @@ when one lands).
 | `source-service_put-extraction-run` | no example |
 | `source-service_put-figure-region` | no example |
 | `source-service_search-content-chunks` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `store-query-service_get-item` | no example |
+| `store-query-service_get-item` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_list-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `store-query-service_related-items` | no example |
+| `store-query-service_related-items` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `store-query-service_search-all` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `surface-selftest-service_run-selftest` | needs a running app |
-| `triage-service_add-tag` | no example |
-| `triage-service_remove-tag` | no example |
-| `triage-service_set-flag` | no example |
-| `triage-service_set-starred` | no example |
-| `triage-service_set-status` | no example |
+| `triage-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `triage-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `triage-service_set-flag` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `triage-service_set-starred` | exercised, unobserved (example ran, spy saw no declared read or write) |
+| `triage-service_set-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `vw-diagnostic-service_close-session` | no example |
 | `vw-diagnostic-service_create-session` | no example |
 | `vw-diagnostic-service_evaluate-session` | no example |
