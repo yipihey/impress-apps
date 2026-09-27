@@ -2647,3 +2647,49 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   owned scratch `/tmp/impress-cargo-tests.8X6GhB/workspace`. S3 has since started in
   `s3-record` / `claude/reflective-s3-record`; its implementation and live proof are not yet
   verified. The later packages remain unstarted.
+
+- 2026-09-27 — **S3 implementation and first isolated native proof.** Added
+  `impress-scenario-service_scenario-record` (trace, or inclusive time window with one exact
+  caller), a pure capture matcher, and losslessness/output-ID metadata on the existing call row.
+  `replay = full` is opt-in on the 51 layout/surface methods; private fields still prevent full
+  recording, and full arguments must fit below 16 KiB. Bounded output-ID extraction follows local
+  schema references and fails closed on private/unknown branches. The recorder reports omitted
+  calls, suppresses children of retained parents, refuses dependencies on omitted producers and
+  truncated ID metadata, and preserves outcomes. App identities are not promoted to `person`.
+  Scenarios use the existing spec and schema ref; no new widget, action or record kind was added.
+  Native surface dispatch now enters the pipeline around its existing runtime, preserving the
+  pane and store override. Tier B sends canonical verbs through `/api/verb`; failed native surface
+  event replays fail the scenario instead of passing silently. The output-schema lookup is cached.
+
+  The first hosted proof passed in an isolated impress at port 23333, device
+  `codex-s3-proof-*`, distinct bundle `com.impress.s3proof.impress`, and the PID-owned
+  `impress-unit-tests-229/workspace/impress.sqlite`. It used trusted native-person dispatch to
+  star/tag/flag three scratch papers, recorded four calls, checked an ID capture, stored and fetched
+  the scenario, edited its field expectations once, reset the state, replayed via HTTP, and checked
+  the resulting stars/tag/flag and live verb logs. The test host exited. Evidence:
+  `/tmp/impress-s3-proof-75721661-fcf9-40fe-882f-440e6d836ffa/output/host-229/` and
+  `/tmp/impress-s3-proof-run-cohort.log`. This is a native-dispatch proof, not a claim that the
+  ordinary publication-list actions are audited: those still use the legacy RustStoreAdapter
+  path. A second hosted proof through the native surface-event path is being completed.
+
+  Rust verification so far: 579 touched-crate tests passed (4 ignored), 7 caller-selection tests
+  passed after the identity fix, the event-failure regressions passed, and the final capabilities
+  run passed 30 tests (2 ignored). Format, both workspace clippy shards, source coverage, generated
+  reference pages, strict kit dependencies, standalone kit, binding/schema checks and hakari diff
+  all passed. Semantic-search census/descriptor/effects comparisons passed 4/7/6 tests; the effects
+  table stays at 301 exceptions, with 82 example-verified and 93 catalogue verbs. The new recording
+  example seeds its audit row before the effects-spy window and verifies a real scenario write.
+
+  Native build finding: copying an archive is unsafe when a shared Rust descriptor layout changes.
+  The copied ImbibCore contained the old `VerbDescriptor` layout under the same crate hash as the
+  new store/verb archives; the first proof returned `no such verb` for all triage verbs. Full
+  ImbibCore, ImbibVerbsFfi and ImpressStoreFfi rebuilds passed macOS/iOS-device/iOS-simulator arm64;
+  ImpelTools was rebuilt for its supported macOS arm64 target. Swift bindings were unchanged.
+  impress now enables dead-code stripping, matching imbib's link of the overlapping static
+  archives. All rebuilds kept swiftformat off PATH, used `IMPRESS_SKIP_X86=1`, and never used
+  `--fast`. Logs: `/tmp/impress-s3-*-build*.log`, `/tmp/impress-s3-final-*.log`,
+  `/tmp/impress-s3-quick-gates.log`, `/tmp/impress-s3-touched-tests.log`.
+
+  Remaining boundary: linked native surface effects inherit the parent trace. Effects delegated
+  through the Swift `SharedVerbHost`/ImpelTools callback still cross a context-losing boundary;
+  expanding that callback's identity/trace contract is not part of this capture-matcher package.
