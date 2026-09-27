@@ -376,7 +376,12 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
     }
 
     if verb.safety.class != SafetyClass::ReadOnly || audit::log_all() {
-        let args_summary = audit::summarize_args(&prepared.args, input_schema(verb));
+        let (recorded_args, args_replayable) =
+            audit::recorded_args(&prepared.args, input_schema(verb), verb.replay_full);
+        let (result_ids, result_ids_truncated) = match result {
+            Ok(value) => audit::result_ids(value, &(verb.output_schema)()),
+            Err(_) => Default::default(),
+        };
         let (inserted_ids, deleted_ids) = context.mutation_ids.snapshot();
         audit::record(audit::VerbCallRecord {
             call_id: context.call_id.clone(),
@@ -385,7 +390,10 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
             caller: context.caller.clone(),
             trace_id: context.trace_id.clone(),
             parent_call: context.parent_call.clone(),
-            args: args_summary,
+            args: recorded_args,
+            args_replayable,
+            result_ids,
+            result_ids_truncated,
             inserted_ids,
             deleted_ids,
             ok,
@@ -514,6 +522,7 @@ mod tests {
         examples: &[],
         strict: true,
         budget_ms: None,
+        replay_full: false,
         source: Source::Linked,
         handler: echo,
     };

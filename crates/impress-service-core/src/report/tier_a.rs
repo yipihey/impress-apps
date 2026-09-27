@@ -264,6 +264,7 @@ mod tests {
             }],
             strict: false,
             budget_ms,
+            replay_full: false,
             source: Source::Linked,
             handler,
         }

@@ -398,6 +398,7 @@ mod tests {
             examples: &[],
             strict: false,
             budget_ms: None,
+            replay_full: false,
             source: Source::Linked,
             handler,
         }
@@ -433,6 +434,7 @@ mod tests {
             examples: &[],
             strict: false,
             budget_ms: None,
+            replay_full: false,
             source: Source::Linked,
             handler,
         }

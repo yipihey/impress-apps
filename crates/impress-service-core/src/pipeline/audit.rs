@@ -17,6 +17,7 @@
 //! Read-only calls are not recorded (their timing is the span's) unless
 //! `IMPRESS_CALL_LOG=all` is set for the session.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -32,6 +33,8 @@ pub const VERB_CALL_SCHEMA: &str = "core/verb-call@1.0.0";
 pub const SCALAR_MAX: usize = 64;
 /// Id lists longer than this are stored as a length and their first eight.
 pub const ID_LIST_MAX: usize = 64;
+/// Full replay arguments must serialize to strictly less than 16 KiB.
+pub const REPLAY_ARG_MAX_BYTES: usize = 16 * 1024;
 
 /// One call, as the audit layer records it.
 #[derive(Debug, Clone)]
@@ -46,6 +49,12 @@ pub struct VerbCallRecord {
     pub parent_call: Option<String>,
     /// The privacy-filtered argument summary.
     pub args: Value,
+    /// True only when `args` contains the exact original argument value.
+    pub args_replayable: bool,
+    /// Bounded, privacy-safe identifiers from the raw result, keyed by JSON path.
+    pub result_ids: BTreeMap<String, Value>,
+    /// True when an identifier candidate was omitted for privacy or bounds.
+    pub result_ids_truncated: bool,
     /// UUIDs of items created and deleted by this call's handler.
     pub inserted_ids: Vec<String>,
     pub deleted_ids: Vec<String>,
@@ -77,6 +86,12 @@ impl VerbCallRecord {
         payload.insert("trace_id".into(), json!(self.trace_id));
         payload.insert("parent_call".into(), json!(self.parent_call));
         payload.insert("args".into(), self.args.clone());
+        payload.insert("args_replayable".into(), json!(self.args_replayable));
+        payload.insert("result_ids".into(), json!(self.result_ids));
+        payload.insert(
+            "result_ids_truncated".into(),
+            json!(self.result_ids_truncated),
+        );
         payload.insert("inserted_ids".into(), json!(self.inserted_ids));
         payload.insert("deleted_ids".into(), json!(self.deleted_ids));
         payload.insert("ok".into(), json!(self.ok));
@@ -155,6 +170,195 @@ fn is_id_field(name: &str) -> bool {
         || name.ends_with("_ids")
         || name == "cite_key"
         || name == "cite_keys"
+}
+
+/// Conservative schema check: an opt-in cannot persist full arguments when
+/// any reachable schema branch declares a private value, including a nested
+/// definition. This also covers a present private `null` whose summary would
+/// otherwise happen to compare equal to the original input.
+pub fn schema_contains_private(schema: &Value) -> bool {
+    match schema {
+        Value::Object(fields) => {
+            fields.get("x-private") == Some(&Value::Bool(true))
+                || fields.values().any(schema_contains_private)
+        }
+        Value::Array(items) => items.iter().any(schema_contains_private),
+        _ => false,
+    }
+}
+
+/// Choose the persisted arguments and state whether they are lossless.
+pub fn recorded_args(args: &Value, schema: &Value, replay_full: bool) -> (Value, bool) {
+    let private = schema_contains_private(schema);
+    if replay_full
+        && !private
+        && serde_json::to_vec(args).is_ok_and(|bytes| bytes.len() < REPLAY_ARG_MAX_BYTES)
+    {
+        return (args.clone(), true);
+    }
+    let summary = summarize_args(args, schema);
+    let replayable = !private && summary == *args;
+    (summary, replayable)
+}
+
+fn resolved_schema<'a>(schema: &'a Value, root: &'a Value) -> &'a Value {
+    let mut current = schema;
+    for _ in 0..8 {
+        let Some(reference) = current.get("$ref").and_then(Value::as_str) else {
+            break;
+        };
+        let Some(pointer) = reference.strip_prefix('#') else {
+            break;
+        };
+        let Some(next) = root.pointer(pointer) else {
+            break;
+        };
+        current = next;
+    }
+    current
+}
+
+fn schema_child<'a>(schema: &'a Value, root: &'a Value, key: &str) -> Option<&'a Value> {
+    let schema = resolved_schema(schema, root);
+    schema
+        .get("properties")
+        .and_then(|p| p.get(key))
+        .or_else(|| key.parse::<usize>().ok().and_then(|_| schema.get("items")))
+        .or_else(|| schema.get("additionalProperties").filter(|v| v.is_object()))
+}
+
+fn safe_id(value: &Value) -> bool {
+    value.as_u64().is_some()
+        || value.as_str().is_some_and(|s| {
+            !s.is_empty()
+                && s.len() <= 128
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._:-+@".contains(&b))
+        })
+}
+
+fn output_schema_private(schema: &Value, root: &Value) -> bool {
+    let schema = resolved_schema(schema, root);
+    schema.get("x-private") == Some(&Value::Bool(true))
+        || ["allOf", "anyOf", "oneOf"]
+            .iter()
+            .any(|key| schema.get(key).is_some_and(schema_contains_private))
+}
+
+struct IdCollector<'a> {
+    root: &'a Value,
+    ids: BTreeMap<String, Value>,
+    truncated: bool,
+    visited: usize,
+}
+
+impl<'a> IdCollector<'a> {
+    fn visit(
+        &mut self,
+        value: &Value,
+        schema: Option<&'a Value>,
+        path: &str,
+        name: &str,
+        depth: usize,
+    ) {
+        if depth > 16 || self.ids.len() >= ID_LIST_MAX || self.visited >= 1024 {
+            self.truncated = true;
+            return;
+        }
+        self.visited += 1;
+        if schema.is_some_and(|s| output_schema_private(s, self.root)) {
+            self.truncated = true;
+            return;
+        }
+        if is_id_field(name) && !matches!(value, Value::Array(_)) {
+            if value.is_null() {
+                return;
+            }
+            if safe_id(value) {
+                self.ids.insert(path.to_owned(), value.clone());
+            } else {
+                self.truncated = true;
+            }
+            return;
+        }
+        match value {
+            Value::Object(fields) => {
+                for (key, child) in fields {
+                    if self.ids.len() >= ID_LIST_MAX || self.visited >= 1024 {
+                        self.truncated = true;
+                        break;
+                    }
+                    if key.is_empty()
+                        || key.len() > 64
+                        || path.len() + key.len() + 1 > 256
+                        || key.contains('.')
+                        || key.contains('$')
+                    {
+                        self.truncated = true;
+                        continue;
+                    }
+                    let child_schema = schema.and_then(|s| schema_child(s, self.root, key));
+                    self.visit(
+                        child,
+                        child_schema,
+                        &format!("{path}.{key}"),
+                        key,
+                        depth + 1,
+                    );
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    if self.ids.len() >= ID_LIST_MAX || self.visited >= 1024 {
+                        self.truncated = true;
+                        break;
+                    }
+                    let key = index.to_string();
+                    let child_schema = schema.and_then(|s| schema_child(s, self.root, &key));
+                    self.visit(
+                        child,
+                        child_schema,
+                        &format!("{path}.{index}"),
+                        name,
+                        depth + 1,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Extract only named identifiers from the raw result. No body, array, or
+/// arbitrary scalar is persisted. Paths use the same `$.field.0.id` spelling
+/// as scenario call outcomes, and output is capped at 64 entries. The flag
+/// prevents a recorder from treating an incomplete map as a safe template.
+pub fn result_ids(result: &Value, output_schema: &Value) -> (BTreeMap<String, Value>, bool) {
+    let mut collector = IdCollector {
+        root: output_schema,
+        ids: BTreeMap::new(),
+        truncated: false,
+        visited: 0,
+    };
+    let root_is_uuid = resolved_schema(output_schema, output_schema)
+        .get("format")
+        .and_then(Value::as_str)
+        == Some("uuid");
+    if root_is_uuid && output_schema_private(output_schema, output_schema) {
+        return (collector.ids, true);
+    }
+    if root_is_uuid {
+        if result
+            .as_str()
+            .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok())
+        {
+            collector.ids.insert("$".into(), result.clone());
+            return (collector.ids, false);
+        }
+        return (collector.ids, true);
+    }
+    collector.visit(result, Some(output_schema), "$", "", 0);
+    (collector.ids, collector.truncated)
 }
 
 fn hashed(s: &str) -> Value {
@@ -308,6 +512,79 @@ mod tests {
     }
 
     #[test]
+    fn replay_opt_in_is_lossless_only_below_the_size_limit() {
+        let schema = json!({"type": "object", "properties": {"spec": {"type": "object"}}});
+        let args = json!({"spec": {"nested": [1, 2, 3]}});
+        assert_ne!(recorded_args(&args, &schema, false).0, args);
+        assert_eq!(recorded_args(&args, &schema, true), (args, true));
+        let exact = json!({"text": "x".repeat(REPLAY_ARG_MAX_BYTES - 11)});
+        assert_eq!(
+            serde_json::to_vec(&exact).unwrap().len(),
+            REPLAY_ARG_MAX_BYTES
+        );
+        assert!(!recorded_args(&exact, &schema, true).1);
+    }
+
+    #[test]
+    fn nested_private_and_private_null_refuse_replay() {
+        let schema = json!({"type": "object", "properties": {
+            "outer": {"$ref": "#/$defs/Outer"}
+        }, "$defs": {"Outer": {"type": "object", "properties": {
+            "secret": {"type": "string", "x-private": true}
+        }}}});
+        let args = json!({"outer": {"secret": "secret"}});
+        let (stored, replayable) = recorded_args(&args, &schema, true);
+        assert!(!replayable);
+        assert!(!stored.to_string().contains(":\"secret\""));
+        let null_schema = json!({"properties": {"token": {"x-private": true}}});
+        let (stored, replayable) = recorded_args(&json!({"token": null}), &null_schema, true);
+        assert_eq!(stored, json!({"token": null}));
+        assert!(!replayable);
+    }
+
+    #[test]
+    fn result_ids_follow_raw_paths_and_private_schema() {
+        let schema = json!({"type": "object", "properties": {
+            "items": {"type": "array", "items": {"$ref": "#/$defs/Item"}},
+            "token_id": {"type": "string", "x-private": true},
+            "body": {"type": "string"}
+        }, "$defs": {"Item": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "secret_id": {"type": "string", "x-private": true}
+        }}}});
+        let raw = json!({"items": [{"id": "abc-123", "secret_id": "hidden"}],
+            "token_id": "hidden", "body": "not-an-id", "ids": ["safe-1", "has spaces"]});
+        let (ids, truncated) = result_ids(&raw, &schema);
+        assert!(truncated, "private and unsafe identifiers were omitted");
+        assert_eq!(ids.get("$.items.0.id"), Some(&json!("abc-123")));
+        assert_eq!(ids.get("$.ids.0"), Some(&json!("safe-1")));
+        assert!(!ids.contains_key("$.ids.1"));
+        assert!(!ids.contains_key("$.items.0.secret_id"));
+        assert!(!ids.contains_key("$.token_id"));
+        assert!(!ids.contains_key("$.body"));
+        let uuid = json!("550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(
+            result_ids(&uuid, &json!({"format": "uuid"})).0.get("$"),
+            Some(&uuid)
+        );
+        assert_eq!(
+            result_ids(&uuid, &json!({"format": "uuid", "x-private": true})),
+            (BTreeMap::new(), true)
+        );
+        assert_eq!(
+            result_ids(&json!({"id": 42}), &json!({})).0.get("$.id"),
+            Some(&json!(42))
+        );
+        let many = json!({"ids": (0..70).collect::<Vec<_>>()});
+        let (ids, truncated) = result_ids(&many, &json!({}));
+        assert_eq!(ids.len(), ID_LIST_MAX);
+        assert!(truncated);
+        let (ids, truncated) = result_ids(&json!({"ambiguous.path": {"id": "x"}}), &json!({}));
+        assert!(ids.is_empty());
+        assert!(truncated);
+    }
+
+    #[test]
     fn approx_size_tracks_serialized_size() {
         let v = json!({"a": "hello", "b": [1, 2, 3], "c": null, "d": {"e": "x".repeat(200)}});
         let exact = v.to_string().len();
@@ -326,6 +603,9 @@ mod tests {
             trace_id: "t".into(),
             parent_call: None,
             args: Value::Null,
+            args_replayable: false,
+            result_ids: BTreeMap::new(),
+            result_ids_truncated: false,
             inserted_ids: vec![],
             deleted_ids: vec![],
             ok: true,

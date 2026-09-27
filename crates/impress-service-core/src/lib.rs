@@ -33,8 +33,8 @@ pub mod wire;
 
 pub use descriptor::{
     method_meta, resolve_aliases, resolve_budget_ms, resolve_deprecated, resolve_effects,
-    resolve_examples, resolve_idempotent, resolve_safety_class, Deprecation, Effects, Example,
-    Kind, MethodMeta, Reach, Safety, SafetyClass, Source, VerbDescriptor,
+    resolve_examples, resolve_idempotent, resolve_replay_full, resolve_safety_class, Deprecation,
+    Effects, Example, Kind, MethodMeta, Reach, Safety, SafetyClass, Source, VerbDescriptor,
 };
 pub use refusal::Refusal;
 

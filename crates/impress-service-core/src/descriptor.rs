@@ -325,6 +325,8 @@ pub struct MethodMeta {
     /// default for every verb until one declares a budget — means no ceiling
     /// is enforced.
     pub budget_ms: Option<u64>,
+    /// Store complete call arguments for replay when the audit privacy rule permits it.
+    pub replay_full: bool,
 }
 
 /// Find a method's captured facts by identifier. `const` because
@@ -408,6 +410,14 @@ pub const fn resolve_budget_ms(table: &'static [MethodMeta], method: &str) -> Op
     }
 }
 
+/// A method explicitly declared `#[impress_method(replay = full)]`.
+pub const fn resolve_replay_full(table: &'static [MethodMeta], method: &str) -> bool {
+    match method_meta(table, method) {
+        Some(meta) => meta.replay_full,
+        None => false,
+    }
+}
+
 /// A method's retirement notice (P3), declared with `#[impress_method(
 /// deprecated(since = "…", note = "…"))]`. `None` for every verb until a
 /// method declares one.
@@ -448,6 +458,8 @@ pub const fn resolve_aliases(
 /// - `since`: the service's `since = "…"` (declared; checked non-empty);
 /// - `deprecated`, `aliases`: P3's lifecycle fields, empty until then;
 /// - `examples`: `#[impress_example]` on the method (declared; G3 fills);
+/// - `replay_full`: `#[impress_method(replay = full)]` (declared; audit still
+///   applies privacy and size limits);
 /// - `strict`: the service's `strict_args` (declared);
 /// - `source`, `handler`: how the verb runs.
 pub struct VerbDescriptor {
@@ -475,6 +487,8 @@ pub struct VerbDescriptor {
     /// this verb that takes longer than this fails the run. `None` when no
     /// budget is declared.
     pub budget_ms: Option<u64>,
+    /// `#[impress_method(replay = full)]`; the audit layer still checks privacy and size.
+    pub replay_full: bool,
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -583,6 +597,7 @@ mod tests {
             deprecated: None,
             aliases: &[],
             budget_ms: Some(5),
+            replay_full: false,
         },
         MethodMeta {
             name: "set_flag",
@@ -598,6 +613,7 @@ mod tests {
             }),
             aliases: &["old_set_flag"],
             budget_ms: None,
+            replay_full: false,
         },
     ];
 
@@ -746,6 +762,7 @@ mod tests {
             examples: &[],
             strict: false,
             budget_ms: None,
+            replay_full: false,
             source: Source::Linked,
             handler,
         };
@@ -799,6 +816,7 @@ mod tests {
             examples: &[],
             strict: false,
             budget_ms: None,
+            replay_full: false,
             source: Source::Linked,
             handler,
         };
@@ -855,6 +873,7 @@ mod tests {
             examples: &[],
             strict: false,
             budget_ms: None,
+            replay_full: false,
             source: Source::Linked,
             handler,
         };
