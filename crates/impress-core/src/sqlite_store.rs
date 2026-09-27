@@ -5013,6 +5013,91 @@ impl SqliteItemStore {
         Ok(total_deleted)
     }
 
+    /// Reduce `core/verb-call@1.0.0` rows older than `window_days` to the
+    /// degraded shape CL-6 describes: `{verb, since, caller, trace_id,
+    /// parent_call, started_at, ok, code, wire_version}`, dropping `args`,
+    /// `message_len`, `duration_ms`, `arg_bytes`, `result_bytes` — the
+    /// fields that answer "with which arguments", which the same window's
+    /// [`Self::compact_operations`] has already made unanswerable for the
+    /// ops these calls wrote. Still answers "who wrote to this kind and
+    /// when" (`verb`/`caller`/`started_at`); the row's `batch_id` is
+    /// untouched so a join against any surviving op still resolves.
+    ///
+    /// A call row is eligible once, checked by a marker
+    /// (`payload.compacted == true`) rather than the presence of `args`, so
+    /// a verb whose args happened to serialize to `{}` is not skipped and a
+    /// row already reduced is not re-scanned. Bounded per pass by
+    /// `batch_limit` (the 2026-08-06 lesson: an unbounded compaction pass
+    /// over millions of rows is the outage, not the fix) — call again to
+    /// make further progress. Returns the number of rows reduced.
+    pub fn compact_verb_calls(
+        &self,
+        window_days: u32,
+        batch_limit: usize,
+    ) -> Result<u64, StoreError> {
+        let cutoff_ms =
+            (Utc::now() - chrono::Duration::days(window_days as i64)).timestamp_millis();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, payload FROM items
+                 WHERE schema_ref = ?1
+                   AND created < ?2
+                   AND json_extract(payload, '$.compacted') IS NULL
+                 LIMIT ?3",
+            )
+            .map_err(|e| StoreError::Storage(format!("compact_verb_calls prepare: {}", e)))?;
+
+        let rows: Vec<(String, String)> = stmt
+            .query_map(
+                params![
+                    crate::schemas::verb_call::VERB_CALL_SCHEMA,
+                    cutoff_ms,
+                    batch_limit as i64
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| StoreError::Storage(format!("compact_verb_calls query: {}", e)))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| StoreError::Storage(format!("compact_verb_calls collect: {}", e)))?;
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        let mut reduced = 0u64;
+        for (id, payload_json) in &rows {
+            let full: serde_json::Value = serde_json::from_str(payload_json)
+                .map_err(|e| StoreError::Storage(format!("compact_verb_calls payload: {}", e)))?;
+            let degraded = serde_json::json!({
+                "verb": full.get("verb").cloned().unwrap_or(serde_json::Value::Null),
+                "since": full.get("since").cloned().unwrap_or(serde_json::Value::Null),
+                "caller": full.get("caller").cloned().unwrap_or(serde_json::Value::Null),
+                "trace_id": full.get("trace_id").cloned().unwrap_or(serde_json::Value::Null),
+                "parent_call": full.get("parent_call").cloned().unwrap_or(serde_json::Value::Null),
+                "started_at": full.get("started_at").cloned().unwrap_or(serde_json::Value::Null),
+                "ok": full.get("ok").cloned().unwrap_or(serde_json::Value::Null),
+                "code": full.get("code").cloned().unwrap_or(serde_json::Value::Null),
+                "wire_version": full.get("wire_version").cloned().unwrap_or(serde_json::Value::Null),
+                "compacted": true,
+            });
+            let degraded_json = serde_json::to_string(&degraded)
+                .map_err(|e| StoreError::Storage(format!("compact_verb_calls serialize: {}", e)))?;
+            conn.execute(
+                "UPDATE items SET payload = ?1 WHERE id = ?2",
+                params![degraded_json, id],
+            )
+            .map_err(|e| StoreError::Storage(format!("compact_verb_calls update: {}", e)))?;
+            reduced += 1;
+        }
+
+        Ok(reduced)
+    }
+
     /// `update()` with an explicit retention tier for the generated operations.
     ///
     /// High-churn callers (manuscript body autosaves: `body_content`,
@@ -7310,6 +7395,115 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(5));
         let deleted = store.compact_operations(0).unwrap();
         assert_eq!(deleted, 2, "ephemeral + compactable swept, durable kept");
+    }
+
+    /// L1 CL-6: a call row older than the compaction window degrades to
+    /// `{verb, caller, started_at, code/ok, ...}` — the heavy fields
+    /// (`args`, `duration_ms`, sizes) are gone, but `verb`/`caller`/
+    /// `started_at`/`trace_id` survive, so "who wrote to this kind and
+    /// when" still answers after "with which arguments" no longer can.
+    /// Bounded per pass (the 23M-row lesson): a second call keeps making
+    /// progress rather than doing the rest of the work in one transaction.
+    #[test]
+    fn compact_verb_calls_degrades_old_rows_and_is_bounded_per_pass() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let now = Utc::now();
+        let old = now - chrono::Duration::days(45);
+
+        let insert_call = |created: chrono::DateTime<Utc>, verb: &str| {
+            let call_id = Uuid::new_v4();
+            let mut payload = BTreeMap::new();
+            payload.insert("verb".to_string(), Value::String(verb.to_string()));
+            payload.insert("since".to_string(), Value::String("0.1".to_string()));
+            payload.insert(
+                "caller".to_string(),
+                Value::String("agent:test".to_string()),
+            );
+            payload.insert("trace_id".to_string(), Value::String("t".to_string()));
+            payload.insert("parent_call".to_string(), Value::Null);
+            payload.insert(
+                "args".to_string(),
+                Value::String("secret-argument-value".to_string()),
+            );
+            payload.insert("ok".to_string(), Value::Bool(true));
+            payload.insert("code".to_string(), Value::Null);
+            payload.insert("message_len".to_string(), Value::Int(0));
+            payload.insert(
+                "started_at".to_string(),
+                Value::String(created.to_rfc3339()),
+            );
+            payload.insert("duration_ms".to_string(), Value::Int(12));
+            payload.insert("arg_bytes".to_string(), Value::Int(40));
+            payload.insert("result_bytes".to_string(), Value::Int(10));
+            payload.insert("wire_version".to_string(), Value::Int(1));
+            store
+                .insert(Item {
+                    id: call_id,
+                    schema: crate::schemas::verb_call::VERB_CALL_SCHEMA.into(),
+                    payload,
+                    created,
+                    modified: created,
+                    author: "agent:test".into(),
+                    author_kind: ActorKind::Agent,
+                    logical_clock: 0,
+                    origin: None,
+                    canonical_id: None,
+                    tags: vec![],
+                    flag: None,
+                    is_read: false,
+                    is_starred: false,
+                    priority: Priority::None,
+                    visibility: Visibility::Private,
+                    message_type: None,
+                    produced_by: None,
+                    version: None,
+                    batch_id: Some(call_id.to_string()),
+                    references: vec![],
+                    parent: None,
+                })
+                .unwrap();
+            call_id
+        };
+
+        let old_a = insert_call(old, "imbib-tags-service_add-tag");
+        let old_b = insert_call(old, "triage-service_set-starred");
+        let recent = insert_call(now, "triage-service_set-starred");
+
+        // Bounded per pass: batch_limit 1 makes only one row of two eligible
+        // progress; a second call finishes the rest.
+        let first_pass = store.compact_verb_calls(30, 1).unwrap();
+        assert_eq!(first_pass, 1, "one row per pass when batch_limit is 1");
+        let second_pass = store.compact_verb_calls(30, 1).unwrap();
+        assert_eq!(second_pass, 1, "the second row is reduced on the next pass");
+        let third_pass = store.compact_verb_calls(30, 10).unwrap();
+        assert_eq!(
+            third_pass, 0,
+            "nothing left eligible; the recent row is untouched"
+        );
+
+        for old_id in [old_a, old_b] {
+            let row = store.get(old_id).unwrap().unwrap();
+            assert!(
+                !row.payload.contains_key("args"),
+                "the heavy fields are gone: {:?}",
+                row.payload
+            );
+            assert!(!row.payload.contains_key("duration_ms"));
+            assert_eq!(row.payload.get("compacted"), Some(&Value::Bool(true)));
+            assert!(row.payload.contains_key("verb"), "who wrote survives");
+            assert!(row.payload.contains_key("started_at"), "when survives");
+            assert_eq!(
+                row.batch_id.as_deref(),
+                Some(old_id.to_string().as_str()),
+                "the join key is untouched by degradation"
+            );
+        }
+
+        let fresh = store.get(recent).unwrap().unwrap();
+        assert!(
+            fresh.payload.contains_key("args"),
+            "the recent row is still full"
+        );
     }
 
     /// The 2026-08-06 migration: historical durable `system:local` routine

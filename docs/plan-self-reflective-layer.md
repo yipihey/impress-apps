@@ -1681,3 +1681,58 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   closed here; a `target(id)` verb's example against an empty store still shows up as
   under-exercised for that reason, which is what `resolve()` in this same test file already treats
   as "could not resolve," not a false pass.
+- 2026-09-26 — **L1 (the call record)** on a worktree of main at 640cf385, branch
+  `claude/reflective-l1-call-record`. Read the row first: P2 (already merged) had landed almost
+  all of it — `impress-core/src/call_context.rs` (not moved; P2 put it there, re-exporting
+  `impress_service_core::pipeline::context`, which is the task-local itself; there is no separate
+  `call_context.rs` to write), the `core/verb-call@1.0.0` record and its schema
+  (`impress-core/src/schemas/verb_call.rs`, `schema-refs.json`), the audit layer's body
+  (`impress-service-core/src/pipeline/audit.rs`, `mod.rs`'s `finish()`), the bounded channel and
+  writer thread (`impress-store-service/src/audit.rs`, `ChannelSink`, capacity 4,096), `batch_id`
+  stamping (`sqlite_store.rs:2253-2256`, `apply_operation`'s one call site), and the privacy filter
+  including H-P1-2's `#[impress_private]` → `x-private` (already wired end to end by E1, with its
+  own test). What P2 had **not** done, closing the rest of CL-1..CL-6: **(1)**
+  `SqliteItemStore::compact_verb_calls(window_days, batch_limit)` — reduces a `core/verb-call`
+  row older than the window to `{verb, caller, trace_id, parent_call, started_at, ok, code,
+  wire_version, compacted: true}`, dropping `args`/`duration_ms`/the sizes (CL-6); bounded per pass
+  by `batch_limit` (the 23M-row lesson: an unbounded pass over millions of call rows is the outage,
+  not the fix), marked eligible-once by `payload.compacted` rather than by the presence of `args`
+  so a verb whose args serialize to `{}` is not skipped twice. **(2)** `audit::health()` in
+  `impress-store-service` — `{written, dropped, failed, no_sink, channel_capacity}`, the primitive
+  a future `/api/health` route or `history-service_health` (L2) reads; L2 not built here (it is
+  the next work package, with its own row). **(3)** the two tests the row names that P2's tests
+  didn't cover: a full channel drops and counts without blocking the caller (constructed directly
+  against a `sync_channel` of the sink's own bound, undrained, so the writer thread cannot race the
+  assertion), and two verbs invoked with `Call::with_trace` under one shared `trace_id` each keep
+  their own `batch_id` on their own ops while both call rows carry the shared trace id — scoped to
+  what L1 alone can assert (the plan's exact wording, "`why` returns both calls in order", needs
+  `history-service_why`, which is L2's). The private-argument test and the single-verb
+  batch-id-join test were already P2's. **Found live:** the channel-full and health tests, as first
+  written, mutated the crate's shared `DROPPED` counter directly, which raced every other test in
+  the binary reading or writing it under `cargo test`'s default parallelism — observed as a
+  one-in-several flake in `a_mutating_verb_leaves_one_call_row_joined_to_its_operations_by_batch_id`
+  (its `flush()` polls the same counters to detect the writer's idle point). Fixed by making both
+  tests read-only against the shared counters (health) or use a private local counter (the
+  channel-full test, which doesn't go through the real sink anyway). Confirmed clean over 5+
+  repeated full runs after the fix. **Separately observed, not caused here:**
+  `job::tests::a_job_answers_at_once_and_finishes_behind_the_handle` (impress-store-service,
+  pre-existing, not touched by this branch) failed once under heavy concurrent load from other
+  cargo processes on this machine (this session had several backgrounded builds running at once)
+  and passed consistently in isolation and in every clean run afterward — a pre-existing timing
+  sensitivity under host contention, not an L1 regression; not fixed here. Gates (serial,
+  `CARGO_TARGET_DIR=target-l1`): fmt clean; `clippy rest` and `clippy imprint` clean; `cargo test -p
+  impress-core -p impress-service-core -p impress-store-service -p impress-capabilities -p
+  impress-mcp -p impress-cli --features impress-core/sqlite` all green (603 in
+  impress-capabilities, 106 in impress-store-service, 67 in impress-mcp, the rest smaller — 0
+  failed on the clean run); `check-schema-refs.sh` OK (392 call sites, 82 canonical refs, 0
+  divergences); `check-verb-coverage.sh` OK; `check-kit-deps.sh --strict` OK;
+  `check-kit-standalone.sh` OK; `check-uniffi-bindings.sh` OK, 7 bindings unchanged; `cargo hakari
+  generate --diff` empty (no `Cargo.toml` touched). The P2 bench (≤ 5 µs + the async hand-off) was
+  P2's own and not rerun here since nothing on the hot path changed — the writer thread, the
+  channel and `finish()` are untouched; only the store's compaction path (off the hot path by
+  construction) and a new read-only `health()` were added. Not done here, left for L2:
+  `history-service` itself (`why`, `trace`, `replay`, `save-macro`, the real `health` verb over
+  MCP/CLI) and wiring `audit::health()` into an actual `/api/health` HTTP route on the running
+  apps — L1's row lists `sqlite_store.rs`, `schemas/call.rs`, `schema-refs.json` and the
+  pipeline/privacy files as its scope, not an app's HTTP surface or a store-tier verb crate, both
+  of which the work-package table gives to L2.

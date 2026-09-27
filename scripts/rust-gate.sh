@@ -40,9 +40,16 @@ pick_shards() {
     # An unpushed branch has no upstream: compare with where it left
     # origin/main, so every commit it carries picks its shard (HEAD~1 made
     # a docs-last branch run one shard for a change in the other).
-    base="$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null \
-        || git merge-base HEAD origin/main 2>/dev/null \
-        || echo HEAD~1)"
+    # The upstream counts only when it is this branch's own remote copy (a
+    # worktree branch made from origin/main tracks origin/main itself).
+    local up br
+    up="$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null || true)"
+    br="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [ -n "$up" ] && [ "${up#*/}" = "$br" ]; then
+        base="$up"
+    else
+        base="$(git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)"
+    fi
     changed="$(git diff --name-only "$base" 2>/dev/null || true)"
     [ -z "$changed" ] && { echo "imprint rest"; return; }
     local want=""

@@ -72,7 +72,13 @@ fi
 # upstream: diff against where it left origin/main, so every commit the push
 # carries is checked. (HEAD~1 was the fallback, and a new branch whose last
 # commit touched only docs skipped every gate below, on 2026-09-26.)
-if git -C "$REPO_ROOT" rev-parse --abbrev-ref @{u} >/dev/null 2>&1; then
+# The upstream counts only when it is this branch's own remote copy: a
+# worktree made with `git worktree add -b X origin/main` tracks origin/main,
+# and diffing against main's moving tip charges the branch with everyone
+# else's changes (and runs the app build for a Rust-only push).
+UPSTREAM=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref @{u} 2>/dev/null || true)
+BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+if [ -n "$UPSTREAM" ] && [ "${UPSTREAM#*/}" = "$BRANCH" ]; then
     BASE="@{u}"
 elif BASE=$(git -C "$REPO_ROOT" merge-base HEAD origin/main 2>/dev/null); then
     :
