@@ -378,6 +378,8 @@ mod tests {
                 trace_id: "t".into(),
                 parent_call: None,
                 args: serde_json::Value::Null,
+                inserted_ids: vec![],
+                deleted_ids: vec![],
                 ok: true,
                 code: None,
                 message_len: 0,
