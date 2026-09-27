@@ -2296,7 +2296,7 @@ mod tests {
         let result: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(result["ok"], true, "{result}");
 
-        impress_store_service::audit::flush();
+        impress_store_service::audit::flush().expect("audit flush");
         let rows = store
             .core()
             .query(&ItemQuery {

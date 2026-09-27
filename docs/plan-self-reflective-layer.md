@@ -2717,3 +2717,28 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   arm64 slices for ImbibCore, ImbibVerbsFfi and ImpressStoreFfi, plus macOS ImpelTools; generated
   Swift bindings stayed unchanged. Logs: `/tmp/impress-s3-post-review-*.log`,
   `/tmp/impress-s3-final-cohort-*.log`, `/tmp/impress-s3-proof-build-final.log`.
+
+- 2026-09-27 — **Audit flush barrier prerequisite after G5.** The post-G5 full native workspace
+  run on main at `85cf0520` stopped in
+  `impress-workflow-service::runner::tests::a_proposed_workflow_never_runs_through_the_engine`:
+  the proposal query saw no repeated sequence. Focused native reruns, including all three
+  workflow-service tests together, passed. This did not establish the cause of that failure. It
+  did expose a correctness hole in the audit sink: `flush()` treated 20 ms of unchanged global
+  counters as an empty queue, even though accepted records could still be queued or in flight.
+  On `claude/audit-flush-barrier`, a marker now travels through the same bounded FIFO as records;
+  the writer acknowledges it only after processing all earlier messages. Regular submissions
+  still use nonblocking `try_send` and count overflow. Flush has a five-second deadline and
+  returns a typed timeout or disconnect error rather than claiming success. Tests require a
+  successful drain; scenario recording returns a store refusal on failure; impress and imprint
+  CLIs report an audit error and exit nonzero before printing a result. A held-writer/queued-record
+  regression and timeout/disconnect checks cover the barrier.
+
+  The first broad run separately exposed a pre-existing job test race: `finish_job` makes the
+  row terminal before `append_event("finished")`, so the test could snapshot `max_seq` between
+  those writes. The test now waits for the actual final event with a bounded deadline before
+  asserting an already-consumed cursor; production job ordering is unchanged. The final isolated
+  native affected-crate run passed 331 tests, 0 failed, 2 ignored across 27 groups including
+  doctests. Fresh scratch workspace: `/tmp/impress-cargo-tests.BYvwYN/workspace`; log:
+  `/tmp/impress-audit-flush-final-tests-v2.log`. Workspace formatting and focused native
+  all-targets clippy for the changed crates and both CLIs passed. No app or real store was run.
+  A full native workspace rerun after integration remains for the main branch.
