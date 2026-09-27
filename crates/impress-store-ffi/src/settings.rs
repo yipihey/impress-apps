@@ -164,7 +164,7 @@ impl SharedSettings {
         let value: serde_json::Value =
             serde_json::from_str(&value_json).map_err(|e| json_error("value", e))?;
         let resolved = self.store.set(key.trim(), &value)?;
-        log::info!(
+        tracing::info!(
             target: "settings",
             "set {} = {} (stored in {})",
             resolved.def.key,
@@ -177,7 +177,7 @@ impl SharedSettings {
     /// Forget the stored value so `key` answers its default.
     pub fn reset(&self, key: String) -> Result<SharedSettingValue, SharedSettingsError> {
         let resolved = self.store.reset(key.trim())?;
-        log::info!(target: "settings", "reset {} (now default {})", resolved.def.key, resolved.value);
+        tracing::info!(target: "settings", "reset {} (now default {})", resolved.def.key, resolved.value);
         Ok(value_record(&resolved))
     }
 
@@ -194,7 +194,7 @@ impl SharedSettings {
             serde_json::from_str(&value_json).map_err(|e| json_error("value", e))?;
         let imported = self.store.import_legacy(key.trim(), &value)?;
         if imported {
-            log::info!(target: "settings", "migrated legacy value → {} = {}", key.trim(), value);
+            tracing::info!(target: "settings", "migrated legacy value → {} = {}", key.trim(), value);
         }
         Ok(imported)
     }
@@ -262,7 +262,7 @@ impl SharedSettings {
         surfaces
             .set_state(row.id, &surface.host(), &spec.state, ActorKind::Human)
             .map_err(storage)?;
-        log::info!(
+        tracing::info!(
             target: "settings",
             "installed settings surface {} for {section} (revision {}, {} fields)",
             row.id,
