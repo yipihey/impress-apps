@@ -20,6 +20,10 @@ members = [
     "crates/impress-keymap",
     "crates/imprint-core",
     "crates/imbib-core",
+    # P3c step 1: the three legacy semantic-search MCP tools as a real
+    # #[impress_service] trait, behind impress-capabilities' semantic-search
+    # feature (NOT full) — see docs/plan-verb-pipeline-and-transport.md.
+    "crates/imbib-semantic-service",
     # local-network (SFTP) transport for reMarkable tablets
     "crates/impress-remarkable",
     # impress-fs-lock - the advisory flock impress-ai and impress-settings
@@ -222,6 +226,7 @@ imprint-core = { path = "crates/imprint-core" }
 imprint-service = { path = "crates/imprint-service" }
 imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
+imbib-semantic-service = { path = "crates/imbib-semantic-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-layout = { path = "crates/impress-layout" }

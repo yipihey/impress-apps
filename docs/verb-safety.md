@@ -25,8 +25,10 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 189 read-only, 133 mutating,
-33 destructive, 104 external — 459 verbs.
+Counts today (semantic-search feature on): 192 read-only, 133 mutating,
+33 destructive, 104 external — 462 verbs. Without that feature,
+`imbib-semantic-service`'s three read-only verbs are unlinked and the totals
+are 3 fewer (189/133/33/104 — 459).
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -49,6 +51,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-manuscripts-service` | external | 7 | 0 |
 | `imbib-scix-service` | read_only | 7 | 3 |
 | `imbib-search-service` | read_only | 10 | 1 |
+| `imbib-semantic-service` | read_only | 3 | 0 |
 | `imbib-tags-service` | mutating | 10 | 5 |
 | `imbib-text-service` | read_only | 5 | 0 |
 | `imbib-undo-service` | mutating | 3 | 1 |
@@ -246,6 +249,9 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-search-service_get-smart-search` | read_only | name/doc |
 | `imbib-search-service_list-smart-searches` | read_only | name/doc |
 | `imbib-search-service_resolve-cite-key` | read_only | name/doc |
+| `imbib-semantic-service_get-paper-chunks` | read_only | name/doc |
+| `imbib-semantic-service_list-indexed-papers` | read_only | name/doc |
+| `imbib-semantic-service_search-papers` | read_only | name/doc |
 | `imbib-tags-service_add-tag` | mutating | name/doc |
 | `imbib-tags-service_count-by-tag` | read_only | name/doc |
 | `imbib-tags-service_create-tag` | mutating | name/doc |
