@@ -373,6 +373,7 @@ mod tests {
                 call_id: format!("c{n}"),
                 verb: "t-service_x",
                 since: "0.1.0",
+                requested_name: None,
                 caller: impress_service_core::pipeline::CallerIdentity::Person,
                 trace_id: "t".into(),
                 parent_call: None,

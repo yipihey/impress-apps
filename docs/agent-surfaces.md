@@ -357,10 +357,15 @@ A source is exactly one of the three. Sources are cached by their resolved
 arguments and re-run when an argument changes, when a store write or delete
 touches a record kind a query source reads (in this process or, through the
 app's 250 ms poll, another one such as `impress-mcp` — a hard delete there
-is seen as the kind's row count moving), or when an action
-`refresh`es them. A `verb` source declares nothing it reads, so it re-runs
-only on an argument change or a `refresh`. A source that failed is not asked
-again with the same arguments for 5 seconds.
+is seen as the kind's row count moving), or when an action `refresh`es them.
+A `verb` source re-runs the same way, on a write to a record kind its verb
+declares among its `effects.reads` (`docs/verb-effects.md`; E3, ADR-0036
+D1/D3) — but only for the reads it declares as a literal kind; a verb whose
+reads are a function of an argument (`target`/`children`/`prefix`/`any`) or
+that is not linked into this binary declares nothing invalidation can act on
+here, so a source over one of those re-runs only on an argument change or a
+`refresh`, as before. A source that failed is not asked again with the same
+arguments for 5 seconds.
 
 ### Actions
 

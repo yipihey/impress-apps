@@ -16,6 +16,7 @@ html-escape = "0.2"
 # Optional: only `executor` (the impel task executors) needs it. See [features].
 impel-core = { workspace = true, optional = true }
 impress-core = { workspace = true, features = ["sqlite"] }
+impress-fs-lock.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true

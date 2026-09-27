@@ -51,6 +51,10 @@ pub mod codes {
     /// The refusal is the service's own fault: an encode that failed, a task
     /// that panicked.
     pub const INTERNAL: &str = "internal";
+    /// `history-service_replay` was asked to re-run a call whose arguments
+    /// were not recorded in full — privacy-reduced or compacted — so there
+    /// is nothing to replay it with (plan-self-reflective-layer § Call log).
+    pub const NOT_REPLAYABLE: &str = "not-replayable";
 }
 
 /// A refusal: a stable `code` and the prose `message` a person reads.

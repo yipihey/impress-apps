@@ -20,6 +20,7 @@ pub mod manuscript_submission;
 pub mod memory;
 pub mod plot_spec;
 pub mod scenario;
+pub mod settings;
 pub mod source;
 pub mod task;
 pub mod throughline;
@@ -63,6 +64,7 @@ pub use memory::{
 };
 pub use plot_spec::register_plot_spec_schema;
 pub use scenario::{register_scenario_schema, SCENARIO_SCHEMA_REF};
+pub use settings::{register_settings_schema, settings_schema, SETTINGS_SCHEMA_REF};
 pub use source::{
     register_source_schemas, CONTENT_CHUNK_SCHEMA, EXTRACTION_RUN_SCHEMA, FIGURE_REGION_SCHEMA,
     SOURCE_CITATION_SCHEMA,
@@ -146,6 +148,9 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // not an inherits edge, and the tree/spec themselves are open JSON owned
     // by `crates/impress-layout` / `crates/impress-surface` respectively.
     register_ui_schemas(registry);
+    // The synced settings row (ADR-0036 D5): one row, carried by sync; the
+    // registry that says which keys it holds is `impress-settings`.
+    register_settings_schema(registry);
     // The verb call record (ADR-0036 D2): one row per non-read-only verb
     // call, joined to the operations it wrote by `batch_id`. Depends on
     // nothing — the join is a batch key, not an edge.

@@ -25,8 +25,8 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today: 174 read-only, 128 mutating,
-33 destructive, 103 external — 438 verbs.
+Counts today: 183 read-only, 132 mutating,
+33 destructive, 103 external — 451 verbs.
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -39,6 +39,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 |---|---|---:|---:|
 | `collection-service` | mutating | 12 | 5 |
 | `docs-import-service` | mutating | 10 | 5 |
+| `history-service` | read_only | 6 | 2 |
 | `imbib-annotations-service` | read_only | 9 | 4 |
 | `imbib-app-service` | external | 17 | 0 |
 | `imbib-artifacts-service` | read_only | 9 | 4 |
@@ -68,6 +69,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `manuscript-collab-service` | read_only | 4 | 1 |
 | `memory-service` | mutating | 7 | 4 |
 | `parsers-service` | read_only | 6 | 0 |
+| `settings-service` | read_only | 6 | 2 |
 | `smart-search-service` | read_only | 10 | 0 |
 | `source-service` | mutating | 9 | 5 |
 | `store-query-service` | read_only | 4 | 0 |
@@ -81,6 +83,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 <!-- verb-safety:begin -->
 | Tool | Class | Evidence |
 |---|---|---|
+| `capabilities-service_impact` | read_only | name/doc |
 | `collection-service_add-members` | mutating | name/doc |
 | `collection-service_create` | mutating | name/doc |
 | `collection-service_delete` | destructive | crates/impress-store-service/src/collection_service.rs:577 collection_ops::delete -> crates/impress-core/src/collection_ops.rs:1035 store.delete(id); kernel returns a restore snapshot but the service drops it (collect… |
@@ -103,6 +106,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `docs-import-service_record-produced-rows` | mutating | name/doc |
 | `docs-import-service_remove-watched-folder` | destructive | crates/impress-store-service/src/docs_import_service.rs:1296 -> crates/impress-core/src/watched_folder_ops.rs:685-690 store.delete of every watched-file row when delete_file_rows, then store.delete(folder); no undo; d… |
 | `docs-import-service_update-watched-folder` | mutating | name/doc |
+| `history-service_calls` | read_only | name/doc |
+| `history-service_health` | read_only | name/doc |
+| `history-service_replay` | mutating | name/doc |
+| `history-service_save-macro` | mutating | name/doc |
+| `history-service_trace` | read_only | name/doc |
+| `history-service_why` | read_only | name/doc |
 | `imbib-annotations-service_count-annotations` | read_only | name/doc |
 | `imbib-annotations-service_create-annotation` | mutating | name/doc |
 | `imbib-annotations-service_create-comment` | mutating | name/doc |
@@ -478,6 +487,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `parsers-service_list-publisher-rules` | read_only | name/doc |
 | `parsers-service_parse-mbox` | read_only | name/doc |
 | `parsers-service_resolve-publisher-pdf` | read_only | name/doc |
+| `settings-service_get` | read_only | name/doc |
+| `settings-service_list` | read_only | name/doc |
+| `settings-service_reset` | mutating | `settings_service.rs` — forgets a stored value in a scope file; the default stands and the file is rewritten atomically |
+| `settings-service_schema` | read_only | name/doc |
+| `settings-service_set` | mutating | `settings_service.rs` — writes one key into `<workspace>/settings/<scope>.json` (or the synced row) under a flock |
+| `settings-service_surface` | read_only | name/doc |
 | `smart-search-service_build-ads-query` | read_only | name/doc |
 | `smart-search-service_classify-search-input` | read_only | name/doc |
 | `smart-search-service_clean-ads-query` | read_only | name/doc |

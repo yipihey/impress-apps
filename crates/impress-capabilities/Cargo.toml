@@ -26,6 +26,10 @@ impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
 impress-scenario-service = { workspace = true, optional = true }
+# `capabilities-service_impact` (E3, ADR-0036 D-G2's spirit) reads the linked
+# inventory itself plus the stored surfaces (`impress-surface-service`, kit),
+# so it needs the `kit` feature on whenever it is on.
+capabilities-service = { workspace = true, optional = true }
 # Not a workspace.dependencies entry (see crates/impress-mcp/Cargo.toml,
 # which reaches it the same way): the vw-* family has never had a workspace
 # alias, only relative `path` dependencies from each consumer.
@@ -80,9 +84,11 @@ full = [
     "vw",
     "kit",
     "scenario",
+    "impact",
 ]
 kit = ["dep:impress-capabilities-kit"]
 scenario = ["dep:impress-scenario-service"]
+impact = ["dep:capabilities-service", "kit"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]
@@ -95,3 +101,4 @@ memory = ["dep:impress-memory-service"]
 parsers = ["dep:impress-parsers-service"]
 smart-search = ["dep:impress-smart-search-service"]
 vw = ["dep:vw-impress-adapter"]
+impact = ["dep:capabilities-service", "kit"]

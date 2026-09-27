@@ -2,26 +2,29 @@
 //  ExplorationRetentionStore.swift
 //  PublicationManagerCore
 //
-//  Retention settings for the Exploration section.
+//  Retention settings for the Exploration section — read from the settings
+//  registry (ADR-0036 D5, plan-self-reflective-layer R1) since 2026-09-26;
+//  see `InboxRetentionStore` for the migration rule. The key is
+//  `imbib.retention.exploration_days`, legacy `exploration.retentionDays`.
 //
 
 import Foundation
+import ImpressKit
 
 /// Stores retention settings for exploration collections and searches.
 @MainActor
 public final class ExplorationRetentionStore {
     public static let shared = ExplorationRetentionStore()
 
-    private let defaults = UserDefaults.standard
-    private let retentionKey = "exploration.retentionDays"
+    public static let retentionKey = "imbib.retention.exploration_days"
 
     /// Number of days to keep explorations. 0 means forever.
     public var retentionDays: Int {
-        get { defaults.integer(forKey: retentionKey) }
-        set { defaults.set(newValue, forKey: retentionKey) }
+        get { ImpressSettings.shared.value(Self.retentionKey, as: Int.self) }
+        set { ImpressSettings.shared.set(Self.retentionKey, newValue) }
     }
 
-    /// Retention presets for the UI.
+    /// Retention presets for the UI (the registry's `choices` for the key).
     public enum RetentionPreset: Int, CaseIterable, Sendable {
         case oneWeek = 7
         case oneMonth = 30
@@ -38,10 +41,5 @@ public final class ExplorationRetentionStore {
         }
     }
 
-    private init() {
-        // Default: 30 days retention
-        if defaults.object(forKey: retentionKey) == nil {
-            defaults.set(RetentionPreset.oneMonth.rawValue, forKey: retentionKey)
-        }
-    }
+    private init() {}
 }

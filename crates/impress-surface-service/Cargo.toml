@@ -30,6 +30,9 @@ impress-layout-service = { workspace = true }
 # ignore `--store-path` and read a different store from every other verb in
 # the binary.
 impress-store-service = { workspace = true }
+# The settings registry's files, for the Tier A capability that drives the
+# generated settings pane on a scratch workspace (ADR-0036 D5).
+impress-settings = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -57,6 +60,13 @@ impress-service-core = { workspace = true, features = ["cli"] }
 # they exist. See `tier_a.rs`'s module docs for what happens when they do not
 # exist yet.
 surface-demo-service = { workspace = true }
+# E3 (ADR-0036, RS-S2): `tests/coherence.rs`'s verb-source-invalidation test
+# force-links a REAL read-only verb that declares a literal read
+# (`imbib-library-service_count-publications`, reads `imbib/bibliography-entry`)
+# so the proof is over the linked inventory's own declaration, not a test
+# double. Dev-only, like `surface-demo-service` above; `check-kit-standalone.sh`
+# drops the module that uses it from the copy and names it.
+imbib-service = { workspace = true }
 # `tests/doc_wire.rs` checks docs/agent-surfaces.md's argument examples
 # against each verb's own input schema.
 jsonschema = { version = "0.33", default-features = false }
