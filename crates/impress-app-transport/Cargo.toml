@@ -1,0 +1,31 @@
+[package]
+name = "impress-app-transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The P5 transport's client side: call(app, verb, args) over POST /api/verb/<name> (plan-verb-pipeline-and-transport.md § P5)"
+
+[dependencies]
+impress-core = { workspace = true }
+impress-service-core = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+impress-workspace-hack.workspace = true
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+# The parity test (`tests/implore_parity.rs`) is a stub server standing in
+# for `ImpressAutomation`'s `POST /api/verb/<name>`: it calls
+# `impress-store-ffi::dispatch_verb` directly, the same function Swift's
+# route hands its body to, so the test proves this crate's `call()` reaches
+# every one of implore's five previously-dead verbs (plan-verb-pipeline TR)
+# without needing a running app or a Swift build.
+axum = { workspace = true }
+implore-verbs-ffi = { workspace = true }

@@ -1980,6 +1980,66 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   the four proof scenarios are Tier A only until that's done. A real effects spy (P2/L1's
   `SpyStore`) to replace `TierACaller::wrote`'s "re-query the scratch store" proxy. S2 (convert
   every catalogue entry into stored scenarios).
+- 2026-09-27 — **R2b (keymap registry)**, Swift half, on a worktree of main, branch
+  `claude/reflective-r2b-keymap-swift`. Read R2a first: it seeded 66 imbib chords into
+  `crates/impress-keymap` and exported them as `keymap_json()` (`impress-store-ffi`), with no
+  Swift call site — that pass was deliberately Rust-only. This one adds the reader.
+  **`KeymapRegistry`** (`packages/ImpressKeyboard/Sources/ImpressKeyboard/KeymapRegistry.swift`):
+  decodes `keymapJson()` once, keeps `entries: [Entry]` and answers
+  `shortcut(for commandID:) -> KeyboardShortcut?`. The one piece of logic in it is
+  `parse(_:)`, which reads `Chord::Display`'s glyph spelling (`"⇧⌘F"`, `"⏎"`) back into
+  `KeyEquivalent` + `EventModifiers` — a total, unambiguous inverse of a Rust `Display` impl that
+  has a fixed modifier-glyph order and exactly one key glyph, so no chord logic is duplicated on
+  the Swift side; Swift only maps the registry's wire shape to SwiftUI types, per the plan's own
+  constraint. Added `ImpressRustCore` as a package dependency of `ImpressKeyboard` (confirmed
+  `scripts/check-kit-packages.sh` polices only `ImpressLayout`/`ImpressSurface` manifests, so
+  `ImpressKeyboard` gaining a dependency needed no allowlist edit).
+  **Sites switched, behaviour unchanged** (every chord is exactly what it was): `imbibApp.swift`'s
+  `AppCommands` — 59 of 62 `.keyboardShortcut(...)` sites, reading `KeymapRegistry.shared
+  .shortcut(for: "imbib.…")` in place of a literal. Three literals deliberately survive because
+  R2a did not seed them: the dynamic per-index View ▸ Layouts loop (⌃⌘1–9, built from a `for` index
+  rather than one binding per key), the dev-mode "Export as Default Library Set" (⇧⌘D, behind
+  `--edit-default-set`) and Quit (⌥⌘Q, App-menu chrome, not a menu command). `PaneLayoutCommands
+  .swift`'s `ImpressPaneLayoutButtons.chords()` (the three universal pane toggles, shared by every
+  chassis app) now reads key/modifiers from the same three imbib-scoped registry ids, with a
+  literal fallback if an entry is ever missing — safe because the universal layer's chord is
+  identical in every app today, so imbib's registry ids are simply where that one shared value
+  currently lives; a second app's seed (R3+) would need its own ids and this file would need to
+  pick whichever app's window it is actually rendering in, not attempted here.
+  `DetachedViews.swift`'s two detached-window ⌘S "Save" bindings (Notes/BibTeX) both now read
+  `imbib.detached.save`.
+  **Tests:** `KeymapRegistryTests` (new, `packages/ImpressKeyboard`) transcribes all 66 seeded
+  bindings from `imbib.rs` as the expected chord/modifiers per command id and asserts the decoded
+  registry (via the real `keymapJson()` FFI call, not a fixture) matches every one, plus three
+  parse-level tests (special-glyph round trip, all-four-modifiers order, unknown id → nil).
+  `PaneLayoutCommandsTests.testNoTwoImbibMenuCommandsShareAChord` had to change: its regex-scanned
+  `imbibApp.swift` for literal `.keyboardShortcut(...)` calls to build the collision set, and most
+  of those literals are now `KeymapRegistry.shared.shortcut(for: "id")` calls the old regex cannot
+  see. Added a second regex for that call shape, resolving each matched id through
+  `KeymapRegistry.shared` before adding its chord to the same collision set — so the test still
+  fails on a real duplicate chord rather than silently losing coverage once the literals it used to
+  scan disappeared. **Settings ▸ Keyboard** (`KeyboardShortcutsSettingsTab.swift`, macOS) was
+  rewritten from an editable `KeyboardShortcutsStore`-backed UI (recording sheet, conflict
+  detection, per-user remap) to a plain, read-only, section-grouped list over
+  `KeymapRegistry.shared.entries` — label and chord (or "—" for chordless), grouped in the
+  registry's own first-seen section order, filterable by the existing search field. Chord
+  overrides are out of scope (D-R13, a later device setting); `KeyboardShortcutsStore` /
+  `ShortcutCatalog` themselves are untouched — they still drive imbib's separate triage-key
+  remapping (j/k/s/d/… list navigation) elsewhere and were never the menu's source of truth.
+  `docs/chassis-capability-matrix.md` records the Settings ▸ Keyboard change under "Keyboard pane
+  WRAPPED, not edited". iOS, `ImpressCommandPalette` registration and chord overrides are out of
+  scope, per the plan's own R2 row and this pass's ask-first boundary; no Rust changed, so
+  `rust-gate.sh` was not run. **Had to run `xcodegen generate` in `apps/imbib/imbib`** before any
+  Xcode build in the worktree — `imbib.xcodeproj` is gitignored and generated from `project.yml`,
+  and a fresh worktree checkout has neither. Gates: `swift test` in `packages/ImpressKeyboard`
+  (all pass, including 4 new `KeymapRegistryTests`); `swift build` + `swift test` in
+  `apps/imbib/PublicationManagerCore` (clean build, only pre-existing warnings; 2159 tests, 0
+  failures, 2 skipped — unaffected by this change); `xcodebuild -scheme imbib -destination
+  'platform=macOS'` and `-scheme imbib-iOS -destination 'generic/platform=iOS Simulator' ARCHS=arm64
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO` both **BUILD SUCCEEDED**;
+  both derived-data directories deleted afterward. xcframeworks copied into the worktree per setup
+  (`impress-store-ffi`'s already carried `keymap_json`, confirmed with `nm -gU`, so no framework
+  rebuild was needed).
 
 - 2026-09-27 — **S2 (convert the catalogues)** on a worktree of main, branch
   `claude/reflective-s2-catalogues`. Converted imprint-selftest's six class-(i) Tier B entries

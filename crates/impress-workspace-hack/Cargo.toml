@@ -124,6 +124,7 @@ tokio-util = { version = "0.7", features = ["codec", "io"] }
 toml = { version = "0.8" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
+tracing-log = { version = "0.2" }
 ttf-parser = { version = "0.25", features = ["no-std-float"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 unic-langid-impl = { version = "0.9", default-features = false, features = ["serde"] }
@@ -249,6 +250,7 @@ tokio-util = { version = "0.7", features = ["codec", "io"] }
 toml = { version = "0.8" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
+tracing-log = { version = "0.2" }
 ttf-parser = { version = "0.25", features = ["no-std-float"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 unic-langid-impl = { version = "0.9", default-features = false, features = ["serde"] }

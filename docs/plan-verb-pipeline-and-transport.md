@@ -1139,3 +1139,232 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   green; `check-verb-coverage.sh`, `check-verb-docs.sh` (no diff — no linked verb uses the new fields yet),
   `check-kit-deps.sh --strict`, `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`
   and `cargo hakari generate --diff` all clean.
+- 2026-09-26 — **P5a transport (first half)** on a worktree of main at ad9a0796, branch
+  `claude/pipeline-p5a-transport`. **Client side:** new `crates/impress-app-transport` —
+  `call(app, verb, args) -> Result<Value, Refusal>` over `POST http://127.0.0.1:<port>/api/verb/<name>`,
+  the P0 loopback token attached (`impress_core::loopback_token::client_token_for_url`), a
+  `traceparent` header carried on every call (hook H-P5-1), and one probe-with-60 s-cooldown
+  (`impress-app-transport::is_reachable`, the same rule impel-tools used) replacing the four copies
+  TR-3 found. `impress-app-transport::ports` is the Rust side's port table, pinned to
+  `SiblingApp.descriptors` (Swift's one authoritative table, CLAUDE.md) by a test that greps the
+  Swift file for each literal port. **Server side:** `impress_service_core::dispatch::dispatch` —
+  one generic lookup-and-invoke (`VerbDescriptor::find` → `pipeline::invoke_blocking` → the wire
+  envelope), added to `impress-service-core` rather than `impress-store-ffi` so it can be shared by
+  a kit crate and a non-kit one (below); `impress-store-ffi::verb::dispatch_verb` is its UniFFI
+  wrapper (`#[uniffi::export] fn dispatch_verb(name, args_json, caller_json) -> SharedVerbDispatchResult`),
+  and `packages/ImpressAutomation/Sources/ImpressAutomation/VerbAutomation.swift` is `POST
+  /api/verb/<name>`, mounted in `SharedAutomationRoutes` one door down from `/api/layout/*` and
+  `/api/surface/*` — a direct call into `ImpressRustCore` (this package already links it for
+  `LoopbackToken`), not a registered host, since a verb dispatch needs only the process-wide store
+  to be open. Caller identity is `CallerIdentity::App(<bundle-id's last component>)` (ADR-0034 D3);
+  `traceparent`, when present, becomes `caller_json.trace_id`, which the pipeline joins as the call's
+  trace (H-P5-1's own line: "one id joins a surface click, its verb, the job it started").
+  **Narrowed live, and why:** the plan's own alternative to a per-app UniFFI target — "the store FFI
+  linking the app's services behind features" — was tried first (`implore-service` as an
+  unconditional dependency of `impress-store-ffi`) and caught live by
+  `scripts/check-kit-deps.sh --strict`: "impress-store-ffi reaches implore-core, a domain core. ASK
+  FIRST … this is not a dependency to allowlist." `impress-store-ffi` is a kit crate
+  (`docs/kit-manifest.md`); the check does not offer a manifest-only fix for a domain-core reach, by
+  design. So P5a builds the plan's *other* alternative instead — the per-app UniFFI target the § P5
+  design section names first ("App side: a per-app UniFFI target … linking the app's own `*-service`
+  crate") — as a new, non-kit crate `crates/implore-verbs-ffi`: it links `implore-service` directly
+  (cycle-free — `implore-service` itself has no edge back to `impress-app-client`, unlike
+  `implore-service-http`), force-links its inventory the same way `impress-store-ffi::force_link_kit`
+  does for the kit crates it cannot reach by name, and re-exports the same `dispatch_verb` shape over
+  its own `dispatch_verb` UniFFI function calling the shared `impress_service_core::dispatch::dispatch`.
+  `./scripts/check-kit-deps.sh --strict` is clean again with `implore-service` removed from
+  `impress-store-ffi`. **What is finished and proven, and what is not:** `implore-verbs-ffi` compiles,
+  is unit-tested (its own tests assert the five previously-dead verbs — `plot-series`,
+  `plot-histogram`, `rg-statistics`, `rg-slice-raw`, `rg-slice-png` — are no longer `not-found`), and
+  the parity test below drives it through the full transport. What it does **not** yet have is its
+  own xcframework, a `Package.swift` and Xcode wiring into `apps/implore` so a *running* implore's
+  `/api/verb/<name>` route actually calls into it — today that route only calls
+  `impress-store-ffi`'s kit dispatch, so a live implore still answers `not-found` for these five
+  until that packaging lands (P5b). This is the plan's own escape valve ("implement it for one app;
+  say what remains") landing exactly there: the per-app *Rust* target is real and proven; the
+  per-app *xcframework* is not yet built. **Parity test**
+  (`crates/impress-app-transport/tests/implore_parity.rs`): a stub axum server whose one route calls
+  `implore_verbs_ffi::dispatch_verb` directly — the same function a real `/api/verb/<name>` would
+  call once P5b's packaging lands — proves `impress-app-transport::call("implore", …)` reaches three
+  previously-live verbs (`status`, `list-datasets`, `list-figures`) and all five previously-dead ones
+  without a `not-found`, and that an unknown verb name still refuses `not-found` through the same
+  path. Not yet deleted (P5b's to do, per D-P7): the four `*-service-http` crates,
+  `impress-app-client`, the 160 mirrored Swift arms. **Live proof on implore:** not run this session
+  — the escape valve above ("implement it for one app; say what remains") is exactly why: the
+  packaging that would make implore's *running* HTTP route answer through `implore-verbs-ffi` is
+  the part left for P5b, so a live curl against a built implore would show its existing behaviour
+  (the five routes still 404, `impress-store-ffi`'s kit verbs answering through `/api/verb/<name>`
+  for every app) rather than anything this session's Rust-side work changed on the wire; running the
+  build-and-launch cycle to prove that negative was not worth the machine time this session had.
+  **Gates:** `./scripts/rust-gate.sh fmt` clean (after one `cargo fmt` pass); `clippy rest`,
+  `cargo test -p impress-app-transport -p impress-store-ffi -p impress-service-core -p
+  implore-verbs-ffi -p impress-capabilities`, `check-uniffi-bindings.sh`, `check-kit-deps.sh
+  --strict`, `check-kit-standalone.sh`, `check-kit-packages.sh`, `check-chassis-deps.sh`,
+  `check-schema-refs.sh`, `check-verb-coverage.sh` (two new verdict rows: `impress-app-transport`
+  internal, `implore-verbs-ffi` ffi/internal), `cargo hakari manage-deps && cargo hakari generate`
+  (no changes), `swift test` in `ImpressAutomation` and `PublicationManagerCore` — see the PR for the
+  actual run's numbers, taken on a Mac shared with other agents' builds. **What remains for P5b:**
+  the `implore-verbs-ffi` xcframework, its `Package.swift`, wiring it into `apps/implore`'s Xcode
+  project, and a Swift-side fallback in `VerbAutomationRoutes` (or a registered second host) so
+  `/api/verb/<name>` tries implore's own dispatch when the kit's says `not-found`; the same per-app
+  split for imbib/imprint/impart (each currently has no domain verbs behind `/api/verb` beyond the
+  kit's); migrating the actual entry paths (impress-mcp, impress-cli, impel-tools,
+  impress-ai-tools) onto `impress-app-transport::call` and deleting the four adapters +
+  `impress-app-client` + the 160 mirrored Swift arms (D-P7).
+- 2026-09-27 — **P3c step 1: `imbib-semantic-service` given real lifecycle** (branch
+  `claude/pipeline-p3c-semantic-search`, from main at 6a464881, which carries P3a #101). Tom's decision on
+  ADR-0024 D7's other half, taken up after the P3a session log reported the reverted spike: a
+  `semantic-search` feature beside `full` in `impress-capabilities`, so the three legacy tools get a real
+  `#[impress_service]` trait without joining the shared inventory `impress-cli` and `impel-tools` link.
+  New crate `crates/imbib-semantic-service` (workspace member, `imbib-semantic-service` workspace-deps
+  alias): one trait `ImbibSemanticService` with `search_papers`, `get_paper_chunks`, `list_indexed_papers`
+  — arguments and logic copied from `crates/impress-mcp/src/tools.rs` (deleted) and `store.rs` (deleted,
+  copied verbatim as `imbib-semantic-service::store`). Each method's canonical name is the kebab form
+  (`search-papers`, `get-paper-chunks`, `list-indexed-papers`); each declares
+  `aliases = ["search_papers"]` (etc., the old flat snake_case name) and `deprecated(since = "0.1.0", note
+  = "use <canonical>")`, `safety = read_only`, and an `effects(reads = [any(...)])` — `any(...)` rather than
+  a schema ref, because the embeddings sidecar is a separate SQLite file with no `schema_ref` in
+  `schema-refs.json`. Each method returns a JSON **object** (`{"ok", "results"|"chunks"|"papers"}` or
+  `{"ok": false, "message"}`), not a bare array or string: P3a's additive `deprecated` envelope field only
+  attaches to object results (`apply_deprecation_notice`), and a scalar/array return would silently drop it
+  for exactly the alias calls this step exists to keep answering correctly. State (the lazily-built
+  embedding stack and the shared-store connection) lives in `SemanticState`, mirroring the original
+  `ToolContext` but `Send + Sync` throughout (`#[impress_service]` requires it): `OnceLock` for the
+  embedding stack, a `Mutex<Option<Connection>>` for the main store (`rusqlite::Connection` is `Send` but
+  not `Sync`), reached through a closure (`with_main_store`) rather than a returned reference so no borrow
+  can outlive the lock guard.
+
+  `impress-capabilities`'s new `semantic-search` feature (`imbib-semantic-service = { optional = true }`,
+  force-linked in `lib.rs` behind `#[cfg(feature = "semantic-search")]`) is **not** part of `full` and not
+  part of `impress-capabilities-kit` (this is a domain-service force-link, not the ADR-0033 D7 standalone
+  kit slice). Only `impress-mcp` enables it (`features = ["full", "semantic-search"]`); `impress-cli` and
+  `impel-tools` build unchanged. `impress-mcp`'s own `imbib-core`/`impress-embeddings` direct dependencies
+  and its `store.rs`/`tools.rs` are gone — it now reaches the three verbs the same way it reaches every
+  other `#[impress_service]` verb, through `inventory_bridge`; `render_pdf_page` is the one tool that stays
+  hand-written (it answers with rasterised image bytes ahead of any dispatch decision, which the additive
+  `deprecated` field cannot reach). `--embeddings-path` is retired: the service picks its own default via
+  `SemanticState::default_embeddings_path`, matching the CLI's previous default; `--store-path` is
+  unchanged.
+
+  **Proof** (both required by the task spec, run from a clean `CARGO_TARGET_DIR=$PWD/target-p3c`):
+  ```
+  $ cargo tree -p impress-cli -e normal -i fastembed
+  fastembed v4.9.1
+  └── impress-embeddings v0.1.0 (…)
+      └── imbib-core v0.1.0 (…)
+          └── impress-memory-service v0.1.0 (…)
+              └── impress-cli v0.1.0 (…)
+  ```
+  This is **not** a regression from this step: `impress-cli`'s own `Cargo.toml` already enables
+  `impress-memory-service` with `features = ["vector-embedder"]` (its comment: "`impress-capabilities`'s
+  `memory` feature deliberately does NOT enable `vector-embedder` … so this binary enables it itself to
+  keep the vector tier it always had") — a pre-existing, independent decision that also enables
+  `impress-embeddings/embedder`. `cargo tree -p impress-cli -e normal -i imbib-semantic-service` confirms
+  the new crate itself is not reachable at all (`error: package ID specification did not match any
+  packages`), which is the actual claim this step makes: P3c added no new fastembed edge to `impress-cli`.
+  ```
+  $ cargo tree -p impress-mcp -e normal -i fastembed
+  fastembed v4.9.1
+  └── impress-embeddings v0.1.0 (…)
+      ├── imbib-core v0.1.0 (…) [multiple paths, incl. via imbib-semantic-service]
+      ├── imbib-semantic-service v0.1.0 (…)
+      │   └── impress-capabilities v0.1.0 (…)
+      │       └── impress-mcp v0.1.0 (…)
+      └── impress-memory-service v0.1.0 (…)
+          └── impress-mcp v0.1.0 (…)
+  ```
+  (Full outputs are in the PR description / session transcript.)
+
+  **Proof test**: `impress-mcp`'s `server::tests::search_papers_alias_reaches_the_inventory_verb_with_a_deprecated_notice`
+  drives `tools/call` end to end with `"name": "search_papers"` and asserts `structuredContent.deprecated ==
+  {"since": "0.1.0", "use": "imbib-semantic-service_search-papers", "note": "…"}` — the alias reaches the
+  canonical inventory verb and carries the additive notice; a direct call to `imbib-semantic-service_search-papers`
+  would not.
+
+  **Not done, as specified**: `scripts/check-verb-coverage.sh` fails, exactly as anticipated —
+  ```
+  FAIL: workspace member imbib-semantic-service has no verdict in docs/verb-coverage.md
+  FAIL: service ImbibSemanticService (imbib-semantic-service) has an impress_service_impl! block but no row in docs/verb-coverage.md (run the census test's dump for the row)
+  ```
+  Left for P3c step 2, along with `crates/impress-capabilities/tests/census.rs` and
+  `docs/verb-coverage.md`/`verb-safety.md`/`verb-effects.md`, none of which were touched.
+
+  Gates: `rust-gate.sh fmt`, `clippy rest`, `clippy imprint` all clean; `cargo test -p imbib-semantic-service
+  -p impress-mcp -p impress-service-core -p impress-cli` all green (8 + 40 + 7 + 78 + doctests passed,
+  0 failed); `check-kit-deps.sh --strict`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`, and `cargo
+  hakari generate --diff` all clean (`cargo hakari manage-deps` reported no operations to perform).
+- 2026-09-27 — **P3c step 2: an `optional-feature` verdict for the coverage machinery** (same branch,
+  merged with `origin/main` first — the merge brought in `capabilities-service`/`impact` (independent, kept
+  both sides in `impress-capabilities/Cargo.toml`) and regenerated `Cargo.lock` rather than hand-resolving
+  the conflict). Tom's decision: a workspace crate can carry the verdict `optional-feature` in
+  `docs/verb-coverage.md`'s crate table, with the feature name in its *Reason* column —
+  `imbib-semantic-service` | verb-crate | optional-feature | `semantic-search` … | is the first.
+  `scripts/check-verb-coverage.sh`'s `VERDICTS` list gained it; the script does no verb-crate-vs-block
+  cross-check itself (that lives in `census.rs`), so this was the only script edit needed.
+
+  `crates/impress-capabilities/tests/census.rs`, `descriptor.rs` and `effects.rs` needed to both *see* the
+  semantic verbs (so their rows can be checked for real) and *not choke* when they are absent, since
+  `impress-capabilities`'s default features do not include `semantic-search` and `cargo test -p
+  impress-capabilities` must stay green either way. Chose the second of the two options the step offered
+  (teach the tests to accept a service linked only under a named optional feature) over gating the test
+  *targets* on `required-features = ["semantic-search"]`: the latter would make `census`/`descriptor`/`effects`
+  not run at all — silently, no failure, just absent from the default `cargo test -p impress-capabilities`
+  output — which is a worse floor than "these three rows are exempt right now." Mechanism: `census.rs` reads
+  each crate's verdict from the doc (`crate_verdicts`) and skips the usual "row present but not linked;
+  delete it" / "is_verb_crate but verdict isn't `verb-crate`" complaints when the row names a service whose
+  crate is `optional-feature`; `descriptor.rs` and `effects.rs`, which only ever see the verb by its
+  qualified name once unlinked (no `VerbDescriptor` to look a crate up from), instead carry a small
+  `OPTIONAL_FEATURE_VERB_PREFIXES`/`is_optional_feature_verb` const naming the qualified-name prefix
+  (`"imbib-semantic-service_"`) and skip the same "not a linked verb; delete the row" complaint for it. The
+  Total row and the argument-shape histogram in `census.rs` are recorded, per the doc's own stated
+  convention ("Counted from `McpToolDescriptor::iter()` with every feature on"), for a
+  `--features semantic-search` build — so those two specific assertions are behind `cfg!(feature =
+  "semantic-search")` rather than exempted row-by-row; everything else in all three files (safety class,
+  schema, effects declarations, naming lint) still checks every linked verb exactly, feature on or off.
+
+  Also fixed, found while running `descriptor.rs` with the feature on: its
+  `names_and_groups_are_derived_from_the_identifiers` test still asserted `v.aliases.is_empty()` for every
+  verb — true before this step because nothing linked in `full` used P3-lifecycle's `aliases` field yet
+  (main's `#[impress_method(aliases = …)]`, merged via #101, landed with zero adopters). `imbib-semantic-service`
+  is the first, so the assertion became `v.aliases.is_empty() || v.deprecated.is_some()` — the pairing the
+  macro actually requires (aliases needs `deprecated(…)` alongside it), not a blanket ban that stopped being
+  true when the feature is on.
+
+  **Regenerated** (never hand-typed) from the tests' own `dump`, each run as `-- --nocapture
+  --test-threads=1 dump` with `--features semantic-search` so `imbib-semantic-service` shows up:
+  `docs/verb-coverage.md`'s services table (18 crates, 40 services, 442 verbs, was 17/39/439) and
+  argument-shape histogram (`scalar` 915, was 911); `docs/verb-safety.md`'s per-verb table (+3
+  `imbib-semantic-service_*` rows, all `read_only`) and its "Counts today" line (178/128/33/103 — 442
+  verbs with the feature on, 439 without — both numbers recorded since the doc is read by both builds);
+  `docs/verb-effects.md`'s verb table (+3 rows, each `any(...)` reads, no writes, no external reach) and
+  exception table (+3 `no example` rows — none of the three ships an `#[impress_example]` yet). Moved
+  `EXCEPTION_CEILING` in `effects.rs` from 277 to 280 for exactly those three, with a comment saying so.
+  `docs/verb-coverage.md`'s "Crates" section gained an `optional-feature` bullet in the verdict list and the
+  `imbib-semantic-service` crate row (`verb-crate` role, `optional-feature` verdict, reason naming
+  `semantic-search`).
+
+  **`docs/verbs/` regenerated without the feature** (`cargo run -p impress-capabilities --bin gen-verb-docs`,
+  no `--features`): `scripts/check-verb-docs.sh` invokes the generator unconditionally, and changing that
+  script was out of this step's scope — so `imbib-semantic-service`'s pages are deliberately not part of the
+  committed `docs/verbs/` tree yet. Also picked up `docs/verbs/capabilities-service.md` (new) and a
+  `docs/verbs/README.md` diff from the `origin/main` merge (P3-impact's `capabilities-service`, unrelated to
+  this step).
+
+  **kit.yml**: not touched. Its own comment says the per-service counts "are checked by `cargo test -p
+  impress-capabilities` instead" — `kit.yml` never runs `census`/`effects`/`descriptor` itself, so the
+  step's conditional ("if the kit workflow runs them, exercise the feature once") does not apply. Where
+  those tests *do* run in CI is `workspace-rust.yml`'s `test`/`rest` shard
+  (`./scripts/rust-gate.sh test rest`, `cargo test --workspace --exclude imprint-* --features native`);
+  because `impress-mcp` (in the `imprint` shard, not `rest`) declares `impress-capabilities = { features =
+  ["full", "semantic-search"] }` unconditionally, and Cargo unifies a dependency's features across every
+  target requested in one invocation, a `--workspace` run already compiles `impress-capabilities` — and
+  therefore its `census`/`descriptor`/`effects` test binaries — with `semantic-search` on, even though no
+  shard passes the flag explicitly. Confirmed by running `cargo test -p impress-capabilities` alone (isolated,
+  no unification with `impress-mcp`) both with and without `--features semantic-search`, per the gates below.
+
+  Gates (serial, `CARGO_TARGET_DIR=$PWD/target-p3c`): `rust-gate.sh fmt`, `clippy rest`, `clippy imprint` all
+  clean; `cargo test -p impress-capabilities` green both with and without `--features semantic-search`;
+  `cargo test -p imbib-semantic-service -p impress-mcp` green (40 + 7 passed, 2 ignored — the fastembed-init
+  stdio smoke tests, as always); `check-verb-coverage.sh`, `check-verb-docs.sh`, `check-kit-deps.sh --strict`,
+  `check-kit-standalone.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh` and `cargo hakari generate
+  --diff` all clean.

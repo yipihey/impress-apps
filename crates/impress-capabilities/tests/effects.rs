@@ -62,12 +62,34 @@ use serde_json::Value;
 /// app — neither is available to a headless example runner, so it joins
 /// the table with `leaves the process (network)`, exactly the reason this
 /// table already gives every other `app(...)`/`network` verb.
-const EXCEPTION_CEILING: usize = 290;
+/// Raised further in plan G4: the three new `capabilities-service` verbs
+/// (`list-verbs`, `verb-surface`, `catalogue-surface`) touch only the linked
+/// inventory itself (`any(…)`, no store call), so their examples run and the
+/// store spy observes nothing — the same "exercised, unobserved" shape as
+/// every other pure-computation verb already on this table.
+/// Raised further in P3c step 2: `imbib-semantic-service`'s three verbs
+/// (behind the `semantic-search` feature) each declare a `reads` but ship no
+/// `#[impress_example]` yet, landing all three on the exception table as
+/// "no example" — not a regression in a verb that was already covered.
+const EXCEPTION_CEILING: usize = 296;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
 /// nothing the suite tracks. The consistency rule (`external reach ⇒
 /// external class`) holds for every other verb.
+/// Qualified-name prefixes of verbs whose service crate carries the
+/// `optional-feature` verdict in `docs/verb-coverage.md`'s crate table
+/// (P3c step 2) — this build's `full` may not link them, in which case the
+/// doc row for them is allowed to exist unmatched rather than being flagged
+/// stale. Keep this in step with that table's `optional-feature` rows.
+const OPTIONAL_FEATURE_VERB_PREFIXES: &[&str] = &["imbib-semantic-service_"];
+
+fn is_optional_feature_verb(tool: &str) -> bool {
+    OPTIONAL_FEATURE_VERB_PREFIXES
+        .iter()
+        .any(|p| tool.starts_with(p))
+}
+
 const REACH_ALLOWLIST: &[(&str, &str)] = &[
     (
         "imprint-manuscript-service_compile-latex",
@@ -728,7 +750,7 @@ fn every_verb_declares_what_the_table_records() {
         }
     }
     for tool in rows.keys().chain(exceptions.keys()) {
-        if !seen.contains(tool) {
+        if !seen.contains(tool) && !is_optional_feature_verb(tool) {
             problems.push(format!(
                 "docs/verb-effects.md lists `{tool}`, which is not a linked verb; delete the row"
             ));
