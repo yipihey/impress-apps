@@ -30,7 +30,12 @@ pub trait Caller: Send {
     /// (`"person"` or `"agent:<name>"`). Returns the verb's raw result
     /// value even on a refusal envelope (`{"ok": false, ...}`) — expectation
     /// checking, not this trait, decides whether that is a failure.
-    async fn call(&mut self, verb: &str, args: Value, as_ident: &str) -> Result<CallOutcome, String>;
+    async fn call(
+        &mut self,
+        verb: &str,
+        args: Value,
+        as_ident: &str,
+    ) -> Result<CallOutcome, String>;
 
     /// Dispatch a human surface event. Tier A refuses with a clear message
     /// (no surface-hosting store per scenario in S1); Tier B posts to
@@ -122,7 +127,11 @@ pub async fn run(scenario: &Scenario, caller: &mut dyn Caller) -> CapabilityResu
     passed(scenario, tier, started)
 }
 
-async fn run_teardown(scenario: &Scenario, captures: &mut BTreeMap<String, Value>, caller: &mut dyn Caller) {
+async fn run_teardown(
+    scenario: &Scenario,
+    captures: &mut BTreeMap<String, Value>,
+    caller: &mut dyn Caller,
+) {
     for (index, step) in scenario.teardown.iter().enumerate() {
         // Teardown failures are logged into nothing today (S1 has no
         // failure channel for a passed scenario's cleanup) but must never
@@ -143,15 +152,17 @@ async fn run_step(
 ) -> Result<(), String> {
     let captures_value = Value::Object(captures.clone().into_iter().collect());
     match step {
-        Step::Call(call_step) => run_call(call_step, index, &captures_value, captures, caller).await,
+        Step::Call(call_step) => {
+            run_call(call_step, index, &captures_value, captures, caller).await
+        }
         Step::Event(event_step) => {
             let resolved = template::resolve(
                 &serde_json::to_value(&event_step.event).map_err(|e| e.to_string())?,
                 &captures_value,
             )
             .map_err(|e| format!("step {index} (event): {e}"))?;
-            let event: EventBody =
-                serde_json::from_value(resolved).map_err(|e| format!("step {index} (event): {e}"))?;
+            let event: EventBody = serde_json::from_value(resolved)
+                .map_err(|e| format!("step {index} (event): {e}"))?;
             caller
                 .event(&event)
                 .await
@@ -189,9 +200,8 @@ async fn run_call(
         .map_err(|e| format!("step {index} (`{}`): {e}", call_step.call))?;
 
     if let Some(expect) = &call_step.expect {
-        check_expect(expect, &outcome).map_err(|detail| {
-            format!("step {index} (`{}`): {detail}", call_step.call)
-        })?;
+        check_expect(expect, &outcome)
+            .map_err(|detail| format!("step {index} (`{}`): {detail}", call_step.call))?;
     }
 
     for (name, path) in &call_step.capture {
@@ -210,7 +220,10 @@ fn check_expect(expect: &Expect, outcome: &CallOutcome) -> Result<(), String> {
     if let Some(ok) = expect.ok {
         let actual = outcome.result.get("ok").and_then(Value::as_bool);
         if actual != Some(ok) {
-            return Err(format!("expected ok={ok}, got {actual:?} (result: {})", outcome.result));
+            return Err(format!(
+                "expected ok={ok}, got {actual:?} (result: {})",
+                outcome.result
+            ));
         }
     }
     if let Some(code) = &expect.code {
@@ -221,7 +234,10 @@ fn check_expect(expect: &Expect, outcome: &CallOutcome) -> Result<(), String> {
     }
     if let Some(status) = expect.status {
         if outcome.status != Some(status) {
-            return Err(format!("expected status={status}, got {:?}", outcome.status));
+            return Err(format!(
+                "expected status={status}, got {:?}",
+                outcome.status
+            ));
         }
     }
     for field in &expect.fields {
@@ -242,7 +258,9 @@ fn check_field(field: &FieldExpect, result: &Value) -> Result<(), String> {
         Check::Contains(needle) => {
             let hay = value.and_then(Value::as_str).unwrap_or_default();
             if !hay.contains(needle.as_str()) {
-                return Err(format!("{path}: expected to contain \"{needle}\", got \"{hay}\""));
+                return Err(format!(
+                    "{path}: expected to contain \"{needle}\", got \"{hay}\""
+                ));
             }
         }
         Check::Gte(min) => {

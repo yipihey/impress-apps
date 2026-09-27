@@ -38,7 +38,11 @@ async fn a_scenario_validates_and_runs_tier_a() {
     assert_eq!(created.scenario_id, "test.layout.list_layouts");
 
     let run = service
-        .scenario_run("test.layout.list_layouts".to_string(), Some("a".to_string()), None)
+        .scenario_run(
+            "test.layout.list_layouts".to_string(),
+            Some("a".to_string()),
+            None,
+        )
         .await;
     assert!(run.ok, "{run:?}");
     assert_eq!(run.passed, 1);

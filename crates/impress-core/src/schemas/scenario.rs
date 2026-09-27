@@ -80,9 +80,7 @@ pub fn scenario_schema() -> Schema {
                 name: field::REVISION.into(),
                 field_type: FieldType::Int,
                 required: false,
-                description: Some(
-                    "1 on create, +1 on every update; absent reads as 1.".into(),
-                ),
+                description: Some("1 on create, +1 on every update; absent reads as 1.".into()),
             },
         ],
         expected_edges: vec![EdgeType::DerivedFrom, EdgeType::RelatesTo],

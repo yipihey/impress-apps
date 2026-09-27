@@ -16,7 +16,10 @@ use impress_service_macros::{impress_service, impress_service_impl};
 #[allow(unused_imports)]
 use impress_service_macros::impress_method;
 
-use crate::dto::{ScenarioListResult, ScenarioResult, ScenarioRunResult, ScenarioSummaryDto, ScenarioValidateResult, SpecArg};
+use crate::dto::{
+    ScenarioListResult, ScenarioResult, ScenarioRunResult, ScenarioSummaryDto,
+    ScenarioValidateResult, SpecArg,
+};
 use crate::store::ScenarioStore;
 use crate::tier_a::TierACaller;
 use crate::tier_b::TierBCaller;
@@ -31,14 +34,20 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// that a `call` step names a real verb without the inventory, so it
     /// adds that check on top of `impress-scenario`'s own structural pass.
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}"#)]
+    #[impress_example(
+        name = "default",
+        args = r#"{"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}"#
+    )]
     async fn scenario_validate(&self, spec: SpecArg) -> ScenarioValidateResult;
 
     /// Store a spec as a new `impress/scenario@1.0.0` row, after validating
     /// it exactly as `scenario_validate` does. Refused `invalid-spec` with
     /// every problem when any is found; nothing is stored.
     #[impress_method(safety = mutating, effects(reads = ["impress/scenario@1.0.0"], writes = ["impress/scenario@1.0.0"]))]
-    #[impress_example(name = "default", args = r#"{"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}"#)]
+    #[impress_example(
+        name = "default",
+        args = r#"{"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}"#
+    )]
     async fn scenario_create(&self, spec: SpecArg, tags: Option<Vec<String>>) -> ScenarioResult;
 
     /// One stored scenario, by its row id OR its stable `scenario_id`
@@ -62,7 +71,12 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// (and every other "run arbitrary steps" verb) an external safety class
     /// rather than trying to infer a tighter one from what happens to run.
     #[impress_method(safety = external, effects(reads = ["impress/scenario@1.0.0"], writes = [any("a scenario's steps may call any verb, including a mutating one")], reach = [network]))]
-    async fn scenario_run(&self, scenario_id: String, tier: Option<String>, base_url: Option<String>) -> ScenarioRunResult;
+    async fn scenario_run(
+        &self,
+        scenario_id: String,
+        tier: Option<String>,
+        base_url: Option<String>,
+    ) -> ScenarioRunResult;
 }
 
 #[derive(Clone, Default)]
@@ -92,7 +106,13 @@ impl DefaultImpressScenarioService {
     /// Everything `impress-scenario::validate` finds, plus — when the
     /// inventory this process links has it — every `call` step naming a
     /// verb that does not exist.
-    fn problems_of(&self, raw: &serde_json::Value) -> (Option<impress_scenario::Scenario>, Vec<impress_scenario::Problem>) {
+    fn problems_of(
+        &self,
+        raw: &serde_json::Value,
+    ) -> (
+        Option<impress_scenario::Scenario>,
+        Vec<impress_scenario::Problem>,
+    ) {
         let parsed: Result<impress_scenario::Scenario, _> = serde_json::from_value(raw.clone());
         let Ok(scenario) = parsed else {
             return (

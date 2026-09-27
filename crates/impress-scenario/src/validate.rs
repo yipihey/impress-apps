@@ -177,7 +177,9 @@ mod tests {
     #[test]
     fn empty_steps_is_a_problem() {
         let problems = validate(&base(vec![]));
-        assert!(problems.iter().any(|p| p.message.contains("at least one step")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("at least one step")));
     }
 
     #[test]

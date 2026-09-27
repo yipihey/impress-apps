@@ -53,7 +53,12 @@ impl ScenarioStore {
     /// Create one row. `impress-scenario::validate` must have already been
     /// run by the caller (`ImpressScenarioService::scenario_create` does
     /// this before ever reaching the store).
-    pub fn create(&self, spec: &Scenario, tags: &[String], actor: ActorKind) -> Result<ScenarioRow> {
+    pub fn create(
+        &self,
+        spec: &Scenario,
+        tags: &[String],
+        actor: ActorKind,
+    ) -> Result<ScenarioRow> {
         let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
         payload.insert(
             field::SCENARIO_ID.into(),
@@ -119,10 +124,7 @@ impl ScenarioStore {
     /// `run_selftest`/`scenario-service_run` addresses (SC-1: the id, not
     /// the store's own `ItemId`, is stable).
     pub fn get_by_scenario_id(&self, scenario_id: &str) -> Result<Option<ScenarioRow>> {
-        Ok(self
-            .list()?
-            .into_iter()
-            .find(|r| r.spec.id == scenario_id))
+        Ok(self.list()?.into_iter().find(|r| r.spec.id == scenario_id))
     }
 
     pub fn list(&self) -> Result<Vec<ScenarioRow>> {

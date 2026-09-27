@@ -79,6 +79,9 @@ use impress_memory_service as _force_link_memory_service;
 #[cfg(feature = "parsers")]
 #[allow(unused_imports)]
 use impress_parsers_service as _force_link_parsers_service;
+#[cfg(feature = "scenario")]
+#[allow(unused_imports)]
+use impress_scenario_service as _force_link_scenario_service;
 #[cfg(feature = "smart-search")]
 #[allow(unused_imports)]
 use impress_smart_search_service as _force_link_smart_search_service;
@@ -91,9 +94,6 @@ use imprint_service as _force_link_imprint_service;
 #[cfg(feature = "vw")]
 #[allow(unused_imports)]
 use vw_impress_adapter as _force_link_vw_impress_adapter;
-#[cfg(feature = "scenario")]
-#[allow(unused_imports)]
-use impress_scenario_service as _force_link_scenario_service;
 
 /// Force the linker to retain every enabled service crate's `inventory::submit!`
 /// entries.

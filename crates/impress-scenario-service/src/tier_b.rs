@@ -70,7 +70,8 @@ impl Caller for TierBCaller {
                     .get("ordinal")
                     .cloned()
                     .ok_or_else(|| "`apply-layout-by-ordinal` needs `ordinal`".to_string())?;
-                self.op(json!({"op": "apply-layout", "ordinal": ordinal})).await?
+                self.op(json!({"op": "apply-layout", "ordinal": ordinal}))
+                    .await?
             }
             "layout-service_save-layout" => {
                 let mut body = json!({"op": "save-layout"});
@@ -85,11 +86,17 @@ impl Caller for TierBCaller {
             "layout-service_commit" => self.op(json!({"op": "commit"})).await?,
             "layout-service_get-layout" => {
                 let (status, value) = self.http.get("/api/layout/tree").await?;
-                CallOutcome { result: value, status: Some(status) }
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
             }
             "layout-service_list-layouts" => {
                 let (status, value) = self.http.get("/api/layout/layouts").await?;
-                CallOutcome { result: value, status: Some(status) }
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
             }
             other if other.starts_with("layout-service_") => {
                 // Everything else is a `Verb` (split/resize/swap/close/…):
@@ -106,11 +113,17 @@ impl Caller for TierBCaller {
                     .http
                     .post(&format!("/api/surface/{id}/dispatch"), &args)
                     .await?;
-                CallOutcome { result: value, status: Some(status) }
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
             }
             "surface-service_surface-list" => {
                 let (status, value) = self.http.get("/api/surface").await?;
-                CallOutcome { result: value, status: Some(status) }
+                CallOutcome {
+                    result: value,
+                    status: Some(status),
+                }
             }
             other => {
                 return Err(format!(
@@ -133,7 +146,10 @@ impl Caller for TierBCaller {
             .post(&format!("/api/surface/{}/dispatch", event.surface), &body)
             .await?;
         self.wrote.insert("impress/ui/surface@1.0.0".to_string());
-        Ok(CallOutcome { result: value, status: Some(status) })
+        Ok(CallOutcome {
+            result: value,
+            status: Some(status),
+        })
     }
 
     async fn gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
@@ -143,7 +159,8 @@ impl Caller for TierBCaller {
     async fn wait(&mut self, wait: &WaitBody) -> Result<(), String> {
         match wait {
             WaitBody::Log { log } => {
-                let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(log.timeout_ms);
+                let deadline =
+                    tokio::time::Instant::now() + std::time::Duration::from_millis(log.timeout_ms);
                 loop {
                     let (status, value) = self
                         .http
@@ -169,7 +186,11 @@ impl Caller for TierBCaller {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 }
             }
-            WaitBody::Job { job, state, timeout_ms } => Err(format!(
+            WaitBody::Job {
+                job,
+                state,
+                timeout_ms,
+            } => Err(format!(
                 "`wait.job` is not supported yet (no job endpoint this caller reaches): \
                  job={job} state={state} timeout_ms={timeout_ms}"
             )),
@@ -191,12 +212,18 @@ impl Caller for TierBCaller {
 impl TierBCaller {
     async fn op(&mut self, body: Value) -> Result<CallOutcome, String> {
         let (status, value) = self.http.post("/api/layout/op", &body).await?;
-        Ok(CallOutcome { result: value, status: Some(status) })
+        Ok(CallOutcome {
+            result: value,
+            status: Some(status),
+        })
     }
 
     async fn verb(&mut self, body: Value) -> Result<CallOutcome, String> {
         let (status, value) = self.http.post("/api/layout/verb", &body).await?;
-        Ok(CallOutcome { result: value, status: Some(status) })
+        Ok(CallOutcome {
+            result: value,
+            status: Some(status),
+        })
     }
 }
 

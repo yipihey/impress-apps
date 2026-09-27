@@ -36,8 +36,8 @@ pub struct TierACaller {
 
 impl TierACaller {
     pub fn open() -> Result<Self, String> {
-        let store = SqliteItemStore::open_in_memory()
-            .map_err(|e| format!("open scratch store: {e}"))?;
+        let store =
+            SqliteItemStore::open_in_memory().map_err(|e| format!("open scratch store: {e}"))?;
         Ok(Self {
             store: Arc::new(store),
         })
@@ -76,9 +76,11 @@ impl Caller for TierACaller {
     }
 
     async fn event(&mut self, _event: &EventBody) -> Result<CallOutcome, String> {
-        Err("a `event` step needs a surface-hosting store per scenario, not yet supported in \
+        Err(
+            "a `event` step needs a surface-hosting store per scenario, not yet supported in \
              Tier A (S1); run this scenario in Tier B"
-            .to_string())
+                .to_string(),
+        )
     }
 
     async fn gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
