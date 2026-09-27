@@ -4329,6 +4329,7 @@ dependencies = [
  "html-escape",
  "impel-core",
  "impress-core",
+ "impress-fs-lock",
  "impress-workspace-hack",
  "mockito",
  "regex",
@@ -4583,6 +4584,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-fs-lock"
+version = "0.1.0"
+dependencies = [
+ "impress-workspace-hack",
+ "tempfile",
+]
+
+[[package]]
 name = "impress-git"
 version = "0.1.0"
 dependencies = [
@@ -4804,6 +4813,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-settings"
+version = "0.1.0"
+dependencies = [
+ "impress-fs-lock",
+ "impress-surface",
+ "impress-workspace-hack",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "impress-smart-search"
 version = "0.1.0"
 dependencies = [
@@ -4865,6 +4887,7 @@ dependencies = [
  "impress-layout",
  "impress-layout-service",
  "impress-service-core",
+ "impress-settings",
  "impress-store-service",
  "impress-surface",
  "impress-surface-service",
@@ -4891,7 +4914,10 @@ dependencies = [
  "impress-core",
  "impress-service-core",
  "impress-service-macros",
+ "impress-settings",
+ "impress-surface",
  "impress-workspace-hack",
+ "log",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4926,6 +4952,7 @@ dependencies = [
  "impress-layout-service",
  "impress-service-core",
  "impress-service-macros",
+ "impress-settings",
  "impress-store-service",
  "impress-surface",
  "impress-workspace-hack",

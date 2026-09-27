@@ -63,6 +63,7 @@ prints the row as it should now read.
 | `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 0 |
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 0 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 0 |
+| `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 0 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 0 |
 | `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 0 |
@@ -70,7 +71,7 @@ prints the row as it should now read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 0 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 0 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 0 |
-| **Total** | 17 crates, 39 services | **439** | **439** | **1012 (674)** | **90** | **51** |
+| **Total** | 17 crates, 40 services | **445** | **445** | **1018 (679)** | **96** | **57** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -92,9 +93,9 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `array-of-scalars` | 49 |
 | `inline-object` | 4 |
 | `map` | 2 |
-| `other` | 3 |
+| `other` | 4 |
 | `ref-object` | 40 |
-| `scalar` | 911 |
+| `scalar` | 916 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -164,6 +165,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-domain` | library | should-be-verb | `citation_reference::{create_citation_reference, citation_to_typst, citation_to_latex, create_citation_batch}` are Swift-only |
 | `impress-embeddings` | library | should-be-verb | `ChunkIndex::{search, search_scoped}` reach agents only through `impress-mcp`'s hand-written `search_papers` / `get_paper_chunks` |
 | `impress-flags` | library | should-be-verb | `query::{parse_flag_query, FlagQuery::matches}` and `parse::parse_flag_command` have no verb |
+| `impress-fs-lock` | library | internal | the advisory `flock` `impress-ai` and `impress-settings` share (ADR-0036 D-R8); a lock is not a capability |
 | `impress-git` | library | should-be-verb | `commands::{status_cmd, commit_cmd, log_cmd, diff_cmd, push_cmd, pull_cmd, clone_cmd}` and the porcelain parsers have no verb |
 | `impress-helix` | library | internal | `HelixState` / `FfiHelixEditor::handle_key` is a keystroke state machine, UI only |
 | `impress-identifiers` | ffi | internal | Swift-only `*_ffi` shims over `im-identifiers` (the gap is `im-identifiers`' row) |
@@ -184,6 +186,7 @@ and the implore owner decides between verbs and deletion.
 | `impress-sources` | library | should-be-verb | `SourcePlugin::{search, fetch_by_doi}` for arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar have no Rust verb; `search_sources` refuses when the app is down |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
+| `impress-settings` | library | covered-through | `settings-service` (in `impress-store-service`) exposes the registry, its files and the generated pane; the registry itself is data |
 | `impress-surface` | library | covered-through | `impress-surface-service` exposes plan/resolve/reduce over it |
 | `impress-surface-service` | verb-crate | verb-crate | |
 | `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |

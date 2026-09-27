@@ -38,8 +38,8 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 439 verbs declared; 69 verified by example, 93 by a Tier A
-catalogue, 277 on the exception table.
+Counts today: 445 verbs declared; 69 verified by example, 93 by a Tier A
+catalogue, 283 on the exception table.
 
 ## Every verb
 
@@ -439,6 +439,12 @@ catalogue, 277 on the exception table.
 | `parsers-service_list-publisher-rules` | — | — | — | example ×1 |
 | `parsers-service_parse-mbox` | — | — | — | — |
 | `parsers-service_resolve-publisher-pdf` | — | — | network | — |
+| `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |
+| `settings-service_list` | "impress/settings@1.0.0" | — | fs | — |
+| `settings-service_reset` | — | "impress/settings@1.0.0" | fs | — |
+| `settings-service_schema` | — | — | — | — |
+| `settings-service_set` | — | "impress/settings@1.0.0" | fs | — |
+| `settings-service_surface` | "impress/settings@1.0.0" | — | fs | — |
 | `smart-search-service_build-ads-query` | — | — | — | — |
 | `smart-search-service_classify-search-input` | — | — | — | — |
 | `smart-search-service_clean-ads-query` | — | — | — | example ×1 |
@@ -738,6 +744,12 @@ when one lands).
 | `parsers-service_extract-landing-page-pdf` | no example |
 | `parsers-service_parse-mbox` | no example |
 | `parsers-service_resolve-publisher-pdf` | leaves the process (network) |
+| `settings-service_get` | no example |
+| `settings-service_list` | no example |
+| `settings-service_reset` | no example |
+| `settings-service_schema` | no example |
+| `settings-service_set` | no example |
+| `settings-service_surface` | no example |
 | `smart-search-service_build-ads-query` | no example |
 | `smart-search-service_classify-search-input` | no example |
 | `smart-search-service_extract-page-identifiers` | no example |

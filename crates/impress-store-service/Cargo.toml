@@ -15,6 +15,11 @@ impress-service-macros = { workspace = true }
 # impress-store-ffi can front it too) and its DTOs cross this crate's
 # `#[impress_method]` boundary, which needs `schemars::JsonSchema` on them.
 impress-core = { workspace = true, features = ["sqlite", "schema", "collab"] }
+# The settings registry and its files (ADR-0036 D5); `settings_service.rs`
+# adds the verbs, the process-wide instance and the synced store row.
+impress-settings = { workspace = true }
+impress-surface = { workspace = true }
+log = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
