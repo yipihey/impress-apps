@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use impress_service_core::pipeline::context;
 use impress_service_core::provider::ProviderConnection;
+use impress_service_core::provider::SchemaValidator;
 use impress_service_core::refusal::{codes, Refusal};
 use impress_service_core::registry_runtime::{self, HealthFuture, ProviderInvoker};
 use impress_service_core::ServiceFuture;
@@ -17,6 +18,68 @@ use serde_json::Value;
 use url::{Host, Url};
 
 use crate::{CALL_TIMEOUT, PROBE_TIMEOUT};
+
+/// Host-only definition validator for descriptors submitted at runtime.
+/// The pure service registry injects this implementation; no kit crate gains
+/// a JSON Schema engine or access to external schema resources.
+#[derive(Default)]
+pub struct JsonSchemaValidator;
+
+struct DenyExternalSchemas;
+
+impl jsonschema::Retrieve for DenyExternalSchemas {
+    fn retrieve(
+        &self,
+        _uri: &jsonschema::Uri<String>,
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        Err("external JSON Schema references are not allowed".into())
+    }
+}
+
+impl SchemaValidator for JsonSchemaValidator {
+    fn validate(&self, schema: &Value) -> Result<(), String> {
+        const MAX_BYTES: usize = 128 * 1024;
+        const MAX_DEPTH: usize = 64;
+        const MAX_NODES: usize = 8192;
+        let mut pending = vec![(schema, 0_usize)];
+        let mut nodes = 0_usize;
+        while let Some((value, depth)) = pending.pop() {
+            nodes += 1;
+            if depth > MAX_DEPTH || nodes > MAX_NODES {
+                return Err("JSON Schema exceeds the provider size or depth limit".into());
+            }
+            match value {
+                Value::Array(values) => {
+                    pending.extend(values.iter().map(|value| (value, depth + 1)))
+                }
+                Value::Object(fields) => {
+                    pending.extend(fields.values().map(|value| (value, depth + 1)))
+                }
+                _ => {}
+            }
+        }
+        if serde_json::to_vec(schema)
+            .map_err(|error| format!("encode JSON Schema: {error}"))?
+            .len()
+            > MAX_BYTES
+        {
+            return Err("JSON Schema exceeds the provider size or depth limit".into());
+        }
+        match jsonschema::meta::try_validate(schema) {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(format!("invalid JSON Schema: {error}")),
+            Err(error) => return Err(format!("unsupported JSON Schema draft: {error}")),
+        }
+        // Do not use validator_for: another workspace crate may enable the
+        // resolver's HTTP/file features through Cargo feature unification.
+        // This explicit retriever fails closed even in such a build.
+        jsonschema::options()
+            .with_retriever(DenyExternalSchemas)
+            .build(schema)
+            .map(|_| ())
+            .map_err(|error| format!("cannot compile JSON Schema: {error}"))
+    }
+}
 
 struct HttpProviderInvoker;
 
@@ -215,6 +278,58 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn json_schema_validator_accepts_local_refs_and_rejects_invalid_definitions() {
+        let validator = JsonSchemaValidator;
+        validator
+            .validate(&json!({
+                "type": "object",
+                "$defs": {"text": {"type": "string"}},
+                "properties": {"text": {"$ref": "#/$defs/text"}}
+            }))
+            .expect("local reference");
+        assert!(validator.validate(&json!({"type": "not-a-type"})).is_err());
+        assert!(validator
+            .validate(&json!({
+                "$schema": "https://example.invalid/unsupported-draft/schema",
+                "type": "object"
+            }))
+            .is_err());
+        assert!(validator.validate(&json!({"type": 42})).is_err());
+    }
+
+    #[tokio::test]
+    async fn external_refs_are_refused_without_http_or_file_retrieval() {
+        let validator = JsonSchemaValidator;
+        let mut server = mockito::Server::new_async().await;
+        let retrieval = server
+            .mock("GET", "/schema.json")
+            .with_status(200)
+            .with_body(r#"{"type":"string"}"#)
+            .expect(0)
+            .create_async()
+            .await;
+        let http = json!({"$ref": format!("{}/schema.json", server.url())});
+        assert!(validator.validate(&http).is_err());
+        assert!(validator
+            .validate(&json!({"$ref": "file:///tmp/provider-schema-must-not-open.json"}))
+            .is_err());
+        retrieval.assert_async().await;
+    }
+
+    #[test]
+    fn oversized_or_overdeep_schemas_are_refused_before_compilation() {
+        let validator = JsonSchemaValidator;
+        assert!(validator
+            .validate(&json!({"type":"object","description":"x".repeat(129 * 1024)}))
+            .is_err());
+        let mut deep = json!({"type": "string"});
+        for _ in 0..70 {
+            deep = json!({"allOf": [deep]});
+        }
+        assert!(validator.validate(&deep).is_err());
+    }
 
     #[test]
     fn only_credential_free_loopback_endpoints_are_accepted() {
