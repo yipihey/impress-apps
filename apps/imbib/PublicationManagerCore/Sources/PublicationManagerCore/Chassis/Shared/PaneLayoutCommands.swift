@@ -126,8 +126,13 @@ enum PaneLayoutChordRouter {
 /// verb. imbib's pre-chassis window keeps its own View ▸ Layouts menu over its
 /// own layout model and does not embed this.
 public struct ImpressLayoutOrdinalButtons: View {
+    private let appID: String?
 
-    public init() {}
+    /// Pass the host app id when its ordinals are seeded in the keymap.
+    /// The default preserves the existing universal chassis chord.
+    public init(appID: String? = nil) {
+        self.appID = appID
+    }
 
     @ViewBuilder
     public var body: some View {
@@ -136,7 +141,8 @@ public struct ImpressLayoutOrdinalButtons: View {
                 PaneLayoutChordRouter.applyOrdinal(ordinal)
             }
             .keyboardShortcut(
-                KeyEquivalent(Character("\(ordinal)")), modifiers: [.control, .command])
+                appID.flatMap { KeymapRegistry.shared.shortcut(for: "\($0).layout.chassis_\(ordinal)") }
+                    ?? KeyboardShortcut(KeyEquivalent(Character("\(ordinal)")), modifiers: [.control, .command]))
         }
     }
 }
@@ -192,14 +198,20 @@ public struct ImpressPaneLayoutButtons: View {
     /// that kept `createCollection` off the kernel in ADR-0022 C2). Default is
     /// the majority spelling; imprint passes its own until someone decides.
     private let listTitle: String
+    private let appID: String
 
     /// Which window model the chords drive. `.layoutTree` for every chassis
     /// app; only imbib's `imbibApp.swift` passes `.imbibPreChassisWindow`.
     private let target: PaneLayoutChordTarget
 
-    public init(listTitle: String = "Toggle List", target: PaneLayoutChordTarget = .layoutTree) {
+    public init(
+        listTitle: String = "Toggle List",
+        target: PaneLayoutChordTarget = .layoutTree,
+        appID: String = "imbib"
+    ) {
         self.listTitle = listTitle
         self.target = target
+        self.appID = appID
     }
 
     /// `@ViewBuilder`, and NO enclosing `Group`. The body is then the same
@@ -209,7 +221,7 @@ public struct ImpressPaneLayoutButtons: View {
     /// flatten in a menu; not depending on that is free.
     @ViewBuilder
     public var body: some View {
-        let chords = Self.chords(listTitle: listTitle)
+        let chords = Self.chords(listTitle: listTitle, appID: appID)
         let target = target
         Button(chords[0].title) {
             PaneLayoutChordRouter.toggle(role: chords[0].role, target: target)
@@ -239,14 +251,16 @@ public struct ImpressPaneLayoutButtons: View {
 public struct ImpressPaneLayoutCommands: Commands {
 
     private let listTitle: String
+    private let appID: String
 
-    public init(listTitle: String = "Toggle List") {
+    public init(listTitle: String = "Toggle List", appID: String = "imbib") {
         self.listTitle = listTitle
+        self.appID = appID
     }
 
     public var body: some Commands {
         CommandGroup(after: .sidebar) {
-            ImpressPaneLayoutButtons(listTitle: listTitle, target: .layoutTree)
+            ImpressPaneLayoutButtons(listTitle: listTitle, target: .layoutTree, appID: appID)
         }
     }
 }
@@ -278,28 +292,27 @@ public extension ImpressPaneLayoutButtons {
     }
 
     /// The published grammar, in menu order. R2b: the key and modifiers are
-    /// read from the keymap registry (`impress-keymap`'s imbib table, the
-    /// only app seeded so far) rather than written here — these three chords
-    /// are the universal layer, identical in every chassis app, so imbib's
-    /// registry ids are simply where the one shared truth currently lives.
-    /// `Self.fallback` is the pre-registry literal, used only if the
+    /// read from the selected app's keymap registry rows rather than written
+    /// here. The default is imbib for existing callers; imprint supplies its
+    /// own app id so these rows have the right ownership and scope.
+    /// The literal fallback is the pre-registry chord, used only if the
     /// registry has no entry (defensive; the registry always does).
-    static func chords(listTitle: String = "Toggle List") -> [Chord] {
+    static func chords(listTitle: String = "Toggle List", appID: String = "imbib") -> [Chord] {
         [
             Chord(
                 title: "Toggle Detail Pane",
-                key: Self.key("imbib.pane.toggle_detail", fallback: "0"),
-                modifiers: Self.modifiers("imbib.pane.toggle_detail", fallback: .command),
+                key: Self.key("\(appID).pane.toggle_detail", fallback: "0"),
+                modifiers: Self.modifiers("\(appID).pane.toggle_detail", fallback: .command),
                 role: "detail"),
             Chord(
                 title: listTitle,
-                key: Self.key("imbib.pane.toggle_list", fallback: "0"),
-                modifiers: Self.modifiers("imbib.pane.toggle_list", fallback: [.command, .option]),
+                key: Self.key("\(appID).pane.toggle_list", fallback: "0"),
+                modifiers: Self.modifiers("\(appID).pane.toggle_list", fallback: [.command, .option]),
                 role: "list"),
             Chord(
                 title: "Toggle Sidebar",
-                key: Self.key("imbib.pane.toggle_sidebar", fallback: "s"),
-                modifiers: Self.modifiers("imbib.pane.toggle_sidebar", fallback: [.control, .command]),
+                key: Self.key("\(appID).pane.toggle_sidebar", fallback: "s"),
+                modifiers: Self.modifiers("\(appID).pane.toggle_sidebar", fallback: [.control, .command]),
                 role: "navigator"),
         ]
     }

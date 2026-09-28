@@ -2,7 +2,7 @@
 //  KeymapRegistryTests.swift
 //  ImpressKeyboardTests
 //
-//  R2b: pins every one of the 66 chords R2a seeded in `impress-keymap`
+//  R2b: pins every one of the 66 imbib chords seeded in `impress-keymap`
 //  against the literal each menu site declares (`imbibApp.swift`,
 //  `PaneLayoutCommands.swift`, `DetachedViews.swift`) — transcribed here,
 //  not read from the live SwiftUI tree (a `Commands` body isn't
@@ -120,12 +120,63 @@ final class KeymapRegistryTests: XCTestCase {
             }
         }
 
-        // Every registry command entry is accounted for above — a new
-        // seeded command with no row here is exactly the drift this test
-        // exists to catch.
-        let seededCommandIDs = Set(registry.entries.filter { $0.target.kind == "command" }.map(\.target.id))
+        // Every imbib command entry is accounted for above; imprint has its
+        // own context and assertions below.
+        let seededCommandIDs = Set(registry.entries(forApp: "imbib")
+            .filter { $0.target.kind == "command" }.map(\.target.id))
         let expectedIDs = Set(Self.expected.map(\.id))
         XCTAssertEqual(seededCommandIDs, expectedIDs, "registry command ids and this test's table have diverged")
+    }
+
+    func testImprintSeededMenuAndWindowChords() {
+        let registry = KeymapRegistry.shared
+        let expected: [(String, KeyEquivalent, EventModifiers)] = [
+            ("imprint.pane.toggle_detail", "0", .command),
+            ("imprint.pane.toggle_list", "0", [.option, .command]),
+            ("imprint.pane.toggle_sidebar", "s", [.control, .command]),
+            ("imprint.edit.find_in_list", "f", .command),
+            ("imprint.edit.build_manuscript", "b", [.option, .command]),
+            ("imprint.view.cycle_edit_mode", .tab, .command),
+        ]
+        for (id, key, modifiers) in expected {
+            guard let entry = registry.entry(for: id), let shortcut = registry.shortcut(for: id) else {
+                XCTFail("missing seeded imprint command \(id)")
+                continue
+            }
+            XCTAssertEqual(entry.scope, "window:imprint", "wrong scope for \(id)")
+            XCTAssertEqual(shortcut.key, key, "wrong key for \(id)")
+            XCTAssertEqual(shortcut.modifiers, modifiers, "wrong modifiers for \(id)")
+        }
+
+        for ordinal in 1...9 {
+            for context in ["chassis", "editor"] {
+                let id = "imprint.layout.\(context)_\(ordinal)"
+                guard let entry = registry.entry(for: id), let shortcut = registry.shortcut(for: id) else {
+                    XCTFail("missing seeded imprint ordinal \(id)")
+                    continue
+                }
+                XCTAssertEqual(entry.scope, "window:imprint.\(context)")
+                XCTAssertEqual(shortcut.key, KeyEquivalent(Character(String(ordinal))))
+                XCTAssertEqual(shortcut.modifiers, [.control, .command])
+            }
+        }
+        XCTAssertEqual(registry.entries(forApp: "imprint").count, 60)
+    }
+
+    func testEntriesForAppUseAnExactScopeBoundary() {
+        let json = """
+        {"wire_version":1,"bindings":[
+          {"chord":"⌘F","scope":"window:imprint","target":{"kind":"command","id":"a"},"label":"A","section":"A","chordless":false},
+          {"chord":"⌃⌘1","scope":"window:imprint.editor","target":{"kind":"command","id":"b"},"label":"B","section":"B","chordless":false},
+          {"chord":"⌘G","scope":"pane:imprint.search","target":{"kind":"command","id":"c"},"label":"C","section":"C","chordless":false},
+          {"chord":"⌘H","scope":"window:imprint2","target":{"kind":"command","id":"d"},"label":"D","section":"D","chordless":false},
+          {"chord":"⌘J","scope":"global","target":{"kind":"command","id":"e"},"label":"E","section":"E","chordless":false}
+        ]}
+        """
+        let registry = KeymapRegistry(json: json)
+        XCTAssertEqual(registry.entries(forApp: "imprint").map(\.target.id), ["a", "b", "c"])
+        XCTAssertEqual(registry.entries(forApp: "imprint2").map(\.target.id), ["d"])
+        XCTAssertTrue(registry.entries(forApp: "").isEmpty)
     }
 
     func testParseRoundTripsSpecialGlyphs() {
@@ -133,6 +184,8 @@ final class KeymapRegistryTests: XCTestCase {
         XCTAssertEqual(KeymapRegistry.parse("\u{232b}")?.key, .delete)
         XCTAssertEqual(KeymapRegistry.parse("\u{2191}")?.key, .upArrow)
         XCTAssertEqual(KeymapRegistry.parse("\u{2193}")?.key, .downArrow)
+        XCTAssertEqual(KeymapRegistry.parse("\u{2318}\u{21e5}")?.key, .tab)
+        XCTAssertEqual(KeymapRegistry.parse("\u{2318}\u{21e5}")?.modifiers, .command)
         XCTAssertEqual(KeymapRegistry.parse("")?.key, nil)
     }
 
