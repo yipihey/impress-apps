@@ -43,6 +43,10 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: ./build-rust.sh
 
+      - name: Build ImploreVerbsFfi xcframework
+        working-directory: crates/implore-verbs-ffi
+        run: ./build-xcframework.sh
+
       - name: Generate Xcode project
         working-directory: apps/implore
         run: xcodegen generate

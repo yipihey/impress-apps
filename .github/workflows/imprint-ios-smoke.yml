@@ -36,7 +36,10 @@ on:
       - 'apps/imprint/Shared/**'
       - 'apps/imprint/project.yml'
       - 'apps/imbib/ImbibVerbsFFI/**'
+      - 'apps/imprint/ImprintVerbsFFI/**'
       - 'crates/imbib-verbs-ffi/**'
+      - 'crates/imprint-verbs-ffi/**'
+      - 'schema-refs.json'
       - '.github/workflows/imprint-ios-smoke.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -110,6 +113,11 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
+
+      - name: ImprintVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-verbs-ffi
 
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework

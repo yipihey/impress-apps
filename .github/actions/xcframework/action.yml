@@ -128,6 +128,19 @@ runs:
             )
             REQUIRED=("$F/ImpartCore.xcframework")
             ;;
+          impart-verbs-ffi)
+            CACHE=(
+              "$F/ImpartVerbsFfi.xcframework"
+              "$F/bindings"
+              "apps/impart/ImpartVerbsFFI/frameworks/ImpartVerbsFfi.xcframework"
+              "apps/impart/ImpartVerbsFFI/Sources/ImpartVerbsFFI/impart_verbs_ffi.swift"
+            )
+            REQUIRED=(
+              "$F/ImpartVerbsFfi.xcframework"
+              "apps/impart/ImpartVerbsFFI/frameworks/ImpartVerbsFfi.xcframework"
+              "apps/impart/ImpartVerbsFFI/Sources/ImpartVerbsFFI/impart_verbs_ffi.swift"
+            )
+            ;;
           impel-tools)
             CACHE=(
               "$F/ImpelTools.xcframework"
@@ -156,6 +169,19 @@ runs:
               "$F/ImploreCore.xcframework"
               "apps/implore/Frameworks/ImploreCore.xcframework"
               "apps/implore/ImploreRustCore/Sources/ImploreRustCore/implore_core.swift"
+            )
+            ;;
+          implore-verbs-ffi)
+            CACHE=(
+              "$F/ImploreVerbsFfi.xcframework"
+              "$F/bindings"
+              "apps/implore/ImploreVerbsFFI/frameworks/ImploreVerbsFfi.xcframework"
+              "apps/implore/ImploreVerbsFFI/Sources/ImploreVerbsFFI/implore_verbs_ffi.swift"
+            )
+            REQUIRED=(
+              "$F/ImploreVerbsFfi.xcframework"
+              "apps/implore/ImploreVerbsFFI/frameworks/ImploreVerbsFfi.xcframework"
+              "apps/implore/ImploreVerbsFFI/Sources/ImploreVerbsFFI/implore_verbs_ffi.swift"
             )
             ;;
           impress-helix)
@@ -191,6 +217,19 @@ runs:
               "$F/ImprintCore.xcframework"
               "apps/imprint/Frameworks/ImprintCore.xcframework"
               "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift"
+            )
+            ;;
+          imprint-verbs-ffi)
+            CACHE=(
+              "$F/ImprintVerbsFfi.xcframework"
+              "$F/bindings"
+              "apps/imprint/ImprintVerbsFFI/frameworks/ImprintVerbsFfi.xcframework"
+              "apps/imprint/ImprintVerbsFFI/Sources/ImprintVerbsFFI/imprint_verbs_ffi.swift"
+            )
+            REQUIRED=(
+              "$F/ImprintVerbsFfi.xcframework"
+              "apps/imprint/ImprintVerbsFFI/frameworks/ImprintVerbsFfi.xcframework"
+              "apps/imprint/ImprintVerbsFFI/Sources/ImprintVerbsFFI/imprint_verbs_ffi.swift"
             )
             ;;
           scix-client-ffi)
@@ -269,7 +308,7 @@ runs:
         fi
         # rust-toolchain.toml because the compiler is an input too: without
         # it a pin bump restored frameworks the old rustc built.
-        sha=$(git ls-files -s -- $dirs Cargo.toml Cargo.lock rust-toolchain.toml \
+        sha=$(git ls-files -s -- $dirs Cargo.toml Cargo.lock rust-toolchain.toml schema-refs.json \
                 "crates/$CRATE/build-xcframework.sh" scripts/native-sqlite.sh .github/actions/xcframework/action.yml \
               | shasum -a 256 | cut -d' ' -f1)
         echo "scope=crate" >> "$GITHUB_OUTPUT"
@@ -287,7 +326,7 @@ runs:
       id: key
       shell: bash
       env:
-        KEY: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh', 'scripts/native-sqlite.sh') }}
+        KEY: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'schema-refs.json', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh', 'scripts/native-sqlite.sh') }}
       run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
     - name: Restore ${{ inputs.crate }} xcframework
