@@ -95,6 +95,42 @@ fn restore_literals(value: Value, literals: &[(String, String)]) -> Value {
     }
 }
 
+/// Encode recorded argument strings so replay does not reinterpret their
+/// literal templates as scenario captures. Refuse text that cannot round-trip.
+pub fn escape_literals(value: &Value) -> Result<Value, String> {
+    fn walk(value: &Value) -> Value {
+        match value {
+            Value::String(text) => {
+                let mut rest = text.as_str();
+                let mut out = String::new();
+                while let Some(start) = rest.find("{{") {
+                    let tail = &rest[start + 2..];
+                    let Some(end) = tail.find("}}") else {
+                        break;
+                    };
+                    out.push_str(&rest[..start]);
+                    out.push_str("{{!");
+                    out.push_str(&tail[..end]);
+                    out.push_str("}}");
+                    rest = &tail[end + 2..];
+                }
+                out.push_str(rest);
+                Value::String(out)
+            }
+            Value::Array(values) => Value::Array(values.iter().map(walk).collect()),
+            Value::Object(values) => {
+                Value::Object(values.iter().map(|(k, v)| (k.clone(), walk(v))).collect())
+            }
+            value => value.clone(),
+        }
+    }
+    let escaped = walk(value);
+    if resolve(&escaped, &Value::Null)? != *value {
+        return Err("literal templates did not round-trip".into());
+    }
+    Ok(escaped)
+}
+
 /// Walk `value`, replacing every literal occurrence of `{{uuid}}` inside a
 /// string with a freshly minted v4 UUID. Two occurrences in the same string
 /// get two different values — a scenario that wants the same generated
