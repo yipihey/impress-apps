@@ -122,7 +122,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 ///
 /// API Endpoints (DELETE):
 /// - `DELETE /api/papers` - Delete papers
-/// - `DELETE /api/collections/{id}` - Delete a collection
 /// - `DELETE /api/libraries/{id}` - Delete a single library (papers unlinked, undoable)
 /// - `DELETE /api/libraries` - Batch delete libraries (body: `{"identifiers":[UUID,…],"deleteFiles":false}`)
 /// - `DELETE /api/smart-searches/{id}` - Delete a smart search (Exploration row); papers untouched
@@ -474,14 +473,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleListMutedItems(request)
         }
 
-        // GET /api/libraries/default
-        if path == "/api/libraries/default" {
-            return await handleGetDefaultLibrary()
-        }
-        // GET /api/libraries/inbox
-        if path == "/api/libraries/inbox" {
-            return await handleGetInboxLibrary()
-        }
         // GET /api/libraries/{id}/export-bibtex
         if path.hasPrefix("/api/libraries/") && path.hasSuffix("/export-bibtex") {
             let segment = String(originalPath.dropFirst("/api/libraries/".count).dropLast("/export-bibtex".count))
@@ -965,30 +956,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if path == "/api/papers/find-by-identifiers" {
             return await handleFindByIdentifiers(request)
         }
-        // POST /api/libraries/{id}/set-default
-        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/set-default") {
-            let segment = String(path.dropFirst("/api/libraries/".count).dropLast("/set-default".count))
-            guard let libraryID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid library ID")
-            }
-            return await handleSetLibraryDefault(libraryID: libraryID)
-        }
-        // POST /api/libraries/{id}/deduplicate
-        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/deduplicate") {
-            let segment = String(path.dropFirst("/api/libraries/".count).dropLast("/deduplicate".count))
-            guard let libraryID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid library ID")
-            }
-            return await handleDeduplicateLibrary(libraryID: libraryID)
-        }
-        // POST /api/collections/{id}/purge-dismissed
-        if path.hasPrefix("/api/collections/") && path.hasSuffix("/purge-dismissed") {
-            let segment = String(path.dropFirst("/api/collections/".count).dropLast("/purge-dismissed".count))
-            guard let collectionID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid collection ID")
-            }
-            return await handlePurgeDismissedFromCollection(collectionID: collectionID)
-        }
         // POST /api/dismissed-papers — body has identifiers
         if path == "/api/dismissed-papers" {
             return await handleDismissPaper(request)
@@ -996,10 +963,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         // POST /api/muted-items
         if path == "/api/muted-items" {
             return await handleCreateMutedItem(request)
-        }
-        // POST /api/tags
-        if path == "/api/tags" {
-            return await handleCreateTag(request)
         }
         // POST /api/smart-searches
         if path == "/api/smart-searches" {
@@ -1160,18 +1123,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
 
         // ===== Phase D: tag CRUD + artifact update =====
-        // PUT /api/tags/{path}/rename
-        if path.hasPrefix("/api/tags/") && path.hasSuffix("/rename") {
-            let raw = String(originalPath.dropFirst("/api/tags/".count).dropLast("/rename".count))
-            let tagPath = raw.removingPercentEncoding ?? raw
-            return await handleRenameTag(oldPath: tagPath, request: request)
-        }
-        // PUT /api/tags/{path} — color update
-        if path.hasPrefix("/api/tags/") && !path.hasSuffix("/rename") {
-            let raw = String(originalPath.dropFirst("/api/tags/".count))
-            let tagPath = raw.removingPercentEncoding ?? raw
-            return await handleUpdateTag(path: tagPath, request: request)
-        }
         // PUT /api/artifacts/{id} (NOT /tags) — update fields
         if path.hasPrefix("/api/artifacts/")
             && !path.hasSuffix("/tags")
@@ -1330,14 +1281,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleDeleteComment(commentID: commentID)
         }
 
-        // ===== Phase D additions: tag delete, scix-library remove =====
-        // DELETE /api/tags/{path}
-        if path.hasPrefix("/api/tags/") {
-            let raw = String(originalPath.dropFirst("/api/tags/".count))
-            let tagPath = raw.removingPercentEncoding ?? raw
-            return await handleDeleteTag(path: tagPath)
-        }
-
         // DELETE /api/papers/{citeKey}/files/{linkedFileId}
         if path.hasPrefix("/api/papers/"),
            let filesRange = originalPath.range(of: "/files/", options: .caseInsensitive) {
@@ -1399,14 +1342,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleDeleteArtifact(id: artifactID)
         }
 
-        // DELETE /api/collections/{id}
-        if path.hasPrefix("/api/collections/") {
-            let segment = String(originalPath.dropFirst("/api/collections/".count))
-            guard let collectionID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid collection ID")
-            }
-            return await handleDeleteCollection(collectionID: collectionID)
-        }
 
         // DELETE /api/smart-searches (batch — must precede single-id route)
         if path == "/api/smart-searches" {
@@ -2448,7 +2383,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "PUT /api/papers/{citeKey}/notes": "Update notes (body: notes)",
                 // DELETE endpoints
                 "DELETE /api/papers": "Delete papers (body: identifiers)",
-                "DELETE /api/collections/{id}": "Delete a collection",
                 "DELETE /api/comments/{id}": "Delete a comment",
                 "DELETE /api/assignments/{id}": "Delete an assignment",
                 "DELETE /api/libraries/{id}/share": "Unshare a library (body: keepCopy?)",
