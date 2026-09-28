@@ -328,8 +328,8 @@ mod tests {
     fn both_schemas_register() {
         let mut reg = SchemaRegistry::new();
         register_watched_folder_schemas(&mut reg);
-        assert!(reg.get(WATCHED_FOLDER_SCHEMA).is_some());
-        assert!(reg.get(WATCHED_FILE_SCHEMA).is_some());
+        assert!(reg.get(&WATCHED_FOLDER_SCHEMA).is_some());
+        assert!(reg.get(&WATCHED_FILE_SCHEMA).is_some());
     }
 
     /// The ids ARE the refs writers emit. A rename here without a
@@ -337,8 +337,8 @@ mod tests {
     /// rename that forgets the constants is caught right here.
     #[test]
     fn ids_are_the_canonical_versioned_refs() {
-        assert_eq!(watched_folder_schema().id, "watched-folder@1.0.0");
-        assert_eq!(watched_file_schema().id, "watched-file@1.0.0");
+        assert_eq!(watched_folder_schema().id, WATCHED_FOLDER_SCHEMA);
+        assert_eq!(watched_file_schema().id, WATCHED_FILE_SCHEMA);
         assert_eq!(WATCHED_FOLDER_SCHEMA, watched_folder_schema().id);
         assert_eq!(WATCHED_FILE_SCHEMA, watched_file_schema().id);
     }

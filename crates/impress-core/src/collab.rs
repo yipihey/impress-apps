@@ -762,7 +762,7 @@ mod tests {
         let now = Utc::now();
         let item = Item {
             id: Uuid::new_v4(),
-            schema: "manuscript".into(),
+            schema: crate::schema::refs::MANUSCRIPT,
             payload,
             created: now,
             modified: now,

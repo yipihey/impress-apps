@@ -550,7 +550,7 @@ mod tests {
 
     fn insert(
         store: &SqliteItemStore,
-        schema: &str,
+        schema: impl AsRef<str>,
         fields: &[(&str, Value)],
         parent: Option<ItemId>,
     ) -> ItemId {
@@ -558,7 +558,7 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_string(), v.clone()))
             .collect();
-        let mut item = new_item(store, schema, payload);
+        let mut item = new_item(store, schema.as_ref(), payload);
         item.parent = parent;
         store.insert(item).expect("insert")
     }

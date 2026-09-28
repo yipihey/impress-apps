@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn compile_schema_filter() {
         let q = ItemQuery {
-            schema: Some("bibliography-entry".into()),
+            schema: Some(crate::schema::refs::BIBLIOGRAPHY_ENTRY),
             ..Default::default()
         };
         let compiled = compile_query(&q);

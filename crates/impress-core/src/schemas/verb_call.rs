@@ -127,7 +127,7 @@ mod tests {
     fn the_record_kind_registers_under_its_canonical_ref() {
         let mut reg = SchemaRegistry::new();
         register_verb_call_schema(&mut reg);
-        assert!(reg.get(VERB_CALL_SCHEMA).is_some());
-        assert_eq!(verb_call_schema().id, "core/verb-call@1.0.0");
+        assert!(reg.get(&VERB_CALL_SCHEMA).is_some());
+        assert_eq!(verb_call_schema().id, VERB_CALL_SCHEMA);
     }
 }

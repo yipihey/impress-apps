@@ -631,7 +631,7 @@ mod tests {
         append_event(&s, id, "x", &json!({}), "t").unwrap();
         let event = event_row_id(id, 1);
         assert!(
-            matches!(get_job(&s, event), Err(JobError::NotATask(_, k)) if k == TASK_EVENT_SCHEMA)
+            matches!(get_job(&s, event), Err(JobError::NotATask(_, k)) if k == TASK_EVENT_SCHEMA.as_str())
         );
         assert!(matches!(
             get_job(&s, Uuid::new_v4()),

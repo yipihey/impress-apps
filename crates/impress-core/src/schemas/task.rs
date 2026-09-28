@@ -340,10 +340,10 @@ mod tests {
     fn task_schemas_register() {
         let mut reg = SchemaRegistry::new();
         register_task_schemas(&mut reg);
-        assert!(reg.get(TASK_SCHEMA).is_some());
-        assert!(reg.get(AGENT_RUN_SCHEMA).is_some());
-        assert!(reg.get(TASK_EVENT_SCHEMA).is_some());
-        assert_eq!(task_event_schema().id, "task-event@1.0.0");
+        assert!(reg.get(&TASK_SCHEMA).is_some());
+        assert!(reg.get(&AGENT_RUN_SCHEMA).is_some());
+        assert!(reg.get(&TASK_EVENT_SCHEMA).is_some());
+        assert_eq!(task_event_schema().id, TASK_EVENT_SCHEMA);
     }
 
     /// impel's entry point registers the pair impel writes and nothing
@@ -353,14 +353,14 @@ mod tests {
     fn the_if_absent_entry_point_registers_only_the_pair() {
         let mut reg = SchemaRegistry::new();
         register_task_schemas_if_absent(&mut reg);
-        assert!(reg.get(TASK_SCHEMA).is_some());
-        assert!(reg.get(TASK_EVENT_SCHEMA).is_none());
+        assert!(reg.get(&TASK_SCHEMA).is_some());
+        assert!(reg.get(&TASK_EVENT_SCHEMA).is_none());
         // And it composes with the full registration in either order.
         register_task_schemas_if_absent(&mut reg);
         let mut full = SchemaRegistry::new();
         register_task_schemas(&mut full);
         register_task_schemas_if_absent(&mut full);
-        assert!(full.get(TASK_EVENT_SCHEMA).is_some());
+        assert!(full.get(&TASK_EVENT_SCHEMA).is_some());
     }
 
     /// The job fields a `task@1.0.0` row carries (ADR-0034 D6) are
@@ -381,8 +381,8 @@ mod tests {
     /// caught right here.
     #[test]
     fn ids_are_the_canonical_versioned_refs() {
-        assert_eq!(task_schema().id, "task@1.0.0");
-        assert_eq!(agent_run_schema().id, "agent-run@1.0.0");
+        assert_eq!(task_schema().id, TASK_SCHEMA);
+        assert_eq!(agent_run_schema().id, AGENT_RUN_SCHEMA);
         assert_eq!(TASK_SCHEMA, task_schema().id);
         assert_eq!(AGENT_RUN_SCHEMA, agent_run_schema().id);
     }

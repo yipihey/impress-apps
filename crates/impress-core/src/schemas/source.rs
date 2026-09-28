@@ -310,7 +310,7 @@ mod tests {
             CONTENT_CHUNK_SCHEMA,
             FIGURE_REGION_SCHEMA,
         ] {
-            assert!(registry.get(id).is_some(), "missing {id}");
+            assert!(registry.get(&id).is_some(), "missing {id}");
         }
     }
 

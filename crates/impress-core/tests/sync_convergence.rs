@@ -86,11 +86,19 @@ fn open_store(author: &str) -> SqliteItemStore {
     .unwrap()
 }
 
-fn make_item(id: Uuid, schema: &str, author: &str, payload: BTreeMap<String, Value>) -> Item {
+#[path = "support/schema_fixture.rs"]
+mod schema_fixture;
+
+fn make_item(
+    id: Uuid,
+    schema: impl AsRef<str>,
+    author: &str,
+    payload: BTreeMap<String, Value>,
+) -> Item {
     let now = Utc::now();
     Item {
         id,
-        schema: schema.into(),
+        schema: schema_fixture::decode(schema),
         payload,
         created: now,
         modified: now,

@@ -250,7 +250,7 @@ mod tests {
         let now = chrono::Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: "throughline".into(),
+            schema: crate::schema::refs::THROUGHLINE,
             payload,
             created: now,
             modified: now,

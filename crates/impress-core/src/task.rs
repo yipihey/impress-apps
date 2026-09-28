@@ -176,7 +176,7 @@ mod tests {
         payload.insert("state".to_string(), Value::String(state.into()));
         Item {
             id: Uuid::new_v4(),
-            schema: "task@1.0.0".into(),
+            schema: crate::schema::refs::TASK,
             payload,
             created: Utc::now(),
             modified: Utc::now(),

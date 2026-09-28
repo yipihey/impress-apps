@@ -6093,13 +6093,19 @@ mod tests {
     use std::collections::BTreeMap;
     use uuid::Uuid;
 
+    // Compatibility fixtures include opaque names and intentionally invalid
+    // exact-match filters, which only the stored-row decoder may construct.
+    fn fixture_schema(name: &str) -> crate::SchemaRef {
+        crate::SchemaRef::from_stored(name.to_owned())
+    }
+
     fn make_item(schema: &str, title: &str) -> Item {
         let mut payload = BTreeMap::new();
         payload.insert("title".into(), Value::String(title.into()));
         payload.insert("author_text".into(), Value::String("Test Author".into()));
         Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema: fixture_schema(schema),
             payload,
             created: Utc::now(),
             modified: Utc::now(),
@@ -6171,7 +6177,7 @@ mod tests {
             .unwrap();
 
         let q = ItemQuery {
-            schema: Some("bibliography-entry".into()),
+            schema: Some(crate::schema::refs::BIBLIOGRAPHY_ENTRY),
             ..Default::default()
         };
         let results = store.query(&q).unwrap();
@@ -6492,7 +6498,7 @@ mod tests {
             .subscribe(ItemQuery {
                 // schema-ref-lint:allow — not a real ref; this asserts the
                 // subscribe filter is EXACT and not a prefix match.
-                schema: Some("task@".into()),
+                schema: Some(fixture_schema("task@")),
                 ..Default::default()
             })
             .unwrap();
@@ -6964,7 +6970,7 @@ mod tests {
         // are independent, and L4 must not have widened `subscribe`.
         let tasks_only = store
             .subscribe(ItemQuery {
-                schema: Some("task@1.0.0".into()),
+                schema: Some(crate::schema::refs::TASK),
                 ..Default::default()
             })
             .unwrap();
@@ -7713,7 +7719,7 @@ mod tests {
 
         // Operation item should exist
         let op_item = store.get(op_id).unwrap().unwrap();
-        assert_eq!(op_item.schema, "core/operation");
+        assert_eq!(op_item.schema, crate::schema::refs::CORE_OPERATION);
         assert_eq!(
             op_item.payload.get("op_type"),
             Some(&Value::String("add_tag".into()))
@@ -8216,7 +8222,7 @@ mod tests {
 
         // Schema should now be namespaced
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(crate::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             ..Default::default()
         };
         let results = store.query(&q).unwrap();
@@ -8568,7 +8574,7 @@ mod tests {
 
         // Filter by schema to exclude operation items created by update()
         let q = ItemQuery {
-            schema: Some("test".into()),
+            schema: Some(fixture_schema("test")),
             ..Default::default()
         };
         let results = store.query(&q).unwrap();
@@ -8619,7 +8625,7 @@ mod tests {
             .unwrap();
 
         let q = ItemQuery {
-            schema: Some("test".into()),
+            schema: Some(fixture_schema("test")),
             ..Default::default()
         };
         let results = store.query(&q).unwrap();
@@ -8652,7 +8658,7 @@ mod tests {
         }
 
         let q = ItemQuery {
-            schema: Some("test".into()),
+            schema: Some(fixture_schema("test")),
             ..Default::default()
         };
         let results = store.query(&q).unwrap();
@@ -8816,7 +8822,7 @@ mod tests {
         }
 
         let unread_query = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(crate::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![
                 Predicate::ReferencedBy(EdgeType::Contains, uuid::Uuid::new_v4()),
                 Predicate::IsRead(false),
@@ -8976,7 +8982,7 @@ mod tests {
         store.insert_batch(rare).unwrap();
 
         let q = ItemQuery {
-            schema: Some("citation-usage".into()),
+            schema: Some(crate::schema::refs::CITATION_USAGE),
             sort: vec![crate::query::SortDescriptor {
                 field: "created".into(),
                 ascending: false,
@@ -9052,7 +9058,7 @@ mod tests {
             handles.push(thread::spawn(move || {
                 for _ in 0..iterations_per_thread {
                     let q = ItemQuery {
-                        schema: Some("bibliography-entry".into()),
+                        schema: Some(crate::schema::refs::BIBLIOGRAPHY_ENTRY),
                         ..Default::default()
                     };
                     let n = store.count(&q).expect("count should not fail");
@@ -9292,7 +9298,7 @@ mod tests {
         // `review-request@1.0.0` is owned by impel-core, which this crate
         // cannot import (the dependency runs the other way). Pin it against
         // the spelling the kernel actually writes instead.
-        assert_eq!(REVIEW_SCHEMA_REF, "review-request@1.0.0");
+        assert_eq!(REVIEW_SCHEMA_REF, crate::schema::refs::REVIEW_REQUEST);
     }
 
     /// Terminal in BOTH vocabularies. The kernel writes
@@ -9444,7 +9450,7 @@ mod tests {
         let seen = b.items_modified_since("impress/ui/", since_ms).unwrap();
         assert_eq!(seen.len(), 1, "only the impress/ui/ row should match");
         assert_eq!(seen[0].id, id);
-        assert_eq!(seen[0].schema, "impress/ui/layout@1.0.0");
+        assert_eq!(seen[0].schema, crate::schema::refs::IMPRESS_UI_LAYOUT);
 
         // Advancing the watermark to (at least) what was just returned finds
         // nothing more — the pattern the feed's high-water mark relies on.

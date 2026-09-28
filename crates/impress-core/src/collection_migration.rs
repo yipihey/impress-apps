@@ -704,7 +704,7 @@ mod tests {
         payload.insert("title".into(), Value::String(title.into()));
         let item = Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema: crate::SchemaRef::from_stored(schema.to_owned()),
             payload,
             created: now,
             modified: now,
@@ -1727,7 +1727,7 @@ mod tests {
             assert_eq!(off.membership, binding.membership);
 
             let on = binding.resolved(true);
-            assert_eq!(on.schema_ref, COLLECTION_SCHEMA);
+            assert_eq!(on.schema_ref, COLLECTION_SCHEMA.as_str());
             assert_eq!(
                 on.parent_field,
                 crate::collection_ops::ParentField::Payload("parent_id")
@@ -1768,7 +1768,7 @@ mod tests {
         assert!(
             !MIGRATED_BINDINGS
                 .iter()
-                .any(|b| b.schema_ref == COLLECTION_SCHEMA),
+                .any(|b| b.schema_ref == COLLECTION_SCHEMA.as_str()),
             "the generic schema is the destination, never a source"
         );
     }

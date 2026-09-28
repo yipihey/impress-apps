@@ -754,7 +754,7 @@ mod tests {
         payload.insert("title".into(), Value::String(title.into()));
         Item {
             id: uuid::Uuid::new_v4(),
-            schema: "publication@1.0.0".into(),
+            schema: crate::SchemaRef::from_stored("publication@1.0.0".into()),
             payload,
             created: Utc::now(),
             modified: Utc::now(),
@@ -780,7 +780,7 @@ mod tests {
 
     fn publication_query() -> ItemQuery {
         ItemQuery {
-            schema: Some("publication@1.0.0".into()),
+            schema: Some(crate::SchemaRef::from_stored("publication@1.0.0".into())),
             ..ItemQuery::default()
         }
     }

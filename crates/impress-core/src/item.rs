@@ -266,7 +266,7 @@ mod tests {
     fn item_serde_round_trip() {
         let item = Item {
             id: Uuid::new_v4(),
-            schema: "bibliography-entry".into(),
+            schema: crate::schema::refs::BIBLIOGRAPHY_ENTRY,
             payload: {
                 let mut m = BTreeMap::new();
                 m.insert("title".into(), Value::String("A Great Paper".into()));

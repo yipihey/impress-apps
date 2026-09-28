@@ -145,7 +145,7 @@ mod tests {
     fn registers_versioned_with_required_core() {
         let mut reg = SchemaRegistry::new();
         register_manuscript_build_schema(&mut reg);
-        let s = reg.get(MANUSCRIPT_BUILD_SCHEMA_REF).expect("registered");
+        let s = reg.get(&MANUSCRIPT_BUILD_SCHEMA_REF).expect("registered");
         assert_eq!(s.version, "1.0.0");
         for name in ["target_id", "engine", "status", "input_stamp", "started_ms"] {
             assert!(

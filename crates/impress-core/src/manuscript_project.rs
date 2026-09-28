@@ -1335,7 +1335,7 @@ pub fn create_manuscript(
     }
     let item = Item {
         id,
-        schema: "manuscript".into(),
+        schema: crate::schema::refs::MANUSCRIPT,
         payload,
         created: now,
         modified: now,
@@ -1477,7 +1477,7 @@ pub fn create_project_revision(
     let now = Utc::now();
     let revision = Item {
         id: Uuid::new_v4(),
-        schema: "manuscript-revision".into(),
+        schema: crate::schema::refs::MANUSCRIPT_REVISION,
         payload,
         created: now,
         modified: now,

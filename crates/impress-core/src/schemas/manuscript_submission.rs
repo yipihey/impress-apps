@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn manuscript_submission_inherits_task() {
         let s = manuscript_submission_schema();
-        assert_eq!(s.inherits, Some("task@1.0.0".into()));
+        assert_eq!(s.inherits, Some(crate::schema::refs::TASK));
         // …and the parent really is registered under that id, so the link
         // resolves. A bare `task` inherits target resolved to nothing.
         let mut reg = SchemaRegistry::new();

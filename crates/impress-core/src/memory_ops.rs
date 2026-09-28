@@ -1580,17 +1580,20 @@ mod ranking_tests {
     #[test]
     fn kinds_map_to_the_three_canonical_refs_both_ways() {
         for kind in MemoryKind::all() {
-            assert_eq!(MemoryKind::from_schema_ref(kind.schema_ref()), Some(kind));
+            assert_eq!(MemoryKind::from_schema_ref(&kind.schema_ref()), Some(kind));
         }
-        assert_eq!(MemoryKind::from_schema_ref("manuscript"), None);
+        assert_eq!(
+            MemoryKind::from_schema_ref(&crate::schema::refs::MANUSCRIPT),
+            None
+        );
         let mut refs = memory_schemas().to_vec();
         refs.sort_unstable();
         assert_eq!(
             refs,
             [
-                "memory/claim@1.0.0",
-                "memory/episode@1.0.0",
-                "memory/instruction@1.0.0"
+                MEMORY_CLAIM_SCHEMA,
+                MEMORY_EPISODE_SCHEMA,
+                MEMORY_INSTRUCTION_SCHEMA
             ]
         );
     }
@@ -1641,7 +1644,7 @@ mod tests {
         store
             .insert(Item {
                 id: Uuid::new_v4(),
-                schema: "manuscript".into(),
+                schema: crate::schema::refs::MANUSCRIPT,
                 payload,
                 created: now,
                 modified: now,
@@ -2307,7 +2310,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         let entry = &found[0];
         assert_eq!(entry.id, id.to_string());
-        assert_eq!(entry.schema_ref, MEMORY_CLAIM_SCHEMA);
+        assert_eq!(entry.schema_ref, MEMORY_CLAIM_SCHEMA.as_str());
         assert_eq!(entry.title, "Flux units");
         assert_eq!(entry.claim_type.as_deref(), Some("fact"));
         assert_eq!(entry.confidence, Some(0.8));
@@ -2513,9 +2516,9 @@ mod tests {
         assert_eq!(
             sections.iter().map(|s| s.kind.as_str()).collect::<Vec<_>>(),
             vec![
-                MEMORY_INSTRUCTION_SCHEMA,
-                MEMORY_CLAIM_SCHEMA,
-                MEMORY_EPISODE_SCHEMA
+                MEMORY_INSTRUCTION_SCHEMA.as_str(),
+                MEMORY_CLAIM_SCHEMA.as_str(),
+                MEMORY_EPISODE_SCHEMA.as_str()
             ],
             "instructions bind what follows, so they lead"
         );

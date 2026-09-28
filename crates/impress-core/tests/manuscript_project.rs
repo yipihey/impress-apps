@@ -41,7 +41,7 @@ fn manuscript_row(id: ItemId, format: &str, body: &str) -> Item {
     let now = Utc::now();
     Item {
         id,
-        schema: "manuscript".into(),
+        schema: impress_core::schema::refs::MANUSCRIPT,
         payload,
         created: now,
         modified: now,

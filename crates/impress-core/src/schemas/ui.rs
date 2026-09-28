@@ -663,23 +663,23 @@ mod tests {
         let mut reg = SchemaRegistry::new();
         register_ui_schemas(&mut reg);
         assert!(
-            reg.get(LAYOUT_SCHEMA_REF).is_some(),
+            reg.get(&LAYOUT_SCHEMA_REF).is_some(),
             "layout not registered under {LAYOUT_SCHEMA_REF}"
         );
         assert!(
-            reg.get(PRESET_SCHEMA_REF).is_some(),
+            reg.get(&PRESET_SCHEMA_REF).is_some(),
             "preset not registered under {PRESET_SCHEMA_REF}"
         );
         assert!(
-            reg.get(SURFACE_SCHEMA_REF).is_some(),
+            reg.get(&SURFACE_SCHEMA_REF).is_some(),
             "surface not registered under {SURFACE_SCHEMA_REF}"
         );
         assert!(
-            reg.get(SURFACE_STATE_SCHEMA_REF).is_some(),
+            reg.get(&SURFACE_STATE_SCHEMA_REF).is_some(),
             "surface-state not registered under {SURFACE_STATE_SCHEMA_REF}"
         );
         assert!(
-            reg.get(SURFACE_EVENT_SCHEMA_REF).is_some(),
+            reg.get(&SURFACE_EVENT_SCHEMA_REF).is_some(),
             "surface-event not registered under {SURFACE_EVENT_SCHEMA_REF}"
         );
     }
@@ -713,7 +713,7 @@ mod tests {
         register_ui_schemas(&mut reg);
         for id in UI_SCHEMA_REFS {
             assert!(
-                reg.get(id).is_some(),
+                reg.get(&id).is_some(),
                 "UI_SCHEMA_REFS names {id:?}, which register_ui_schemas does not register"
             );
         }
@@ -989,11 +989,15 @@ mod store_tests {
         SqliteItemStore::open_in_memory().expect("open in-memory store")
     }
 
-    fn item(store: &SqliteItemStore, schema: &str, payload: BTreeMap<String, Value>) -> Item {
+    fn item(
+        store: &SqliteItemStore,
+        schema: crate::SchemaRef,
+        payload: BTreeMap<String, Value>,
+    ) -> Item {
         let now = chrono::Utc::now();
         Item {
             id: uuid::Uuid::new_v4(),
-            schema: schema.into(),
+            schema,
             payload,
             created: now,
             modified: now,
@@ -1035,9 +1039,11 @@ mod store_tests {
         payload
     }
 
-    fn query_for(schema: &str) -> ItemQuery {
+    fn query_for(schema: impl AsRef<str>) -> ItemQuery {
         ItemQuery {
-            schema: Some(schema.to_string()),
+            // Bare and truncated names below are deliberately opaque negative
+            // fixtures: they must query successfully and match no canonical row.
+            schema: Some(crate::SchemaRef::from_stored(schema.as_ref().to_owned())),
             ..Default::default()
         }
     }

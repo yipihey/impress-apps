@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn email_message_inherits_chat_message() {
         let schema = email_message_schema();
-        assert_eq!(schema.inherits, Some("chat-message".into()));
+        assert_eq!(schema.inherits, Some(crate::schema::refs::CHAT_MESSAGE));
     }
 
     #[test]

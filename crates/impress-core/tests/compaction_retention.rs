@@ -34,11 +34,14 @@ use uuid::Uuid;
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_item(schema: &str, payload: BTreeMap<String, Value>) -> Item {
+#[path = "support/schema_fixture.rs"]
+mod schema_fixture;
+
+fn make_item(schema: impl AsRef<str>, payload: BTreeMap<String, Value>) -> Item {
     let now = Utc::now();
     Item {
         id: Uuid::new_v4(),
-        schema: schema.into(),
+        schema: schema_fixture::decode(schema),
         payload,
         created: now,
         modified: now,

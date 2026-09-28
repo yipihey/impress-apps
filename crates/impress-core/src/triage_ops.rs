@@ -131,7 +131,7 @@ mod tests {
         let now = Utc::now();
         let item = Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema: crate::SchemaRef::from_stored(schema.to_owned()),
             payload: BTreeMap::new(),
             created: now,
             modified: now,

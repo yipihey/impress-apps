@@ -163,7 +163,7 @@ mod tests {
         payload.insert("title".into(), Value::String(title.into()));
         let item = Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema: crate::SchemaRef::from_stored(schema.to_owned()),
             payload,
             created: now,
             modified: now,

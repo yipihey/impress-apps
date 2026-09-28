@@ -41,10 +41,16 @@ pub struct Schema {
 mod tests {
     use super::*;
 
+    // Unknown fixture names represent historical rows; production construction
+    // remains restricted to manifest refs or fallible parsing.
+    fn fixture_schema(name: &str) -> SchemaRef {
+        SchemaRef::from_stored(name.to_owned())
+    }
+
     #[test]
     fn schema_serde_round_trip() {
         let schema = Schema {
-            id: "bibliography-entry".into(),
+            id: crate::schema::refs::BIBLIOGRAPHY_ENTRY,
             name: "Bibliography Entry".into(),
             version: "1.0.0".into(),
             fields: vec![
@@ -78,7 +84,7 @@ mod tests {
     #[test]
     fn schema_with_inheritance() {
         let base = Schema {
-            id: "research-item".into(),
+            id: fixture_schema("research-item"),
             name: "Research Item".into(),
             version: "1.0.0".into(),
             fields: vec![FieldDef {
@@ -91,7 +97,7 @@ mod tests {
             inherits: None,
         };
         let child = Schema {
-            id: "preprint".into(),
+            id: fixture_schema("preprint"),
             name: "Preprint".into(),
             version: "1.0.0".into(),
             fields: vec![FieldDef {
@@ -106,6 +112,6 @@ mod tests {
         let json = serde_json::to_string(&child).unwrap();
         let back: Schema = serde_json::from_str(&json).unwrap();
         assert_eq!(child, back);
-        assert_eq!(back.inherits, Some("research-item".into()));
+        assert_eq!(back.inherits, Some(fixture_schema("research-item")));
     }
 }

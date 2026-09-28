@@ -218,7 +218,7 @@ mod tests {
     fn registers_versioned() {
         let mut reg = SchemaRegistry::new();
         register_manuscript_file_schema(&mut reg);
-        let s = reg.get(MANUSCRIPT_FILE_SCHEMA_REF).expect("registered");
+        let s = reg.get(&MANUSCRIPT_FILE_SCHEMA_REF).expect("registered");
         assert_eq!(s.version, "1.0.0");
         for name in ["path", "role", "kind", "content_hash", "size"] {
             let f = s.fields.iter().find(|f| f.name == name).unwrap();

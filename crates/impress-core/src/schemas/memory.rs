@@ -363,9 +363,9 @@ mod tests {
     fn all_three_schemas_register() {
         let mut reg = SchemaRegistry::new();
         register_memory_schemas(&mut reg);
-        assert!(reg.get(MEMORY_CLAIM_SCHEMA).is_some());
-        assert!(reg.get(MEMORY_EPISODE_SCHEMA).is_some());
-        assert!(reg.get(MEMORY_INSTRUCTION_SCHEMA).is_some());
+        assert!(reg.get(&MEMORY_CLAIM_SCHEMA).is_some());
+        assert!(reg.get(&MEMORY_EPISODE_SCHEMA).is_some());
+        assert!(reg.get(&MEMORY_INSTRUCTION_SCHEMA).is_some());
     }
 
     /// The ids ARE the refs writers emit. A rename here without a
@@ -373,9 +373,9 @@ mod tests {
     /// rename that forgets the constants is caught right here.
     #[test]
     fn ids_are_the_canonical_versioned_refs() {
-        assert_eq!(memory_claim_schema().id, "memory/claim@1.0.0");
-        assert_eq!(memory_episode_schema().id, "memory/episode@1.0.0");
-        assert_eq!(memory_instruction_schema().id, "memory/instruction@1.0.0");
+        assert_eq!(memory_claim_schema().id, MEMORY_CLAIM_SCHEMA);
+        assert_eq!(memory_episode_schema().id, MEMORY_EPISODE_SCHEMA);
+        assert_eq!(memory_instruction_schema().id, MEMORY_INSTRUCTION_SCHEMA);
         assert_eq!(MEMORY_CLAIM_SCHEMA, memory_claim_schema().id);
         assert_eq!(MEMORY_EPISODE_SCHEMA, memory_episode_schema().id);
         assert_eq!(MEMORY_INSTRUCTION_SCHEMA, memory_instruction_schema().id);

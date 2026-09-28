@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn query_serde_round_trip() {
         let q = ItemQuery {
-            schema: Some("bibliography-entry".into()),
+            schema: Some(crate::schema::refs::BIBLIOGRAPHY_ENTRY),
             predicates: vec![
                 Predicate::HasParent(Uuid::new_v4()),
                 Predicate::IsStarred(true),

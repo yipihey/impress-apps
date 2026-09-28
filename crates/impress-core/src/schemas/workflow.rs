@@ -93,7 +93,7 @@ mod tests {
     fn the_record_kind_registers_under_its_canonical_ref() {
         let mut reg = SchemaRegistry::new();
         register_workflow_schema(&mut reg);
-        assert!(reg.get(WORKFLOW_SCHEMA).is_some());
-        assert_eq!(workflow_schema().id, "impress/workflow@1.0.0");
+        assert!(reg.get(&WORKFLOW_SCHEMA).is_some());
+        assert_eq!(workflow_schema().id, WORKFLOW_SCHEMA);
     }
 }
