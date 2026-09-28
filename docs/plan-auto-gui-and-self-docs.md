@@ -1940,3 +1940,16 @@ agent-surfaces.md, ex = an example surface, test); Desc = `fallback` when the de
   the enclosing report. Remaining work is the final package gates, native
   framework cohort and host proofs, PR, and merge. Device/network/credential
   examples are marked Tier B and are not counted as executed by the headless run.
+
+- 2026-09-28 — **G3 final Rust and framework gates.** Both workspace clippy
+  shards and every quick gate pass (coverage/docs, strict kit dependencies,
+  standalone kit, Swift kit boundary, UniFFI bindings, schema references and
+  hakari diff). The isolated touched-crate run passed **1,413 tests, zero
+  failures, six ignored**, across 25 crates; the semantic-enabled capabilities
+  run separately passed 44 tests, zero failures, three ignored. All twelve
+  arm64 macOS/iOS framework scripts passed with swiftformat absent from PATH
+  and without `--fast`. The isolated imprint host proof is running before PR
+  readiness. Logs are `/tmp/impress-g3-{touched-tests,capabilities}.log` and
+  `/tmp/impress-g3-framework-*.log`. Examples requiring devices, credentials or
+  particular native fixture state remain explicit Tier B runs; the reference
+  index now explains their prerequisites and does not imply headless coverage.
