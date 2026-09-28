@@ -25,6 +25,8 @@
 
 import ImpressGit
 import ImpressAI
+import ImpressAutomation
+import ImpressKit
 import SwiftUI
 import PublicationManagerCore
 
@@ -118,16 +120,13 @@ struct ExportSettingsView: View {
 /// macOS-only, and the descriptor says WHY as a capability rather than a
 /// platform accident: this pane drives an in-process HTTP server
 /// (`SettingsRequirement.httpAutomation`), which needs the
-/// `com.apple.security.network.server` entitlement iOS does not grant. The
-/// chassis's generic `AutomationSettingsSection` (ImpressAutomation) is a
-/// toggle + port and nothing else; imprint's pane additionally owns the server
-/// lifecycle, live status, the MCP config block and the endpoint reference, so
-/// it stays imprint-registered rather than being flattened into the shared
-/// component. Unchanged from the version that shipped.
+/// `com.apple.security.network.server` entitlement iOS does not grant. Five
+/// ordinary fields are the registry-generated section. The network
+/// bearer remains in its existing private UserDefaults key; status and help
+/// remain app-owned. Server lifecycle follows the registry feed in AppDelegate.
 struct AutomationSettingsView: View {
-    @AppStorage("httpAutomationEnabled") private var httpAutomationEnabled = true
-    // Default from THE sibling-app table (ImpressKit), not a literal.
-    @AppStorage("httpAutomationPort") private var httpAutomationPort = Int(ImprintHTTPServer.defaultPort)
+    @ImpressSetting("imprint.automation.allow_network_access") private var allowNetworkAccess: Bool
+    @AppStorage(AutomationServerSettings.Keys.networkAuthToken) private var networkAuthToken = ""
     @State private var isServerRunning = false
     @State private var showCopiedFeedback = false
 
@@ -136,8 +135,7 @@ struct AutomationSettingsView: View {
         {
           "mcpServers": {
             "impress": {
-              "command": "npx",
-              "args": ["impress-mcp"]
+              "command": "impress-mcp"
             }
           }
         }
@@ -145,58 +143,36 @@ struct AutomationSettingsView: View {
     }
 
     var body: some View {
-        SettingsForm {
-            Section("HTTP API Server") {
-                Toggle("Enable HTTP API", isOn: $httpAutomationEnabled)
-                    .onChange(of: httpAutomationEnabled) { _, enabled in
-                        Task {
-                            if enabled {
-                                await ImprintHTTPServer.shared.start()
-                            } else {
-                                await ImprintHTTPServer.shared.stop()
-                            }
-                            isServerRunning = await ImprintHTTPServer.shared.running
-                        }
-                    }
-                    .help("Allow AI agents and tools to control imprint via HTTP API")
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsSurfacePane(section: "imprint.automation", appID: "imprint")
 
-                if httpAutomationEnabled {
-                    HStack {
-                        Text("Port")
-                        TextField("Port", value: $httpAutomationPort, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .onSubmit {
-                                Task {
-                                    await ImprintHTTPServer.shared.restart()
-                                    isServerRunning = await ImprintHTTPServer.shared.running
-                                }
-                            }
-                    }
-
+            SettingsForm {
+                Section("HTTP API Server") {
                     HStack {
                         Text("Status")
                         Spacer()
                         if isServerRunning {
-                            HStack {
-                                Circle()
-                                    .fill(.green)
-                                    .frame(width: 8, height: 8)
-                                Text("Running on localhost:\(httpAutomationPort)")
-                                    .foregroundStyle(.secondary)
-                            }
+                            Label("Running on port \(ImprintAutomationSettings.snapshot().port)", systemImage: "circle.fill")
+                                .foregroundStyle(.green)
                         } else {
-                            HStack {
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 8, height: 8)
-                                Text("Stopped")
-                                    .foregroundStyle(.secondary)
-                            }
+                            Label("Stopped", systemImage: "circle.fill")
+                                .foregroundStyle(.red)
                         }
                     }
                 }
-            }
+
+                if allowNetworkAccess {
+                    Section("Network credential") {
+                        SecureField("Bearer token", text: $networkAuthToken)
+                            .onSubmit(applyNetworkCredential)
+                        Button("Apply token") { applyNetworkCredential() }
+                        Button("Generate token") {
+                            networkAuthToken = HTTPAuthPolicy.generateToken()
+                            applyNetworkCredential()
+                        }
+                        .help("The bearer remains in its existing credential setting, outside the generated surface.")
+                    }
+                }
 
             Section("MCP Integration") {
                 VStack(alignment: .leading, spacing: 12) {
@@ -224,7 +200,7 @@ struct AutomationSettingsView: View {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Terminal")!)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString("npx impress-mcp --check", forType: .string)
+                                NSPasteboard.general.setString("impress-mcp --help", forType: .string)
                             }
                         } label: {
                             HStack {
@@ -257,7 +233,9 @@ struct AutomationSettingsView: View {
                 HStack {
                     Image(systemName: "lock.shield")
                         .foregroundStyle(.green)
-                    Text("HTTP API only accepts connections from localhost (127.0.0.1)")
+                    Text(allowNetworkAccess
+                         ? "Network access requires a bearer and an explicit bind address."
+                         : "HTTP API only accepts connections from localhost (127.0.0.1)")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -278,12 +256,19 @@ struct AutomationSettingsView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-        }
-        .onAppear {
-            Task {
-                isServerRunning = await ImprintHTTPServer.shared.running
             }
         }
+        .task {
+            isServerRunning = await ImprintHTTPServer.shared.running
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ImprintHTTPServer.didApplySettings)) { _ in
+            Task { isServerRunning = await ImprintHTTPServer.shared.running }
+        }
+    }
+
+    private func applyNetworkCredential() {
+        NotificationCenter.default.post(name: ImprintAutomationSettings.credentialDidChange,
+                                        object: nil)
     }
 }
 

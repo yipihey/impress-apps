@@ -2,7 +2,7 @@
 
 Generated from `crates/impress-keymap` by `impress-keymap`'s
 `check_keyboard_doc_matches_registry` test — do not hand-edit. Regenerate with
-`cargo test -p impress-keymap render_docs -- --ignored` or let the failing test's
+`cargo test -p impress-keymap write_docs -- --ignored` or let the failing test's
 diff tell you what changed.
 
 ## View — panes
@@ -145,4 +145,114 @@ diff tell you what changed.
 | Chord | Action | Scope |
 |---|---|---|
 | ⌘S | Save | window:imbib.detached-content |
+
+## Imprint — View: panes
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌘0 | Toggle Detail Pane | window:imprint |
+| ⌥⌘0 | Toggle Manuscript List | window:imprint |
+| ⌃⌘S | Toggle Sidebar | window:imprint |
+
+## Imprint — File
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌘N | New Typst Manuscript | window:imprint |
+| ⌥⌘N | New LaTeX Manuscript | window:imprint |
+| ⇧⌘N | New Manuscript from Template… | window:imprint |
+| ⇧⌘L | Open Manuscript Library | window:imprint |
+| ⇧⌘I | Import to Manuscript Library… | window:imprint |
+| ⌘P | Print Compiled PDF… | window:imprint |
+
+## Imprint — Edit
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⇧⌘K | Insert Citation… | window:imprint |
+| ⌥⌘R | Papers… | window:imprint |
+| ⇧⌘M | Add Comment… | window:imprint |
+| ⇧⌘Y | Symbol Palette… | window:imprint |
+| ⇧⌘A | AI Assistant… | window:imprint |
+| ⌥⌘B | Build Manuscript | window:imprint |
+| ⌘⏎ | Compile to PDF | window:imprint |
+| ⇧⌘F | Search Across Manuscripts… | window:imprint |
+| ⌘F | Find in List | window:imprint |
+
+## Imprint — View
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌘1 | Text Only | window:imprint |
+| ⌘2 | Split View | window:imprint |
+| ⌘3 | Direct PDF | window:imprint |
+| ⌘⇥ | Cycle Edit Mode | window:imprint |
+| ⌘\ | Split Editor | window:imprint |
+| ⌥⌘\ | Split Editor Orientation | window:imprint |
+| ⌃⌘P | Open PDF on Second Display | window:imprint |
+| ⌥⌘F | Focus Mode | window:imprint |
+| ⌘. | Show / Hide AI Assistant | window:imprint |
+| ⌥⌘K | Show / Hide Comments | window:imprint |
+| ⌥⌘T | Show / Hide Throughline | window:imprint |
+| ⇧⌘C | Show Console | window:imprint |
+| ⌥⌘P | Show Plots Panel | window:imprint |
+| ⌘/ | Keyboard Shortcuts… | window:imprint |
+
+## Imprint — View: Appearance
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌃⌘D | All Dark / All Light | window:imprint |
+
+## Imprint — Format
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌘B | Bold | window:imprint |
+| ⌘I | Italic | window:imprint |
+| ⌥⌘1 | Heading 1 | window:imprint |
+| ⌥⌘2 | Heading 2 | window:imprint |
+| ⌥⌘3 | Heading 3 | window:imprint |
+
+## Imprint — Git
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌥⌘G | Commit… | window:imprint |
+| ⇧⌘P | Push | window:imprint |
+| ⇧⌘U | Pull | window:imprint |
+
+## Imprint — Document
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⇧⌘E | Export PDF… | window:imprint |
+
+## Imprint — Layouts: chassis
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌃⌘1 | Apply Layout 1 | window:imprint.chassis |
+| ⌃⌘2 | Apply Layout 2 | window:imprint.chassis |
+| ⌃⌘3 | Apply Layout 3 | window:imprint.chassis |
+| ⌃⌘4 | Apply Layout 4 | window:imprint.chassis |
+| ⌃⌘5 | Apply Layout 5 | window:imprint.chassis |
+| ⌃⌘6 | Apply Layout 6 | window:imprint.chassis |
+| ⌃⌘7 | Apply Layout 7 | window:imprint.chassis |
+| ⌃⌘8 | Apply Layout 8 | window:imprint.chassis |
+| ⌃⌘9 | Apply Layout 9 | window:imprint.chassis |
+
+## Imprint — Layouts: editor
+
+| Chord | Action | Scope |
+|---|---|---|
+| ⌃⌘1 | Apply Editor Layout 1 | window:imprint.editor |
+| ⌃⌘2 | Apply Editor Layout 2 | window:imprint.editor |
+| ⌃⌘3 | Apply Editor Layout 3 | window:imprint.editor |
+| ⌃⌘4 | Apply Editor Layout 4 | window:imprint.editor |
+| ⌃⌘5 | Apply Editor Layout 5 | window:imprint.editor |
+| ⌃⌘6 | Apply Editor Layout 6 | window:imprint.editor |
+| ⌃⌘7 | Apply Editor Layout 7 | window:imprint.editor |
+| ⌃⌘8 | Apply Editor Layout 8 | window:imprint.editor |
+| ⌃⌘9 | Apply Editor Layout 9 | window:imprint.editor |
 

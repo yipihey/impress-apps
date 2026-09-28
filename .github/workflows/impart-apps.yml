@@ -243,9 +243,17 @@ jobs:
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" com.imbib.impart
           sleep 5
-          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.impart" \
-            && echo "impart-iOS launched OK" \
-            || (echo "impart-iOS did not launch" && exit 1)
+          # Read the complete process list before matching it. Under pipefail,
+          # grep -q can close the pipe early and turn a successful match into
+          # an upstream SIGPIPE failure.
+          xcrun simctl spawn "$UDID" launchctl list > launchctl-list.txt
+          if grep -Fq "com.imbib.impart" launchctl-list.txt; then
+            echo "impart-iOS launched OK"
+          else
+            cat launchctl-list.txt
+            echo "impart-iOS did not remain running"
+            exit 1
+          fi
 
       # The app this lane launched is a HOST process that outlives the job:
       # the simulator shares the Mac's network namespace, so the launched

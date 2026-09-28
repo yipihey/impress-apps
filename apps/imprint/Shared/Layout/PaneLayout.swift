@@ -14,6 +14,7 @@
 #if os(macOS)
 import Foundation
 import SwiftUI
+import ImpressKeyboard
 import ImpressLogging
 import PublicationManagerCore
 
@@ -226,7 +227,7 @@ struct ImprintLayoutsMenu: View {
             if editorWindowIsKey == true {
                 editorLayouts(withChords: true)
             } else {
-                ImpressLayoutOrdinalButtons()
+                ImpressLayoutOrdinalButtons(appID: "imprint")
                 Divider()
                 editorLayouts(withChords: false)
             }
@@ -257,7 +258,9 @@ struct ImprintLayoutsMenu: View {
             }
             if withChords, index < 9 {
                 button.keyboardShortcut(
-                    KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control])
+                    KeymapRegistry.shared.shortcut(for: "imprint.layout.editor_\(index + 1)")
+                        ?? KeyboardShortcut(
+                            KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control]))
             } else {
                 button
             }

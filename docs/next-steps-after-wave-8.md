@@ -131,7 +131,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   introduced. The hosted impart repair passed macOS and iOS simulator install smoke
   in run `36460078624`; all eight PR checks were green. Fresh main ancestry passed
   before the normal merge. The next full main workspace run belongs to the P7/P8 batch.
-- **P8 (implemented; push/PR next)**: worktree `p8-providers`, branch
+- **P8 (ready [PR #129](https://github.com/yipihey/impress-apps/pull/129); final hosted check pending)**: worktree `p8-providers`, branch
   `claude/pipeline-p8-providers`, contains main `9d7ee7a4`. Owned provider
   descriptors, persisted registration/trust, private rotated credentials, bounded
   loopback transport, all runtime readers and the Python reference provider are
@@ -142,10 +142,22 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   CLI, catalogue-liveness and named source-refusal proof pass. Evidence:
   `/private/tmp/impress-p8-proof-9y64dfo5/output/host-60903/proof.json`.
   `scripts/test-runtime-provider-native.py` reproduces the proof on an owned build.
-  Normal pre-push, PR and merge are still required, followed by the full native
-  workspace batch on main. See the pipeline plan's dated P8 entry for fixes/logs.
-- **R3**: imprint's settings and chords through the registries.
-- **G3 remainder**: about 170 verbs still lack an `#[impress_example]`, and about 900 arguments lack `///` docs.
+  Normal pre-push passed on macOS and iOS. Seven hosted checks pass; the impart
+  macOS/iOS build is still running. Merge and the full native workspace batch
+  on main are still required. See the pipeline plan's dated P8 entry for fixes/logs.
+- **R3 (ready [PR #130](https://github.com/yipihey/impress-apps/pull/130); hosted checks pending)**: `r3-imprint` / `claude/reflective-r3-imprint`
+  has 13 portable preferences, five automation settings, and 60 menu/layout
+  bindings through the registries. The reviewed P8 branch is integrated locally;
+  merge P8 on main first. All required quick gates, 315 Rust tests, six keymap
+  Swift tests, eight settings tests, and 33 PMC contract tests pass. All twelve
+  native framework builds and the imprint iOS build pass. The isolated mounted
+  settings-pane/CLI/listener proof passed; evidence:
+  `/private/tmp/impress-r3-proof-kkc8spwk/output/host-56007/proof.json`.
+  The pre-push interlock stage now isolates its app bundles, ports, stores and
+  device IDs without dropping any suite. The normal push passed all three
+  isolated interlock suites and both imbib platform builds; ten Python hook/runner
+  fixtures passed. Hosted checks and merge remain. See the reflective plan's dated R3 log for scope and reproduction.
+- **G3 remainder (started on `g3-remainder` / `claude/gui-g3-remainder`)**: the current default inventory has 476 verbs; 355 lack an `#[impress_example]` (249 headless, 106 external), and 936 argument descriptions are missing. The earlier ~170 count covered a headless subset. Small service batches and explicit Tier B/shared scratch-fixture support are in progress; no G3 completion claim or PR yet.
 - **Scenario interpreter gaps** (S2b): a store-predicate step, a best-effort step, and an escape for surface `{{state…}}` templates. The remaining 16 Tier B entries are blocked on these.
 - **Swift gap from R1**: the generated Retention pane is macOS-only; iOS shows a placeholder.
 

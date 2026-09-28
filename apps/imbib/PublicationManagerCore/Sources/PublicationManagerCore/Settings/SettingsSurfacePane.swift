@@ -45,14 +45,16 @@ import ImpressLayout
 public struct SettingsSurfacePane: View {
 
     public let section: String
+    public let appID: String
 
-    public init(section: String) {
+    public init(section: String, appID: String = "imbib") {
         self.section = section
+        self.appID = appID
     }
 
     public var body: some View {
         #if os(macOS)
-        SettingsSurfacePaneMacOS(section: section)
+        SettingsSurfacePaneMacOS(section: section, appID: appID)
         #else
         ContentUnavailableView(
             "Settings Unavailable", systemImage: "slider.horizontal.3",
@@ -72,9 +74,12 @@ public struct SettingsSurfacePane: View {
 private struct SettingsSurfacePaneMacOS: View {
 
     let section: String
+    let appID: String
 
     @State private var model: SurfacePaneModel?
     @State private var failure: String?
+    @State private var surface: SharedSurface?
+    @State private var renderedValues: [String: String] = [:]
 
     var body: some View {
         Group {
@@ -101,8 +106,11 @@ private struct SettingsSurfacePaneMacOS: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("settings.surface.\(section)")
-        .task(id: section) {
+        .task(id: "\(appID):\(section)") {
             await attend()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ImpressSettings.didChange)) { _ in
+            refreshIfValuesChanged()
         }
     }
 
@@ -110,13 +118,15 @@ private struct SettingsSurfacePaneMacOS: View {
     /// the model until SwiftUI cancels the task.
     private func attend() async {
         let section = self.section
+        let appID = self.appID
         await RustStoreAdapter.warmOffMain()
         guard let store = RustStoreAdapter.shared.layoutSharedStore() else {
             failure = "The shared store is not open, so the \(section) pane has nowhere to keep its surface."
             logError("settings pane \(section): no SharedStore handle", category: "settings")
             return
         }
-        let surface = SharedSurface.open(store: store, host: "", appId: "imbib")
+        let surface = SharedSurface.open(store: store, host: "", appId: appID)
+        let valuesAtInstall = sectionValues()
         let surfaceID: String
         do {
             surfaceID = try ImpressSettings.shared.installSectionSurface(surface: surface, section: section)
@@ -126,14 +136,49 @@ private struct SettingsSurfacePaneMacOS: View {
             return
         }
         failure = nil
+        self.surface = surface
+        renderedValues = valuesAtInstall
         let active = SurfacePaneModel(surface: surface, surfaceID: surfaceID, pane: nil)
         model = active
         active.start()
+        refreshIfValuesChanged()
         logInfo("settings pane \(section): showing surface \(surfaceID)", category: "settings")
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(3600))
+            do {
+                try await Task.sleep(for: .seconds(3600))
+            } catch {
+                break
+            }
         }
         active.stop()
+        self.surface = nil
+        model = nil
+    }
+
+    /// The generated spec is a snapshot. A CLI write changes its source file
+    /// while this pane is open; reseed only when a value actually changed.
+    /// This avoids resetting an in-progress field on unrelated feed ticks.
+    private func refreshIfValuesChanged() {
+        guard let surface else { return }
+        let values = sectionValues()
+        guard values != renderedValues else { return }
+        do {
+            _ = try ImpressSettings.shared.installSectionSurface(surface: surface, section: section)
+            renderedValues = values
+            failure = nil
+        } catch {
+            failure = String(describing: error)
+            logError("settings pane \(section): refresh failed — \(error)", category: "settings")
+        }
+    }
+
+    private func sectionValues() -> [String: String] {
+        let prefix = section + "."
+        return Dictionary(uniqueKeysWithValues: ImpressSettings.shared.knownKeys
+            .filter { $0.hasPrefix(prefix) }
+            .compactMap { key in
+                ImpressSettings.shared.record(key).map { (key, $0.valueJson) }
+            })
     }
 }
 #endif

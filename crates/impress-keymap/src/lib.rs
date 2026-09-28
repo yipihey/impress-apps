@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 mod imbib;
+mod imprint;
 
 /// A key chord in the `docs/keyboard-grammar.md` grammar: a base key plus the
 /// modifiers held with it. `Chord::parse`/`Display` round-trip the compact
@@ -79,6 +80,7 @@ impl fmt::Display for Chord {
         }
         let key = match self.key {
             "return" | "\r" => "\u{23ce}".to_string(),
+            "tab" | "\t" => "\u{21e5}".to_string(),
             "delete" => "\u{232b}".to_string(),
             "escape" => "\u{238b}".to_string(),
             "up" => "\u{2191}".to_string(),
@@ -152,11 +154,12 @@ pub struct Binding {
     pub chordless: bool,
 }
 
-/// The whole registry, one function per app. Only imbib is seeded (R2's
-/// scope); `all()` collects every app's table so the coverage test and
-/// `keymap_json` cover the union.
+/// The whole registry, one function per app. `all()` collects every app's
+/// table so the coverage test and `keymap_json` cover the union.
 pub fn all() -> Vec<Binding> {
-    imbib::bindings()
+    let mut bindings = imbib::bindings();
+    bindings.extend(imprint::bindings());
+    bindings
 }
 
 /// The registry as JSON, the shape `impress-store-ffi::keymap_json` exports
@@ -203,7 +206,7 @@ pub fn render_markdown() -> String {
     out.push_str(
         "Generated from `crates/impress-keymap` by `impress-keymap`'s\n\
          `check_keyboard_doc_matches_registry` test — do not hand-edit. Regenerate with\n\
-         `cargo test -p impress-keymap render_docs -- --ignored` or let the failing test's\n\
+         `cargo test -p impress-keymap write_docs -- --ignored` or let the failing test's\n\
          diff tell you what changed.\n\n",
     );
     for section in &sections {
@@ -291,6 +294,7 @@ mod tests {
             Chord::new("f").shift().cmd().to_string(),
             "\u{21e7}\u{2318}F"
         );
+        assert_eq!(Chord::new("tab").to_string(), "\u{21e5}");
     }
 
     /// docs/keyboard.md must equal `render_markdown()`. Regenerate with the

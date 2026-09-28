@@ -33,3 +33,21 @@ fn every_verb_binding_names_a_verb_in_the_linked_inventory() {
          rename the binding's Target::Verb or add the verb"
     );
 }
+
+#[test]
+fn imprint_commands_join_the_same_covered_union() {
+    let imprint: Vec<_> = impress_keymap::all()
+        .into_iter()
+        .filter(|binding| binding.target.id().starts_with("imprint."))
+        .collect();
+    assert_eq!(
+        imprint.len(),
+        60,
+        "all current macOS imprint chords must be seeded"
+    );
+    let mut ids = BTreeSet::new();
+    for binding in imprint {
+        assert!(matches!(binding.target, Target::Command(_)));
+        assert!(ids.insert(binding.target.id()), "duplicate imprint target");
+    }
+}

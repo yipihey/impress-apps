@@ -281,6 +281,23 @@ fn build_sections() -> Vec<SectionDef> {
             ),
         });
     }
+    sections.extend([
+        SectionDef {
+            id: "imprint.general".into(),
+            title: "General".into(),
+            doc: "Imprint's editing, live preview, and backup preferences.".into(),
+        },
+        SectionDef {
+            id: "imprint.editor".into(),
+            title: "Editor".into(),
+            doc: "Imprint's editor font and display preferences.".into(),
+        },
+        SectionDef {
+            id: "imprint.documents".into(),
+            title: "Documents".into(),
+            doc: "Imprint's document validation and migration backup preferences.".into(),
+        },
+    ]);
     sections
 }
 
@@ -318,6 +335,93 @@ fn build_registry() -> Vec<SettingDef> {
             def
         },
     ];
+    // These are the thirteen portable, non-platform controls in imprint's
+    // General, Editor, and Documents panes. Exact old UserDefaults spellings
+    // stay as legacy keys for first-read copy without deletion (D-R5).
+    let imprint = Scope::App("imprint".into());
+    out.extend([
+        setting! {
+            key = "imprint.general.default_edit_mode", ty = String, default = "split_view",
+            scope = imprint.clone(), section = "imprint.general", label = "Default Edit Mode",
+            doc = "The editing layout opened for a manuscript by default.",
+            legacy = ["defaultEditMode"],
+            choices = [("Direct PDF", "direct_pdf"), ("Split View", "split_view"), ("Text Only", "text_only")]
+        },
+        setting! {
+            key = "imprint.general.auto_save_interval", ty = Integer, default = 60_i64,
+            scope = imprint.clone(), section = "imprint.general", label = "Auto-save interval",
+            doc = "Seconds between automatic manuscript saves.",
+            legacy = ["autoSaveInterval"]
+        },
+        setting! {
+            key = "imprint.general.create_backups", ty = Bool, default = true,
+            scope = imprint.clone(), section = "imprint.general", label = "Create automatic backups",
+            doc = "Keep automatic backups of manuscripts.",
+            legacy = ["createBackups"]
+        },
+        setting! {
+            key = "imprint.general.auto_compile", ty = Bool, default = true,
+            scope = imprint.clone(), section = "imprint.general", label = "Live preview",
+            doc = "Automatically recompile the live preview while typing.",
+            legacy = ["imprint.autoCompile"]
+        },
+        setting! {
+            key = "imprint.general.compile_debounce_ms", ty = Integer, default = 300_i64,
+            scope = imprint.clone(), section = "imprint.general", label = "Preview update delay",
+            doc = "Milliseconds after typing before the live preview recompiles.",
+            legacy = ["imprint.compileDebounceMs"]
+        },
+        setting! {
+            key = "imprint.general.preview_format", ty = String, default = "pdf",
+            scope = imprint.clone(), section = "imprint.general", label = "Preview format",
+            doc = "Render the live preview as PDF or per-page SVG.",
+            legacy = ["imprint.previewFormat"],
+            choices = [("PDF", "pdf"), ("SVG (faster)", "svg")]
+        },
+        setting! {
+            key = "imprint.editor.font_size", ty = Integer, default = 14_i64,
+            scope = imprint.clone(), section = "imprint.editor", label = "Font Size",
+            doc = "Point size used by the manuscript editor.",
+            legacy = ["editorFontSize"]
+        },
+        setting! {
+            key = "imprint.editor.font_family", ty = String, default = "SF Mono",
+            scope = imprint.clone(), section = "imprint.editor", label = "Font Family",
+            doc = "Font family used by the manuscript editor.",
+            legacy = ["editorFontFamily"],
+            choices = [("SF Mono", "SF Mono"), ("Menlo", "Menlo"), ("Monaco", "Monaco"), ("Courier New", "Courier New")]
+        },
+        setting! {
+            key = "imprint.editor.show_line_numbers", ty = Bool, default = true,
+            scope = imprint.clone(), section = "imprint.editor", label = "Show line numbers",
+            doc = "Show source line numbers beside the manuscript editor.",
+            legacy = ["showLineNumbers"]
+        },
+        setting! {
+            key = "imprint.editor.highlight_current_line", ty = Bool, default = true,
+            scope = imprint.clone(), section = "imprint.editor", label = "Highlight current line",
+            doc = "Highlight the line containing the editor cursor.",
+            legacy = ["highlightCurrentLine"]
+        },
+        setting! {
+            key = "imprint.editor.wrap_lines", ty = Bool, default = true,
+            scope = imprint.clone(), section = "imprint.editor", label = "Wrap long lines",
+            doc = "Wrap long source lines in the manuscript editor.",
+            legacy = ["wrapLines"]
+        },
+        setting! {
+            key = "imprint.documents.validate_crdt_on_open", ty = Bool, default = true,
+            scope = imprint.clone(), section = "imprint.documents", label = "Validate CRDT on open",
+            doc = "Check document integrity when opening a manuscript.",
+            legacy = ["validateCRDTOnOpen"]
+        },
+        setting! {
+            key = "imprint.documents.auto_backup_before_migration", ty = Bool, default = true,
+            scope = imprint, section = "imprint.documents", label = "Back up before migration",
+            doc = "Create a backup before upgrading a document's format version.",
+            legacy = ["autoBackupBeforeMigration"]
+        },
+    ]);
     for (app, port) in APP_PORTS {
         let scope = Scope::App(app.into());
         let section = format!("{app}.automation");
@@ -429,9 +533,143 @@ mod tests {
             }
             assert_eq!(def.since, SETTINGS_SINCE);
         }
-        assert_eq!(registry().len(), 3 + 5 * APP_PORTS.len());
+        assert_eq!(registry().len(), 3 + 5 * APP_PORTS.len() + 13);
         assert!(lookup("imbib.retention.inbox_days").is_some());
         assert!(lookup("imbib.retention.inboxDays").is_none());
+    }
+
+    #[test]
+    fn imprint_portable_preferences_keep_their_defaults_and_legacy_values() {
+        use crate::store::{SettingsStore, ValueSource};
+
+        // Every entry is (canonical key, original UserDefaults key, old
+        // default, a non-default value saved by an older build). This test
+        // names all thirteen so a missing migration mapping is visible.
+        let expected = [
+            (
+                "imprint.general.default_edit_mode",
+                "defaultEditMode",
+                Value::from("split_view"),
+                Value::from("direct_pdf"),
+            ),
+            (
+                "imprint.general.auto_save_interval",
+                "autoSaveInterval",
+                Value::from(60),
+                Value::from(120),
+            ),
+            (
+                "imprint.general.create_backups",
+                "createBackups",
+                Value::from(true),
+                Value::from(false),
+            ),
+            (
+                "imprint.general.auto_compile",
+                "imprint.autoCompile",
+                Value::from(true),
+                Value::from(false),
+            ),
+            (
+                "imprint.general.compile_debounce_ms",
+                "imprint.compileDebounceMs",
+                Value::from(300),
+                Value::from(700),
+            ),
+            (
+                "imprint.general.preview_format",
+                "imprint.previewFormat",
+                Value::from("pdf"),
+                Value::from("svg"),
+            ),
+            (
+                "imprint.editor.font_size",
+                "editorFontSize",
+                Value::from(14),
+                Value::from(18),
+            ),
+            (
+                "imprint.editor.font_family",
+                "editorFontFamily",
+                Value::from("SF Mono"),
+                Value::from("Menlo"),
+            ),
+            (
+                "imprint.editor.show_line_numbers",
+                "showLineNumbers",
+                Value::from(true),
+                Value::from(false),
+            ),
+            (
+                "imprint.editor.highlight_current_line",
+                "highlightCurrentLine",
+                Value::from(true),
+                Value::from(false),
+            ),
+            (
+                "imprint.editor.wrap_lines",
+                "wrapLines",
+                Value::from(true),
+                Value::from(false),
+            ),
+            (
+                "imprint.documents.validate_crdt_on_open",
+                "validateCRDTOnOpen",
+                Value::from(true),
+                Value::from(false),
+            ),
+            (
+                "imprint.documents.auto_backup_before_migration",
+                "autoBackupBeforeMigration",
+                Value::from(true),
+                Value::from(false),
+            ),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let store = SettingsStore::open(dir.path());
+        let legacy_values: BTreeMap<&str, Value> = expected
+            .iter()
+            .map(|(_, legacy, _, migrated)| (*legacy, migrated.clone()))
+            .collect();
+        assert_eq!(legacy_values.len(), 13);
+
+        for (key, legacy, default, migrated) in &expected {
+            let def = lookup(key).unwrap_or_else(|| panic!("missing {key}"));
+            assert_eq!(def.scope, Scope::App("imprint".into()), "{key}: scope");
+            assert_eq!(
+                def.section,
+                key.rsplit_once('.').unwrap().0,
+                "{key}: section"
+            );
+            assert_eq!(def.legacy, [*legacy], "{key}: legacy key");
+            assert_eq!(def.default.to_json(), *default, "{key}: old default");
+            assert_eq!(store.get(key).unwrap().source, ValueSource::Default);
+            assert!(
+                store.import_legacy(key, migrated).unwrap(),
+                "{key}: first import"
+            );
+            assert!(
+                !store.import_legacy(key, default).unwrap(),
+                "{key}: never overwrite"
+            );
+            assert_eq!(
+                store.get(key).unwrap().value,
+                *migrated,
+                "{key}: migrated value"
+            );
+            assert_eq!(
+                legacy_values.get(legacy),
+                Some(migrated),
+                "{key}: old value remains"
+            );
+        }
+        let reopened = SettingsStore::open(dir.path());
+        for (key, _, _, migrated) in &expected {
+            let resolved = reopened.get(key).unwrap();
+            assert_eq!(resolved.source, ValueSource::Stored);
+            assert_eq!(resolved.value, *migrated, "{key}: persisted app scope");
+        }
+        assert!(dir.path().join("settings/app-imprint.json").exists());
     }
 
     #[test]
