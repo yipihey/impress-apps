@@ -64,6 +64,7 @@
 //! (`impress_service_core::SafetyClass`), and `docs/verb-safety.md` is the
 //! table every declaration is checked against. Examples go beside the method
 //! as `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]`.
+//! `tier = "b"` opts into an isolated host run; omitted tier means A.
 //!
 //! Effects (ADR-0036 D1) are declared the same way — once per service,
 //! `impress_service_impl! { effects = { reads: ["imbib/bibliography-entry"],
@@ -626,7 +627,7 @@ fn parse_aliases_attr(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<Vec<
     Ok(out)
 }
 
-/// `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]` as
+/// `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#, tier = "b")]` as
 /// an `impress_service_core::Example` literal. `args` and `expect` must be
 /// JSON text, and `args` an object: a typo here is a compile error, not a
 /// Tier A failure later.
@@ -634,6 +635,7 @@ fn parse_example(attr: &syn::Attribute) -> syn::Result<TokenStream2> {
     let mut name: Option<syn::LitStr> = None;
     let mut args: Option<syn::LitStr> = None;
     let mut expect: Option<syn::LitStr> = None;
+    let mut tier: Option<syn::LitStr> = None;
     attr.parse_nested_meta(|meta| {
         let value: syn::LitStr = meta.value()?.parse()?;
         if meta.path.is_ident("name") {
@@ -663,8 +665,21 @@ fn parse_example(attr: &syn::Attribute) -> syn::Result<TokenStream2> {
                 ));
             }
             expect = Some(value);
+        } else if meta.path.is_ident("tier") {
+            if tier.is_some() {
+                return Err(syn::Error::new(
+                    value.span(),
+                    "duplicate `tier` in #[impress_example]",
+                ));
+            }
+            if !matches!(value.value().as_str(), "a" | "b") {
+                return Err(syn::Error::new(value.span(), "`tier` must be `a` or `b`"));
+            }
+            tier = Some(value);
         } else {
-            return Err(meta.error("unknown #[impress_example] key; `name`, `args` or `expect`"));
+            return Err(
+                meta.error("unknown #[impress_example] key; `name`, `args`, `expect` or `tier`")
+            );
         }
         Ok(())
     })?;
@@ -677,8 +692,13 @@ fn parse_example(attr: &syn::Attribute) -> syn::Result<TokenStream2> {
         Some(e) => quote! { ::core::option::Option::Some(#e) },
         None => quote! { ::core::option::Option::None },
     };
+    let tier = if tier.as_ref().is_some_and(|value| value.value() == "b") {
+        quote! { ::impress_service_core::ExampleTier::B }
+    } else {
+        quote! { ::impress_service_core::ExampleTier::A }
+    };
     Ok(quote! {
-        ::impress_service_core::Example { name: #name, args: #args, expect: #expect }
+        ::impress_service_core::Example { name: #name, args: #args, expect: #expect, tier: #tier }
     })
 }
 
@@ -1430,6 +1450,10 @@ mod tests {
         );
         assert!(ts.contains("name : \"one\""), "{ts}");
         assert!(
+            ts.contains("ExampleTier :: A"),
+            "omitted tier defaults to A: {ts}"
+        );
+        assert!(
             !ts.contains("impress_example"),
             "the marker is stripped: {ts}"
         );
@@ -1438,6 +1462,30 @@ mod tests {
             ts.contains("safety : :: core :: option :: Option :: None"),
             "{ts}"
         );
+    }
+
+    #[test]
+    fn explicit_tier_b_is_captured_and_invalid_tiers_are_compile_errors() {
+        let service = |tier: &str| {
+            format!(
+                "pub trait EchoService: Send + Sync + 'static {{\n\
+                 /// Echo it.\n\
+                 #[impress_method]\n\
+                 #[impress_example(name = \"one\", args = \"{{}}\", tier = {tier})]\n\
+                 async fn echo(&self) -> String;\n}}"
+            )
+        };
+        let tokens = expand(&service("\"b\""))
+            .expect("tier B expands")
+            .to_string();
+        assert!(tokens.contains("ExampleTier :: B"), "{tokens}");
+        let error = expand(&service("\"network\"")).expect_err("unknown tier must fail");
+        assert!(error.to_string().contains("`tier` must be `a` or `b`"));
+        let error = expand(&service("b")).expect_err("tier must be a string literal");
+        assert!(error.to_string().contains("expected string literal"));
+        let duplicate = service("\"b\"").replace("tier = \"b\"", "tier = \"b\", tier = \"a\"");
+        let error = expand(&duplicate).expect_err("duplicate tier must fail");
+        assert!(error.to_string().contains("duplicate `tier`"));
     }
 
     #[test]

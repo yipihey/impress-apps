@@ -75,6 +75,7 @@ fn missing_construction_declarations_fail_in_downstream_crates() {
         ("missing_method_doc.rs", "UndocumentedService::run"),
         ("missing_safety.rs", "missing `safety ="),
         ("missing_since.rs", "missing `since ="),
+        ("invalid_example_tier.rs", "`tier` must be `a` or `b`"),
     ] {
         let source = fixtures.join(fixture);
         let result = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
