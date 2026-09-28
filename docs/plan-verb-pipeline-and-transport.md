@@ -1479,3 +1479,59 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   allowlist caught PMC's now-explicit edge to ImprintRustCore (already transitive
   through ImprintCore; no new archive). Push log: `/tmp/impress-p5b-push-r2.log`.
   No P5b merge is claimed by this entry.
+
+
+- 2026-09-28 — **P5b native transport merged as #126 (`e7cf88a4`).** Fresh fetch
+  and `git merge-base --is-ancestor origin/main HEAD` passed before the authorized
+  merge. The normal pre-push macOS/iOS builds and all local gates were green;
+  hosted jobs remained queued. On merged main, the isolated native workspace
+  suite passed **4,341 tests, 0 failures, 23 ignored** in 217 result groups
+  (`/tmp/impress-after-p5b-main-workspace.log`). The retained REST contract decision
+  is still open; this merge does not claim all of the estimated 160 arms retired.
+
+- 2026-09-28 — **P7 implemented and verified; draft #127 awaits the representation decision.**
+  Worktree `p7-construction`, branch `claude/pipeline-p7-construction`, starts at
+  `e7cf88a4`. One shared build-time manifest reader generates 85 typed core refs,
+  string metadata for crates below the store, and the additive UniFFI Swift enum.
+  Rust schema queries and collection bindings take the private type; Swift's
+  custom UniFFI string alias preserves existing callers. The literal backstop
+  reports 0 Rust / 120 Swift sites, with no new record kinds or spellings.
+  All 86 crates inherit workspace lints. Clippy cannot ban `String` only in a
+  schema position: the typed API/private constructor supplies that boundary,
+  while the SQL/wire lint remains a backstop. Strict standalone kit builds now
+  run the existing dependency/feature classifier and carry the manifest input.
+
+  Cheaper workers implemented the macro errors, exhaustive sidebar matrix and
+  exact self-test evidence mapping. Review caught stale macro-artifact selection
+  in the compile-fail harness (now built by Cargo in its own target) and blanket
+  service-wide catalogue credit. Credit now requires the exact passing,
+  non-skipped capability ID; focused Tier A fixtures close 18 unsupported claims
+  without raising the 300-exception ceiling. Headless native-export and disabled
+  compiler contracts are labelled as refusals, not positive native operation.
+  The aggregate store-spy check is separate. An extra post-uncollect readback
+  exposed the existing wildcard observation for an empty schema-less membership
+  query; the collect/uncollect fixture now asserts the actual persisted collection
+  edges, without weakening the spy or broadening production effects.
+
+  Final isolated native workspace tests passed **4,351 / 0 / 23 ignored** in 218
+  groups (`/tmp/impress-p7-workspace-native.log`, owned workspace
+  `/tmp/impress-cargo-tests.8xMfF8/workspace`). Separate core/FFI tests passed 792;
+  nine Swift schema/sidebar tests passed, including real native enum/string
+  query round trips. Both clippy shards, fmt, coverage, docs, strict kit deps and
+  standalone (21 crates), bindings, schema refs and hakari diff passed. All twelve
+  native framework scripts passed with every supported arm64 slice, swiftformat
+  off PATH and no fast mode. The normal pre-push macOS and iOS builds passed
+  (`/tmp/impress-p7-push-final.log`). Census/descriptor/effects tables were
+  regenerated from semantic-search-enabled dumps and stayed byte-identical;
+  default-feature reference pages remain current. No user's app or real store was
+  used. The only cleanup removed this session's obsolete P5b temporary build
+  products, retaining proof logs and workspaces.
+
+  **Not merged:** the requested refinement is private `Cow<'static, str>` instead
+  of table RC's `&'static str`. Canonical constants stay static and `FromStr` is
+  exact; explicit persistence/Swift-wire decoding owns opaque names to preserve
+  old backups and newer-writer rows without leaking interned strings. Tom's answer
+  remains pending. PR: https://github.com/yipihey/impress-apps/pull/127. After that
+  decision, fetch/merge current main, recheck ancestry and gates, mark ready and
+  merge. P8, R3, G3's remainder and the scenario-interpreter gaps are not started;
+  P5b's richer REST contract retirement also remains open as recorded above.
