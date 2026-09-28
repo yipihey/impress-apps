@@ -259,6 +259,7 @@ targets:
       - package: ImpressRustCore
       - package: ImpressAutomation
       - package: ImpressKit
+      - package: ImpressKeyboard
       - package: PublicationManagerCore
     settings:
       base:
