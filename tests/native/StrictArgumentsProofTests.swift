@@ -111,13 +111,13 @@ final class StrictArgumentsProofTests: XCTestCase {
             let gapsID = "gaps.\(app).\(UUID().uuidString.lowercased())"
             let gaps: [String: Any] = [
                 "wire_version": 1, "id": gapsID, "tier": "b",
-                "description": "Read the owned audit store and preserve surface templates over native HTTP",
+                "description": "Read the owned store and preserve surface templates over native HTTP",
                 "steps": [
-                    ["store": ["schema_ref": "core/verb-call@1.0.0", "max_rows": 1000,
-                               "where": [["path": "$.payload.verb", "equals": verb]]],
-                     "capture": ["call_id": "$.item.id"]],
+                    ["store": ["schema_ref": "impress/scenario@1.0.0", "max_rows": 1000,
+                               "where": [["path": "$.payload.scenario_id", "equals": gapsID]]],
+                     "capture": ["scenario_row_id": "$.item.id"]],
                     ["best_effort": ["call": "store-query-service_get-item", "args": ["id": "not-a-uuid"]]],
-                    ["call": "store-query-service_get-item", "args": ["id": "{{state.call_id}}"],
+                    ["call": "store-query-service_get-item", "args": ["id": "{{state.scenario_row_id}}"],
                      "expect": ["ok": true]],
                     ["call": "impress-surface-service_surface-create", "args": ["spec": [
                         "surface": "1.0", "name": gapsID, "state": ["bins": 9],
