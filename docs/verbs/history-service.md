@@ -16,13 +16,13 @@ A filtered page of the call log — "what happened". Every filter is optional; `
 | `caller` | — | no | Matches the caller's `name` exactly, or its `kind` ("human", "agent", "system"). |
 | `limit` | integer | yes | Page size; 0 for the default (50), clamped above 500. |
 | `since` | — | no | RFC 3339 lower bound on `started_at`, inclusive. |
-| `trace_id` | — | no | *(undocumented)* |
+| `trace_id` | — | no | Optional exact trace identifier used to select related calls. |
 | `until` | — | no | RFC 3339 upper bound on `started_at`, inclusive. |
 | `verb` | — | no | Exact verb name (`imbib-tags-service_add-tag`). |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"limit": 5}
@@ -41,7 +41,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -64,7 +64,7 @@ Mines the call log for sequences of consecutive mutating verb calls by one calle
 
 **Examples**
 
-- `missing-max-len`:
+- `missing-max-len` — Tier A:
 
   ```json
   {"min_repeats": 3}
@@ -91,7 +91,7 @@ Re-invoke recorded calls through the pipeline, as `Agent("replay:<original calle
 
 **Examples**
 
-- `missing-call`:
+- `missing-call` — Tier A:
 
   ```json
   {"call_ids": ["00000000-0000-0000-0000-000000000000"], "dry_run": true}
@@ -118,7 +118,7 @@ Turn a list of recorded call ids into a stored, reviewable `impress/workflow@1.0
 
 **Examples**
 
-- `missing-call`:
+- `missing-call` — Tier A:
 
   ```json
   {"call_ids": ["00000000-0000-0000-0000-000000000000"], "name": "my-macro"}
@@ -144,7 +144,7 @@ Every call, as a tree built from `parent_call`, for one trace id — a surface c
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"trace_id": "t"}
@@ -165,7 +165,7 @@ Why an item is the way it is: operations and direct insert/delete calls naming i
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000"}

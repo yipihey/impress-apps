@@ -166,15 +166,42 @@ impress_service_impl! {
     instance = || crate::backend::text_service_instance(),
     methods = [
         /// Beautify a LaTeX source string.
-        format_latex(source: String) -> String,
+        format_latex(
+            /// Complete LaTeX source to format without changing its commands.
+            source: String
+        ) -> String,
         /// Extract the unique sorted set of cite keys from a manuscript source.
-        extract_cite_keys(source: String, syntax: String) -> Vec<String>,
+        extract_cite_keys(
+            /// Manuscript source text to scan for citations.
+            source: String,
+            /// Citation syntax: typst, latex or mixed; unknown values use mixed.
+            syntax: String
+        ) -> Vec<String>,
         /// Extract every cite-key usage with offsets + context.
-        extract_cite_key_usages(source: String, syntax: String) -> Vec<CiteKeyUsage>,
+        extract_cite_key_usages(
+            /// Manuscript source text whose citation positions should be returned.
+            source: String,
+            /// Citation syntax: typst, latex or mixed; unknown values use mixed.
+            syntax: String
+        ) -> Vec<CiteKeyUsage>,
         /// Compose an inline citation token (typst `@key` / latex `\cite{key}`).
-        compose_citation(cite_key: String, format: String, append_space: bool) -> String,
+        compose_citation(
+            /// BibTeX citation key to insert, without an @ or citation command.
+            cite_key: String,
+            /// Output markup: latex or tex selects LaTeX; other values select Typst.
+            format: String,
+            /// Whether to prepend one space before the citation token.
+            append_space: bool
+        ) -> String,
         /// Compose a heading line at a 1-based level.
-        compose_heading(title: String, level: i64, format: String) -> String,
+        compose_heading(
+            /// Heading text to include in the generated markup.
+            title: String,
+            /// Heading depth; Typst clamps to 1–6, LaTeX maps 1–4 then subparagraph.
+            level: i64,
+            /// Output markup: latex or tex selects LaTeX; other values select Typst.
+            format: String
+        ) -> String,
     ],
 }
 

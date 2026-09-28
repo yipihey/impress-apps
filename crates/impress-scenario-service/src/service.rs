@@ -35,9 +35,9 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// This stores a document for review and editing; it executes no steps.
     #[impress_method(safety = mutating, effects(reads = ["core/verb-call@1.0.0", "impress/scenario@1.0.0"], writes = ["impress/scenario@1.0.0"]))]
     #[impress_example(
-        name = "missing-trace",
+        name = "recorded-trace",
         args = r#"{"trace_id":"scenario-record-example"}"#,
-        expect = r#"{"ok":false,"code":"not-found"}"#
+        expect = r#"{"ok":true,"selected":1,"skipped":[]}"#
     )]
     async fn scenario_record(
         &self,
@@ -89,6 +89,12 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// (and every other "run arbitrary steps" verb) an external safety class
     /// rather than trying to infer a tighter one from what happens to run.
     #[impress_method(safety = external, effects(reads = ["impress/scenario@1.0.0"], writes = [any("a scenario's steps may call any verb, including a mutating one")], reach = [network]))]
+    #[impress_example(
+        name = "run-owned-noop",
+        tier = "b",
+        args = r#"{"scenario_id":"example.noop","tier":"a"}"#,
+        expect = r#"{"ok":true,"total":1,"passed":1,"failed":0,"skipped":0}"#
+    )]
     async fn scenario_run(
         &self,
         scenario_id: String,
@@ -145,12 +151,17 @@ impl DefaultImpressScenarioService {
             );
         };
         let mut problems = impress_scenario::validate(&scenario);
-        for (index, step) in scenario.steps.iter().enumerate() {
-            if let impress_scenario::Step::Call(call) = step {
-                match impress_service_core::call::find(&call.call) {
+        for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
+            let called = match step {
+                impress_scenario::Step::Call(call) => Some(call.call.as_str()),
+                impress_scenario::Step::BestEffort(step) => Some(step.best_effort.call.as_str()),
+                _ => None,
+            };
+            if let Some(name) = called {
+                match impress_service_core::call::find(name) {
                     None => problems.push(impress_scenario::Problem {
                         step: Some(index),
-                        message: format!("no such verb: {}", call.call),
+                        message: format!("no such verb: {name}"),
                     }),
                     Some(descriptor)
                         if scenario.tier == impress_scenario::Tier::A
@@ -161,7 +172,7 @@ impl DefaultImpressScenarioService {
                     {
                         problems.push(impress_scenario::Problem {
                             step: Some(index),
-                            message: format!("provider verb {} requires Tier B", call.call),
+                            message: format!("provider verb {name} requires Tier B"),
                         });
                     }
                     Some(_) => {}

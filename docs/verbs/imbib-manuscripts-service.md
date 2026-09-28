@@ -13,9 +13,20 @@ Compile a manuscript through imbib, with the store-backed virtual bibliography �
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | Manuscript UUID to compile in the running imbib host. |
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"{{state.manuscript_id}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
+  ```
 
 ## `imbib-manuscripts-service_create-manuscript`
 
@@ -28,10 +39,21 @@ Create a new manuscript row and return it. For changing an existing one use `wri
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `format` | — | no | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `format` | — | no | Document format, such as `typst`, or null for the host default. |
+| `title` | string | yes | Title of the new manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {"title":"G3 research notes","format":"typst"}
+  ```
+  expects:
+
+  ```json
+  null
+  ```
 
 ## `imbib-manuscripts-service_create-manuscript-from-template`
 
@@ -44,10 +66,21 @@ Create a manuscript scaffolded from a template: front matter, section skeleton a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `template_id` | string | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `template_id` | string | yes | Template UUID returned by the running imbib host. |
+| `title` | string | yes | Title for the scaffolded manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {"template_id":"{{state.template_id}}","title":"G3 template draft"}
+  ```
+  expects:
+
+  ```json
+  null
+  ```
 
 ## `imbib-manuscripts-service_get-manuscript`
 
@@ -60,9 +93,20 @@ One manuscript's metadata, including the `content_hash` that `write_manuscript_b
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | Manuscript UUID returned by the host when imbib is running. |
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"{{state.manuscript_id}}"}
+  ```
+  expects:
+
+  ```json
+  null
+  ```
 
 ## `imbib-manuscripts-service_list-manuscripts`
 
@@ -75,7 +119,18 @@ Manuscripts in the shared store: id, title, format and status. Metadata only, no
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  []
+  ```
 
 ## `imbib-manuscripts-service_list-templates`
 
@@ -88,7 +143,18 @@ Manuscript templates available to `create_manuscript_from_template` — journal 
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  []
+  ```
 
 ## `imbib-manuscripts-service_write-manuscript-body`
 
@@ -101,9 +167,20 @@ Replace a manuscript's ENTIRE body, compare-and-set. There is no patch/append ro
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `body` | string | yes | *(undocumented)* |
-| `expected_hash` | string | yes | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `body` | string | yes | Complete replacement document body. |
+| `expected_hash` | string | yes | Content hash from the latest manuscript read. |
+| `manuscript_id` | string | yes | Manuscript UUID from the running imbib host. |
 
-_No examples yet._
+**Examples**
+
+- `needs-running-imbib` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"{{state.manuscript_id}}","body":"= G3 research notes","expected_hash":"{{state.content_hash}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
+  ```
 

@@ -37,15 +37,26 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// List every manuscript document.
     #[impress_method(effects(reads = ["manuscript"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(name = "g3-list-documents", args = r#"{}"#)]
     async fn list_documents(&self) -> Vec<DocumentSummary>;
 
     /// Fetch a single document by UUID.
     #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
+    #[impress_example(
+        name = "g3-get-document",
+        args = r#"{"id":"62000000-0000-4000-8000-000000000002"}"#,
+        expect = r#"{"title":"G3 get document"}"#
+    )]
     async fn get_document(&self, id: String) -> Option<DocumentSummary>;
 
     /// Export a document in the given format. Returns the raw bytes.
     /// `format` is `"typst" | "latex" | "text"`.
     #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
+    #[impress_example(
+        name = "g3-export-headless-refusal",
+        args = r#"{"id":"62000000-0000-4000-8000-000000000003","format":"typst"}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
     async fn export_document(&self, id: String, format: String) -> Vec<u8>;
 
     // ---- Section CRUD ----
@@ -54,16 +65,30 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// wordCount, and createdAt. Large content-addressed bodies are not
     /// rehydrated here — call `imprint-manuscript-service_get-section` for those.
     #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
+    #[impress_example(
+        name = "g3-list-sections",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000004"}"#
+    )]
     async fn list_sections(&self, doc_id: String) -> Vec<SectionRecord>;
     /// Fetch a single manuscript section by its UUID. Body is rehydrated
     /// from content-addressed storage when needed. Use this after
     /// `imprint-manuscript-service_list-sections` to load the full body of a specific
     /// section.
     #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
+    #[impress_example(
+        name = "g3-get-section",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000005","section_key":"intro"}"#,
+        expect = r#"{"section_key":"intro","body":"G3 section body"}"#
+    )]
     async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord>;
     /// Create or replace one section's body and metadata in a manuscript;
     /// returns the section as stored.
     #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-section"], writes = ["manuscript-section", "manuscript"]))]
+    #[impress_example(
+        name = "g3-put-section",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000006","section_key":"methods","body":"G3 measured methods","metadata":{"title":"Methods","section_type":"methods","order_index":1}}"#,
+        expect = r#"{"section_key":"methods","title":"Methods"}"#
+    )]
     async fn put_section(
         &self,
         doc_id: String,
@@ -74,6 +99,11 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Remove a section (heading + body) from the document. Queues an
     /// operation; returns operationId.
     #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-section"], writes = ["manuscript-section", "manuscript"]))]
+    #[impress_example(
+        name = "g3-delete-section",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000007","section_key":"intro"}"#,
+        expect = "true"
+    )]
     async fn delete_section(&self, doc_id: String, section_key: String) -> bool;
 
     // ---- Pure-text helpers ----
@@ -81,11 +111,19 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// nothing is read from the store.
     #[impress_method]
     #[impress_example(name = "default", args = r#"{"source": "= Title\n== Section"}"#)]
+    #[impress_example(
+        name = "g3-document-outline",
+        args = r#"{"source":"= G3 Title\n== Evidence"}"#
+    )]
     async fn document_outline(&self, source: String) -> Outline;
     /// List the citation keys used in Typst source you pass in, with where
     /// each occurs. Pure text: nothing is read from the store.
     #[impress_method]
     #[impress_example(name = "default", args = r#"{"source": "As shown by @abel2026."}"#)]
+    #[impress_example(
+        name = "g3-document-citations",
+        args = r#"{"source":"Evidence cites @g3source and compares results."}"#
+    )]
     async fn document_citations(&self, source: String) -> Vec<CitationUsage>;
     /// Find every match of `query` in Typst source you pass in, with
     /// positions. Pure text: nothing is read from the store.
@@ -93,6 +131,10 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     #[impress_example(
         name = "default",
         args = r#"{"source": "alpha beta", "query": "beta", "case_sensitive": false}"#
+    )]
+    #[impress_example(
+        name = "g3-search-in-text",
+        args = r#"{"source":"Alpha beta gamma","query":"beta","case_sensitive":false}"#
     )]
     async fn search_in_text(
         &self,
@@ -105,11 +147,19 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Parse stable `#slide(id:, beat:)[…]` blocks for graphical or agentic
     /// deck manipulation. The Typst source remains the only order authority.
     #[impress_method]
+    #[impress_example(
+        name = "g3-presentation-outline",
+        args = r##"{"source":"#slide(id: \"one\", title: \"First\")[A]\n#slide(id: \"two\")[B]"}"##
+    )]
     async fn presentation_outline(&self, source: String) -> PresentationOutlineDto;
 
     /// Move a slide before another slide. Pass an empty `before_slide_id` to
     /// move it to the end. Returns the complete updated Typst source.
     #[impress_method]
+    #[impress_example(
+        name = "g3-reorder-slide",
+        args = r##"{"source":"#slide(id: \"one\")[A]\n#slide(id: \"two\")[B]","slide_id":"two","before_slide_id":"one"}"##
+    )]
     async fn reorder_presentation_slide(
         &self,
         source: String,
@@ -120,6 +170,10 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Associate a slide with a stable throughline paragraph label. Pass an
     /// empty `beat` to clear the association.
     #[impress_method]
+    #[impress_example(
+        name = "g3-set-slide-beat",
+        args = r##"{"source":"#slide(id: \"one\")[A]","slide_id":"one","beat":"tl-method"}"##
+    )]
     async fn set_presentation_slide_beat(
         &self,
         source: String,
@@ -135,6 +189,11 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// compile happens in its live engine instead; either way you get a path.
     /// A broken document comes back as `error`, not as a failed call.
     #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        tier = "b",
+        name = "g3-compile-typst",
+        args = r#"{"source":"= G3 manuscript\nA valid proof.","options":{"page_size":"A4","font_size":11.0,"margin_top":72.0,"margin_right":72.0,"margin_bottom":72.0,"margin_left":72.0}}"#
+    )]
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult;
 
     // ---- LaTeX compile via embedded Tectonic (gated on tectonic-render) ----
@@ -142,6 +201,11 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// PDF length + diagnostics (not raw bytes). `filesystem_root` resolves
     /// on-disk `\includegraphics`/`\input`; pass "" for none.
     #[impress_method(effects(reach = [subprocess]))]
+    #[impress_example(
+        tier = "b",
+        name = "g3-compile-latex",
+        args = r#"{"source":"\\documentclass{article}\\begin{document}G3 proof\\end{document}","filesystem_root":"{{fixture.root}}/manuscripts"}"#
+    )]
     async fn compile_latex(&self, source: String, filesystem_root: String)
         -> LatexCompileResultDto;
 
@@ -149,12 +213,21 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     /// Search for text in an imprint document. Returns positions of all
     /// matches.
     #[impress_method(effects(reads = ["manuscript", "manuscript-section"]))]
+    #[impress_example(
+        name = "g3-search",
+        args = r#"{"query":"g3uniquesearchneedle","limit":5}"#
+    )]
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto>;
 
     // ---- Replace within a section ----
     /// Replace every occurrence of `find` with `replace` in one stored
     /// section's body; returns the replacement count and the new body.
     #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-section"], writes = ["manuscript-section"]))]
+    #[impress_example(
+        name = "g3-replace-section",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000011","section_key":"intro","find":"before","replace":"after"}"#,
+        expect = r#"{"replacements":1,"new_body":"G3 after result"}"#
+    )]
     async fn replace_in_section(
         &self,
         doc_id: String,
@@ -575,22 +648,107 @@ impress_service_impl! {
     impl = DefaultImprintManuscriptService,
     instance = || crate::backend::manuscript_service_instance(),
     methods = [
-        list_documents() -> Vec<DocumentSummary>,
-        get_document(id: String) -> Option<DocumentSummary>,
-        export_document(id: String, format: String) -> Vec<u8>,
-        list_sections(doc_id: String) -> Vec<SectionRecord>,
-        get_section(doc_id: String, section_key: String) -> Option<SectionRecord>,
-        put_section(doc_id: String, section_key: String, body: String, metadata: SectionMetadata) -> Option<SectionRecord>,
-        delete_section(doc_id: String, section_key: String) -> bool,
-        document_outline(source: String) -> Outline,
-        document_citations(source: String) -> Vec<CitationUsage>,
-        search_in_text(source: String, query: String, case_sensitive: bool) -> Vec<TextMatch>,
-        presentation_outline(source: String) -> PresentationOutlineDto,
-        reorder_presentation_slide(source: String, slide_id: String, before_slide_id: String) -> PresentationMutationDto,
-        set_presentation_slide_beat(source: String, slide_id: String, beat: String) -> PresentationMutationDto,
-        compile_typst(source: String, options: CompileOptions) -> CompileResult,
-        compile_latex(source: String, filesystem_root: String) -> LatexCompileResultDto,
-        search(query: String, limit: u32) -> Vec<SearchHitDto>,
-        replace_in_section(doc_id: String, section_key: String, find: String, replace: String) -> ReplaceResult,
+        list_documents(
+        ) -> Vec<DocumentSummary>,
+        get_document(
+            /// UUID of the manuscript document.
+            id: String,
+        ) -> Option<DocumentSummary>,
+        export_document(
+            /// UUID of the manuscript document.
+            id: String,
+            /// Export format: `typst`, `latex`, or `text`.
+            format: String,
+        ) -> Vec<u8>,
+        list_sections(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+        ) -> Vec<SectionRecord>,
+        get_section(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable key of a section in this manuscript.
+            section_key: String,
+        ) -> Option<SectionRecord>,
+        put_section(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable key of a section in this manuscript.
+            section_key: String,
+            /// Typst source body to store for the section.
+            body: String,
+            /// Optional heading, section type, and zero-based order for the section.
+            metadata: SectionMetadata,
+        ) -> Option<SectionRecord>,
+        delete_section(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable key of a section in this manuscript.
+            section_key: String,
+        ) -> bool,
+        document_outline(
+            /// Typst or LaTeX source supplied directly by the caller.
+            source: String,
+        ) -> Outline,
+        document_citations(
+            /// Typst or LaTeX source supplied directly by the caller.
+            source: String,
+        ) -> Vec<CitationUsage>,
+        search_in_text(
+            /// Typst or LaTeX source supplied directly by the caller.
+            source: String,
+            /// Text to find in the source or manuscript search index.
+            query: String,
+            /// Whether text search distinguishes upper- and lowercase characters.
+            case_sensitive: bool,
+        ) -> Vec<TextMatch>,
+        presentation_outline(
+            /// Typst presentation source containing stable `#slide(id:)` blocks.
+            source: String,
+        ) -> PresentationOutlineDto,
+        reorder_presentation_slide(
+            /// Typst presentation source containing stable `#slide(id:)` blocks.
+            source: String,
+            /// Stable `id` of the slide to edit or move.
+            slide_id: String,
+            /// Slide id to move before; empty string moves to the end.
+            before_slide_id: String,
+        ) -> PresentationMutationDto,
+        set_presentation_slide_beat(
+            /// Typst presentation source containing stable `#slide(id:)` blocks.
+            source: String,
+            /// Stable `id` of the slide to edit or move.
+            slide_id: String,
+            /// Throughline paragraph label; empty string clears the slide association.
+            beat: String,
+        ) -> PresentationMutationDto,
+        compile_typst(
+            /// Typst or LaTeX source supplied directly by the caller.
+            source: String,
+            /// Page size, font size, and margins for the Typst compilation.
+            options: CompileOptions,
+        ) -> CompileResult,
+        compile_latex(
+            /// Typst or LaTeX source supplied directly by the caller.
+            source: String,
+            /// Local directory for LaTeX input and image files; empty means none.
+            filesystem_root: String,
+        ) -> LatexCompileResultDto,
+        search(
+            /// Text to find in the source or manuscript search index.
+            query: String,
+            /// Maximum number of cross-document search hits; zero uses the service default.
+            limit: u32,
+        ) -> Vec<SearchHitDto>,
+        replace_in_section(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable key of a section in this manuscript.
+            section_key: String,
+            /// Literal text to replace in the selected section.
+            find: String,
+            /// Replacement text for each occurrence of `find`.
+            replace: String,
+        ) -> ReplaceResult,
     ],
 }

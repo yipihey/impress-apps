@@ -13,16 +13,27 @@ Assemble an ADS query from already-extracted structured fields — the stage tha
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `authors` | array | yes | *(undocumented)* |
-| `bibstem` | string | yes | *(undocumented)* |
-| `original_input` | string | yes | *(undocumented)* |
-| `refereed_only` | boolean | yes | *(undocumented)* |
-| `this_year` | integer | yes | *(undocumented)* |
-| `topic_words` | array | yes | *(undocumented)* |
-| `year_from` | integer | yes | *(undocumented)* |
-| `year_to` | integer | yes | *(undocumented)* |
+| `authors` | array | yes | Candidate human researcher surnames; non-authors are demoted to topics. |
+| `bibstem` | string | yes | ADS journal abbreviation, or an empty string when unspecified. |
+| `original_input` | string | yes | Original request used to check alleged authors and date phrases. |
+| `refereed_only` | boolean | yes | Whether to add the ADS refereed filter. |
+| `this_year` | integer | yes | Current calendar year used for relative date phrases. |
+| `topic_words` | array | yes | Subject terms, including instruments and surveys. |
+| `year_from` | integer | yes | Inclusive lower publication year, or zero for no lower bound. |
+| `year_to` | integer | yes | Inclusive upper publication year, or zero for no upper bound. |
 
-_No examples yet._
+**Examples**
+
+- `demote_four_surnames` — Tier A:
+
+  ```json
+  {"authors":["Abel","Bryan","Norman","Klessen"],"bibstem":"","topic_words":[],"year_from":0,"year_to":0,"refereed_only":false,"original_input":"abel bryan norman klessen","this_year":2026}
+  ```
+  expects:
+
+  ```json
+  "abs:(Abel Bryan Norman Klessen)"
+  ```
 
 ## `smart-search-service_classify-search-input`
 
@@ -35,9 +46,20 @@ Classify a search input the way imbib's Cmd+S overlay does: bare identifier, ADS
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `input` | string | yes | *(undocumented)* |
+| `input` | string | yes | Text from the search box: an identifier, ADS expression, URL, citation, or free text. |
 
-_No examples yet._
+**Examples**
+
+- `doi_identifier` — Tier A:
+
+  ```json
+  {"input":"10.1038/nature01080"}
+  ```
+  expects:
+
+  ```json
+  {"kind":"identifier","identifier_kind":"doi","value":"10.1038/nature01080"}
+  ```
 
 ## `smart-search-service_clean-ads-query`
 
@@ -50,14 +72,19 @@ Repair a language model's free-form ADS query string: `;`/comma clause separator
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | yes | *(undocumented)* |
+| `query` | string | yes | Model-generated ADS query whose clauses and field quoting need repair. |
 
 **Examples**
 
-- `default`:
+- `unquote_topic_field` — Tier A:
 
   ```json
-  {"query": "author:abel"}
+  {"query":"TITLE:\"dark matter\""}
+  ```
+  expects:
+
+  ```json
+  "title:(dark matter)"
   ```
 
 ## `smart-search-service_extract-page-identifiers`
@@ -71,9 +98,20 @@ Extract paper identifiers and the `<title>` from a page's HTML. This is the extr
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `html` | string | yes | *(undocumented)* |
+| `html` | string | yes | Already-fetched page HTML; this method does not fetch its URL. |
 
-_No examples yet._
+**Examples**
+
+- `doi_in_html` — Tier A:
+
+  ```json
+  {"html":"<html><title>Stars &amp; dust</title><a href=\"https://doi.org/10.1126/science.1\">paper</a></html>"}
+  ```
+  expects:
+
+  ```json
+  {"page_title":"Stars & dust","identifiers":[{"kind":"doi","value":"10.1126/science.1"}]}
+  ```
 
 ## `smart-search-service_free-text-extraction-prompt`
 
@@ -86,16 +124,16 @@ Build the prompt imbib sends to the on-device model to extract search fields fro
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `input` | string | yes | *(undocumented)* |
-| `this_year` | integer | yes | *(undocumented)* |
-| `today` | string | yes | *(undocumented)* |
+| `input` | string | yes | Natural-language search request to place in the on-device prompt. |
+| `this_year` | integer | yes | Current calendar year used in the prompt's relative-year examples. |
+| `today` | string | yes | Current ISO date, included verbatim in the prompt. |
 
 **Examples**
 
-- `default`:
+- `model_contract_for_recent_papers` — Tier A:
 
   ```json
-  {"input": "galaxy formation", "this_year": 2026, "today": "2026-09-26"}
+  {"input":"recent JWST galaxy formation","this_year":2026,"today":"2026-09-26"}
   ```
 
 ## `smart-search-service_normalize-ads-query`
@@ -109,14 +147,19 @@ Repair a hand-written or model-generated ADS query: expand `a:`/`t:`/`b:` shorth
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | yes | *(undocumented)* |
+| `query` | string | yes | ADS query to normalize without contacting ADS. |
 
 **Examples**
 
-- `default`:
+- `expand_author_shorthand` — Tier A:
 
   ```json
-  {"query": "author:abel"}
+  {"query":"a:Einstein"}
+  ```
+  expects:
+
+  ```json
+  {"corrected_query":"author:Einstein","was_modified":true}
   ```
 
 ## `smart-search-service_reference-parse-prompt`
@@ -130,14 +173,14 @@ Build the prompt imbib sends to the on-device model to parse a single citation r
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `block` | string | yes | *(undocumented)* |
+| `block` | string | yes | One complete bibliography reference to place in the on-device prompt. |
 
 **Examples**
 
-- `default`:
+- `model_contract_for_citation` — Tier A:
 
   ```json
-  {"block": "Abel, T. 2026, ApJ, 1, 1"}
+  {"block":"Abel, T. 2026, ApJ, 1, 1"}
   ```
 
 ## `smart-search-service_rewrite-free-text-query`
@@ -151,15 +194,20 @@ Rewrite free-text input into an ADS query without a language model, using the de
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `input` | string | yes | *(undocumented)* |
-| `this_year` | integer | yes | *(undocumented)* |
+| `input` | string | yes | Natural-language paper search request to parse deterministically. |
+| `this_year` | integer | yes | Current calendar year used to resolve relative date phrases. |
 
 **Examples**
 
-- `default`:
+- `relative_year_range` — Tier A:
 
   ```json
-  {"input": "galaxy formation", "this_year": 2026}
+  {"input":"last 5 years","this_year":2026}
+  ```
+  expects:
+
+  ```json
+  {"query":"year:2021-2026","source":"degenerate"}
   ```
 
 ## `smart-search-service_split-reference-blocks`
@@ -173,14 +221,19 @@ Split a pasted bibliography into individual reference blocks (`\bibitem`, number
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `text` | string | yes | *(undocumented)* |
+| `text` | string | yes | Pasted bibliography with numbered, bibitem, or blank-line separators. |
 
 **Examples**
 
-- `default`:
+- `numbered_references` — Tier A:
 
   ```json
-  {"text": "[1] Abel 2026. [2] Baker 2025."}
+  {"text":"[1] Abel 2026.\n[2] Baker 2025."}
+  ```
+  expects:
+
+  ```json
+  ["[1] Abel 2026.","[2] Baker 2025."]
   ```
 
 ## `smart-search-service_validate-parsed-reference`
@@ -194,15 +247,26 @@ Validate a model-parsed citation, dropping any DOI / arXiv id / bibcode that doe
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `arxiv` | string | yes | *(undocumented)* |
-| `authors` | array | yes | *(undocumented)* |
-| `bibcode` | string | yes | *(undocumented)* |
-| `doi` | string | yes | *(undocumented)* |
-| `journal` | string | yes | *(undocumented)* |
-| `pages` | string | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
-| `volume` | string | yes | *(undocumented)* |
-| `year` | integer | yes | *(undocumented)* |
+| `arxiv` | string | yes | Candidate arXiv identifier; malformed values are dropped. |
+| `authors` | array | yes | Parsed author names, retaining the citation's order. |
+| `bibcode` | string | yes | Candidate ADS bibcode; malformed values are dropped. |
+| `doi` | string | yes | Candidate DOI; malformed values are dropped. |
+| `journal` | string | yes | Parsed journal, or an empty string if missing. |
+| `pages` | string | yes | Parsed page range, or an empty string if missing. |
+| `title` | string | yes | Parsed title, or an empty string if missing. |
+| `volume` | string | yes | Parsed volume, or an empty string if missing. |
+| `year` | integer | yes | Publication year, or zero if missing; out-of-range years are dropped. |
 
-_No examples yet._
+**Examples**
+
+- `reject_invented_doi` — Tier A:
+
+  ```json
+  {"authors":["Abel"],"title":"First stars","year":2002,"journal":"ApJ","volume":"1","pages":"1","doi":"not-a-doi","arxiv":"","bibcode":""}
+  ```
+  expects:
+
+  ```json
+  {"authors":["Abel"],"title":"First stars","year":2002,"doi":null,"has_identifier":false}
+  ```
 

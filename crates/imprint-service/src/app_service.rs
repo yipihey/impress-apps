@@ -89,15 +89,32 @@ pub struct CompiledPdf {
 
 #[impress_service]
 pub trait ImprintAppService: Send + Sync + 'static {
+    // G3 Tier B examples require an isolated running imprint host with a
+    // scratch manuscript 5b...0001 containing "= G3 fixture\n", an open
+    // editor session, and its registered comment service. The fixture must
+    // reset before each example. `{{fixture.imprint_comment_id}}` is resolved
+    // from a comment created by native setup; an unresolved token fails the
+    // isolated runner rather than reaching a user's app.
     /// Whether imprint is running, and its version and port. Cheap; a good
     /// first call when a manuscript tool has reported the app unavailable.
     #[impress_method]
+    #[impress_example(
+        name = "isolated_app_status",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"{"running":true}"#
+    )]
     async fn status(&self) -> AppStatus;
 
     /// Recent lines from imprint's in-memory log store — the same feed its
     /// Console window shows. `level` is a comma-separated filter
     /// (`info,warning,error`); `category` narrows to one subsystem.
     #[impress_method]
+    #[impress_example(
+        name = "recent_manuscript_logs",
+        tier = "b",
+        args = r#"{"limit":10,"level":"info,warning,error","category":"manuscripts"}"#
+    )]
     async fn get_logs(
         &self,
         limit: u32,
@@ -109,20 +126,44 @@ pub trait ImprintAppService: Send + Sync + 'static {
     /// scaffolded from a journal template, use imbib's template tools instead —
     /// manuscripts are shared-store rows and imbib owns their creation.
     #[impress_method]
+    #[impress_example(
+        name = "create_typst_draft",
+        tier = "b",
+        args = r#"{"title":"G3 created draft","format":"typst"}"#
+    )]
     async fn create_document(&self, title: String, format: Option<String>) -> Option<String>;
 
     /// Rename a document.
     #[impress_method]
+    #[impress_example(
+        name = "rename_fixture_document",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001","title":"G3 renamed draft"}"#,
+        expect = "true"
+    )]
     async fn update_document(&self, document_id: String, title: Option<String>) -> bool;
 
-    /// Replace a document's metadata from a JSON object — authors, keywords,
-    /// journal target. Whole-object write, so read before you edit.
+    /// Update supported document metadata fields from a JSON object: title,
+    /// status, authors, ORCID, affiliation, funder, or license. The native
+    /// editor saves and reads back each supplied field; omitted fields stay.
     #[impress_method]
+    #[impress_example(
+        name = "set_fixture_authors",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001","metadata_json":"{\"authors\":[\"G3 Fixture\"]}"}"#,
+        expect = "true"
+    )]
     async fn update_metadata(&self, document_id: String, metadata_json: String) -> bool;
 
     /// The full source text of a manuscript. Use this to read before editing;
     /// section-level reads are cheaper when you know which section you want.
     #[impress_method]
+    #[impress_example(
+        name = "read_fixture_source",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001"}"#,
+        expect = r#""= G3 fixture\n""#
+    )]
     async fn get_content(&self, document_id: String) -> Option<String>;
 
     /// Insert text at a UTF-16 editor offset in a manuscript. Goes through the
@@ -130,23 +171,47 @@ pub trait ImprintAppService: Send + Sync + 'static {
     /// in step. Prefer section-level writes when you are replacing a whole
     /// section — they are compare-and-set and cannot clobber a concurrent edit.
     #[impress_method]
+    #[impress_example(
+        name = "append_fixture_paragraph",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001","offset":13,"text":"A paragraph.\n"}"#,
+        expect = "true"
+    )]
     async fn insert_text(&self, document_id: String, offset: u32, text: String) -> bool;
 
     /// Delete a UTF-16 editor range from a manuscript. Offsets are into the source
     /// text; read it first, since they shift with every edit.
     #[impress_method]
+    #[impress_example(
+        name = "remove_fixture_prefix",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001","offset":2,"length":3}"#,
+        expect = "true"
+    )]
     async fn delete_text(&self, document_id: String, offset: u32, length: u32) -> bool;
 
     /// Replace every occurrence of `find` with `replace` in a manuscript.
     /// Returns how many were changed. Whole-document and not undoable as a
     /// unit — read the content first and check what you are about to match.
     #[impress_method]
+    #[impress_example(
+        name = "replace_fixture_word",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001","find":"fixture","replace":"example"}"#,
+        expect = "1"
+    )]
     async fn replace(&self, document_id: String, find: String, replace: String) -> u32;
 
     /// Compile a manuscript and report where the PDF landed. The bytes are not
     /// returned: MCP carries images, not PDFs, so a base64 blob would spend
     /// context to display nothing. Diagnostics come back either way.
     #[impress_method]
+    #[impress_example(
+        name = "compile_fixture_pdf",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn get_pdf(&self, document_id: String) -> CompiledPdf;
 
     /// The BibTeX bibliography a manuscript resolves to: every `@citeKey` in
@@ -154,15 +219,32 @@ pub trait ImprintAppService: Send + Sync + 'static {
     /// input assembled on demand, not a file in the project — which is why a
     /// missing key shows up here rather than as a file-not-found.
     #[impress_method]
+    #[impress_example(
+        name = "fixture_bibliography",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001"}"#,
+        expect = r#""""#
+    )]
     async fn get_bibliography(&self, document_id: String) -> Option<String>;
 
     /// Review comments on a manuscript, newest first.
     #[impress_method]
+    #[impress_example(
+        name = "fixture_review_comments",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001"}"#
+    )]
     async fn list_comments(&self, document_id: String) -> Vec<CommentRecord>;
 
     /// Add a review comment to a manuscript. Anchor it to a quoted snippet
     /// where you can — an unanchored comment is much harder to act on.
     #[impress_method]
+    #[impress_example(
+        name = "comment_on_fixture_heading",
+        tier = "b",
+        args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001","body":"Clarify this heading.","anchor":"G3 fixture"}"#,
+        expect = r#"{"body":"Clarify this heading.","status":"open"}"#
+    )]
     async fn create_comment(
         &self,
         document_id: String,
@@ -174,6 +256,12 @@ pub trait ImprintAppService: Send + Sync + 'static {
     /// The native app refuses `accepted` and `rejected` until an immediate
     /// suggestion action can preserve their distinct review semantics.
     #[impress_method]
+    #[impress_example(
+        name = "resolve_fixture_comment",
+        tier = "b",
+        args = r#"{"comment_id":"{{fixture.imprint_comment_id}}","status":"resolved"}"#,
+        expect = "true"
+    )]
     async fn update_comment(
         &self,
         comment_id: String,
@@ -184,6 +272,12 @@ pub trait ImprintAppService: Send + Sync + 'static {
     /// Delete a comment outright. Resolving one by setting its status is
     /// usually better — it keeps the review trail.
     #[impress_method]
+    #[impress_example(
+        name = "delete_fixture_comment",
+        tier = "b",
+        args = r#"{"comment_id":"{{fixture.imprint_comment_id}}"}"#,
+        expect = "true"
+    )]
     async fn delete_comment(&self, comment_id: String) -> bool;
 }
 
@@ -318,27 +412,91 @@ impress_service_impl! {
     instance = crate::backend::app_service_instance,
     methods = [
         status() -> AppStatus,
-        get_logs(limit: u32, level: Option<String>, category: Option<String>) -> Vec<LogEntry>,
-        create_document(title: String, format: Option<String>) -> Option<String>,
-        update_document(document_id: String, title: Option<String>) -> bool,
-        update_metadata(document_id: String, metadata_json: String) -> bool,
-        get_content(document_id: String) -> Option<String>,
-        insert_text(document_id: String, offset: u32, #[impress_private] text: String) -> bool,
-        delete_text(document_id: String, offset: u32, length: u32) -> bool,
-        replace(document_id: String, find: String, #[impress_private] replace: String) -> u32,
-        get_pdf(document_id: String) -> CompiledPdf,
-        get_bibliography(document_id: String) -> Option<String>,
-        list_comments(document_id: String) -> Vec<CommentRecord>,
-        create_comment(
+        get_logs(
+            /// Maximum recent log entries to return.
+            limit: u32,
+            /// Comma-separated levels, such as `info,warning,error`; omit for all levels.
+            level: Option<String>,
+            /// Optional logging subsystem name.
+            category: Option<String>
+        ) -> Vec<LogEntry>,
+        create_document(
+            /// Title for the new manuscript.
+            title: String,
+            /// Manuscript format, such as `typst`; omit for the app default.
+            format: Option<String>
+        ) -> Option<String>,
+        update_document(
+            /// UUID of the manuscript to rename.
             document_id: String,
+            /// Replacement title; omit to leave it unchanged.
+            title: Option<String>
+        ) -> bool,
+        update_metadata(
+            /// UUID of the manuscript whose metadata will be replaced.
+            document_id: String,
+            /// JSON object encoded as a string, containing supported metadata fields to update.
+            metadata_json: String
+        ) -> bool,
+        get_content(
+            /// UUID of the manuscript whose full source is needed.
+            document_id: String
+        ) -> Option<String>,
+        insert_text(
+            /// UUID of the manuscript open in the editor.
+            document_id: String,
+            /// UTF-16 insertion offset in the current source.
+            offset: u32,
+            /// Text to insert at the editor offset; kept private in call logs.
+            #[impress_private] text: String
+        ) -> bool,
+        delete_text(
+            /// UUID of the manuscript open in the editor.
+            document_id: String,
+            /// UTF-16 start offset of the text to remove.
+            offset: u32,
+            /// Number of UTF-16 code units to remove.
+            length: u32
+        ) -> bool,
+        replace(
+            /// UUID of the manuscript whose source is searched.
+            document_id: String,
+            /// Exact source text to find throughout the manuscript.
+            find: String,
+            /// Replacement source text; kept private in call logs.
+            #[impress_private] replace: String
+        ) -> u32,
+        get_pdf(
+            /// UUID of the manuscript to compile in the running app.
+            document_id: String
+        ) -> CompiledPdf,
+        get_bibliography(
+            /// UUID of the manuscript whose citation keys are resolved.
+            document_id: String
+        ) -> Option<String>,
+        list_comments(
+            /// UUID of an open manuscript with a registered comment service.
+            document_id: String
+        ) -> Vec<CommentRecord>,
+        create_comment(
+            /// UUID of an open manuscript with a registered comment service.
+            document_id: String,
+            /// Review comment text; kept private in call logs.
             #[impress_private] body: String,
+            /// Optional exact source snippet to anchor the comment.
             anchor: Option<String>
         ) -> Option<CommentRecord>,
         update_comment(
+            /// UUID of an existing comment in an open manuscript.
             comment_id: String,
+            /// Replacement comment text; omit to keep the current body.
             body: Option<String>,
+            /// `open` or `resolved`; `accepted` and `rejected` require suggestion actions.
             status: Option<String>
         ) -> bool,
-        delete_comment(comment_id: String) -> bool,
+        delete_comment(
+            /// UUID of the comment to remove from an open manuscript.
+            comment_id: String
+        ) -> bool,
     ],
 }

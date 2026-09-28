@@ -144,22 +144,44 @@ pub struct WriteResult {
 }
 
 #[impress_service]
+/// Tier B examples use `{{state.manuscript_id}}`,
+/// `{{state.content_hash}}`, and `{{state.template_id}}` supplied by an
+/// isolated running imbib host. This headless backend refuses host-dependent
+/// operations until that host is available.
 pub trait ImbibManuscriptsService: Send + Sync + 'static {
     /// Manuscripts in the shared store: id, title, format and status. Metadata
     /// only, no body. START HERE for any manuscript request — every other
     /// manuscript tool takes an id from this list.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"[]"#
+    )]
     async fn list_manuscripts(&self) -> Vec<ManuscriptRecord>;
 
     /// One manuscript's metadata, including the `content_hash` that
     /// `write_manuscript_body` requires.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{"manuscript_id":"{{state.manuscript_id}}"}"#,
+        expect = r#"null"#
+    )]
     async fn get_manuscript(&self, manuscript_id: String) -> Option<ManuscriptRecord>;
 
     /// Create a new manuscript row and return it. For changing an existing one
     /// use `write_manuscript_body`. Note there is no delete route: a manuscript
     /// created by mistake stays until someone removes it in the UI.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{"title":"G3 research notes","format":"typst"}"#,
+        expect = r#"null"#
+    )]
     async fn create_manuscript(
         &self,
         title: String,
@@ -172,6 +194,12 @@ pub trait ImbibManuscriptsService: Send + Sync + 'static {
     /// wrote in between and the call is refused rather than clobbering them.
     /// When imprint is running, its section tools are the finer-grained option.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{"manuscript_id":"{{state.manuscript_id}}","body":"= G3 research notes","expected_hash":"{{state.content_hash}}"}"#,
+        expect = r#"{"ok":false}"#
+    )]
     async fn write_manuscript_body(
         &self,
         manuscript_id: String,
@@ -187,17 +215,35 @@ pub trait ImbibManuscriptsService: Send + Sync + 'static {
     /// `imprint-manuscript-service_compile-typst`, which compiles headlessly
     /// but without the citation resolution.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{"manuscript_id":"{{state.manuscript_id}}"}"#,
+        expect = r#"{"ok":false}"#
+    )]
     async fn compile_manuscript(&self, manuscript_id: String) -> CompileResult;
 
     /// Manuscript templates available to `create_manuscript_from_template` —
     /// journal and conference styles (ApJ, A&A, ARA&A, ICML, NeurIPS, …) plus
     /// any the user has added.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"[]"#
+    )]
     async fn list_templates(&self) -> Vec<TemplateRecord>;
 
     /// Create a manuscript scaffolded from a template: front matter, section
     /// skeleton and the journal's Typst styling, ready to write into.
     #[impress_method]
+    #[impress_example(
+        name = "needs-running-imbib",
+        tier = "b",
+        args = r#"{"template_id":"{{state.template_id}}","title":"G3 template draft"}"#,
+        expect = r#"null"#
+    )]
     async fn create_manuscript_from_template(
         &self,
         template_id: String,
@@ -292,17 +338,33 @@ impress_service_impl! {
     instance = crate::backend::manuscripts_service_instance,
     methods = [
         list_manuscripts() -> Vec<ManuscriptRecord>,
-        get_manuscript(manuscript_id: String) -> Option<ManuscriptRecord>,
-        create_manuscript(title: String, format: Option<String>) -> Option<ManuscriptRecord>,
+        get_manuscript(
+            /// Manuscript UUID returned by the host when imbib is running.
+            manuscript_id: String
+        ) -> Option<ManuscriptRecord>,
+        create_manuscript(
+            /// Title of the new manuscript.
+            title: String,
+            /// Document format, such as `typst`, or null for the host default.
+            format: Option<String>
+        ) -> Option<ManuscriptRecord>,
         write_manuscript_body(
+            /// Manuscript UUID from the running imbib host.
             manuscript_id: String,
+            /// Complete replacement document body.
             body: String,
+            /// Content hash from the latest manuscript read.
             expected_hash: String
         ) -> WriteResult,
-        compile_manuscript(manuscript_id: String) -> CompileResult,
+        compile_manuscript(
+            /// Manuscript UUID to compile in the running imbib host.
+            manuscript_id: String
+        ) -> CompileResult,
         list_templates() -> Vec<TemplateRecord>,
         create_manuscript_from_template(
+            /// Template UUID returned by the running imbib host.
             template_id: String,
+            /// Title for the scaffolded manuscript.
             title: String
         ) -> Option<ManuscriptRecord>,
     ],

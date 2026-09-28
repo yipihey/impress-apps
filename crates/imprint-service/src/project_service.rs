@@ -567,11 +567,21 @@ pub struct ProjectSnapshotRecord {
 pub trait ImprintProjectService: Send + Sync + 'static {
     /// The whole project in one read: entry, every file row, targets.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "plot-spec"]))]
+    #[impress_example(
+        name = "g3-tree",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000001d"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_tree(&self, manuscript_id: String) -> ProjectTreeRecord;
 
     /// One file with its text; a binary file is written to a temp path for
     /// the caller. The entry path returns the manuscript body.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0"]))]
+    #[impress_example(
+        name = "g3-file",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000000c","path":"chapters/intro.typ"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_file(&self, manuscript_id: String, path: String) -> ProjectFileContentRecord;
 
     /// Create or replace a file. `content` is the text; `file_path` reads
@@ -579,6 +589,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `role` absent = classified from the extension. Refused for the entry
     /// path and for watched-folder manuscripts.
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "g3-put-file",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000013","path":"chapters/new.typ","content":"== G3 new chapter\nA result worth keeping."}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_put_file(
         &self,
         manuscript_id: String,
@@ -591,6 +606,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// Delete a file row (its blob stays in the CAS until hygiene).
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "g3-delete-file",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000009","path":"chapters/intro.typ"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_delete_file(
         &self,
         manuscript_id: String,
@@ -600,6 +620,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// Move / rename a file. Outputs that named the old path as their source
     /// follow it. Refuses to overwrite an existing path.
     #[impress_method]
+    #[impress_example(
+        name = "g3-move-file",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000010","from":"chapters/intro.typ","to":"chapters/moved.typ"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_move_file(
         &self,
         manuscript_id: String,
@@ -610,6 +635,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// Declare which path is the entry (the manuscript body's file name).
     #[impress_method(effects(reads = ["manuscript"], writes = ["manuscript"]))]
+    #[impress_example(
+        name = "g3-set-entry",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000017","path":"paper.typ"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_set_entry(
         &self,
         manuscript_id: String,
@@ -621,7 +651,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `[{id, name?, entry?, engine?, output_kind?, args?}]`; absent or empty
     /// restores the implicit single target. Engines: typst | tectonic |
     /// pdflatex | xelatex | lualatex | latexmk | markdown | none.
-    #[impress_method(effects(reads = ["manuscript"], writes = ["manuscript"]))]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript"]))]
+    #[impress_example(
+        name = "g3-set-targets",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000019","targets_json":"[{\"id\":\"paper\",\"name\":\"G3 paper\",\"engine\":\"typst\",\"output_kind\":\"pdf\"}]"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_set_targets(
         &self,
         manuscript_id: String,
@@ -634,6 +669,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// "collection_id":…}`, `{"kind":"library","library_id":…}`,
     /// `{"kind":"keys","keys":[…]}`. Absent = the row's own BibTeX.
     #[impress_method]
+    #[impress_example(
+        name = "g3-set-bibliography",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000016","path":"refs.bib","bib_source_json":"{\"kind\":\"cited\"}"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_set_bibliography(
         &self,
         manuscript_id: String,
@@ -645,6 +685,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `{"runner":"impress-plot"|"implore"|"veusz"|"shell","outputs":[…],
     /// "inputs":[…],"args":{…}}`. Absent clears the declaration.
     #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-file@1.0.0"]))]
+    #[impress_example(
+        name = "g3-set-figure-build",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000018","path":"figures/chart.plot.json","build_json":"{\"runner\":\"impress-plot\",\"outputs\":[\"figures/chart.svg\"],\"inputs\":[],\"args\":{}}"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_set_figure_build(
         &self,
         manuscript_id: String,
@@ -656,6 +701,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `target_id` is absent): edges, unresolved references, cite keys,
     /// figure steps with staleness, reachability, diagnostics.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "plot-spec"]))]
+    #[impress_example(
+        name = "g3-graph",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000000d"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_graph(
         &self,
         manuscript_id: String,
@@ -666,6 +716,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// file's sections spliced in where it is included — with the same ids
     /// the one-file outline uses.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0"]))]
+    #[impress_example(
+        name = "g3-outline",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000012"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_outline(
         &self,
         manuscript_id: String,
@@ -679,7 +734,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// each paper's linked PDF (`imbib/linked-file`), not just the paper row —
     /// found by the store spy once it stopped early-returning on an empty
     /// query (plan E2b).
-    #[impress_method(safety = read_only, effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"]))]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"]))]
+    #[impress_example(
+        name = "g3-reading-list",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000014"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_reading_list(
         &self,
         manuscript_id: String,
@@ -693,7 +753,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// imprint calls it before opening imbib's papers window, so the window's
     /// single scope shows the cited papers as well as the collected ones.
     /// Cite keys imbib lacks come back in `missing_cite_keys`.
-    #[impress_method(effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/collection"]))]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "g3-sync-reading-collection",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000001c","collection_name":"G3 cited papers"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_sync_reading_collection(
         &self,
         manuscript_id: String,
@@ -705,7 +770,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// list, creating its imbib collection on first use — filed under the
     /// library holding most of the cited papers. `collection_name` defaults to
     /// "<manuscript title> — papers".
-    #[impress_method(effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/collection"]))]
+    #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/library", "imbib/collection"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "g3-collect",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000007","publication_ids":["5e000000-0000-4000-8000-000000000082"],"collection_name":"G3 collected papers"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_collect(
         &self,
         manuscript_id: String,
@@ -715,6 +785,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// Remove papers from the manuscript's reading list. The papers stay in imbib.
     #[impress_method(effects(reads = ["manuscript", "imbib/collection"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "g3-uncollect",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000001e","publication_ids":["5e000000-0000-4000-8000-000000000083"]}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_uncollect(
         &self,
         manuscript_id: String,
@@ -724,6 +799,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// Every citation in the target's reachable files, with the file each
     /// sits in, plus the distinct keys.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "g3-citations",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000006"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_citations(
         &self,
         manuscript_id: String,
@@ -736,6 +816,17 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// text (a live buffer). Not a recorded build — see `project-build`.
     /// LaTeX and Markdown targets report their engine and refuse until P4.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/library"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-compile",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000008","entry_override":"= G3 compile\n#let broken = ("}"#,
+        expect = r#"{"ok":false,"engine":"typst"}"#
+    )]
+    #[impress_example(
+        tier = "b",
+        name = "g3-compile-positive",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000001f","entry_override":"= G3 compile\nA valid isolated project."}"#,
+        expect = r#"{"ok":true,"engine":"typst"}"#
+    )]
     async fn project_compile(
         &self,
         manuscript_id: String,
@@ -750,6 +841,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// keeps both — else a new manuscript titled `title` (default: the
     /// directory's name). Additive: rows the directory no longer has stay.
     #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-file@1.0.0", "manuscript-change@1.0.0", "figure"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-import-directory",
+        args = r#"{"directory":"{{fixture.root}}/projects/import","entry":"main.typ","title":"G3 imported project"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_import_directory(
         &self,
         directory: String,
@@ -764,6 +860,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `standalone` (files only, for collaborators without imprint).
     /// Projected bibliographies are written as the `.bib` they resolved to.
     #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-export",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000000a","directory":"{{fixture.root}}/projects/export","layout":"bundle"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_export(
         &self,
         manuscript_id: String,
@@ -777,6 +878,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// Default directory
     /// `<cache>/impress/imprint/project-build/<manuscript>/<target>/`.
     #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-materialize",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000000f","directory":"{{fixture.root}}/projects/materialize"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_materialize(
         &self,
         manuscript_id: String,
@@ -791,6 +897,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// extend), not just what it writes — found by the store spy once it
     /// stopped early-returning on an empty query (plan E2b).
     #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0", "manuscript-revision"], writes = ["manuscript-revision", "manuscript"]))]
+    #[impress_example(
+        name = "g3-snapshot",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000001a","revision_tag":"g3-v1","reason":"G3 example snapshot"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_snapshot(
         &self,
         manuscript_id: String,
@@ -809,6 +920,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// becomes `output` rows derived from their source. `entry_override`
     /// is the live buffer.
     #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure", "task@1.0.0", "task-event@1.0.0"], writes = ["manuscript-build@1.0.0", "manuscript-file@1.0.0", "task@1.0.0", "task-event@1.0.0"], reach = [subprocess, fs]))]
+    #[impress_example(
+        tier = "b",
+        name = "g3-build",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000001","allow_shell":false}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_build(
         &self,
         manuscript_id: String,
@@ -820,6 +937,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
 
     /// Recorded builds, newest first (`limit` default 20).
     #[impress_method(safety = read_only, effects(reads = ["manuscript-build@1.0.0"]))]
+    #[impress_example(
+        name = "g3-builds",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000003","limit":5}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_builds(
         &self,
         manuscript_id: String,
@@ -831,6 +953,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// when `build_id` is absent — at a readable path (`kind` default
     /// `pdf`).
     #[impress_method(safety = read_only, effects(reads = ["manuscript-build@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-build-output",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000002","kind":"pdf"}"#,
+        expect = r#"{"ok":true,"kind":"pdf"}"#
+    )]
     async fn project_build_output(
         &self,
         manuscript_id: String,
@@ -846,6 +973,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// `<stem>.svg`. The extension is added when `path` has none. Refuses an
     /// existing path.
     #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-file@1.0.0", "figure", "manuscript"]))]
+    #[impress_example(
+        name = "g3-new-figure",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000011","path":"figures/new","kind":"impress-plot"}"#,
+        expect = r#"{"ok":true,"kind":"impress-plot"}"#
+    )]
     async fn project_new_figure(
         &self,
         manuscript_id: String,
@@ -859,6 +991,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// source. `shell` steps run only with `allow_shell`. `svg` is the first
     /// SVG output, for a look.
     #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure"], writes = ["manuscript-file@1.0.0"], reach = [subprocess, fs]))]
+    #[impress_example(
+        tier = "b",
+        name = "g3-render-figure",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000015","path":"figures/chart.plot.json","force":true,"allow_shell":false}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_render_figure(
         &self,
         manuscript_id: String,
@@ -871,6 +1009,12 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// A look at one figure without writing anything: rendered into a
     /// scratch directory, the first SVG returned.
     #[impress_method(safety = external, effects(reads = ["manuscript", "manuscript-file@1.0.0", "figure"], reach = [subprocess, fs]))]
+    #[impress_example(
+        tier = "b",
+        name = "g3-figure-preview",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000000b","path":"figures/chart.plot.json","allow_shell":false}"#,
+        expect = r#"{"ok":true,"runner":"impress-plot"}"#
+    )]
     async fn project_figure_preview(
         &self,
         manuscript_id: String,
@@ -883,6 +1027,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// remember it as the manuscript's working copy (D11). Git, Veusz,
     /// lilook and a shell edit there; `project-checkin` brings it back.
     #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-checkout",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000005","directory":"{{fixture.root}}/projects/checkout"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_checkout(
         &self,
         manuscript_id: String,
@@ -893,6 +1042,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// What differs between the rows and the working copy (`directory`
     /// defaults to the recorded one): changed, added, missing.
     #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-status",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-00000000001b","directory":"{{fixture.root}}/projects/status"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_status(
         &self,
         manuscript_id: String,
@@ -903,6 +1057,11 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// (merged, never overwritten), the rest as rows keeping their roles.
     /// `paths` limits it; `prune` deletes the rows the directory dropped.
     #[impress_method(effects(reads = ["manuscript", "manuscript-file@1.0.0"], writes = ["manuscript-file@1.0.0", "manuscript-change@1.0.0", "manuscript"], reach = [fs]))]
+    #[impress_example(
+        name = "g3-checkin",
+        args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000004","directory":"{{fixture.root}}/projects/checkin","prune":false}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn project_checkin(
         &self,
         manuscript_id: String,
@@ -3637,35 +3796,259 @@ impress_service_impl! {
     impl = DefaultImprintProjectService,
     instance = || crate::backend::project_service_instance(),
     methods = [
-        project_tree(manuscript_id: String) -> ProjectTreeRecord,
-        project_file(manuscript_id: String, path: String) -> ProjectFileContentRecord,
-        project_put_file(manuscript_id: String, path: String, content: Option<String>, file_path: Option<String>, role: Option<String>, author: Option<String>) -> ProjectFileResult,
-        project_delete_file(manuscript_id: String, path: String) -> ProjectMutationResult,
-        project_move_file(manuscript_id: String, from: String, to: String, author: Option<String>) -> ProjectFileResult,
-        project_set_entry(manuscript_id: String, path: String, author: Option<String>) -> ProjectMutationResult,
-        project_set_targets(manuscript_id: String, targets_json: Option<String>, author: Option<String>) -> ProjectTreeRecord,
-        project_set_bibliography(manuscript_id: String, path: String, bib_source_json: Option<String>) -> ProjectFileResult,
-        project_set_figure_build(manuscript_id: String, path: String, build_json: Option<String>) -> ProjectFileResult,
-        project_graph(manuscript_id: String, target_id: Option<String>) -> ProjectGraphRecord,
-        project_outline(manuscript_id: String, target_id: Option<String>) -> ProjectOutlineRecord,
-        project_citations(manuscript_id: String, target_id: Option<String>) -> ProjectCitationsRecord,
-        project_reading_list(manuscript_id: String, target_id: Option<String>) -> ProjectReadingListRecord,
-        project_sync_reading_collection(manuscript_id: String, target_id: Option<String>, collection_name: Option<String>) -> ProjectSyncCollectionRecord,
-        project_collect(manuscript_id: String, publication_ids: Vec<String>, collection_name: Option<String>) -> ProjectCollectRecord,
-        project_uncollect(manuscript_id: String, publication_ids: Vec<String>) -> ProjectCollectRecord,
-        project_compile(manuscript_id: String, target_id: Option<String>, entry_override: Option<String>) -> ProjectCompileRecord,
-        project_import_directory(directory: String, manuscript_id: Option<String>, entry: Option<String>, title: Option<String>, author: Option<String>) -> ProjectImportRecord,
-        project_export(manuscript_id: String, directory: String, target_id: Option<String>, layout: Option<String>) -> ProjectExportRecord,
-        project_materialize(manuscript_id: String, target_id: Option<String>, directory: Option<String>) -> ProjectExportRecord,
-        project_snapshot(manuscript_id: String, revision_tag: String, reason: Option<String>, target_id: Option<String>, author: Option<String>) -> ProjectSnapshotRecord,
-        project_build(manuscript_id: String, target_id: Option<String>, allow_shell: Option<bool>, entry_override: Option<String>, author: Option<String>) -> JobStarted,
-        project_builds(manuscript_id: String, target_id: Option<String>, limit: Option<u32>) -> ProjectBuildsRecord,
-        project_build_output(manuscript_id: String, build_id: Option<String>, target_id: Option<String>, kind: Option<String>) -> ProjectBuildOutputResult,
-        project_new_figure(manuscript_id: String, path: String, kind: String, author: Option<String>) -> ProjectFigureResult,
-        project_render_figure(manuscript_id: String, path: String, force: Option<bool>, allow_shell: Option<bool>, author: Option<String>) -> ProjectFigureRenderRecord,
-        project_figure_preview(manuscript_id: String, path: String, allow_shell: Option<bool>) -> ProjectFigureRenderRecord,
-        project_checkout(manuscript_id: String, directory: String, author: Option<String>) -> ProjectCheckoutRecord,
-        project_status(manuscript_id: String, directory: Option<String>) -> ProjectStatusRecord,
-        project_checkin(manuscript_id: String, directory: Option<String>, paths: Option<Vec<String>>, prune: Option<bool>, author: Option<String>) -> ProjectCheckinRecord,
+        project_tree(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+        ) -> ProjectTreeRecord,
+        project_file(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+        ) -> ProjectFileContentRecord,
+        project_put_file(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Inline text bytes for a file; mutually exclusive with `file_path`.
+            content: Option<String>,
+            /// Owned local file whose bytes replace `content`; useful for binary inputs.
+            file_path: Option<String>,
+            /// Optional file role; omitted classifies the path by extension.
+            role: Option<String>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectFileResult,
+        project_delete_file(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+        ) -> ProjectMutationResult,
+        project_move_file(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Existing relative project path to move.
+            from: String,
+            /// New relative project path; an existing file is not overwritten.
+            to: String,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectFileResult,
+        project_set_entry(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectMutationResult,
+        project_set_targets(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// JSON array of target declarations; null/empty restores the implicit target.
+            targets_json: Option<String>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectTreeRecord,
+        project_set_bibliography(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Optional JSON bibliography projection source; null uses row text.
+            bib_source_json: Option<String>,
+        ) -> ProjectFileResult,
+        project_set_figure_build(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Optional JSON figure build spec; null clears the declaration.
+            build_json: Option<String>,
+        ) -> ProjectFileResult,
+        project_graph(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+        ) -> ProjectGraphRecord,
+        project_outline(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+        ) -> ProjectOutlineRecord,
+        project_citations(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+        ) -> ProjectCitationsRecord,
+        project_reading_list(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+        ) -> ProjectReadingListRecord,
+        project_sync_reading_collection(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Optional name for the manuscript’s imbib reading collection.
+            collection_name: Option<String>,
+        ) -> ProjectSyncCollectionRecord,
+        project_collect(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Existing imbib publication UUIDs to collect or uncollect.
+            publication_ids: Vec<String>,
+            /// Optional name for the manuscript’s imbib reading collection.
+            collection_name: Option<String>,
+        ) -> ProjectCollectRecord,
+        project_uncollect(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Existing imbib publication UUIDs to collect or uncollect.
+            publication_ids: Vec<String>,
+        ) -> ProjectCollectRecord,
+        project_compile(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Optional live entry text for this compile/build, without changing stored body.
+            entry_override: Option<String>,
+        ) -> ProjectCompileRecord,
+        project_import_directory(
+            /// Owned directory to import from or export/materialize/checkout into.
+            directory: String,
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: Option<String>,
+            /// Optional relative entry path inside the imported directory.
+            entry: Option<String>,
+            /// Optional title for a newly imported manuscript.
+            title: Option<String>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectImportRecord,
+        project_export(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Owned directory to import from or export/materialize/checkout into.
+            directory: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Export layout: `bundle` with manifest or `standalone` files.
+            layout: Option<String>,
+        ) -> ProjectExportRecord,
+        project_materialize(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Owned directory to import from or export/materialize/checkout into.
+            directory: Option<String>,
+        ) -> ProjectExportRecord,
+        project_snapshot(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Human revision label for the durable project snapshot.
+            revision_tag: String,
+            /// Optional explanation saved with the snapshot.
+            reason: Option<String>,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectSnapshotRecord,
+        project_build(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Explicit permission to run declared shell steps; false keeps them disabled.
+            allow_shell: Option<bool>,
+            /// Optional live entry text for this compile/build, without changing stored body.
+            entry_override: Option<String>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> JobStarted,
+        project_builds(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Maximum newest build rows to return; omitted defaults to 20.
+            limit: Option<u32>,
+        ) -> ProjectBuildsRecord,
+        project_build_output(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Optional recorded build UUID; omitted selects the latest successful target build.
+            build_id: Option<String>,
+            /// Optional declared build target; omitted selects the first target.
+            target_id: Option<String>,
+            /// Figure starter kind, or requested build-output kind, as documented by the verb.
+            kind: Option<String>,
+        ) -> ProjectBuildOutputResult,
+        project_new_figure(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Figure starter kind, or requested build-output kind, as documented by the verb.
+            kind: String,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectFigureResult,
+        project_render_figure(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Rerender the figure even when its declared outputs are fresh.
+            force: Option<bool>,
+            /// Explicit permission to run declared shell steps; false keeps them disabled.
+            allow_shell: Option<bool>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectFigureRenderRecord,
+        project_figure_preview(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Relative POSIX path within the manuscript project; never an absolute host path.
+            path: String,
+            /// Explicit permission to run declared shell steps; false keeps them disabled.
+            allow_shell: Option<bool>,
+        ) -> ProjectFigureRenderRecord,
+        project_checkout(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Owned directory to import from or export/materialize/checkout into.
+            directory: String,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectCheckoutRecord,
+        project_status(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Owned directory to import from or export/materialize/checkout into.
+            directory: Option<String>,
+        ) -> ProjectStatusRecord,
+        project_checkin(
+            /// UUID of the manuscript whose project is being read or changed.
+            manuscript_id: String,
+            /// Owned directory to import from or export/materialize/checkout into.
+            directory: Option<String>,
+            /// Optional relative paths limiting check-in to selected working-copy files.
+            paths: Option<Vec<String>>,
+            /// Delete project file rows absent from the working copy when true.
+            prune: Option<bool>,
+            /// Optional attributed author for this project mutation.
+            author: Option<String>,
+        ) -> ProjectCheckinRecord,
     ],
 }

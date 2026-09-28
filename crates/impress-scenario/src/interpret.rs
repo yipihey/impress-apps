@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use crate::spec::{
     CallStep, Check, EventBody, Expect, ExpectEffects, FieldExpect, GestureStep, Scenario, Step,
-    WaitBody,
+    StoreStep, WaitBody,
 };
 use crate::{template, validate};
 use impress_service_core::report::{CapabilityResult, Tier};
@@ -84,6 +84,16 @@ pub async fn run(scenario: &Scenario, caller: &mut dyn Caller) -> CapabilityResu
         return skipped(scenario, tier, started, reason);
     }
 
+    let problems = validate::validate(scenario);
+    if !problems.is_empty() {
+        return failed(
+            scenario,
+            tier,
+            started,
+            format!("invalid scenario: {problems:?}"),
+        );
+    }
+    let mut notes = Vec::new();
     let mut captures: BTreeMap<String, Value> = BTreeMap::new();
 
     for seed in &scenario.seed {
@@ -105,13 +115,18 @@ pub async fn run(scenario: &Scenario, caller: &mut dyn Caller) -> CapabilityResu
     }
 
     for (index, step) in scenario.steps.iter().enumerate() {
-        if let Err(detail) = run_step(step, index, &mut captures, caller).await {
-            run_teardown(scenario, &mut captures, caller).await;
+        if let Err(detail) = run_step(step, index, &mut captures, caller, &mut notes).await {
+            run_teardown(scenario, &mut captures, caller, &mut notes).await;
+            let detail = if notes.is_empty() {
+                detail
+            } else {
+                format!("{detail}; {}", notes.join("; "))
+            };
             return failed(scenario, tier, started, detail);
         }
     }
 
-    run_teardown(scenario, &mut captures, caller).await;
+    run_teardown(scenario, &mut captures, caller, &mut notes).await;
 
     if let Some(expect) = &scenario.expect_effects {
         if let Some(missing) = missing_effect(expect, caller) {
@@ -124,19 +139,23 @@ pub async fn run(scenario: &Scenario, caller: &mut dyn Caller) -> CapabilityResu
         }
     }
 
-    passed(scenario, tier, started)
+    let mut result = passed(scenario, tier, started);
+    if !notes.is_empty() {
+        result.detail.push_str(&format!("; {}", notes.join("; ")));
+    }
+    result
 }
 
 async fn run_teardown(
     scenario: &Scenario,
     captures: &mut BTreeMap<String, Value>,
     caller: &mut dyn Caller,
+    notes: &mut Vec<String>,
 ) {
     for (index, step) in scenario.teardown.iter().enumerate() {
-        // Teardown failures are logged into nothing today (S1 has no
-        // failure channel for a passed scenario's cleanup) but must never
-        // panic the runner — best effort, silently.
-        let _ = run_step(step, index, captures, caller).await;
+        if let Err(error) = run_step(step, index, captures, caller, notes).await {
+            notes.push(format!("teardown: {error}"));
+        }
     }
 }
 
@@ -149,9 +168,36 @@ async fn run_step(
     index: usize,
     captures: &mut BTreeMap<String, Value>,
     caller: &mut dyn Caller,
+    notes: &mut Vec<String>,
 ) -> Result<(), String> {
     let captures_value = Value::Object(captures.clone().into_iter().collect());
     match step {
+        Step::BestEffort(step) => {
+            let call = &step.best_effort;
+            let args = template::resolve(&call.args, &captures_value)
+                .map_err(|e| format!("step {index} (best_effort `{}`): {e}", call.call))?;
+            let failure = match caller.call(&call.call, args, &call.r#as).await {
+                Err(error) => Some(error),
+                Ok(outcome)
+                    if outcome.status.is_some_and(|s| !(200..300).contains(&s))
+                        || outcome.result.get("ok").and_then(Value::as_bool) == Some(false) =>
+                {
+                    Some(format!(
+                        "status {:?}, result {}",
+                        outcome.status, outcome.result
+                    ))
+                }
+                Ok(_) => None,
+            };
+            if let Some(error) = failure {
+                notes.push(format!(
+                    "step {index} best_effort `{}` failed: {error}",
+                    call.call
+                ));
+            }
+            Ok(())
+        }
+        Step::Store(step) => run_store(step, index, &captures_value, captures, caller).await,
         Step::Call(call_step) => {
             run_call(call_step, index, &captures_value, captures, caller).await
         }
@@ -229,6 +275,97 @@ async fn run_call(
         captures.insert(name.clone(), captured.clone());
     }
     Ok(())
+}
+
+// A bounded scan through existing verbs keeps store IO and identity handling
+// in the caller. Neither Tier A nor Tier B gets a second query implementation.
+async fn run_store(
+    step: &StoreStep,
+    index: usize,
+    captures_value: &Value,
+    captures: &mut BTreeMap<String, Value>,
+    caller: &mut dyn Caller,
+) -> Result<(), String> {
+    let raw = template::resolve(
+        &serde_json::to_value(&step.store).map_err(|e| e.to_string())?,
+        captures_value,
+    )?;
+    let query: crate::spec::StorePredicate =
+        serde_json::from_value(raw).map_err(|e| e.to_string())?;
+    if query.schema_ref.trim().is_empty() || !(1..=10_000).contains(&query.max_rows) {
+        return Err(format!(
+            "step {index} (store): resolved schema_ref or max_rows is invalid"
+        ));
+    }
+    let mut offset = 0;
+    while offset < query.max_rows {
+        let limit = (query.max_rows - offset).min(100);
+        let page = caller
+            .call(
+                "store-query-service_list-items",
+                serde_json::json!({
+                    "schema_ref":query.schema_ref,"limit":limit,"offset":offset
+                }),
+                "agent:scenario",
+            )
+            .await?;
+        check_event_outcome(&page).map_err(|e| format!("step {index} (store list): {e}"))?;
+        let rows = page.result["items"]
+            .as_array()
+            .ok_or("store list omitted items")?;
+        for row in rows.iter().take(limit) {
+            let id = row["id"].as_str().ok_or("store item omitted id")?;
+            let record = caller
+                .call(
+                    "store-query-service_get-item",
+                    serde_json::json!({"id":id}),
+                    "agent:scenario",
+                )
+                .await?;
+            check_event_outcome(&record)
+                .map_err(|e| format!("step {index} (store get {id}): {e}"))?;
+            if record.result["truncated"] == true {
+                return Err(format!("step {index} (store): payload for {id} is truncated; predicate cannot be checked"));
+            }
+            let payload: Value = serde_json::from_str(
+                record.result["payload"]
+                    .as_str()
+                    .ok_or("store item omitted payload")?,
+            )
+            .map_err(|e| format!("store payload for {id}: {e}"))?;
+            let candidate = serde_json::json!({"item":record.result["item"], "payload":payload});
+            if query
+                .predicates
+                .iter()
+                .all(|field| check_field(field, &candidate).is_ok())
+            {
+                for (name, path) in &step.capture {
+                    let value = json_path_get(&candidate, path).ok_or_else(|| {
+                        format!(
+                            "step {index} (store): capture `{name}` path `{path}` did not resolve"
+                        )
+                    })?;
+                    captures.insert(name.clone(), value.clone());
+                }
+                return Ok(());
+            }
+        }
+        offset += limit;
+        if rows.len() < limit
+            || page.result["total"]
+                .as_u64()
+                .is_some_and(|n| offset as u64 >= n)
+        {
+            return Err(format!(
+                "step {index} (store): no `{}` item matched the predicate",
+                query.schema_ref
+            ));
+        }
+    }
+    Err(format!(
+        "step {index} (store): no match within max_rows={}",
+        query.max_rows
+    ))
 }
 
 fn check_expect(expect: &Expect, outcome: &CallOutcome) -> Result<(), String> {

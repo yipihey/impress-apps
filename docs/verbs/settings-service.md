@@ -15,7 +15,18 @@ One setting's current value and where it came from.
 |---|---|---|---|
 | `key` | string | yes | The registry key. |
 
-_No examples yet._
+**Examples**
+
+- `inbox_days` — Tier A:
+
+  ```json
+  {"key":"imbib.retention.inbox_days"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"setting":{"key":"imbib.retention.inbox_days"}}
+  ```
 
 ## `settings-service_list`
 
@@ -30,7 +41,18 @@ Every setting with its current value — stored, else the registry default — o
 |---|---|---|---|
 | `section` | — | no | A section id; omit for every setting. |
 
-_No examples yet._
+**Examples**
+
+- `retention_settings` — Tier A:
+
+  ```json
+  {"section":"imbib.retention"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `settings-service_reset`
 
@@ -45,7 +67,18 @@ Forget the stored value so the key answers its registry default.
 |---|---|---|---|
 | `key` | string | yes | The registry key. |
 
-_No examples yet._
+**Examples**
+
+- `reset_inbox_days` — Tier A:
+
+  ```json
+  {"key":"imbib.retention.inbox_days"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"setting":{"key":"imbib.retention.inbox_days","value":30,"source":"default"}}
+  ```
 
 ## `settings-service_schema`
 
@@ -58,7 +91,18 @@ The registry as data: every declared setting (key, type, default, scope, section
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `declared_registry` — Tier A:
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"wire_version":1}
+  ```
 
 ## `settings-service_set`
 
@@ -74,7 +118,18 @@ Store a value. The value must have the declared type; a choice's label (`"1 Mont
 | `key` | string | yes | The registry key. |
 | `value` | — | yes | The new value (JSON: a bool, number or string). |
 
-_No examples yet._
+**Examples**
+
+- `set_inbox_days` — Tier A:
+
+  ```json
+  {"key":"imbib.retention.inbox_days","value":31}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"setting":{"key":"imbib.retention.inbox_days","value":31,"source":"stored"}}
+  ```
 
 ## `settings-service_surface`
 
@@ -89,5 +144,16 @@ The generated settings pane for one section: a `SurfaceSpec` with one typed fiel
 |---|---|---|---|
 | `section` | string | yes | A section id (`imbib.retention`). |
 
-_No examples yet._
+**Examples**
+
+- `retention_pane` — Tier A:
+
+  ```json
+  {"section":"imbib.retention"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"section":"imbib.retention"}
+  ```
 

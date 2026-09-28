@@ -306,7 +306,7 @@ pub trait ImpelService: Send + Sync + 'static {
     /// with a live worker means the queue is waiting on you, while a stale
     /// worker means nothing is running at all.
     #[impress_method(effects(reads = ["task@1.0.0", "review-request@1.0.0"]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(name = "scratch_scheduler_backlog", args = r#"{}"#)]
     async fn scheduler_status(&self) -> SchedulerStatusReport;
 
     /// Terminally-failed tasks, newest first, each with the recorded error
@@ -316,7 +316,7 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// `limit` 0 means the default (50).
     #[impress_method(effects(reads = ["task@1.0.0"]))]
-    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
+    #[impress_example(name = "scratch_failed_task", args = r#"{"limit":5}"#)]
     async fn list_failed_tasks(&self, limit: i64) -> Vec<FailedTaskReport>;
 
     /// The human review queue: unresolved checkpoints, oldest first,
@@ -326,7 +326,7 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// `limit` 0 means the default (50).
     #[impress_method(effects(reads = ["review-request@1.0.0"]))]
-    #[impress_example(name = "default", args = r#"{"limit": 5}"#)]
+    #[impress_example(name = "scratch_review_queue", args = r#"{"limit":5}"#)]
     async fn list_pending_reviews(&self, limit: i64) -> Vec<PendingReviewReport>;
 
     /// Answer one review checkpoint. `resolution` is `approved` (apply the
@@ -337,6 +337,11 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// The suspended task resumes on the scheduler's next pass.
     #[impress_method(safety = mutating, effects(reads = ["review-request@1.0.0", "task@1.0.0"], writes = ["review-request@1.0.0", "task@1.0.0"]))]
+    #[impress_example(
+        name = "approve_scratch_review",
+        args = r#"{"review_id":"5d000000-0000-4000-8000-000000000005","resolution":"approved"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn resolve_review(&self, review_id: String, resolution: String) -> ActionReport;
 
     /// Cancel a task that has not started, and every pending task
@@ -347,6 +352,11 @@ pub trait ImpelService: Send + Sync + 'static {
     /// `job_status` shows when it stopped. Refuses a terminal one, since
     /// `done`/`failed`/`cancelled` admit no transition.
     #[impress_method(safety = destructive, effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"]))]
+    #[impress_example(
+        name = "cancel_scratch_pending_task",
+        args = r#"{"task_id":"5d000000-0000-4000-8000-000000000007"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn cancel_task(&self, task_id: String) -> ActionReport;
 
     /// A job's row: state, whether a cancel is pending, where it ran, and
@@ -355,12 +365,22 @@ pub trait ImpelService: Send + Sync + 'static {
     /// any `task@1.0.0` id works, a kernel task answering with an empty
     /// `kind`.
     #[impress_method]
+    #[impress_example(
+        name = "scratch_done_job_status",
+        args = r#"{"id":"5d000000-0000-4000-8000-000000000008"}"#,
+        expect = r#"{"ok":true,"id":"5d000000-0000-4000-8000-000000000008","kind":"smart-search-service_classify-search-input","state":"done","has_result":true}"#
+    )]
     async fn job_status(&self, id: String) -> JobStatusReport;
 
     /// The job's progress events past `after_seq` (0 = from the start),
     /// oldest first, with `next_seq` to pass next time and `gap` when the
     /// ring (200 events) was pruned past the cursor. `limit` 0 = all.
     #[impress_method]
+    #[impress_example(
+        name = "scratch_job_progress",
+        args = r#"{"id":"5d000000-0000-4000-8000-000000000009","after_seq":0,"limit":5}"#,
+        expect = r#"{"ok":true,"next_seq":1,"gap":false,"events":[{"seq":1,"name":"indexed","payload":{"papers":3}}]}"#
+    )]
     async fn job_events(
         &self,
         id: String,
@@ -374,6 +394,11 @@ pub trait ImpelService: Send + Sync + 'static {
     /// timeout with `timed_out: true` and the cursor unchanged. The loop an
     /// agent runs is `job_wait` from `next_seq` until `finished`.
     #[impress_method]
+    #[impress_example(
+        name = "scratch_finished_job_wait",
+        args = r#"{"id":"5d000000-0000-4000-8000-00000000000a","after_seq":0,"timeout_ms":100}"#,
+        expect = r#"{"ok":true,"state":"done","finished":true,"timed_out":false}"#
+    )]
     async fn job_wait(&self, id: String, after_seq: Option<u64>, timeout_ms: u64) -> JobWaitResult;
 
     /// Ask a job to stop. Sets `cancel_requested` on a running job — the
@@ -381,12 +406,22 @@ pub trait ImpelService: Send + Sync + 'static {
     /// `job_wait` reports as `finished` — or cancels a job that has not
     /// started outright. Returns at once; idempotent.
     #[impress_method(safety = destructive, effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"]))]
+    #[impress_example(
+        name = "cancel_scratch_pending_job",
+        args = r#"{"id":"5d000000-0000-4000-8000-00000000000b"}"#,
+        expect = r#"{"ok":true,"state":"cancelled"}"#
+    )]
     async fn job_cancel(&self, id: String) -> JobCancelReport;
 
     /// The verb's own result, exactly as a synchronous call would have
     /// answered it, once the job is `done` (or what it had when it failed
     /// or was cancelled). `not-ready` while it runs.
     #[impress_method]
+    #[impress_example(
+        name = "scratch_job_result",
+        args = r#"{"id":"5d000000-0000-4000-8000-00000000000c"}"#,
+        expect = r#"{"ok":true,"state":"done","result":{"ok":true,"answer":42}}"#
+    )]
     async fn job_result(&self, id: String) -> JobResultReport;
 
     /// How much of the store is finished task bookkeeping, and how much a
@@ -401,7 +436,11 @@ pub trait ImpelService: Send + Sync + 'static {
     ///
     /// `window_days` 0 means the default (90).
     #[impress_method(effects(reads = ["task@1.0.0", "review-request@1.0.0", "core/operation"]))]
-    #[impress_example(name = "default", args = r#"{"window_days": 30}"#)]
+    #[impress_example(
+        name = "scratch_retention_preview",
+        args = r#"{"window_days":30}"#,
+        expect = r#"{"window_days":30}"#
+    )]
     async fn retention_status(&self, window_days: i64) -> RetentionReport;
 }
 
@@ -1260,16 +1299,56 @@ impress_service_impl! {
     instance = || impel_instance(),
     methods = [
         scheduler_status() -> SchedulerStatusReport,
-        list_failed_tasks(limit: i64) -> Vec<FailedTaskReport>,
-        list_pending_reviews(limit: i64) -> Vec<PendingReviewReport>,
-        resolve_review(review_id: String, resolution: String) -> ActionReport,
-        cancel_task(task_id: String) -> ActionReport,
-        retention_status(window_days: i64) -> RetentionReport,
-        job_status(id: String) -> JobStatusReport,
-        job_events(id: String, after_seq: Option<u64>, limit: Option<u32>) -> JobEventsResult,
-        job_wait(id: String, after_seq: Option<u64>, timeout_ms: u64) -> JobWaitResult,
-        job_cancel(id: String) -> JobCancelReport,
-        job_result(id: String) -> JobResultReport,
+        list_failed_tasks(
+            /// Maximum failed tasks to return, newest first; zero selects the default of 50.
+            limit: i64
+        ) -> Vec<FailedTaskReport>,
+        list_pending_reviews(
+            /// Maximum unresolved checkpoints to return, oldest first; zero selects 50.
+            limit: i64
+        ) -> Vec<PendingReviewReport>,
+        resolve_review(
+            /// UUID of an unresolved review-request row.
+            review_id: String,
+            /// Exactly `approved` or `rejected`; any other answer is refused.
+            resolution: String
+        ) -> ActionReport,
+        cancel_task(
+            /// UUID of the task to cancel, including pending downstream tasks.
+            task_id: String
+        ) -> ActionReport,
+        retention_status(
+            /// Age cutoff in days for the read-only preview; zero selects 90.
+            window_days: i64
+        ) -> RetentionReport,
+        job_status(
+            /// UUID of an ordinary kernel task or long-running verb job.
+            id: String
+        ) -> JobStatusReport,
+        job_events(
+            /// UUID of the job whose progress events are needed.
+            id: String,
+            /// Last seen sequence; null or zero starts at the beginning.
+            after_seq: Option<u64>,
+            /// Maximum events; null or zero returns all currently retained events.
+            limit: Option<u32>
+        ) -> JobEventsResult,
+        job_wait(
+            /// UUID of the job to await.
+            id: String,
+            /// Last seen event sequence; null or zero starts at the beginning.
+            after_seq: Option<u64>,
+            /// Wait deadline in milliseconds, capped at 55,000 by the runner.
+            timeout_ms: u64
+        ) -> JobWaitResult,
+        job_cancel(
+            /// UUID of a pending or running job to request cancellation for.
+            id: String
+        ) -> JobCancelReport,
+        job_result(
+            /// UUID of the finished job whose original verb result is needed.
+            id: String
+        ) -> JobResultReport,
     ],
 }
 

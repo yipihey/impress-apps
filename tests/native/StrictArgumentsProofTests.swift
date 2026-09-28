@@ -59,11 +59,17 @@ final class StrictArgumentsProofTests: XCTestCase {
         let valid: [String: Any] = ["freq": 1.5, "n": 4]
         let invalid: [String: Any] = ["freq": 1.5, "n": 4, "g5_extra": true]
         let positive = try await request(base + "/api/verb/" + verb, body: valid, bearer: bearer)
-        XCTAssertEqual(positive.status, 200)
+        XCTAssertEqual(positive.status, 200, "\(positive.body)")
         XCTAssertEqual((positive.body["x"] as? [Any])?.count, 4)
         XCTAssertEqual(positive.body["x"] as? [Double], [0.0, 0.25, 0.5, 0.75])
         XCTAssertEqual((positive.body["values"] as? [Any])?.count, 4)
         XCTAssertNil(positive.body["error"])
+        // Both demo descriptors must survive the native archive link. A
+        // folded zero-sized constructor used to drop their registrations.
+        let histogram = try await request(base + "/api/verb/surface-demo-service_histogram",
+                                          body: ["values": [0.0, 1.0, 2.0, 3.0], "bins": 2], bearer: bearer)
+        XCTAssertEqual(histogram.status, 200, "\(histogram.body)")
+        XCTAssertEqual(histogram.body["counts"] as? [Int], [2, 2])
         let refused = try await request(base + "/api/verb/" + verb, body: invalid, bearer: bearer)
         XCTAssertEqual(refused.status, 400)
         XCTAssertEqual(refused.body["ok"] as? Bool, false)
@@ -100,6 +106,44 @@ final class StrictArgumentsProofTests: XCTestCase {
         let report = try await cli.call("scenario", ["scenario-run", "--scenario-id", scenarioID,
                                                       "--tier", "b", "--base-url", base])
         try assertPassed(report)
+
+        if env["IMPRESS_SCENARIO_GAPS_PROOF"] == "1" {
+            let gapsID = "gaps.\(app).\(UUID().uuidString.lowercased())"
+            let gaps: [String: Any] = [
+                "wire_version": 1, "id": gapsID, "tier": "b",
+                "description": "Read the owned store and preserve surface templates over native HTTP",
+                "steps": [
+                    ["store": ["schema_ref": "impress/scenario@1.0.0", "max_rows": 1000,
+                               "where": [["path": "$.payload.scenario_id", "equals": gapsID]]],
+                     "capture": ["scenario_row_id": "$.item.id"]],
+                    ["best_effort": ["call": "store-query-service_get-item", "args": ["id": "not-a-uuid"]]],
+                    ["call": "store-query-service_get-item", "args": ["id": "{{state.scenario_row_id}}"],
+                     "expect": ["ok": true]],
+                    ["call": "impress-surface-service_surface-create", "args": ["spec": [
+                        "surface": "1.0", "name": gapsID, "state": ["bins": 9],
+                        "root": ["id": "choose", "button": ["label": "Use", "on_click": [
+                            ["emit": ["name": "chosen", "payload": ["bins": "{{!state.bins}}"]]]
+                        ]]]
+                    ]], "expect": ["ok": true], "capture": ["surface_id": "$.id"]],
+                    ["event": ["surface": "{{state.surface_id}}", "widget": "choose", "kind": "click"]],
+                    ["call": "impress-surface-service_surface-events",
+                     "args": ["id": "{{state.surface_id}}", "after_seq": 0],
+                     "expect": ["ok": true, "fields": [["path": "$.events.0.payload.bins", "equals": 9]]]],
+                    ["call": "impress-surface-service_surface-delete", "args": ["id": "{{state.surface_id}}"],
+                     "expect": ["ok": true]],
+                ],
+                "teardown": [["best_effort": ["call": "impress-surface-service_surface-delete",
+                                               "args": ["id": "{{state.surface_id}}"]]]],
+            ]
+            let gapsJSON = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: gaps), encoding: .utf8))
+            let saved = try await cli.call("gaps-create", ["scenario-create", "--spec", gapsJSON])
+            XCTAssertEqual(saved["ok"] as? Bool, true)
+            let result = try await cli.call("gaps-run", ["scenario-run", "--scenario-id", gapsID,
+                                                       "--tier", "b", "--base-url", base])
+            try assertPassed(result)
+            let results = try XCTUnwrap(result["results"] as? [[String: Any]])
+            XCTAssertTrue((results.first?["detail"] as? String)?.contains("best_effort") == true)
+        }
 
         // The shared surface catalogue is reachable in every shell. The
         // layout-tree catalogue applies to chassis shells; imbib still owns

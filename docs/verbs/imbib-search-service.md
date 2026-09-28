@@ -13,16 +13,27 @@ Save a query as a smart search (an Exploration sidebar row) in a library — the
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `auto_refresh_enabled` | boolean | yes | *(undocumented)* |
-| `feeds_to_inbox` | boolean | yes | *(undocumented)* |
-| `library_id` | string | yes | *(undocumented)* |
-| `max_results` | integer | yes | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
-| `refresh_interval_seconds` | integer | yes | *(undocumented)* |
-| `source_ids_json` | — | no | *(undocumented)* |
+| `auto_refresh_enabled` | boolean | yes | Refresh on the timer when explicitly enabled. |
+| `feeds_to_inbox` | boolean | yes | Route new results into Inbox when explicitly enabled. |
+| `library_id` | string | yes | UUID of the library that owns the saved search. |
+| `max_results` | integer | yes | Maximum results stored per refresh. |
+| `name` | string | yes | Name shown for this search in the Exploration sidebar. |
+| `query` | string | yes | Saved text query to run when the search is refreshed. |
+| `refresh_interval_seconds` | integer | yes | Interval in seconds between automatic refreshes. |
+| `source_ids_json` | — | no | JSON array of source IDs, or null for the default sources. |
 
-_No examples yet._
+**Examples**
+
+- `save-spectra-query` — Tier A:
+
+  ```json
+  {"name":"Spectra alerts","query":"spectra","library_id":"63000000-0000-4000-8000-000000000001","source_ids_json":null,"max_results":25,"feeds_to_inbox":false,"auto_refresh_enabled":false,"refresh_interval_seconds":3600}
+  ```
+  expects:
+
+  ```json
+  {"name":"Spectra alerts","query":"spectra"}
+  ```
 
 ## `imbib-search-service_find-by-arxiv`
 
@@ -35,9 +46,15 @@ Find the papers carrying an arXiv id.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `arxiv_id` | string | yes | *(undocumented)* |
+| `arxiv_id` | string | yes | Exact arXiv identifier saved on a bibliography entry. |
 
-_No examples yet._
+**Examples**
+
+- `arxiv-in-library` — Tier A:
+
+  ```json
+  {"arxiv_id":"2609.06300"}
+  ```
 
 ## `imbib-search-service_find-by-bibcode`
 
@@ -50,9 +67,15 @@ Find the papers carrying an ADS bibcode.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bibcode` | string | yes | *(undocumented)* |
+| `bibcode` | string | yes | Exact ADS bibcode saved on a bibliography entry. |
 
-_No examples yet._
+**Examples**
+
+- `bibcode-in-library` — Tier A:
+
+  ```json
+  {"bibcode":"2026G3...6300S"}
+  ```
 
 ## `imbib-search-service_find-by-cite-key`
 
@@ -65,10 +88,16 @@ Find the paper with a cite key, optionally within one library; null on a miss (`
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_key` | string | yes | *(undocumented)* |
-| `library_id` | — | no | *(undocumented)* |
+| `cite_key` | string | yes | Exact BibTeX cite key, without the Typst `@` prefix. |
+| `library_id` | — | no | Library UUID to search, or null for every library. |
 
-_No examples yet._
+**Examples**
+
+- `known-cite-key` — Tier A:
+
+  ```json
+  {"cite_key":"G3Search2026","library_id":"63000000-0000-4000-8000-000000000001"}
+  ```
 
 ## `imbib-search-service_find-by-doi`
 
@@ -81,9 +110,15 @@ Find the papers carrying a DOI.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doi` | string | yes | *(undocumented)* |
+| `doi` | string | yes | Exact DOI saved on a bibliography entry. |
 
-_No examples yet._
+**Examples**
+
+- `doi-in-library` — Tier A:
+
+  ```json
+  {"doi":"10.6300/g3-search"}
+  ```
 
 ## `imbib-search-service_find-by-identifiers-batch`
 
@@ -96,11 +131,17 @@ Find every paper matching any of the given DOIs, arXiv ids or bibcodes in one qu
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `arxiv_ids` | array | yes | *(undocumented)* |
-| `bibcodes` | array | yes | *(undocumented)* |
-| `dois` | array | yes | *(undocumented)* |
+| `arxiv_ids` | array | yes | arXiv identifier candidates to match in the same lookup. |
+| `bibcodes` | array | yes | ADS bibcode candidates to match in the same lookup. |
+| `dois` | array | yes | DOI candidates to match in one lookup. |
 
-_No examples yet._
+**Examples**
+
+- `combined-identifiers` — Tier A:
+
+  ```json
+  {"dois":["10.6300/g3-search"],"arxiv_ids":["2609.06300"],"bibcodes":["2026G3...6300S"]}
+  ```
 
 ## `imbib-search-service_full-text-search`
 
@@ -113,11 +154,17 @@ Search the imbib library for papers by title, author, abstract, or keywords. Ret
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `parent_id` | — | no | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum matches; zero uses the default of fifty. |
+| `parent_id` | — | no | Library UUID to restrict matches, or null for all papers. |
+| `query` | string | yes | Text to find in title, author, abstract, or keywords. |
 
-_No examples yet._
+**Examples**
+
+- `title-phrase` — Tier A:
+
+  ```json
+  {"query":"G3 search spectra","parent_id":"63000000-0000-4000-8000-000000000001","limit":10}
+  ```
 
 ## `imbib-search-service_get-smart-search`
 
@@ -130,9 +177,15 @@ Fetch one smart search by UUID: its query string, owning library, result cap, an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the saved smart search. |
 
-_No examples yet._
+**Examples**
+
+- `saved-search-detail` — Tier A:
+
+  ```json
+  {"id":"63000000-0000-4000-8000-000000000003"}
+  ```
 
 ## `imbib-search-service_list-smart-searches`
 
@@ -145,14 +198,14 @@ List saved smart searches. Pass the Exploration library's ID to enumerate the ro
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `library_id` | — | no | *(undocumented)* |
+| `library_id` | — | no | Owning library UUID to filter saved searches, or null for all. |
 
 **Examples**
 
-- `default`:
+- `saved-library-search` — Tier A:
 
   ```json
-  {}
+  {"library_id":"63000000-0000-4000-8000-000000000001"}
   ```
 
 ## `imbib-search-service_resolve-cite-key`
@@ -166,8 +219,19 @@ Resolve a manuscript cite key to a paper, saying WHY on a miss.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_key` | string | yes | *(undocumented)* |
-| `library_id` | — | no | *(undocumented)* |
+| `cite_key` | string | yes | BibTeX key, optionally with a leading Typst `@`. |
+| `library_id` | — | no | Library UUID to search, or null for the whole bibliography. |
 
-_No examples yet._
+**Examples**
+
+- `typst-key` — Tier A:
+
+  ```json
+  {"cite_key":"@G3Search2026","library_id":"63000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  {"cite_key":"G3Search2026","status":"resolved","library_size":1}
+  ```
 

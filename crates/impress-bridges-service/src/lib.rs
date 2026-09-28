@@ -78,6 +78,14 @@ pub struct ConversationOutline {
     pub references: Vec<String>,
 }
 
+/// Tier B examples require PID-owned imbib, imprint, implore, and impart
+/// hosts backed by the same scratch store. Their 5f-prefixed document,
+/// conversation, figure, and library IDs must be created by that host fixture
+/// before invocation, with papers `G3Bridge2026` and
+/// `G3BridgeFollowup2026`, a writable Typst manuscript, an exportable figure,
+/// and a conversation whose summary names known paper identifiers. The
+/// pre-exported SVG example also needs that file under the owned workspace.
+/// These are not claims about a default running app.
 #[impress_service]
 pub trait ImpressBridgesService: Send + Sync + 'static {
     // ---- imbib → imprint: citations ---------------------------------------
@@ -89,17 +97,34 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// editing. Fails loudly when the key is not in imbib rather than inserting
     /// a reference that will not compile.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/library"], reach = [app("imprint")]))]
+    #[impress_example(
+        name = "cite_isolated_manuscript",
+        tier = "b",
+        args = r#"{"cite_key":"G3Bridge2026","document_id":"5f000000-0000-4000-8000-000000000010"}"#
+    )]
     async fn cite_paper(&self, cite_key: String, document_id: String) -> CitationResult;
 
     /// Cite several papers at once. Prefer this to repeated single calls: it is
     /// one pass over the library and one document write.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/tag-definition"], reach = [app("imprint")]))]
+    #[impress_example(
+        name = "cite_two_isolated_papers",
+        tier = "b",
+        args = r#"{"cite_keys":["G3Bridge2026","G3BridgeFollowup2026"],"document_id":"5f000000-0000-4000-8000-000000000010"}"#
+    )]
     async fn cite_multiple(&self, cite_keys: Vec<String>, document_id: String) -> CitationResult;
 
     /// Cite a paper inside a specific section rather than at the end of the
-    /// document. Section writes are compare-and-set, so this cannot clobber a
-    /// concurrent edit the way a whole-document append can.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "manuscript", "manuscript-section"], writes = ["manuscript-section", "citation-usage"]))]
+    /// document. It anchors the append on the section body it just read;
+    /// if that body no longer matches, it reports failure instead of claiming
+    /// the citation landed. Empty sections cannot be appended by the current
+    /// section replacement API.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/tag-definition", "manuscript", "manuscript-section"], writes = ["manuscript-section", "citation-usage"]))]
+    #[impress_example(
+        name = "cite_scratch_methods",
+        args = r#"{"cite_key":"G3Bridge2026","document_id":"5f000000-0000-4000-8000-000000000010","section_key":"methods"}"#,
+        expect = r#"{"ok":true,"cited":["G3Bridge2026"]}"#
+    )]
     async fn cite_in_section(
         &self,
         cite_key: String,
@@ -111,6 +136,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// a starting point for "what am I missing?", not a verdict. Returns cite
     /// keys, which you then cite explicitly.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"], reach = [app("imprint")]))]
+    #[impress_example(
+        name = "suggest_for_isolated_manuscript",
+        tier = "b",
+        args = r#"{"document_id":"5f000000-0000-4000-8000-000000000010","limit":5}"#
+    )]
     async fn get_citation_suggestions(&self, document_id: String, limit: u32) -> Vec<String>;
 
     // ---- implore → imprint: figures ---------------------------------------
@@ -119,12 +149,18 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// the embed tools take. Call this first: figure ids are implore's, not
     /// imprint's.
     #[impress_method(effects(reach = [app("implore")]))]
+    #[impress_example(name = "list_isolated_figures", tier = "b", args = r#"{}"#)]
     async fn list_available_figures(&self) -> Vec<String>;
 
     /// Embed an implore figure into an imprint manuscript: exports the figure
     /// to a file and inserts a Typst `#image(...)` reference pointing at it.
     /// `format` is `png`, `pdf` or `svg` — use `pdf` or `svg` for print.
     #[impress_method(effects(reads = [target(figure_id)], reach = [app("implore"), app("imprint"), fs]))]
+    #[impress_example(
+        name = "embed_isolated_svg",
+        tier = "b",
+        args = r#"{"figure_id":"5f000000-0000-4000-8000-000000000030","document_id":"5f000000-0000-4000-8000-000000000010","format":"svg"}"#
+    )]
     async fn embed_figure(
         &self,
         figure_id: String,
@@ -135,6 +171,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Insert only the `#image(...)` reference, without re-exporting. Use when
     /// the file already exists and you are re-linking it.
     #[impress_method(effects(reads = [target(figure_id)], reach = [app("imprint")]))]
+    #[impress_example(
+        name = "reference_preexported_figure",
+        tier = "b",
+        args = r#"{"figure_id":"5f000000-0000-4000-8000-000000000030","document_id":"5f000000-0000-4000-8000-000000000010","path":"{{fixture.root}}/figures/bridge.svg"}"#
+    )]
     async fn embed_figure_reference(
         &self,
         figure_id: String,
@@ -146,6 +187,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// changes made in implore. The reference is left alone; only the file it
     /// points at is rewritten.
     #[impress_method(effects(reads = [target(figure_id)], reach = [app("implore"), fs]))]
+    #[impress_example(
+        name = "resync_isolated_figure",
+        tier = "b",
+        args = r#"{"figure_id":"5f000000-0000-4000-8000-000000000030","format":"svg"}"#
+    )]
     async fn sync_figure(&self, figure_id: String, format: String) -> FigureEmbedResult;
 
     // ---- text and conversations → imbib -----------------------------------
@@ -154,10 +200,20 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Useful on an email body, a reviewer's note, a README. Finds candidates;
     /// it does not import them.
     #[impress_method(safety = read_only, effects())]
+    #[impress_example(
+        name = "find_doi_and_arxiv",
+        args = r#"{"text":"Read 10.1086/145971 and arXiv:2301.00001 before drafting."}"#,
+        expect = r#"[{"kind":"doi","value":"10.1086/145971"},{"kind":"arxiv","value":"2301.00001"}]"#
+    )]
     async fn extract_papers_from_text(&self, text: String) -> Vec<ExtractedIdentifier>;
 
     /// The same extraction over every message in an impart conversation.
     #[impress_method(effects(reach = [app("impart"), network]))]
+    #[impress_example(
+        name = "identifiers_in_isolated_conversation",
+        tier = "b",
+        args = r#"{"conversation_id":"5f000000-0000-4000-8000-000000000040"}"#
+    )]
     async fn extract_papers_from_conversation(
         &self,
         conversation_id: String,
@@ -166,6 +222,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Extract identifiers from a conversation AND import them into imbib in
     /// one step. Returns the cite keys that landed.
     #[impress_method]
+    #[impress_example(
+        name = "import_isolated_conversation_papers",
+        tier = "b",
+        args = r#"{"conversation_id":"5f000000-0000-4000-8000-000000000040","library":"5f000000-0000-4000-8000-000000000001"}"#
+    )]
     async fn add_papers_from_conversation(
         &self,
         conversation_id: String,
@@ -175,6 +236,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// BibTeX for every paper an impart conversation mentions that is already
     /// in imbib — the bibliography for a manuscript grown out of that thread.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/linked-file", "imbib/tag-definition"], reach = [app("impart"), fs]))]
+    #[impress_example(
+        name = "bibtex_for_isolated_thread",
+        tier = "b",
+        args = r#"{"conversation_id":"5f000000-0000-4000-8000-000000000040"}"#
+    )]
     async fn export_conversation_citations(&self, conversation_id: String) -> String;
 
     // ---- impart → imprint: structure --------------------------------------
@@ -183,6 +249,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// into a methods section — they were recorded deliberately rather than
     /// inferred from the messages.
     #[impress_method(effects(reach = [app("impart")]))]
+    #[impress_example(
+        name = "isolated_thread_decisions",
+        tier = "b",
+        args = r#"{"conversation_id":"5f000000-0000-4000-8000-000000000040"}"#
+    )]
     async fn conversation_decisions(&self, conversation_id: String) -> Vec<String>;
 
     /// A manuscript outline distilled from a research conversation: its
@@ -190,6 +261,11 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// Deterministic — it reads what was recorded, it does not invent
     /// structure.
     #[impress_method(effects(reach = [app("impart"), provider]))]
+    #[impress_example(
+        name = "isolated_thread_outline",
+        tier = "b",
+        args = r#"{"conversation_id":"5f000000-0000-4000-8000-000000000040"}"#
+    )]
     async fn conversation_to_outline(&self, conversation_id: String)
         -> Option<ConversationOutline>;
 
@@ -200,21 +276,41 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// works with every app closed. The right opener when you do not yet know
     /// which app owns what you are looking for.
     #[impress_method(safety = read_only, effects(reads = [any("searches every kind")]))]
+    #[impress_example(
+        name = "search_scratch_artifacts",
+        args = r#"{"query":"G3-bridge-needle","limit":1}"#,
+        expect = r#"[{"id":"5f000000-0000-4000-8000-000000000020","title":"G3-bridge-needle source"}]"#
+    )]
     async fn search_all(&self, query: String, limit: u32) -> Vec<StoreItem>;
 
     /// One item from the shared store by id, whichever app wrote it.
     #[impress_method(safety = read_only, effects(reads = [target(item_id)]))]
+    #[impress_example(
+        name = "get_scratch_artifact",
+        args = r#"{"item_id":"5f000000-0000-4000-8000-000000000020"}"#,
+        expect = r#"{"id":"5f000000-0000-4000-8000-000000000020","title":"G3-bridge-needle source"}"#
+    )]
     async fn get_item(&self, item_id: String) -> Option<StoreItem>;
 
     /// Items linked to this one. NOTE: the store's edges are BIDIRECTIONAL, so
     /// this answers "what is connected?" and never "what does this depend on?".
     #[impress_method(safety = read_only, effects(reads = [target(item_id), any("walks references across kinds")]))]
+    #[impress_example(
+        name = "related_scratch_note",
+        args = r#"{"item_id":"5f000000-0000-4000-8000-000000000020","limit":5}"#,
+        expect = r#"[{"id":"5f000000-0000-4000-8000-000000000021","title":"G3 related note"}]"#
+    )]
     async fn get_related(&self, item_id: String, limit: u32) -> Vec<StoreItem>;
 
     /// Resolve an `impress://` URI to whatever it names — an imbib paper, an
     /// imprint document, an impart conversation — so a reference can be passed
     /// between apps without the caller knowing which app owns it.
     #[impress_method(safety = read_only, effects(reads = [any("resolves a URI to whichever kind it names")]))]
+    #[impress_example(
+        name = "resolve_scratch_uri",
+        args = r#"{"uri":"impress://artifact/5f000000-0000-4000-8000-000000000020"}"#,
+        expect = r#"{"id":"5f000000-0000-4000-8000-000000000020","title":"G3-bridge-needle source"}"#
+    )]
     async fn resolve_artifact(&self, uri: String) -> Option<StoreItem>;
 }
 
@@ -237,6 +333,9 @@ fn log(method: &str, msg: impl std::fmt::Display) {
 
 /// The shared store path, matching every other consumer in the suite.
 fn shared_store_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("IMPRESS_STORE_PATH").filter(|path| !path.is_empty()) {
+        return PathBuf::from(path);
+    }
     dirs::home_dir()
         .map(|h| {
             h.join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
@@ -297,6 +396,15 @@ fn extract_identifiers(text: &str) -> Vec<ExtractedIdentifier> {
         });
     }
     out
+}
+
+fn citation_replacement_landed(
+    replacements: u32,
+    new_body: &str,
+    anchor: &str,
+    cite_key: &str,
+) -> bool {
+    replacements == 1 && new_body == format!("{anchor} @{cite_key}")
 }
 
 /// Compose the `@citeKey` tokens and append them to a document.
@@ -390,17 +498,42 @@ impl ImpressBridgesService for DefaultImpressBridgesService {
             };
         }
         let manuscript = imprint_service::backend::manuscript_service_instance();
-        // Anchor on the section's own trailing text: an empty `find` would be
-        // ambiguous, so append to whatever the section currently ends with.
+        // The section replacement API rejects an empty find. Read the full
+        // body as the anchor, then require a real replacement: a missing or
+        // changed section must not masquerade as a successful citation.
+        let Some(section) = manuscript
+            .get_section(document_id.clone(), section_key.clone())
+            .await
+        else {
+            return CitationResult {
+                ok: false,
+                cited: vec![],
+                failed: missing,
+                message: format!("Could not read section {section_key}."),
+            };
+        };
+        if section.body.is_empty() {
+            return CitationResult {
+                ok: false,
+                cited: vec![],
+                failed: missing,
+                message: format!("Could not cite in empty section {section_key}."),
+            };
+        }
         let result = manuscript
             .replace_in_section(
                 document_id.clone(),
                 section_key.clone(),
-                String::new(),
-                format!(" @{cite_key}"),
+                section.body.clone(),
+                format!("{} @{cite_key}", section.body),
             )
             .await;
-        let ok = !result.new_body.is_empty();
+        let ok = citation_replacement_landed(
+            result.replacements,
+            &result.new_body,
+            &section.body,
+            &cite_key,
+        );
         CitationResult {
             ok,
             cited: if ok { found } else { vec![] },
@@ -740,39 +873,101 @@ impress_service_impl! {
     impl = DefaultImpressBridgesService,
     instance = DefaultImpressBridgesService::new,
     methods = [
-        cite_paper(cite_key: String, document_id: String) -> CitationResult,
-        cite_multiple(cite_keys: Vec<String>, document_id: String) -> CitationResult,
-        cite_in_section(
+        cite_paper(
+            /// Cite key already present in imbib, without a leading `@`.
             cite_key: String,
+            /// UUID of the imprint manuscript to append the reference to.
+            document_id: String
+        ) -> CitationResult,
+        cite_multiple(
+            /// Existing imbib cite keys to append in one document write.
+            cite_keys: Vec<String>,
+            /// UUID of the imprint manuscript receiving the references.
+            document_id: String
+        ) -> CitationResult,
+        cite_in_section(
+            /// Existing imbib cite key, without a leading `@`.
+            cite_key: String,
+            /// UUID of the manuscript that owns the section.
             document_id: String,
+            /// Stable key of a nonempty stored manuscript section.
             section_key: String
         ) -> CitationResult,
-        get_citation_suggestions(document_id: String, limit: u32) -> Vec<String>,
+        get_citation_suggestions(
+            /// UUID of a manuscript whose existing citations seed the search.
+            document_id: String,
+            /// Maximum distinct suggestions; zero uses the default of ten.
+            limit: u32
+        ) -> Vec<String>,
         list_available_figures() -> Vec<String>,
         embed_figure(
+            /// Figure id returned by the isolated implore host.
             figure_id: String,
+            /// UUID of the imprint manuscript receiving a Typst image reference.
             document_id: String,
+            /// Export format: `png`, `pdf`, or `svg`.
             format: String
         ) -> FigureEmbedResult,
         embed_figure_reference(
+            /// Id of the already-exported implore figure.
             figure_id: String,
+            /// UUID of the imprint manuscript receiving the reference.
             document_id: String,
+            /// Absolute path of the image already exported into the owned workspace.
             path: String
         ) -> FigureEmbedResult,
-        sync_figure(figure_id: String, format: String) -> FigureEmbedResult,
-        extract_papers_from_text(text: String) -> Vec<ExtractedIdentifier>,
-        extract_papers_from_conversation(conversation_id: String) -> Vec<ExtractedIdentifier>,
+        sync_figure(
+            /// Id of the implore figure to re-export.
+            figure_id: String,
+            /// Re-export format: `png`, `pdf`, or `svg`.
+            format: String
+        ) -> FigureEmbedResult,
+        extract_papers_from_text(
+            /// Text to scan locally for DOI, arXiv, and ISBN candidates.
+            text: String
+        ) -> Vec<ExtractedIdentifier>,
+        extract_papers_from_conversation(
+            /// UUID of the impart conversation whose title and summary are scanned.
+            conversation_id: String
+        ) -> Vec<ExtractedIdentifier>,
         add_papers_from_conversation(
+            /// UUID of the impart conversation containing paper identifiers.
             conversation_id: String,
+            /// Target imbib library UUID; null selects the service default.
             library: Option<String>
         ) -> Vec<String>,
-        export_conversation_citations(conversation_id: String) -> String,
-        conversation_decisions(conversation_id: String) -> Vec<String>,
-        conversation_to_outline(conversation_id: String) -> Option<ConversationOutline>,
-        search_all(query: String, limit: u32) -> Vec<StoreItem>,
-        get_item(item_id: String) -> Option<StoreItem>,
-        get_related(item_id: String, limit: u32) -> Vec<StoreItem>,
-        resolve_artifact(uri: String) -> Option<StoreItem>,
+        export_conversation_citations(
+            /// UUID of the impart conversation to turn into BibTeX.
+            conversation_id: String
+        ) -> String,
+        conversation_decisions(
+            /// UUID of the impart conversation whose recorded summary is returned.
+            conversation_id: String
+        ) -> Vec<String>,
+        conversation_to_outline(
+            /// UUID of the impart conversation to structure into an outline.
+            conversation_id: String
+        ) -> Option<ConversationOutline>,
+        search_all(
+            /// Case-insensitive payload substring to find across the latest 5,000 items.
+            query: String,
+            /// Maximum matching items; zero selects the default of twenty.
+            limit: u32
+        ) -> Vec<StoreItem>,
+        get_item(
+            /// UUID of any item in the shared store.
+            item_id: String
+        ) -> Option<StoreItem>,
+        get_related(
+            /// UUID of the item whose direct graph neighbors are needed.
+            item_id: String,
+            /// Maximum direct neighbors; zero selects the default of twenty.
+            limit: u32
+        ) -> Vec<StoreItem>,
+        resolve_artifact(
+            /// `impress://<kind>/<uuid>` URI, or a bare item UUID.
+            uri: String
+        ) -> Option<StoreItem>,
     ],
 }
 
@@ -808,5 +1003,30 @@ mod tests {
                 .unwrap();
             assert_eq!(id, "0190C0DE-0000-0000-0000-000000000000");
         }
+    }
+
+    #[test]
+    fn section_citation_requires_an_actual_match_of_the_body_just_read() {
+        let original = "The method uses spectra.";
+        assert!(citation_replacement_landed(
+            1,
+            "The method uses spectra. @G3Bridge2026",
+            original,
+            "G3Bridge2026"
+        ));
+        // The section changed after our read: the replacement API returns
+        // its unchanged current body, which must not be reported as cited.
+        assert!(!citation_replacement_landed(
+            0,
+            "The method now uses photometry.",
+            original,
+            "G3Bridge2026"
+        ));
+        assert!(!citation_replacement_landed(
+            1,
+            "",
+            original,
+            "G3Bridge2026"
+        ));
     }
 }

@@ -36,7 +36,8 @@ pub mod wire;
 pub use descriptor::{
     method_meta, resolve_aliases, resolve_budget_ms, resolve_deprecated, resolve_effects,
     resolve_examples, resolve_idempotent, resolve_replay_full, resolve_safety_class, Deprecation,
-    Effects, Example, Kind, MethodMeta, Reach, Safety, SafetyClass, Source, VerbDescriptor,
+    Effects, Example, ExampleTier, Kind, MethodMeta, Reach, Safety, SafetyClass, Source,
+    VerbDescriptor,
 };
 pub use descriptor_handle::{ExampleView, HandleSource, VerbHandle};
 pub use provider::{

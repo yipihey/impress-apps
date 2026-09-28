@@ -33,9 +33,15 @@ fn main() {
 
     let checked_in = out_dir.is_none();
     let out_dir = out_dir.unwrap_or_else(|| repo_root().join("docs/verbs"));
-    let docs = impress_capabilities::verb_docs::render(
-        call::descriptors().filter(|verb| matches!(verb, VerbHandle::Linked(_))),
-    );
+    let handles: Vec<_> = call::descriptors()
+        .filter(|verb| matches!(verb, VerbHandle::Linked(_)))
+        .collect();
+    let problems = impress_capabilities::verb_docs::documentation_problems(&handles);
+    if !problems.is_empty() {
+        eprintln!("Verb reference is incomplete:\n- {}", problems.join("\n- "));
+        std::process::exit(1);
+    }
+    let docs = impress_capabilities::verb_docs::render(handles);
     let count = docs.write_to_dir(&out_dir).expect("write verb pages");
 
     if checked_in {

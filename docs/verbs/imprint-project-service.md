@@ -13,13 +13,24 @@ Build a target and record it: stale figure steps first (`shell` steps only with 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `allow_shell` | — | no | *(undocumented)* |
-| `author` | — | no | *(undocumented)* |
-| `entry_override` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `allow_shell` | — | no | Explicit permission to run declared shell steps; false keeps them disabled. |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `entry_override` | — | no | Optional live entry text for this compile/build, without changing stored body. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-build` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000001","allow_shell":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-build-output`
 
@@ -32,12 +43,23 @@ One output of a build — the newest successful build of the target when `build_
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `build_id` | — | no | *(undocumented)* |
-| `kind` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `build_id` | — | no | Optional recorded build UUID; omitted selects the latest successful target build. |
+| `kind` | — | no | Figure starter kind, or requested build-output kind, as documented by the verb. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-build-output` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000002","kind":"pdf"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"kind":"pdf"}
+  ```
 
 ## `imprint-project-service_project-builds`
 
@@ -50,11 +72,22 @@ Recorded builds, newest first (`limit` default 20).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `limit` | — | no | Maximum newest build rows to return; omitted defaults to 20. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-builds` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000003","limit":5}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-checkin`
 
@@ -67,13 +100,24 @@ Bring the working copy's changes in: the entry through the document (merged, nev
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `directory` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `paths` | — | no | *(undocumented)* |
-| `prune` | — | no | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `directory` | — | no | Owned directory to import from or export/materialize/checkout into. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `paths` | — | no | Optional relative paths limiting check-in to selected working-copy files. |
+| `prune` | — | no | Delete project file rows absent from the working copy when true. |
 
-_No examples yet._
+**Examples**
+
+- `g3-checkin` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000004","directory":"{{fixture.root}}/projects/checkin","prune":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-checkout`
 
@@ -86,11 +130,22 @@ Check the project out into a directory — every file materialised, projected bi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `directory` | string | yes | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `directory` | string | yes | Owned directory to import from or export/materialize/checkout into. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
 
-_No examples yet._
+**Examples**
+
+- `g3-checkout` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000005","directory":"{{fixture.root}}/projects/checkout"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-citations`
 
@@ -103,27 +158,49 @@ Every citation in the target's reachable files, with the file each sits in, plus
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-citations` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000006"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-collect`
 
 Collect papers (imbib publication ids) into the manuscript's reading list, creating its imbib collection on first use — filed under the library holding most of the cited papers. `collection_name` defaults to "<manuscript title> — papers".
 
 - **safety**: `mutating`
-- **reads**: "manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection"
+- **reads**: "manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/library", "imbib/collection"
 - **writes**: "imbib/collection"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection_name` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `collection_name` | — | no | Optional name for the manuscript’s imbib reading collection. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `publication_ids` | array | yes | Existing imbib publication UUIDs to collect or uncollect. |
 
-_No examples yet._
+**Examples**
+
+- `g3-collect` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000007","publication_ids":["5e000000-0000-4000-8000-000000000082"],"collection_name":"G3 collected papers"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-compile`
 
@@ -136,11 +213,33 @@ Compile one target from the store, no directory: Typst over the tree (projected 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `entry_override` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `entry_override` | — | no | Optional live entry text for this compile/build, without changing stored body. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-compile` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000008","entry_override":"= G3 compile\n#let broken = ("}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"engine":"typst"}
+  ```
+
+- `g3-compile-positive` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000001f","entry_override":"= G3 compile\nA valid isolated project."}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"engine":"typst"}
+  ```
 
 ## `imprint-project-service_project-delete-file`
 
@@ -153,10 +252,21 @@ Delete a file row (its blob stays in the CAS until hygiene).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-delete-file` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000009","path":"chapters/intro.typ"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-export`
 
@@ -169,12 +279,23 @@ Write the tree to a directory the caller chose, once. `layout`: `bundle` (files 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `directory` | string | yes | *(undocumented)* |
-| `layout` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `directory` | string | yes | Owned directory to import from or export/materialize/checkout into. |
+| `layout` | — | no | Export layout: `bundle` with manifest or `standalone` files. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-export` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000000a","directory":"{{fixture.root}}/projects/export","layout":"bundle"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-figure-preview`
 
@@ -187,11 +308,22 @@ A look at one figure without writing anything: rendered into a scratch directory
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `allow_shell` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `allow_shell` | — | no | Explicit permission to run declared shell steps; false keeps them disabled. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-figure-preview` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000000b","path":"figures/chart.plot.json","allow_shell":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"runner":"impress-plot"}
+  ```
 
 ## `imprint-project-service_project-file`
 
@@ -204,10 +336,21 @@ One file with its text; a binary file is written to a temp path for the caller. 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-file` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000000c","path":"chapters/intro.typ"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-graph`
 
@@ -220,10 +363,21 @@ The derived build graph of a target (the first declared one when `target_id` is 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-graph` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000000d"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-import-directory`
 
@@ -236,13 +390,24 @@ A directory becomes a project: build residue skipped, roles from the extension a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `directory` | string | yes | *(undocumented)* |
-| `entry` | — | no | *(undocumented)* |
-| `manuscript_id` | — | no | *(undocumented)* |
-| `title` | — | no | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `directory` | string | yes | Owned directory to import from or export/materialize/checkout into. |
+| `entry` | — | no | Optional relative entry path inside the imported directory. |
+| `manuscript_id` | — | no | UUID of the manuscript whose project is being read or changed. |
+| `title` | — | no | Optional title for a newly imported manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `g3-import-directory` — Tier A:
+
+  ```json
+  {"directory":"{{fixture.root}}/projects/import","entry":"main.typ","title":"G3 imported project"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-materialize`
 
@@ -255,11 +420,22 @@ Materialise the tree for a toolchain that needs a directory: hash-compared and a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `directory` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `directory` | — | no | Owned directory to import from or export/materialize/checkout into. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-materialize` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000000f","directory":"{{fixture.root}}/projects/materialize"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-move-file`
 
@@ -272,12 +448,23 @@ Move / rename a file. Outputs that named the old path as their source follow it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `from` | string | yes | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `to` | string | yes | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `from` | string | yes | Existing relative project path to move. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `to` | string | yes | New relative project path; an existing file is not overwritten. |
 
-_No examples yet._
+**Examples**
+
+- `g3-move-file` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000010","from":"chapters/intro.typ","to":"chapters/moved.typ"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-new-figure`
 
@@ -290,12 +477,23 @@ A new figure at `path`: a starter of `kind` — `veusz` (a document Veusz edits)
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `kind` | string | yes | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `kind` | string | yes | Figure starter kind, or requested build-output kind, as documented by the verb. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-new-figure` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000011","path":"figures/new","kind":"impress-plot"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"kind":"impress-plot"}
+  ```
 
 ## `imprint-project-service_project-outline`
 
@@ -308,10 +506,21 @@ The outline of the whole tree in reading order — every included file's section
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-outline` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000012"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-put-file`
 
@@ -324,30 +533,52 @@ Create or replace a file. `content` is the text; `file_path` reads the bytes fro
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `content` | — | no | *(undocumented)* |
-| `file_path` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
-| `role` | — | no | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `content` | — | no | Inline text bytes for a file; mutually exclusive with `file_path`. |
+| `file_path` | — | no | Owned local file whose bytes replace `content`; useful for binary inputs. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
+| `role` | — | no | Optional file role; omitted classifies the path by extension. |
 
-_No examples yet._
+**Examples**
+
+- `g3-put-file` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000013","path":"chapters/new.typ","content":"== G3 new chapter\nA result worth keeping."}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-reading-list`
 
 The manuscript's reading list: the papers it cites (from its text, in reading order) plus the papers collected for it in imbib, with the ones the author viewed most recently first. Cite keys imbib lacks are listed last with a null `publication_id`. "Most recently viewed" is read off each paper's linked PDF (`imbib/linked-file`), not just the paper row — found by the store spy once it stopped early-returning on an empty query (plan E2b).
 
 - **safety**: `read_only`, idempotent
-- **reads**: "manuscript", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **reads**: "manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-reading-list` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000014"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-render-figure`
 
@@ -360,13 +591,24 @@ Render one figure's step — a stale one by default, any one with `force` — an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `allow_shell` | — | no | *(undocumented)* |
-| `author` | — | no | *(undocumented)* |
-| `force` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `allow_shell` | — | no | Explicit permission to run declared shell steps; false keeps them disabled. |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `force` | — | no | Rerender the figure even when its declared outputs are fresh. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-render-figure` — Tier B (explicit isolated run):
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000015","path":"figures/chart.plot.json","force":true,"allow_shell":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-set-bibliography`
 
@@ -379,11 +621,22 @@ Make a `.bib` row a projection: `{"kind":"cited"}` (every key cited in the tree,
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bib_source_json` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `bib_source_json` | — | no | Optional JSON bibliography projection source; null uses row text. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-bibliography` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000016","path":"refs.bib","bib_source_json":"{\"kind\":\"cited\"}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-set-entry`
 
@@ -396,11 +649,22 @@ Declare which path is the entry (the manuscript body's file name).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-entry` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000017","path":"paper.typ"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-set-figure-build`
 
@@ -413,28 +677,50 @@ Declare how a `figure-source` makes its outputs: `{"runner":"impress-plot"|"impl
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `build_json` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `build_json` | — | no | Optional JSON figure build spec; null clears the declaration. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `path` | string | yes | Relative POSIX path within the manuscript project; never an absolute host path. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-figure-build` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000018","path":"figures/chart.plot.json","build_json":"{\"runner\":\"impress-plot\",\"outputs\":[\"figures/chart.svg\"],\"inputs\":[],\"args\":{}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-set-targets`
 
 Declare the targets as a JSON array `[{id, name?, entry?, engine?, output_kind?, args?}]`; absent or empty restores the implicit single target. Engines: typst | tectonic | pdflatex | xelatex | lualatex | latexmk | markdown | none.
 
 - **safety**: `mutating`
-- **reads**: "manuscript"
+- **reads**: "manuscript", "manuscript-file@1.0.0"
 - **writes**: "manuscript"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `targets_json` | — | no | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `targets_json` | — | no | JSON array of target declarations; null/empty restores the implicit target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-targets` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-000000000019","targets_json":"[{\"id\":\"paper\",\"name\":\"G3 paper\",\"engine\":\"typst\",\"output_kind\":\"pdf\"}]"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-snapshot`
 
@@ -447,13 +733,24 @@ Snapshot the whole tree as a revision: a deterministic `.tar.zst` with the manif
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `reason` | — | no | *(undocumented)* |
-| `revision_tag` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `author` | — | no | Optional attributed author for this project mutation. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `reason` | — | no | Optional explanation saved with the snapshot. |
+| `revision_tag` | string | yes | Human revision label for the durable project snapshot. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-snapshot` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000001a","revision_tag":"g3-v1","reason":"G3 example snapshot"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-status`
 
@@ -466,10 +763,21 @@ What differs between the rows and the working copy (`directory` defaults to the 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `directory` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `directory` | — | no | Owned directory to import from or export/materialize/checkout into. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
 
-_No examples yet._
+**Examples**
+
+- `g3-status` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000001b","directory":"{{fixture.root}}/projects/status"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-sync-reading-collection`
 
@@ -478,17 +786,28 @@ Make the manuscript's imbib collection hold every paper it cites, creating the c
 This is what lets ONE imbib collection be the manuscript's papers: imprint calls it before opening imbib's papers window, so the window's single scope shows the cited papers as well as the collected ones. Cite keys imbib lacks come back in `missing_cite_keys`.
 
 - **safety**: `mutating`
-- **reads**: "manuscript", "imbib/bibliography-entry", "imbib/library", "imbib/collection"
+- **reads**: "manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/library", "imbib/collection"
 - **writes**: "imbib/collection"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection_name` | — | no | *(undocumented)* |
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `target_id` | — | no | *(undocumented)* |
+| `collection_name` | — | no | Optional name for the manuscript’s imbib reading collection. |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `target_id` | — | no | Optional declared build target; omitted selects the first target. |
 
-_No examples yet._
+**Examples**
+
+- `g3-sync-reading-collection` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000001c","collection_name":"G3 cited papers"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-tree`
 
@@ -501,9 +820,20 @@ The whole project in one read: entry, every file row, targets.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
 
-_No examples yet._
+**Examples**
+
+- `g3-tree` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000001d"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-project-service_project-uncollect`
 
@@ -516,8 +846,19 @@ Remove papers from the manuscript's reading list. The papers stay in imbib.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose project is being read or changed. |
+| `publication_ids` | array | yes | Existing imbib publication UUIDs to collect or uncollect. |
 
-_No examples yet._
+**Examples**
+
+- `g3-uncollect` — Tier A:
+
+  ```json
+  {"manuscript_id":"5e000000-0000-4000-8000-00000000001e","publication_ids":["5e000000-0000-4000-8000-000000000083"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 

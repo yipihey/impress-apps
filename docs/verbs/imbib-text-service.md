@@ -14,11 +14,11 @@ Decode LaTeX-encoded text into Unicode.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `input` | string | yes | *(undocumented)* |
+| `input` | string | yes | LaTeX-encoded text whose accents and escaped symbols should become Unicode. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"input": "Schr\\\"odinger"}
@@ -35,11 +35,11 @@ Expand a BibTeX journal-name macro.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `value` | string | yes | *(undocumented)* |
+| `value` | string | yes | BibTeX journal macro, with or without its leading backslash. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"value": "\\apj"}
@@ -56,13 +56,13 @@ Generate a BibTeX cite key.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | — | no | *(undocumented)* |
-| `title` | — | no | *(undocumented)* |
-| `year` | — | no | *(undocumented)* |
+| `author` | — | no | Optional author text from which to derive the surname portion of the cite key. |
+| `title` | — | no | Optional publication title from which to choose a significant title word. |
+| `year` | — | no | Optional publication year for the cite key. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"author": "Abel", "title": "Declared effects", "year": "2026"}
@@ -79,11 +79,11 @@ Normalize a hierarchical tag path.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | *(undocumented)* |
+| `path` | string | yes | Slash-separated tag path whose individual components should be normalized. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"path": "Reading/Queue"}
@@ -100,11 +100,11 @@ Normalize a single tag segment.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `segment` | string | yes | *(undocumented)* |
+| `segment` | string | yes | One human-readable tag component to normalize to a slug. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"segment": "Reading Queue"}

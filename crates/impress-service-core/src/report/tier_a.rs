@@ -28,11 +28,12 @@
 //! network, a device, a subprocess) keeps its exception in the effects
 //! table with a `tier = b`/`needs app` reason; this runner never touches it.
 
+use std::future::Future;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::descriptor::{Reach, VerbDescriptor};
+use crate::descriptor::{Example, ExampleTier, Reach, VerbDescriptor};
 use crate::descriptor_handle::{ExampleView, VerbHandle};
 use crate::pipeline::CallerIdentity;
 
@@ -92,22 +93,22 @@ const EXAMPLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// regression still fails.
 const BUDGET_SLACK_FACTOR: u32 = 3;
 
-/// Run every example of one Tier A-eligible verb, checking `expect` where
-/// given. Does nothing (returns an empty vec) for a verb outside Tier A —
-/// call [`is_tier_a`] first if the caller wants to say so explicitly.
+/// Run the A examples of one Tier A-eligible verb, checking `expect` where
+/// given. B examples and verbs outside Tier A are never invoked here.
 pub async fn run_verb(v: &'static VerbDescriptor) -> Vec<ExampleResult> {
     if !is_tier_a(v) {
         return Vec::new();
     }
     let mut out = Vec::with_capacity(v.examples.len());
     let handle = VerbHandle::Linked(v);
-    for ex in v.examples {
+    for ex in v.examples.iter().filter(|ex| ex.tier == ExampleTier::A) {
         let outcome = run_one(
             &handle,
             ExampleView {
                 name: ex.name,
                 args: ex.args,
                 expect: ex.expect,
+                tier: ex.tier,
             },
             CallerIdentity::system("tier-a"),
         )
@@ -115,6 +116,110 @@ pub async fn run_verb(v: &'static VerbDescriptor) -> Vec<ExampleResult> {
         out.push(ExampleResult {
             verb: v.name,
             example: ex.name,
+            outcome,
+        });
+    }
+    out
+}
+
+/// Execute one linked A example with its fixture-prepared arguments. The
+/// isolated host installs its store before calling and supplies full output
+/// schema validation; setup time is excluded from the example's budget.
+/// A B example or externally reaching verb is refused without invocation.
+pub async fn run_linked_example_with_args<V>(
+    verb: &'static VerbDescriptor,
+    example: &Example,
+    args: Value,
+    caller: CallerIdentity,
+    validate_output: V,
+) -> Outcome
+where
+    V: Fn(&Value, &Value) -> Result<(), String>,
+{
+    if example.tier != ExampleTier::A || !is_tier_a(verb) {
+        return Outcome::Failed(format!(
+            "`{}` example `{}` is not eligible for Tier A",
+            verb.name, example.name
+        ));
+    }
+    let handle = VerbHandle::Linked(verb);
+    let schema = (verb.output_schema)();
+    let call = crate::pipeline::invoke_handle(handle, crate::pipeline::Call::new(caller, args));
+    check_invocation(
+        verb.name,
+        example.name,
+        example.expect,
+        verb.budget_ms,
+        call,
+        Some((&schema, &validate_output)),
+    )
+    .await
+}
+
+/// Run one explicitly selected Tier B example after its host prepared owned
+/// fixture arguments. No default app or provider is chosen by this function.
+pub async fn run_linked_tier_b_example_with_args<I, Fut, E, V>(
+    verb: &'static VerbDescriptor,
+    example: &Example,
+    args: Value,
+    caller: CallerIdentity,
+    invoke: I,
+    validate_output: V,
+) -> Outcome
+where
+    I: FnOnce(Value, CallerIdentity) -> Fut,
+    Fut: Future<Output = Result<Value, E>>,
+    E: std::fmt::Display,
+    V: Fn(&Value, &Value) -> Result<(), String>,
+{
+    if example.tier != ExampleTier::B {
+        return Outcome::Failed(format!(
+            "`{}` example `{}` is not Tier B",
+            verb.name, example.name
+        ));
+    }
+    let schema = (verb.output_schema)();
+    check_invocation(
+        verb.name,
+        example.name,
+        example.expect,
+        verb.budget_ms,
+        invoke(args, caller),
+        Some((&schema, &validate_output)),
+    )
+    .await
+}
+
+/// Explicit linked Tier B entry. An isolated host supplies an invoker (for
+/// example its owned HTTP app) and schema validator. Merely enumerating the
+/// inventory cannot run this path. The caller identity is repeated for each
+/// example and must be established by that host, not read from example args.
+pub async fn run_linked_tier_b_examples<I, Fut, E, V>(
+    verb: &'static VerbDescriptor,
+    caller: CallerIdentity,
+    mut invoke: I,
+    validate_output: V,
+) -> Vec<ExampleResult>
+where
+    I: FnMut(Value, CallerIdentity) -> Fut,
+    Fut: Future<Output = Result<Value, E>>,
+    E: std::fmt::Display,
+    V: Fn(&Value, &Value) -> Result<(), String>,
+{
+    let mut out = Vec::new();
+    for example in verb.examples.iter().filter(|ex| ex.tier == ExampleTier::B) {
+        let outcome = run_linked_tier_b_example_with_args(
+            verb,
+            example,
+            example.args_value(),
+            caller.clone(),
+            &mut invoke,
+            &validate_output,
+        )
+        .await;
+        out.push(ExampleResult {
+            verb: verb.name,
+            example: example.name,
             outcome,
         });
     }
@@ -153,31 +258,58 @@ pub async fn run_provider_examples(
 async fn run_one(v: &VerbHandle, ex: ExampleView<'_>, caller: CallerIdentity) -> Outcome {
     let args = ex.args_value();
     let call = crate::pipeline::invoke_handle(v.clone(), crate::pipeline::Call::new(caller, args));
+    check_invocation(v.name(), ex.name, ex.expect, v.budget_ms(), call, None).await
+}
+
+type OutputCheck<'a> = dyn Fn(&Value, &Value) -> Result<(), String> + 'a;
+
+async fn check_invocation<F, E>(
+    name: &str,
+    example: &str,
+    expect: Option<&str>,
+    budget_ms: Option<u64>,
+    call: F,
+    output_check: Option<(&Value, &OutputCheck<'_>)>,
+) -> Outcome
+where
+    F: Future<Output = Result<Value, E>>,
+    E: std::fmt::Display,
+{
     let started = Instant::now();
     let outcome = match tokio::time::timeout(EXAMPLE_TIMEOUT, call).await {
         Err(_) => Outcome::Failed(format!(
             "`{}` example `{}` did not finish in {:?}",
-            v.name(),
-            ex.name,
-            EXAMPLE_TIMEOUT
+            name, example, EXAMPLE_TIMEOUT
         )),
-        Ok(Err(e)) => Outcome::Failed(format!("`{}` example `{}` failed: {e}", v.name(), ex.name)),
-        Ok(Ok(result)) => check_result(v.name(), ex.name, ex.expect, result),
+        Ok(Err(e)) => Outcome::Failed(format!("`{name}` example `{example}` failed: {e}")),
+        Ok(Ok(result)) => {
+            if let Some((schema, validate)) = output_check {
+                // A structured refusal is the pipeline envelope, not the
+                // method's declared successful output shape.
+                if result.get("ok").and_then(Value::as_bool) != Some(false)
+                    && validate(schema, &result).is_err()
+                {
+                    return Outcome::Failed(format!(
+                        "`{name}` example `{example}` returned a value outside its output schema"
+                    ));
+                }
+            }
+            check_result(name, example, expect, result)
+        }
     };
     // D-P2: a Tier A example whose verb declares `budget_ms` fails when it
     // blows that budget by more than `BUDGET_SLACK_FACTOR` — checked after
     // (never instead of) correctness, so a failing example is reported for
     // failing, not for running long while broken.
     if outcome.is_pass() {
-        if let Some(budget_ms) = v.budget_ms() {
+        if let Some(budget_ms) = budget_ms {
             let elapsed_us = started.elapsed().as_micros() as u64;
             let ceiling_ms = budget_ms.saturating_mul(u64::from(BUDGET_SLACK_FACTOR));
             if elapsed_us > ceiling_ms.saturating_mul(1_000) {
                 return Outcome::Failed(format!(
                     "`{}` example `{}` took {elapsed_us}us, over its {budget_ms}ms budget \
                      (even with {BUDGET_SLACK_FACTOR}x CI slack, ceiling {ceiling_ms}ms)",
-                    v.name(),
-                    ex.name
+                    name, example
                 ));
             }
         }
@@ -294,6 +426,10 @@ mod tests {
         })
     }
 
+    fn echo_args(args: Value) -> ServiceFuture {
+        Box::pin(async move { Ok(args) })
+    }
+
     fn budgeted_verb(
         name: &'static str,
         budget_ms: Option<u64>,
@@ -318,6 +454,7 @@ mod tests {
                 name: "default",
                 args: "{}",
                 expect: None,
+                tier: ExampleTier::A,
             }],
             strict: false,
             budget_ms,
@@ -325,6 +462,139 @@ mod tests {
             source: Source::Linked,
             handler,
         }
+    }
+
+    fn tiered_verb() -> &'static VerbDescriptor {
+        static EXAMPLES: [Example; 2] = [
+            Example {
+                name: "headless",
+                args: "{}",
+                expect: Some(r#"{"ok":true}"#),
+                tier: ExampleTier::A,
+            },
+            Example {
+                name: "hosted",
+                args: r#"{"label":"b"}"#,
+                expect: Some(r#"{"ok":true,"label":"b"}"#),
+                tier: ExampleTier::B,
+            },
+        ];
+        static VERB: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        VERB.get_or_init(|| {
+            let mut verb = budgeted_verb("tier-example-test_tiered", Some(1_000), instant_ok);
+            verb.examples = &EXAMPLES;
+            verb
+        })
+    }
+
+    #[tokio::test]
+    async fn tier_a_never_executes_tier_b_and_linked_b_uses_host_invoker() {
+        let verb = tiered_verb();
+        let headless = run_verb(verb).await;
+        assert_eq!(headless.len(), 1);
+        assert_eq!(headless[0].example, "headless");
+        assert!(headless[0].outcome.is_pass());
+
+        let invoked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let calls = invoked.clone();
+        let hosted = run_linked_tier_b_examples(
+            verb,
+            CallerIdentity::App("fixture".into()),
+            move |args, caller| {
+                calls.lock().unwrap().push((args.clone(), caller));
+                async move { Ok::<_, String>(serde_json::json!({"ok":true,"label":args["label"]})) }
+            },
+            |schema, value| {
+                (schema.is_object() && value.is_object())
+                    .then_some(())
+                    .ok_or_else(|| "output is not an object".into())
+            },
+        )
+        .await;
+        assert_eq!(hosted.len(), 1);
+        assert_eq!(hosted[0].example, "hosted");
+        assert!(hosted[0].outcome.is_pass());
+        assert_eq!(
+            *invoked.lock().unwrap(),
+            vec![(
+                serde_json::json!({"label":"b"}),
+                CallerIdentity::App("fixture".into())
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn supplied_output_validator_and_a_tier_a_guard_are_enforced() {
+        let verb = tiered_verb();
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = calls.clone();
+        let refused = run_linked_tier_b_examples(
+            verb,
+            CallerIdentity::system("isolated-host"),
+            move |_args, _caller| {
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async { Ok::<_, String>(serde_json::json!({"ok":true,"label":"b"})) }
+            },
+            |_schema, _value| Err("secret value from schema engine".into()),
+        )
+        .await;
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(matches!(&refused[0].outcome, Outcome::Failed(message)
+            if message.contains("outside its output schema") && !message.contains("secret")));
+
+        let not_run = run_linked_example_with_args(
+            verb,
+            &verb.examples[1],
+            serde_json::json!({}),
+            CallerIdentity::system("tier-a"),
+            |_schema, _value| Ok(()),
+        )
+        .await;
+        assert!(matches!(not_run, Outcome::Failed(message) if message.contains("not eligible")));
+
+        let headless = run_linked_example_with_args(
+            verb,
+            &verb.examples[0],
+            serde_json::json!({}),
+            CallerIdentity::system("tier-a"),
+            |_schema, value| {
+                value
+                    .is_object()
+                    .then_some(())
+                    .ok_or_else(|| "not object".into())
+            },
+        )
+        .await;
+        assert!(headless.is_pass());
+    }
+
+    #[tokio::test]
+    async fn tier_a_fixture_arguments_replace_declared_example_arguments() {
+        static EXAMPLES: [Example; 1] = [Example {
+            name: "fixture",
+            args: r#"{"ok":true,"fixture":0}"#,
+            expect: Some(r#"{"ok":true,"fixture":42}"#),
+            tier: ExampleTier::A,
+        }];
+        static VERB: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        let verb = VERB.get_or_init(|| {
+            let mut verb = budgeted_verb("tier-example-test_fixture", None, echo_args);
+            verb.examples = &EXAMPLES;
+            verb
+        });
+        let result = run_linked_example_with_args(
+            verb,
+            &EXAMPLES[0],
+            serde_json::json!({"ok":true,"fixture":42}),
+            CallerIdentity::system("fixture-host"),
+            |_schema, actual| {
+                (actual["fixture"] == 42)
+                    .then_some(())
+                    .ok_or_else(|| "wrong fixture".into())
+            },
+        )
+        .await;
+        assert!(result.is_pass());
     }
 
     #[tokio::test]

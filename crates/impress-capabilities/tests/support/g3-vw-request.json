@@ -1,0 +1,22 @@
+{
+  "command_id": "67000000-0000-4000-8000-000000000001",
+  "vehicle_name": "G3 fictional vehicle",
+  "vin": null,
+  "configuration": {
+    "id": "67000000-0000-4000-8000-000000000002",
+    "model_family": "Type 2",
+    "model_year": 1978,
+    "market": "california",
+    "emissions_spec": "California",
+    "engine_code": "fixture",
+    "fuel_system": "L-Jetronic",
+    "transmission": null,
+    "installed_options": [],
+    "installed_components": [],
+    "deviations": [],
+    "verification": "unverified"
+  },
+  "concern": "Record a fictional intermittent starting concern",
+  "odometer": null,
+  "notes": "Synthetic example; no diagnosis is asserted."
+}

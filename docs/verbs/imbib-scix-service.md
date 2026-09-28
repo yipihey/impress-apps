@@ -13,10 +13,21 @@ Add papers to a mirrored SciX library's local membership; pushing the change to 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_ids` | array | yes | *(undocumented)* |
-| `scix_library_id` | string | yes | *(undocumented)* |
+| `publication_ids` | array | yes | Local bibliography-entry UUIDs to link to the mirror. |
+| `scix_library_id` | string | yes | UUID of the local SciX mirror record. |
 
-_No examples yet._
+**Examples**
+
+- `link-local-paper` — Tier A:
+
+  ```json
+  {"publication_ids":["63000000-0000-4000-8000-000000000002"],"scix_library_id":"63000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-scix-service_count-scix-library-publications`
 
@@ -29,9 +40,20 @@ Count the papers in a mirrored SciX library.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `scix_library_id` | string | yes | *(undocumented)* |
+| `scix_library_id` | string | yes | UUID of the local SciX mirror record to count. |
 
-_No examples yet._
+**Examples**
+
+- `linked-paper-count` — Tier A:
+
+  ```json
+  {"scix_library_id":"63000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-scix-service_create-scix-library`
 
@@ -44,14 +66,25 @@ Create imbib's local record of a SciX library, keyed by its remote id. This does
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `description` | — | no | *(undocumented)* |
-| `is_public` | boolean | yes | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `owner_email` | — | no | *(undocumented)* |
-| `permission_level` | string | yes | *(undocumented)* |
-| `remote_id` | string | yes | *(undocumented)* |
+| `description` | — | no | Optional description shown with the mirror. |
+| `is_public` | boolean | yes | Whether the remote library is publicly visible. |
+| `name` | string | yes | Name shown for the local mirror. |
+| `owner_email` | — | no | Remote owner's email, if known. |
+| `permission_level` | string | yes | Permission reported by the remote library, such as `owner`. |
+| `remote_id` | string | yes | Identifier of an existing remote SciX library; no remote request is made. |
 
-_No examples yet._
+**Examples**
+
+- `mirror-existing-remote-library` — Tier A:
+
+  ```json
+  {"remote_id":"g3-remote-6300","name":"G3 SciX reading list","description":"Owned scratch mirror","is_public":false,"permission_level":"owner","owner_email":null}
+  ```
+  expects:
+
+  ```json
+  {"remote_id":"g3-remote-6300","name":"G3 SciX reading list"}
+  ```
 
 ## `imbib-scix-service_get-scix-library`
 
@@ -64,9 +97,15 @@ Get one mirrored SciX library by its imbib id.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the local SciX mirror record. |
 
-_No examples yet._
+**Examples**
+
+- `mirrored-library-detail` — Tier A:
+
+  ```json
+  {"id":"63000000-0000-4000-8000-000000000004"}
+  ```
 
 ## `imbib-scix-service_list-scix-libraries`
 
@@ -81,7 +120,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `mirrored-library-list` — Tier A:
 
   ```json
   {}
@@ -98,13 +137,19 @@ List the papers in a mirrored SciX library, sorted and paged.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ascending` | boolean | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
-| `scix_library_id` | string | yes | *(undocumented)* |
-| `sort_field` | string | yes | *(undocumented)* |
+| `ascending` | boolean | yes | Whether to sort from low/old to high/new. |
+| `limit` | integer | yes | Maximum page size; zero uses fifty. |
+| `offset` | integer | yes | Number of sorted papers to skip. |
+| `scix_library_id` | string | yes | UUID of the local SciX mirror record. |
+| `sort_field` | string | yes | Paper sort field, such as `title`; blank uses date added. |
 
-_No examples yet._
+**Examples**
+
+- `linked-paper-page` — Tier A:
+
+  ```json
+  {"scix_library_id":"63000000-0000-4000-8000-000000000004","sort_field":"title","ascending":true,"limit":10,"offset":0}
+  ```
 
 ## `imbib-scix-service_remove-from-scix-library`
 
@@ -117,8 +162,19 @@ Remove papers from a mirrored SciX library's local membership; the papers themse
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_ids` | array | yes | *(undocumented)* |
-| `scix_library_id` | string | yes | *(undocumented)* |
+| `publication_ids` | array | yes | Local bibliography-entry UUIDs whose mirror links should be removed. |
+| `scix_library_id` | string | yes | UUID of the local SciX mirror record. |
 
-_No examples yet._
+**Examples**
+
+- `unlink-local-paper` — Tier A:
+
+  ```json
+  {"publication_ids":["63000000-0000-4000-8000-000000000002"],"scix_library_id":"63000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 

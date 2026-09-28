@@ -118,6 +118,11 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// identifier, ADS fielded query, pasted citation(s), URL, or free text.
     /// Deterministic and cheap — no network, no model.
     #[impress_method]
+    #[impress_example(
+        name = "doi_identifier",
+        args = r#"{"input":"10.1038/nature01080"}"#,
+        expect = r#"{"kind":"identifier","identifier_kind":"doi","value":"10.1038/nature01080"}"#
+    )]
     async fn classify_search_input(&self, input: String) -> SearchIntentReport;
 
     /// Repair a hand-written or model-generated ADS query: expand `a:`/`t:`/`b:`
@@ -125,7 +130,11 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// names, uppercase boolean operators, and reorder `author:"First Last"`
     /// to `author:"Last, F"`. Reports every change it made.
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{"query": "author:abel"}"#)]
+    #[impress_example(
+        name = "expand_author_shorthand",
+        args = r#"{"query":"a:Einstein"}"#,
+        expect = r#"{"corrected_query":"author:Einstein","was_modified":true}"#
+    )]
     async fn normalize_ads_query(&self, query: String) -> AdsNormalizationReport;
 
     /// Rewrite free-text input into an ADS query without a language model,
@@ -134,8 +143,9 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// `abs:(...)` for the residue. `this_year` anchors every relative range.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"input": "galaxy formation", "this_year": 2026}"#
+        name = "relative_year_range",
+        args = r#"{"input":"last 5 years","this_year":2026}"#,
+        expect = r#"{"query":"year:2021-2026","source":"degenerate"}"#
     )]
     async fn rewrite_free_text_query(&self, input: String, this_year: i64) -> QueryRewriteReport;
 
@@ -145,6 +155,11 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// `authors`, demotes them to topics, and strips bare years from
     /// `topic_words`.
     #[impress_method]
+    #[impress_example(
+        name = "demote_four_surnames",
+        args = r#"{"authors":["Abel","Bryan","Norman","Klessen"],"bibstem":"","topic_words":[],"year_from":0,"year_to":0,"refereed_only":false,"original_input":"abel bryan norman klessen","this_year":2026}"#,
+        expect = r#""abs:(Abel Bryan Norman Klessen)""#
+    )]
     #[allow(clippy::too_many_arguments)]
     async fn build_ads_query(
         &self,
@@ -162,15 +177,20 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// separators, `title:"multi word"` → `title:(multi word)`, collapsed
     /// whitespace, then full normalization.
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{"query": "author:abel"}"#)]
+    #[impress_example(
+        name = "unquote_topic_field",
+        args = r#"{"query":"TITLE:\"dark matter\""}"#,
+        expect = r#""title:(dark matter)""#
+    )]
     async fn clean_ads_query(&self, query: String) -> String;
 
     /// Split a pasted bibliography into individual reference blocks
     /// (`\bibitem`, numbered markers, or blank-line separated).
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"text": "[1] Abel 2026. [2] Baker 2025."}"#
+        name = "numbered_references",
+        args = r#"{"text":"[1] Abel 2026.\n[2] Baker 2025."}"#,
+        expect = r#"["[1] Abel 2026.","[2] Baker 2025."]"#
     )]
     async fn split_reference_blocks(&self, text: String) -> Vec<String>;
 
@@ -178,6 +198,11 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// the extraction half of the URL path — fetching the page is the caller's
     /// job (imbib does it with `URLSession`).
     #[impress_method]
+    #[impress_example(
+        name = "doi_in_html",
+        args = r#"{"html":"<html><title>Stars &amp; dust</title><a href=\"https://doi.org/10.1126/science.1\">paper</a></html>"}"#,
+        expect = r#"{"page_title":"Stars & dust","identifiers":[{"kind":"doi","value":"10.1126/science.1"}]}"#
+    )]
     async fn extract_page_identifiers(&self, html: String) -> PageExtractionReport;
 
     /// Validate a model-parsed citation, dropping any DOI / arXiv id / bibcode
@@ -185,6 +210,11 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// resolves to the wrong paper silently, so this check is load-bearing.
     #[impress_method]
     #[allow(clippy::too_many_arguments)]
+    #[impress_example(
+        name = "reject_invented_doi",
+        args = r#"{"authors":["Abel"],"title":"First stars","year":2002,"journal":"ApJ","volume":"1","pages":"1","doi":"not-a-doi","arxiv":"","bibcode":""}"#,
+        expect = r#"{"authors":["Abel"],"title":"First stars","year":2002,"doi":null,"has_identifier":false}"#
+    )]
     async fn validate_parsed_reference(
         &self,
         authors: Vec<String>,
@@ -203,8 +233,8 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// contract instead of guessing at it.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"input": "galaxy formation", "this_year": 2026, "today": "2026-09-26"}"#
+        name = "model_contract_for_recent_papers",
+        args = r#"{"input":"recent JWST galaxy formation","this_year":2026,"today":"2026-09-26"}"#
     )]
     async fn free_text_extraction_prompt(
         &self,
@@ -216,7 +246,10 @@ pub trait SmartSearchService: Send + Sync + 'static {
     /// Build the prompt imbib sends to the on-device model to parse a single
     /// citation reference.
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{"block": "Abel, T. 2026, ApJ, 1, 1"}"#)]
+    #[impress_example(
+        name = "model_contract_for_citation",
+        args = r#"{"block":"Abel, T. 2026, ApJ, 1, 1"}"#
+    )]
     async fn reference_parse_prompt(&self, block: String) -> String;
 }
 
@@ -362,35 +395,82 @@ impress_service_impl! {
     impl = DefaultSmartSearchService,
     instance = || smart_search_instance(),
     methods = [
-        classify_search_input(input: String) -> SearchIntentReport,
-        normalize_ads_query(query: String) -> AdsNormalizationReport,
-        rewrite_free_text_query(input: String, this_year: i64) -> QueryRewriteReport,
+        classify_search_input(
+            /// Text from the search box: an identifier, ADS expression, URL, citation, or free text.
+            input: String
+        ) -> SearchIntentReport,
+        normalize_ads_query(
+            /// ADS query to normalize without contacting ADS.
+            query: String
+        ) -> AdsNormalizationReport,
+        rewrite_free_text_query(
+            /// Natural-language paper search request to parse deterministically.
+            input: String,
+            /// Current calendar year used to resolve relative date phrases.
+            this_year: i64
+        ) -> QueryRewriteReport,
         build_ads_query(
+            /// Candidate human researcher surnames; non-authors are demoted to topics.
             authors: Vec<String>,
+            /// ADS journal abbreviation, or an empty string when unspecified.
             bibstem: String,
+            /// Subject terms, including instruments and surveys.
             topic_words: Vec<String>,
+            /// Inclusive lower publication year, or zero for no lower bound.
             year_from: i64,
+            /// Inclusive upper publication year, or zero for no upper bound.
             year_to: i64,
+            /// Whether to add the ADS refereed filter.
             refereed_only: bool,
+            /// Original request used to check alleged authors and date phrases.
             original_input: String,
+            /// Current calendar year used for relative date phrases.
             this_year: i64
         ) -> String,
-        clean_ads_query(query: String) -> String,
-        split_reference_blocks(text: String) -> Vec<String>,
-        extract_page_identifiers(html: String) -> PageExtractionReport,
+        clean_ads_query(
+            /// Model-generated ADS query whose clauses and field quoting need repair.
+            query: String
+        ) -> String,
+        split_reference_blocks(
+            /// Pasted bibliography with numbered, bibitem, or blank-line separators.
+            text: String
+        ) -> Vec<String>,
+        extract_page_identifiers(
+            /// Already-fetched page HTML; this method does not fetch its URL.
+            html: String
+        ) -> PageExtractionReport,
         validate_parsed_reference(
+            /// Parsed author names, retaining the citation's order.
             authors: Vec<String>,
+            /// Parsed title, or an empty string if missing.
             title: String,
+            /// Publication year, or zero if missing; out-of-range years are dropped.
             year: i64,
+            /// Parsed journal, or an empty string if missing.
             journal: String,
+            /// Parsed volume, or an empty string if missing.
             volume: String,
+            /// Parsed page range, or an empty string if missing.
             pages: String,
+            /// Candidate DOI; malformed values are dropped.
             doi: String,
+            /// Candidate arXiv identifier; malformed values are dropped.
             arxiv: String,
+            /// Candidate ADS bibcode; malformed values are dropped.
             bibcode: String
         ) -> CitationReport,
-        free_text_extraction_prompt(input: String, this_year: i64, today: String) -> String,
-        reference_parse_prompt(block: String) -> String,
+        free_text_extraction_prompt(
+            /// Natural-language search request to place in the on-device prompt.
+            input: String,
+            /// Current calendar year used in the prompt's relative-year examples.
+            this_year: i64,
+            /// Current ISO date, included verbatim in the prompt.
+            today: String
+        ) -> String,
+        reference_parse_prompt(
+            /// One complete bibliography reference to place in the on-device prompt.
+            block: String
+        ) -> String,
     ],
 }
 
@@ -489,5 +569,26 @@ mod tests {
             .await;
         assert!(r.doi.is_none() && r.arxiv.is_none() && r.bibcode.is_none());
         assert!(!r.has_identifier);
+    }
+
+    #[tokio::test]
+    async fn prompt_examples_embed_the_actual_request_and_relative_year_contract() {
+        let svc = DefaultSmartSearchService;
+        let query = svc
+            .free_text_extraction_prompt(
+                "recent JWST galaxy formation".into(),
+                2026,
+                "2026-09-26".into(),
+            )
+            .await;
+        assert!(query.starts_with("Today is 2026-09-26."));
+        assert!(query.contains("yearFrom=2022  yearTo=2026"));
+        assert!(query.ends_with("Request: recent JWST galaxy formation"));
+
+        let citation = svc
+            .reference_parse_prompt("Abel, T. 2026, ApJ, 1, 1".into())
+            .await;
+        assert!(citation.contains("Do not invent DOI / arXiv / bibcode"));
+        assert!(citation.ends_with("Reference:\nAbel, T. 2026, ApJ, 1, 1"));
     }
 }

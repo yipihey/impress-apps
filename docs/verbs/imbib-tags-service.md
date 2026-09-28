@@ -18,7 +18,7 @@ Attach a tag to specific papers. Tags use hierarchical paths like 'methods/sims'
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"ids": [], "tag_path": "effects/example"}
@@ -40,7 +40,7 @@ Count the papers carrying a tag, optionally within one library or collection.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"tag_path": "effects/example"}
@@ -63,7 +63,7 @@ Create a tag in the library's tag vocabulary, optionally with light/dark display
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"path": "effects/example"}
@@ -84,7 +84,7 @@ Delete a tag from the library vocabulary; it is detached from EVERY paper that c
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"path": "effects/example"}
@@ -103,7 +103,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -122,7 +122,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -147,7 +147,7 @@ List the papers carrying a tag, optionally within one library or collection (`pa
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"tag_path": "effects/example", "parent_id": null, "sort_field": "date_added", "ascending": true, "limit": 10}
@@ -169,7 +169,7 @@ Detach a tag from the papers you name. The tag itself survives and stays on ever
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"ids": [], "tag_path": "effects/example"}
@@ -191,7 +191,7 @@ Rename or re-parent a tag path across the whole library; every paper carrying it
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"old_path": "effects/example", "new_path": "effects/example-renamed"}
@@ -214,7 +214,7 @@ Set a tag's light and dark display colors; its path and memberships are unchange
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"path": "effects/example", "color_light": "#4287f5", "color_dark": "#1a3d6b"}

@@ -43,12 +43,23 @@ pub trait ImbibUndoService: Send + Sync + 'static {
     /// List the most recent undoable operation groups, newest first.
     #[impress_method(safety = read_only, effects(reads = ["core/operation"]))]
     #[impress_example(name = "default", args = r#"{"max_entries": 5}"#)]
+    #[impress_example(name = "scratch-history", args = r#"{"max_entries":50}"#)]
     async fn recent_undo_groups(&self, max_entries: u32) -> Vec<UndoGroupRecord>;
     /// Undo a single operation by id.
     #[impress_method]
+    #[impress_example(
+        name = "selected-history-operation",
+        args = r#"{"operation_id":"{{fixture.undo_operation_id}}"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn undo_operation(&self, operation_id: String) -> MutationResult;
     /// Undo all operations sharing a batch id.
     #[impress_method]
+    #[impress_example(
+        name = "undo-scratch-batch",
+        args = r#"{"batch_id":"61000000-0000-4000-8000-000000000005"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn undo_batch(&self, batch_id: String) -> MutationResult;
 }
 
@@ -122,8 +133,17 @@ impress_service_impl! {
     impl = DefaultImbibUndoService,
     instance = || crate::backend::undo_service_instance(),
     methods = [
-        recent_undo_groups(max_entries: u32) -> Vec<UndoGroupRecord>,
-        undo_operation(operation_id: String) -> MutationResult,
-        undo_batch(batch_id: String) -> MutationResult,
+        recent_undo_groups(
+            /// Maximum number of recent groups; zero selects the default of 25.
+            max_entries: u32
+        ) -> Vec<UndoGroupRecord>,
+        undo_operation(
+            /// Operation UUID selected from `recent_undo_groups`.
+            operation_id: String
+        ) -> MutationResult,
+        undo_batch(
+            /// Shared batch ID of the operations to reverse.
+            batch_id: String
+        ) -> MutationResult,
     ],
 }

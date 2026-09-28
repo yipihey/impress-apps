@@ -7,7 +7,6 @@ use std::fmt;
 use impress_scenario::spec::{
     CallStep, EventBody, EventStep, Expect, Requires, Scenario, Step, Tier,
 };
-use impress_surface::template::Template;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -113,8 +112,8 @@ pub fn generate_scenario(
             Some("arguments were not recorded losslessly")
         } else if !call.args.is_object() {
             Some("recorded arguments are not a complete object")
-        } else if contains_scenario_template(&call.args) {
-            Some("literal arguments would be reinterpreted as scenario templates")
+        } else if impress_scenario::template::escape_literals(&call.args).is_err() {
+            Some("literal arguments cannot be escaped without changing their value")
         } else if !canonical_verb(&call.verb) {
             Some("verb name is not canonical")
         } else if caller_as(&call.caller).is_none() {
@@ -256,17 +255,6 @@ fn scalar_id(value: &Value) -> bool {
     matches!(value, Value::String(_) | Value::Number(_))
 }
 
-fn contains_scenario_template(value: &Value) -> bool {
-    match value {
-        Value::String(text) => {
-            text.contains("{{uuid}}") || !matches!(Template::parse(text), Template::Literal(_))
-        }
-        Value::Array(items) => items.iter().any(contains_scenario_template),
-        Value::Object(map) => map.values().any(contains_scenario_template),
-        _ => false,
-    }
-}
-
 fn valid_result_path(path: &str) -> bool {
     path == "$"
         || path.strip_prefix("$.").is_some_and(|rest| {
@@ -331,6 +319,9 @@ fn bind_prior_ids(
                         name
                     });
                 *value = Value::String(format!("{{{{state.{capture_name}}}}}"));
+            } else {
+                *value = impress_scenario::template::escape_literals(value)
+                    .expect("argument literals were checked before binding IDs");
             }
         }
         _ => {}
@@ -513,33 +504,34 @@ mod tests {
     }
 
     #[test]
-    fn recorded_literals_that_scenario_templates_would_change_are_skipped() {
-        let capture_like = call(
-            "capture-like",
-            "layout-service_save-layout",
+    fn recorded_literals_survive_replay_without_becoming_captures() {
+        let inputs = [
             json!({"nested": ["{{state.paper}}"]}),
-        );
-        let uuid_like = call(
-            "uuid-like",
-            "layout-service_save-layout",
             json!({"name": "prefix-{{uuid}}"}),
-        );
-        let literal_braces = call(
-            "literal-braces",
-            "layout-service_save-layout",
             json!({"name": "{{not-a-template}}"}),
-        );
-        let generated = generate(vec![capture_like, uuid_like, literal_braces]);
-        assert_eq!(generated.scenario.steps.len(), 1);
-        assert_eq!(generated.skipped.len(), 2);
-        assert!(generated
-            .skipped
+            json!({"name": "{{!state.already_escaped}}"}),
+        ];
+        let calls = inputs
             .iter()
-            .all(|entry| entry.reason.contains("templates")));
-        assert_eq!(
-            as_call(&generated.scenario.steps[0]).args["name"],
-            json!("{{not-a-template}}")
-        );
+            .enumerate()
+            .map(|(i, args)| {
+                call(
+                    &format!("literal-{i}"),
+                    "layout-service_save-layout",
+                    args.clone(),
+                )
+            })
+            .collect();
+        let generated = generate(calls);
+        assert_eq!(generated.scenario.steps.len(), inputs.len());
+        assert!(generated.skipped.is_empty());
+        for (step, input) in generated.scenario.steps.iter().zip(inputs) {
+            let args = &as_call(step).args;
+            assert_eq!(
+                impress_scenario::template::resolve(args, &Value::Null).unwrap(),
+                input
+            );
+        }
     }
 
     #[test]

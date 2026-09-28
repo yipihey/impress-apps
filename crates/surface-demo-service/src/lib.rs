@@ -289,10 +289,20 @@ impress_service_impl! {
         /// A noisy sine wave: `n` samples `x` on `[0, 1)` and `values =
         /// sin(2π·freq·x) + noise`. `n` in `2..=100000`, `freq` finite and
         /// > 0.
-        series(freq: f64, n: u32) -> SeriesResult,
+        series(
+            /// Positive finite number of sine-wave cycles over the unit interval.
+            freq: f64,
+            /// Number of evenly spaced samples; must be between 2 and 100000.
+            n: u32
+        ) -> SeriesResult,
         /// An equal-width histogram of `values` over `bins` buckets, plus a
         /// `plot-spec@1.0.0` payload of bin centres against counts.
-        histogram(values: Vec<f64>, bins: u32) -> HistogramResult,
+        histogram(
+            /// Nonempty finite values to group into equally spaced buckets.
+            values: Vec<f64>,
+            /// Number of buckets; must be between 1 and 1024.
+            bins: u32
+        ) -> HistogramResult,
     ],
 }
 

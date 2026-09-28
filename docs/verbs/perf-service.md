@@ -13,11 +13,11 @@ One trace id's span tree as Chrome trace-event JSON, for Perfetto/`chrome://trac
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `trace_id` | string | yes | *(undocumented)* |
+| `trace_id` | string | yes | Trace identifier from a verb call; unknown or evicted traces are empty. |
 
 **Examples**
 
-- `unknown-trace`:
+- `unknown-trace` — Tier A:
 
   ```json
   {"trace_id": "00000000-0000-0000-0000-000000000000"}
@@ -39,11 +39,11 @@ One trace id's span tree as folded stacks, for `inferno`/flamegraph.pl.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `trace_id` | string | yes | *(undocumented)* |
+| `trace_id` | string | yes | Trace identifier from a verb call; unknown or evicted traces are empty. |
 
 **Examples**
 
-- `unknown-trace`:
+- `unknown-trace` — Tier A:
 
   ```json
   {"trace_id": "00000000-0000-0000-0000-000000000000"}
@@ -65,17 +65,17 @@ The aggregator's bucket rows: count, total/min/max/p50/p95 duration, keyed `"ver
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `prefix` | — | no | *(undocumented)* |
+| `prefix` | — | no | Optional bucket-key prefix; omitted or empty returns every bucket. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
   ```
 
-- `prefixed`:
+- `prefixed` — Tier A:
 
   ```json
   {"prefix": "verb:perf-service"}
@@ -92,11 +92,11 @@ The recorded span tree for one trace id, from the bounded span log. Empty for an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `trace_id` | string | yes | *(undocumented)* |
+| `trace_id` | string | yes | Trace identifier from a verb call; unknown or evicted traces are empty. |
 
 **Examples**
 
-- `unknown-trace`:
+- `unknown-trace` — Tier A:
 
   ```json
   {"trace_id": "00000000-0000-0000-0000-000000000000"}

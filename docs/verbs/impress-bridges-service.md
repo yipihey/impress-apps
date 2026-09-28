@@ -13,27 +13,44 @@ Extract identifiers from a conversation AND import them into imbib in one step. 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
-| `library` | — | no | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the impart conversation containing paper identifiers. |
+| `library` | — | no | Target imbib library UUID; null selects the service default. |
 
-_No examples yet._
+**Examples**
+
+- `import_isolated_conversation_papers` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5f000000-0000-4000-8000-000000000040","library":"5f000000-0000-4000-8000-000000000001"}
+  ```
 
 ## `impress-bridges-service_cite-in-section`
 
-Cite a paper inside a specific section rather than at the end of the document. Section writes are compare-and-set, so this cannot clobber a concurrent edit the way a whole-document append can.
+Cite a paper inside a specific section rather than at the end of the document. It anchors the append on the section body it just read; if that body no longer matches, it reports failure instead of claiming the citation landed. Empty sections cannot be appended by the current section replacement API.
 
 - **safety**: `mutating`
-- **reads**: "imbib/bibliography-entry", "manuscript", "manuscript-section"
+- **reads**: "imbib/bibliography-entry", "imbib/tag-definition", "manuscript", "manuscript-section"
 - **writes**: "manuscript-section", "citation-usage"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_key` | string | yes | *(undocumented)* |
-| `document_id` | string | yes | *(undocumented)* |
-| `section_key` | string | yes | *(undocumented)* |
+| `cite_key` | string | yes | Existing imbib cite key, without a leading `@`. |
+| `document_id` | string | yes | UUID of the manuscript that owns the section. |
+| `section_key` | string | yes | Stable key of a nonempty stored manuscript section. |
 
-_No examples yet._
+**Examples**
+
+- `cite_scratch_methods` — Tier A:
+
+  ```json
+  {"cite_key":"G3Bridge2026","document_id":"5f000000-0000-4000-8000-000000000010","section_key":"methods"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"cited":["G3Bridge2026"]}
+  ```
 
 ## `impress-bridges-service_cite-multiple`
 
@@ -46,10 +63,16 @@ Cite several papers at once. Prefer this to repeated single calls: it is one pas
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_keys` | array | yes | *(undocumented)* |
-| `document_id` | string | yes | *(undocumented)* |
+| `cite_keys` | array | yes | Existing imbib cite keys to append in one document write. |
+| `document_id` | string | yes | UUID of the imprint manuscript receiving the references. |
 
-_No examples yet._
+**Examples**
+
+- `cite_two_isolated_papers` — Tier B (explicit isolated run):
+
+  ```json
+  {"cite_keys":["G3Bridge2026","G3BridgeFollowup2026"],"document_id":"5f000000-0000-4000-8000-000000000010"}
+  ```
 
 ## `impress-bridges-service_cite-paper`
 
@@ -62,10 +85,16 @@ Cite a paper from imbib in an imprint manuscript: looks the cite key up in the l
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_key` | string | yes | *(undocumented)* |
-| `document_id` | string | yes | *(undocumented)* |
+| `cite_key` | string | yes | Cite key already present in imbib, without a leading `@`. |
+| `document_id` | string | yes | UUID of the imprint manuscript to append the reference to. |
 
-_No examples yet._
+**Examples**
+
+- `cite_isolated_manuscript` — Tier B (explicit isolated run):
+
+  ```json
+  {"cite_key":"G3Bridge2026","document_id":"5f000000-0000-4000-8000-000000000010"}
+  ```
 
 ## `impress-bridges-service_conversation-decisions`
 
@@ -78,9 +107,15 @@ Decisions recorded in a conversation. These are what turn a discussion into a me
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the impart conversation whose recorded summary is returned. |
 
-_No examples yet._
+**Examples**
+
+- `isolated_thread_decisions` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
+  ```
 
 ## `impress-bridges-service_conversation-to-outline`
 
@@ -93,9 +128,15 @@ A manuscript outline distilled from a research conversation: its sections, the d
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the impart conversation to structure into an outline. |
 
-_No examples yet._
+**Examples**
+
+- `isolated_thread_outline` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
+  ```
 
 ## `impress-bridges-service_embed-figure`
 
@@ -108,11 +149,17 @@ Embed an implore figure into an imprint manuscript: exports the figure to a file
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `figure_id` | string | yes | *(undocumented)* |
-| `format` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the imprint manuscript receiving a Typst image reference. |
+| `figure_id` | string | yes | Figure id returned by the isolated implore host. |
+| `format` | string | yes | Export format: `png`, `pdf`, or `svg`. |
 
-_No examples yet._
+**Examples**
+
+- `embed_isolated_svg` — Tier B (explicit isolated run):
+
+  ```json
+  {"figure_id":"5f000000-0000-4000-8000-000000000030","document_id":"5f000000-0000-4000-8000-000000000010","format":"svg"}
+  ```
 
 ## `impress-bridges-service_embed-figure-reference`
 
@@ -125,11 +172,17 @@ Insert only the `#image(...)` reference, without re-exporting. Use when the file
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `figure_id` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the imprint manuscript receiving the reference. |
+| `figure_id` | string | yes | Id of the already-exported implore figure. |
+| `path` | string | yes | Absolute path of the image already exported into the owned workspace. |
 
-_No examples yet._
+**Examples**
+
+- `reference_preexported_figure` — Tier B (explicit isolated run):
+
+  ```json
+  {"figure_id":"5f000000-0000-4000-8000-000000000030","document_id":"5f000000-0000-4000-8000-000000000010","path":"{{fixture.root}}/figures/bridge.svg"}
+  ```
 
 ## `impress-bridges-service_export-conversation-citations`
 
@@ -142,9 +195,15 @@ BibTeX for every paper an impart conversation mentions that is already in imbib 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the impart conversation to turn into BibTeX. |
 
-_No examples yet._
+**Examples**
+
+- `bibtex_for_isolated_thread` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
+  ```
 
 ## `impress-bridges-service_extract-papers-from-conversation`
 
@@ -157,9 +216,15 @@ The same extraction over every message in an impart conversation.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the impart conversation whose title and summary are scanned. |
 
-_No examples yet._
+**Examples**
+
+- `identifiers_in_isolated_conversation` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
+  ```
 
 ## `impress-bridges-service_extract-papers-from-text`
 
@@ -172,9 +237,20 @@ Pull paper identifiers — DOIs, arXiv ids, ISBNs — out of arbitrary text. Use
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `text` | string | yes | *(undocumented)* |
+| `text` | string | yes | Text to scan locally for DOI, arXiv, and ISBN candidates. |
 
-_No examples yet._
+**Examples**
+
+- `find_doi_and_arxiv` — Tier A:
+
+  ```json
+  {"text":"Read 10.1086/145971 and arXiv:2301.00001 before drafting."}
+  ```
+  expects:
+
+  ```json
+  [{"kind":"doi","value":"10.1086/145971"},{"kind":"arxiv","value":"2301.00001"}]
+  ```
 
 ## `impress-bridges-service_get-citation-suggestions`
 
@@ -187,10 +263,16 @@ Papers in imbib that look relevant to what a manuscript already cites — a star
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of a manuscript whose existing citations seed the search. |
+| `limit` | integer | yes | Maximum distinct suggestions; zero uses the default of ten. |
 
-_No examples yet._
+**Examples**
+
+- `suggest_for_isolated_manuscript` — Tier B (explicit isolated run):
+
+  ```json
+  {"document_id":"5f000000-0000-4000-8000-000000000010","limit":5}
+  ```
 
 ## `impress-bridges-service_get-item`
 
@@ -203,9 +285,20 @@ One item from the shared store by id, whichever app wrote it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `item_id` | string | yes | *(undocumented)* |
+| `item_id` | string | yes | UUID of any item in the shared store. |
 
-_No examples yet._
+**Examples**
+
+- `get_scratch_artifact` — Tier A:
+
+  ```json
+  {"item_id":"5f000000-0000-4000-8000-000000000020"}
+  ```
+  expects:
+
+  ```json
+  {"id":"5f000000-0000-4000-8000-000000000020","title":"G3-bridge-needle source"}
+  ```
 
 ## `impress-bridges-service_get-related`
 
@@ -218,10 +311,21 @@ Items linked to this one. NOTE: the store's edges are BIDIRECTIONAL, so this ans
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `item_id` | string | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
+| `item_id` | string | yes | UUID of the item whose direct graph neighbors are needed. |
+| `limit` | integer | yes | Maximum direct neighbors; zero selects the default of twenty. |
 
-_No examples yet._
+**Examples**
+
+- `related_scratch_note` — Tier A:
+
+  ```json
+  {"item_id":"5f000000-0000-4000-8000-000000000020","limit":5}
+  ```
+  expects:
+
+  ```json
+  [{"id":"5f000000-0000-4000-8000-000000000021","title":"G3 related note"}]
+  ```
 
 ## `impress-bridges-service_list-available-figures`
 
@@ -234,7 +338,13 @@ Figures in implore that can be embedded into a manuscript, with the ids the embe
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `list_isolated_figures` — Tier B (explicit isolated run):
+
+  ```json
+  {}
+  ```
 
 ## `impress-bridges-service_resolve-artifact`
 
@@ -247,9 +357,20 @@ Resolve an `impress://` URI to whatever it names — an imbib paper, an imprint 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `uri` | string | yes | *(undocumented)* |
+| `uri` | string | yes | `impress://<kind>/<uuid>` URI, or a bare item UUID. |
 
-_No examples yet._
+**Examples**
+
+- `resolve_scratch_uri` — Tier A:
+
+  ```json
+  {"uri":"impress://artifact/5f000000-0000-4000-8000-000000000020"}
+  ```
+  expects:
+
+  ```json
+  {"id":"5f000000-0000-4000-8000-000000000020","title":"G3-bridge-needle source"}
+  ```
 
 ## `impress-bridges-service_search-all`
 
@@ -262,10 +383,21 @@ Search every app's items at once — papers, manuscripts, conversations, artifac
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum matching items; zero selects the default of twenty. |
+| `query` | string | yes | Case-insensitive payload substring to find across the latest 5,000 items. |
 
-_No examples yet._
+**Examples**
+
+- `search_scratch_artifacts` — Tier A:
+
+  ```json
+  {"query":"G3-bridge-needle","limit":1}
+  ```
+  expects:
+
+  ```json
+  [{"id":"5f000000-0000-4000-8000-000000000020","title":"G3-bridge-needle source"}]
+  ```
 
 ## `impress-bridges-service_sync-figure`
 
@@ -278,8 +410,14 @@ Re-export a figure that is already embedded, so the manuscript picks up changes 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `figure_id` | string | yes | *(undocumented)* |
-| `format` | string | yes | *(undocumented)* |
+| `figure_id` | string | yes | Id of the implore figure to re-export. |
+| `format` | string | yes | Re-export format: `png`, `pdf`, or `svg`. |
 
-_No examples yet._
+**Examples**
+
+- `resync_isolated_figure` — Tier B (explicit isolated run):
+
+  ```json
+  {"figure_id":"5f000000-0000-4000-8000-000000000030","format":"svg"}
+  ```
 
