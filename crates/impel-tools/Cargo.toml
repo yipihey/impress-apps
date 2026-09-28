@@ -30,9 +30,7 @@ impress-capabilities = { workspace = true, features = ["imbib", "imprint", "memo
 # #[impress_method] submits an McpToolDescriptor at link time. Nothing in this
 # crate references their types directly — the dependency IS the mechanism.
 imbib-service = { workspace = true }
-imbib-service-http = { workspace = true }
 imprint-service = { workspace = true }
-imprint-service-http = { workspace = true }
 # ADR-0028 memory kernel P2: remember/recall/brief/confirm/supersede/forget.
 impress-memory-service = { workspace = true }
 

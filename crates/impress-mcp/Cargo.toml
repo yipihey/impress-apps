@@ -46,7 +46,6 @@ impress-capabilities = { workspace = true, features = ["full", "semantic-search"
 # directly outside the inventory-tool path, e.g. for the ADR-0024 grouped
 # surface rendering, so this stays a direct dependency).
 impress-service-core = { workspace = true }
-imbib-service-http = { workspace = true }
 # `typst-render` is OFF by default in imprint-service (Typst linkage is heavy —
 # ADR-0018) and turned on HERE, because this binary is exactly where a headless
 # compile is wanted: `imprint-manuscript-service_compile-typst` is not
@@ -54,19 +53,12 @@ imbib-service-http = { workspace = true }
 # turn a manuscript into a PDF. It is NOT free: the release binary goes
 # 46,990,144 → 98,709,072 bytes (45 → 94 MiB, +110%). That cost is exactly why
 # the feature is not in imprint-service's `default` — every other consumer
-# (imprint-service-http, imprint-selftest, the app FFI, which already links
+# (imprint-selftest and the app FFI, which already links
 # Typst its own way) would pay it for a capability only this binary uses. Kept
 # as a direct dependency (impress-capabilities also pulls imprint-service, at
 # its default features) so cargo's feature unification turns typst-render on
 # for the one compiled copy of the crate that ends up in this binary.
 imprint-service = { workspace = true, features = ["typst-render"] }
-imprint-service-http = { workspace = true }
-# implore + impart HTTP reachability probes (TypeScript MCP retirement,
-# phase 3) — `main.rs` calls `maybe_install_http_backend()` on these
-# directly; the non-HTTP `*-service` crates that register the inventory now
-# come from `impress-capabilities`.
-implore-service-http = { workspace = true }
-impart-service-http = { workspace = true }
 # Store-generic services (ADR-0022 WP G1): `server.rs` calls
 # `impress_store_service::{store_instance, store_path, set_store_path, …}`
 # directly, beyond what the inventory alone needs — kept as a direct

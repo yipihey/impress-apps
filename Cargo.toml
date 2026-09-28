@@ -57,7 +57,6 @@ members = [
     "crates/impel-tools",
     # implore/impart service traits (TypeScript MCP retirement)
     "crates/implore-service",
-    "crates/implore-service-http",
     # implore-verbs-ffi - implore's own per-app UniFFI target (plan-verb-
     # pipeline-and-transport.md § P5): links implore-service directly,
     # outside the kit boundary impress-store-ffi keeps.
@@ -66,7 +65,6 @@ members = [
     "crates/imprint-verbs-ffi",
     "crates/impart-verbs-ffi",
     "crates/impart-service",
-    "crates/impart-service-http",
     "crates/impress-bridges-service",
     # impress-store-service - store-generic services (ADR-0022 WP G1):
     # the collection kernel + generic triage verbs, no app dependency.
@@ -160,9 +158,6 @@ members = [
     # impress-mcp - stdio JSON-RPC MCP server (Phase 3B: imports *-service
     # inventory entries to surface trait methods as MCP tools).
     "crates/impress-mcp",
-    # impress-app-client - typed Rust HTTP client for imbib/imprint
-    # automation APIs. Backs HttpImbib*Service impls.
-    "crates/impress-app-client",
     # impress-app-transport - the P5 transport's client side: one
     # `call(app, verb, args)` over `POST /api/verb/<name>` (plan-verb-
     # pipeline-and-transport.md § P5), replacing the four `*-service-http`
@@ -172,11 +167,6 @@ members = [
     # over the same inventory and transport (plan-verb-pipeline-and-
     # transport.md § P6, D-P8), instead of a per-method pyo3 shim.
     "crates/impress-py",
-    # imbib-service-http - HTTP-backed impls of the 7 imbib-service traits +
-    # install() helper that probes localhost:23120 and installs the backend.
-    "crates/imbib-service-http",
-    # imprint-service-http - HTTP-backed impls of imprint-service traits.
-    "crates/imprint-service-http",
     # imprint-selftest - declarative capability self-tests (Tier A pure-Rust,
     # Tier B live-app-over-HTTP) producing an agent-readable pass/fail report.
     "crates/imprint-selftest",
@@ -370,19 +360,14 @@ imbib-cli = { path = "crates/imbib-cli" }
 imprint-cli = { path = "crates/imprint-cli" }
 
 # HTTP transport for the unified storage (Phase A/B/C from we-are-planning-…).
-impress-app-client = { path = "crates/impress-app-client" }
 impress-app-transport = { path = "crates/impress-app-transport" }
 impress-py = { path = "crates/impress-py" }
-imbib-service-http = { path = "crates/imbib-service-http" }
-imprint-service-http = { path = "crates/imprint-service-http" }
 implore-service = { path = "crates/implore-service" }
-implore-service-http = { path = "crates/implore-service-http" }
 implore-verbs-ffi = { path = "crates/implore-verbs-ffi" }
 imbib-verbs-ffi = { path = "crates/imbib-verbs-ffi" }
 imprint-verbs-ffi = { path = "crates/imprint-verbs-ffi" }
 impart-verbs-ffi = { path = "crates/impart-verbs-ffi" }
 impart-service = { path = "crates/impart-service" }
-impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }
 impress-store-service = { path = "crates/impress-store-service" }
 capabilities-service = { path = "crates/capabilities-service" }
