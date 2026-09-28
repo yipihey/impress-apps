@@ -16,6 +16,12 @@
 
 use impress_service_core::{call, ProviderStatus, VerbHandle};
 
+mod providers;
+pub use providers::{
+    configure_provider_store, provider_call, provider_health, provider_validate_endpoint,
+    provider_validate_instance, provider_validate_schema, ProviderPrimitiveReply,
+};
+
 uniffi::setup_scaffolding!();
 
 // ---------------------------------------------------------------------------

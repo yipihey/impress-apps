@@ -42,6 +42,7 @@ pub mod figure_detection;
 pub mod history_service;
 pub mod job;
 pub mod manuscript_collab_service;
+pub mod provider_service;
 pub mod providers;
 pub mod query_service;
 pub mod settings_service;

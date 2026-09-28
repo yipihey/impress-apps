@@ -1196,6 +1196,7 @@ impl SurfaceFeed {
         let mut grace_over = self.grace.is_zero();
 
         let mut last_external_poll = Instant::now();
+        let mut provider_revision = impress_service_core::registry_runtime::current().revision();
 
         while self.running.load(Ordering::SeqCst) {
             let mut touched = false;
@@ -1217,6 +1218,22 @@ impl SurfaceFeed {
 
             if last_external_poll.elapsed() >= self.external_poll {
                 last_external_poll = Instant::now();
+                let revision = impress_service_core::registry_runtime::current().revision();
+                if revision != provider_revision {
+                    provider_revision = revision;
+                    for id in self.registry.invalidate_provider_inventory() {
+                        merge(
+                            &mut held,
+                            SharedSurfaceChange {
+                                id: id.to_string(),
+                                revision: None,
+                                state_revision: None,
+                                sources_changed: true,
+                                deleted: false,
+                            },
+                        );
+                    }
+                }
                 let mutations = self.external.check(&self.store, SURFACE_UI_PREFIX);
                 if !mutations.is_empty() {
                     pending.extend(mutations);

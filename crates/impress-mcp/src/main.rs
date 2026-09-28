@@ -117,7 +117,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (`SemanticState::default_embeddings_path`).
             "--provider-docs" => {
                 i += 1;
-                provider_docs = Some(PathBuf::from(args.get(i).ok_or("Missing value for --provider-docs")?));
+                provider_docs = Some(PathBuf::from(
+                    args.get(i).ok_or("Missing value for --provider-docs")?,
+                ));
             }
             "--http" => {
                 i += 1;
@@ -125,7 +127,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--token-file" => {
                 i += 1;
-                token_file = Some(PathBuf::from(args.get(i).ok_or("Missing value for --token-file")?));
+                token_file = Some(PathBuf::from(
+                    args.get(i).ok_or("Missing value for --token-file")?,
+                ));
             }
             "--store-path" => {
                 i += 1;

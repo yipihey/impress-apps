@@ -560,7 +560,11 @@ fn tool_definitions_in(projection: crate::surface::Projection) -> Value {
             tools.extend(inventory_tool_definitions().into_iter().filter(|t| {
                 t.get("name")
                     .and_then(|n| n.as_str())
-                    .map(|name| impress_service_core::call::find(name).is_some_and(|v| v.provider_id().is_some()) || crate::reachability::is_available(name))
+                    .map(|name| {
+                        impress_service_core::call::find(name)
+                            .is_some_and(|v| v.provider_id().is_some())
+                            || crate::reachability::is_available(name)
+                    })
                     .unwrap_or(true)
             }));
             Value::Array(tools)

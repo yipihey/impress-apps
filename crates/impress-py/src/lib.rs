@@ -99,8 +99,12 @@ pub fn reload_provider_registry() -> Result<(), String> {
     impress_app_transport::provider::install();
     if impress_store_service::providers::install_if_registered(std::sync::Arc::new(
         impress_app_transport::provider::JsonSchemaValidator,
-    )).map_err(|error| error.to_string())? {
-        impress_service_core::runtime::block_on(impress_service_core::registry_runtime::refresh_health());
+    ))
+    .map_err(|error| error.to_string())?
+    {
+        impress_service_core::runtime::block_on(
+            impress_service_core::registry_runtime::refresh_health(),
+        );
     }
     Ok(())
 }
@@ -201,7 +205,8 @@ mod py {
     /// Reload providers registered since this module was imported.
     #[pyfunction]
     fn reload_providers(py: Python<'_>) -> PyResult<()> {
-        py.allow_threads(super::reload_provider_registry).map_err(PyRuntimeError::new_err)
+        py.allow_threads(super::reload_provider_registry)
+            .map_err(PyRuntimeError::new_err)
     }
 
     /// Python module: `impress`.

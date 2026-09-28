@@ -194,7 +194,8 @@ pub fn action_of(tool_name: &str, domain: &str) -> Option<String> {
 
 /// Descriptors a client may currently reach, after reachability gating.
 fn available() -> impl Iterator<Item = VerbHandle> {
-    call::descriptors().filter(|d| d.provider_id().is_some() || crate::reachability::is_available(d.name()))
+    call::descriptors()
+        .filter(|d| d.provider_id().is_some() || crate::reachability::is_available(d.name()))
 }
 
 fn is_primary(name: &str) -> bool {

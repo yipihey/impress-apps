@@ -1554,3 +1554,22 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   remain the final checks. The release-lane audit also found older debt outside
   this fix: implore's release workflow names a missing `apps/implore/build-rust.sh`,
   and imprint/implore release lanes do not build their full older sibling graph.
+
+- 2026-09-28 — **P8 runtime providers, integration checkpoint** (branch
+  `claude/pipeline-p8-providers`, based on reviewed P7 while #127 finishes hosted CI).
+  Added owned runtime descriptors behind the shared inventory; strict provider
+  registration, local private credentials and the approved `provider@1.0.0` row;
+  authenticated MCP HTTP registration/deregistration; host-only JSON Schema
+  validation and loopback transport; Person-only generated trust action; and
+  runtime readers for MCP, CLI, Python, impel/AI tools, surfaces and reference docs.
+  No kit dependency was added: the JSON Schema engine stays in non-kit
+  `impress-app-transport`, with native raw callbacks through ImpelToolsFFI.
+  Provider writes use guarded store clocks, cross-process trust is refreshed
+  before policy, and successful results must match the declared output schema.
+  Native health changes now invalidate catalogue/provider source caches, retaining
+  unavailable descriptors by name. Tables were regenerated from semantic-search
+  test dumps; the effects exception ceiling remains 300, with a durable Person
+  trust capability proving the successful path. The real isolated Python Tier B
+  lifecycle passed; local unit/integration tests are green so far. Full P8 gates,
+  regenerated native bindings/cohort, native proof, PR and merge are still pending
+  at this checkpoint. No running user app, launcher or real store was used.

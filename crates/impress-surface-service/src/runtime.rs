@@ -1011,6 +1011,37 @@ impl SurfaceRuntime {
         names
     }
 
+    /// Runtime inventory and liveness are memory state, not store mutations.
+    /// Invalidate just sources that observe that inventory or call a provider.
+    fn inventory_sources(&self) -> Vec<String> {
+        self.spec
+            .sources
+            .iter()
+            .filter_map(|(name, source)| {
+                let Source::Verb { verb, .. } = source else {
+                    return None;
+                };
+                let observes_inventory = matches!(
+                    verb.as_str(),
+                    "capabilities-service_list-verbs"
+                        | "capabilities-service_verb-surface"
+                        | "capabilities-service_catalogue-surface"
+                        | "provider-service_list"
+                );
+                let calls_provider = impress_service_core::call::find(verb)
+                    .is_some_and(|descriptor| descriptor.provider_id().is_some());
+                (observes_inventory || calls_provider).then(|| name.clone())
+            })
+            .collect()
+    }
+
+    fn invalidate_inventory_sources(&mut self) {
+        for name in self.inventory_sources() {
+            self.cache.remove(&name);
+            self.failed.remove(&name);
+        }
+    }
+
     /// Fetch every stale/unfetched source (bounded rounds: a chain of N
     /// dependent sources settles in at most N rounds, and a round that
     /// fetches nothing new stops immediately rather than spinning on a
@@ -1630,6 +1661,8 @@ struct Slot {
     /// Set by [`SessionRegistry::retry_failed_sources`]: forget every
     /// remembered failure on the next call.
     retry_failed: std::sync::atomic::AtomicBool,
+    reads_inventory: std::sync::atomic::AtomicBool,
+    inventory_dirty: std::sync::atomic::AtomicBool,
 }
 
 type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
@@ -1711,6 +1744,16 @@ impl SessionRegistry {
             )),
         };
         *lock_set(&slot.reads) = runtime.query_refs();
+        slot.reads_inventory.store(
+            !runtime.inventory_sources().is_empty(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        if slot
+            .inventory_dirty
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            runtime.invalidate_inventory_sources();
+        }
         let dirty = std::mem::take(&mut *lock_set(&slot.dirty));
         if !dirty.is_empty() {
             runtime.invalidate_sources(&dirty);
@@ -1756,6 +1799,24 @@ impl SessionRegistry {
             slot.retry_failed
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    /// A host observed a provider registry revision change. Mark affected
+    /// cached sources and return the surfaces the native feed must re-render.
+    /// No store write and no network call happen here.
+    pub fn invalidate_provider_inventory(&self) -> Vec<ItemId> {
+        let mut surfaces = BTreeSet::new();
+        for ((surface, _), slot) in self.lock().iter() {
+            if slot
+                .reads_inventory
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                slot.inventory_dirty
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                surfaces.insert(*surface);
+            }
+        }
+        surfaces.into_iter().collect()
     }
 
     /// Every schema ref some live runtime's query sources read — what a feed

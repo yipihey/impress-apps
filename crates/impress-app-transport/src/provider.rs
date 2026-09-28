@@ -256,6 +256,28 @@ pub async fn call(
     args: Value,
     trace: Option<&str>,
 ) -> Result<Value, Refusal> {
+    let current = context::current();
+    call_with_parent(
+        endpoint,
+        token,
+        name,
+        args,
+        trace,
+        current.as_ref().map(|call| call.call_id.as_str()),
+    )
+    .await
+}
+
+/// Raw transport entry for a caller in another native image. The caller's
+/// pipeline establishes both identifiers; this layer only forwards them.
+pub async fn call_with_parent(
+    endpoint: &str,
+    token: &str,
+    name: &str,
+    args: Value,
+    trace: Option<&str>,
+    parent_call: Option<&str>,
+) -> Result<Value, Refusal> {
     let endpoint = endpoint_url(endpoint)?;
     if name.is_empty()
         || !name
@@ -276,8 +298,8 @@ pub async fn call(
         .bearer_auth(token)
         .header("traceparent", traceparent)
         .json(&args);
-    if let Some(call) = &current {
-        request = request.header("x-impress-parent-call", &call.call_id);
+    if let Some(parent_call) = parent_call {
+        request = request.header("x-impress-parent-call", parent_call);
     }
     let response = request
         .send()
@@ -460,6 +482,39 @@ mod tests {
         .await
         .expect("provider result");
         assert_eq!(answer["echo"], "hello");
+        health.assert_async().await;
+        verb.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn raw_call_forwards_explicit_parent_without_local_pipeline_context() {
+        let mut server = mockito::Server::new_async().await;
+        let health = server
+            .mock("GET", "/health")
+            .with_status(200)
+            .expect(1)
+            .create_async()
+            .await;
+        let verb = server
+            .mock("POST", "/verb/example-service_echo")
+            .match_header("traceparent", "owner-trace")
+            .match_header("x-impress-parent-call", "owner-call")
+            .with_status(200)
+            .with_body(r#"{"echo":"ok"}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let answer = call_with_parent(
+            &server.url(),
+            "private-token",
+            "example-service_echo",
+            json!({"text":"hello"}),
+            Some("owner-trace"),
+            Some("owner-call"),
+        )
+        .await
+        .expect("raw result");
+        assert_eq!(answer["echo"], "ok");
         health.assert_async().await;
         verb.assert_async().await;
     }

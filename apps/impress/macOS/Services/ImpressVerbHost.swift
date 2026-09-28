@@ -26,13 +26,6 @@ import ImpressRustCore
 /// link (see `crates/impress-surface-service/src/runtime.rs`'s `VerbHost`).
 final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
 
-    /// Built once at install time from `listTools()` — the full inventory,
-    /// not `listAvailableTools()`: `has_verb` answers "does this NAME exist
-    /// anywhere", and whether the owning app is reachable right now is
-    /// `callTool`'s question to refuse, so `surface_validate` reports a
-    /// spec's verb reference as known even while imbib happens to be closed.
-    private let knownVerbs: Set<String>
-
     /// The sibling apps whose last call was refused as unavailable. Purely a
     /// log-keeping aid: the refusal and the re-probe both happen in
     /// `impel-tools`, and this host never decides anything from it. It exists
@@ -42,12 +35,11 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
     private let reachabilityLock = NSLock()
     private var appsLastSeenUnavailable: Set<String> = []
 
-    init() {
-        knownVerbs = Set(listTools().map(\.name))
-    }
-
     func hasVerb(name: String) -> Bool {
-        knownVerbs.contains(name)
+        // Query the full inventory each time: a provider can register or
+        // disappear after this callback was installed. Availability remains
+        // `callTool`'s decision, so an unavailable name is still known.
+        listTools().contains { $0.name == name }
     }
 
     func callVerb(name: String, argsJson: String) throws -> String {
@@ -119,6 +111,72 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
         }
         store.setVerbHost(host: ImpelToolsVerbHost())
         logInfo("impel-tools verb host installed on the shared store", category: "surface")
+    }
+}
+
+/// The GUI store image owns provider registration and policy. This callback
+/// forwards only schema checks and authenticated raw HTTP I/O to the separate
+/// non-kit ImpelToolsFFI image; it never dispatches another verb pipeline.
+final class ImpressProviderHost: SharedProviderHost, @unchecked Sendable {
+    private func forward(_ reply: ProviderPrimitiveReply) -> SharedProviderReply {
+        SharedProviderReply(
+            ok: reply.ok,
+            code: reply.code,
+            message: reply.message,
+            bodyJson: reply.bodyJson)
+    }
+
+    func validateEndpoint(endpoint: String) -> SharedProviderReply {
+        forward(providerValidateEndpoint(endpoint: endpoint))
+    }
+
+    func validateSchema(schemaJson: String) -> SharedProviderReply {
+        forward(providerValidateSchema(schemaJson: schemaJson))
+    }
+
+    func validateInstance(schemaJson: String, argsJson: String) -> SharedProviderReply {
+        forward(providerValidateInstance(schemaJson: schemaJson, argsJson: argsJson))
+    }
+
+    func health(endpoint: String, token: String) -> SharedProviderReply {
+        forward(providerHealth(endpoint: endpoint, token: token))
+    }
+
+    func invoke(
+        endpoint: String,
+        token: String,
+        name: String,
+        argsJson: String,
+        traceId: String?,
+        parentCallId: String?
+    ) -> SharedProviderReply {
+        forward(providerCall(
+            endpoint: endpoint,
+            token: token,
+            name: name,
+            argsJson: argsJson,
+            traceId: traceId,
+            parentCallId: parentCallId))
+    }
+
+    static func install(on store: SharedStore) throws {
+        try store.setProviderHost(host: ImpressProviderHost())
+        let selectedPath = try store.providerStorePath()
+        let reader = configureProviderStore(path: selectedPath)
+        guard reader.ok else {
+            throw ProviderHostSetupError.unavailable(reader.message ?? "provider inventory unavailable")
+        }
+        logInfo("provider host installed on the shared store", category: "surface")
+    }
+}
+
+private enum ProviderHostSetupError: LocalizedError {
+    case unavailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable(let message): message
+        }
     }
 }
 #endif // os(macOS)

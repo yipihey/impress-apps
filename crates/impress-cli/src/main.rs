@@ -143,8 +143,9 @@ fn main() {
         impress_app_transport::provider::JsonSchemaValidator,
     )) {
         Ok(true) => impress_service_core::runtime::block_on(
-            impress_service_core::registry_runtime::refresh_health()),
-        Ok(false) => {},
+            impress_service_core::registry_runtime::refresh_health(),
+        ),
+        Ok(false) => {}
         Err(error) => {
             eprintln!("error: cannot restore runtime providers: {error}");
             std::process::exit(2);

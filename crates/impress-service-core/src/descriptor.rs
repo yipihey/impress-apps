@@ -568,6 +568,18 @@ impl std::fmt::Debug for VerbDescriptor {
     }
 }
 
+impl Safety {
+    pub fn mcp_annotations(&self) -> Value {
+        let class = self.class;
+        json!({
+            "readOnlyHint": class == SafetyClass::ReadOnly,
+            "destructiveHint": matches!(class, SafetyClass::Destructive | SafetyClass::External),
+            "idempotentHint": self.idempotent,
+            "openWorldHint": class == SafetyClass::External,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -893,17 +905,5 @@ mod tests {
             verb.mcp_annotations(),
             json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false})
         );
-    }
-}
-
-impl Safety {
-    pub fn mcp_annotations(&self) -> Value {
-        let class = self.class;
-        json!({
-            "readOnlyHint": class == SafetyClass::ReadOnly,
-            "destructiveHint": matches!(class, SafetyClass::Destructive | SafetyClass::External),
-            "idempotentHint": self.idempotent,
-            "openWorldHint": class == SafetyClass::External,
-        })
     }
 }

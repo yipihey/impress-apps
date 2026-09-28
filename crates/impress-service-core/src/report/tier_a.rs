@@ -186,7 +186,12 @@ async fn run_one(v: &VerbHandle, ex: ExampleView<'_>, caller: CallerIdentity) ->
 }
 
 fn check_result(name: &str, example: &str, expect: Option<&str>, result: Value) -> Outcome {
-    if result.get("ok").and_then(Value::as_bool) == Some(false) {
+    // A documented negative example can intentionally assert a refusal.
+    // An unexpected refusal must never pass merely because no expect was given.
+    let expected_refusal = expect
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .is_some_and(|expected| expected.get("ok").and_then(Value::as_bool) == Some(false));
+    if result.get("ok").and_then(Value::as_bool) == Some(false) && !expected_refusal {
         return Outcome::Failed(format!(
             "`{name}` example `{example}` refused: {}",
             result
@@ -378,6 +383,28 @@ mod tests {
         assert!(
             matches!(refused, Outcome::Failed(message) if message.contains("host-unavailable"))
         );
+        let refusal = serde_json::json!({"ok":false,"code":"forbidden","message":"person only"});
+        assert!(check_result(
+            "provider-service_set-trusted",
+            "non-person-refused",
+            Some(r#"{"ok":false,"code":"forbidden"}"#),
+            refusal.clone()
+        )
+        .is_pass());
+        assert!(!check_result(
+            "provider-service_set-trusted",
+            "wrong-refusal",
+            Some(r#"{"ok":false,"code":"invalid-argument"}"#),
+            refusal.clone()
+        )
+        .is_pass());
+        assert!(!check_result(
+            "provider-service_set-trusted",
+            "success-expected",
+            Some(r#"{"ok":true}"#),
+            refusal
+        )
+        .is_pass());
     }
 
     #[tokio::test]
