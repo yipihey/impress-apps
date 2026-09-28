@@ -20,10 +20,12 @@ use std::pin::Pin;
 
 pub mod call;
 pub mod descriptor;
+pub mod descriptor_handle;
 pub mod dispatch;
 pub mod job;
 pub mod lifecycle;
 pub mod pipeline;
+pub mod provider;
 pub mod refusal;
 pub mod report;
 pub mod runtime;
@@ -34,6 +36,12 @@ pub use descriptor::{
     method_meta, resolve_aliases, resolve_budget_ms, resolve_deprecated, resolve_effects,
     resolve_examples, resolve_idempotent, resolve_replay_full, resolve_safety_class, Deprecation,
     Effects, Example, Kind, MethodMeta, Reach, Safety, SafetyClass, Source, VerbDescriptor,
+};
+pub use descriptor_handle::{ExampleView, HandleSource, VerbHandle};
+pub use provider::{
+    ProviderConnection, ProviderExample, ProviderExampleInput, ProviderIdentityInput,
+    ProviderPersistence, ProviderStatus, ProviderVerb, ProviderVerbInput, RegistrationError,
+    RegistrationReceipt, RegistrationRequest, Registry, SafetyClaim, SchemaValidator,
 };
 pub use refusal::Refusal;
 
