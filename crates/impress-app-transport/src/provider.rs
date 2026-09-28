@@ -4,8 +4,9 @@
 //! host-issued token from the provider registry. They never consult the app
 //! port table or fall back to a local handler after a provider refusal.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, RwLock};
 use std::time::Duration;
 
 use impress_service_core::pipeline::context;
@@ -38,47 +39,81 @@ impl jsonschema::Retrieve for DenyExternalSchemas {
 
 impl SchemaValidator for JsonSchemaValidator {
     fn validate(&self, schema: &Value) -> Result<(), String> {
-        const MAX_BYTES: usize = 128 * 1024;
-        const MAX_DEPTH: usize = 64;
-        const MAX_NODES: usize = 8192;
-        let mut pending = vec![(schema, 0_usize)];
-        let mut nodes = 0_usize;
-        while let Some((value, depth)) = pending.pop() {
-            nodes += 1;
-            if depth > MAX_DEPTH || nodes > MAX_NODES {
-                return Err("JSON Schema exceeds the provider size or depth limit".into());
-            }
-            match value {
-                Value::Array(values) => {
-                    pending.extend(values.iter().map(|value| (value, depth + 1)))
-                }
-                Value::Object(fields) => {
-                    pending.extend(fields.values().map(|value| (value, depth + 1)))
-                }
-                _ => {}
-            }
-        }
-        if serde_json::to_vec(schema)
-            .map_err(|error| format!("encode JSON Schema: {error}"))?
-            .len()
-            > MAX_BYTES
-        {
-            return Err("JSON Schema exceeds the provider size or depth limit".into());
-        }
-        match jsonschema::meta::try_validate(schema) {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => return Err(format!("invalid JSON Schema: {error}")),
-            Err(error) => return Err(format!("unsupported JSON Schema draft: {error}")),
-        }
-        // Do not use validator_for: another workspace crate may enable the
-        // resolver's HTTP/file features through Cargo feature unification.
-        // This explicit retriever fails closed even in such a build.
+        compiled_schema(schema).map(|_| ())
+    }
+
+    fn validate_instance(&self, schema: &Value, value: &Value) -> Result<(), String> {
+        compiled_schema(schema)?.validate(value).map_err(|error| {
+            // `ValidationError`'s Display includes the rejected value. The
+            // refusal/audit path must not echo an argument's private bytes.
+            format!("arguments fail JSON Schema at {}", error.instance_path)
+        })
+    }
+}
+
+type CompiledSchema = Arc<jsonschema::Validator>;
+static SCHEMAS: LazyLock<RwLock<HashMap<String, CompiledSchema>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+fn compiled_schema(schema: &Value) -> Result<CompiledSchema, String> {
+    const MAX_CACHE_ENTRIES: usize = 128;
+    let key = bounded_schema_key(schema)?;
+    if let Some(compiled) = SCHEMAS
+        .read()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .get(&key)
+    {
+        return Ok(compiled.clone());
+    }
+    match jsonschema::meta::try_validate(schema) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(format!("invalid JSON Schema: {error}")),
+        Err(error) => return Err(format!("unsupported JSON Schema draft: {error}")),
+    }
+    // Do not use validator_for: another workspace crate may enable the
+    // resolver's HTTP/file features through Cargo feature unification.
+    // This explicit retriever fails closed even in such a build.
+    let compiled = Arc::new(
         jsonschema::options()
             .with_retriever(DenyExternalSchemas)
             .build(schema)
-            .map(|_| ())
-            .map_err(|error| format!("cannot compile JSON Schema: {error}"))
+            .map_err(|error| format!("cannot compile JSON Schema: {error}"))?,
+    );
+    let mut cache = SCHEMAS.write().unwrap_or_else(|poison| poison.into_inner());
+    if let Some(existing) = cache.get(&key) {
+        return Ok(existing.clone());
     }
+    if cache.len() < MAX_CACHE_ENTRIES {
+        cache.insert(key, compiled.clone());
+    }
+    Ok(compiled)
+}
+
+fn bounded_schema_key(schema: &Value) -> Result<String, String> {
+    const MAX_BYTES: usize = 128 * 1024;
+    const MAX_DEPTH: usize = 64;
+    const MAX_NODES: usize = 8192;
+    let mut pending = vec![(schema, 0_usize)];
+    let mut nodes = 0_usize;
+    while let Some((value, depth)) = pending.pop() {
+        nodes += 1;
+        if depth > MAX_DEPTH || nodes > MAX_NODES {
+            return Err("JSON Schema exceeds the provider size or depth limit".into());
+        }
+        match value {
+            Value::Array(values) => pending.extend(values.iter().map(|value| (value, depth + 1))),
+            Value::Object(fields) => {
+                pending.extend(fields.values().map(|value| (value, depth + 1)))
+            }
+            _ => {}
+        }
+    }
+    let key =
+        serde_json::to_string(schema).map_err(|error| format!("encode JSON Schema: {error}"))?;
+    if key.len() > MAX_BYTES {
+        return Err("JSON Schema exceeds the provider size or depth limit".into());
+    }
+    Ok(key)
 }
 
 struct HttpProviderInvoker;
@@ -297,6 +332,33 @@ mod tests {
             }))
             .is_err());
         assert!(validator.validate(&json!({"type": 42})).is_err());
+    }
+
+    #[test]
+    fn provider_arguments_use_full_schema_constraints_without_echoing_values() {
+        let validator = JsonSchemaValidator;
+        let schema = json!({
+            "type": "object",
+            "properties": {"text": {
+                "type": "string", "minLength": 3, "pattern": "^[a-z]+$"
+            }},
+            "required": ["text"],
+            "additionalProperties": false
+        });
+        validator.validate(&schema).unwrap();
+        validator
+            .validate_instance(&schema, &json!({"text":"hello"}))
+            .unwrap();
+        for args in [
+            json!({}),
+            json!({"text": 42}),
+            json!({"text": "ab"}),
+            json!({"text": "Private Secret"}),
+        ] {
+            let error = validator.validate_instance(&schema, &args).unwrap_err();
+            assert!(error.contains("JSON Schema"));
+            assert!(!error.contains("Private Secret"));
+        }
     }
 
     #[tokio::test]

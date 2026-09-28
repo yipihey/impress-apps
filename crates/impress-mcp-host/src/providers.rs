@@ -149,6 +149,17 @@ mod tests {
                 .then_some(())
                 .ok_or_else(|| "schema must be an object".into())
         }
+
+        fn validate_instance(&self, schema: &Value, value: &Value) -> Result<(), String> {
+            let args = value.as_object().ok_or("arguments must be an object")?;
+            for required in schema["required"].as_array().into_iter().flatten() {
+                let name = required.as_str().ok_or("invalid required field")?;
+                if !args.get(name).is_some_and(Value::is_string) {
+                    return Err(format!("missing or invalid argument {name}"));
+                }
+            }
+            Ok(())
+        }
     }
 
     struct TestInvoker;

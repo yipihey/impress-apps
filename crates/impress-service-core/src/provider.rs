@@ -126,6 +126,9 @@ pub struct PersistedVerb {
 /// validator, registration fails closed, including on a restored record.
 pub trait SchemaValidator: Send + Sync {
     fn validate(&self, schema: &Value) -> Result<(), String>;
+    /// Validate one provider argument object against the whole declared
+    /// schema, including required fields, types, and nested constraints.
+    fn validate_instance(&self, schema: &Value, value: &Value) -> Result<(), String>;
 }
 
 /// Store/credential adapter implemented below the service-core dependency
@@ -223,6 +226,23 @@ impl Registry {
     pub fn with_validator(mut self, validator: Arc<dyn SchemaValidator>) -> Self {
         self.validator = Some(validator);
         self
+    }
+
+    /// Validate a provider call before transport. The generated strict-args
+    /// check names unknown keys; the injected schema engine then enforces the
+    /// complete input contract. Never include an argument value in a refusal.
+    pub fn validate_args(
+        &self,
+        verb: &ProviderVerb,
+        args: &Value,
+    ) -> Result<(), crate::refusal::Refusal> {
+        crate::strict::check_args(&verb.name, args, &verb.input_schema)?;
+        let validator = self.validator.as_ref().ok_or_else(|| {
+            crate::refusal::Refusal::internal("provider schema validator unavailable")
+        })?;
+        validator
+            .validate_instance(&verb.input_schema, args)
+            .map_err(|error| crate::refusal::Refusal::invalid_argument(error).context(&verb.name))
     }
 
     /// Hydrated verbs start unavailable. A successful explicit health probe
@@ -822,6 +842,14 @@ fn validate_verb(
         crate::strict::check_args(&verb.name, &example.args, &verb.input_schema).map_err(|e| {
             RegistrationError::Invalid(format!("{} example {}: {e}", verb.name, example.name))
         })?;
+        validator
+            .validate_instance(&verb.input_schema, &example.args)
+            .map_err(|error| {
+                RegistrationError::Invalid(format!(
+                    "{} example {}: {error}",
+                    verb.name, example.name
+                ))
+            })?;
     }
     Ok(())
 }
@@ -943,6 +971,22 @@ mod tests {
                 Err("not an object".into())
             }
         }
+
+        fn validate_instance(&self, schema: &Value, value: &Value) -> Result<(), String> {
+            let args = value.as_object().ok_or("arguments must be an object")?;
+            for required in schema["required"].as_array().into_iter().flatten() {
+                let name = required.as_str().ok_or("invalid required field")?;
+                if !args.contains_key(name) {
+                    return Err(format!("missing required argument {name}"));
+                }
+            }
+            for (name, property) in schema["properties"].as_object().into_iter().flatten() {
+                if property["type"] == "string" && args.get(name).is_some_and(|v| !v.is_string()) {
+                    return Err(format!("argument {name} must be a string"));
+                }
+            }
+            Ok(())
+        }
     }
 
     fn request(id: &str) -> RegistrationRequest {
@@ -1041,8 +1085,36 @@ mod tests {
         let mut bad = request("fixture");
         bad.verbs[0].examples.clear();
         assert!(registry.register(bad).is_err());
+        let mut bad = request("fixture");
+        bad.verbs[0].examples[0].args = json!({});
+        assert!(registry.register(bad).is_err(), "required example argument");
+        let mut bad = request("fixture");
+        bad.verbs[0].examples[0].args = json!({"message": 42});
+        assert!(registry.register(bad).is_err(), "typed example argument");
         let submitted = json!({"provider":{"id":"fixture","language":"Python","version":"1.0","endpoint":"http://127.0.0.1:23190","trusted":true},"verbs":[]});
         assert!(serde_json::from_value::<RegistrationRequest>(submitted).is_err());
+    }
+
+    #[test]
+    fn provider_call_arguments_are_validated_before_transport() {
+        let registry = Registry::new().with_validator(Arc::new(AcceptSchema));
+        registry.register(request("fixture")).unwrap();
+        let VerbHandle::Provider(verb) = registry.find("fixture-service_echo").unwrap() else {
+            panic!("provider handle")
+        };
+        registry
+            .validate_args(&verb, &json!({"message": "hello"}))
+            .unwrap();
+        for args in [
+            json!({}),
+            json!({"message": 42}),
+            json!({"unknown": "hello"}),
+        ] {
+            let refusal = registry
+                .validate_args(&verb, &args)
+                .expect_err("invalid args");
+            assert_eq!(refusal.code, crate::refusal::codes::INVALID_ARGUMENT);
+        }
     }
 
     #[test]
