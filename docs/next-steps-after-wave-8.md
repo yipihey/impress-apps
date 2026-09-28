@@ -145,7 +145,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   Normal pre-push passed on macOS and iOS. Seven hosted checks pass; the impart
   macOS/iOS build is still running. Merge and the full native workspace batch
   on main are still required. See the pipeline plan's dated P8 entry for fixes/logs.
-- **R3 (implemented; normal push/PR next)**: `r3-imprint` / `claude/reflective-r3-imprint`
+- **R3 (ready [PR #130](https://github.com/yipihey/impress-apps/pull/130); hosted checks pending)**: `r3-imprint` / `claude/reflective-r3-imprint`
   has 13 portable preferences, five automation settings, and 60 menu/layout
   bindings through the registries. The reviewed P8 branch is integrated locally;
   merge P8 on main first. All required quick gates, 315 Rust tests, six keymap
@@ -154,9 +154,10 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   settings-pane/CLI/listener proof passed; evidence:
   `/private/tmp/impress-r3-proof-kkc8spwk/output/host-56007/proof.json`.
   The pre-push interlock stage now isolates its app bundles, ports, stores and
-  device IDs without dropping any suite. Normal push, hosted checks and merge
-  remain. See the reflective plan's dated R3 log for scope and reproduction.
-- **G3 remainder**: about 170 verbs still lack an `#[impress_example]`, and about 900 arguments lack `///` docs.
+  device IDs without dropping any suite. The normal push passed all three
+  isolated interlock suites and both imbib platform builds; ten Python hook/runner
+  fixtures passed. Hosted checks and merge remain. See the reflective plan's dated R3 log for scope and reproduction.
+- **G3 remainder (started on `g3-remainder` / `claude/gui-g3-remainder`)**: the current default inventory has 476 verbs; 355 lack an `#[impress_example]` (249 headless, 106 external), and 936 argument descriptions are missing. The earlier ~170 count covered a headless subset. Small service batches and explicit Tier B/shared scratch-fixture support are in progress; no G3 completion claim or PR yet.
 - **Scenario interpreter gaps** (S2b): a store-predicate step, a best-effort step, and an escape for surface `{{state…}}` templates. The remaining 16 Tier B entries are blocked on these.
 - **Swift gap from R1**: the generated Retention pane is macOS-only; iOS shows a placeholder.
 
