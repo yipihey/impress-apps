@@ -178,12 +178,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
         if path == "/api/rg/slice/png" {
             return await handleRgSlicePng(request)
         }
-        if path == "/api/rg/slice/raw" {
-            return await handleRgSliceRaw(request)
-        }
-        if path == "/api/rg/statistics" {
-            return await handleRgStatistics(request)
-        }
 
         // Plot endpoints
         if path == "/api/plot/svg" {
@@ -218,12 +212,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
 
         // RG viewer POST endpoints
-        if path == "/api/rg/control" {
-            return await handleRgControl(request)
-        }
-        if path == "/api/rg/batch" {
-            return await handleRgBatch(request)
-        }
 
         return .notFound("Unknown POST endpoint: \(path)")
     }
@@ -1122,8 +1110,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 "GET /api/figures/{id}": "Get figure configuration",
                 "GET /api/figures/{id}/export": "Export to <workspace>/exports/figures/<id>.<png|svg>; returns path, sha256, base64 data (params: format, width, height, scale)",
                 "GET /api/rg/slice/png": "Export current slice as PNG (?format=base64 for JSON)",
-                "GET /api/rg/slice/raw": "Raw f32 values (?quantity, ?axis, ?position, ?downsample)",
-                "GET /api/rg/statistics": "Slice or field statistics (?quantity, ?scope=slice|field)",
                 "GET /api/rg/cascade_plot": "Canonical mu-vs-level cascade statistics SVG",
                 "GET /api/plot/svg": "Render data series as SVG (?series=a,b&title=...)",
                 "GET /api/plot/histogram": "Render field histogram as SVG (?quantity, ?bins)",
@@ -1136,8 +1122,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 // POST endpoints
                 "POST /api/figures": "Create a figure and store its rendered PNG as data_hash (body: datasetId, type|plotType, xColumn|x?, yColumn|y?, title?, width?, height?, and data as series [{label?, x, y}] | spec (implore PlotSpec) | svg)",
                 "POST /api/figures/{id}/export": "Same as GET /api/figures/{id}/export, params in the body",
-                "POST /api/rg/control": "Change viewer params (body: {quantity?, axis?, position?, colormap?})",
-                "POST /api/rg/batch": "Capture multiple positions (body: {positions, quantity?, axis?, colormap?})",
                 // PATCH endpoints
                 "PATCH /api/figures/{id}": "Update a figure (same fields as POST); re-renders its artifact",
                 // DELETE endpoints
