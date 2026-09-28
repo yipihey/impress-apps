@@ -13,15 +13,53 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+#[cfg(feature = "ai")]
+#[path = "g3_ai_implore.rs"]
+mod g3_ai_implore;
+#[cfg(all(feature = "bridges", feature = "imprint", feature = "imbib"))]
+#[path = "g3_bridges.rs"]
+mod g3_bridges;
 #[path = "g3_documents.rs"]
 mod g3_documents;
+#[cfg(feature = "imbib")]
+#[path = "g3_imbib_artifacts.rs"]
+mod g3_imbib_artifacts;
+#[cfg(feature = "imbib")]
+#[path = "g3_imbib_library.rs"]
+mod g3_imbib_library;
+#[cfg(feature = "imbib")]
+#[path = "g3_imbib_maintenance.rs"]
+mod g3_imbib_maintenance;
+#[cfg(feature = "imbib")]
+#[path = "g3_imbib_search_devices.rs"]
+mod g3_imbib_search_devices;
+#[cfg(feature = "impel")]
+#[path = "g3_jobs.rs"]
+mod g3_jobs;
 #[path = "g3_layout.rs"]
 mod g3_layout;
+#[cfg(feature = "imprint")]
+#[path = "g3_manuscripts.rs"]
+mod g3_manuscripts;
 #[cfg(feature = "memory")]
 #[path = "g3_memory.rs"]
 mod g3_memory;
+#[cfg(feature = "imprint")]
+#[path = "g3_projects.rs"]
+mod g3_projects;
+#[cfg(feature = "scenario")]
+#[path = "g3_scenarios.rs"]
+mod g3_scenarios;
 #[path = "g3_store_registry.rs"]
 mod g3_store_registry;
+#[path = "g3_surfaces.rs"]
+mod g3_surfaces;
+#[cfg(feature = "vw")]
+#[path = "g3_vw.rs"]
+mod g3_vw;
+#[cfg(feature = "workflow")]
+#[path = "g3_workflows.rs"]
+mod g3_workflows;
 
 struct Scratch {
     root: PathBuf,
@@ -51,6 +89,7 @@ fn scratch() -> &'static Scratch {
         std::env::set_var("IMPRINT_WORKSPACE_ROOT", root.join("imprint"));
         std::env::set_var("IMPRESS_EMBEDDINGS_PATH", root.join("embeddings.sqlite"));
         std::env::set_var("IMPRESS_MEMORY_VECTORS", "0");
+        std::env::set_var("IMPRESS_FASTEMBED_CACHE", root.join("embedding-models"));
         let store = Arc::new(SqliteItemStore::open(&path).expect("open owned example store"));
         impress_store_service::install_store(store.clone()).expect("install example store");
         impress_store_service::set_settings_workspace(&root).expect("isolate settings files");
@@ -77,11 +116,57 @@ pub async fn prepare(
     store: &Arc<SqliteItemStore>,
 ) -> Result<Value, String> {
     g3_store_registry::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(all(feature = "bridges", feature = "imprint", feature = "imbib"))]
+    g3_bridges::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "imprint")]
+    g3_manuscripts::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "ai")]
+    g3_ai_implore::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "imprint")]
+    g3_projects::prepare(verb.name, example.name, store, root()).await?;
     g3_documents::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "scenario")]
+    g3_scenarios::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "vw")]
+    g3_vw::prepare(verb.name, example.name, store, root()).await?;
+    g3_surfaces::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "workflow")]
+    g3_workflows::prepare(verb.name, example.name, store, root()).await?;
     g3_layout::prepare(verb.name, example.name, store, root()).await?;
     #[cfg(feature = "memory")]
     g3_memory::prepare(verb.name, example.name, store, root()).await?;
-    let args = resolve_fixture_paths(example.args_value(), root())?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_artifacts::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_search_devices::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_library::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "impel")]
+    if verb.name.starts_with("impel-service_") {
+        g3_jobs::prepare(verb.name, example.name, store, root()).await?;
+    }
+    #[cfg(feature = "imbib")]
+    g3_imbib_maintenance::prepare(verb.name, example.name, store, root()).await?;
+    #[cfg(feature = "semantic-search")]
+    if verb.name.starts_with("imbib-semantic-service_") {
+        if example.name == "unavailable-owned-index" {
+            let disabled = root().join("unavailable-semantic-index");
+            std::fs::create_dir_all(&disabled).map_err(|e| e.to_string())?;
+            std::env::set_var("IMPRESS_EMBEDDINGS_PATH", &disabled);
+            if imbib_semantic_service::SemanticState::default_embeddings_path() != disabled
+                || imbib_semantic_service::SemanticState::default_main_store_path()
+                    != root().join("impress.sqlite")
+            {
+                return Err("semantic defaults ignored owned path overrides".into());
+            }
+        }
+    }
+    let args = example.args_value();
+    #[cfg(feature = "imbib")]
+    let args = g3_imbib_maintenance::resolve_args(verb.name, example.name, store, args)?;
+    #[cfg(feature = "vw")]
+    let args = g3_vw::resolve_args(verb.name, args)?;
+    let args = resolve_fixture_paths(args, root())?;
     // A documented negative example may deliberately omit a required field.
     // It must still go through the pipeline and match its asserted refusal.
     let expects_refusal = example
@@ -112,10 +197,37 @@ pub fn verify(
     {
         g3_store_registry::verify(verb.name, example.name, store, args, result)?;
     }
+    #[cfg(all(feature = "bridges", feature = "imprint", feature = "imbib"))]
+    g3_bridges::verify(verb.name, example.name, store, args, result, root())?;
+    #[cfg(feature = "imprint")]
+    g3_manuscripts::verify(verb.name, example.name, store, args, result, root())?;
+    #[cfg(feature = "ai")]
+    g3_ai_implore::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "imprint")]
+    g3_projects::verify(verb.name, example.name, store, args, result)?;
     g3_documents::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "scenario")]
+    g3_scenarios::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "vw")]
+    g3_vw::verify(verb.name, example.name, store, args, result)?;
+    g3_surfaces::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "workflow")]
+    g3_workflows::verify(verb.name, example.name, store, args, result)?;
     g3_layout::verify(verb.name, example.name, store, args, result)?;
     #[cfg(feature = "memory")]
     g3_memory::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_artifacts::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_search_devices::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_library::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "imbib")]
+    g3_imbib_maintenance::verify(verb.name, example.name, store, args, result)?;
+    #[cfg(feature = "impel")]
+    if verb.name.starts_with("impel-service_") {
+        g3_jobs::verify(verb.name, example.name, store, args, result)?;
+    }
     if verb.name == "imbib-library-service_import-bibtex-into-collection" {
         verify_bibtex_collection_example(result, store, args)?;
     }

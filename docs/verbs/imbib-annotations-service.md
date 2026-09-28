@@ -13,9 +13,20 @@ Count the PDF annotations on one linked file.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `linked_file_id` | string | yes | *(undocumented)* |
+| `linked_file_id` | string | yes | UUID of the linked PDF file to count annotations on. |
 
-_No examples yet._
+**Examples**
+
+- `count_scratch_highlight` — Tier A:
+
+  ```json
+  {"linked_file_id":"60000000-0000-4000-8000-000000000021"}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-annotations-service_create-annotation`
 
@@ -28,16 +39,27 @@ Add a PDF annotation to a paper. Supports highlights, underlines, strikethroughs
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `annotation_type` | string | yes | *(undocumented)* |
-| `author_name` | — | no | *(undocumented)* |
-| `bounds_json` | — | no | *(undocumented)* |
-| `color` | — | no | *(undocumented)* |
-| `contents` | — | no | *(undocumented)* |
-| `linked_file_id` | string | yes | *(undocumented)* |
-| `page_number` | integer | yes | *(undocumented)* |
-| `selected_text` | — | no | *(undocumented)* |
+| `annotation_type` | string | yes | Annotation kind, such as `highlight` or `note`. |
+| `author_name` | — | no | Human-readable annotation author, if known. |
+| `bounds_json` | — | no | Optional serialized PDF rectangle geometry. |
+| `color` | — | no | Optional annotation color name. |
+| `contents` | — | no | Private note text attached to the annotation. |
+| `linked_file_id` | string | yes | UUID of the linked PDF file receiving the annotation. |
+| `page_number` | integer | yes | Zero-based PDF page containing the annotation. |
+| `selected_text` | — | no | Text selected by a highlight, if present. |
 
-_No examples yet._
+**Examples**
+
+- `annotate_scratch_pdf` — Tier A:
+
+  ```json
+  {"linked_file_id":"60000000-0000-4000-8000-000000000023","annotation_type":"highlight","page_number":3,"color":"yellow","selected_text":"A measured effect","author_name":"G3 researcher"}
+  ```
+  expects:
+
+  ```json
+  {"annotation_type":"highlight","page_number":3,"selected_text":"A measured effect","linked_file_id":"60000000-0000-4000-8000-000000000023"}
+  ```
 
 ## `imbib-annotations-service_create-comment`
 
@@ -50,13 +72,24 @@ Add a comment to a paper. Can be a top-level comment or a reply to an existing c
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author_display_name` | — | no | *(undocumented)* |
-| `author_identifier` | — | no | *(undocumented)* |
-| `parent_comment_id` | — | no | *(undocumented)* |
-| `publication_id` | string | yes | *(undocumented)* |
-| `text` | string | yes | *(undocumented)* |
+| `author_display_name` | — | no | Display name for the author, if known. |
+| `author_identifier` | — | no | Stable author or agent identifier, if known. |
+| `parent_comment_id` | — | no | UUID of the parent comment for a reply, or null for top-level. |
+| `publication_id` | string | yes | UUID of the bibliography entry receiving the comment. |
+| `text` | string | yes | Private body of the new comment. |
 
-_No examples yet._
+**Examples**
+
+- `comment_on_scratch_paper` — Tier A:
+
+  ```json
+  {"publication_id":"60000000-0000-4000-8000-000000000024","text":"A useful comparison.","author_identifier":"g3-researcher"}
+  ```
+  expects:
+
+  ```json
+  {"text":"A useful comparison.","parent_item_id":"60000000-0000-4000-8000-000000000024"}
+  ```
 
 ## `imbib-annotations-service_create-comment-on-item`
 
@@ -69,13 +102,24 @@ Add a comment to any item by UUID (publication, artifact, or other item type).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author_display_name` | — | no | *(undocumented)* |
-| `author_identifier` | — | no | *(undocumented)* |
-| `item_id` | string | yes | *(undocumented)* |
-| `parent_comment_id` | — | no | *(undocumented)* |
-| `text` | string | yes | *(undocumented)* |
+| `author_display_name` | — | no | Display name for the author, if known. |
+| `author_identifier` | — | no | Stable author or agent identifier, if known. |
+| `item_id` | string | yes | UUID of any stored item receiving the comment. |
+| `parent_comment_id` | — | no | UUID of the parent comment for a reply, or null for top-level. |
+| `text` | string | yes | Private body of the new comment. |
 
-_No examples yet._
+**Examples**
+
+- `comment_on_scratch_artifact` — Tier A:
+
+  ```json
+  {"item_id":"60000000-0000-4000-8000-000000000042","text":"Preserve the dataset provenance.","author_display_name":"G3 researcher"}
+  ```
+  expects:
+
+  ```json
+  {"text":"Preserve the dataset provenance.","parent_item_id":"60000000-0000-4000-8000-000000000042"}
+  ```
 
 ## `imbib-annotations-service_list-annotations`
 
@@ -88,40 +132,73 @@ List PDF annotations on a paper. Includes highlights, underlines, notes, and tex
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `linked_file_id` | string | yes | *(undocumented)* |
-| `page_number` | — | no | *(undocumented)* |
+| `linked_file_id` | string | yes | UUID of the linked PDF file whose annotations are requested. |
+| `page_number` | — | no | Zero-based page to filter to, or null for all pages. |
 
-_No examples yet._
+**Examples**
+
+- `highlight_on_scratch_pdf` — Tier A:
+
+  ```json
+  {"linked_file_id":"60000000-0000-4000-8000-000000000021","page_number":2}
+  ```
+  expects:
+
+  ```json
+  [{"id":"60000000-0000-4000-8000-000000000022","annotation_type":"highlight","page_number":2}]
+  ```
 
 ## `imbib-annotations-service_list-comments`
 
 List all comments on a paper. Comments support threaded replies for discussions.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/comment"
+- **reads**: "imbib/comment", "imbib/bibliography-entry"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_id` | string | yes | *(undocumented)* |
+| `publication_id` | string | yes | UUID of the bibliography entry whose comments are requested. |
 
-_No examples yet._
+**Examples**
+
+- `comments_on_scratch_paper` — Tier A:
+
+  ```json
+  {"publication_id":"60000000-0000-4000-8000-000000000020"}
+  ```
+  expects:
+
+  ```json
+  [{"id":"60000000-0000-4000-8000-000000000030","text":"Compare the spectra."}]
+  ```
 
 ## `imbib-annotations-service_list-comments-for-item`
 
 List comments on any item by UUID (publication, artifact, or other item type).
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/comment"
+- **reads**: "imbib/comment", target(item_id)
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `item_id` | string | yes | *(undocumented)* |
+| `item_id` | string | yes | UUID of any stored item whose comments are requested. |
 
-_No examples yet._
+**Examples**
+
+- `comments_on_scratch_artifact` — Tier A:
+
+  ```json
+  {"item_id":"60000000-0000-4000-8000-000000000040"}
+  ```
+  expects:
+
+  ```json
+  [{"id":"60000000-0000-4000-8000-000000000031","text":"Check the method.","parent_item_id":"60000000-0000-4000-8000-000000000040"}]
+  ```
 
 ## `imbib-annotations-service_list-comments-since`
 
@@ -134,10 +211,21 @@ List the comments on an item written after a store clock value, for following a 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `item_id` | string | yes | *(undocumented)* |
-| `since_clock` | integer | yes | *(undocumented)* |
+| `item_id` | string | yes | UUID of the item whose later comments are requested. |
+| `since_clock` | integer | yes | Exclusive logical-clock cursor; zero starts at the beginning. |
 
-_No examples yet._
+**Examples**
+
+- `incremental_scratch_comments` — Tier A:
+
+  ```json
+  {"item_id":"60000000-0000-4000-8000-000000000041","since_clock":1}
+  ```
+  expects:
+
+  ```json
+  [{"id":"60000000-0000-4000-8000-000000000032","text":"The later observation."}]
+  ```
 
 ## `imbib-annotations-service_update-comment`
 
@@ -150,8 +238,19 @@ Edit the text of an existing comment.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
-| `text` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the comment whose body should be replaced. |
+| `text` | string | yes | New private comment body. |
 
-_No examples yet._
+**Examples**
+
+- `revise_scratch_comment` — Tier A:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000033","text":"The revised interpretation."}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 

@@ -862,7 +862,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> BibtexImportOutcome;
     /// Export BibTeX entries for one or more papers. Useful for creating
     /// bibliography files or inserting citations.
-    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
+    #[impress_method(effects(reads = ["imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
     #[impress_example(name = "export-cite-key", args = r#"{"ids":["G3Export2026"]}"#)]
     async fn export_bibtex(&self, ids: Vec<String>) -> String;
     /// Export every paper in a library as one BibTeX string.

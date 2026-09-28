@@ -18,7 +18,7 @@ Add a tag to an item. Tag paths are hierarchical and slash-separated ("reading/q
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}
@@ -45,7 +45,7 @@ Remove a tag from an item. A tag the item does not carry is a no-op.
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}
@@ -72,7 +72,7 @@ Set an item's flag colour ("red", "orange", "blue", … — free-form), or clear
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "color": "red"}
@@ -99,7 +99,7 @@ Star or unstar an item.
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "starred": true}
@@ -130,7 +130,7 @@ This only works for kinds that use status-change semantics. **Publications do NO
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "status": "archived"}

@@ -13,7 +13,18 @@ Store-hygiene health from the AI daemon: db/WAL/freelist sizes, the maintenance 
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated-daemon-health` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"daemon_reachable":true}
+  ```
 
 ## `impress-ai-service_ai-preferences`
 
@@ -26,7 +37,13 @@ The device-local AI preferences: selected provider/model, endpoint overrides, oM
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `scratch-device-preferences` — Tier A:
+
+  ```json
+  {}
+  ```
 
 ## `impress-ai-service_create-conversation`
 
@@ -39,32 +56,49 @@ Create a durable conversation. Enabled tools are stable capability ids such as `
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `enabled_tools` | array | yes | *(undocumented)* |
-| `max_tokens` | integer | yes | *(undocumented)* |
-| `model` | string | yes | *(undocumented)* |
-| `provider` | — | no | *(undocumented)* |
-| `system_prompt` | — | no | *(undocumented)* |
-| `temperature` | number | yes | *(undocumented)* |
-| `thinking` | boolean | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
-| `web_access` | boolean | yes | *(undocumented)* |
+| `enabled_tools` | array | yes | Stable capability IDs the assistant may call. |
+| `max_tokens` | integer | yes | Maximum response tokens. |
+| `model` | string | yes | Model ID to use for assistant responses. |
+| `provider` | — | no | Provider ID, or null to resolve from device preferences. |
+| `system_prompt` | — | no | Optional system instruction to start the conversation. |
+| `temperature` | number | yes | Sampling temperature for future model responses. |
+| `thinking` | boolean | yes | Whether model thinking is requested. |
+| `title` | string | yes | Display title for the new conversation. |
+| `web_access` | boolean | yes | Whether the `web` tool is enabled. |
 
-_No examples yet._
+**Examples**
+
+- `start-research-conversation` — Tier A:
+
+  ```json
+  {"title":"G3 literature review","model":"llama3.2","provider":"ollama","system_prompt":null,"temperature":0.3,"max_tokens":512,"thinking":false,"web_access":false,"enabled_tools":["impress-mcp"]}
+  ```
+  expects:
+
+  ```json
+  {"success":true}
+  ```
 
 ## `impress-ai-service_get-conversation`
 
 Read a conversation with its ordered messages and pending durable response tasks.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "conversation@1.0.0", "chat-message"
+- **reads**: "conversation@1.0.0", "chat-message", "task@1.0.0"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the durable conversation to read. |
 
-_No examples yet._
+**Examples**
+
+- `scratch-conversation-detail` — Tier A:
+
+  ```json
+  {"conversation_id":"65000000-0000-4000-8000-000000000002"}
+  ```
 
 ## `impress-ai-service_list-conversations`
 
@@ -77,9 +111,15 @@ List durable AI conversations from the shared Impress item graph.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `include_archived` | boolean | yes | *(undocumented)* |
+| `include_archived` | boolean | yes | Whether archived conversations are included. |
 
-_No examples yet._
+**Examples**
+
+- `scratch-conversation-list` — Tier A:
+
+  ```json
+  {"include_archived":false}
+  ```
 
 ## `impress-ai-service_list-models`
 
@@ -92,9 +132,15 @@ List models for `provider` (or the device's resolved default provider when omitt
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `provider` | — | no | *(undocumented)* |
+| `provider` | — | no | Provider ID to discover, or null for the device default. |
 
-_No examples yet._
+**Examples**
+
+- `catalogue-after-provider-discovery` — Tier B (isolated host):
+
+  ```json
+  {"provider":"ollama"}
+  ```
 
 ## `impress-ai-service_list-providers`
 
@@ -107,7 +153,13 @@ Every catalogued AI provider with this device's endpoint, readiness and credenti
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `device-provider-readiness` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `impress-ai-service_mint-pairing-link`
 
@@ -120,7 +172,13 @@ Mint a single-use browser pairing link for the AI daemon (15-minute expiry). Req
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated-daemon-pairing` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `impress-ai-service_provider-health`
 
@@ -133,41 +191,64 @@ Passive reachability probe for `provider` (or the resolved default): never launc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `provider` | — | no | *(undocumented)* |
+| `provider` | — | no | Provider ID to probe, or null for the device default. |
 
-_No examples yet._
+**Examples**
+
+- `local-provider-probe` — Tier B (isolated host):
+
+  ```json
+  {"provider":"ollama"}
+  ```
 
 ## `impress-ai-service_queue-message`
 
 Atomically append a user message and queue its offline-capable response task. Attachment ids must already identify content-blob items.
 
 - **safety**: `mutating`
-- **reads**: "conversation@1.0.0"
-- **writes**: "chat-message", "task@1.0.0"
+- **reads**: "conversation@1.0.0", "chat-message"
+- **writes**: "conversation@1.0.0", "chat-message", "task@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `attachment_ids` | array | yes | *(undocumented)* |
-| `body` | string | yes | *(undocumented)* |
-| `conversation_id` | string | yes | *(undocumented)* |
+| `attachment_ids` | array | yes | Existing content-blob UUIDs to attach, or an empty list. |
+| `body` | string | yes | User message text; private content is redacted from public tool logs. |
+| `conversation_id` | string | yes | UUID of the conversation that receives the user turn. |
 
-_No examples yet._
+**Examples**
+
+- `queue-scratch-question` — Tier A:
+
+  ```json
+  {"conversation_id":"68000000-0000-4000-8000-000000000001","body":"Summarize the methods in this project.","attachment_ids":[]}
+  ```
+  expects:
+
+  ```json
+  {"success":true}
+  ```
 
 ## `impress-ai-service_run-provenance`
 
 Return complete lineage for a specific agent-run item.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "agent-run@1.0.0", "tool-invocation@1.0.0"
+- **reads**: "agent-run@1.0.0", "task@1.0.0", "tool-invocation@1.0.0", any("run lineage loads produced outputs of any record kind")
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `run_id` | string | yes | *(undocumented)* |
+| `run_id` | string | yes | UUID of the specific agent run to trace. |
 
-_No examples yet._
+**Examples**
+
+- `scratch-run-lineage` — Tier A:
+
+  ```json
+  {"run_id":"68000000-0000-4000-8000-000000000006"}
+  ```
 
 ## `impress-ai-service_select-model`
 
@@ -180,10 +261,16 @@ Pin the device's provider and (optionally) model. Every app and daemon on the de
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `model` | — | no | *(undocumented)* |
-| `provider` | string | yes | *(undocumented)* |
+| `model` | — | no | Chat model ID to pin, or null to use its provider default. |
+| `provider` | string | yes | Catalogue provider ID to select for this device. |
 
-_No examples yet._
+**Examples**
+
+- `select-local-model` — Tier A:
+
+  ```json
+  {"provider":"ollama","model":"llama3.2"}
+  ```
 
 ## `impress-ai-service_set-enabled-tools`
 
@@ -196,10 +283,21 @@ Replace the conversation's enabled tool-capability policy.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
-| `enabled_tools` | array | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the conversation whose tool policy changes. |
+| `enabled_tools` | array | yes | Stable capability IDs enabled for subsequent turns. |
 
-_No examples yet._
+**Examples**
+
+- `allow-research-tools` — Tier A:
+
+  ```json
+  {"conversation_id":"68000000-0000-4000-8000-000000000002","enabled_tools":["impress-mcp","web"]}
+  ```
+  expects:
+
+  ```json
+  {"success":true}
+  ```
 
 ## `impress-ai-service_set-provider-endpoint`
 
@@ -212,38 +310,61 @@ Override (or, with `None`, reset) a provider's endpoint — e.g. an oMLX host re
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `endpoint` | — | no | *(undocumented)* |
-| `provider` | string | yes | *(undocumented)* |
+| `endpoint` | — | no | HTTP(S) endpoint URL, or null to reset to the catalogue default. |
+| `provider` | string | yes | Editable provider ID whose endpoint changes. |
 
-_No examples yet._
+**Examples**
+
+- `set-scratch-endpoint` — Tier A:
+
+  ```json
+  {"provider":"ollama","endpoint":"http://127.0.0.1:11435"}
+  ```
 
 ## `impress-ai-service_task-provenance`
 
 Return the latest model run lineage for a response task: canonical inputs, tool invocations, and attributed outputs.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0"
+- **reads**: "task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0", any("run lineage loads produced outputs of any record kind")
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `task_id` | string | yes | *(undocumented)* |
+| `task_id` | string | yes | UUID of the response task whose latest model run is traced. |
 
-_No examples yet._
+**Examples**
+
+- `scratch-task-lineage` — Tier A:
+
+  ```json
+  {"task_id":"68000000-0000-4000-8000-000000000004"}
+  ```
 
 ## `impress-ai-service_task-status`
 
 Read durable scheduler/run progress for a queued response task.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "task@1.0.0"
+- **reads**: "task@1.0.0", "agent-run@1.0.0", "chat-message"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `task_id` | string | yes | *(undocumented)* |
+| `task_id` | string | yes | UUID of the durable response task to inspect. |
 
-_No examples yet._
+**Examples**
+
+- `pending-scratch-task` — Tier A:
+
+  ```json
+  {"task_id":"68000000-0000-4000-8000-000000000003"}
+  ```
+  expects:
+
+  ```json
+  {"task":{"state":"pending"}}
+  ```
 

@@ -13,15 +13,26 @@ Record a file already on disk as linked to a paper; nothing is copied or fetched
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file_size` | integer | yes | *(undocumented)* |
-| `file_type` | — | no | *(undocumented)* |
-| `filename` | string | yes | *(undocumented)* |
-| `is_pdf` | boolean | yes | *(undocumented)* |
-| `publication_id` | string | yes | *(undocumented)* |
-| `relative_path` | — | no | *(undocumented)* |
-| `sha256` | — | no | *(undocumented)* |
+| `file_size` | integer | yes | File size in bytes. |
+| `file_type` | — | no | Optional MIME type or file extension description. |
+| `filename` | string | yes | File name shown in the paper's attachments. |
+| `is_pdf` | boolean | yes | Whether this linked file is a PDF. |
+| `publication_id` | string | yes | UUID of the publication receiving the file link. |
+| `relative_path` | — | no | Optional path relative to the library's file root. |
+| `sha256` | — | no | Optional SHA-256 content hash. |
 
-_No examples yet._
+**Examples**
+
+- `link-local-pdf` — Tier A:
+
+  ```json
+  {"publication_id":"5c000000-0000-4000-8000-000000000041","filename":"paper.pdf","relative_path":"library/paper.pdf","file_type":"application/pdf","file_size":15,"sha256":null,"is_pdf":true}
+  ```
+  expects:
+
+  ```json
+  {"filename":"paper.pdf","relative_path":"library/paper.pdf","file_size":15,"is_pdf":true}
+  ```
 
 ## `imbib-library-service_add-to-collection`
 
@@ -34,10 +45,21 @@ Add papers to an existing collection.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection_id` | string | yes | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `collection_id` | string | yes | UUID of the collection receiving the papers. |
+| `publication_ids` | array | yes | UUIDs of existing publications to file. |
 
-_No examples yet._
+**Examples**
+
+- `file-paper` — Tier A:
+
+  ```json
+  {"publication_ids":["5c000000-0000-4000-8000-000000000012"],"collection_id":"5c000000-0000-4000-8000-000000000011"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_count-flagged`
 
@@ -50,14 +72,25 @@ Count flagged papers, optionally only those carrying one flag color.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `color` | — | no | *(undocumented)* |
+| `color` | — | no | Flag color to count, or null for every flagged paper. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `count-blue-flags` — Tier A:
+
+  ```json
+  {"color":"g3-blue"}
+  ```
+  expects:
+
+  ```json
+  1
   ```
 
 ## `imbib-library-service_count-pdfs`
@@ -71,9 +104,20 @@ Count the PDFs linked to a paper.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_id` | string | yes | *(undocumented)* |
+| `publication_id` | string | yes | UUID of the publication whose linked PDFs are counted. |
 
-_No examples yet._
+**Examples**
+
+- `one-pdf` — Tier A:
+
+  ```json
+  {"publication_id":"5c000000-0000-4000-8000-000000000040"}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-library-service_count-publications`
 
@@ -88,7 +132,13 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+- `count-scratch-paper` — Tier A:
 
   ```json
   {}
@@ -105,14 +155,25 @@ Count starred papers, optionally within one library or collection.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parent_id` | — | no | *(undocumented)* |
+| `parent_id` | — | no | Library or collection UUID to scope the count, or null for all papers. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `count-starred-in-library` — Tier A:
+
+  ```json
+  {"parent_id":"5c000000-0000-4000-8000-000000000051"}
+  ```
+  expects:
+
+  ```json
+  1
   ```
 
 ## `imbib-library-service_count-unread`
@@ -126,14 +187,25 @@ Count unread papers, optionally within one library or collection.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parent_id` | — | no | *(undocumented)* |
+| `parent_id` | — | no | Library or collection UUID to scope the count, or null for all papers. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `count-unread-in-library` — Tier A:
+
+  ```json
+  {"parent_id":"5c000000-0000-4000-8000-000000000050"}
+  ```
+  expects:
+
+  ```json
+  1
   ```
 
 ## `imbib-library-service_create-collection`
@@ -147,12 +219,23 @@ Create a new collection to organize papers. Collections can be regular (manual) 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `is_smart` | boolean | yes | *(undocumented)* |
-| `library_id` | string | yes | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `query` | — | no | *(undocumented)* |
+| `is_smart` | boolean | yes | Whether the collection is populated by a saved query. |
+| `library_id` | string | yes | UUID of the owning library. |
+| `name` | string | yes | Visible collection name. |
+| `query` | — | no | Smart collection predicate, or null for a manual collection. |
 
-_No examples yet._
+**Examples**
+
+- `manual-collection` — Tier A:
+
+  ```json
+  {"name":"G3 methods","library_id":"5c000000-0000-4000-8000-000000000010","is_smart":false,"query":null}
+  ```
+  expects:
+
+  ```json
+  {"name":"G3 methods","is_smart":false}
+  ```
 
 ## `imbib-library-service_create-library`
 
@@ -165,14 +248,19 @@ Create a new library in imbib. Libraries are top-level containers for papers, se
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | *(undocumented)* |
+| `name` | string | yes | Visible name of the new top-level library. |
 
 **Examples**
 
-- `default`:
+- `new-project-library` — Tier A:
 
   ```json
-  {"name": "Effects example"}
+  {"name":"G3 reading project"}
+  ```
+  expects:
+
+  ```json
+  {"name":"G3 reading project","is_default":false}
   ```
 
 ## `imbib-library-service_create-muted-item`
@@ -186,10 +274,21 @@ Add a mute rule: `mute_type` names what is matched (for example `author`), `valu
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `mute_type` | string | yes | *(undocumented)* |
-| `value` | string | yes | *(undocumented)* |
+| `mute_type` | string | yes | Rule category, such as `author` or `keyword`. |
+| `value` | string | yes | Text to match within that category. |
 
-_No examples yet._
+**Examples**
+
+- `mute-keyword` — Tier A:
+
+  ```json
+  {"mute_type":"keyword","value":"G3 irrelevant topic"}
+  ```
+  expects:
+
+  ```json
+  {"mute_type":"keyword","value":"G3 irrelevant topic"}
+  ```
 
 ## `imbib-library-service_deduplicate-library`
 
@@ -202,9 +301,20 @@ Merge duplicate papers within a library and hard-delete the duplicate rows (not 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `library_id` | string | yes | *(undocumented)* |
+| `library_id` | string | yes | UUID of the library whose duplicate papers should be merged. |
 
-_No examples yet._
+**Examples**
+
+- `merge-same-doi` — Tier A:
+
+  ```json
+  {"library_id":"5c000000-0000-4000-8000-000000000025"}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-library-service_delete-library-undoable`
 
@@ -217,24 +327,46 @@ Delete a library with its collections and memberships. The store hands back an u
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the library to delete with its collections. |
 
-_No examples yet._
+**Examples**
+
+- `remove-empty-library` — Tier A:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-00000000000a"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_delete-publications-undoable`
 
 Delete papers from the imbib library. DESTRUCTIVE AND NOT UNDOABLE: this route removes the rows outright and writes nothing to the operation log, so `imbib-undo-service_undo-batch` cannot bring them back (verified live 2026-07-25). The only safety net is an `imbib-backup-service_create-backup` taken beforehand — do that whenever the instruction is spoken, bulk, or at all ambiguous about which papers are meant, and confirm the list with the user first. To take papers out of the user's way without destroying them, prefer `imbib-library-service_remove-from-collection`, or move them to the Dismissed library (imbib's trash) with imbib_add_to_library.
 
 - **safety**: `destructive`
-- **reads**: "imbib/bibliography-entry"
+- **reads**: "imbib/bibliography-entry", any("undo snapshots query all children of each publication, regardless of kind")
 - **writes**: "imbib/bibliography-entry"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ids` | array | yes | *(undocumented)* |
+| `ids` | array | yes | UUIDs of the publications to permanently remove. |
 
-_No examples yet._
+**Examples**
+
+- `delete-scratch-paper` — Tier A:
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-000000000022"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_dismiss-paper`
 
@@ -247,12 +379,23 @@ Record a paper as dismissed by any of its identifiers so imports and feeds skip 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `arxiv_id` | — | no | *(undocumented)* |
-| `bibcode` | — | no | *(undocumented)* |
-| `cite_key` | — | no | *(undocumented)* |
-| `doi` | — | no | *(undocumented)* |
+| `arxiv_id` | — | no | arXiv identifier to suppress, if known. |
+| `bibcode` | — | no | ADS bibcode to suppress, if known. |
+| `cite_key` | — | no | Citation key to suppress, if known. |
+| `doi` | — | no | DOI to suppress on future imports, if known. |
 
-_No examples yet._
+**Examples**
+
+- `dismiss-known-doi` — Tier A:
+
+  ```json
+  {"doi":"10.5555/g3-dismiss","arxiv_id":null,"bibcode":null,"cite_key":null}
+  ```
+  expects:
+
+  ```json
+  {"doi":"10.5555/g3-dismiss"}
+  ```
 
 ## `imbib-library-service_duplicate-publications`
 
@@ -265,10 +408,16 @@ Copy papers into another library; returns the ids of the new copies.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ids` | array | yes | *(undocumented)* |
-| `to_library_id` | string | yes | *(undocumented)* |
+| `ids` | array | yes | UUIDs of publications to copy. |
+| `to_library_id` | string | yes | UUID of the library that receives the copies. |
 
-_No examples yet._
+**Examples**
+
+- `copy-paper-to-project` — Tier B (isolated host):
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-000000000023"],"to_library_id":"5c000000-0000-4000-8000-000000000024"}
+  ```
 
 ## `imbib-library-service_export-all-bibtex`
 
@@ -281,31 +430,43 @@ Export every paper in a library as one BibTeX string.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `library_id` | string | yes | *(undocumented)* |
+| `library_id` | string | yes | UUID of the library whose papers should be exported. |
 
-_No examples yet._
+**Examples**
+
+- `export-project-library` — Tier A:
+
+  ```json
+  {"library_id":"5c000000-0000-4000-8000-000000000031"}
+  ```
 
 ## `imbib-library-service_export-bibtex`
 
 Export BibTeX entries for one or more papers. Useful for creating bibliography files or inserting citations.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/bibliography-entry", "imbib/linked-file"
+- **reads**: "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ids` | array | yes | *(undocumented)* |
+| `ids` | array | yes | Publication UUIDs or cite keys to export, in requested order. |
 
-_No examples yet._
+**Examples**
+
+- `export-cite-key` — Tier A:
+
+  ```json
+  {"ids":["G3Export2026"]}
+  ```
 
 ## `imbib-library-service_get-default-library`
 
 Get the library new papers are filed into by default, if one is set.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/library"
+- **reads**: "imbib/library", "imbib/bibliography-entry"
 - **writes**: —
 - **reach**: —
 
@@ -313,10 +474,21 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `project-default` — Tier A:
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-00000000000b","name":"G3 default library","is_default":true}
   ```
 
 ## `imbib-library-service_get-inbox-library`
@@ -324,7 +496,7 @@ Takes no arguments.
 Get the Inbox library, where incoming papers land before filing.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/library"
+- **reads**: "imbib/library", "imbib/bibliography-entry"
 - **writes**: —
 - **reach**: —
 
@@ -332,10 +504,21 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `inbox-library` — Tier A:
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-00000000000c","name":"G3 Inbox","is_inbox":true}
   ```
 
 ## `imbib-library-service_get-publication`
@@ -349,24 +532,46 @@ Get one paper's summary by id; null when there is no such paper.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the publication to summarize. |
 
-_No examples yet._
+**Examples**
+
+- `paper-summary` — Tier A:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-000000000020"}
+  ```
+  expects:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-000000000020","title":"G3 stellar spectra","cite_key":"G3Spectra2026"}
+  ```
 
 ## `imbib-library-service_get-publication-detail`
 
-Get detailed information about a specific paper by its cite key. Returns full metadata and BibTeX entry.
+Get detailed metadata, collection membership, and linked files for a paper by its UUID.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"
+- **reads**: "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the publication whose full metadata is needed. |
 
-_No examples yet._
+**Examples**
+
+- `paper-metadata` — Tier A:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-000000000021"}
+  ```
+  expects:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-000000000021","cite_key":"G3Detail2026","entry_type":"article"}
+  ```
 
 ## `imbib-library-service_import-bibtex`
 
@@ -379,10 +584,16 @@ Parse BibTeX and add each entry to a library as a paper; returns the ids of the 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bibtex` | string | yes | *(undocumented)* |
-| `library_id` | string | yes | *(undocumented)* |
+| `bibtex` | string | yes | BibTeX source containing one or more entries. |
+| `library_id` | string | yes | UUID of the target library. |
 
-_No examples yet._
+**Examples**
+
+- `import-one-entry` — Tier A:
+
+  ```json
+  {"bibtex":"@article{G3Imported2026, title={G3 imported result}, author={Doe, Jane}, year={2026}}","library_id":"5c000000-0000-4000-8000-000000000030"}
+  ```
 
 ## `imbib-library-service_import-bibtex-into-collection`
 
@@ -395,13 +606,13 @@ Import BibTeX and file every resulting paper into a collection. Papers that alre
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bibtex` | string | yes | *(undocumented)* |
-| `collection_id` | string | yes | *(undocumented)* |
-| `library_id` | string | yes | *(undocumented)* |
+| `bibtex` | string | yes | BibTeX source containing one or more entries. |
+| `collection_id` | string | yes | UUID of the collection receiving the imported papers. |
+| `library_id` | string | yes | UUID of the target library. |
 
 **Examples**
 
-- `scratch-paper-into-collection`:
+- `scratch-paper-into-collection` — Tier A:
 
   ```json
   {"bibtex":"@article{P5bEffects2026, title={P5b Effects Paper}, author={Doe, Jane}, year={2026}}","library_id":"56000000-0000-4000-8000-000000000041","collection_id":"56000000-0000-4000-8000-000000000042"}
@@ -409,7 +620,7 @@ Import BibTeX and file every resulting paper into a collection. Papers that alre
 
 ## `imbib-library-service_import-papers`
 
-Add papers to the imbib library by identifier. Supports DOI, arXiv ID, bibcode, or other identifiers. Automatically fetches metadata from external sources. If papers already exist, they are still added to the target library/collection.
+Import already-fetched paper records into a library from their BibTeX and DOI, arXiv ID, or bibcode identifiers. This method parses the supplied BibTeX locally; the caller fetches metadata beforehand.
 
 - **safety**: `mutating`
 - **reads**: "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper"
@@ -418,10 +629,16 @@ Add papers to the imbib library by identifier. Supports DOI, arXiv ID, bibcode, 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `library_id` | string | yes | *(undocumented)* |
-| `papers` | array | yes | *(undocumented)* |
+| `library_id` | string | yes | UUID of the library receiving new papers. |
+| `papers` | array | yes | Already-fetched papers, each with BibTeX and any known identifiers. |
 
-_No examples yet._
+**Examples**
+
+- `import-fetched-record` — Tier A:
+
+  ```json
+  {"papers":[{"bibtex":"@article{G3SearchRecord2026, title={G3 search record}, author={Doe, Jane}, year={2026}}","doi":"10.5555/g3-search-record","arxiv_id":null,"bibcode":null}],"library_id":"5c000000-0000-4000-8000-000000000085"}
+  ```
 
 ## `imbib-library-service_is-paper-dismissed`
 
@@ -434,17 +651,28 @@ Whether a paper with any of the given identifiers has been dismissed.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `arxiv_id` | — | no | *(undocumented)* |
-| `bibcode` | — | no | *(undocumented)* |
-| `cite_key` | — | no | *(undocumented)* |
-| `doi` | — | no | *(undocumented)* |
+| `arxiv_id` | — | no | arXiv identifier to check, if known. |
+| `bibcode` | — | no | ADS bibcode to check, if known. |
+| `cite_key` | — | no | Citation key to check, if known. |
+| `doi` | — | no | DOI to check, if known. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"doi": "10.1000/effects-example"}
+  ```
+
+- `known-dismissed-doi` — Tier A:
+
+  ```json
+  {"doi":"10.5555/g3-known-dismissed"}
+  ```
+  expects:
+
+  ```json
+  true
   ```
 
 ## `imbib-library-service_list-collection-members`
@@ -458,13 +686,19 @@ List all papers in a specific collection.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ascending` | boolean | yes | *(undocumented)* |
-| `collection_id` | string | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
-| `sort_field` | string | yes | *(undocumented)* |
+| `ascending` | boolean | yes | Whether to sort in ascending order. |
+| `collection_id` | string | yes | UUID of the collection to inspect. |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `offset` | integer | yes | Number of matching papers to skip. |
+| `sort_field` | string | yes | Publication sort field, such as `title` or `date_added`. |
 
-_No examples yet._
+**Examples**
+
+- `collection-paper` — Tier A:
+
+  ```json
+  {"collection_id":"5c000000-0000-4000-8000-000000000064","sort_field":"title","ascending":true,"limit":10,"offset":0}
+  ```
 
 ## `imbib-library-service_list-collections`
 
@@ -477,9 +711,15 @@ List all collections in the imbib library. Collections organize papers into grou
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `library_id` | string | yes | *(undocumented)* |
+| `library_id` | string | yes | UUID of the library whose collections are listed. |
 
-_No examples yet._
+**Examples**
+
+- `library-collections` — Tier A:
+
+  ```json
+  {"library_id":"5c000000-0000-4000-8000-000000000061"}
+  ```
 
 ## `imbib-library-service_list-dismissed-papers`
 
@@ -492,10 +732,16 @@ List the dismissed-paper tombstones, paged (a limit of 0 means 100).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of tombstones, with zero selecting the default of 100. |
+| `offset` | integer | yes | Number of tombstones to skip. |
 
-_No examples yet._
+**Examples**
+
+- `dismissed-list` — Tier A:
+
+  ```json
+  {"limit":100,"offset":0}
+  ```
 
 ## `imbib-library-service_list-libraries`
 
@@ -510,7 +756,13 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+- `reading-library-list` — Tier A:
 
   ```json
   {}
@@ -527,9 +779,15 @@ List the files (PDFs and others) linked to a paper.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_id` | string | yes | *(undocumented)* |
+| `publication_id` | string | yes | UUID of the publication whose attachments are listed. |
 
-_No examples yet._
+**Examples**
+
+- `paper-attachments` — Tier A:
+
+  ```json
+  {"publication_id":"5c000000-0000-4000-8000-000000000068"}
+  ```
 
 ## `imbib-library-service_list-muted-items`
 
@@ -544,7 +802,13 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+- `active-mute-rules` — Tier A:
 
   ```json
   {}
@@ -561,15 +825,21 @@ List papers across every library, paged by `limit` and `offset` (a limit of 0 me
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `offset` | integer | yes | Number of matching papers to skip. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"limit": 5, "offset": 0}
+  ```
+
+- `list-scratch-paper` — Tier A:
+
+  ```json
+  {"limit":200,"offset":0}
   ```
 
 ## `imbib-library-service_move-publications`
@@ -583,10 +853,21 @@ Move papers into another library.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_ids` | array | yes | *(undocumented)* |
-| `to_library_id` | string | yes | *(undocumented)* |
+| `publication_ids` | array | yes | UUIDs of publications to move. |
+| `to_library_id` | string | yes | UUID of the destination library. |
 
-_No examples yet._
+**Examples**
+
+- `move-to-project` — Tier A:
+
+  ```json
+  {"publication_ids":["5c000000-0000-4000-8000-00000000006e"],"to_library_id":"5c000000-0000-4000-8000-00000000006d"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_purge-dismissed-from-collection`
 
@@ -599,9 +880,20 @@ Remove from a collection every paper that has been dismissed; the result counts 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection_id` | string | yes | *(undocumented)* |
+| `collection_id` | string | yes | UUID of the collection to remove dismissed members from. |
 
-_No examples yet._
+**Examples**
+
+- `unfile-dismissed-paper` — Tier A:
+
+  ```json
+  {"collection_id":"5c000000-0000-4000-8000-00000000006f"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_query-publications`
 
@@ -614,13 +906,19 @@ List the papers in one library, sorted by `sort_field` in the given direction an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ascending` | boolean | yes | *(undocumented)* |
-| `library_id` | string | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
-| `sort_field` | string | yes | *(undocumented)* |
+| `ascending` | boolean | yes | Whether to sort in ascending order. |
+| `library_id` | string | yes | UUID of the library to search. |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `offset` | integer | yes | Number of matching papers to skip. |
+| `sort_field` | string | yes | Publication sort field, such as `title` or `date_added`. |
 
-_No examples yet._
+**Examples**
+
+- `project-papers` — Tier A:
+
+  ```json
+  {"library_id":"5c000000-0000-4000-8000-000000000072","sort_field":"title","ascending":true,"limit":10,"offset":0}
+  ```
 
 ## `imbib-library-service_query-recent`
 
@@ -633,15 +931,21 @@ List the most recently added papers, optionally within one library or collection
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `parent_id` | — | no | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `parent_id` | — | no | Library UUID to scope the query, or null for all libraries. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"limit": 5}
+  ```
+
+- `recent-project-paper` — Tier A:
+
+  ```json
+  {"limit":10,"parent_id":"5c000000-0000-4000-8000-000000000074"}
   ```
 
 ## `imbib-library-service_query-starred`
@@ -655,17 +959,23 @@ List starred papers, optionally within one library or collection (`parent_id`), 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ascending` | boolean | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `parent_id` | — | no | *(undocumented)* |
-| `sort_field` | string | yes | *(undocumented)* |
+| `ascending` | boolean | yes | Whether to sort in ascending order. |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `parent_id` | — | no | Library UUID to scope the query, or null for all libraries. |
+| `sort_field` | string | yes | Publication sort field, such as `title` or `date_added`. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"parent_id": null, "sort_field": "title", "ascending": true, "limit": 5}
+  ```
+
+- `starred-project-paper` — Tier A:
+
+  ```json
+  {"parent_id":"5c000000-0000-4000-8000-000000000076","sort_field":"title","ascending":true,"limit":10}
   ```
 
 ## `imbib-library-service_query-unread`
@@ -679,17 +989,23 @@ List unread papers, optionally within one library or collection (`parent_id`), s
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ascending` | boolean | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `parent_id` | — | no | *(undocumented)* |
-| `sort_field` | string | yes | *(undocumented)* |
+| `ascending` | boolean | yes | Whether to sort in ascending order. |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `parent_id` | — | no | Library UUID to scope the query, or null for all libraries. |
+| `sort_field` | string | yes | Publication sort field, such as `title` or `date_added`. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"parent_id": null, "sort_field": "title", "ascending": true, "limit": 5}
+  ```
+
+- `unread-project-paper` — Tier A:
+
+  ```json
+  {"parent_id":"5c000000-0000-4000-8000-000000000078","sort_field":"title","ascending":true,"limit":10}
   ```
 
 ## `imbib-library-service_remove-from-collection`
@@ -703,10 +1019,21 @@ Remove papers from a collection (does not delete them).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection_id` | string | yes | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `collection_id` | string | yes | UUID of the collection to remove them from. |
+| `publication_ids` | array | yes | UUIDs of publications to unfile without deleting them. |
 
-_No examples yet._
+**Examples**
+
+- `unfile-paper` — Tier A:
+
+  ```json
+  {"publication_ids":["5c000000-0000-4000-8000-00000000007c"],"collection_id":"5c000000-0000-4000-8000-00000000007b"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_retention-cleanup`
 
@@ -721,14 +1048,25 @@ Three sources, each independent and each reading its own threshold from the sett
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `exploration_library_id` | — | no | *(undocumented)* |
+| `exploration_library_id` | — | no | Exploration library UUID to sweep, or null to leave exploration untouched. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `expire-old-search` — Tier A:
+
+  ```json
+  {"exploration_library_id":"5c000000-0000-4000-8000-000000000086"}
+  ```
+  expects:
+
+  ```json
+  {"exploration_removed":1}
   ```
 
 ## `imbib-library-service_search-publications`
@@ -742,10 +1080,16 @@ Search paper metadata by free text, newest-added first, up to `limit` results (0
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `query` | string | yes | Text to find in paper titles, authors, abstracts, or notes. |
 
-_No examples yet._
+**Examples**
+
+- `find-unique-spectrum` — Tier A:
+
+  ```json
+  {"query":"G3 Unique Spectrum","limit":10}
+  ```
 
 ## `imbib-library-service_set-flag`
 
@@ -758,10 +1102,21 @@ Set or clear a colored flag on papers. Flags are visual markers for workflow sta
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `color` | — | no | *(undocumented)* |
-| `ids` | array | yes | *(undocumented)* |
+| `color` | — | no | Flag color to set, or null to clear the flag. |
+| `ids` | array | yes | UUIDs of publications whose flag changes. |
 
-_No examples yet._
+**Examples**
+
+- `flag-for-review` — Tier A:
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-000000000080"],"color":"orange"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_set-library-default`
 
@@ -774,9 +1129,20 @@ Make a library the default target for new papers.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the library that should receive new papers by default. |
 
-_No examples yet._
+**Examples**
+
+- `make-reading-default` — Tier A:
+
+  ```json
+  {"id":"5c000000-0000-4000-8000-000000000081"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_set-read`
 
@@ -789,10 +1155,21 @@ Mark papers as read or unread. Useful for tracking reading progress.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ids` | array | yes | *(undocumented)* |
-| `read` | boolean | yes | *(undocumented)* |
+| `ids` | array | yes | UUIDs of publications whose read state changes. |
+| `read` | boolean | yes | True to mark read; false to mark unread. |
 
-_No examples yet._
+**Examples**
+
+- `finish-reading` — Tier A:
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-000000000082"],"read":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_set-starred`
 
@@ -805,10 +1182,21 @@ Toggle the starred status of papers.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ids` | array | yes | *(undocumented)* |
-| `starred` | boolean | yes | *(undocumented)* |
+| `ids` | array | yes | UUIDs of publications whose starred state changes. |
+| `starred` | boolean | yes | True to star; false to remove the star. |
 
-_No examples yet._
+**Examples**
+
+- `star-project-paper` — Tier A:
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-000000000083"],"starred":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-library-service_sidebar-view`
 
@@ -823,7 +1211,13 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+- `reading-sidebar` — Tier A:
 
   ```json
   {}

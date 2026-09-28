@@ -46,6 +46,17 @@ pub trait ImbibSemanticService: Send + Sync + 'static {
         deprecated(since = "0.1.0", note = "use search-papers"),
         aliases = ["search_papers"]
     )]
+    #[impress_example(
+        name = "unavailable-owned-index",
+        args = r##"{"query":"spectral line formation","top_k":5}"##,
+        expect = r##"{"ok":false,"message":"Semantic search is unavailable: no embeddings database, or the model failed to load. Index PDFs in imbib first."}"##
+    )]
+    #[impress_example(
+        name = "indexed-owned-passage",
+        args = r##"{"query":"spectral line formation","top_k":5}"##,
+        expect = r##"{"ok":true,"results":[{"title":"G3 spectral line fixture"}]}"##,
+        tier = "b"
+    )]
     async fn search_papers(&self, query: String, top_k: Option<u64>) -> Value;
 
     /// Get all text chunks for a specific publication. Use this for
@@ -58,6 +69,17 @@ pub trait ImbibSemanticService: Send + Sync + 'static {
         deprecated(since = "0.1.0", note = "use get-paper-chunks"),
         aliases = ["get_paper_chunks"]
     )]
+    #[impress_example(
+        name = "unavailable-owned-index",
+        args = r##"{"publication_id":"6a000000-0000-4000-8000-000000000001"}"##,
+        expect = r##"{"ok":false}"##
+    )]
+    #[impress_example(
+        name = "indexed-owned-chunks",
+        args = r##"{"publication_id":"{{fixture.semantic_publication_id}}"}"##,
+        expect = r##"{"ok":true,"chunks":[{"text":"Spectral line formation in an owned synthetic atmosphere."}]}"##,
+        tier = "b"
+    )]
     async fn get_paper_chunks(&self, publication_id: String) -> Value;
 
     /// List all publications that have been chunk-indexed for semantic
@@ -69,6 +91,17 @@ pub trait ImbibSemanticService: Send + Sync + 'static {
         effects(reads = [any("reads the imbib embeddings sidecar and, for metadata, the shared impress store")]),
         deprecated(since = "0.1.0", note = "use list-indexed-papers"),
         aliases = ["list_indexed_papers"]
+    )]
+    #[impress_example(
+        name = "unavailable-owned-index",
+        args = r##"{"limit":5}"##,
+        expect = r##"{"ok":false}"##
+    )]
+    #[impress_example(
+        name = "indexed-owned-papers",
+        args = r##"{"limit":5}"##,
+        expect = r##"{"ok":true,"papers":[{"title":"G3 spectral line fixture","chunk_count":1}]}"##,
+        tier = "b"
     )]
     async fn list_indexed_papers(&self, limit: Option<u64>) -> Value;
 }
@@ -322,11 +355,22 @@ impress_service_impl! {
     instance = DefaultImbibSemanticService::new,
     methods = [
         /// Semantic search across all indexed PDFs in the local library.
-        search_papers(query: String, top_k: Option<u64>) -> Value,
+        search_papers(
+            /// Natural-language question or passage to compare with indexed PDF chunks.
+            query: String,
+            /// Maximum publications to return; defaults to 10.
+            top_k: Option<u64>
+        ) -> Value,
         /// Get all text chunks for a specific publication.
-        get_paper_chunks(publication_id: String) -> Value,
+        get_paper_chunks(
+            /// UUID of an indexed publication returned by search-papers or list-indexed-papers.
+            publication_id: String
+        ) -> Value,
         /// List all publications that have been chunk-indexed for semantic search.
-        list_indexed_papers(limit: Option<u64>) -> Value,
+        list_indexed_papers(
+            /// Maximum indexed publications to return; defaults to 50.
+            limit: Option<u64>
+        ) -> Value,
     ],
 }
 
@@ -396,21 +440,16 @@ mod tests {
     #[test]
     fn semantic_unavailable_when_no_embeddings_db() {
         let dir = tempfile::tempdir().unwrap();
-        let state = SemanticState::deferred(
-            dir.path().join("nonexistent-embeddings.sqlite"),
-            dir.path().join("nonexistent-store.sqlite"),
-        );
-        // Missing embeddings db still opens (EmbeddingStore::open creates the
-        // file), so the failure this test pins is a missing main store not
-        // breaking search — the semantic stack itself degrades to `None`
-        // only when the model truly cannot load, which is not exercised in
-        // this offline unit test. What we CAN assert offline: search_papers
-        // never panics and always returns a well-formed `{"ok", ...}` object.
+        // A directory cannot be opened as SQLite. Fail before any model/cache
+        // initialization so this offline regression never downloads a model.
+        let state =
+            SemanticState::deferred(dir.path().to_path_buf(), dir.path().join("store.sqlite"));
         let out = search_papers_impl(&state, "anything", 10);
         assert!(
             out.is_object(),
             "search_papers must return an object: {out}"
         );
-        assert!(out.get("ok").is_some(), "{out}");
+        assert_eq!(out["ok"], false);
+        assert_eq!(out["message"], SEMANTIC_UNAVAILABLE);
     }
 }

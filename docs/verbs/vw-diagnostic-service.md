@@ -13,9 +13,20 @@ Close a session with a durable outcome; closed sessions reject further evidence 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `command` | — | yes | *(undocumented)* |
+| `command` | — | yes | Typed command with session UUID, expected revision, and unique retry-safe command UUID. |
 
-_No examples yet._
+**Examples**
+
+- `g3-close-session` — Tier A:
+
+  ```json
+  {"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":0,"command_id":"67000000-0000-4000-8000-000000000007","outcome":"Fictional example complete; no diagnostic conclusion"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"session":{"revision":1}}
+  ```
 
 ## `vw-diagnostic-service_create-session`
 
@@ -28,9 +39,20 @@ Create a persistent diagnostic session pinned to the active knowledge pack. comm
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `request` | — | yes | *(undocumented)* |
+| `request` | — | yes | Vehicle configuration, concern, and a unique command UUID for retry-safe session creation. |
 
-_No examples yet._
+**Examples**
+
+- `g3-create-session` — Tier A:
+
+  ```json
+  {"request":{"command_id":"67000000-0000-4000-8000-000000000001","vehicle_name":"G3 fictional vehicle","vin":null,"configuration":{"id":"67000000-0000-4000-8000-000000000002","model_family":"Type 2","model_year":1978,"market":"california","emissions_spec":"California","engine_code":"fixture","fuel_system":"L-Jetronic","transmission":null,"installed_options":[],"installed_components":[],"deviations":[],"verification":"unverified"},"concern":"Record a fictional intermittent starting concern","odometer":null,"notes":"Synthetic example; no diagnosis is asserted."}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"session":{"revision":0}}
+  ```
 
 ## `vw-diagnostic-service_evaluate-session`
 
@@ -43,10 +65,21 @@ Evaluate published rules against an explicit session revision and return ordinal
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `expected_revision` | integer | yes | *(undocumented)* |
-| `session_id` | string | yes | *(undocumented)* |
+| `expected_revision` | integer | yes | Last observed session revision; stale revisions are refused. |
+| `session_id` | string | yes | Diagnostic session UUID returned by create-session or list-sessions. |
 
-_No examples yet._
+**Examples**
+
+- `g3-evaluate-session` — Tier A:
+
+  ```json
+  {"session_id":"{{fixture.vw_session_id}}","expected_revision":0}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `vw-diagnostic-service_get-capabilities`
 
@@ -61,7 +94,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -78,9 +111,20 @@ Retrieve one previously ingested VW user photo as MCP image content. Call search
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `evidence_id` | string | yes | *(undocumented)* |
+| `evidence_id` | string | yes | Saved photo evidence UUID returned by ingest-photo or search-photos. |
 
-_No examples yet._
+**Examples**
+
+- `g3-get-photo` — Tier A:
+
+  ```json
+  {"evidence_id":"{{fixture.vw_photo_id}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `vw-diagnostic-service_get-session`
 
@@ -93,9 +137,20 @@ Load one typed diagnostic session and its current optimistic revision.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `session_id` | string | yes | *(undocumented)* |
+| `session_id` | string | yes | Diagnostic session UUID returned by create-session or list-sessions. |
 
-_No examples yet._
+**Examples**
+
+- `g3-get-session` — Tier A:
+
+  ```json
+  {"session_id":"{{fixture.vw_session_id}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"session":{"revision":0}}
+  ```
 
 ## `vw-diagnostic-service_ingest-photo`
 
@@ -108,15 +163,26 @@ Ingest a bus, engine, or part photo shared in this ChatGPT conversation as priva
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `captured_at` | — | no | *(undocumented)* |
-| `component` | — | no | *(undocumented)* |
-| `description` | string | yes | *(undocumented)* |
-| `diagnostic_session_id` | — | no | *(undocumented)* |
-| `photo` | — | yes | *(undocumented)* |
-| `tags` | array | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `captured_at` | — | no | Capture timestamp in RFC 3339 format; omit when unknown. |
+| `component` | — | no | Component name shown by the photo; omit when unknown. |
+| `description` | string | yes | What the photo shows; retained as private user evidence. |
+| `diagnostic_session_id` | — | no | Session UUID to associate with the photo; omit for unassigned evidence. |
+| `photo` | — | yes | ChatGPT file ID and signed public download URL, with optional filename and MIME type. |
+| `tags` | array | yes | Searchable labels for the photo. |
+| `title` | string | yes | Short label for the retained photo evidence. |
 
-_No examples yet._
+**Examples**
+
+- `g3-ingest-photo` — Tier B (isolated host):
+
+  ```json
+  {"photo":{"file_id":"g3-private-url","download_url":"http://127.0.0.1/private.png","mime_type":"image/png","file_name":"private.png"},"title":"Private address refusal","description":"Reject private network access before downloading.","component":null,"diagnostic_session_id":null,"captured_at":null,"tags":[]}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"status":"invalid_file_url"}
+  ```
 
 ## `vw-diagnostic-service_list-applicable-procedures`
 
@@ -129,9 +195,20 @@ List published procedures applicable to the session's exact vehicle configuratio
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `session_id` | string | yes | *(undocumented)* |
+| `session_id` | string | yes | Diagnostic session UUID returned by create-session or list-sessions. |
 
-_No examples yet._
+**Examples**
+
+- `g3-list-applicable-procedures` — Tier A:
+
+  ```json
+  {"session_id":"{{fixture.vw_session_id}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `vw-diagnostic-service_list-sessions`
 
@@ -144,11 +221,11 @@ List recent diagnostic sessions without exposing raw store records.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of records to return. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"limit": 5}
@@ -165,10 +242,21 @@ Return the highest-ranked safe and applicable next diagnostic procedure.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `expected_revision` | integer | yes | *(undocumented)* |
-| `session_id` | string | yes | *(undocumented)* |
+| `expected_revision` | integer | yes | Last observed session revision; stale revisions are refused. |
+| `session_id` | string | yes | Diagnostic session UUID returned by create-session or list-sessions. |
 
-_No examples yet._
+**Examples**
+
+- `g3-recommend-next-test` — Tier A:
+
+  ```json
+  {"session_id":"{{fixture.vw_session_id}}","expected_revision":0}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `vw-diagnostic-service_record-measurement`
 
@@ -176,14 +264,25 @@ Record a typed measurement with unit, acquisition method, conditions, and option
 
 - **safety**: `mutating`
 - **reads**: "vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"
-- **writes**: "vw/measurement@1.0.0", "vw/command-receipt@1.0.0"
+- **writes**: "vw/diagnostic-session@1.0.0", "vw/measurement@1.0.0", "vw/command-receipt@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `command` | — | yes | *(undocumented)* |
+| `command` | — | yes | Typed command with session UUID, expected revision, and unique retry-safe command UUID. |
 
-_No examples yet._
+**Examples**
+
+- `g3-record-measurement` — Tier A:
+
+  ```json
+  {"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":0,"command_id":"67000000-0000-4000-8000-000000000004","quantity":"fixture_voltage","value":{"value":12.4,"unit":"V","uncertainty":0.1},"acquisition":{"type":"instrument","kind":"fictional meter","identifier":null},"component_key":null,"terminals":null,"conditions":[],"source_step":null,"notes":"Synthetic measurement; not a diagnostic threshold."}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"session":{"revision":1}}
+  ```
 
 ## `vw-diagnostic-service_record-observation`
 
@@ -191,14 +290,25 @@ Record a controlled observation. The command is rejected if its expected revisio
 
 - **safety**: `mutating`
 - **reads**: "vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"
-- **writes**: "vw/observation@1.0.0", "vw/command-receipt@1.0.0"
+- **writes**: "vw/diagnostic-session@1.0.0", "vw/observation@1.0.0", "vw/command-receipt@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `command` | — | yes | *(undocumented)* |
+| `command` | — | yes | Typed command with session UUID, expected revision, and unique retry-safe command UUID. |
 
-_No examples yet._
+**Examples**
+
+- `g3-record-observation` — Tier A:
+
+  ```json
+  {"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":0,"command_id":"67000000-0000-4000-8000-000000000003","kind":"symptom","value":{"type":"text","value":"Fictional engine pauses at idle"},"acquisition":{"type":"user_reported"},"confidence":"uncertain","component_key":null,"conditions":[],"notes":null,"supersedes":null}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"session":{"revision":1}}
+  ```
 
 ## `vw-diagnostic-service_record-procedure-step`
 
@@ -211,9 +321,20 @@ Record the result of exactly the procedure run's current step. The domain state 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `command` | — | yes | *(undocumented)* |
+| `command` | — | yes | Typed command with session UUID, expected revision, and unique retry-safe command UUID. |
 
-_No examples yet._
+**Examples**
+
+- `g3-record-procedure-step` — Tier A:
+
+  ```json
+  {"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":1,"command_id":"67000000-0000-4000-8000-000000000006","procedure_run_id":"closed-session-guard","step_key":"guard","result":"must not be recorded"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"error":{"code":"invalid_state"}}
+  ```
 
 ## `vw-diagnostic-service_search-photos`
 
@@ -226,11 +347,22 @@ Search private photos previously ingested as VW user evidence. Search titles, de
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `diagnostic_session_id` | — | no | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
+| `diagnostic_session_id` | — | no | Session UUID to associate with the photo; omit for unassigned evidence. |
+| `limit` | integer | yes | Maximum number of records to return. |
+| `query` | string | yes | Text to match against saved photo metadata. |
 
-_No examples yet._
+**Examples**
+
+- `g3-search-photos` — Tier A:
+
+  ```json
+  {"query":"G3 photo","diagnostic_session_id":null,"limit":5}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `vw-diagnostic-service_start-procedure`
 
@@ -243,7 +375,18 @@ Start a published procedure only after required hazards are explicitly acknowled
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `command` | — | yes | *(undocumented)* |
+| `command` | — | yes | Typed command with session UUID, expected revision, and unique retry-safe command UUID. |
 
-_No examples yet._
+**Examples**
+
+- `g3-start-procedure` — Tier A:
+
+  ```json
+  {"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":1,"command_id":"67000000-0000-4000-8000-000000000005","procedure_id":"closed-session-guard","acknowledged_hazard_ids":[],"performed_by":"fixture"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"error":{"code":"invalid_state"}}
+  ```
 

@@ -512,7 +512,7 @@ pub trait ImbibEinkService: Send + Sync + 'static {
         state: Option<String>,
     ) -> Vec<EinkMirrorRecord>;
     /// Marked papers that still need their PDF/ePUB fetched.
-    #[impress_method(safety = read_only, effects(reads = ["imbib/eink-mirror", "imbib/eink-device"]))]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry", "imbib/eink-mirror", "imbib/eink-device"]))]
     #[impress_example(
         name = "paper-needs-source",
         args = r#"{"device_id":"63000000-0000-4000-8000-000000000005"}"#
@@ -568,6 +568,11 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// `publication_id`, import that one paper now whether or not the
     /// tablet reports a change (after changing the import switches, say).
     #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file"], writes = ["imbib/annotation", "imbib/linked-file", "imbib/eink-mirror"], reach = [device, fs]))]
+    #[impress_example(
+        name = "g3-eink-import",
+        args = r##"{"publication_id":"6b000000-0000-4000-8000-000000000001","device_id":"63000000-0000-4000-8000-000000000005"}"##,
+        tier = "b"
+    )]
     async fn eink_import(
         &self,
         publication_id: Option<String>,
@@ -577,6 +582,11 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// written on it, files copied in by hand — with the library and
     /// collection their folder names resolve to. Needs the tablet plugged in.
     #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], reach = [device]))]
+    #[impress_example(
+        name = "g3-eink-list-unmatched",
+        args = r##"{"device_id":"63000000-0000-4000-8000-000000000005"}"##,
+        tier = "b"
+    )]
     async fn eink_list_unmatched(&self, device_id: Option<String>) -> Vec<EinkUnmatchedRecord>;
     /// Bring one such document into the store. `as_kind` `publication`
     /// (default: a notebook becomes a `@misc` entry with the rendered PDF as
@@ -584,6 +594,11 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// that publication) or `note` (an `impress/artifact/note`). The
     /// library may be omitted for a document under `imbib/<Library>`.
     #[impress_method(safety = external, effects(reads = ["imbib/eink-device", "imbib/eink-mirror", "imbib/library", "imbib/bibliography-entry"], writes = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/eink-mirror", "impress/artifact/note"], reach = [device, fs]))]
+    #[impress_example(
+        name = "g3-eink-import-document",
+        args = r##"{"remote_id":"g3-owned-notebook","library_id":"63000000-0000-4000-8000-000000000001","collection_id":null,"as_kind":"note","device_id":"63000000-0000-4000-8000-000000000005"}"##,
+        tier = "b"
+    )]
     async fn eink_import_document(
         &self,
         remote_id: String,
@@ -595,12 +610,22 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// Every row an e-ink import wrote for a publication (highlights with
     /// their text, typed text, ink groups with OCR text), in page order.
     #[impress_method(safety = read_only, effects(reads = ["imbib/annotation", "imbib/linked-file"]))]
+    #[impress_example(
+        name = "g3-eink-list-annotations",
+        args = r##"{"publication_id":"6b000000-0000-4000-8000-000000000001"}"##,
+        expect = r##"[{"id":"6b000000-0000-4000-8000-000000000003","selected_text":"G3 tablet highlight"}]"##
+    )]
     async fn eink_list_annotations(&self, publication_id: String) -> Vec<AnnotationRecord>;
     /// Say how an attempt to get a paper's PDF went, so a row waiting for
     /// its source can name the reason. Only something that can download
     /// (the app, an agent) knows this; the engine never does. `error`
     /// absent clears the last one.
     #[impress_method(effects(reads = ["imbib/eink-device", "imbib/eink-mirror"], writes = ["imbib/eink-mirror"]))]
+    #[impress_example(
+        name = "g3-eink-note-source-error",
+        args = r##"{"publication_id":"63000000-0000-4000-8000-000000000002","device_id":"63000000-0000-4000-8000-000000000005","error":"Owned source is offline"}"##,
+        expect = r##"{"ok":true,"affected_count":1}"##
+    )]
     async fn eink_note_source_error(
         &self,
         publication_id: String,
@@ -610,15 +635,29 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// Highlight, typed and OCR text from the tablet containing `query`
     /// (case-insensitive), newest first. `limit` 0 = 100.
     #[impress_method(safety = read_only, effects(reads = ["imbib/annotation"]))]
+    #[impress_example(
+        name = "g3-eink-search-annotations",
+        args = r##"{"query":"G3 tablet highlight","limit":10}"##,
+        expect = r##"[{"id":"6b000000-0000-4000-8000-000000000003"}]"##
+    )]
     async fn eink_search_annotations(&self, query: String, limit: u32) -> Vec<AnnotationRecord>;
     /// Ink rows whose handwriting has not been recognised yet, with the
     /// PNG to run OCR on. `publication_id` absent = everywhere.
-    #[impress_method(safety = read_only, effects(reads = ["imbib/annotation", "imbib/linked-file"]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry", "imbib/annotation", "imbib/linked-file"]))]
+    #[impress_example(
+        name = "g3-pending-ink",
+        args = r#"{"publication_id":"6b000000-0000-4000-8000-000000000001"}"#,
+        expect = r#"[{"annotation_id":"6b000000-0000-4000-8000-000000000003"}]"#
+    )]
     async fn eink_pending_ocr(&self, publication_id: Option<String>) -> Vec<EinkOcrJobRecord>;
     /// Record an OCR result. `text` absent with a confidence still closes
     /// the job (nothing legible), so it is not retried forever.
     #[impress_method(effects(reads = ["imbib/annotation"], writes = ["imbib/annotation"]))]
+    #[impress_example(
+        name = "g3-eink-complete-ocr",
+        args = r##"{"annotation_id":"6b000000-0000-4000-8000-000000000003","text":"Recognized owned ink","confidence":0.95}"##,
+        expect = r##"{"ok":true,"affected_count":1}"##
+    )]
     async fn eink_complete_ocr(
         &self,
         annotation_id: String,
@@ -630,6 +669,11 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// `force`; rows that carry no text yet (handwriting awaiting
     /// recognition) are an error, not a silent no-op. Never runs on its own.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/annotation", "imbib/eink-mirror", "imbib/eink-device"], writes = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/annotation"]))]
+    #[impress_example(
+        name = "g3-eink-append-notes",
+        args = r##"{"publication_id":"6b000000-0000-4000-8000-000000000001","force":false}"##,
+        expect = r##"{"ok":true,"appended":true}"##
+    )]
     async fn eink_append_notes(&self, publication_id: String, force: bool) -> EinkAppendResult;
 }
 
@@ -1112,15 +1156,64 @@ impress_service_impl! {
             /// Configured device UUID whose missing folders should be reported.
             device_id: Option<String>
         ) -> Vec<EinkFolderNeedRecord>,
-        eink_import(publication_id: Option<String>, device_id: Option<String>) -> EinkSyncRecord,
-        eink_list_unmatched(device_id: Option<String>) -> Vec<EinkUnmatchedRecord>,
-        eink_import_document(remote_id: String, library_id: Option<String>, collection_id: Option<String>, as_kind: Option<String>, device_id: Option<String>) -> EinkDocumentImportRecord,
-        eink_list_annotations(publication_id: String) -> Vec<AnnotationRecord>,
-        eink_note_source_error(publication_id: String, device_id: Option<String>, error: Option<String>) -> MutationResult,
-        eink_search_annotations(query: String, limit: u32) -> Vec<AnnotationRecord>,
-        eink_pending_ocr(publication_id: Option<String>) -> Vec<EinkOcrJobRecord>,
-        eink_complete_ocr(annotation_id: String, text: Option<String>, confidence: f64) -> MutationResult,
-        eink_append_notes(publication_id: String, force: bool) -> EinkAppendResult,
+        eink_import(
+            /// UUID of the paper whose tablet annotations should be read or updated.
+            publication_id: Option<String>,
+            /// Configured tablet UUID; omit to use the default tablet.
+            device_id: Option<String>
+        ) -> EinkSyncRecord,
+        eink_list_unmatched(
+            /// Configured tablet UUID; omit to use the default tablet.
+            device_id: Option<String>
+        ) -> Vec<EinkUnmatchedRecord>,
+        eink_import_document(
+            /// Document identifier reported by eink-list-unmatched on the selected tablet.
+            remote_id: String,
+            /// Destination library UUID; omit to infer it from the tablet folder.
+            library_id: Option<String>,
+            /// Destination collection UUID; omit for no collection assignment.
+            collection_id: Option<String>,
+            /// Import as publication or note; defaults to publication.
+            as_kind: Option<String>,
+            /// Configured tablet UUID; omit to use the default tablet.
+            device_id: Option<String>
+        ) -> EinkDocumentImportRecord,
+        eink_list_annotations(
+            /// UUID of the paper whose tablet annotations should be read or updated.
+            publication_id: String
+        ) -> Vec<AnnotationRecord>,
+        eink_note_source_error(
+            /// UUID of the paper whose tablet annotations should be read or updated.
+            publication_id: String,
+            /// Configured tablet UUID; omit to use the default tablet.
+            device_id: Option<String>,
+            /// Source download failure to record; omit to clear the previous failure.
+            error: Option<String>
+        ) -> MutationResult,
+        eink_search_annotations(
+            /// Case-insensitive text to find in imported highlights, notes and OCR.
+            query: String,
+            /// Maximum results; zero uses the default of 100.
+            limit: u32
+        ) -> Vec<AnnotationRecord>,
+        eink_pending_ocr(
+            /// UUID of the paper whose tablet annotations should be read or updated.
+            publication_id: Option<String>
+        ) -> Vec<EinkOcrJobRecord>,
+        eink_complete_ocr(
+            /// UUID of the imported ink annotation receiving OCR.
+            annotation_id: String,
+            /// Recognized text; omit when no handwriting is legible.
+            text: Option<String>,
+            /// OCR confidence between zero and one.
+            confidence: f64
+        ) -> MutationResult,
+        eink_append_notes(
+            /// UUID of the paper whose tablet annotations should be read or updated.
+            publication_id: String,
+            /// Append again even if this imported snapshot was already added to Notes.
+            force: bool
+        ) -> EinkAppendResult,
     ],
 }
 

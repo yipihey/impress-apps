@@ -13,10 +13,16 @@ Compile LaTeX to PDF with the self-contained Tectonic engine. Returns PDF length
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `filesystem_root` | string | yes | *(undocumented)* |
-| `source` | string | yes | *(undocumented)* |
+| `filesystem_root` | string | yes | Local directory for LaTeX input and image files; empty means none. |
+| `source` | string | yes | Typst or LaTeX source supplied directly by the caller. |
 
-_No examples yet._
+**Examples**
+
+- `g3-compile-latex` — Tier B (isolated host):
+
+  ```json
+  {"source":"\\documentclass{article}\\begin{document}G3 proof\\end{document}","filesystem_root":"{{fixture.root}}/manuscripts"}
+  ```
 
 ## `imprint-manuscript-service_compile-typst`
 
@@ -29,10 +35,16 @@ Compile Typst source to a PDF and return `pdf_path` (plus page count and any war
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `options` | — | yes | *(undocumented)* |
-| `source` | string | yes | *(undocumented)* |
+| `options` | — | yes | Page size, font size, and margins for the Typst compilation. |
+| `source` | string | yes | Typst or LaTeX source supplied directly by the caller. |
 
-_No examples yet._
+**Examples**
+
+- `g3-compile-typst` — Tier B (isolated host):
+
+  ```json
+  {"source":"= G3 manuscript\nA valid proof.","options":{"page_size":"A4","font_size":11.0,"margin_top":72.0,"margin_right":72.0,"margin_bottom":72.0,"margin_left":72.0}}
+  ```
 
 ## `imprint-manuscript-service_delete-section`
 
@@ -45,10 +57,21 @@ Remove a section (heading + body) from the document. Queues an operation; return
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `section_key` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `section_key` | string | yes | Stable key of a section in this manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `g3-delete-section` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000007","section_key":"intro"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-manuscript-service_document-citations`
 
@@ -61,14 +84,20 @@ List the citation keys used in Typst source you pass in, with where each occurs.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | *(undocumented)* |
+| `source` | string | yes | Typst or LaTeX source supplied directly by the caller. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"source": "As shown by @abel2026."}
+  ```
+
+- `g3-document-citations` — Tier A:
+
+  ```json
+  {"source":"Evidence cites @g3source and compares results."}
   ```
 
 ## `imprint-manuscript-service_document-outline`
@@ -82,14 +111,20 @@ Parse Typst source you pass in into its heading outline. Pure text: nothing is r
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | *(undocumented)* |
+| `source` | string | yes | Typst or LaTeX source supplied directly by the caller. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"source": "= Title\n== Section"}
+  ```
+
+- `g3-document-outline` — Tier A:
+
+  ```json
+  {"source":"= G3 Title\n== Evidence"}
   ```
 
 ## `imprint-manuscript-service_export-document`
@@ -103,10 +138,21 @@ Export a document in the given format. Returns the raw bytes. `format` is `"typs
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `format` | string | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `format` | string | yes | Export format: `typst`, `latex`, or `text`. |
+| `id` | string | yes | UUID of the manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-export-headless-refusal` — Tier A:
+
+  ```json
+  {"id":"62000000-0000-4000-8000-000000000003","format":"typst"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
+  ```
 
 ## `imprint-manuscript-service_get-document`
 
@@ -119,9 +165,20 @@ Fetch a single document by UUID.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-get-document` — Tier A:
+
+  ```json
+  {"id":"62000000-0000-4000-8000-000000000002"}
+  ```
+  expects:
+
+  ```json
+  {"title":"G3 get document"}
+  ```
 
 ## `imprint-manuscript-service_get-section`
 
@@ -134,10 +191,21 @@ Fetch a single manuscript section by its UUID. Body is rehydrated from content-a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `section_key` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `section_key` | string | yes | Stable key of a section in this manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `g3-get-section` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000005","section_key":"intro"}
+  ```
+  expects:
+
+  ```json
+  {"section_key":"intro","body":"G3 section body"}
+  ```
 
 ## `imprint-manuscript-service_list-documents`
 
@@ -152,7 +220,13 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
+- `g3-list-documents` — Tier A:
 
   ```json
   {}
@@ -169,9 +243,15 @@ List every stored section of a manuscript, sorted by order_index. Returns sectio
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-list-sections` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000004"}
+  ```
 
 ## `imprint-manuscript-service_presentation-outline`
 
@@ -184,9 +264,15 @@ Parse stable `#slide(id:, beat:)[…]` blocks for graphical or agentic deck mani
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | *(undocumented)* |
+| `source` | string | yes | Typst presentation source containing stable `#slide(id:)` blocks. |
 
-_No examples yet._
+**Examples**
+
+- `g3-presentation-outline` — Tier A:
+
+  ```json
+  {"source":"#slide(id: \"one\", title: \"First\")[A]\n#slide(id: \"two\")[B]"}
+  ```
 
 ## `imprint-manuscript-service_put-section`
 
@@ -199,12 +285,23 @@ Create or replace one section's body and metadata in a manuscript; returns the s
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `body` | string | yes | *(undocumented)* |
-| `doc_id` | string | yes | *(undocumented)* |
-| `metadata` | — | yes | *(undocumented)* |
-| `section_key` | string | yes | *(undocumented)* |
+| `body` | string | yes | Typst source body to store for the section. |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `metadata` | — | yes | Optional heading, section type, and zero-based order for the section. |
+| `section_key` | string | yes | Stable key of a section in this manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `g3-put-section` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000006","section_key":"methods","body":"G3 measured methods","metadata":{"title":"Methods","section_type":"methods","order_index":1}}
+  ```
+  expects:
+
+  ```json
+  {"section_key":"methods","title":"Methods"}
+  ```
 
 ## `imprint-manuscript-service_reorder-presentation-slide`
 
@@ -217,11 +314,17 @@ Move a slide before another slide. Pass an empty `before_slide_id` to move it to
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `before_slide_id` | string | yes | *(undocumented)* |
-| `slide_id` | string | yes | *(undocumented)* |
-| `source` | string | yes | *(undocumented)* |
+| `before_slide_id` | string | yes | Slide id to move before; empty string moves to the end. |
+| `slide_id` | string | yes | Stable `id` of the slide to edit or move. |
+| `source` | string | yes | Typst presentation source containing stable `#slide(id:)` blocks. |
 
-_No examples yet._
+**Examples**
+
+- `g3-reorder-slide` — Tier A:
+
+  ```json
+  {"source":"#slide(id: \"one\")[A]\n#slide(id: \"two\")[B]","slide_id":"two","before_slide_id":"one"}
+  ```
 
 ## `imprint-manuscript-service_replace-in-section`
 
@@ -234,12 +337,23 @@ Replace every occurrence of `find` with `replace` in one stored section's body; 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `find` | string | yes | *(undocumented)* |
-| `replace` | string | yes | *(undocumented)* |
-| `section_key` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `find` | string | yes | Literal text to replace in the selected section. |
+| `replace` | string | yes | Replacement text for each occurrence of `find`. |
+| `section_key` | string | yes | Stable key of a section in this manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `g3-replace-section` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000011","section_key":"intro","find":"before","replace":"after"}
+  ```
+  expects:
+
+  ```json
+  {"replacements":1,"new_body":"G3 after result"}
+  ```
 
 ## `imprint-manuscript-service_search`
 
@@ -252,10 +366,16 @@ Search for text in an imprint document. Returns positions of all matches.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of cross-document search hits; zero uses the service default. |
+| `query` | string | yes | Text to find in the source or manuscript search index. |
 
-_No examples yet._
+**Examples**
+
+- `g3-search` — Tier A:
+
+  ```json
+  {"query":"g3uniquesearchneedle","limit":5}
+  ```
 
 ## `imprint-manuscript-service_search-in-text`
 
@@ -268,16 +388,22 @@ Find every match of `query` in Typst source you pass in, with positions. Pure te
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `case_sensitive` | boolean | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
-| `source` | string | yes | *(undocumented)* |
+| `case_sensitive` | boolean | yes | Whether text search distinguishes upper- and lowercase characters. |
+| `query` | string | yes | Text to find in the source or manuscript search index. |
+| `source` | string | yes | Typst or LaTeX source supplied directly by the caller. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"source": "alpha beta", "query": "beta", "case_sensitive": false}
+  ```
+
+- `g3-search-in-text` — Tier A:
+
+  ```json
+  {"source":"Alpha beta gamma","query":"beta","case_sensitive":false}
   ```
 
 ## `imprint-manuscript-service_set-presentation-slide-beat`
@@ -291,9 +417,15 @@ Associate a slide with a stable throughline paragraph label. Pass an empty `beat
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `beat` | string | yes | *(undocumented)* |
-| `slide_id` | string | yes | *(undocumented)* |
-| `source` | string | yes | *(undocumented)* |
+| `beat` | string | yes | Throughline paragraph label; empty string clears the slide association. |
+| `slide_id` | string | yes | Stable `id` of the slide to edit or move. |
+| `source` | string | yes | Typst presentation source containing stable `#slide(id:)` blocks. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-slide-beat` — Tier A:
+
+  ```json
+  {"source":"#slide(id: \"one\")[A]","slide_id":"one","beat":"tl-method"}
+  ```
 

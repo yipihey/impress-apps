@@ -17,22 +17,44 @@ Store a spec as a new `impress/ui/surface@1.0.0` row, after validating it exactl
 | `spec` | object | yes | The spec, as JSON. Validated first; refused with every problem if it has an error. |
 | `tags` | — | no | Free-text labels. |
 
-_No examples yet._
+**Examples**
+
+- `g3-create` — Tier A:
+
+  ```json
+  {"spec":{"surface":"1.0","name":"G3 surface","state":{"message":"ready"},"root":{"column":[{"text":"{{state.message}}","id":"message"},{"button":{"label":"Set message","on_click":[{"set":{"path":"state.message","value":"done"}},{"emit":{"name":"changed","payload":{"message":"{{state.message}}"}}}]},"id":"set-message"}]}}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impress-surface-service_surface-delete`
 
 Delete a surface and every state/event row that belongs to it.
 
 - **safety**: `destructive`
-- **reads**: "impress/ui/surface@1.0.0"
+- **reads**: "impress/ui/surface-event@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface@1.0.0"
 - **writes**: "impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored surface to delete together with its working state and events. |
 
-_No examples yet._
+**Examples**
+
+- `g3-delete` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000005"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impress-surface-service_surface-dispatch`
 
@@ -46,11 +68,22 @@ Reduce one renderer event (`{"widget", "kind", "value"}`), persist the resulting
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `event` | — | yes | {"widget": id, "kind": "change"\|"click"\|"select"\|"submit", "value": json}. |
-| `host` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `params` | — | no | *(undocumented)* |
+| `host` | — | no | State instance identifier; defaults to this device. |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
+| `params` | — | no | Surface parameter bindings by name; defaults to those of the showing pane. |
 
-_No examples yet._
+**Examples**
+
+- `g3-dispatch` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000010","host":"g3-surface-examples","event":{"widget":"set-message","kind":"click","value":null}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impress-surface-service_surface-events`
 
@@ -64,10 +97,21 @@ A page of `(surface, host)`'s emitted events with `seq > after_seq` (0, every ev
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `after_seq` | — | no | Return events with a larger `seq`; 0 (all) when absent. |
-| `host` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `host` | — | no | State instance identifier; defaults to this device. |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
 
-_No examples yet._
+**Examples**
+
+- `g3-events` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000011","host":"g3-surface-examples","after_seq":0}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"events":[{"name":"changed","payload":{"message":"seeded"}}]}
+  ```
 
 ## `impress-surface-service_surface-examples`
 
@@ -82,7 +126,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -99,9 +143,20 @@ One surface row, spec included.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored surface row returned by surface-create or surface-list. |
 
-_No examples yet._
+**Examples**
+
+- `g3-get` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"name":"G3 surface","revision":1}
+  ```
 
 ## `impress-surface-service_surface-list`
 
@@ -116,7 +171,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -134,10 +189,21 @@ The resolved render tree of one `(surface, host)` instance — exactly what a re
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `host` | — | no | The state instance; this device's (the app's panes') when absent. |
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
 | `params` | — | no | Values for the surface's declared params, by name (a record id each); from the showing pane when absent. |
 
-_No examples yet._
+**Examples**
+
+- `g3-render` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000007","host":"g3-surface-examples"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impress-surface-service_surface-schema`
 
@@ -152,7 +218,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -163,7 +229,7 @@ Takes no arguments.
 Put a surface in a pane of `app_id`'s window on `device` (this device when absent). `target` is exactly one of `{"tile": N}`, `{"role": "detail"}` or `{"split": {"direction": "horizontal"|"vertical"}}` (a new pane beside the focused one). Composes ordinary `layout-service` verbs — a surface pane is not a special case of the layout tree (ADR-0033 D1).
 
 - **safety**: `mutating`
-- **reads**: "impress/ui/surface@1.0.0", "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
+- **reads**: "impress/ui/surface-state@1.0.0", "impress/ui/surface@1.0.0", "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
 
@@ -171,10 +237,21 @@ Put a surface in a pane of `app_id`'s window on `device` (this device when absen
 |---|---|---|---|
 | `app_id` | string | yes | The app whose window shows the surface: impress, imbib, imprint, implore, impel, impart. |
 | `device` | — | no | The device whose layout; this one when absent. |
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
 | `target` | — | yes | Exactly one of {"tile": N}, {"role": "detail"}, or {"split": {"direction": "horizontal"\|"vertical"}}. |
 
-_No examples yet._
+**Examples**
+
+- `g3-show` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000006","target":{"role":"detail"},"app_id":"impress","device":"g3-surface-show"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impress-surface-service_surface-state-get`
 
@@ -187,10 +264,21 @@ The working state of one `(surface, host)` instance — the spec's own initial `
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `host` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `host` | — | no | State instance identifier; defaults to this device. |
+| `id` | string | yes | UUID of the stored surface whose working state to read. |
 
-_No examples yet._
+**Examples**
+
+- `g3-state-get` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000008","host":"g3-surface-examples"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"state":{"message":"ready"}}
+  ```
 
 ## `impress-surface-service_surface-state-set`
 
@@ -203,11 +291,22 @@ Overwrite the working state of one `(surface, host)` instance directly (bypassin
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `host` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `host` | — | no | State instance identifier; defaults to this device. |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
 | `state` | — | yes | The whole new state, a JSON object. |
 
-_No examples yet._
+**Examples**
+
+- `g3-state-set` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000009","host":"g3-surface-examples","state":{"message":"revised"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"state":{"message":"revised"}}
+  ```
 
 ## `impress-surface-service_surface-update`
 
@@ -221,11 +320,22 @@ Replace a surface's spec (validated as by `surface_create`) and bump its `revisi
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `expected_revision` | — | no | The `revision` you last read; refused with `conflict` if the row moved since. |
-| `id` | string | yes | *(undocumented)* |
-| `name` | — | no | *(undocumented)* |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
+| `name` | — | no | Replacement row label; omit to keep the existing label. |
 | `spec` | object | yes | The new spec, as JSON. Validated first. |
 
-_No examples yet._
+**Examples**
+
+- `g3-update` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000003","spec":{"surface":"1.0","name":"G3 revised surface","state":{"message":"ready"},"root":{"column":[{"text":"{{state.message}}","id":"message"},{"button":{"label":"Set message","on_click":[{"set":{"path":"state.message","value":"done"}},{"emit":{"name":"changed","payload":{"message":"{{state.message}}"}}}]},"id":"set-message"}]}},"name":"G3 revised surface","expected_revision":1}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"revision":2}
+  ```
 
 ## `impress-surface-service_surface-validate`
 
@@ -240,7 +350,18 @@ Every problem with a spec, by JSON pointer and severity: structure (a missing fi
 |---|---|---|---|
 | `spec` | object | yes | The spec, as JSON. |
 
-_No examples yet._
+**Examples**
+
+- `g3-validate` — Tier A:
+
+  ```json
+  {"spec":{"surface":"1.0","name":"G3 surface","state":{"message":"ready"},"root":{"column":[{"text":"{{state.message}}","id":"message"},{"button":{"label":"Set message","on_click":[{"set":{"path":"state.message","value":"done"}},{"emit":{"name":"changed","payload":{"message":"{{state.message}}"}}}]},"id":"set-message"}]}}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impress-surface-service_surface-wait`
 
@@ -254,9 +375,20 @@ Long-poll for the next event past `after_seq`, up to `timeout_ms` (at most 55000
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `after_seq` | — | no | Wait for an event with a larger `seq`; 0 when absent. |
-| `host` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `host` | — | no | State instance identifier; defaults to this device. |
+| `id` | string | yes | UUID of the stored surface returned by surface-create or surface-list. |
 | `timeout_ms` | integer | yes | At most 55000. |
 
-_No examples yet._
+**Examples**
+
+- `g3-wait` — Tier A:
+
+  ```json
+  {"id":"66000000-0000-4000-8000-000000000012","host":"g3-surface-examples","after_seq":0,"timeout_ms":100}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"events":[{"name":"changed","payload":{"message":"seeded"}}],"timed_out":false}
+  ```
 

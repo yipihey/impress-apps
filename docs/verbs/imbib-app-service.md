@@ -13,10 +13,21 @@ Add existing papers to another library. Papers can sit in several libraries at o
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `library_id` | string | yes | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `library_id` | string | yes | UUID of the destination library. |
+| `publication_ids` | array | yes | UUIDs of the saved bibliography entries to operate on. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-add-to-library` — Tier B (isolated host):
+
+  ```json
+  {"publication_ids":["{{fixture.publication_id}}"],"library_id":"{{fixture.destination_library_id}}"}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-app-service_delete-annotation`
 
@@ -29,9 +40,20 @@ Delete one annotation from a PDF.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `annotation_id` | string | yes | *(undocumented)* |
+| `annotation_id` | string | yes | UUID of the annotation to delete. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-delete-annotation` — Tier B (isolated host):
+
+  ```json
+  {"annotation_id":"{{fixture.annotation_id}}"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imbib-app-service_delete-collection`
 
@@ -44,9 +66,20 @@ Delete a collection. The papers survive — a collection is a grouping, not a co
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection_id` | string | yes | *(undocumented)* |
+| `collection_id` | string | yes | UUID of the collection to delete; papers remain saved. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-delete-collection` — Tier B (isolated host):
+
+  ```json
+  {"collection_id":"{{fixture.collection_id}}"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imbib-app-service_delete-comment`
 
@@ -59,9 +92,20 @@ Delete one comment.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `comment_id` | string | yes | *(undocumented)* |
+| `comment_id` | string | yes | UUID of the comment to delete. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-delete-comment` — Tier B (isolated host):
+
+  ```json
+  {"comment_id":"{{fixture.comment_id}}"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imbib-app-service_delete-smart-searches`
 
@@ -74,9 +118,20 @@ Delete saved searches by id. Returns how many went.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ids` | array | yes | *(undocumented)* |
+| `ids` | array | yes | UUIDs of the smart searches to delete. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-delete-smart-searches` — Tier B (isolated host):
+
+  ```json
+  {"ids":["{{fixture.smart_search_id}}"]}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-app-service_download-pdfs`
 
@@ -89,9 +144,20 @@ Download PDFs for the given papers, honouring the user's library-proxy and sourc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_ids` | array | yes | *(undocumented)* |
+| `publication_ids` | array | yes | UUIDs of the saved bibliography entries to operate on. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-download-pdfs` — Tier B (isolated host):
+
+  ```json
+  {"publication_ids":["{{fixture.publication_id}}"]}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imbib-app-service_get-logs`
 
@@ -104,12 +170,18 @@ Recent lines from imbib's in-memory log store — the same feed its Console wind
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `category` | — | no | *(undocumented)* |
-| `level` | — | no | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `search` | — | no | *(undocumented)* |
+| `category` | — | no | Exact log category to filter, or omit for all categories. |
+| `level` | — | no | Comma-separated log levels; omit to include every level. |
+| `limit` | integer | yes | Maximum number of results to return. |
+| `search` | — | no | Text to match in log messages, or omit for no text filter. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-get-logs` — Tier B (isolated host):
+
+  ```json
+  {"limit":20,"level":"info,warning,error","category":null,"search":null}
+  ```
 
 ## `imbib-app-service_get-notes`
 
@@ -122,9 +194,20 @@ A paper's notes — the user's own prose about it, not the abstract.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_key` | string | yes | *(undocumented)* |
+| `cite_key` | string | yes | Unique bibliography citation key of the paper. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-get-notes` — Tier B (isolated host):
+
+  ```json
+  {"cite_key":"G3Native2026"}
+  ```
+  expects:
+
+  ```json
+  "Owned native note"
+  ```
 
 ## `imbib-app-service_open-manuscript-papers`
 
@@ -139,9 +222,20 @@ This is the surface imprint uses for choosing references; imprint no longer has 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manuscript_id` | string | yes | *(undocumented)* |
+| `manuscript_id` | string | yes | UUID of the manuscript whose reading collection should open. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-open-manuscript-papers` — Tier B (isolated host):
+
+  ```json
+  {"manuscript_id":"{{fixture.manuscript_id}}"}
+  ```
+  expects:
+
+  ```json
+  {"opened":true}
+  ```
 
 ## `imbib-app-service_recent-activity`
 
@@ -154,10 +248,16 @@ What the USER was recently working on: papers they viewed or added by hand, most
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `parent_id` | — | no | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of results to return. |
+| `parent_id` | — | no | Library or collection UUID to scope activity; omit for all libraries. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-recent-activity` — Tier B (isolated host):
+
+  ```json
+  {"limit":10,"parent_id":null}
+  ```
 
 ## `imbib-app-service_resolve-identifier`
 
@@ -170,10 +270,16 @@ Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching its me
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `download_pdfs` | boolean | yes | *(undocumented)* |
-| `identifier` | string | yes | *(undocumented)* |
+| `download_pdfs` | boolean | yes | Whether to fetch the PDF after importing the identified paper. |
+| `identifier` | string | yes | DOI, arXiv identifier, or another supported source identifier. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-resolve-identifier` — Tier B (isolated host):
+
+  ```json
+  {"identifier":"10.1038/nphys1170","download_pdfs":false}
+  ```
 
 ## `imbib-app-service_search-sources`
 
@@ -186,11 +292,17 @@ Search external academic sources — ADS, arXiv, Crossref and the rest — for p
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
-| `sources` | — | no | *(undocumented)* |
+| `limit` | integer | yes | Maximum number of results to return. |
+| `query` | string | yes | Search text sent to the selected academic sources. |
+| `sources` | — | no | Comma-separated source IDs; omit to use configured sources. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-search-sources` — Tier B (isolated host):
+
+  ```json
+  {"query":"spectral line formation","sources":"arxiv","limit":5}
+  ```
 
 ## `imbib-app-service_status`
 
@@ -203,7 +315,18 @@ Whether imbib is running, and its version, port and library counts. Cheap; a goo
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated-status` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"running":true}
+  ```
 
 ## `imbib-app-service_sync-nudge`
 
@@ -216,7 +339,13 @@ Ask imbib's sync engine for an immediate push+pull instead of waiting for its sc
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated-sync-nudge` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `imbib-app-service_sync-status`
 
@@ -229,7 +358,18 @@ The CloudKit sync engine's real state: whether it is on, when it last pushed and
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated-sync-status` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"running":true}
+  ```
 
 ## `imbib-app-service_tag-artifact`
 
@@ -242,10 +382,21 @@ Replace an artifact's tags. Whole-set write, like notes.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact_id` | string | yes | *(undocumented)* |
-| `tags` | array | yes | *(undocumented)* |
+| `artifact_id` | string | yes | UUID of the artifact to tag. |
+| `tags` | array | yes | Hierarchical tag paths to add. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-tag-artifact` — Tier B (isolated host):
+
+  ```json
+  {"artifact_id":"{{fixture.artifact_id}}","tags":["g3/native"]}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imbib-app-service_update-notes`
 
@@ -258,8 +409,19 @@ Replace a paper's notes. Whole-field write: read them first if you mean to appen
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `cite_key` | string | yes | *(undocumented)* |
-| `notes` | string | yes | *(undocumented)* |
+| `cite_key` | string | yes | Unique bibliography citation key of the paper. |
+| `notes` | string | yes | Complete replacement Markdown note text. |
 
-_No examples yet._
+**Examples**
+
+- `isolated-update-notes` — Tier B (isolated host):
+
+  ```json
+  {"cite_key":"G3Native2026","notes":"Revised owned native note"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 

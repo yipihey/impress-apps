@@ -15,7 +15,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -37,13 +37,13 @@ What touches a record kind, or what a verb touches: every linked verb that decla
 
 **Examples**
 
-- `by_kind`:
+- `by_kind` — Tier A:
 
   ```json
   {"kind": "imbib/bibliography-entry"}
   ```
 
-- `by_verb`:
+- `by_verb` — Tier A:
 
   ```json
   {"verb": "imbib-library-service_count-publications"}
@@ -65,13 +65,13 @@ Every linked verb, optionally narrowed by a case-insensitive substring of its na
 
 **Examples**
 
-- `all`:
+- `all` — Tier A:
 
   ```json
   {}
   ```
 
-- `search`:
+- `search` — Tier A:
 
   ```json
   {"search": "publications"}
@@ -92,7 +92,7 @@ The generated form for one verb (ADR-0035 D2): `verb_surface` over its descripto
 
 **Examples**
 
-- `surface_demo`:
+- `surface_demo` — Tier A:
 
   ```json
   {"verb": "surface-demo-service_series"}

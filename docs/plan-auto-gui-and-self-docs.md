@@ -1921,3 +1921,22 @@ agent-surfaces.md, ex = an example surface, test); Desc = `fallback` when the de
   batches, complete generated tables, the hard completeness gate, native proofs,
   package gates, PR and merge are still pending. No external example was run on
   a user's app or data.
+
+- 2026-09-28 — **G3 remainder, complete descriptor coverage checkpoint.** All
+  479 linked verbs (including optional semantic search) now have examples and
+  all 1,068 top-level arguments have descriptions. The hard completeness gate
+  passes; Tier A executes 403 examples successfully. The tables were regenerated
+  from the `census`, `descriptor`, and `effects` dumps with `semantic-search`;
+  seeded effects coverage is now 327 verbs plus seven catalogue checks, and the
+  exception ceiling drops from 300 to 145. Reference pages come from the default
+  inventory generator. Fixtures verify persisted state after mutations and
+  resolve deletion targets before and after execution without weakening effects.
+  Explicit Tier B proofs also pass for two PDFKit source-image examples, three
+  semantic examples against a real model/index in an owned cache, the stored
+  scenario runner, and three headless selftest catalogues. The semantic paths
+  honor explicit store/index overrides; the negative semantic fixture refuses
+  before downloading a model. The imprint selftest captures its intentional
+  native-export refusal in an inner pipeline scope instead of leaking it into
+  the enclosing report. Remaining work is the final package gates, native
+  framework cohort and host proofs, PR, and merge. Device/network/credential
+  examples are marked Tier B and are not counted as executed by the headless run.

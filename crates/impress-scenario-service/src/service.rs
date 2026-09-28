@@ -89,6 +89,12 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// (and every other "run arbitrary steps" verb) an external safety class
     /// rather than trying to infer a tighter one from what happens to run.
     #[impress_method(safety = external, effects(reads = ["impress/scenario@1.0.0"], writes = [any("a scenario's steps may call any verb, including a mutating one")], reach = [network]))]
+    #[impress_example(
+        name = "run-owned-noop",
+        tier = "b",
+        args = r#"{"scenario_id":"example.noop","tier":"a"}"#,
+        expect = r#"{"ok":true,"total":1,"passed":1,"failed":0,"skipped":0}"#
+    )]
     async fn scenario_run(
         &self,
         scenario_id: String,

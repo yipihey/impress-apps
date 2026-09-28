@@ -13,9 +13,20 @@ Cancel a task that has not started, and every pending task downstream of it (ADR
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `task_id` | string | yes | *(undocumented)* |
+| `task_id` | string | yes | UUID of the task to cancel, including pending downstream tasks. |
 
-_No examples yet._
+**Examples**
+
+- `cancel_scratch_pending_task` — Tier A:
+
+  ```json
+  {"task_id":"5d000000-0000-4000-8000-000000000007"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impel-service_job-cancel`
 
@@ -28,9 +39,20 @@ Ask a job to stop. Sets `cancel_requested` on a running job — the executor sto
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of a pending or running job to request cancellation for. |
 
-_No examples yet._
+**Examples**
+
+- `cancel_scratch_pending_job` — Tier A:
+
+  ```json
+  {"id":"5d000000-0000-4000-8000-00000000000b"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"state":"cancelled"}
+  ```
 
 ## `impel-service_job-events`
 
@@ -43,11 +65,22 @@ The job's progress events past `after_seq` (0 = from the start), oldest first, w
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `after_seq` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `limit` | — | no | *(undocumented)* |
+| `after_seq` | — | no | Last seen sequence; null or zero starts at the beginning. |
+| `id` | string | yes | UUID of the job whose progress events are needed. |
+| `limit` | — | no | Maximum events; null or zero returns all currently retained events. |
 
-_No examples yet._
+**Examples**
+
+- `scratch_job_progress` — Tier A:
+
+  ```json
+  {"id":"5d000000-0000-4000-8000-000000000009","after_seq":0,"limit":5}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"next_seq":1,"gap":false,"events":[{"seq":1,"name":"indexed","payload":{"papers":3}}]}
+  ```
 
 ## `impel-service_job-result`
 
@@ -60,9 +93,20 @@ The verb's own result, exactly as a synchronous call would have answered it, onc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the finished job whose original verb result is needed. |
 
-_No examples yet._
+**Examples**
+
+- `scratch_job_result` — Tier A:
+
+  ```json
+  {"id":"5d000000-0000-4000-8000-00000000000c"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"state":"done","result":{"ok":true,"answer":42}}
+  ```
 
 ## `impel-service_job-status`
 
@@ -75,9 +119,20 @@ A job's row: state, whether a cancel is pending, where it ran, and whether `job_
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of an ordinary kernel task or long-running verb job. |
 
-_No examples yet._
+**Examples**
+
+- `scratch_done_job_status` — Tier A:
+
+  ```json
+  {"id":"5d000000-0000-4000-8000-000000000008"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"5d000000-0000-4000-8000-000000000008","kind":"smart-search-service_classify-search-input","state":"done","has_result":true}
+  ```
 
 ## `impel-service_job-wait`
 
@@ -90,11 +145,22 @@ Long-poll for the next event past `after_seq`, up to `timeout_ms` (at most 55000
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `after_seq` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `timeout_ms` | integer | yes | *(undocumented)* |
+| `after_seq` | — | no | Last seen event sequence; null or zero starts at the beginning. |
+| `id` | string | yes | UUID of the job to await. |
+| `timeout_ms` | integer | yes | Wait deadline in milliseconds, capped at 55,000 by the runner. |
 
-_No examples yet._
+**Examples**
+
+- `scratch_finished_job_wait` — Tier A:
+
+  ```json
+  {"id":"5d000000-0000-4000-8000-00000000000a","after_seq":0,"timeout_ms":100}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"state":"done","finished":true,"timed_out":false}
+  ```
 
 ## `impel-service_list-failed-tasks`
 
@@ -109,14 +175,14 @@ Terminally-failed tasks, newest first, each with the recorded error and the subj
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum failed tasks to return, newest first; zero selects the default of 50. |
 
 **Examples**
 
-- `default`:
+- `scratch_failed_task` — Tier A:
 
   ```json
-  {"limit": 5}
+  {"limit":5}
   ```
 
 ## `impel-service_list-pending-reviews`
@@ -132,14 +198,14 @@ The human review queue: unresolved checkpoints, oldest first, because the oldest
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum unresolved checkpoints to return, oldest first; zero selects 50. |
 
 **Examples**
 
-- `default`:
+- `scratch_review_queue` — Tier A:
 
   ```json
-  {"limit": 5}
+  {"limit":5}
   ```
 
 ## `impel-service_resolve-review`
@@ -155,10 +221,21 @@ The suspended task resumes on the scheduler's next pass.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `resolution` | string | yes | *(undocumented)* |
-| `review_id` | string | yes | *(undocumented)* |
+| `resolution` | string | yes | Exactly `approved` or `rejected`; any other answer is refused. |
+| `review_id` | string | yes | UUID of an unresolved review-request row. |
 
-_No examples yet._
+**Examples**
+
+- `approve_scratch_review` — Tier A:
+
+  ```json
+  {"review_id":"5d000000-0000-4000-8000-000000000005","resolution":"approved"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `impel-service_retention-status`
 
@@ -175,14 +252,19 @@ Read-only — it never deletes anything. The sweep itself belongs to ai-server's
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `window_days` | integer | yes | *(undocumented)* |
+| `window_days` | integer | yes | Age cutoff in days for the read-only preview; zero selects 90. |
 
 **Examples**
 
-- `default`:
+- `scratch_retention_preview` — Tier A:
 
   ```json
-  {"window_days": 30}
+  {"window_days":30}
+  ```
+  expects:
+
+  ```json
+  {"window_days":30}
   ```
 
 ## `impel-service_scheduler-status`
@@ -200,7 +282,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `scratch_scheduler_backlog` — Tier A:
 
   ```json
   {}

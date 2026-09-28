@@ -258,7 +258,12 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Atomically append a user message and queue its offline-capable response
     /// task. Attachment ids must already identify content-blob items.
-    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["chat-message", "task@1.0.0"]))]
+    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0", "chat-message"], writes = ["conversation@1.0.0", "chat-message", "task@1.0.0"]))]
+    #[impress_example(
+        name = "queue-scratch-question",
+        args = r#"{"conversation_id":"68000000-0000-4000-8000-000000000001","body":"Summarize the methods in this project.","attachment_ids":[]}"#,
+        expect = r#"{"success":true}"#
+    )]
     async fn queue_message(
         &self,
         conversation_id: String,
@@ -268,6 +273,11 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Replace the conversation's enabled tool-capability policy.
     #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["conversation@1.0.0"]))]
+    #[impress_example(
+        name = "allow-research-tools",
+        args = r#"{"conversation_id":"68000000-0000-4000-8000-000000000002","enabled_tools":["impress-mcp","web"]}"#,
+        expect = r#"{"success":true}"#
+    )]
     async fn set_enabled_tools(
         &self,
         conversation_id: String,
@@ -275,28 +285,48 @@ pub trait ImpressAiService: Send + Sync + 'static {
     ) -> ConversationMutationResult;
 
     /// Read durable scheduler/run progress for a queued response task.
-    #[impress_method(effects(reads = ["task@1.0.0"]))]
+    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "chat-message"]))]
+    #[impress_example(
+        name = "pending-scratch-task",
+        args = r#"{"task_id":"68000000-0000-4000-8000-000000000003"}"#,
+        expect = r#"{"task":{"state":"pending"}}"#
+    )]
     async fn task_status(&self, task_id: String) -> TaskStatusResult;
 
     /// Return the latest model run lineage for a response task: canonical
     /// inputs, tool invocations, and attributed outputs.
-    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0"]))]
+    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0", any("run lineage loads produced outputs of any record kind")]))]
+    #[impress_example(
+        name = "scratch-task-lineage",
+        args = r#"{"task_id":"68000000-0000-4000-8000-000000000004"}"#
+    )]
     async fn task_provenance(&self, task_id: String) -> ProvenanceResult;
 
     /// Return complete lineage for a specific agent-run item.
-    #[impress_method(effects(reads = ["agent-run@1.0.0", "tool-invocation@1.0.0"]))]
+    #[impress_method(effects(reads = ["agent-run@1.0.0", "task@1.0.0", "tool-invocation@1.0.0", any("run lineage loads produced outputs of any record kind")]))]
+    #[impress_example(
+        name = "scratch-run-lineage",
+        args = r#"{"run_id":"68000000-0000-4000-8000-000000000006"}"#
+    )]
     async fn run_provenance(&self, run_id: String) -> ProvenanceResult;
 
     /// Store-hygiene health from the AI daemon: db/WAL/freelist sizes, the
     /// maintenance lease, last verb outcomes, and the trailing-24h op rate.
     /// `daemon_reachable: false` (never an error) when it isn't running.
     #[impress_method(safety = external, effects(reach = [network]))]
+    #[impress_example(
+        name = "isolated-daemon-health",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"{"daemon_reachable":true}"#
+    )]
     async fn ai_health(&self) -> AiHealthResult;
 
     /// Mint a single-use browser pairing link for the AI daemon (15-minute
     /// expiry). Requires the local keychain bearer (`com.impress.ai-http`),
     /// so this works on the Mac that runs the daemon, not remotely.
     #[impress_method(safety = external, effects(reach = [network]))]
+    #[impress_example(name = "isolated-daemon-pairing", tier = "b", args = r#"{}"#)]
     async fn mint_pairing_link(&self) -> PairingLinkResult;
 }
 
@@ -856,17 +886,31 @@ impress_service_impl! {
             enabled_tools: Vec<String>
         ) -> ConversationMutationResult,
         queue_message(
+            /// UUID of the conversation that receives the user turn.
             conversation_id: String,
+            /// User message text; private content is redacted from public tool logs.
             #[impress_private] body: String,
+            /// Existing content-blob UUIDs to attach, or an empty list.
             attachment_ids: Vec<String>
         ) -> QueuedMessageResult,
         set_enabled_tools(
+            /// UUID of the conversation whose tool policy changes.
             conversation_id: String,
+            /// Stable capability IDs enabled for subsequent turns.
             enabled_tools: Vec<String>
         ) -> ConversationMutationResult,
-        task_status(task_id: String) -> TaskStatusResult,
-        task_provenance(task_id: String) -> ProvenanceResult,
-        run_provenance(run_id: String) -> ProvenanceResult,
+        task_status(
+            /// UUID of the durable response task to inspect.
+            task_id: String
+        ) -> TaskStatusResult,
+        task_provenance(
+            /// UUID of the response task whose latest model run is traced.
+            task_id: String
+        ) -> ProvenanceResult,
+        run_provenance(
+            /// UUID of the specific agent run to trace.
+            run_id: String
+        ) -> ProvenanceResult,
         ai_health() -> AiHealthResult,
         mint_pairing_link() -> PairingLinkResult,
     ],

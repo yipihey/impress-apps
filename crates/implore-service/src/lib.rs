@@ -279,7 +279,7 @@ pub trait ImploreService: Send + Sync + 'static {
         name = "host-status",
         tier = "b",
         args = r#"{}"#,
-        expect = r#"{"running":false}"#
+        expect = r#"{"running":true}"#
     )]
     async fn status(&self) -> AppStatus;
 
@@ -288,15 +288,14 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-log-tail",
         tier = "b",
-        args = r#"{"limit":20,"level":"warning"}"#,
-        expect = r#"[]"#
+        args = r#"{"limit":20,"level":"warning"}"#
     )]
     async fn get_logs(&self, limit: u32, level: Option<String>) -> Vec<LogEntry>;
 
     /// Datasets currently open in implore, with row and column counts. START
     /// HERE for any plotting request: figures are created against a dataset id.
     #[impress_method]
-    #[impress_example(name = "host-datasets", tier = "b", args = r#"{}"#, expect = r#"[]"#)]
+    #[impress_example(name = "host-datasets", tier = "b", args = r#"{}"#)]
     async fn list_datasets(&self) -> Vec<DatasetRecord>;
 
     /// One dataset in detail, including per-column statistics where implore has
@@ -305,8 +304,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-dataset-detail",
         tier = "b",
-        args = r#"{"dataset_id":"{{state.dataset_id}}"}"#,
-        expect = r#"null"#
+        args = r#"{"dataset_id":"{{state.dataset_id}}"}"#
     )]
     async fn get_dataset(&self, dataset_id: String) -> Option<DatasetRecord>;
 
@@ -315,8 +313,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-dataset-figures",
         tier = "b",
-        args = r#"{"dataset_id":"{{state.dataset_id}}"}"#,
-        expect = r#"[]"#
+        args = r#"{"dataset_id":"{{state.dataset_id}}"}"#
     )]
     async fn list_figures(&self, dataset_id: Option<String>) -> Vec<FigureRecord>;
 
@@ -325,8 +322,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-figure-detail",
         tier = "b",
-        args = r#"{"figure_id":"{{state.figure_id}}"}"#,
-        expect = r#"null"#
+        args = r#"{"figure_id":"{{state.figure_id}}"}"#
     )]
     async fn get_figure(&self, figure_id: String) -> Option<FigureRecord>;
 
@@ -367,7 +363,7 @@ pub trait ImploreService: Send + Sync + 'static {
         name = "host-inline-scatter",
         tier = "b",
         args = r#"{"dataset_id":"inline","plot_type":"scatter","x":"time (s)","y":"flux","name":"G3 decay","series":[{"label":"run 1","x":[0,1,2],"y":[1,0.6,0.36]}],"spec":null,"svg":null}"#,
-        expect = r#"{"ok":false}"#
+        expect = r#"{"ok":true,"drawn_from":"series"}"#
     )]
     #[allow(clippy::too_many_arguments)]
     async fn create_figure(
@@ -389,8 +385,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-png-export",
         tier = "b",
-        args = r#"{"figure_id":"{{state.figure_id}}","format":"png"}"#,
-        expect = r#"null"#
+        args = r#"{"figure_id":"{{state.figure_id}}","format":"png"}"#
     )]
     async fn export_figure(&self, figure_id: String, format: String) -> Option<String>;
 
@@ -399,8 +394,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-series-svg",
         tier = "b",
-        args = r#"{"series":["flux"],"title":"G3 flux"}"#,
-        expect = r#"null"#
+        args = r#"{"series":["flux"],"title":"G3 flux"}"#
     )]
     async fn plot_series(&self, series: Vec<String>, title: Option<String>) -> Option<String>;
 
@@ -409,8 +403,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-histogram-svg",
         tier = "b",
-        args = r#"{"quantity":"flux","bins":24}"#,
-        expect = r#"null"#
+        args = r#"{"quantity":"flux","bins":24}"#
     )]
     async fn plot_histogram(&self, quantity: Option<String>, bins: Option<u32>) -> Option<String>;
 

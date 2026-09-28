@@ -23,7 +23,7 @@ An unknown id is `ok: false` with "not found", never an empty success.
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000"}
@@ -58,7 +58,7 @@ Nothing is withheld here — dismissed items included. Unlike a search, a browse
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"schema_ref": "manuscript", "limit": 5, "offset": 0}
@@ -82,7 +82,7 @@ Everything connected to one item, in BOTH directions, across ALL edge types — 
 
 **Examples**
 
-- `missing-item`:
+- `missing-item` — Tier A:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "limit": 10}
@@ -115,7 +115,7 @@ Items with `status: "dismissed"` are deliberately withheld; everything else, arc
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"query": "effects", "limit_per_schema": 3}

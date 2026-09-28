@@ -32,7 +32,18 @@ Example (CLI): impress create-figure --dataset-id inline --plot-type scatter --x
 | `x` | string | yes | X-axis label (a dataset column name). Ignored for `spec`/`svg`. |
 | `y` | — | no | Y-axis label (a dataset column name). Ignored for `spec`/`svg`. |
 
-_No examples yet._
+**Examples**
+
+- `host-inline-scatter` — Tier B (isolated host):
+
+  ```json
+  {"dataset_id":"inline","plot_type":"scatter","x":"time (s)","y":"flux","name":"G3 decay","series":[{"label":"run 1","x":[0,1,2],"y":[1,0.6,0.36]}],"spec":null,"svg":null}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"drawn_from":"series"}
+  ```
 
 ## `implore-service_export-figure`
 
@@ -45,10 +56,16 @@ Export a figure to a file and return its path. `format` is `png`, `pdf` or `svg`
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `figure_id` | string | yes | *(undocumented)* |
-| `format` | string | yes | *(undocumented)* |
+| `figure_id` | string | yes | Figure ID to export from the running host. |
+| `format` | string | yes | Output format: `png`, `pdf`, or `svg`. |
 
-_No examples yet._
+**Examples**
+
+- `host-png-export` — Tier B (isolated host):
+
+  ```json
+  {"figure_id":"{{state.figure_id}}","format":"png"}
+  ```
 
 ## `implore-service_get-dataset`
 
@@ -61,9 +78,15 @@ One dataset in detail, including per-column statistics where implore has compute
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `dataset_id` | string | yes | *(undocumented)* |
+| `dataset_id` | string | yes | Dataset ID from the running implore host. |
 
-_No examples yet._
+**Examples**
+
+- `host-dataset-detail` — Tier B (isolated host):
+
+  ```json
+  {"dataset_id":"{{state.dataset_id}}"}
+  ```
 
 ## `implore-service_get-figure`
 
@@ -76,9 +99,15 @@ One figure's definition.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `figure_id` | string | yes | *(undocumented)* |
+| `figure_id` | string | yes | Figure ID from the running implore host. |
 
-_No examples yet._
+**Examples**
+
+- `host-figure-detail` — Tier B (isolated host):
+
+  ```json
+  {"figure_id":"{{state.figure_id}}"}
+  ```
 
 ## `implore-service_get-logs`
 
@@ -91,10 +120,16 @@ Recent lines from implore's in-memory log store.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `level` | — | no | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
+| `level` | — | no | Optional log level filter, such as `warning`. |
+| `limit` | integer | yes | Maximum recent log entries to return. |
 
-_No examples yet._
+**Examples**
+
+- `host-log-tail` — Tier B (isolated host):
+
+  ```json
+  {"limit":20,"level":"warning"}
+  ```
 
 ## `implore-service_list-datasets`
 
@@ -107,7 +142,13 @@ Datasets currently open in implore, with row and column counts. START HERE for a
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `host-datasets` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `implore-service_list-figures`
 
@@ -120,9 +161,15 @@ Figures in implore, optionally narrowed to one dataset.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `dataset_id` | — | no | *(undocumented)* |
+| `dataset_id` | — | no | Dataset ID to filter by, or null for every figure. |
 
-_No examples yet._
+**Examples**
+
+- `host-dataset-figures` — Tier B (isolated host):
+
+  ```json
+  {"dataset_id":"{{state.dataset_id}}"}
+  ```
 
 ## `implore-service_plot-histogram`
 
@@ -135,10 +182,16 @@ Plot a histogram of one quantity and return the rendered SVG.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bins` | — | no | *(undocumented)* |
-| `quantity` | — | no | *(undocumented)* |
+| `bins` | — | no | Number of bins, or null for the host default. |
+| `quantity` | — | no | Quantity or column to bin, or null for the host selection. |
 
-_No examples yet._
+**Examples**
+
+- `host-histogram-svg` — Tier B (isolated host):
+
+  ```json
+  {"quantity":"flux","bins":24}
+  ```
 
 ## `implore-service_plot-series`
 
@@ -151,10 +204,16 @@ Plot one or more named series and return the rendered SVG.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `series` | array | yes | *(undocumented)* |
-| `title` | — | no | *(undocumented)* |
+| `series` | array | yes | Names of the series to render from the current dataset. |
+| `title` | — | no | Optional title for the plot. |
 
-_No examples yet._
+**Examples**
+
+- `host-series-svg` — Tier B (isolated host):
+
+  ```json
+  {"series":["flux"],"title":"G3 flux"}
+  ```
 
 ## `implore-service_rg-batch`
 
@@ -167,9 +226,15 @@ Run a batch of viewer operations in one call, which is much cheaper than a round
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `params_json` | string | yes | *(undocumented)* |
+| `params_json` | string | yes | JSON array of viewer operations to execute together. |
 
-_No examples yet._
+**Examples**
+
+- `host-viewer-batch` — Tier B (isolated host):
+
+  ```json
+  {"params_json":"[]"}
+  ```
 
 ## `implore-service_rg-cascade-plot`
 
@@ -182,7 +247,13 @@ Render a cascade plot over the loaded volume and return the SVG.
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `host-cascade-svg` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `implore-service_rg-colormaps`
 
@@ -195,7 +266,13 @@ Colormaps the viewer offers, for use with `rg_control`.
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `host-colormaps` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `implore-service_rg-control`
 
@@ -208,9 +285,15 @@ Drive the viewer: pass a JSON object of controls (camera, slice axis and index, 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `params_json` | string | yes | *(undocumented)* |
+| `params_json` | string | yes | JSON object of camera, slice, colormap, or scaling controls. |
 
-_No examples yet._
+**Examples**
+
+- `host-slice-control` — Tier B (isolated host):
+
+  ```json
+  {"params_json":"{\"slice_axis\":\"z\",\"slice_index\":2}"}
+  ```
 
 ## `implore-service_rg-load`
 
@@ -223,9 +306,15 @@ Load a volume dataset into the ray-grid viewer from a path on disk. Everything e
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | *(undocumented)* |
+| `path` | string | yes | Path to a volume file available to the running host. |
 
-_No examples yet._
+**Examples**
+
+- `host-owned-volume` — Tier B (isolated host):
+
+  ```json
+  {"path":"{{fixture.root}}/ai-implore/volume.npy"}
+  ```
 
 ## `implore-service_rg-slice-png`
 
@@ -238,9 +327,15 @@ Render the current slice as a PNG and return it (base64 or a path, depending on 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `format` | — | no | *(undocumented)* |
+| `format` | — | no | Optional viewer encoding or output format. |
 
-_No examples yet._
+**Examples**
+
+- `host-slice-png` — Tier B (isolated host):
+
+  ```json
+  {"format":"png"}
+  ```
 
 ## `implore-service_rg-slice-raw`
 
@@ -253,9 +348,15 @@ The current slice as raw numeric data rather than an image — for analysis rath
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `params_json` | — | no | *(undocumented)* |
+| `params_json` | — | no | Optional JSON parameters selecting the raw slice. |
 
-_No examples yet._
+**Examples**
+
+- `host-raw-slice` — Tier B (isolated host):
+
+  ```json
+  {"params_json":"{}"}
+  ```
 
 ## `implore-service_rg-slice-save`
 
@@ -268,9 +369,15 @@ Write the current slice to a file at `path`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | *(undocumented)* |
+| `path` | string | yes | Path for a slice image on the running host. |
 
-_No examples yet._
+**Examples**
+
+- `host-owned-slice` — Tier B (isolated host):
+
+  ```json
+  {"path":"{{fixture.root}}/ai-implore/slice.png"}
+  ```
 
 ## `implore-service_rg-state`
 
@@ -283,7 +390,13 @@ The viewer's current state — camera, slice position, colormap, loaded dataset.
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `host-viewer-state` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
 
 ## `implore-service_rg-statistics`
 
@@ -296,9 +409,15 @@ Summary statistics over the loaded volume, or a sub-region when the parameters n
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `params_json` | — | no | *(undocumented)* |
+| `params_json` | — | no | Optional JSON parameters selecting a volume sub-region. |
 
-_No examples yet._
+**Examples**
+
+- `host-volume-statistics` — Tier B (isolated host):
+
+  ```json
+  {"params_json":"{}"}
+  ```
 
 ## `implore-service_status`
 
@@ -311,5 +430,16 @@ Whether implore is running, plus its version, port and how many datasets are ope
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `host-status` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"running":true}
+  ```
 

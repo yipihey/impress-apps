@@ -7,7 +7,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use imbib_core::eink::EinkDeviceConfig;
 use impress_core::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
 use impress_core::query::ItemQuery;
 use impress_core::reference::{EdgeType, TypedReference};
@@ -169,11 +168,18 @@ fn device(store: &SqliteItemStore, suffix: &str) -> Result<(), String> {
     } else {
         "G3 reading tablet"
     };
-    let mut config = EinkDeviceConfig::usb_web(id(suffix)?.to_string(), name);
-    // This fixture is metadata only. No headless example connects to the URL.
-    config.base_url = "http://127.0.0.1:65534".into();
+    // The e-ink store supplies all other configuration defaults when reading
+    // this row. No headless example connects to the loopback URL.
     let mut item = row(suffix, refs::IMBIB_EINK_DEVICE, None)?;
-    item.payload = config.to_payload();
+    item.payload
+        .insert("name".into(), ItemValue::String(name.into()));
+    item.payload.insert(
+        "base_url".into(),
+        ItemValue::String("http://127.0.0.1:65534".into()),
+    );
+    item.payload
+        .insert("mirror_mode".into(), ItemValue::String("individual".into()));
+    item.payload.insert("enabled".into(), ItemValue::Bool(true));
     store.insert(item).map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -222,6 +228,7 @@ pub async fn prepare(
         std::fs::create_dir_all(root.join("search-devices"))
             .map_err(|error| format!("create owned search/device fixture directory: {error}"))?;
     }
+    prepare_annotations(verb, store, root)?;
     match verb {
         "imbib-search-service_find-by-cite-key"
         | "imbib-search-service_resolve-cite-key"
@@ -253,7 +260,8 @@ pub async fn prepare(
             paper(store, "08")?;
             clear_mark_paper_mirrors(store)?;
         }
-        "imbib-eink-service_eink-unmark"
+        "imbib-eink-service_eink-note-source-error"
+        | "imbib-eink-service_eink-unmark"
         | "imbib-eink-service_eink-resend"
         | "imbib-eink-service_eink-list-mirrored"
         | "imbib-eink-service_eink-awaiting-source" => {
@@ -285,6 +293,7 @@ pub fn verify(
     _args: &Value,
     result: &Value,
 ) -> Result<(), String> {
+    verify_annotations(verb, store, result)?;
     match verb {
         "imbib-search-service_find-by-cite-key"
         | "imbib-search-service_get-smart-search"
@@ -405,6 +414,106 @@ pub fn verify(
         }
         "imbib-eink-service_eink-list-mirrored" => contains_result_id(result, "id", "07")?,
         "imbib-eink-service_eink-awaiting-source" => contains_result_id(result, "mirror_id", "07")?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn annotation_id(number: u8) -> ItemId {
+    format!("6b000000-0000-4000-8000-{number:012}")
+        .parse()
+        .expect("fixture UUID")
+}
+fn prepare_annotations(verb: &str, store: &SqliteItemStore, root: &Path) -> Result<(), String> {
+    let method = verb.strip_prefix("imbib-eink-service_eink-").unwrap_or("");
+    if !matches!(
+        method,
+        "list-annotations" | "search-annotations" | "pending-ocr" | "complete-ocr" | "append-notes"
+    ) {
+        return Ok(());
+    }
+    for (number, schema, parent) in [
+        (1, refs::IMBIB_BIBLIOGRAPHY_ENTRY, None),
+        (2, refs::IMBIB_LINKED_FILE, Some(annotation_id(1))),
+        (3, refs::IMBIB_ANNOTATION, Some(annotation_id(2))),
+    ] {
+        if store
+            .get(annotation_id(number))
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
+            store
+                .delete(annotation_id(number))
+                .map_err(|e| e.to_string())?;
+        }
+        let mut item = super::seed_item(annotation_id(number), schema.as_str(), parent);
+        item.payload
+            .insert("title".into(), ItemValue::String("G3 tablet paper".into()));
+        if number == 3 {
+            let ink = matches!(method, "pending-ocr" | "complete-ocr");
+            item.payload
+                .insert("source".into(), ItemValue::String("remarkable".into()));
+            item.payload.insert(
+                "annotation_type".into(),
+                ItemValue::String(if ink { "ink" } else { "highlight" }.into()),
+            );
+            item.payload.insert("page_number".into(), ItemValue::Int(1));
+            item.payload.insert(
+                "selected_text".into(),
+                ItemValue::String("G3 tablet highlight".into()),
+            );
+            item.payload.insert(
+                "source_remote_id".into(),
+                ItemValue::String("g3-owned-notebook".into()),
+            );
+            item.payload
+                .insert("imported_at_ms".into(), ItemValue::Int(1000));
+            let path = root.join("search-devices/ink.png");
+            std::fs::write(&path, include_bytes!("g3-ink.png")).map_err(|e| e.to_string())?;
+            item.payload.insert(
+                "image_path".into(),
+                ItemValue::String(path.to_string_lossy().into_owned()),
+            );
+        }
+        store.insert(item).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+fn verify_annotations(verb: &str, store: &SqliteItemStore, result: &Value) -> Result<(), String> {
+    match verb.strip_prefix("imbib-eink-service_eink-").unwrap_or("") {
+        "complete-ocr" => {
+            let row = store
+                .get(annotation_id(3))
+                .map_err(|e| e.to_string())?
+                .ok_or("ink missing")?;
+            if row.payload.get("contents")
+                != Some(&ItemValue::String("Recognized owned ink".into()))
+                || row.payload.get("ocr_confidence") != Some(&ItemValue::Float(0.95))
+            {
+                return Err("OCR text/confidence not saved".into());
+            }
+        }
+        "append-notes" => {
+            let row = store
+                .get(annotation_id(1))
+                .map_err(|e| e.to_string())?
+                .ok_or("paper missing")?;
+            if !matches!(row.payload.get("note"), Some(ItemValue::String(note)) if note.contains("G3 tablet highlight"))
+            {
+                return Err("tablet note not appended".into());
+            }
+        }
+        "note-source-error" => {
+            let row = store
+                .get(id("07")?)
+                .map_err(|e| e.to_string())?
+                .ok_or("mirror missing")?;
+            if result["ok"] != true
+                || !format!("{:?}", row.payload).contains("Owned source is offline")
+            {
+                return Err("source error not retained".into());
+            }
+        }
         _ => {}
     }
     Ok(())

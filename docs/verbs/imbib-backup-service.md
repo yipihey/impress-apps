@@ -13,10 +13,16 @@ Snapshot the whole shared impress store — papers, tags, collections, manuscrip
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `directory` | string | yes | *(undocumented)* |
-| `label` | — | no | *(undocumented)* |
+| `directory` | string | yes | Backup directory; an empty string chooses the user's default folder. |
+| `label` | — | no | Optional label recorded in the backup manifest. |
 
-_No examples yet._
+**Examples**
+
+- `snapshot-scratch-library` — Tier A:
+
+  ```json
+  {"directory":"{{fixture.root}}/maintenance/create","label":"G3 backup"}
+  ```
 
 ## `imbib-backup-service_delete-backup`
 
@@ -29,9 +35,20 @@ Delete one backup file and its manifest sidecar.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | *(undocumented)* |
+| `path` | string | yes | Path to the owned `.impressbackup` file to delete. |
 
-_No examples yet._
+**Examples**
+
+- `delete-scratch-backup` — Tier A:
+
+  ```json
+  {"path":"{{fixture.root}}/maintenance/delete/remove.impressbackup"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imbib-backup-service_inspect-backup`
 
@@ -44,9 +61,20 @@ Validate a backup file without touching the live store: integrity check, require
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | *(undocumented)* |
+| `path` | string | yes | Path to one `.impressbackup` file to validate. |
 
-_No examples yet._
+**Examples**
+
+- `inspect-scratch-backup` — Tier A:
+
+  ```json
+  {"path":"{{fixture.root}}/maintenance/inspect/check.impressbackup"}
+  ```
+  expects:
+
+  ```json
+  {"valid":true}
+  ```
 
 ## `imbib-backup-service_list-backups`
 
@@ -59,9 +87,15 @@ List backups in a directory, newest first, with record counts and sizes. Empty `
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `directory` | string | yes | *(undocumented)* |
+| `directory` | string | yes | Backup directory; an empty string chooses the user's default folder. |
 
-_No examples yet._
+**Examples**
+
+- `list-scratch-backups` — Tier A:
+
+  ```json
+  {"directory":"{{fixture.root}}/maintenance/list"}
+  ```
 
 ## `imbib-backup-service_prune-backups`
 
@@ -74,10 +108,16 @@ Retention sweep: keep the `keep` newest backups in a directory and delete the re
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `directory` | string | yes | *(undocumented)* |
-| `keep` | integer | yes | *(undocumented)* |
+| `directory` | string | yes | Directory whose backups are subject to retention. |
+| `keep` | integer | yes | Number of newest backups to retain; zero removes all in that directory. |
 
-_No examples yet._
+**Examples**
+
+- `prune-scratch-backups` — Tier A:
+
+  ```json
+  {"directory":"{{fixture.root}}/maintenance/prune","keep":0}
+  ```
 
 ## `imbib-backup-service_restore-backup`
 
@@ -90,7 +130,18 @@ Replace the ENTIRE library with a backup — including imprint manuscripts and i
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | *(undocumented)* |
+| `path` | string | yes | Path to the approved backup to restore through the running app. |
 
-_No examples yet._
+**Examples**
+
+- `host-required` — Tier B (isolated host):
+
+  ```json
+  {"path":"{{fixture.root}}/maintenance/restore/approved.impressbackup"}
+  ```
+  expects:
+
+  ```json
+  {"requires_relaunch":true}
+  ```
 

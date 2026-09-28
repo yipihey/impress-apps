@@ -80,7 +80,8 @@ use serde_json::Value;
 /// against an empty call log (no store to seed with a recorded session), so
 /// the spy observes nothing — the same "exercised, unobserved" shape as
 /// `history-service_save-macro` beside it.
-const EXCEPTION_CEILING: usize = 300;
+// G3: seeded examples reduced the reviewed exception set from 300 to 145.
+const EXCEPTION_CEILING: usize = 145;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
@@ -576,10 +577,19 @@ fn resolve(kind: &Kind, args: &Value, store: &SqliteItemStore) -> Option<Vec<Str
     }
 }
 
-fn covered(declared: &[Kind], observed: &str, args: &Value, store: &SqliteItemStore) -> bool {
-    declared.iter().any(|k| {
-        let resolved = resolve(k, args, store);
-        k.covers(observed, resolved.as_deref())
+fn covered(
+    declared: &[Kind],
+    before: &[Option<Vec<String>>],
+    observed: &str,
+    args: &Value,
+    store: &SqliteItemStore,
+) -> bool {
+    declared.iter().enumerate().any(|(index, kind)| {
+        // A deletion removes the row needed to resolve target/children. A
+        // creation can introduce it. Check both snapshots, outside the spy;
+        // never broaden a target declaration to every observed kind.
+        kind.covers(observed, before[index].as_deref())
+            || kind.covers(observed, resolve(kind, args, store).as_deref())
     })
 }
 
@@ -626,6 +636,18 @@ async fn run_examples(
                 continue;
             }
         };
+        let reads_before: Vec<_> = v
+            .effects
+            .reads
+            .iter()
+            .map(|kind| resolve(kind, &args, store))
+            .collect();
+        let writes_before: Vec<_> = v
+            .effects
+            .writes
+            .iter()
+            .map(|kind| resolve(kind, &args, store))
+            .collect();
         effects_spy::start();
         let result = run_linked_example_with_args(
             v,
@@ -653,7 +675,7 @@ async fn run_examples(
         }
         ran += 1;
         for kind in &observed.reads {
-            if !covered(v.effects.reads, kind, &args, store) {
+            if !covered(v.effects.reads, &reads_before, kind, &args, store) {
                 out.failures.push(format!(
                     "`{}` example `{}` read `{kind}`, which it does not declare (reads: {})",
                     v.name,
@@ -663,7 +685,7 @@ async fn run_examples(
             }
         }
         for kind in &observed.writes {
-            if !covered(v.effects.writes, kind, &args, store) {
+            if !covered(v.effects.writes, &writes_before, kind, &args, store) {
                 out.failures.push(format!(
                     "`{}` example `{}` wrote `{kind}`, which it does not declare (writes: {})",
                     v.name,

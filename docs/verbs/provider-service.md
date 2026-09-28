@@ -15,7 +15,7 @@ Takes no arguments.
 
 **Examples**
 
-- `registered-providers`:
+- `registered-providers` — Tier A:
 
   ```json
   {}
@@ -42,7 +42,7 @@ Apply or revoke the person's trust in a runtime provider's declared safety class
 
 **Examples**
 
-- `non-person-refused`:
+- `non-person-refused` — Tier A:
 
   ```json
   {"provider_id":"example","trusted":true}

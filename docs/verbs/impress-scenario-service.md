@@ -18,7 +18,7 @@ Store a spec as a new `impress/scenario@1.0.0` row, after validating it exactly 
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}
@@ -39,7 +39,7 @@ One stored scenario, by its row id OR its stable `scenario_id` (`layout.saved_ro
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"id": "example.noop"}
@@ -58,7 +58,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -82,7 +82,7 @@ Record one caller's trace or bounded time window as a stored Tier B scenario. On
 
 **Examples**
 
-- `missing-trace`:
+- `recorded-trace` — Tier A:
 
   ```json
   {"trace_id":"scenario-record-example"}
@@ -90,7 +90,7 @@ Record one caller's trace or bounded time window as a stored Tier B scenario. On
   expects:
 
   ```json
-  {"ok":false,"code":"not-found"}
+  {"ok":true,"selected":1,"skipped":[]}
   ```
 
 ## `impress-scenario-service_scenario-run`
@@ -108,7 +108,18 @@ Run one stored scenario by its `scenario_id`, Tier A on a fresh scratch store or
 | `scenario_id` | string | yes | The scenario's stable `scenario_id`. |
 | `tier` | — | no | `"a"` or `"b"`; the scenario's own declared tier when absent. |
 
-_No examples yet._
+**Examples**
+
+- `run-owned-noop` — Tier B (isolated host):
+
+  ```json
+  {"scenario_id":"example.noop","tier":"a"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"total":1,"passed":1,"failed":0,"skipped":0}
+  ```
 
 ## `impress-scenario-service_scenario-validate`
 
@@ -125,7 +136,7 @@ Every structural problem with a scenario spec (`impress-scenario::validate`). `o
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"spec": {"wire_version": 1, "id": "example.noop", "description": "a scenario with one no-op step", "tier": "a", "steps": [{"call": "impress-scenario-service_scenario-list", "args": {}, "as": "agent:scenario"}]}}

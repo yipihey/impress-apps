@@ -13,11 +13,22 @@ Add a review comment to a manuscript. Anchor it to a quoted snippet where you ca
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `anchor` | — | no | *(undocumented)* |
-| `body` | string | yes | *(undocumented)* |
-| `document_id` | string | yes | *(undocumented)* |
+| `anchor` | — | no | Optional exact source snippet to anchor the comment. |
+| `body` | string | yes | Review comment text; kept private in call logs. |
+| `document_id` | string | yes | UUID of an open manuscript with a registered comment service. |
 
-_No examples yet._
+**Examples**
+
+- `comment_on_fixture_heading` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001","body":"Clarify this heading.","anchor":"G3 fixture"}
+  ```
+  expects:
+
+  ```json
+  {"body":"Clarify this heading.","status":"open"}
+  ```
 
 ## `imprint-app-service_create-document`
 
@@ -30,10 +41,16 @@ Create a new imprint document and return its id. For a manuscript scaffolded fro
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `format` | — | no | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `format` | — | no | Manuscript format, such as `typst`; omit for the app default. |
+| `title` | string | yes | Title for the new manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `create_typst_draft` — Tier B (isolated host):
+
+  ```json
+  {"title":"G3 created draft","format":"typst"}
+  ```
 
 ## `imprint-app-service_delete-comment`
 
@@ -46,9 +63,20 @@ Delete a comment outright. Resolving one by setting its status is usually better
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `comment_id` | string | yes | *(undocumented)* |
+| `comment_id` | string | yes | UUID of the comment to remove from an open manuscript. |
 
-_No examples yet._
+**Examples**
+
+- `delete_fixture_comment` — Tier B (isolated host):
+
+  ```json
+  {"comment_id":"{{fixture.imprint_comment_id}}"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-app-service_delete-text`
 
@@ -61,11 +89,22 @@ Delete a UTF-16 editor range from a manuscript. Offsets are into the source text
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `length` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript open in the editor. |
+| `length` | integer | yes | Number of UTF-16 code units to remove. |
+| `offset` | integer | yes | UTF-16 start offset of the text to remove. |
 
-_No examples yet._
+**Examples**
+
+- `remove_fixture_prefix` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001","offset":2,"length":3}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-app-service_get-bibliography`
 
@@ -78,9 +117,20 @@ The BibTeX bibliography a manuscript resolves to: every `@citeKey` in the source
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript whose citation keys are resolved. |
 
-_No examples yet._
+**Examples**
+
+- `fixture_bibliography` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  ""
+  ```
 
 ## `imprint-app-service_get-content`
 
@@ -93,9 +143,20 @@ The full source text of a manuscript. Use this to read before editing; section-l
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript whose full source is needed. |
 
-_No examples yet._
+**Examples**
+
+- `read_fixture_source` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  "= G3 fixture\n"
+  ```
 
 ## `imprint-app-service_get-logs`
 
@@ -108,11 +169,17 @@ Recent lines from imprint's in-memory log store — the same feed its Console wi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `category` | — | no | *(undocumented)* |
-| `level` | — | no | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
+| `category` | — | no | Optional logging subsystem name. |
+| `level` | — | no | Comma-separated levels, such as `info,warning,error`; omit for all levels. |
+| `limit` | integer | yes | Maximum recent log entries to return. |
 
-_No examples yet._
+**Examples**
+
+- `recent_manuscript_logs` — Tier B (isolated host):
+
+  ```json
+  {"limit":10,"level":"info,warning,error","category":"manuscripts"}
+  ```
 
 ## `imprint-app-service_get-pdf`
 
@@ -125,9 +192,20 @@ Compile a manuscript and report where the PDF landed. The bytes are not returned
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript to compile in the running app. |
 
-_No examples yet._
+**Examples**
+
+- `compile_fixture_pdf` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imprint-app-service_insert-text`
 
@@ -140,11 +218,22 @@ Insert text at a UTF-16 editor offset in a manuscript. Goes through the running 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
-| `text` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript open in the editor. |
+| `offset` | integer | yes | UTF-16 insertion offset in the current source. |
+| `text` | string | yes | Text to insert at the editor offset; kept private in call logs. |
 
-_No examples yet._
+**Examples**
+
+- `append_fixture_paragraph` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001","offset":13,"text":"A paragraph.\n"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-app-service_list-comments`
 
@@ -157,9 +246,15 @@ Review comments on a manuscript, newest first.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of an open manuscript with a registered comment service. |
 
-_No examples yet._
+**Examples**
+
+- `fixture_review_comments` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001"}
+  ```
 
 ## `imprint-app-service_replace`
 
@@ -172,11 +267,22 @@ Replace every occurrence of `find` with `replace` in a manuscript. Returns how m
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `find` | string | yes | *(undocumented)* |
-| `replace` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript whose source is searched. |
+| `find` | string | yes | Exact source text to find throughout the manuscript. |
+| `replace` | string | yes | Replacement source text; kept private in call logs. |
 
-_No examples yet._
+**Examples**
+
+- `replace_fixture_word` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001","find":"fixture","replace":"example"}
+  ```
+  expects:
+
+  ```json
+  1
+  ```
 
 ## `imprint-app-service_status`
 
@@ -189,7 +295,18 @@ Whether imprint is running, and its version and port. Cheap; a good first call w
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated_app_status` — Tier B (isolated host):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"running":true}
+  ```
 
 ## `imprint-app-service_update-comment`
 
@@ -202,11 +319,22 @@ Edit a comment's body, or set its status to `open` or `resolved`. The native app
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `body` | — | no | *(undocumented)* |
-| `comment_id` | string | yes | *(undocumented)* |
-| `status` | — | no | *(undocumented)* |
+| `body` | — | no | Replacement comment text; omit to keep the current body. |
+| `comment_id` | string | yes | UUID of an existing comment in an open manuscript. |
+| `status` | — | no | `open` or `resolved`; `accepted` and `rejected` require suggestion actions. |
 
-_No examples yet._
+**Examples**
+
+- `resolve_fixture_comment` — Tier B (isolated host):
+
+  ```json
+  {"comment_id":"{{fixture.imprint_comment_id}}","status":"resolved"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-app-service_update-document`
 
@@ -219,14 +347,25 @@ Rename a document.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `title` | — | no | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript to rename. |
+| `title` | — | no | Replacement title; omit to leave it unchanged. |
 
-_No examples yet._
+**Examples**
+
+- `rename_fixture_document` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001","title":"G3 renamed draft"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-app-service_update-metadata`
 
-Replace a document's metadata from a JSON object — authors, keywords, journal target. Whole-object write, so read before you edit.
+Update supported document metadata fields from a JSON object: title, status, authors, ORCID, affiliation, funder, or license. The native editor saves and reads back each supplied field; omitted fields stay.
 
 - **safety**: `external`
 - **reads**: —
@@ -235,8 +374,19 @@ Replace a document's metadata from a JSON object — authors, keywords, journal 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `document_id` | string | yes | *(undocumented)* |
-| `metadata_json` | string | yes | *(undocumented)* |
+| `document_id` | string | yes | UUID of the manuscript whose metadata will be replaced. |
+| `metadata_json` | string | yes | JSON object encoded as a string, containing supported metadata fields to update. |
 
-_No examples yet._
+**Examples**
+
+- `set_fixture_authors` — Tier B (isolated host):
+
+  ```json
+  {"document_id":"5b000000-0000-4000-8000-000000000001","metadata_json":"{\"authors\":[\"G3 Fixture\"]}"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 

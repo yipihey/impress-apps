@@ -13,7 +13,18 @@ Run the surface capability self-tests (`tier` = a | b | all).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `tier` | string | yes | *(undocumented)* |
+| `tier` | string | yes | Catalogue tier: a for owned headless checks, b for the configured live app, or all for both. |
 
-_No examples yet._
+**Examples**
+
+- `owned-headless-catalogue` — Tier B (isolated host):
+
+  ```json
+  {"tier":"a"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"failed":0,"skipped":0}
+  ```
 
