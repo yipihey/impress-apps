@@ -43,6 +43,7 @@ let package = Package(
             dependencies: ["scix_client_ffiFFI"],
             path: "Sources/ImpressScixCore",
             linkerSettings: [
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("Security"),
                 .linkedFramework("CoreFoundation")

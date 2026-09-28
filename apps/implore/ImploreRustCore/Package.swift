@@ -18,7 +18,8 @@ let package = Package(
         .target(
             name: "ImploreRustCore",
             dependencies: ["implore_coreFFI"],
-            path: "Sources/ImploreRustCore"
+            path: "Sources/ImploreRustCore",
+            linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         // Binary target for the Rust static library
         .binaryTarget(

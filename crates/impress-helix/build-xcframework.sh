@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# One SQLite implementation per native app process, including package dylibs.
+source "$SCRIPT_DIR/../../scripts/native-sqlite.sh"
+
 # Incremental release codegen for the framework loop only. This used to be
 # `[profile.release] incremental = true` in the root manifest, where it also
 # applied to the signed binaries in target/release.

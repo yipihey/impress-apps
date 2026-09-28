@@ -85,6 +85,7 @@ let package = Package(
             // rather than patching it, since the file is regenerated on every build.
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("Security"),
                 .linkedFramework("CoreFoundation"),

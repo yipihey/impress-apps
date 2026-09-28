@@ -17,7 +17,8 @@ let package = Package(
         .target(
             name: "ImprintRustCore",
             dependencies: ["imprint_coreFFI"],
-            path: "Sources/ImprintRustCore"
+            path: "Sources/ImprintRustCore",
+            linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .binaryTarget(
             name: "imprint_coreFFI",

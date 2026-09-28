@@ -21,6 +21,7 @@ let package = Package(
             dependencies: ["imbib_coreFFI"],
             path: "Sources/ImbibRustCore",
             linkerSettings: [
+                .linkedLibrary("sqlite3"),
                 // Required by Rust's system-configuration crate (used by reqwest for proxy config)
                 .linkedFramework("SystemConfiguration"),
                 // Required by Rust's security-framework crate (used by native-tls)

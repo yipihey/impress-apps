@@ -15,6 +15,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# One SQLite implementation per native app process, including package dylibs.
+source "$SCRIPT_DIR/../../scripts/native-sqlite.sh"
+
 # Incremental release codegen for the framework loop only (was
 # `[profile.release] incremental = true` in the root manifest, where it also
 # applied to the signed binaries in target/release).
@@ -145,6 +148,10 @@ cargo run --release -p uniffi-bindgen -- generate \
     --library "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.a" \
     --language swift \
     --out-dir "$BINDINGS_DIR"
+
+# UniFFI emits a few lines with trailing spaces when swiftformat is absent.
+# Keep the checked-in binding deterministic without requiring that tool.
+perl -pi -e 's/[ \t]+$//' "$BINDINGS_DIR/${LIB_NAME}.swift"
 
 HEADER_FILE="$BINDINGS_DIR/${LIB_NAME}FFI.h"
 

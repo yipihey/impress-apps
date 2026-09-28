@@ -20,7 +20,8 @@ let package = Package(
             name: "ImpressHelixCore",
             dependencies: ["impress_helixFFI"],
             path: "Sources/ImpressHelixCore",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         // Binary target for the Rust static library
         .binaryTarget(

@@ -14,6 +14,7 @@ let package = Package(
             dependencies: ["implore_verbs_ffiFFI"],
             path: "Sources/ImploreVerbsFFI",
             linkerSettings: [
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("Security"),
                 .linkedFramework("CoreFoundation")

@@ -14,6 +14,7 @@ let package = Package(
             dependencies: ["impart_verbs_ffiFFI"],
             path: "Sources/ImpartVerbsFFI",
             linkerSettings: [
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("Security"),
                 .linkedFramework("CoreFoundation")

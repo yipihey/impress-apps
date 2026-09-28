@@ -21,6 +21,7 @@ let package = Package(
             dependencies: ["impress_store_ffiFFI"],
             path: "Sources/ImpressRustCore",
             linkerSettings: [
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("Security"),
                 .linkedFramework("CoreFoundation")
