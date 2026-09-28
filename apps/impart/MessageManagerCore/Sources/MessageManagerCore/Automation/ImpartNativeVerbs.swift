@@ -127,8 +127,11 @@ final class NativeImpartHost: ImpartNativeCallbacks, @unchecked Sendable {
                     alternativesConsidered: [], actorId: "automation")
                 let stored = await provenance.eventsForConversation(id.uuidString)
                     .contains { $0.id == event.id }
-                if stored { logInfo("Recorded decision provenance for \(id)", category: "research-native") }
-                return success(stored)
+                guard stored else {
+                    return failure(500, "decision-not-recorded", "Decision provenance could not be read back")
+                }
+                logInfo("Recorded decision provenance for \(id)", category: "research-native")
+                return success(true)
 
             case "record_artifact":
                 let id = try requiredUUID(args, "conversation_id")
