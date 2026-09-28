@@ -194,15 +194,15 @@ pub fn verify(
                 return Err(format!("{verb} omitted scratch item {wanted}"));
             }
         }
-        "impress-bridges-service_get-item" | "impress-bridges-service_resolve-artifact" => {
-            if result["id"].as_str() != Some(id("20")?.to_string().as_str()) {
-                return Err(format!("{verb} did not resolve the scratch artifact"));
-            }
+        "impress-bridges-service_get-item" | "impress-bridges-service_resolve-artifact"
+            if result["id"].as_str() != Some(id("20")?.to_string().as_str()) =>
+        {
+            return Err(format!("{verb} did not resolve the scratch artifact"));
         }
-        "impress-bridges-service_extract-papers-from-text" => {
-            if result.as_array().is_none_or(|rows| rows.len() != 2) {
-                return Err("text extraction did not identify both papers".into());
-            }
+        "impress-bridges-service_extract-papers-from-text"
+            if result.as_array().is_none_or(|rows| rows.len() != 2) =>
+        {
+            return Err("text extraction did not identify both papers".into());
         }
         _ => {}
     }

@@ -146,15 +146,11 @@ pub fn verify(
                 return Err("closed-session guard did not preserve its record".into());
             }
         }
-        "get-photo" => {
-            if result["_mcp_content"].as_array().map(Vec::len) != Some(1) {
-                return Err("photo image content absent".into());
-            }
+        "get-photo" if result["_mcp_content"].as_array().map(Vec::len) != Some(1) => {
+            return Err("photo image content absent".into());
         }
-        "search-photos" => {
-            if result["hits"].as_array().map(Vec::len) != Some(1) {
-                return Err("owned photo missing from search".into());
-            }
+        "search-photos" if result["hits"].as_array().map(Vec::len) != Some(1) => {
+            return Err("owned photo missing from search".into());
         }
         _ => {}
     }

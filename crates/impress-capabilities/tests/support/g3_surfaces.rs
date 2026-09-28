@@ -187,18 +187,15 @@ pub fn verify(
                 return Err("surface-show did not persist its surface pane".into());
             }
         }
-        "render" => {
-            if !result["tree"].to_string().contains("ready") {
-                return Err("render omitted resolved state text".into());
-            }
+        "render" if !result["tree"].to_string().contains("ready") => {
+            return Err("render omitted resolved state text".into());
         }
-        "list" => {
+        "list"
             if !result["surfaces"]
                 .as_array()
-                .is_some_and(|rows| rows.iter().any(|row| row["id"] == id(13).to_string()))
-            {
-                return Err("seeded surface missing from list".into());
-            }
+                .is_some_and(|rows| rows.iter().any(|row| row["id"] == id(13).to_string())) =>
+        {
+            return Err("seeded surface missing from list".into());
         }
         _ => {}
     }

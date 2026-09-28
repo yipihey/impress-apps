@@ -419,11 +419,7 @@ pub fn verify(
                 .panes()
                 .iter()
                 .filter_map(|id| live.pane(*id))
-                .find(|pane| {
-                    pane.role
-                        .as_ref()
-                        .is_some_and(|role| role.to_string() == "detail")
-                })
+                .find(|pane| pane.role.as_ref().is_some_and(|role| role == "detail"))
                 .and_then(|pane| {
                     pane.params
                         .iter()

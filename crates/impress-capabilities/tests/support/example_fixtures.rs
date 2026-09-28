@@ -276,36 +276,6 @@ fn resolve_fixture_paths(value: Value, root: &Path) -> Result<Value, String> {
     }
 }
 
-#[cfg(test)]
-mod fixture_path_tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn paths_expand_only_inside_owned_root() {
-        let root = Path::new("/tmp/owned-example");
-        assert_eq!(
-            resolve_fixture_paths(
-                json!({"path":"{{fixture.root}}/documents/readme.md", "bind":"{{state.value}}"}),
-                root
-            )
-            .unwrap(),
-            json!({"path":"/tmp/owned-example/documents/readme.md", "bind":"{{state.value}}"})
-        );
-        for text in [
-            "{{fixture.root}}/../outside",
-            "{{fixture.root}}//outside",
-            "{{fixture.root}}suffix",
-            "{{fixture.unknown}}",
-        ] {
-            assert!(
-                resolve_fixture_paths(json!(text), root).is_err(),
-                "accepted {text}"
-            );
-        }
-    }
-}
-
 /// No external schema resolution: examples only use the descriptor's bundled schema.
 pub fn validate_schema(schema: &Value, instance: &Value) -> Result<(), String> {
     struct NoExternal;
@@ -457,4 +427,34 @@ pub fn verify_bibtex_collection_example(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod fixture_path_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn paths_expand_only_inside_owned_root() {
+        let root = Path::new("/tmp/owned-example");
+        assert_eq!(
+            resolve_fixture_paths(
+                json!({"path":"{{fixture.root}}/documents/readme.md", "bind":"{{state.value}}"}),
+                root
+            )
+            .unwrap(),
+            json!({"path":"/tmp/owned-example/documents/readme.md", "bind":"{{state.value}}"})
+        );
+        for text in [
+            "{{fixture.root}}/../outside",
+            "{{fixture.root}}//outside",
+            "{{fixture.root}}suffix",
+            "{{fixture.unknown}}",
+        ] {
+            assert!(
+                resolve_fixture_paths(json!(text), root).is_err(),
+                "accepted {text}"
+            );
+        }
+    }
 }

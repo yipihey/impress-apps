@@ -234,15 +234,13 @@ pub fn verify(
         "impel-service_job-status"
         | "impel-service_job-events"
         | "impel-service_job-wait"
-        | "impel-service_job-result" => {
-            if result["ok"].as_bool() != Some(true) {
-                return Err(format!("{verb} failed: {result}"));
-            }
+        | "impel-service_job-result"
+            if result["ok"].as_bool() != Some(true) =>
+        {
+            return Err(format!("{verb} failed: {result}"));
         }
-        "impel-service_retention-status" => {
-            if result["live_tasks"].as_u64().unwrap_or(0) < 1 {
-                return Err("retention preview omitted the live scratch task".into());
-            }
+        "impel-service_retention-status" if result["live_tasks"].as_u64().unwrap_or(0) < 1 => {
+            return Err("retention preview omitted the live scratch task".into());
         }
         _ => {}
     }

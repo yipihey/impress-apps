@@ -70,10 +70,10 @@ pub fn verify(
                 return Err("seeded scenario missing from list".into());
             }
         }
-        "scenario-run" => {
-            if result["passed"] != 1 || result["failed"] != 0 || result["skipped"] != 0 {
-                return Err(format!("no-op scenario did not run: {result}"));
-            }
+        "scenario-run"
+            if result["passed"] != 1 || result["failed"] != 0 || result["skipped"] != 0 =>
+        {
+            return Err(format!("no-op scenario did not run: {result}"));
         }
         _ => {}
     }

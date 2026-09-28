@@ -108,22 +108,22 @@ pub fn verify(
                     .as_str()
                     .ok_or("backup directory missing")?,
             );
-            if !Path::new(path).starts_with(&owned) || !Path::new(path).is_file() {
+            if !Path::new(path).starts_with(owned) || !Path::new(path).is_file() {
                 return Err("snapshot was not written to the owned backup directory".into());
             }
         }
         ("imbib-backup-service_list-backups", "list-scratch-backups") => {
             require_backup(result, "seed.impressbackup")?;
         }
-        ("imbib-backup-service_inspect-backup", "inspect-scratch-backup") => {
-            if result["path"] != args["path"] || result["valid"] != true {
-                return Err("owned backup did not pass inspection".into());
-            }
+        ("imbib-backup-service_inspect-backup", "inspect-scratch-backup")
+            if result["path"] != args["path"] || result["valid"] != true =>
+        {
+            return Err("owned backup did not pass inspection".into());
         }
-        ("imbib-backup-service_delete-backup", "delete-scratch-backup") => {
-            if Path::new(args["path"].as_str().ok_or("delete path missing")?).exists() {
-                return Err("owned backup survived deletion".into());
-            }
+        ("imbib-backup-service_delete-backup", "delete-scratch-backup")
+            if Path::new(args["path"].as_str().ok_or("delete path missing")?).exists() =>
+        {
+            return Err("owned backup survived deletion".into());
         }
         ("imbib-backup-service_prune-backups", "prune-scratch-backups") => {
             let removed = result.as_array().ok_or("prune result is not a list")?;
@@ -155,10 +155,8 @@ pub fn verify(
                 return Err("selected scratch operation was not reversed".into());
             }
         }
-        ("imbib-undo-service_undo-batch", "undo-scratch-batch") => {
-            if !restored_name(store, "04")? {
-                return Err("scratch batch did not restore its prior value".into());
-            }
+        ("imbib-undo-service_undo-batch", "undo-scratch-batch") if !restored_name(store, "04")? => {
+            return Err("scratch batch did not restore its prior value".into());
         }
         _ => {}
     }
