@@ -28,6 +28,129 @@ pub async fn prepare(
     root: &Path,
 ) -> Result<(), String> {
     match (verb, example) {
+        ("imbib-library-service_list-libraries", "reading-library-list") => {
+            library(store, "67", "G3 listed library", false, false)?;
+        }
+        ("imbib-library-service_sidebar-view", "reading-sidebar") => {
+            library(store, "84", "G3 sidebar library", false, false)?;
+            paper(store, "8a", "84", "G3Sidebar2026", "G3 sidebar paper", None)?;
+        }
+        ("imbib-library-service_set-library-default", "make-reading-default") => {
+            library(store, "81", "G3 new default", false, false)?;
+        }
+        ("imbib-library-service_list-collections", "library-collections") => {
+            library(store, "61", "G3 collection listing", false, false)?;
+            collection(store, "62", "G3 listed collection", "61")?;
+        }
+        ("imbib-library-service_list-collection-members", "collection-paper") => {
+            library(store, "63", "G3 member library", false, false)?;
+            collection(store, "64", "G3 member collection", "63")?;
+            paper(store, "65", "63", "G3Member2026", "G3 member paper", None)?;
+            member(store, "64", "65")?;
+        }
+        ("imbib-library-service_remove-from-collection", "unfile-paper") => {
+            library(store, "7a", "G3 unfile library", false, false)?;
+            collection(store, "7b", "G3 unfile collection", "7a")?;
+            paper(store, "7c", "7a", "G3Unfile2026", "G3 unfile paper", None)?;
+            member(store, "7b", "7c")?;
+        }
+        ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
+            library(store, "89", "G3 dismissal library", false, false)?;
+            collection(store, "6f", "G3 dismissal collection", "89")?;
+            paper(
+                store,
+                "70",
+                "89",
+                "G3Purged2026",
+                "G3 dismissed member",
+                Some("10.5555/g3-purge"),
+            )?;
+            dismissed(store, "71", "10.5555/g3-purge")?;
+            member(store, "6f", "70")?;
+        }
+        ("imbib-library-service_list-publications", "list-scratch-paper") => {
+            library(store, "88", "G3 scratch library", false, false)?;
+            paper(store, "6b", "88", "G3Listed2026", "G3 listed paper", None)?;
+        }
+        ("imbib-library-service_query-publications", "project-papers") => {
+            library(store, "72", "G3 queried library", false, false)?;
+            paper(store, "73", "72", "G3Query2026", "G3 queried paper", None)?;
+        }
+        ("imbib-library-service_query-recent", "recent-project-paper") => {
+            library(store, "74", "G3 recent library", false, false)?;
+            paper(store, "75", "74", "G3Recent2026", "G3 recent paper", None)?;
+        }
+        ("imbib-library-service_query-starred", "starred-project-paper") => {
+            library(store, "76", "G3 starred query library", false, false)?;
+            paper_with_status(store, "77", "76", false, true, None)?;
+        }
+        ("imbib-library-service_query-unread", "unread-project-paper") => {
+            library(store, "78", "G3 unread query library", false, false)?;
+            paper_with_status(store, "79", "78", false, false, None)?;
+        }
+        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+            library(store, "88", "G3 search library", false, false)?;
+            paper(
+                store,
+                "7f",
+                "88",
+                "G3UniqueSpectrum2026",
+                "G3 Unique Spectrum",
+                None,
+            )?;
+        }
+        ("imbib-library-service_set-read", "finish-reading") => {
+            library(store, "88", "G3 status library", false, false)?;
+            paper_with_status(store, "82", "88", false, false, None)?;
+        }
+        ("imbib-library-service_set-starred", "star-project-paper") => {
+            library(store, "88", "G3 status library", false, false)?;
+            paper_with_status(store, "83", "88", false, false, None)?;
+        }
+        ("imbib-library-service_set-flag", "flag-for-review") => {
+            library(store, "88", "G3 status library", false, false)?;
+            paper_with_status(store, "80", "88", false, false, None)?;
+        }
+        ("imbib-library-service_move-publications", "move-to-project") => {
+            library(store, "6c", "G3 move source", false, false)?;
+            library(store, "6d", "G3 move destination", false, false)?;
+            paper(store, "6e", "6c", "G3Moved2026", "G3 moved paper", None)?;
+        }
+        ("imbib-library-service_is-paper-dismissed", "known-dismissed-doi") => {
+            dismissed(store, "60", "10.5555/g3-known-dismissed")?;
+        }
+        ("imbib-library-service_list-dismissed-papers", "dismissed-list") => {
+            dismissed(store, "66", "10.5555/g3-listed-dismissed")?;
+        }
+        ("imbib-library-service_list-muted-items", "active-mute-rules") => {
+            muted(store, "6a", "author", "G3 muted author")?;
+        }
+        ("imbib-library-service_import-papers", "import-fetched-record") => {
+            reset_matching(
+                store,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+                "cite_key",
+                "G3SearchRecord2026",
+                None,
+            )?;
+            library(store, "85", "G3 search imports", false, false)?;
+        }
+        ("imbib-library-service_list-linked-files", "paper-attachments") => {
+            library(store, "88", "G3 attachment library", false, false)?;
+            paper(
+                store,
+                "68",
+                "88",
+                "G3Attachment2026",
+                "G3 attachment paper",
+                None,
+            )?;
+            linked_file(store, "69", "68", "g3-attachment.pdf", true)?;
+        }
+        ("imbib-library-service_retention-cleanup", "expire-old-search") => {
+            library(store, "86", "G3 exploration library", false, false)?;
+            smart_search(store, "87", "86")?;
+        }
         ("imbib-library-service_count-publications", "count-scratch-paper") => {
             library(store, "52", "G3 count library", false, false)?;
             paper(store, "53", "52", "G3Count2026", "G3 counted paper", None)?;
@@ -361,6 +484,68 @@ fn linked_file(
     Ok(())
 }
 
+fn member(
+    store: &SqliteItemStore,
+    collection_suffix: &str,
+    paper_suffix: &str,
+) -> Result<(), String> {
+    collection_ops::add_members(
+        store,
+        &IMBIB_COLLECTION,
+        &id(collection_suffix),
+        &[id(paper_suffix)],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn dismissed(store: &SqliteItemStore, suffix: &str, doi: &str) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(item_id, refs::IMBIB_DISMISSED_PAPER.as_str(), None);
+    item.payload
+        .insert("doi".into(), ItemValue::String(doi.into()));
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn muted(
+    store: &SqliteItemStore,
+    suffix: &str,
+    mute_type: &str,
+    value: &str,
+) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(item_id, refs::IMBIB_MUTED_ITEM.as_str(), None);
+    item.payload
+        .insert("mute_type".into(), ItemValue::String(mute_type.into()));
+    item.payload
+        .insert("value".into(), ItemValue::String(value.into()));
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn smart_search(store: &SqliteItemStore, suffix: &str, library_suffix: &str) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(
+        item_id,
+        refs::IMBIB_SMART_SEARCH.as_str(),
+        Some(uuid(library_suffix)?),
+    );
+    item.payload.insert(
+        "name".into(),
+        ItemValue::String("G3 expired exploration".into()),
+    );
+    item.payload
+        .insert("query".into(), ItemValue::String("expired".into()));
+    item.payload
+        .insert("last_executed".into(), ItemValue::Int(0));
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn verify(
     verb: &str,
     example: &str,
@@ -369,6 +554,102 @@ pub fn verify(
     result: &Value,
 ) -> Result<(), String> {
     match (verb, example) {
+        ("imbib-library-service_list-libraries", "reading-library-list") => {
+            require_row(result, &id("67"))?;
+        }
+        ("imbib-library-service_sidebar-view", "reading-sidebar") => {
+            require_row(&result["libraries"], &id("84"))?;
+        }
+        ("imbib-library-service_set-library-default", "make-reading-default") => {
+            let row = load(store, &id("81"))?.ok_or("default library disappeared")?;
+            if row.payload.get("is_default") != Some(&ItemValue::Bool(true)) {
+                return Err("library was not made default".into());
+            }
+        }
+        ("imbib-library-service_list-collections", "library-collections") => {
+            require_row(result, &id("62"))?;
+        }
+        ("imbib-library-service_list-collection-members", "collection-paper") => {
+            require_row(result, &id("65"))?;
+        }
+        ("imbib-library-service_remove-from-collection", "unfile-paper") => {
+            require_unfiled(store, "7b", "7c")?;
+        }
+        ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
+            require_unfiled(store, "6f", "70")?;
+        }
+        ("imbib-library-service_list-publications", "list-scratch-paper") => {
+            require_row(result, &id("6b"))?;
+        }
+        ("imbib-library-service_query-publications", "project-papers") => {
+            require_row(result, &id("73"))?;
+        }
+        ("imbib-library-service_query-recent", "recent-project-paper") => {
+            require_row(result, &id("75"))?;
+        }
+        ("imbib-library-service_query-starred", "starred-project-paper") => {
+            require_row(result, &id("77"))?;
+        }
+        ("imbib-library-service_query-unread", "unread-project-paper") => {
+            require_row(result, &id("79"))?;
+        }
+        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+            require_row(result, &id("7f"))?;
+        }
+        ("imbib-library-service_set-read", "finish-reading") => {
+            let row = load(store, &id("82"))?.ok_or("read paper disappeared")?;
+            if !row.is_read {
+                return Err("paper was not marked read".into());
+            }
+        }
+        ("imbib-library-service_set-starred", "star-project-paper") => {
+            let row = load(store, &id("83"))?.ok_or("starred paper disappeared")?;
+            if !row.is_starred {
+                return Err("paper was not starred".into());
+            }
+        }
+        ("imbib-library-service_set-flag", "flag-for-review") => {
+            let row = load(store, &id("80"))?.ok_or("flagged paper disappeared")?;
+            if row.flag.as_ref().map(|f| f.color.as_str()) != Some("orange") {
+                return Err("paper was not flagged orange".into());
+            }
+        }
+        ("imbib-library-service_move-publications", "move-to-project") => {
+            let row = load(store, &id("6e"))?.ok_or("moved paper disappeared")?;
+            if row.parent != Some(uuid("6d")?) {
+                return Err("paper was not moved to destination library".into());
+            }
+        }
+        ("imbib-library-service_list-dismissed-papers", "dismissed-list") => {
+            require_row(result, &id("66"))?;
+        }
+        ("imbib-library-service_list-muted-items", "active-mute-rules") => {
+            require_row(result, &id("6a"))?;
+        }
+        ("imbib-library-service_import-papers", "import-fetched-record") => {
+            let ids = result["imported_ids"]
+                .as_array()
+                .ok_or("missing imported IDs")?;
+            if ids.len() != 1 {
+                return Err("expected one imported search result".into());
+            }
+            let row = load(store, ids[0].as_str().ok_or("import ID is not text")?)?
+                .ok_or("imported search result not persisted")?;
+            if row.parent != Some(uuid("85")?)
+                || row.payload.get("cite_key")
+                    != Some(&ItemValue::String("G3SearchRecord2026".into()))
+            {
+                return Err("search result was not imported into its library".into());
+            }
+        }
+        ("imbib-library-service_list-linked-files", "paper-attachments") => {
+            require_row(result, &id("69"))?;
+        }
+        ("imbib-library-service_retention-cleanup", "expire-old-search") => {
+            if load(store, &id("87"))?.is_some() {
+                return Err("expired exploration search survived cleanup".into());
+            }
+        }
         ("imbib-library-service_count-publications", "count-scratch-paper") => {
             let count = store
                 .count(&ItemQuery {
@@ -480,4 +761,27 @@ fn load(
 ) -> Result<Option<impress_core::item::Item>, String> {
     let item_id = ItemId::parse_str(item_id).map_err(|e| e.to_string())?;
     store.get(item_id).map_err(|e| e.to_string())
+}
+
+fn require_row(result: &Value, expected_id: &str) -> Result<(), String> {
+    let rows = result.as_array().ok_or("expected a list of rows")?;
+    if rows.iter().any(|row| row["id"] == expected_id) {
+        Ok(())
+    } else {
+        Err(format!("result omitted scratch row {expected_id}"))
+    }
+}
+
+fn require_unfiled(
+    store: &SqliteItemStore,
+    collection_suffix: &str,
+    paper_suffix: &str,
+) -> Result<(), String> {
+    let members = collection_ops::list_members(store, &IMBIB_COLLECTION, &id(collection_suffix))
+        .map_err(|e| e.to_string())?;
+    let paper_id = uuid(paper_suffix)?;
+    if members.iter().any(|row| row.id == paper_id) || load(store, &id(paper_suffix))?.is_none() {
+        return Err("paper was removed from the store or remains in the collection".into());
+    }
+    Ok(())
 }
