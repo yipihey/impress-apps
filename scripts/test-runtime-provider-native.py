@@ -32,7 +32,7 @@ def main():
     if not all(os.access(path, os.X_OK) for path in (mcp, cli)):
         parser.error("--mcp and --cli must name built executable files")
 
-    root = Path(tempfile.mkdtemp(prefix="impress-p8-proof-")).resolve()
+    root = Path(tempfile.mkdtemp(prefix="impress-p8-proof-", dir="/tmp")).resolve()
     (root / "bootstrap").mkdir()
     (root / "output").mkdir()
     # Reserve both simultaneously to avoid choosing the same ephemeral port.

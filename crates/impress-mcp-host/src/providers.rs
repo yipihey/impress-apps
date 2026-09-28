@@ -44,7 +44,7 @@ pub(super) async fn identity(state: &HttpState, headers: &HeaderMap) -> Option<C
         registry.refresh_persisted().ok()?;
         registry
             .authenticate(&id, &token)
-            .then(|| CallerIdentity::Provider(id))
+            .then_some(CallerIdentity::Provider(id))
     })
     .await
     .ok()

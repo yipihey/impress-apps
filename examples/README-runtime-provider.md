@@ -30,6 +30,11 @@ python3 examples/runtime-provider.py \
 
 Both token files must be private (`0600`). The host token authenticates registration; the host returns a new provider token, which the example saves atomically for invocation and re-registration. No token is printed. Registration refuses a non-loopback host URL. The provider exits if registration fails, and it never chooses a replacement credential itself. Keep `IMPRESS_WORKSPACE` set to the same directory for later CLI and documentation commands so they can restore the host-issued provider credential.
 
+Health responses are limited to 4 KiB and verb JSON responses to 2 MiB, including
+chunked responses. Exceeding either limit refuses the call without retaining the
+response body. Provider authentication reads the current persisted registration,
+so a token revoked by another host is rejected without waiting for a health poll.
+
 The verb appears in MCP `tools/list`, the capability catalogue, and the generated CLI help. With this inventory its unique `echo` method uses the CLI short-name rule; a future method-name collision would make its CLI name `python-reference-service_echo` instead. The CLI is an agent caller, so an untrusted provider call returns `review-pending` and exits with status 3:
 
 ```sh

@@ -76,9 +76,9 @@ const ENTRY_PATHS: &[(&str, &str, &str)] = &[
         "crate::pipeline::invoke_handle(",
     ),
     (
-        "(d1) surface runtime, linked verb",
+        "(d1) surface runtime, linked or provider verb",
         "crates/impress-surface-service/src/runtime.rs",
-        "call::call_async_as(",
+        "pipeline::invoke_handle(handle.clone(), call)",
     ),
     (
         "(d2) surface HTTP mirror (was a bypass)",
