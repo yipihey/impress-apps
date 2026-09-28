@@ -6,12 +6,17 @@
 //! persistence, credential storage, and an authenticated registration route.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{atomic::{AtomicU64, Ordering}, Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, RwLock,
+};
 
 // Replacing a registry must not make an old handle current again. Generations
 // are unique across registries in this Rust image, not just within a provider.
 static GENERATION: AtomicU64 = AtomicU64::new(1);
-fn next_generation() -> u64 { GENERATION.fetch_add(1, Ordering::Relaxed) }
+fn next_generation() -> u64 {
+    GENERATION.fetch_add(1, Ordering::Relaxed)
+}
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -120,6 +125,20 @@ pub struct PersistedProvider {
     pub verbs: Vec<PersistedVerb>,
 }
 
+/// Public catalogue metadata for a person's provider trust review. Raw
+/// credentials and their hashes are deliberately absent from this DTO.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProviderSummary {
+    pub id: String,
+    pub language: String,
+    pub version: String,
+    pub endpoint: String,
+    pub trusted: bool,
+    pub available: bool,
+    pub deregistered: bool,
+    pub verbs: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedVerb {
     pub descriptor: ProviderVerbInput,
@@ -144,7 +163,15 @@ pub trait SchemaValidator: Send + Sync {
 /// never modifies credentials.
 pub trait ProviderPersistence: Send + Sync {
     fn load(&self) -> Result<Vec<PersistedProvider>, String>;
-    fn save_registration(&self, row: &PersistedProvider, token: &str) -> Result<(), String>;
+    /// `previous` is the registry's complete persisted snapshot (or `None`
+    /// for a new id). Implementations must refuse a stale snapshot before
+    /// replacing any descriptor, trust decision, or credential hash.
+    fn save_registration(
+        &self,
+        row: &PersistedProvider,
+        token: &str,
+        previous: Option<&PersistedProvider>,
+    ) -> Result<(), String>;
     fn save_trust(&self, row: &PersistedProvider) -> Result<(), String>;
     fn load_token(&self, provider_id: &str) -> Result<Option<String>, String>;
     fn save_status(&self, row: &PersistedProvider) -> Result<(), String>;
@@ -308,10 +335,17 @@ impl Registry {
     /// Holding our state lock across the load prevents an older snapshot from
     /// overwriting a registration this same host just committed.
     pub fn refresh_persisted(&self) -> Result<(), RegistrationError> {
-        let Some(persistence) = &self.persistence else { return Ok(()) };
-        let validator = self.validator.as_ref().ok_or(RegistrationError::ValidatorUnavailable)?;
+        let Some(persistence) = &self.persistence else {
+            return Ok(());
+        };
+        let validator = self
+            .validator
+            .as_ref()
+            .ok_or(RegistrationError::ValidatorUnavailable)?;
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-        let loaded = Registry::new().with_validator(validator.clone()).with_persistence(persistence.clone());
+        let loaded = Registry::new()
+            .with_validator(validator.clone())
+            .with_persistence(persistence.clone());
         let loaded = match loaded {
             Ok(loaded) => loaded,
             Err(error) => {
@@ -327,9 +361,14 @@ impl Registry {
         let mut fresh = loaded.state.into_inner().unwrap_or_else(|e| e.into_inner());
         for (id, mut old) in std::mem::take(&mut state.providers) {
             match fresh.providers.get(&id) {
-                Some(new) if serde_json::to_value(&old.row).ok() == serde_json::to_value(&new.row).ok()
-                    && old.token == new.token => { fresh.providers.insert(id, old); }
-                Some(_) => {},
+                Some(new)
+                    if serde_json::to_value(&old.row).ok()
+                        == serde_json::to_value(&new.row).ok()
+                        && old.token == new.token =>
+                {
+                    fresh.providers.insert(id, old);
+                }
+                Some(_) => {}
                 None => {
                     // A deleted row is retained for named diagnostics, with its
                     // credential revoked. Health cannot revive that entry.
@@ -449,7 +488,7 @@ impl Registry {
         };
         if let Some(store) = &self.persistence {
             store
-                .save_registration(&row, &token)
+                .save_registration(&row, &token, previous.map(|entry| &entry.row))
                 .map_err(RegistrationError::Persistence)?;
         }
         let generation = next_generation();
@@ -636,6 +675,35 @@ impl Registry {
             }
         }
         out
+    }
+
+    /// Stable id-order metadata for a generated person-review form. No
+    /// credential material or unhashed token facts leave the registry.
+    pub fn summaries(&self) -> Vec<ProviderSummary> {
+        let state = self
+            .state
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner());
+        state
+            .providers
+            .iter()
+            .map(|(id, entry)| ProviderSummary {
+                id: id.clone(),
+                language: entry.row.language.clone(),
+                version: entry.row.version.clone(),
+                endpoint: entry.row.endpoint.clone(),
+                trusted: entry.row.trusted,
+                available: entry.healthy && entry.token.is_some() && !entry.row.deregistered,
+                deregistered: entry.row.deregistered,
+                verbs: entry
+                    .row
+                    .verbs
+                    .iter()
+                    .filter(|verb| !verb.dropped)
+                    .map(|verb| verb.descriptor.name.clone())
+                    .collect(),
+            })
+            .collect()
     }
 
     /// Connections available for explicit liveness probes. A restored entry
@@ -987,9 +1055,27 @@ mod tests {
             Ok(self.row.read().unwrap().iter().cloned().collect())
         }
 
-        fn save_registration(&self, row: &PersistedProvider, token: &str) -> Result<(), String> {
+        fn save_registration(
+            &self,
+            row: &PersistedProvider,
+            token: &str,
+            previous: Option<&PersistedProvider>,
+        ) -> Result<(), String> {
+            let mut stored = self.row.write().unwrap();
+            let matches = stored
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|error| error.to_string())?
+                == previous
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|error| error.to_string())?;
+            if !matches {
+                return Err("provider registration changed; refresh before retrying".into());
+            }
+            *stored = Some(row.clone());
             *self.token.write().unwrap() = Some(token.to_owned());
-            *self.row.write().unwrap() = Some(row.clone());
             Ok(())
         }
 
@@ -1069,12 +1155,20 @@ mod tests {
     #[test]
     fn persisted_refresh_preserves_live_handles_but_revokes_changed_trust() {
         let storage = Arc::new(MemoryPersistence::default());
-        let first = Registry::new().with_validator(Arc::new(AcceptSchema)).with_persistence(storage.clone()).unwrap();
+        let first = Registry::new()
+            .with_validator(Arc::new(AcceptSchema))
+            .with_persistence(storage.clone())
+            .unwrap();
         first.register(request("fixture")).unwrap();
         first.set_trusted("fixture", true).unwrap();
-        let other = Registry::new().with_validator(Arc::new(AcceptSchema)).with_persistence(storage).unwrap();
+        let other = Registry::new()
+            .with_validator(Arc::new(AcceptSchema))
+            .with_persistence(storage)
+            .unwrap();
         other.set_health("fixture", true).unwrap();
-        let VerbHandle::Provider(handle) = other.find("fixture-service_echo").unwrap() else { panic!("provider") };
+        let VerbHandle::Provider(handle) = other.find("fixture-service_echo").unwrap() else {
+            panic!("provider")
+        };
         other.refresh_persisted().unwrap();
         assert!(other.current_connection(&handle).is_some());
         // Another registry's similarly named entry never accepts our handle.
@@ -1084,7 +1178,10 @@ mod tests {
         assert!(other.current_connection(&handle).is_none());
         let refreshed = other.find("fixture-service_echo").unwrap();
         assert_eq!(refreshed.safety().class, SafetyClass::External);
-        assert_eq!(refreshed.provider_status(), Some(ProviderStatus::Unavailable));
+        assert_eq!(
+            refreshed.provider_status(),
+            Some(ProviderStatus::Unavailable)
+        );
     }
 
     #[test]
@@ -1106,6 +1203,30 @@ mod tests {
             registry.current_connection(&verb).unwrap().token(),
             receipt.token
         );
+    }
+
+    #[test]
+    fn summaries_are_stable_and_omit_credentials() {
+        let registry = Registry::new().with_validator(Arc::new(AcceptSchema));
+        registry.register(request("zeta")).unwrap();
+        registry.register(request("alpha")).unwrap();
+        let summaries = registry.summaries();
+        assert_eq!(
+            summaries
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha", "zeta"]
+        );
+        assert_eq!(summaries[0].verbs, vec!["alpha-service_echo"]);
+        assert!(summaries[0].available);
+        assert!(!summaries[0].trusted);
+        let json = serde_json::to_value(&summaries).unwrap();
+        assert!(json.to_string().contains("alpha-service_echo"));
+        assert!(!json.to_string().contains("token"));
+        assert!(!json.to_string().contains("hash"));
+        registry.set_health("alpha", false).unwrap();
+        assert!(!registry.summaries()[0].available);
     }
 
     #[test]

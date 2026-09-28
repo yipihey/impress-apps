@@ -12,11 +12,13 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsE
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use impress_core::item::{ItemId, Value as ItemValue};
+use impress_core::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
+use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::query::ItemQuery;
 use impress_core::schemas::PROVIDER_SCHEMA;
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::{FieldMutation, ItemStore};
+use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
+use impress_core::store::{ItemStore, StoreError};
+use impress_service_core::pipeline::{context, CallerIdentity};
 use impress_service_core::provider::{
     PersistedProvider, PersistedVerb, ProviderPersistence, RegistrationError, Registry,
     SchemaValidator,
@@ -43,7 +45,7 @@ impl StoreProviderPersistence {
         })
     }
 
-    fn row(&self, id: &str) -> Result<Option<PersistedProvider>, String> {
+    fn row_item(&self, id: &str) -> Result<Option<Item>, String> {
         let item = self
             .store
             .get(row_id(id)?)
@@ -56,9 +58,15 @@ impl StoreProviderPersistence {
             if row.id != id {
                 return Err(format!("provider {id} row has an inconsistent id"));
             }
-            Ok(row)
+            Ok(item)
         })
         .transpose()
+    }
+
+    fn row(&self, id: &str) -> Result<Option<PersistedProvider>, String> {
+        self.row_item(id)?
+            .map(|item| decode_row(&item.payload))
+            .transpose()
     }
 
     fn credential_path(&self, hash: &str) -> Result<PathBuf, String> {
@@ -144,9 +152,10 @@ impl StoreProviderPersistence {
 
     fn update_flag(&self, row: &PersistedProvider, name: &str) -> Result<(), String> {
         validate_row_identity(row)?;
-        let existing = self
-            .row(&row.id)?
+        let item = self
+            .row_item(&row.id)?
             .ok_or_else(|| format!("provider {} is not stored", row.id))?;
+        let existing = decode_row(&item.payload)?;
         let mut expected = row.clone();
         match name {
             "trusted" => expected.trusted = existing.trusted,
@@ -163,15 +172,91 @@ impl StoreProviderPersistence {
         } else {
             row.deregistered
         };
-        self.store
-            .update(
-                row_id(&row.id)?,
-                vec![FieldMutation::SetPayload(
-                    name.into(),
-                    ItemValue::Bool(value),
-                )],
-            )
-            .map_err(|error| format!("update provider {name}: {error}"))
+        guarded_patch(
+            &self.store,
+            item.id,
+            item.logical_clock,
+            BTreeMap::from([(name.into(), ItemValue::Bool(value))]),
+        )
+        .map_err(|error| format!("update provider {name}: {error}"))
+    }
+}
+
+fn same_row(left: &PersistedProvider, right: &PersistedProvider) -> Result<bool, String> {
+    Ok(
+        serde_json::to_value(left).map_err(|error| error.to_string())?
+            == serde_json::to_value(right).map_err(|error| error.to_string())?,
+    )
+}
+
+fn guarded_patch(
+    store: &SqliteItemStore,
+    id: ItemId,
+    expected_clock: u64,
+    payload: BTreeMap<String, ItemValue>,
+) -> Result<(), String> {
+    let (author, author_kind) = provider_actor();
+    let spec = OperationSpec {
+        target_id: id,
+        op_type: OperationType::PatchPayload(payload),
+        intent: OperationIntent::Routine,
+        reason: None,
+        batch_id: None,
+        author,
+        author_kind,
+        retention: RetentionTier::Compactable,
+    };
+    match store
+        .apply_operation_if_clock(spec, expected_clock)
+        .map_err(|error| error.to_string())?
+    {
+        GuardedWrite::Applied { .. } => Ok(()),
+        GuardedWrite::Moved { .. } => {
+            Err("provider row changed during write; refresh before retrying".into())
+        }
+    }
+}
+
+fn provider_actor() -> (String, ActorKind) {
+    context::current().map_or_else(
+        || ("system:provider-registry".into(), ActorKind::System),
+        |context| {
+            let kind = match &context.caller {
+                CallerIdentity::Person | CallerIdentity::App(_) => ActorKind::Human,
+                CallerIdentity::Agent(_) | CallerIdentity::Provider(_) => ActorKind::Agent,
+                CallerIdentity::System(_) => ActorKind::System,
+            };
+            (context.caller.author(), kind)
+        },
+    )
+}
+
+fn provider_item(id: ItemId, payload: BTreeMap<String, ItemValue>) -> Item {
+    let now = chrono::Utc::now();
+    let (author, author_kind) = provider_actor();
+    Item {
+        id,
+        schema: PROVIDER_SCHEMA,
+        payload,
+        created: now,
+        modified: now,
+        author,
+        author_kind,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::None,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
     }
 }
 
@@ -195,7 +280,7 @@ impl ProviderPersistence for StoreProviderPersistence {
                 Ok(row)
             })
             .collect::<Result<_, _>>()?;
-        log::info!(
+        log::debug!(
             "provider restore: {} registrations, {} descriptors",
             rows.len(),
             rows.iter().map(|row| row.verbs.len()).sum::<usize>()
@@ -203,19 +288,39 @@ impl ProviderPersistence for StoreProviderPersistence {
         Ok(rows)
     }
 
-    fn save_registration(&self, row: &PersistedProvider, token: &str) -> Result<(), String> {
+    fn save_registration(
+        &self,
+        row: &PersistedProvider,
+        token: &str,
+        previous: Option<&PersistedProvider>,
+    ) -> Result<(), String> {
         log::info!(
             "provider registration requested: id={} descriptors={}",
             row.id,
             row.verbs.len()
         );
-        // upsert_payload updates by id on AlreadyExists; refuse a collision
-        // with any other schema before it can overwrite that row's payload.
-        let _ = self.row(&row.id)?;
+        // Read payload and clock from the same row snapshot. A different host
+        // may have rotated its token or changed trust after this registry was
+        // loaded, even if the submitted old token matched our stale memory.
+        let existing = self.row_item(&row.id)?;
+        match (&existing, previous) {
+            (None, None) => {}
+            (Some(item), Some(expected)) if same_row(&decode_row(&item.payload)?, expected)? => {}
+            _ => return Err("provider registration changed; refresh before retrying".into()),
+        }
         self.write_token(row, token)?;
-        self.store
-            .upsert_payload(row_id(&row.id)?, PROVIDER_SCHEMA, encode_row(row)?)
-            .map_err(|error| format!("save provider registration: {error}"))?;
+        let payload = encode_row(row)?;
+        match existing {
+            Some(item) => guarded_patch(&self.store, item.id, item.logical_clock, payload)
+                .map_err(|error| format!("save provider registration: {error}"))?,
+            None => match self.store.insert(provider_item(row_id(&row.id)?, payload)) {
+                Ok(_) => {}
+                Err(StoreError::AlreadyExists(_)) => {
+                    return Err("provider registration changed; refresh before retrying".into());
+                }
+                Err(error) => return Err(format!("save provider registration: {error}")),
+            },
+        }
         log::info!("provider registration saved: id={}", row.id);
         Ok(())
     }
@@ -573,6 +678,112 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .deregistered
+        );
+    }
+
+    #[test]
+    fn two_hosts_cannot_claim_the_same_new_provider_id() {
+        let workspace = tempfile::tempdir().expect("scratch workspace");
+        let path = workspace.path().join("impress.sqlite");
+        let first_store = Arc::new(SqliteItemStore::open(&path).unwrap());
+        let second_store = Arc::new(SqliteItemStore::open(&path).unwrap());
+        let validator: Arc<dyn SchemaValidator> = Arc::new(TestValidator);
+        let first = build_registry(first_store, workspace.path(), validator.clone()).unwrap();
+        let second = build_registry(second_store.clone(), workspace.path(), validator).unwrap();
+
+        let receipt = first.register(request(None, "1.0.0")).unwrap();
+        let error = second.register(request(None, "1.0.0")).err().unwrap();
+        assert!(
+            matches!(error, RegistrationError::Persistence(_)),
+            "{error}"
+        );
+        let persisted = StoreProviderPersistence::new(second_store, workspace.path()).unwrap();
+        assert_eq!(
+            persisted.load_token("python-reference").unwrap(),
+            Some(receipt.token)
+        );
+        assert!(!persisted.row("python-reference").unwrap().unwrap().trusted);
+    }
+
+    #[test]
+    fn stale_hosts_cannot_erase_trust_or_rotated_credentials() {
+        let workspace = tempfile::tempdir().expect("scratch workspace");
+        let path = workspace.path().join("impress.sqlite");
+        let first_store = Arc::new(SqliteItemStore::open(&path).unwrap());
+        let second_store = Arc::new(SqliteItemStore::open(&path).unwrap());
+        let validator: Arc<dyn SchemaValidator> = Arc::new(TestValidator);
+        let first =
+            build_registry(first_store.clone(), workspace.path(), validator.clone()).unwrap();
+        let original = first.register(request(None, "1.0.0")).unwrap();
+        let second = build_registry(second_store.clone(), workspace.path(), validator).unwrap();
+
+        first.set_trusted("python-reference", true).unwrap();
+        let id = row_id("python-reference").unwrap();
+        let trusted_clock = first_store.logical_clock_of(id).unwrap();
+        let stale = second.register(request(Some(original.token.clone()), "1.1.0"));
+        assert!(matches!(stale, Err(RegistrationError::Persistence(_))));
+        assert_eq!(first_store.logical_clock_of(id).unwrap(), trusted_clock);
+        let persisted =
+            StoreProviderPersistence::new(second_store.clone(), workspace.path()).unwrap();
+        assert!(persisted.row("python-reference").unwrap().unwrap().trusted);
+        assert_eq!(
+            persisted.load_token("python-reference").unwrap(),
+            Some(original.token.clone())
+        );
+
+        second.refresh_persisted().unwrap();
+        let rotated = second
+            .register(request(Some(original.token.clone()), "1.1.0"))
+            .unwrap();
+        assert_ne!(original.token, rotated.token);
+        let stale = first.register(request(Some(original.token.clone()), "1.2.0"));
+        assert!(matches!(stale, Err(RegistrationError::Persistence(_))));
+        let stale_trust = first.set_trusted("python-reference", false);
+        assert!(matches!(
+            stale_trust,
+            Err(RegistrationError::Persistence(_))
+        ));
+        let restored =
+            build_registry(first_store, workspace.path(), Arc::new(TestValidator)).unwrap();
+        assert!(!restored.authenticate("python-reference", &original.token));
+        assert!(restored.authenticate("python-reference", &rotated.token));
+        let row = persisted.row("python-reference").unwrap().unwrap();
+        assert!(row.trusted);
+        assert_eq!(row.version, "1.1.0");
+    }
+
+    #[tokio::test]
+    async fn trust_operation_uses_the_person_from_the_call_context() {
+        let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+        let workspace = tempfile::tempdir().unwrap();
+        let registry =
+            build_registry(store.clone(), workspace.path(), Arc::new(TestValidator)).unwrap();
+        registry.register(request(None, "1.0.0")).unwrap();
+        let context = Arc::new(context::CallContext {
+            call_id: "person-review-fixture".into(),
+            trace_id: "person-review-trace".into(),
+            parent_call: None,
+            caller: CallerIdentity::Person,
+            verb: "provider-service_set-trusted".into(),
+            store_override: None,
+            mutation_ids: context::MutationIds::default(),
+        });
+        context::scope(context, async {
+            registry.set_trusted("python-reference", true).unwrap();
+        })
+        .await;
+        let operations = store
+            .query(&ItemQuery {
+                schema: Some(impress_core::schema::refs::CORE_OPERATION),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(operations.len(), 1);
+        assert_eq!(operations[0].author, "human");
+        assert_eq!(operations[0].author_kind, ActorKind::Human);
+        assert_eq!(
+            operations[0].batch_id.as_deref(),
+            Some("person-review-fixture")
         );
     }
 
