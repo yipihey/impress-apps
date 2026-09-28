@@ -192,6 +192,7 @@ targets:
       - path: Tests
     dependencies:
       - target: impart
+      - package: ImpressRustCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.tests

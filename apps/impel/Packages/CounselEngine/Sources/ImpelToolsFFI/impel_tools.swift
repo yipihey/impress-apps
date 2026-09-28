@@ -841,19 +841,8 @@ public func callTool(name: String, argsJson: String)throws  -> String {
 })
 }
 /**
- * Point the service traits at the running sibling apps and report what
- * installed. Call once, before `call_tool`.
- *
- * **Why the result matters.** `maybe_install_http_backend` falls back to the
- * default SQLite backend when its probe fails, and that fallback is silent.
- * impel writing the shared store directly would bypass every in-memory cache
- * in the running imbib and imprint — the failure class `apps/imbib/CLAUDE.md`
- * warns about, and one that shows up as stale UI long after the write. So a
- * failed probe is recorded as [`Backend::Unavailable`] and `call_tool` refuses
- * that app's tools outright. Falling back is never the quiet default.
- *
- * Passing `None` for a URL leaves the corresponding env var alone, letting the
- * probe use its own default port.
+ * Configure the shared transport and report the two sibling app backends.
+ * Passing `None` preserves the environment's URL override and default port.
  */
 public func configure(imbibUrl: String?, imprintUrl: String?) -> ToolBackends {
     return try!  FfiConverterTypeToolBackends.lift(try! rustCall() {
@@ -921,7 +910,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impel_tools_checksum_func_call_tool() != 25506) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_tools_checksum_func_configure() != 62022) {
+    if (uniffi_impel_tools_checksum_func_configure() != 26147) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impel_tools_checksum_func_list_available_tools() != 48254) {

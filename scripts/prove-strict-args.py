@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--build-only", action="store_true")
-    parser.add_argument("--derived-data", type=Path, help="Reuse an owned target-g5-* build directory sequentially")
+    parser.add_argument("--derived-data", type=Path, help="Reuse an owned target-g5-* or target-p5b-* build directory sequentially")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     cli = args.cli.resolve(strict=True)
@@ -30,8 +30,8 @@ def main():
         parser.error("--cli must be an executable from this revision")
     app_dir = repo / ("apps/imbib/imbib" if args.app == "imbib" else "apps/" + args.app)
     derived = (args.derived_data or repo / ("target-g5-proof-" + args.app)).resolve()
-    if derived.parent != repo or not derived.name.startswith("target-g5-"):
-        parser.error("--derived-data must be an owned target-g5-* directory in this worktree")
+    if derived.parent != repo or not derived.name.startswith(("target-g5-", "target-p5b-")):
+        parser.error("--derived-data must be an owned target-g5-* or target-p5b-* directory in this worktree")
     proof = Path(tempfile.mkdtemp(prefix="impress-g5-proof-", dir="/tmp"))
     bootstrap = proof / "bootstrap"
     bootstrap.mkdir()

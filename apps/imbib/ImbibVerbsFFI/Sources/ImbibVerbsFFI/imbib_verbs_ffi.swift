@@ -517,7 +517,7 @@ public struct FfiConverterTypeNativeCallResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NativeCallResult {
         return
             try NativeCallResult(
-                status: FfiConverterUInt16.read(from: &buf), 
+                status: FfiConverterUInt16.read(from: &buf),
                 bodyJson: FfiConverterString.read(from: &buf)
         )
     }
@@ -583,7 +583,7 @@ public struct FfiConverterTypeSharedVerbDispatchResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedVerbDispatchResult {
         return
             try SharedVerbDispatchResult(
-                status: FfiConverterUInt16.read(from: &buf), 
+                status: FfiConverterUInt16.read(from: &buf),
                 bodyJson: FfiConverterString.read(from: &buf)
         )
     }
@@ -612,8 +612,8 @@ public func FfiConverterTypeSharedVerbDispatchResult_lower(_ value: SharedVerbDi
 
 public enum ImbibVerbStoreError {
 
-    
-    
+
+
     case InvalidPath(message: String
     )
     case Initialization(message: String
@@ -632,9 +632,9 @@ public struct FfiConverterTypeImbibVerbStoreError: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
 
-        
 
-        
+
+
         case 1: return .InvalidPath(
             message: try FfiConverterString.read(from: &buf)
             )
@@ -650,23 +650,23 @@ public struct FfiConverterTypeImbibVerbStoreError: FfiConverterRustBuffer {
     public static func write(_ value: ImbibVerbStoreError, into buf: inout [UInt8]) {
         switch value {
 
-        
 
-        
-        
+
+
+
         case let .InvalidPath(message):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(message, into: &buf)
-            
-        
+
+
         case let .Initialization(message):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(message, into: &buf)
-            
-        
+
+
         case .DifferentPath:
             writeInt(&buf, Int32(3))
-        
+
         }
     }
 }
@@ -684,9 +684,9 @@ extension ImbibVerbStoreError: Foundation.LocalizedError {
 
 
 public protocol ImbibNativeCallbacks : AnyObject {
-    
+
     func invoke(method: String, argsJson: String) async  -> NativeCallResult
-    
+
 }
 
 // Magic number for the Rust proxy to call using the same mechanism as every other method,
@@ -943,7 +943,7 @@ public func dispatchVerbAsync(name: String, argsJson: String, callerJson: String
             freeFunc: ffi_imbib_verbs_ffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeSharedVerbDispatchResult.lift,
             errorHandler: nil
-            
+
         )
 }
 /**

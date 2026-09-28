@@ -166,6 +166,7 @@ targets:
       - path: Tests/ImploreNativeVerbProofTests.swift
     dependencies:
       - target: implore
+      - package: ImpressRustCore
     settings:
       base:
         PRODUCT_NAME: imploreTests

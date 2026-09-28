@@ -716,6 +716,30 @@ extension FfiConverterCallbackInterfaceImploreVerbHost : FfiConverter {
         writeInt(&buf, lower(v))
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
 
@@ -866,11 +890,13 @@ public func dispatchVerbAsync(name: String, argsJson: String, callerJson: String
  * Install the app's live-state host. Reinstalling replaces an earlier host,
  * e.g. after the automation server restarts in a hosted test.
  */
-public func installNativeHost(host: ImploreVerbHost) {try! rustCall() {
+public func installNativeHost(databasePath: String, host: ImploreVerbHost) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
     uniffi_implore_verbs_ffi_fn_func_install_native_host(
+        FfiConverterString.lower(databasePath),
         FfiConverterCallbackInterfaceImploreVerbHost.lower(host),$0
     )
-}
+})
 }
 
 private enum InitializationResult {
@@ -894,7 +920,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_implore_verbs_ffi_checksum_func_dispatch_verb_async() != 44981) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_implore_verbs_ffi_checksum_func_install_native_host() != 5528) {
+    if (uniffi_implore_verbs_ffi_checksum_func_install_native_host() != 55227) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_implore_verbs_ffi_checksum_method_imploreverbhost_invoke() != 36320) {

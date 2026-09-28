@@ -34,6 +34,8 @@ settings:
       COPY_PHASE_STRIP: YES
 
 packages:
+  ImpressRustCore:
+    path: ../../../packages/ImpressRustCore
   PublicationManagerCore:
     path: ../PublicationManagerCore
   ImpressHelixCore:
@@ -640,6 +642,7 @@ targets:
         optional: true
     dependencies:
       - target: imbib
+      - package: ImpressRustCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.tests

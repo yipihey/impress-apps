@@ -493,7 +493,7 @@ public struct FfiConverterTypeNativeCallResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NativeCallResult {
         return
             try NativeCallResult(
-                status: FfiConverterUInt16.read(from: &buf), 
+                status: FfiConverterUInt16.read(from: &buf),
                 bodyJson: FfiConverterString.read(from: &buf)
         )
     }
@@ -559,7 +559,7 @@ public struct FfiConverterTypeSharedVerbDispatchResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedVerbDispatchResult {
         return
             try SharedVerbDispatchResult(
-                status: FfiConverterUInt16.read(from: &buf), 
+                status: FfiConverterUInt16.read(from: &buf),
                 bodyJson: FfiConverterString.read(from: &buf)
         )
     }
@@ -589,9 +589,9 @@ public func FfiConverterTypeSharedVerbDispatchResult_lower(_ value: SharedVerbDi
 
 
 public protocol ImpartNativeCallbacks : AnyObject {
-    
+
     func invoke(method: String, argsJson: String) async  -> NativeCallResult
-    
+
 }
 
 // Magic number for the Rust proxy to call using the same mechanism as every other method,
@@ -707,6 +707,30 @@ extension FfiConverterCallbackInterfaceImpartNativeCallbacks : FfiConverter {
 #endif
     public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
         writeInt(&buf, lower(v))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
@@ -836,17 +860,19 @@ public func dispatchVerb(name: String, argsJson: String, callerJson: String)asyn
             freeFunc: ffi_impart_verbs_ffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeSharedVerbDispatchResult.lift,
             errorHandler: nil
-            
+
         )
 }
 /**
  * Install the app-owned callback before accepting any verb dispatch.
  */
-public func registerNativeBackend(callback: ImpartNativeCallbacks) {try! rustCall() {
+public func registerNativeBackend(databasePath: String, callback: ImpartNativeCallbacks) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
     uniffi_impart_verbs_ffi_fn_func_register_native_backend(
+        FfiConverterString.lower(databasePath),
         FfiConverterCallbackInterfaceImpartNativeCallbacks.lower(callback),$0
     )
-}
+})
 }
 
 private enum InitializationResult {
@@ -867,7 +893,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impart_verbs_ffi_checksum_func_dispatch_verb() != 23845) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impart_verbs_ffi_checksum_func_register_native_backend() != 14668) {
+    if (uniffi_impart_verbs_ffi_checksum_func_register_native_backend() != 29719) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impart_verbs_ffi_checksum_method_impartnativecallbacks_invoke() != 11909) {

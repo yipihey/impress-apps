@@ -3005,7 +3005,7 @@ public protocol SharedStoreProtocol : AnyObject {
      * Install the host's second verb inventory (ADR-0033 D4, amended
      * 2026-09-23) — the callback [`SharedSurface`](surface::SharedSurface)'s
      * executor and service consult for any verb this process did not link
-     * into `impress-capabilities-kit`.
+     * into `impress-capabilities`.
      *
      * **May be called after surfaces were already opened.** Every
      * [`SharedSurface`](surface::SharedSurface) built from this store holds
@@ -4304,7 +4304,7 @@ open func setStarred(id: String, isStarred: Bool)throws  {try rustCallWithError(
      * Install the host's second verb inventory (ADR-0033 D4, amended
      * 2026-09-23) — the callback [`SharedSurface`](surface::SharedSurface)'s
      * executor and service consult for any verb this process did not link
-     * into `impress-capabilities-kit`.
+     * into `impress-capabilities`.
      *
      * **May be called after surfaces were already opened.** Every
      * [`SharedSurface`](surface::SharedSurface) built from this store holds
@@ -16089,7 +16089,7 @@ extension SharedSurfaceError: Foundation.LocalizedError {
 
 /**
  * What the host process implements to answer a verb this crate's own
- * linked inventory (`impress-capabilities-kit`) does not have — imbib's
+ * linked inventory (`impress-capabilities`) does not have — imbib's
  * and imprint's own verbs, which cannot link into this crate a second time
  * (ADR-0033 D4 forbids a second domain core; `impress-store-ffi`'s
  * `Cargo.toml` has the cyclic-package details for why they cannot link
@@ -19224,7 +19224,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_starred() != 29104) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_verb_host() != 48418) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_verb_host() != 55080) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_sync_apply_remote_deletions() != 41746) {

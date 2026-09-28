@@ -187,6 +187,7 @@ targets:
       - path: Tests
     dependencies:
       - target: impel
+      - package: ImpressRustCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.impress.impel.tests
