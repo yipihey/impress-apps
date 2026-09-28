@@ -1431,3 +1431,48 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   documented in `docs/p5b-retained-http-endpoints.md`; their retirement needs
   the caller/contract decision already requested from Tom. Final native proofs,
   adapter retirement and gates are still required; no P5b PR is open yet.
+
+- 2026-09-28 — **P5b native transport verified; retirement narrowed by actual contracts.**
+  The four typed HTTP adapter crates and `impress-app-client` are removed;
+  their 185 actual trait methods retain a mock forwarding/refusal parity test.
+  Four app-owned FFIs dispatch the same service inventories with native Swift
+  callbacks where GUI state is required. Foreign async entry runs on the shared
+  Tokio runtime and aborts a cancelled dispatch future. Imprint manuscript
+  metadata reads now use the exact shared store; export uses the native handler,
+  and invalid/missing IDs remain refusals. Native writes install a per-image
+  audit sink bound to the GUI database, rather than relying on a different
+  framework's globals or an environment fallback.
+  A real imprint proof found that dyld interposed Rust implementation symbols
+  across SwiftPM frameworks: one image wrote its refusal while another read it.
+  All 11 native wrapper manifests and the six app projects now keep Rust
+  implementation symbols private while preserving the public UniFFI C ABI.
+  The prelaunch bundle checker rejects those exports and bundled SQLite;
+  four checker fixtures and a 78-image imprint scan passed. All twelve full
+  arm64 xcframework builds passed with swiftformat absent and no fast builds.
+  Impart's archive builder now leaves generated bindings beside its archive
+  while ImpartRustCore remains a placeholder without a binary target.
+  Final isolated native proofs: imbib `90w2ucgr` (PID 94153, 8 HTTP calls),
+  imprint `l4gp9bcz` (90768, 14), impart `iglcruqj` (92934, 8), implore `y2bb5seh`
+  (90202, 5 plus its dedicated RG/figure proof), and impel `zryomkul` (91283, 2).
+  Each root has prefix `/tmp/impress-p5b-transport-`. The four domain proofs
+  verify committed writes and exact supplied trace, parent-call and caller in
+  their own store's verb-call row. Imprint also proves real PDF compilation,
+  native edits, pending human buffer preservation, UTF-16 comments, three
+  export formats and failed-ID refusals. All launched proof processes exited.
+  Strict-argument proofs also passed on all five shells: five stored scenarios,
+  15 surface catalogue cases, 56 layout catalogue cases and zero skips;
+  `/tmp/impress-p5b-final-strict-summary.json` records their roots and PIDs.
+  Final native tests across 27 touched crates (including capabilities) passed
+  3,052 with 19 ignored in 82 groups. Both clippy shards, fmt, coverage/docs,
+  strict kit dependencies, 21 standalone kit crates, 11 bindings, schema refs
+  (410 sites, 85 refs), and hakari diff passed. Tables were regenerated from
+  the census/descriptor/effects dumps with semantic-search enabled: 477 verbs,
+  84 example-verified, 93 catalogue-verified, 300 exceptions. Reference pages
+  use the default feature inventory.
+  Thirty-four equivalent Swift route registrations are retired. The original
+  estimate of 160 mirrored arms conflated several richer REST contracts with
+  the narrower verb signatures. `docs/p5b-retained-http-endpoints.md` records
+  retained data, arguments and active callers; further retirement requires the
+  caller/contract decision already requested from Tom. No verb arguments,
+  schemas or record kinds were changed to invent that equivalence. The normal
+  push hook, PR and merge are next; no P5b merge is claimed by this entry.

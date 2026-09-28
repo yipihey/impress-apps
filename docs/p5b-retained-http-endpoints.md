@@ -20,7 +20,7 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 | imprint | `GET/POST /api/documents/{id}/comments`, `PATCH/DELETE /api/comments/{id}`, and `POST /api/comments/{id}/accept|reject` | The HTTP comment routes carry filters, threaded replies, proposed text, agent attribution, and suggestion actions that the present comment verbs do not all represent. In particular, `update-comment` explicitly refuses accepted/rejected status rather than claiming a suggestion was applied. |
 | implore | `GET /api/figures`, `GET /api/figures/{id}`, `GET /api/figures/{id}/export` in `ImploreBridge` and impel's `CounselToolRegistry` | `FigureRecord` lacks the route's type, dataset name, modified time and view-state fields. `export-figure` returns a file path, while `ImploreBridge.exportFigure` returns image bytes. Counsel's raw result expects the old full envelope. |
 | implore | `POST /api/figures`, `PATCH /api/figures/{id}`, `DELETE /api/figures/{id}` | The HTTP figure writer accepts dataset/view configuration and re-renders or cleans up the stored artifact. Current service verbs do not cover that full update/delete contract; keep the handlers and routes. |
-| implore | `GET /api/rg/slice/png`, `/api/rg/slice/raw`, `/api/rg/statistics`, `/api/rg/cascade_plot`, `/api/plot/svg`, `/api/plot/histogram`, plus `POST /api/rg/control` and `/api/rg/batch` | These routes accept viewer query/body options or return raw image/SVG data. The current native callback does not project all `params_json` fields for raw/statistics/control/batch, and a string result does not preserve binary HTTP response behavior. |
+| implore | `GET /api/rg/slice/png`, `/api/rg/cascade_plot`, `/api/plot/svg`, and `/api/plot/histogram` | These routes accept viewer query/body options or return raw image/SVG data. A string result does not preserve binary HTTP response behavior. |
 | impart | `GET /api/research/conversations` in `ImpartBridge` and impel's `CounselToolRegistry` | `ConversationRecord` omits participants, tags, parent conversation, and `lastActivityAt` from the HTTP list; Counsel also consumes the old count/total/query envelope. `GET /api/messages` is a separate app-only mail capability. |
 | impart | `GET /api/research/conversations/{id}` | The HTTP detail includes messages and statistics; `get-conversation` returns a summary record only. |
 | impart | `POST /api/research/conversations`, `/{id}/messages`, `/{id}/branch`, `/{id}/artifacts`, `/{id}/decisions`; `PATCH /api/research/conversations/{id}`, `/{id}/archive` | These legacy routes queue UI operations and return queue acknowledgements. The native verbs perform writes before returning. The HTTP routes also accept fields absent from the verb signatures: participants, sender ID/causation ID, branch message ID, artifact URI/type/display name, tags, and archive. No verb represents archive. |
@@ -45,11 +45,27 @@ fields that current verb results omit, while the tag-tree route returns a
 formatted hierarchy rather than flat tag records. Manuscript, e-ink,
 revisions, and shared status/log routes remain independent capabilities.
 
-Implore retired six legacy registrations whose existing native callback calls
+Implore retired ten legacy registrations whose existing native callback calls
 the same private handlers with the same arguments: `GET /api/datasets`,
 `GET /api/datasets/{id}`, `GET /api/rg/state`, `GET /api/rg/colormaps`,
-`POST /api/rg/load`, and `POST /api/rg/slice/save`. The dataset handlers still
+`POST /api/rg/load`, `POST /api/rg/slice/save`, `GET /api/rg/slice/raw`,
+`GET /api/rg/statistics`, `POST /api/rg/control`, and `POST /api/rg/batch`. The dataset handlers still
 report session data as before (currently an empty list or not found); the
 registration removal does not change their native behavior. No repository
-Swift caller uses these six URLs. Impart retired no research registrations:
+Swift caller uses these ten URLs. Impart retired no research registrations:
 its remaining HTTP contracts differ from the current verbs as listed above.
+
+Imbib also retired ten unused library/collection/tag registrations: GET library
+`default` and `inbox`, POST library `set-default` and `deduplicate`, collection
+`purge-dismissed`, and tag creation, PUT tag rename/color, and DELETE tag or
+collection. Collection creation still accepts an absent library and a predicate;
+membership routes accept arbitrary paper identifiers and return per-item
+outcomes. Library deletion accepts file-deletion and batch options. Tag list
+prefix/limit and formatted tree results are not the flat verb records.
+
+Imprint retired `GET /api/manuscripts/{id}/sections`, whose stored-section list
+is covered by the canonical verb. Other section routes operate on live derived
+editor sections or accept item IDs without the verb's document/key pair. The
+live outline/citation/search routes also carry document and position/search
+semantics beyond the pure-source verbs. Compile routes returning PDF bytes,
+and bundle or live-document compilation, remain distinct from a returned path.

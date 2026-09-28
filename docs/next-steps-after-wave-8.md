@@ -72,27 +72,32 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   flushing with a FIFO writer acknowledgement and explicit timeout/disconnection errors.
   It also waits for the final job event before checking its cursor. The original failure
   was not conclusively attributed to either race; the fresh full main run above is green.
-- **P5b (in progress)**: `p5b-transport` / `claude/pipeline-p5b-transport`, now
-  based on main `7d28f88c`. Four per-app native verb bridges, shared transport in
-  the Rust clients, and the single feature-gated inventory are implemented.
-  Initial touched-crate tests passed 2,293 (5 ignored), both clippy shards passed,
-  and all 185 actual legacy adapter trait methods passed mock forwarding/refusal
-  parity. These checks do not substitute for native semantic proofs.
-  The twelve native framework builds now use platform SQLite through
-  `scripts/native-sqlite.sh`; Xcode had linked four independent bundled SQLite
-  copies into imprint, which crashed opening its owned scratch store. The
-  prelaunch checker rejects any built app image defining `_sqlite3_open_v2`.
-  All twelve full arm64 builds passed, and 672 core tests passed against the
-  platform library. Rebuilt isolated imbib, impart, implore and impel hosted proofs
-  passed. Imprint now starts safely but exposed a missing Tokio reactor at the
-  Swift async boundary and placeholder manuscript list/get/export handlers;
-  these are being fixed before another full native cohort/proof run. No user's running app or real store was used.
-  Nineteen exact Swift aliases have been removed or are ready for removal;
-  distinct rich endpoint contracts and remaining callers are listed in
-  `docs/p5b-retained-http-endpoints.md`, pending Tom's scope clarification.
-  The four legacy `*-service-http` crates and `impress-app-client` are still
-  present until native proofs pass. Final gates, adapter deletion, generated
-  docs, strict-args proofs, the PR and merge remain.
+- **P5b (verified locally; push/PR/merge pending)**: `p5b-transport` /
+  `claude/pipeline-p5b-transport`, based on main `7d28f88c`. Native domain
+  dispatch, exact GUI store binding, the shared transport in Rust clients,
+  and one feature-gated inventory are implemented. The four `*-service-http`
+  crates and `impress-app-client` are deleted (7,942 lines of obsolete code).
+  Thirty-four equivalent Swift registrations are retired. The richer retained
+  contracts and their callers are recorded in `docs/p5b-retained-http-endpoints.md`;
+  this is not a claim that the plan's estimated 160 arms have all been removed.
+  Completing that retirement needs the caller/contract decision already requested
+  from Tom, including capabilities not representable by existing verb arguments.
+  All twelve full arm64 archive builds passed with platform SQLite. Rust
+  implementation symbols are now private to each native image; otherwise dyld
+  paired one image's refusal writer with another image's reader and returned
+  HTTP 200 for a failed call. Each native FFI installs its own audit sink on
+  the exact GUI database. The prelaunch checker checks both invariants.
+  All five native transport proofs passed, including persisted app-owned writes,
+  real imprint compilation/exports, implore RG operations, and exact trace,
+  parent-call and caller audit readback for the four domain apps. All five
+  strict-argument proofs passed: five stored scenarios, 15 surface catalogue
+  cases and 56 chassis layout cases, with zero skips. Proof evidence is in
+  `/tmp/impress-p5b-final-strict-summary.json` and the dated pipeline plan log.
+  Final tests across 27 touched crates, including capabilities, passed 3,052
+  with 19 ignored in 82 groups; log `/tmp/impress-p5b-final-touched-tests.log`,
+  scratch `/tmp/impress-cargo-tests.TlWc60/workspace`. Both clippy shards and all
+  requested quick gates passed. The normal pre-push hook, PR and merge remain.
+  No user's running app, launcher or real store was used.
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
 - **R3**: imprint's settings and chords through the registries.
@@ -120,6 +125,14 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   crate hash: the app linked but native triage dispatch returned 404. Rebuild ImbibCore,
   ImbibVerbsFfi, ImpressStoreFfi and the macOS ImpelTools inventory together for those changes;
   unchanged generated Swift bindings alone do not prove the embedded Rust copies agree.
+- P5b native archives must use platform SQLite via `scripts/native-sqlite.sh`.
+  All native wrapper packages and app projects also hide Rust implementation
+  symbols; keep both settings. Run `scripts/check-native-sqlite.py <owned.app>`
+  before a live proof (both proof runners do so). The check rejects bundled
+  SQLite and exported Rust internals. ImpartRustCore remains a placeholder:
+  its core build keeps generated bindings beside the archive, not in that
+  unconfigured Swift target. Use the real Homebrew `xcodegen` entry point for
+  app generation; a symlink copied into a scratch PATH loses its settings resources.
 - Per PR, run the quick gates and touched-crate/capabilities tests. Later batches need a new full workspace run on main.
 - Concurrent worktrees need separate Cargo target directories; sharing a target across differing branches caused a rustdoc dependency-load failure. Use the root cache serially, or a worktree's ignored `target-<pkg>-gates` directory.
 - Run Rust tests with a fresh scratch workspace and process-local environment, before any test can initialize a store singleton:
