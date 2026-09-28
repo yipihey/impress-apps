@@ -1895,3 +1895,29 @@ agent-surfaces.md, ex = an example surface, test); Desc = `fallback` when the de
   contract, not the still-unpackaged native domain backends. Post-S3 main `10ee5acd` separately
   passed the isolated serial workspace run: 4,324 passed, 0 failed, 23 ignored, including doctests
   (`/tmp/impress-s3-main-workspace.log`). A new main run follows G5's merge.
+
+- 2026-09-28 — **G3 remainder, implementation checkpoint** on
+  `claude/gui-g3-remainder` / `g3-remainder`, with the reviewed P8/R3 changes
+  integrated locally while their hosted checks run. The default inventory audit
+  found 355 verbs without examples (249 headless, 106 external) and 936 missing
+  argument descriptions; the earlier ~170 figure was a headless subset. Small
+  service batches are being committed on this one package branch. Explicit
+  `tier = "b"` metadata and the isolated-host invocation seam now exist; Tier A
+  excludes those examples. The capabilities harness shares per-example scratch
+  fixtures, full input/output JSON Schema checks and persisted readback with the
+  effects spy, without charging setup/readback to a verb's observed effects.
+  `{{fixture.root}}` resolves only inside the runner-owned directory; parent
+  traversal is refused, and surface `{{state...}}` strings remain literal.
+  Store, settings, source assets/cache, imprint workspace/compiler cache and
+  embedding sidecar paths are explicitly isolated; HOME is not reassigned.
+  The first integrated run passed **181 examples on 166 headless verbs**
+  (`/tmp/impress-g3-third-tier-a.log`, plus the path containment check). This
+  covers the first parser/memory, settings/source/collaboration, collection/import
+  and layout slices. The strengthened expectation check caught an older
+  scenario-record example whose negative expectation contradicted its seeded
+  trace; it now checks successful recording. The effects spy exposed missing
+  declarations in source/collaboration/collection/import/layout handlers, which
+  are being corrected against their actual reads and writes. Remaining service
+  batches, complete generated tables, the hard completeness gate, native proofs,
+  package gates, PR and merge are still pending. No external example was run on
+  a user's app or data.

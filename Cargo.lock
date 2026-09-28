@@ -4519,6 +4519,7 @@ dependencies = [
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
+ "jsonschema",
  "perf-service",
  "serde_json",
  "surface-demo-service",

@@ -176,7 +176,11 @@ fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
         } else {
             out.push_str("**Examples**\n\n");
             for ex in examples {
-                out.push_str(&format!("- `{}`:\n\n", ex.name));
+                let tier = match ex.tier {
+                    impress_service_core::ExampleTier::A => "A",
+                    impress_service_core::ExampleTier::B => "B (isolated host)",
+                };
+                out.push_str(&format!("- `{}` — Tier {tier}:\n\n", ex.name));
                 out.push_str("  ```json\n");
                 out.push_str(&format!("  {}\n", ex.args));
                 out.push_str("  ```\n");
