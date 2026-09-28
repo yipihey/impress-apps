@@ -19,7 +19,7 @@ Append a message to a conversation. `role` is the speaker (`user`, `assistant`, 
 
 **Examples**
 
-- `append_fixture_observation` — Tier B (isolated host):
+- `append_fixture_observation` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5b000000-0000-4000-8000-000000000011","content":"The fixture result needs a second check.","role":"user"}
@@ -46,7 +46,7 @@ Branch a conversation to explore an alternative without losing the original thre
 
 **Examples**
 
-- `branch_fixture_thread` — Tier B (isolated host):
+- `branch_fixture_thread` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5b000000-0000-4000-8000-000000000011","title":"G3 counter-hypothesis"}
@@ -73,7 +73,7 @@ Start a new research conversation.
 
 **Examples**
 
-- `start_research_thread` — Tier B (isolated host):
+- `start_research_thread` — Tier B (explicit isolated run):
 
   ```json
   {"title":"G3 alternative hypothesis","summary":"Compare two interpretations of the fixture evidence."}
@@ -99,7 +99,7 @@ One conversation's metadata and message count. Read message details from the app
 
 **Examples**
 
-- `read_fixture_thread` — Tier B (isolated host):
+- `read_fixture_thread` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5b000000-0000-4000-8000-000000000011"}
@@ -126,7 +126,7 @@ Recent lines from impart's in-memory log store.
 
 **Examples**
 
-- `recent_research_logs` — Tier B (isolated host):
+- `recent_research_logs` — Tier B (explicit isolated run):
 
   ```json
   {"limit":10,"level":"info,warning,error"}
@@ -148,7 +148,7 @@ Research conversations, most recently updated first. START HERE: every other con
 
 **Examples**
 
-- `recent_research_threads` — Tier B (isolated host):
+- `recent_research_threads` — Tier B (explicit isolated run):
 
   ```json
   {"limit":20,"include_archived":false}
@@ -172,7 +172,7 @@ Record an artifact a conversation produced — a figure, a dataset, a draft. Lin
 
 **Examples**
 
-- `link_fixture_paper` — Tier B (isolated host):
+- `link_fixture_paper` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5b000000-0000-4000-8000-000000000011","title":"Fixture paper","kind":"paper","reference":"impress://imbib/papers/g3-fixture"}
@@ -200,7 +200,7 @@ Record a DECISION reached in a conversation in the running app's process-local p
 
 **Examples**
 
-- `record_fixture_decision` — Tier B (isolated host):
+- `record_fixture_decision` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5b000000-0000-4000-8000-000000000011","decision":"Retain the control group.","rationale":"It distinguishes the competing interpretations."}
@@ -224,7 +224,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated_app_status` — Tier B (isolated host):
+- `isolated_app_status` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -252,7 +252,7 @@ Edit a conversation's title or summary.
 
 **Examples**
 
-- `summarize_fixture_thread` — Tier B (isolated host):
+- `summarize_fixture_thread` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5b000000-0000-4000-8000-000000000011","summary":"The fixture evidence supports a revision."}

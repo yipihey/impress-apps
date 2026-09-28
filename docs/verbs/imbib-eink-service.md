@@ -138,7 +138,7 @@ The folders to create on the tablet by hand, parents first (the USB interface ca
 
 **Examples**
 
-- `owned-tablet-folders` — Tier B (isolated host):
+- `owned-tablet-folders` — Tier B (explicit isolated run):
 
   ```json
   {"device_id":"63000000-0000-4000-8000-000000000005"}
@@ -160,7 +160,7 @@ Pull annotated copies back without sending anything up. With `publication_id`, i
 
 **Examples**
 
-- `g3-eink-import` — Tier B (isolated host):
+- `g3-eink-import` — Tier B (explicit isolated run):
 
   ```json
   {"publication_id":"6b000000-0000-4000-8000-000000000001","device_id":"63000000-0000-4000-8000-000000000005"}
@@ -185,7 +185,7 @@ Bring one such document into the store. `as_kind` `publication` (default: a note
 
 **Examples**
 
-- `g3-eink-import-document` — Tier B (isolated host):
+- `g3-eink-import-document` — Tier B (explicit isolated run):
 
   ```json
   {"remote_id":"g3-owned-notebook","library_id":"63000000-0000-4000-8000-000000000001","collection_id":null,"as_kind":"note","device_id":"63000000-0000-4000-8000-000000000005"}
@@ -254,7 +254,7 @@ Documents on the tablet that imbib did not put there — notebooks written on it
 
 **Examples**
 
-- `g3-eink-list-unmatched` — Tier B (isolated host):
+- `g3-eink-list-unmatched` — Tier B (explicit isolated run):
 
   ```json
   {"device_id":"63000000-0000-4000-8000-000000000005"}
@@ -356,7 +356,7 @@ Dry run: list the tablet and report what a sync would do, including the folders 
 
 **Examples**
 
-- `owned-tablet-dry-run` — Tier B (isolated host):
+- `owned-tablet-dry-run` — Tier B (explicit isolated run):
 
   ```json
   {"device_id":"63000000-0000-4000-8000-000000000005"}
@@ -377,7 +377,7 @@ A two-second probe: is the tablet plugged in with its USB web interface on? The 
 
 **Examples**
 
-- `owned-tablet-probe` — Tier B (isolated host):
+- `owned-tablet-probe` — Tier B (explicit isolated run):
 
   ```json
   {"device_id":"63000000-0000-4000-8000-000000000005"}
@@ -502,7 +502,7 @@ Sync now: upload queued papers into `imbib/<Library>/<Collection>` folders that 
 
 **Examples**
 
-- `owned-tablet-sync` — Tier B (isolated host):
+- `owned-tablet-sync` — Tier B (explicit isolated run):
 
   ```json
   {"device_id":"63000000-0000-4000-8000-000000000005","import":false}

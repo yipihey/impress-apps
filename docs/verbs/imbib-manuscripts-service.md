@@ -17,7 +17,7 @@ Compile a manuscript through imbib, with the store-backed virtual bibliography �
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"{{state.manuscript_id}}"}
@@ -44,7 +44,7 @@ Create a new manuscript row and return it. For changing an existing one use `wri
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {"title":"G3 research notes","format":"typst"}
@@ -71,7 +71,7 @@ Create a manuscript scaffolded from a template: front matter, section skeleton a
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {"template_id":"{{state.template_id}}","title":"G3 template draft"}
@@ -97,7 +97,7 @@ One manuscript's metadata, including the `content_hash` that `write_manuscript_b
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"{{state.manuscript_id}}"}
@@ -121,7 +121,7 @@ Takes no arguments.
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -145,7 +145,7 @@ Takes no arguments.
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -173,7 +173,7 @@ Replace a manuscript's ENTIRE body, compare-and-set. There is no patch/append ro
 
 **Examples**
 
-- `needs-running-imbib` — Tier B (isolated host):
+- `needs-running-imbib` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"{{state.manuscript_id}}","body":"= G3 research notes","expected_hash":"{{state.content_hash}}"}

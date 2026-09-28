@@ -146,7 +146,7 @@ Which publisher owns a DOI, whether its PDF URL is predictable, and what to try.
 
 **Examples**
 
-- `aps-doi` — Tier B (isolated host):
+- `aps-doi` — Tier B (explicit isolated run):
 
   ```json
   {"doi":"10.1103/PhysRevD.1.1"}

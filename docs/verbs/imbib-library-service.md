@@ -413,7 +413,7 @@ Copy papers into another library; returns the ids of the new copies.
 
 **Examples**
 
-- `copy-paper-to-project` — Tier B (isolated host):
+- `copy-paper-to-project` — Tier B (explicit isolated run):
 
   ```json
   {"ids":["5c000000-0000-4000-8000-000000000023"],"to_library_id":"5c000000-0000-4000-8000-000000000024"}

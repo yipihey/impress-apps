@@ -15,7 +15,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated-daemon-health` — Tier B (isolated host):
+- `isolated-daemon-health` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -136,7 +136,7 @@ List models for `provider` (or the device's resolved default provider when omitt
 
 **Examples**
 
-- `catalogue-after-provider-discovery` — Tier B (isolated host):
+- `catalogue-after-provider-discovery` — Tier B (explicit isolated run):
 
   ```json
   {"provider":"ollama"}
@@ -155,7 +155,7 @@ Takes no arguments.
 
 **Examples**
 
-- `device-provider-readiness` — Tier B (isolated host):
+- `device-provider-readiness` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -174,7 +174,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated-daemon-pairing` — Tier B (isolated host):
+- `isolated-daemon-pairing` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -195,7 +195,7 @@ Passive reachability probe for `provider` (or the resolved default): never launc
 
 **Examples**
 
-- `local-provider-probe` — Tier B (isolated host):
+- `local-provider-probe` — Tier B (explicit isolated run):
 
   ```json
   {"provider":"ollama"}

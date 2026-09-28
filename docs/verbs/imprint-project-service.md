@@ -21,7 +21,7 @@ Build a target and record it: stale figure steps first (`shell` steps only with 
 
 **Examples**
 
-- `g3-build` — Tier B (isolated host):
+- `g3-build` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"5e000000-0000-4000-8000-000000000001","allow_shell":false}
@@ -230,7 +230,7 @@ Compile one target from the store, no directory: Typst over the tree (projected 
   {"ok":false,"engine":"typst"}
   ```
 
-- `g3-compile-positive` — Tier B (isolated host):
+- `g3-compile-positive` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"5e000000-0000-4000-8000-00000000001f","entry_override":"= G3 compile\nA valid isolated project."}
@@ -314,7 +314,7 @@ A look at one figure without writing anything: rendered into a scratch directory
 
 **Examples**
 
-- `g3-figure-preview` — Tier B (isolated host):
+- `g3-figure-preview` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"5e000000-0000-4000-8000-00000000000b","path":"figures/chart.plot.json","allow_shell":false}
@@ -599,7 +599,7 @@ Render one figure's step — a stale one by default, any one with `force` — an
 
 **Examples**
 
-- `g3-render-figure` — Tier B (isolated host):
+- `g3-render-figure` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"5e000000-0000-4000-8000-000000000015","path":"figures/chart.plot.json","force":true,"allow_shell":false}

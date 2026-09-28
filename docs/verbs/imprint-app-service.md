@@ -19,7 +19,7 @@ Add a review comment to a manuscript. Anchor it to a quoted snippet where you ca
 
 **Examples**
 
-- `comment_on_fixture_heading` — Tier B (isolated host):
+- `comment_on_fixture_heading` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001","body":"Clarify this heading.","anchor":"G3 fixture"}
@@ -46,7 +46,7 @@ Create a new imprint document and return its id. For a manuscript scaffolded fro
 
 **Examples**
 
-- `create_typst_draft` — Tier B (isolated host):
+- `create_typst_draft` — Tier B (explicit isolated run):
 
   ```json
   {"title":"G3 created draft","format":"typst"}
@@ -67,7 +67,7 @@ Delete a comment outright. Resolving one by setting its status is usually better
 
 **Examples**
 
-- `delete_fixture_comment` — Tier B (isolated host):
+- `delete_fixture_comment` — Tier B (explicit isolated run):
 
   ```json
   {"comment_id":"{{fixture.imprint_comment_id}}"}
@@ -95,7 +95,7 @@ Delete a UTF-16 editor range from a manuscript. Offsets are into the source text
 
 **Examples**
 
-- `remove_fixture_prefix` — Tier B (isolated host):
+- `remove_fixture_prefix` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001","offset":2,"length":3}
@@ -121,7 +121,7 @@ The BibTeX bibliography a manuscript resolves to: every `@citeKey` in the source
 
 **Examples**
 
-- `fixture_bibliography` — Tier B (isolated host):
+- `fixture_bibliography` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001"}
@@ -147,7 +147,7 @@ The full source text of a manuscript. Use this to read before editing; section-l
 
 **Examples**
 
-- `read_fixture_source` — Tier B (isolated host):
+- `read_fixture_source` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001"}
@@ -175,7 +175,7 @@ Recent lines from imprint's in-memory log store — the same feed its Console wi
 
 **Examples**
 
-- `recent_manuscript_logs` — Tier B (isolated host):
+- `recent_manuscript_logs` — Tier B (explicit isolated run):
 
   ```json
   {"limit":10,"level":"info,warning,error","category":"manuscripts"}
@@ -196,7 +196,7 @@ Compile a manuscript and report where the PDF landed. The bytes are not returned
 
 **Examples**
 
-- `compile_fixture_pdf` — Tier B (isolated host):
+- `compile_fixture_pdf` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001"}
@@ -224,7 +224,7 @@ Insert text at a UTF-16 editor offset in a manuscript. Goes through the running 
 
 **Examples**
 
-- `append_fixture_paragraph` — Tier B (isolated host):
+- `append_fixture_paragraph` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001","offset":13,"text":"A paragraph.\n"}
@@ -250,7 +250,7 @@ Review comments on a manuscript, newest first.
 
 **Examples**
 
-- `fixture_review_comments` — Tier B (isolated host):
+- `fixture_review_comments` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001"}
@@ -273,7 +273,7 @@ Replace every occurrence of `find` with `replace` in a manuscript. Returns how m
 
 **Examples**
 
-- `replace_fixture_word` — Tier B (isolated host):
+- `replace_fixture_word` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001","find":"fixture","replace":"example"}
@@ -297,7 +297,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated_app_status` — Tier B (isolated host):
+- `isolated_app_status` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -325,7 +325,7 @@ Edit a comment's body, or set its status to `open` or `resolved`. The native app
 
 **Examples**
 
-- `resolve_fixture_comment` — Tier B (isolated host):
+- `resolve_fixture_comment` — Tier B (explicit isolated run):
 
   ```json
   {"comment_id":"{{fixture.imprint_comment_id}}","status":"resolved"}
@@ -352,7 +352,7 @@ Rename a document.
 
 **Examples**
 
-- `rename_fixture_document` — Tier B (isolated host):
+- `rename_fixture_document` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001","title":"G3 renamed draft"}
@@ -379,7 +379,7 @@ Update supported document metadata fields from a JSON object: title, status, aut
 
 **Examples**
 
-- `set_fixture_authors` — Tier B (isolated host):
+- `set_fixture_authors` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5b000000-0000-4000-8000-000000000001","metadata_json":"{\"authors\":[\"G3 Fixture\"]}"}

@@ -178,7 +178,7 @@ fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
             for ex in examples {
                 let tier = match ex.tier {
                     impress_service_core::ExampleTier::A => "A",
-                    impress_service_core::ExampleTier::B => "B (isolated host)",
+                    impress_service_core::ExampleTier::B => "B (explicit isolated run)",
                 };
                 out.push_str(&format!("- `{}` — Tier {tier}:\n\n", ex.name));
                 out.push_str("  ```json\n");
@@ -296,6 +296,16 @@ pub fn render(handles: impl IntoIterator<Item = VerbHandle>) -> RenderedVerbDocs
              diff.\n\n",
         );
     }
+    index.push_str(
+        "Examples with scratch identifiers or `{{fixture...}}` placeholders require the \
+         owned fixtures in `crates/impress-capabilities/tests/support`; substitute your \
+         own identifiers and paths when calling a verb directly. `{{state...}}` values \
+         refer to captures or surface state, not literal identifiers.\n\n\
+         Tier A runs without an app or external service. Tier B requires an explicit \
+         isolated run with the native host, model, device, or credentials named by the \
+         verb's reach. A Tier B label describes the required environment; it does not \
+         mean the example ran in the headless suite.\n\n",
+    );
     for (service, verbs) in &by_service {
         pages.insert(service.clone(), render_service(service, verbs));
         index.push_str(&format!(

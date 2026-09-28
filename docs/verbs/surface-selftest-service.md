@@ -17,7 +17,7 @@ Run the surface capability self-tests (`tier` = a | b | all).
 
 **Examples**
 
-- `owned-headless-catalogue` — Tier B (isolated host):
+- `owned-headless-catalogue` — Tier B (explicit isolated run):
 
   ```json
   {"tier":"a"}

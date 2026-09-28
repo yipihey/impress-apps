@@ -18,7 +18,7 @@ Extract identifiers from a conversation AND import them into imbib in one step. 
 
 **Examples**
 
-- `import_isolated_conversation_papers` — Tier B (isolated host):
+- `import_isolated_conversation_papers` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5f000000-0000-4000-8000-000000000040","library":"5f000000-0000-4000-8000-000000000001"}
@@ -68,7 +68,7 @@ Cite several papers at once. Prefer this to repeated single calls: it is one pas
 
 **Examples**
 
-- `cite_two_isolated_papers` — Tier B (isolated host):
+- `cite_two_isolated_papers` — Tier B (explicit isolated run):
 
   ```json
   {"cite_keys":["G3Bridge2026","G3BridgeFollowup2026"],"document_id":"5f000000-0000-4000-8000-000000000010"}
@@ -90,7 +90,7 @@ Cite a paper from imbib in an imprint manuscript: looks the cite key up in the l
 
 **Examples**
 
-- `cite_isolated_manuscript` — Tier B (isolated host):
+- `cite_isolated_manuscript` — Tier B (explicit isolated run):
 
   ```json
   {"cite_key":"G3Bridge2026","document_id":"5f000000-0000-4000-8000-000000000010"}
@@ -111,7 +111,7 @@ Decisions recorded in a conversation. These are what turn a discussion into a me
 
 **Examples**
 
-- `isolated_thread_decisions` — Tier B (isolated host):
+- `isolated_thread_decisions` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
@@ -132,7 +132,7 @@ A manuscript outline distilled from a research conversation: its sections, the d
 
 **Examples**
 
-- `isolated_thread_outline` — Tier B (isolated host):
+- `isolated_thread_outline` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
@@ -155,7 +155,7 @@ Embed an implore figure into an imprint manuscript: exports the figure to a file
 
 **Examples**
 
-- `embed_isolated_svg` — Tier B (isolated host):
+- `embed_isolated_svg` — Tier B (explicit isolated run):
 
   ```json
   {"figure_id":"5f000000-0000-4000-8000-000000000030","document_id":"5f000000-0000-4000-8000-000000000010","format":"svg"}
@@ -178,7 +178,7 @@ Insert only the `#image(...)` reference, without re-exporting. Use when the file
 
 **Examples**
 
-- `reference_preexported_figure` — Tier B (isolated host):
+- `reference_preexported_figure` — Tier B (explicit isolated run):
 
   ```json
   {"figure_id":"5f000000-0000-4000-8000-000000000030","document_id":"5f000000-0000-4000-8000-000000000010","path":"{{fixture.root}}/figures/bridge.svg"}
@@ -199,7 +199,7 @@ BibTeX for every paper an impart conversation mentions that is already in imbib 
 
 **Examples**
 
-- `bibtex_for_isolated_thread` — Tier B (isolated host):
+- `bibtex_for_isolated_thread` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
@@ -220,7 +220,7 @@ The same extraction over every message in an impart conversation.
 
 **Examples**
 
-- `identifiers_in_isolated_conversation` — Tier B (isolated host):
+- `identifiers_in_isolated_conversation` — Tier B (explicit isolated run):
 
   ```json
   {"conversation_id":"5f000000-0000-4000-8000-000000000040"}
@@ -268,7 +268,7 @@ Papers in imbib that look relevant to what a manuscript already cites — a star
 
 **Examples**
 
-- `suggest_for_isolated_manuscript` — Tier B (isolated host):
+- `suggest_for_isolated_manuscript` — Tier B (explicit isolated run):
 
   ```json
   {"document_id":"5f000000-0000-4000-8000-000000000010","limit":5}
@@ -340,7 +340,7 @@ Takes no arguments.
 
 **Examples**
 
-- `list_isolated_figures` — Tier B (isolated host):
+- `list_isolated_figures` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -415,7 +415,7 @@ Re-export a figure that is already embedded, so the manuscript picks up changes 
 
 **Examples**
 
-- `resync_isolated_figure` — Tier B (isolated host):
+- `resync_isolated_figure` — Tier B (explicit isolated run):
 
   ```json
   {"figure_id":"5f000000-0000-4000-8000-000000000030","format":"svg"}

@@ -75,7 +75,7 @@ Resolve a stored figure boundary and return its crop as MCP image content. Use t
 
 **Examples**
 
-- `render_fixture_figure_tier_b` — Tier B (isolated host):
+- `render_fixture_figure_tier_b` — Tier B (explicit isolated run):
 
   ```json
   {"source_item_id":"57000000-0000-4000-8000-000000000001","figure_label":"Fig. 1","resolution_dpi":150,"format":"png"}
@@ -105,7 +105,7 @@ Render one complete cited PDF page as MCP image content. Identify the page by ze
 
 **Examples**
 
-- `render_fixture_page_tier_b` — Tier B (isolated host):
+- `render_fixture_page_tier_b` — Tier B (explicit isolated run):
 
   ```json
   {"source_item_id":"57000000-0000-4000-8000-000000000001","page_index":0,"resolution_dpi":150,"format":"png"}

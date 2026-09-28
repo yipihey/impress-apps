@@ -34,7 +34,7 @@ Example (CLI): impress create-figure --dataset-id inline --plot-type scatter --x
 
 **Examples**
 
-- `host-inline-scatter` — Tier B (isolated host):
+- `host-inline-scatter` — Tier B (explicit isolated run):
 
   ```json
   {"dataset_id":"inline","plot_type":"scatter","x":"time (s)","y":"flux","name":"G3 decay","series":[{"label":"run 1","x":[0,1,2],"y":[1,0.6,0.36]}],"spec":null,"svg":null}
@@ -61,7 +61,7 @@ Export a figure to a file and return its path. `format` is `png`, `pdf` or `svg`
 
 **Examples**
 
-- `host-png-export` — Tier B (isolated host):
+- `host-png-export` — Tier B (explicit isolated run):
 
   ```json
   {"figure_id":"{{state.figure_id}}","format":"png"}
@@ -82,7 +82,7 @@ One dataset in detail, including per-column statistics where implore has compute
 
 **Examples**
 
-- `host-dataset-detail` — Tier B (isolated host):
+- `host-dataset-detail` — Tier B (explicit isolated run):
 
   ```json
   {"dataset_id":"{{state.dataset_id}}"}
@@ -103,7 +103,7 @@ One figure's definition.
 
 **Examples**
 
-- `host-figure-detail` — Tier B (isolated host):
+- `host-figure-detail` — Tier B (explicit isolated run):
 
   ```json
   {"figure_id":"{{state.figure_id}}"}
@@ -125,7 +125,7 @@ Recent lines from implore's in-memory log store.
 
 **Examples**
 
-- `host-log-tail` — Tier B (isolated host):
+- `host-log-tail` — Tier B (explicit isolated run):
 
   ```json
   {"limit":20,"level":"warning"}
@@ -144,7 +144,7 @@ Takes no arguments.
 
 **Examples**
 
-- `host-datasets` — Tier B (isolated host):
+- `host-datasets` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -165,7 +165,7 @@ Figures in implore, optionally narrowed to one dataset.
 
 **Examples**
 
-- `host-dataset-figures` — Tier B (isolated host):
+- `host-dataset-figures` — Tier B (explicit isolated run):
 
   ```json
   {"dataset_id":"{{state.dataset_id}}"}
@@ -187,7 +187,7 @@ Plot a histogram of one quantity and return the rendered SVG.
 
 **Examples**
 
-- `host-histogram-svg` — Tier B (isolated host):
+- `host-histogram-svg` — Tier B (explicit isolated run):
 
   ```json
   {"quantity":"flux","bins":24}
@@ -209,7 +209,7 @@ Plot one or more named series and return the rendered SVG.
 
 **Examples**
 
-- `host-series-svg` — Tier B (isolated host):
+- `host-series-svg` — Tier B (explicit isolated run):
 
   ```json
   {"series":["flux"],"title":"G3 flux"}
@@ -230,10 +230,10 @@ Run a batch of viewer operations in one call, which is much cheaper than a round
 
 **Examples**
 
-- `host-viewer-batch` — Tier B (isolated host):
+- `host-viewer-batch` — Tier B (explicit isolated run):
 
   ```json
-  {"params_json":"[]"}
+  {"params_json":"{\"positions\":[0,1,2],\"axis\":\"z\"}"}
   ```
 
 ## `implore-service_rg-cascade-plot`
@@ -249,7 +249,7 @@ Takes no arguments.
 
 **Examples**
 
-- `host-cascade-svg` — Tier B (isolated host):
+- `host-cascade-svg` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -268,7 +268,7 @@ Takes no arguments.
 
 **Examples**
 
-- `host-colormaps` — Tier B (isolated host):
+- `host-colormaps` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -289,10 +289,10 @@ Drive the viewer: pass a JSON object of controls (camera, slice axis and index, 
 
 **Examples**
 
-- `host-slice-control` — Tier B (isolated host):
+- `host-slice-control` — Tier B (explicit isolated run):
 
   ```json
-  {"params_json":"{\"slice_axis\":\"z\",\"slice_index\":2}"}
+  {"params_json":"{\"axis\":\"z\",\"position\":2}"}
   ```
 
 ## `implore-service_rg-load`
@@ -310,10 +310,10 @@ Load a volume dataset into the ray-grid viewer from a path on disk. Everything e
 
 **Examples**
 
-- `host-owned-volume` — Tier B (isolated host):
+- `host-owned-volume` — Tier B (explicit isolated run):
 
   ```json
-  {"path":"{{fixture.root}}/ai-implore/volume.npy"}
+  {"path":"{{fixture.root}}/ai-implore/volume.npz"}
   ```
 
 ## `implore-service_rg-slice-png`
@@ -331,10 +331,10 @@ Render the current slice as a PNG and return it (base64 or a path, depending on 
 
 **Examples**
 
-- `host-slice-png` — Tier B (isolated host):
+- `host-slice-png` — Tier B (explicit isolated run):
 
   ```json
-  {"format":"png"}
+  {"format":"base64"}
   ```
 
 ## `implore-service_rg-slice-raw`
@@ -352,7 +352,7 @@ The current slice as raw numeric data rather than an image — for analysis rath
 
 **Examples**
 
-- `host-raw-slice` — Tier B (isolated host):
+- `host-raw-slice` — Tier B (explicit isolated run):
 
   ```json
   {"params_json":"{}"}
@@ -373,7 +373,7 @@ Write the current slice to a file at `path`.
 
 **Examples**
 
-- `host-owned-slice` — Tier B (isolated host):
+- `host-owned-slice` — Tier B (explicit isolated run):
 
   ```json
   {"path":"{{fixture.root}}/ai-implore/slice.png"}
@@ -392,7 +392,7 @@ Takes no arguments.
 
 **Examples**
 
-- `host-viewer-state` — Tier B (isolated host):
+- `host-viewer-state` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -413,7 +413,7 @@ Summary statistics over the loaded volume, or a sub-region when the parameters n
 
 **Examples**
 
-- `host-volume-statistics` — Tier B (isolated host):
+- `host-volume-statistics` — Tier B (explicit isolated run):
 
   ```json
   {"params_json":"{}"}
@@ -432,7 +432,7 @@ Takes no arguments.
 
 **Examples**
 
-- `host-status` — Tier B (isolated host):
+- `host-status` — Tier B (explicit isolated run):
 
   ```json
   {}

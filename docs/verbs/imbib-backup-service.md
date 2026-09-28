@@ -134,7 +134,7 @@ Replace the ENTIRE library with a backup — including imprint manuscripts and i
 
 **Examples**
 
-- `host-required` — Tier B (isolated host):
+- `host-required` — Tier B (explicit isolated run):
 
   ```json
   {"path":"{{fixture.root}}/maintenance/restore/approved.impressbackup"}

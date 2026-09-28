@@ -415,7 +415,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-owned-volume",
         tier = "b",
-        args = r#"{"path":"{{fixture.root}}/ai-implore/volume.npy"}"#
+        args = r#"{"path":"{{fixture.root}}/ai-implore/volume.npz"}"#
     )]
     async fn rg_load(&self, path: String) -> String;
 
@@ -431,14 +431,14 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-slice-control",
         tier = "b",
-        args = r#"{"params_json":"{\"slice_axis\":\"z\",\"slice_index\":2}"}"#
+        args = r#"{"params_json":"{\"axis\":\"z\",\"position\":2}"}"#
     )]
     async fn rg_control(&self, params_json: String) -> String;
 
     /// Render the current slice as a PNG and return it (base64 or a path,
     /// depending on how the viewer answers).
     #[impress_method]
-    #[impress_example(name = "host-slice-png", tier = "b", args = r#"{"format":"png"}"#)]
+    #[impress_example(name = "host-slice-png", tier = "b", args = r#"{"format":"base64"}"#)]
     async fn rg_slice_png(&self, format: Option<String>) -> String;
 
     /// Write the current slice to a file at `path`.
@@ -472,7 +472,7 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_example(
         name = "host-viewer-batch",
         tier = "b",
-        args = r#"{"params_json":"[]"}"#
+        args = r#"{"params_json":"{\"positions\":[0,1,2],\"axis\":\"z\"}"}"#
     )]
     async fn rg_batch(&self, params_json: String) -> String;
 

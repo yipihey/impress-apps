@@ -18,7 +18,7 @@ Add existing papers to another library. Papers can sit in several libraries at o
 
 **Examples**
 
-- `isolated-add-to-library` — Tier B (isolated host):
+- `isolated-add-to-library` — Tier B (explicit isolated run):
 
   ```json
   {"publication_ids":["{{fixture.publication_id}}"],"library_id":"{{fixture.destination_library_id}}"}
@@ -44,7 +44,7 @@ Delete one annotation from a PDF.
 
 **Examples**
 
-- `isolated-delete-annotation` — Tier B (isolated host):
+- `isolated-delete-annotation` — Tier B (explicit isolated run):
 
   ```json
   {"annotation_id":"{{fixture.annotation_id}}"}
@@ -70,7 +70,7 @@ Delete a collection. The papers survive — a collection is a grouping, not a co
 
 **Examples**
 
-- `isolated-delete-collection` — Tier B (isolated host):
+- `isolated-delete-collection` — Tier B (explicit isolated run):
 
   ```json
   {"collection_id":"{{fixture.collection_id}}"}
@@ -96,7 +96,7 @@ Delete one comment.
 
 **Examples**
 
-- `isolated-delete-comment` — Tier B (isolated host):
+- `isolated-delete-comment` — Tier B (explicit isolated run):
 
   ```json
   {"comment_id":"{{fixture.comment_id}}"}
@@ -122,7 +122,7 @@ Delete saved searches by id. Returns how many went.
 
 **Examples**
 
-- `isolated-delete-smart-searches` — Tier B (isolated host):
+- `isolated-delete-smart-searches` — Tier B (explicit isolated run):
 
   ```json
   {"ids":["{{fixture.smart_search_id}}"]}
@@ -148,7 +148,7 @@ Download PDFs for the given papers, honouring the user's library-proxy and sourc
 
 **Examples**
 
-- `isolated-download-pdfs` — Tier B (isolated host):
+- `isolated-download-pdfs` — Tier B (explicit isolated run):
 
   ```json
   {"publication_ids":["{{fixture.publication_id}}"]}
@@ -177,7 +177,7 @@ Recent lines from imbib's in-memory log store — the same feed its Console wind
 
 **Examples**
 
-- `isolated-get-logs` — Tier B (isolated host):
+- `isolated-get-logs` — Tier B (explicit isolated run):
 
   ```json
   {"limit":20,"level":"info,warning,error","category":null,"search":null}
@@ -198,7 +198,7 @@ A paper's notes — the user's own prose about it, not the abstract.
 
 **Examples**
 
-- `isolated-get-notes` — Tier B (isolated host):
+- `isolated-get-notes` — Tier B (explicit isolated run):
 
   ```json
   {"cite_key":"G3Native2026"}
@@ -226,7 +226,7 @@ This is the surface imprint uses for choosing references; imprint no longer has 
 
 **Examples**
 
-- `isolated-open-manuscript-papers` — Tier B (isolated host):
+- `isolated-open-manuscript-papers` — Tier B (explicit isolated run):
 
   ```json
   {"manuscript_id":"{{fixture.manuscript_id}}"}
@@ -253,7 +253,7 @@ What the USER was recently working on: papers they viewed or added by hand, most
 
 **Examples**
 
-- `isolated-recent-activity` — Tier B (isolated host):
+- `isolated-recent-activity` — Tier B (explicit isolated run):
 
   ```json
   {"limit":10,"parent_id":null}
@@ -275,7 +275,7 @@ Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching its me
 
 **Examples**
 
-- `isolated-resolve-identifier` — Tier B (isolated host):
+- `isolated-resolve-identifier` — Tier B (explicit isolated run):
 
   ```json
   {"identifier":"10.1038/nphys1170","download_pdfs":false}
@@ -298,7 +298,7 @@ Search external academic sources — ADS, arXiv, Crossref and the rest — for p
 
 **Examples**
 
-- `isolated-search-sources` — Tier B (isolated host):
+- `isolated-search-sources` — Tier B (explicit isolated run):
 
   ```json
   {"query":"spectral line formation","sources":"arxiv","limit":5}
@@ -317,7 +317,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated-status` — Tier B (isolated host):
+- `isolated-status` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -341,7 +341,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated-sync-nudge` — Tier B (isolated host):
+- `isolated-sync-nudge` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -360,7 +360,7 @@ Takes no arguments.
 
 **Examples**
 
-- `isolated-sync-status` — Tier B (isolated host):
+- `isolated-sync-status` — Tier B (explicit isolated run):
 
   ```json
   {}
@@ -387,7 +387,7 @@ Replace an artifact's tags. Whole-set write, like notes.
 
 **Examples**
 
-- `isolated-tag-artifact` — Tier B (isolated host):
+- `isolated-tag-artifact` — Tier B (explicit isolated run):
 
   ```json
   {"artifact_id":"{{fixture.artifact_id}}","tags":["g3/native"]}
@@ -414,7 +414,7 @@ Replace a paper's notes. Whole-field write: read them first if you mean to appen
 
 **Examples**
 
-- `isolated-update-notes` — Tier B (isolated host):
+- `isolated-update-notes` — Tier B (explicit isolated run):
 
   ```json
   {"cite_key":"G3Native2026","notes":"Revised owned native note"}

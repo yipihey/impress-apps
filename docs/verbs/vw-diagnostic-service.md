@@ -173,7 +173,7 @@ Ingest a bus, engine, or part photo shared in this ChatGPT conversation as priva
 
 **Examples**
 
-- `g3-ingest-photo` — Tier B (isolated host):
+- `g3-ingest-photo` — Tier B (explicit isolated run):
 
   ```json
   {"photo":{"file_id":"g3-private-url","download_url":"http://127.0.0.1/private.png","mime_type":"image/png","file_name":"private.png"},"title":"Private address refusal","description":"Reject private network access before downloading.","component":null,"diagnostic_session_id":null,"captured_at":null,"tags":[]}

@@ -29,7 +29,7 @@ Nothing is scanned by this call. Discovery is `import_discovered`.
 
 **Examples**
 
-- `watch-manuscripts` — Tier B (isolated host):
+- `watch-manuscripts` — Tier B (explicit isolated run):
 
   ```json
   {"path":"{{fixture.root}}/documents/watch","kind_scope":"manuscript","display_name":"G3 watch","bookmark_base64":null,"recursive":false}
@@ -105,7 +105,7 @@ Pass `dry_run` first on anything you have not imported before: it writes nothing
 
 **Examples**
 
-- `import-one-markdown` — Tier B (isolated host):
+- `import-one-markdown` — Tier B (explicit isolated run):
 
   ```json
   {"source_dir":"{{fixture.root}}/documents/import","collection":"G3 imported notes","pattern":"*.md","recursive":false,"dry_run":false}
@@ -143,7 +143,7 @@ Bounded per ADR-0023 D7: paths are sorted and written in batches of 500, and at 
 
 **Examples**
 
-- `discover-markdown` — Tier B (isolated host):
+- `discover-markdown` — Tier B (explicit isolated run):
 
   ```json
   {"watched_folder_id":"59000000-0000-4000-8000-000000000033","files":[{"path":"{{fixture.root}}/documents/watch/new.md","content_hash":null,"mtime":null,"size_bytes":null,"bookmark_base64":null}],"dry_run":false}

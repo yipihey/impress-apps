@@ -110,7 +110,7 @@ Run one stored scenario by its `scenario_id`, Tier A on a fresh scratch store or
 
 **Examples**
 
-- `run-owned-noop` — Tier B (isolated host):
+- `run-owned-noop` — Tier B (explicit isolated run):
 
   ```json
   {"scenario_id":"example.noop","tier":"a"}

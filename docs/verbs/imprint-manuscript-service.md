@@ -18,7 +18,7 @@ Compile LaTeX to PDF with the self-contained Tectonic engine. Returns PDF length
 
 **Examples**
 
-- `g3-compile-latex` — Tier B (isolated host):
+- `g3-compile-latex` — Tier B (explicit isolated run):
 
   ```json
   {"source":"\\documentclass{article}\\begin{document}G3 proof\\end{document}","filesystem_root":"{{fixture.root}}/manuscripts"}
@@ -40,7 +40,7 @@ Compile Typst source to a PDF and return `pdf_path` (plus page count and any war
 
 **Examples**
 
-- `g3-compile-typst` — Tier B (isolated host):
+- `g3-compile-typst` — Tier B (explicit isolated run):
 
   ```json
   {"source":"= G3 manuscript\nA valid proof.","options":{"page_size":"A4","font_size":11.0,"margin_top":72.0,"margin_right":72.0,"margin_bottom":72.0,"margin_left":72.0}}
