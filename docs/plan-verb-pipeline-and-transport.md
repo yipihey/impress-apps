@@ -1492,10 +1492,13 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
 - 2026-09-28 — **P5c retained-route contract proposal only.** Added
   [`p5c-contract-proposal.md`](p5c-contract-proposal.md), based on the P5b route
   inventory and local checks of the current service signatures and active Swift
-  callers. It separates caller-composable mappings, additive verb/DTO contracts
-  requiring Tom's review, and app-platform routes to retain. No service
-  signature or route changed; this proposal is not approval to implement or
-  retire any route.
+  callers. Follow-up review made cite-key resolution use the existing exact
+  `find-by-cite-key`, required per-result search hydration, avoided changing
+  `list-collections`, classified collection/membership/library-delete/tag
+  routes, and kept UI-registry queue operations as platform routes instead of
+  proposing duplicate queue verbs. Additive contracts remain subject to Tom's
+  review. No service signature or route changed; this proposal is not approval
+  to implement or retire any route.
 
 - 2026-09-28 — **P7 implemented and verified; draft #127 awaits the representation decision.**
   Worktree `p7-construction`, branch `claude/pipeline-p7-construction`, starts at
