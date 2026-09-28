@@ -44,6 +44,9 @@ PMC_MANIFEST="apps/imbib/PublicationManagerCore/Package.swift"
 # Allowlists are newline-delimited strings, not arrays: macOS ships bash 3.2,
 # which has no `local -n` nameref, and this lint must run on a stock mac as
 # cheaply as it runs in CI.
+# ImprintRustCore is already transitive through ImprintCore. PMC names its
+# re-exported plot records, so Xcode's split package frameworks need an explicit
+# product edge as well; this adds no new archive or domain to the chassis.
 PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressAI
     ../../../packages/ImpressAutomation
@@ -69,6 +72,7 @@ PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressTheme
     ../../../packages/ImpressUndoHistory
     ../../imprint/Packages/ImprintCore
+    ../../imprint/ImprintRustCore
     ../ImbibRustCore
     ../ImbibVerbsFFI
 "
