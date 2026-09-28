@@ -211,7 +211,7 @@ to itself).
 
 | Check / rule | Invariant | Mechanism today | By construction | Cost | Script still needed? |
 |---|---|---|---|---|---|
-| `check-schema-refs.sh` + 5 `schema_ref_manifest.rs` | every `schema_ref` literal is canonical; registries equal the manifest | Python regex walk (`:105-175`), serde set compare; CI `workspace-rust.yml:77` | **build.rs in `impress-core` reads `schema-refs.json` → `pub const IMBIB_LIBRARY: SchemaRef = SchemaRef("imbib/library")` + `ALL`; `SchemaRef` becomes `#[repr(transparent)] struct SchemaRef(&'static str)` with no public constructor (today `pub type SchemaRef = String`, `schema.rs:6`); `query_by_schema`/`count_by_schema`/`QueryRequest.schema` take it → a misspelt literal does not compile.** Swift: the same build.rs emits a `#[derive(uniffi::Enum)] enum SchemaRef` through `impress-store-ffi` so Swift gets `.imbibLibrary` from the existing bindgen | ~40-line build.rs; 271 Rust literal sites in 65 files (54 are already `const`s; sed-able from the manifest); 116 Swift sites in 46 files optional; 7 bindings regenerated | Rust half: no. Swift half: yes until the enum is adopted; the JSON stays the source |
+| `check-schema-refs.sh` + 5 `schema_ref_manifest.rs` | every `schema_ref` literal is canonical; registries equal the manifest | Python regex walk (`:105-175`), serde set compare; CI `workspace-rust.yml:77` | **build.rs in `impress-core` reads `schema-refs.json` → `pub const IMBIB_LIBRARY: SchemaRef = SchemaRef::canonical("imbib/library")` + `ALL`; `SchemaRef` becomes `#[repr(transparent)] struct SchemaRef(Cow<'static, str>)` with no public constructor (today `pub type SchemaRef = String`, `schema.rs:6`); `query_by_schema`/`count_by_schema`/`QueryRequest.schema` take it → a misspelt literal does not compile.** Swift: the same build.rs emits a `#[derive(uniffi::Enum)] enum SchemaRef` through `impress-store-ffi` so Swift gets `.imbibLibrary` from the existing bindgen | ~40-line build.rs; 271 Rust literal sites in 65 files (54 are already `const`s; sed-able from the manifest); 116 Swift sites in 46 files optional; 7 bindings regenerated | Rust half: no. Swift half: yes until the enum is adopted; the JSON stays the source |
 | `check-uniffi-bindings.sh` | every `#[uniffi::export]` appears in the committed Swift; copies identical | regex export inventory vs `func` names (`:97-238`); the real regen-and-diff runs only post-merge (`imbib-rust.yml:116-147`) | a per-crate test that runs `uniffi_bindgen` into a temp dir and byte-compares the committed file, at PR time | dev-dep + cdylib build in 7 crates | yes as the sub-second Swift-lane guard, unless the test runs everywhere |
 | `check-kit-deps.sh` | 12 kit crates reach only the kit / `impress-core`'s store features | `cargo tree` + a bash classifier (`:113-176`, `--self-test`) | none in Cargo (no cross-crate visibility); subsumed by a real workspace split | large | yes — fast, names the edge |
 | `check-kit-standalone.sh` | the kit + `impress-core` builds alone | scratch workspace via `git ls-files`, `cargo check` (`:213-390`) | make the kit its own Cargo workspace | medium–large (two lockfiles, shards, rust-analyzer) | no, if split |
@@ -499,7 +499,7 @@ generated form and reference page come from the same descriptor. What a provider
 - **D-P7.** The four `*-service-http` crates, `impress-app-client` and 160 Swift route arms are deleted
   after P5; per-app FFI targets are added (7 → up to 11 tracked bindings).
 - **D-P8.** Python: the generic binding, and the macro's shim claim deleted.
-- **D-P9.** Schema refs as generated constants (271 Rust sites migrate; `SchemaRef` becomes a newtype).
+- **D-P9.** Schema refs as generated constants (271 Rust sites migrate; `SchemaRef` becomes a newtype). Tom accepted the private `Cow<'static, str>` refinement on 2026-09-28: canonical constants borrow static strings, exact `FromStr` validates construction, and explicit persistence/wire decoding owns opaque names so historical backups and newer-writer rows remain readable without leaking interned strings.
 - **D-P10.** `log` → `tracing` for the Rust half (shared with ADR-0035 D-P1).
 
 ## Work packages
@@ -1535,3 +1535,22 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   decision, fetch/merge current main, recheck ancestry and gates, mark ready and
   merge. P8, R3, G3's remainder and the scenario-interpreter gaps are not started;
   P5b's richer REST contract retirement also remains open as recorded above.
+
+- 2026-09-28 — **P7 representation decision resolved; hosted build repair in progress.**
+  Tom accepted the recommended private `Cow<'static, str>` representation. Table RC
+  and D-P9 now record the refinement: canonical constants allocate nothing, while
+  explicit persistence/wire decoding retains unknown names in owned storage.
+  PR #127 contains current main (`78d89f10`), with the final local gates recorded
+  above. The hosted impart app build exposed an omitted `ImpartVerbsFfi` framework
+  step in CI (run `36444031435`); the workflow repair and its verification are
+  required before marking the PR ready and merging.
+
+  The CI repair (`8c6c86bf`) adds the missing impart, imprint and implore verb
+  frameworks to their app jobs and the shared action's cache/output inventory.
+  `schema-refs.json` now invalidates both cache-key paths. All changed YAML parsed,
+  the seven required job/framework edges passed, and the parent executed the
+  action's metadata step for all three new entries against the rebuilt artifacts:
+  every required output exists. Isolated impart app builds and the new hosted run
+  remain the final checks. The release-lane audit also found older debt outside
+  this fix: implore's release workflow names a missing `apps/implore/build-rust.sh`,
+  and imprint/implore release lanes do not build their full older sibling graph.

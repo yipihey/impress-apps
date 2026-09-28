@@ -25,9 +25,8 @@ on:
       # directories between them (their --all-features path closure, the same
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
-      # Over-triggering is cheap: a crate outside every closure leaves all
-      # unchanged keys are cache hits, leaving only the Swift build, on
-      # a hosted runner.
+      # Over-triggering is cheap: a crate outside every closure leaves the
+      # keys unchanged, so only the Swift build runs on the hosted runner.
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -55,9 +54,8 @@ on:
       # directories between them (their --all-features path closure, the same
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
-      # Over-triggering is cheap: a crate outside every closure leaves all
-      # unchanged keys are cache hits, leaving only the Swift build, on
-      # a hosted runner.
+      # Over-triggering is cheap: a crate outside every closure leaves the
+      # keys unchanged, so only the Swift build runs on the hosted runner.
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
