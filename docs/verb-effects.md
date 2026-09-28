@@ -12,10 +12,13 @@ row, a row with no verb, a row that disagrees with the declaration, or an except
 not the one the test computed fails the test and prints the row as it should read.
 `scripts/check-verb-coverage.sh` checks the source-only half without a build.
 The P7 self-test golden in that test compares the complete linked verb inventory
-with the evidence map: each verb must have a successful example, a passing Tier A
-catalogue for its service, or an exact reviewed exception reason below. It also
-rejects stale evidence and enforces the existing exception ceiling. An exception
-records a gap; it does not count as a tested feature.
+with the evidence map: each verb must have a successful example, an exact
+capability-ID mapping to a passing, non-skipped Tier A check that calls it, or an
+exact reviewed exception reason below. A catalogue's service-wide store-spy
+union is checked separately; passing one capability does not credit the other
+verbs in its service. The golden also rejects stale evidence and enforces the
+existing exception ceiling. An exception records a gap; it does not count as a
+tested feature.
 
 Every `#[impress_method]` carries an effect set on its descriptor
 (`impress_service_core::Effects { reads, writes, reach }`), declared once per service as
@@ -31,12 +34,15 @@ call log (L1) never stores it by value.
 
 The table is data: edit a row and the test expects the declaration to follow, never the other
 way round. The *Verified* column is written by the test, not by hand: `example ×n` means `n`
-examples ran under the spy and touched nothing undeclared; `catalogue:<name>` means the verb's
-service is exercised by that Tier A catalogue and everything the catalogue touched is within what
-the service's verbs declare (the catalogues call the traits directly, so attribution finer than
-the service waits for the call log); `—` means the verb is on the exception table below with the
-reason the test computed. The exception table is expected to shrink as G3 writes examples; the
-test fails when it grows past the count last accepted (`EXCEPTION_CEILING`).
+examples ran under the spy and touched nothing undeclared; `catalogue:<name>` means the exact
+verb is mapped to a passing, non-skipped capability in that Tier A catalogue. The catalogue's
+aggregate store-spy observation must also stay within its services' declared effects. Some
+headless checks verify an explicit refusal contract rather than a positive native operation:
+`imprint-manuscript-service_export-document`, for example, refuses valid-document export
+without the native imprint host; the separate hosted transport proof covers actual export bytes.
+`—` means the verb is on the exception table below with the reason the test computed. The
+exception table is expected to shrink as G3 writes examples; the test fails when it grows past
+the count last accepted (`EXCEPTION_CEILING`).
 
 Two read-only verbs leave the process by P1's evidence (`imprint-manuscript-service_compile-latex`
 spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one page) and are
