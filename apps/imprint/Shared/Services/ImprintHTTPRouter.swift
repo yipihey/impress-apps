@@ -49,7 +49,6 @@ import AppKit
 /// - `POST /api/documents/{id}/insert` - Insert text at position
 /// - `POST /api/documents/{id}/delete` - Delete text range
 /// - `POST /api/documents/{id}/bibliography` - Add citation to bibliography
-/// - `POST /api/documents/create` - Create new document (does NOT persist; see from-template)
 /// - `POST /api/documents/from-template` - Create a manuscript from a journal template
 ///   (body: template_id, title, authors?, affiliations?, abstract?, keywords?, include_sections?)
 /// - `GET /api/templates` - List manuscript templates (params: category, q)
@@ -92,7 +91,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
         case "get_logs":
             return await SharedAutomationRoutes.route(request)
                 ?? .serverError("Log route unavailable")
-        case "create_document": return await handleCreateDocument(request)
         case "update_document":
             guard let id else { return .badRequest("Missing document ID") }
             return await ImprintNativeEdits.apply(method: method, id: id, request: request)
@@ -117,6 +115,14 @@ public actor ImprintHTTPRouter: HTTPRouter {
         case "get_bibliography":
             guard let id else { return .badRequest("Missing document ID") }
             return await handleGetBibliography(id: id)
+        case "export_document":
+            guard let id else { return .badRequest("Missing document ID") }
+            switch request.queryParams["format"] {
+            case "typst": return await handleExportTypst(id: id)
+            case "latex": return await handleExportLatex(id: id, request: request)
+            case "text": return await handleExportText(id: id)
+            default: return .badRequest("Unsupported export format")
+            }
         case "list_comments":
             guard let id else { return .badRequest("Missing document ID") }
             return await handleListComments(docId: id, filter: nil, authorAgentId: nil)
@@ -419,10 +425,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
             // to imprint-core (typst) or LaTeXCompilationService (LaTeX engines).
             if pathLower == "/api/compile/bundle" {
                 return await handleBundleCompile(request)
-            }
-
-            if pathLower == "/api/documents/create" {
-                return await handleCreateDocument(request)
             }
 
             if pathLower == "/api/documents/from-template" {
@@ -1086,38 +1088,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     // MARK: - POST Handlers
 
-    /// POST /api/documents/create
-    /// Create a new document.
-    private func handleCreateDocument(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let body = request.body,
-              let data = body.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return .badRequest("Invalid JSON body")
-        }
-
-        let title = json["title"] as? String ?? "Untitled"
-        let content = json["source"] as? String
-
-        #if os(macOS)
-        // Create new document on main thread
-        let docId = await MainActor.run {
-            let doc = ImprintDocument()
-            // Note: We can't easily create documents programmatically in a document-based app
-            // Return the ID of what would be created
-            return doc.id
-        }
-
-        return .json([
-            "status": "ok",
-            "message": "Document creation requested",
-            "id": docId.uuidString,
-            "title": title
-        ])
-        #else
-        return .badRequest("Document creation not supported on this platform")
-        #endif
-    }
-
     // MARK: - Template Handlers
 
     /// GET /api/templates
@@ -1184,9 +1154,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
     /// Body: `{template_id, title, authors?, affiliations?, abstract?,
     ///         keywords?, include_sections?}`
     ///
-    /// Unlike `/api/documents/create` (which does not persist anything), this
-    /// writes a real manuscript through `ManuscriptStoreAdapter` and returns its
-    /// id, so the document is immediately openable and compilable.
+    /// This writes a real manuscript through `ManuscriptStoreAdapter` and
+    /// returns its id, so the document is immediately openable and compilable.
     private func handleCreateDocumentFromTemplate(_ request: HTTPRequest) async -> HTTPResponse {
         guard let json = Self.plotJSONBody(request) else {
             return .badRequest("Invalid JSON body")
@@ -3211,7 +3180,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 "GET /api/documents/{id}/export/latex": "Export as LaTeX (param: template)",
                 "GET /api/documents/{id}/export/text": "Export as plain text",
                 "GET /api/documents/{id}/export/typst": "Export Typst source + bibliography",
-                "POST /api/documents/create": "Create new document (body: {title, source})",
                 "GET /api/templates":
                     "List manuscript templates (params: category=journal|conference|thesis|report|custom, q)",
                 "GET /api/templates/{id}": "Template metadata (journal, page defaults, tags)",

@@ -92,6 +92,13 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
             body = ["search": string("find") ?? "", "replacement": string("replace") ?? "", "all": true]
         case "get_pdf": path = documentPath("/pdf")
         case "get_bibliography": path = documentPath("/bibliography")
+        case "export_document":
+            guard let id = string("id"), UUID(uuidString: id) != nil,
+                  let format = string("format"), ["typst", "latex", "text"].contains(format) else {
+                return failure(400, "Invalid export document or format")
+            }
+            path = "/api/documents/\(id)/export/\(format)"
+            query["format"] = format
         case "list_comments": path = documentPath("/comments")
         case "create_comment":
             verb = "POST"; path = documentPath("/comments")
@@ -142,7 +149,7 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
         } else {
             jsonBody = nil
         }
-        let targetID = string("document_id") ?? string("comment_id")
+        let targetID = string("document_id") ?? string("comment_id") ?? string("id")
         let response = await router.invokeNativeVerb(
             method: method, id: targetID,
             request: HTTPRequest(method: verb, path: path, queryParams: query, body: jsonBody))
@@ -158,6 +165,9 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
             } catch {
                 return failure(500, "Unable to save compiled PDF")
             }
+        }
+        if method == "export_document" {
+            return success(["bytes": Array(response.body)])
         }
         guard let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
             return failure(500, "Native handler returned non-JSON")

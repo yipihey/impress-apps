@@ -8,10 +8,16 @@ use imprint_service::app_service::{
     AppStatus, CommentRecord, CompiledPdf, ImprintAppService, LogEntry,
 };
 use imprint_service::backend::ImprintBackend;
+use imprint_service::handlers::{
+    CitationUsage, CompileOptions, CompileResult, DocumentSummary, LatexCompileResultDto, Outline,
+    ReplaceResult, TextMatch,
+};
 use imprint_service::manuscript_service::{
-    DefaultImprintManuscriptService, ImprintManuscriptService,
+    DefaultImprintManuscriptService, ImprintManuscriptService, PresentationMutationDto,
+    PresentationOutlineDto, SearchHitDto,
 };
 use imprint_service::project_service::{DefaultImprintProjectService, ImprintProjectService};
+use imprint_service::sections::{SectionMetadata, SectionRecord};
 use imprint_service::text_service::{DefaultImprintTextService, ImprintTextService};
 use imprint_service::throughline::ThroughlineStore;
 use imprint_service::throughline_service::{
@@ -33,6 +39,113 @@ pub trait ImprintVerbHost: Send + Sync {
 }
 
 struct NativeApp(Arc<dyn ImprintVerbHost>);
+
+/// The shared-store implementation owns document/section reads and all pure
+/// helpers. Export is the one manuscript method whose byte-for-byte result
+/// still comes from the app's established format handlers.
+struct NativeManuscript {
+    base: DefaultImprintManuscriptService,
+    app: Arc<NativeApp>,
+}
+
+#[async_trait::async_trait]
+impl ImprintManuscriptService for NativeManuscript {
+    async fn list_documents(&self) -> Vec<DocumentSummary> {
+        self.base.list_documents().await
+    }
+    async fn get_document(&self, id: String) -> Option<DocumentSummary> {
+        self.base.get_document(id).await
+    }
+    async fn export_document(&self, id: String, format: String) -> Vec<u8> {
+        self.app
+            .required("export_document", json!({"id":id,"format":format}), "bytes")
+            .await
+            .unwrap_or_default()
+    }
+    async fn list_sections(&self, doc_id: String) -> Vec<SectionRecord> {
+        self.base.list_sections(doc_id).await
+    }
+    async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord> {
+        self.base.get_section(doc_id, section_key).await
+    }
+    async fn put_section(
+        &self,
+        doc_id: String,
+        section_key: String,
+        body: String,
+        metadata: SectionMetadata,
+    ) -> Option<SectionRecord> {
+        self.base
+            .put_section(doc_id, section_key, body, metadata)
+            .await
+    }
+    async fn delete_section(&self, doc_id: String, section_key: String) -> bool {
+        self.base.delete_section(doc_id, section_key).await
+    }
+    async fn document_outline(&self, source: String) -> Outline {
+        self.base.document_outline(source).await
+    }
+    async fn document_citations(&self, source: String) -> Vec<CitationUsage> {
+        self.base.document_citations(source).await
+    }
+    async fn search_in_text(
+        &self,
+        source: String,
+        query: String,
+        case_sensitive: bool,
+    ) -> Vec<TextMatch> {
+        self.base
+            .search_in_text(source, query, case_sensitive)
+            .await
+    }
+    async fn presentation_outline(&self, source: String) -> PresentationOutlineDto {
+        self.base.presentation_outline(source).await
+    }
+    async fn reorder_presentation_slide(
+        &self,
+        source: String,
+        slide_id: String,
+        before_slide_id: String,
+    ) -> PresentationMutationDto {
+        self.base
+            .reorder_presentation_slide(source, slide_id, before_slide_id)
+            .await
+    }
+    async fn set_presentation_slide_beat(
+        &self,
+        source: String,
+        slide_id: String,
+        beat: String,
+    ) -> PresentationMutationDto {
+        self.base
+            .set_presentation_slide_beat(source, slide_id, beat)
+            .await
+    }
+    async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult {
+        self.base.compile_typst(source, options).await
+    }
+    async fn compile_latex(
+        &self,
+        source: String,
+        filesystem_root: String,
+    ) -> LatexCompileResultDto {
+        self.base.compile_latex(source, filesystem_root).await
+    }
+    async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto> {
+        self.base.search(query, limit).await
+    }
+    async fn replace_in_section(
+        &self,
+        doc_id: String,
+        section_key: String,
+        find: String,
+        replace: String,
+    ) -> ReplaceResult {
+        self.base
+            .replace_in_section(doc_id, section_key, find, replace)
+            .await
+    }
+}
 
 struct NativeBackend {
     app: Arc<NativeApp>,
@@ -102,9 +215,11 @@ fn try_install_native_host(
 
     let service = imprint_service::open(&workspace)
         .map_err(|e| format!("cannot open manuscript workspace: {e}"))?;
-    let manuscript = Arc::new(DefaultImprintManuscriptService::new(Arc::new(
-        service.handlers,
-    )));
+    let app = Arc::new(NativeApp(Arc::from(host)));
+    let manuscript = Arc::new(NativeManuscript {
+        base: DefaultImprintManuscriptService::new(Arc::new(service.handlers)),
+        app: app.clone(),
+    });
     let throughline = Arc::new(DefaultImprintThroughlineService::new(Arc::new(
         ThroughlineStore::new(service.sections.clone()),
     )));
@@ -113,7 +228,7 @@ fn try_install_native_host(
             .map_err(|e| format!("cannot open project workspace: {e}"))?,
     );
     imprint_service::register_backend(Box::new(NativeBackend {
-        app: Arc::new(NativeApp(Arc::from(host))),
+        app,
         manuscript,
         project,
         throughline,
@@ -353,12 +468,32 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ImprintVerbHost for TestHost {
-        async fn invoke(&self, method: String, _: String) -> NativeReply {
+        async fn invoke(&self, method: String, args_json: String) -> NativeReply {
             if method == "get_content" {
                 return NativeReply {
                     status: 404,
                     body_json: json!({"status":"error","error":"scratch document missing"})
                         .to_string(),
+                };
+            }
+            if method == "export_document" {
+                let args: Value = serde_json::from_str(&args_json).unwrap();
+                if args["id"] == "00000000-0000-0000-0000-000000000000" {
+                    return NativeReply {
+                        status: 404,
+                        body_json: json!({"status":"error","error":"scratch export missing"})
+                            .to_string(),
+                    };
+                }
+                let bytes = match args["format"].as_str().unwrap() {
+                    "typst" => br#"{"source":"= Scratch","bibliography":[]}"#.to_vec(),
+                    "latex" => b"\\section{Scratch}".to_vec(),
+                    "text" => b"Scratch".to_vec(),
+                    other => panic!("unexpected export format: {other}"),
+                };
+                return NativeReply {
+                    status: 200,
+                    body_json: json!({"bytes":bytes}).to_string(),
                 };
             }
             NativeReply {
@@ -444,6 +579,33 @@ mod tests {
         .await;
         assert_eq!(missing.status, 404, "{}", missing.body_json);
         assert!(missing.body_json.contains("scratch document missing"));
+
+        for (format, expected) in [
+            (
+                "typst",
+                br#"{"source":"= Scratch","bibliography":[]}"#.as_slice(),
+            ),
+            ("latex", b"\\section{Scratch}".as_slice()),
+            ("text", b"Scratch".as_slice()),
+        ] {
+            let exported = crate::dispatch_verb_async(
+                "imprint-manuscript-service_export-document".into(),
+                json!({"id": manuscript.id.to_string(), "format": format}).to_string(),
+                r#"{"kind":"app","name":"imprint"}"#.into(),
+            )
+            .await;
+            assert_eq!(exported.status, 200, "{}", exported.body_json);
+            let bytes: Vec<u8> = serde_json::from_str(&exported.body_json).unwrap();
+            assert_eq!(bytes, expected, "{format}");
+        }
+        let failed_export = crate::dispatch_verb_async(
+            "imprint-manuscript-service_export-document".into(),
+            json!({"id": "00000000-0000-0000-0000-000000000000", "format": "text"}).to_string(),
+            r#"{"kind":"app","name":"imprint"}"#.into(),
+        )
+        .await;
+        assert_eq!(failed_export.status, 404, "{}", failed_export.body_json);
+        assert!(failed_export.body_json.contains("scratch export missing"));
 
         let compile = crate::dispatch_verb_async(
             "imprint-manuscript-service_compile-typst".into(),
