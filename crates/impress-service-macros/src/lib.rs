@@ -51,10 +51,11 @@
 //! Swift bindings are hand-written `#[uniffi::export]` items in the FFI crates,
 //! and Python is decided in `docs/plan-verb-pipeline-and-transport.md`.
 //!
-//! Every `#[impress_method]` must carry a `///` doc comment: it is the
-//! description agents read, and a method without one is a compile error
-//! naming the method (plan-auto-gui-and-self-docs.md G-2 — 54 verbs once
-//! shipped `Invoke Service.method` because the macro accepted an empty doc).
+//! Every `#[impress_method]` must carry a `///` doc comment, and every
+//! `methods = [...]` entry must resolve an inline or trait doc: it is the
+//! description agents read. A missing description is a compile error naming
+//! the method (plan-auto-gui-and-self-docs.md G-2 — 54 verbs once shipped
+//! `Invoke Service.method` because the macro accepted an empty doc).
 //!
 //! Safety is declared once per service — `impress_service_impl! { safety =
 //! read_only, since = "0.1.0", … }` — with per-method exceptions on the trait,
@@ -1023,12 +1024,11 @@ fn expand_method(
     let kebab_name = kebab(&name.to_string());
     let service_kebab = kebab(&service.to_string());
 
-    // Descriptions resolve in three steps, at compile time: a `///` here in
+    // Descriptions resolve in two places, at compile time: a `///` here in
     // `methods = [...]`, then the trait method's own doc comment (captured by
-    // `#[impress_service]` into the table below), then a bare fallback. Before
-    // the table existed only the first was read, so services that documented
-    // their trait — nearly all of them — shipped "Invoke Service.method" to
-    // the model.
+    // `#[impress_service]` into the table below). Before the table existed
+    // only the first was read, so services that documented their trait —
+    // nearly all of them — shipped "Invoke Service.method" to the model.
     let inline_doc = method.doc.clone();
     let fallback = format!("Invoke {service}.{name}");
     let meta_table = format_ident!("__IMPRESS_SERVICE_METHODS_{}", service);
@@ -1040,6 +1040,20 @@ fn expand_method(
             #method_name_str,
             #fallback,
         )
+    };
+    // A methods-list entry may name a trait method without #[impress_method],
+    // so the attribute macro alone cannot guarantee its description. Check
+    // the resolved value in a const: this emits a compile error naming the
+    // service and method instead of publishing the generic fallback.
+    let doc_required = quote! {
+        const _: () = {
+            if ::impress_service_core::resolve_description(
+                #inline_doc, &#meta_table, #method_name_str, ""
+            ).is_empty() {
+                panic!(concat!("impress_service_impl! `", stringify!(#service), "::",
+                    stringify!(#name), "` has no doc comment"));
+            }
+        };
     };
     let default_safety = format_ident!("{}", input.safety);
     let since = &input.since;
@@ -1127,6 +1141,7 @@ fn expand_method(
     };
 
     Ok(quote! {
+        #doc_required
         // -- Args struct -----------------------------------------------------
         #[doc(hidden)]
         #[derive(
