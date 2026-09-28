@@ -7,22 +7,17 @@
 //  These four panes (General, Editor, Documents, Account) were verbatim
 //  members of `macOS/Views/SettingsView.swift` and therefore existed only on
 //  macOS — not because anything in them is macOS-specific (they are
-//  `@AppStorage` over plain SwiftUI `Form`s) but because the FILE they lived in
+//  plain preferences over SwiftUI `Form`s) but because the FILE they lived in
 //  was in the macOS target. `Shared/` is compiled by both the `imprint` and
 //  `imprint-iOS` targets, so moving them here is the entire iOS port.
 //
 //  NOT gated, on purpose: gating this file would recreate the problem.
 //
-//  PERSISTENCE IS UNCHANGED. Every `@AppStorage` key below is byte-identical to
-//  the one the macOS pane used before the move — `defaultEditMode`,
-//  `autoSaveInterval`, `createBackups`, `imprint.autoCompile`,
-//  `imprint.compileDebounceMs`, `imprint.previewFormat`, `editorFontSize`,
-//  `editorFontFamily`, `showLineNumbers`, `highlightCurrentLine`, `wrapLines`,
-//  `validateCRDTOnOpen`, `autoBackupBeforeMigration` — plus
-//  `ModalEditingSettings`' own `modalEditing.*` keys, which it owns and this
-//  file only reads through. A settings reframe that renamed a key would silently
-//  reset every existing user's preferences; `ImprintSettingsPersistenceTests`
-//  pins the list.
+//  R3: the thirteen non-platform preferences below now use `@ImpressSetting`.
+//  `impress-settings` declares each old `@AppStorage` spelling as a legacy key
+//  with its exact default. First read copies an old value without removing it
+//  (D-R5), so older builds still see their preferences. `ModalEditingSettings`
+//  continues to own its separate `modalEditing.*` keys.
 //
 //  The one deliberate difference from the originals: `Form { … }
 //  .formStyle(.grouped).padding()` became `SettingsForm { … }`, the chassis's
@@ -33,18 +28,19 @@
 
 import SwiftUI
 import ImpressHelixCore
+import ImpressKit
 import PublicationManagerCore
 
 // MARK: - General
 
 /// General application settings.
 struct GeneralSettingsView: View {
-    @AppStorage("defaultEditMode") private var defaultEditMode = "split_view"
-    @AppStorage("autoSaveInterval") private var autoSaveInterval = 60
-    @AppStorage("createBackups") private var createBackups = true
-    @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
-    @AppStorage("imprint.compileDebounceMs") private var compileDebounceMs = 300
-    @AppStorage("imprint.previewFormat") private var previewFormat = "pdf"
+    @ImpressSetting("imprint.general.default_edit_mode") private var defaultEditMode: String
+    @ImpressSetting("imprint.general.auto_save_interval") private var autoSaveInterval: Int
+    @ImpressSetting("imprint.general.create_backups") private var createBackups: Bool
+    @ImpressSetting("imprint.general.auto_compile") private var autoCompileEnabled: Bool
+    @ImpressSetting("imprint.general.compile_debounce_ms") private var compileDebounceMs: Int
+    @ImpressSetting("imprint.general.preview_format") private var previewFormat: String
 
     var body: some View {
         SettingsForm {
@@ -94,11 +90,11 @@ struct GeneralSettingsView: View {
 
 /// Editor appearance and behavior settings.
 struct EditorSettingsView: View {
-    @AppStorage("editorFontSize") private var editorFontSize = 14
-    @AppStorage("editorFontFamily") private var editorFontFamily = "SF Mono"
-    @AppStorage("showLineNumbers") private var showLineNumbers = true
-    @AppStorage("highlightCurrentLine") private var highlightCurrentLine = true
-    @AppStorage("wrapLines") private var wrapLines = true
+    @ImpressSetting("imprint.editor.font_size") private var editorFontSize: Int
+    @ImpressSetting("imprint.editor.font_family") private var editorFontFamily: String
+    @ImpressSetting("imprint.editor.show_line_numbers") private var showLineNumbers: Bool
+    @ImpressSetting("imprint.editor.highlight_current_line") private var highlightCurrentLine: Bool
+    @ImpressSetting("imprint.editor.wrap_lines") private var wrapLines: Bool
     @Bindable private var modalSettings = ModalEditingSettings.shared
 
     var body: some View {
@@ -165,8 +161,8 @@ struct EditorSettingsView: View {
 
 /// Settings for document health, validation, and backup.
 struct DocumentHealthSettingsView: View {
-    @AppStorage("validateCRDTOnOpen") private var validateCRDTOnOpen = true
-    @AppStorage("autoBackupBeforeMigration") private var autoBackupBeforeMigration = true
+    @ImpressSetting("imprint.documents.validate_crdt_on_open") private var validateCRDTOnOpen: Bool
+    @ImpressSetting("imprint.documents.auto_backup_before_migration") private var autoBackupBeforeMigration: Bool
     @State private var isValidating = false
     @State private var validationResult: String?
 

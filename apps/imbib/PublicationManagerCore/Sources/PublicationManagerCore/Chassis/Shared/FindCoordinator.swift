@@ -19,6 +19,7 @@
 //  docs/keyboard-grammar.md.
 //
 
+import ImpressKeyboard
 import SwiftUI
 
 public extension NSNotification.Name {
@@ -54,15 +55,22 @@ public protocol GlobalSearchProviding {
 /// decision).
 public struct ImpressFindCommands: Commands {
     @FocusedValue(\.listFilterFocusAction) private var focusFilter
+    private let appID: String?
 
-    public init() {}
+    /// An explicitly seeded host reads its own command row. Existing hosts
+    /// continue to bind the same ⌘F literal until they seed their keymap.
+    public init(appID: String? = nil) {
+        self.appID = appID
+    }
 
     public var body: some Commands {
         CommandGroup(after: .textEditing) {
             Button("Find in List") {
                 focusFilter?()
             }
-            .keyboardShortcut("f", modifiers: .command)
+            .keyboardShortcut(
+                appID.flatMap { KeymapRegistry.shared.shortcut(for: "\($0).edit.find_in_list") }
+                    ?? KeyboardShortcut("f", modifiers: .command))
             .disabled(focusFilter == nil)
         }
     }

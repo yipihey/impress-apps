@@ -446,20 +446,82 @@ impress_service_impl! {
     instance = default_vw_service,
     methods = [
         get_capabilities() -> VwCapabilities,
-        ingest_photo(photo: ChatGptFile, title: String, description: String, component: Option<String>, diagnostic_session_id: Option<String>, captured_at: Option<String>, tags: Vec<String>) -> PhotoEvidenceResult,
-        search_photos(query: String, diagnostic_session_id: Option<String>, limit: u32) -> PhotoEvidenceSearchResult,
-        get_photo(evidence_id: String) -> PhotoEvidenceResult,
-        create_session(request: CreateSessionRequest) -> SessionResult,
-        get_session(session_id: String) -> SessionResult,
-        list_sessions(limit: u32) -> SessionListResult,
-        record_observation(command: RecordObservationCommand) -> SessionResult,
-        record_measurement(command: RecordMeasurementCommand) -> SessionResult,
-        evaluate_session(session_id: String, expected_revision: u64) -> AssessmentResult,
-        recommend_next_test(session_id: String, expected_revision: u64) -> NextTestResult,
-        list_applicable_procedures(session_id: String) -> ProcedureListResult,
-        start_procedure(command: StartProcedureCommand) -> SessionResult,
-        record_procedure_step(command: RecordProcedureStepCommand) -> SessionResult,
-        close_session(command: CloseSessionCommand) -> SessionResult,
+        ingest_photo(
+            /// ChatGPT file ID and signed public download URL, with optional filename and MIME type.
+            photo: ChatGptFile,
+            /// Short label for the retained photo evidence.
+            title: String,
+            /// What the photo shows; retained as private user evidence.
+            description: String,
+            /// Component name shown by the photo; omit when unknown.
+            component: Option<String>,
+            /// Session UUID to associate with the photo; omit for unassigned evidence.
+            diagnostic_session_id: Option<String>,
+            /// Capture timestamp in RFC 3339 format; omit when unknown.
+            captured_at: Option<String>,
+            /// Searchable labels for the photo.
+            tags: Vec<String>
+        ) -> PhotoEvidenceResult,
+        search_photos(
+            /// Text to match against saved photo metadata.
+            query: String,
+            /// Session UUID to associate with the photo; omit for unassigned evidence.
+            diagnostic_session_id: Option<String>,
+            /// Maximum number of records to return.
+            limit: u32
+        ) -> PhotoEvidenceSearchResult,
+        get_photo(
+            /// Saved photo evidence UUID returned by ingest-photo or search-photos.
+            evidence_id: String
+        ) -> PhotoEvidenceResult,
+        create_session(
+            /// Vehicle configuration, concern, and a unique command UUID for retry-safe session creation.
+            request: CreateSessionRequest
+        ) -> SessionResult,
+        get_session(
+            /// Diagnostic session UUID returned by create-session or list-sessions.
+            session_id: String
+        ) -> SessionResult,
+        list_sessions(
+            /// Maximum number of records to return.
+            limit: u32
+        ) -> SessionListResult,
+        record_observation(
+            /// Typed command with session UUID, expected revision, and unique retry-safe command UUID.
+            command: RecordObservationCommand
+        ) -> SessionResult,
+        record_measurement(
+            /// Typed command with session UUID, expected revision, and unique retry-safe command UUID.
+            command: RecordMeasurementCommand
+        ) -> SessionResult,
+        evaluate_session(
+            /// Diagnostic session UUID returned by create-session or list-sessions.
+            session_id: String,
+            /// Last observed session revision; stale revisions are refused.
+            expected_revision: u64
+        ) -> AssessmentResult,
+        recommend_next_test(
+            /// Diagnostic session UUID returned by create-session or list-sessions.
+            session_id: String,
+            /// Last observed session revision; stale revisions are refused.
+            expected_revision: u64
+        ) -> NextTestResult,
+        list_applicable_procedures(
+            /// Diagnostic session UUID returned by create-session or list-sessions.
+            session_id: String
+        ) -> ProcedureListResult,
+        start_procedure(
+            /// Typed command with session UUID, expected revision, and unique retry-safe command UUID.
+            command: StartProcedureCommand
+        ) -> SessionResult,
+        record_procedure_step(
+            /// Typed command with session UUID, expected revision, and unique retry-safe command UUID.
+            command: RecordProcedureStepCommand
+        ) -> SessionResult,
+        close_session(
+            /// Typed command with session UUID, expected revision, and unique retry-safe command UUID.
+            command: CloseSessionCommand
+        ) -> SessionResult,
     ],
 }
 

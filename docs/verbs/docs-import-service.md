@@ -21,13 +21,24 @@ Nothing is scanned by this call. Discovery is `import_discovered`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bookmark_base64` | — | no | *(undocumented)* |
-| `display_name` | — | no | *(undocumented)* |
-| `kind_scope` | string | yes | *(undocumented)* |
-| `path` | string | yes | *(undocumented)* |
-| `recursive` | boolean | yes | *(undocumented)* |
+| `bookmark_base64` | — | no | Optional base64 security-scoped bookmark for future access. |
+| `display_name` | — | no | Optional name shown in the UI; null derives it from the path. |
+| `kind_scope` | string | yes | Record kind to discover, such as `publication` or `manuscript`. |
+| `path` | string | yes | Local directory to watch, without scanning it yet. |
+| `recursive` | boolean | yes | Whether discovery includes subdirectories. |
 
-_No examples yet._
+**Examples**
+
+- `watch-manuscripts` — Tier B (explicit isolated run):
+
+  ```json
+  {"path":"{{fixture.root}}/documents/watch","kind_scope":"manuscript","display_name":"G3 watch","bookmark_base64":null,"recursive":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"created":true,"folder":{"kind_scope":"manuscript","display_name":"G3 watch","enabled":true}}
+  ```
 
 ## `docs-import-service_finish-watched-scan`
 
@@ -48,13 +59,24 @@ Pass `dry_run` to see what would be marked without marking it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `changed_count` | — | no | *(undocumented)* |
-| `dry_run` | boolean | yes | *(undocumented)* |
-| `duration_ms` | — | no | *(undocumented)* |
-| `new_count` | — | no | *(undocumented)* |
-| `watched_folder_id` | string | yes | *(undocumented)* |
+| `changed_count` | — | no | Number of changed files across this scan, or null for zero. |
+| `dry_run` | boolean | yes | True to preview missing-file marks without writing them. |
+| `duration_ms` | — | no | Scan duration in milliseconds, or null for zero. |
+| `new_count` | — | no | Number of newly found files across this scan, or null for zero. |
+| `watched_folder_id` | string | yes | UUID of the folder whose scan is ending. |
 
-_No examples yet._
+**Examples**
+
+- `mark-vanished-file` — Tier A:
+
+  ```json
+  {"watched_folder_id":"59000000-0000-4000-8000-000000000034","new_count":0,"changed_count":0,"duration_ms":1,"dry_run":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"dry_run":false,"examined":1,"present":0,"marked_missing":1}
+  ```
 
 ## `docs-import-service_import-directory`
 
@@ -75,13 +97,24 @@ Pass `dry_run` first on anything you have not imported before: it writes nothing
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `collection` | string | yes | *(undocumented)* |
-| `dry_run` | boolean | yes | *(undocumented)* |
-| `pattern` | — | no | *(undocumented)* |
-| `recursive` | boolean | yes | *(undocumented)* |
-| `source_dir` | string | yes | *(undocumented)* |
+| `collection` | string | yes | Manuscript collection name to create or reuse. |
+| `dry_run` | boolean | yes | True to preview counts without writing manuscripts or membership. |
+| `pattern` | — | no | Optional filename glob using `*` and `?`; null includes all files. |
+| `recursive` | boolean | yes | Whether to walk subdirectories; false scans only the top level. |
+| `source_dir` | string | yes | Directory containing markdown files; resolved on the local filesystem. |
 
-_No examples yet._
+**Examples**
+
+- `import-one-markdown` — Tier B (explicit isolated run):
+
+  ```json
+  {"source_dir":"{{fixture.root}}/documents/import","collection":"G3 imported notes","pattern":"*.md","recursive":false,"dry_run":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"dry_run":false,"created":1,"updated":0,"documents":[{"title":"G3 imported note","source_path":"note.md","action":"created"}]}
+  ```
 
 ## `docs-import-service_import-discovered`
 
@@ -104,11 +137,22 @@ Bounded per ADR-0023 D7: paths are sorted and written in batches of 500, and at 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `dry_run` | boolean | yes | *(undocumented)* |
-| `files` | array | yes | *(undocumented)* |
-| `watched_folder_id` | string | yes | *(undocumented)* |
+| `dry_run` | boolean | yes | True to preview the diff without writing index rows. |
+| `files` | array | yes | Files found, with paths and optional hash, mtime, and size metadata. |
+| `watched_folder_id` | string | yes | UUID of the folder that owns these discovered paths. |
 
-_No examples yet._
+**Examples**
+
+- `discover-markdown` — Tier B (explicit isolated run):
+
+  ```json
+  {"watched_folder_id":"59000000-0000-4000-8000-000000000033","files":[{"path":"{{fixture.root}}/documents/watch/new.md","content_hash":null,"mtime":null,"size_bytes":null,"bookmark_base64":null}],"dry_run":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"dry_run":false,"kind_scope":"manuscript","created":1,"changed":0,"skipped":[]}
+  ```
 
 ## `docs-import-service_list-watched-files`
 
@@ -125,13 +169,24 @@ One of the two is required.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file_id` | — | no | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
-| `state` | — | no | *(undocumented)* |
-| `watched_folder_id` | — | no | *(undocumented)* |
+| `file_id` | — | no | Exact watched-file UUID to read; null when listing a folder. |
+| `limit` | integer | yes | Maximum page length; zero uses the service default. |
+| `offset` | integer | yes | Number of matching rows to skip before this page. |
+| `state` | — | no | Optional `present` or `missing` filter. |
+| `watched_folder_id` | — | no | Folder UUID to list files under; null when selecting one file ID. |
 
-_No examples yet._
+**Examples**
+
+- `one-watched-file` — Tier A:
+
+  ```json
+  {"watched_folder_id":"59000000-0000-4000-8000-000000000039","file_id":null,"state":"present","limit":10,"offset":0}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"total":1,"files":[{"id":"59000000-0000-4000-8000-00000000003a","state":"present"}]}
+  ```
 
 ## `docs-import-service_list-watched-folders`
 
@@ -144,14 +199,25 @@ Every watched folder, optionally narrowed to one `kind_scope`, in path order —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `kind_scope` | — | no | *(undocumented)* |
+| `kind_scope` | — | no | Record kind to filter by, or null for every watched folder. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
+  ```
+
+- `figure-watch` — Tier A:
+
+  ```json
+  {"kind_scope":"figure"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"folders":[{"id":"59000000-0000-4000-8000-000000000030","kind_scope":"figure","display_name":"G3 figure watch"}]}
   ```
 
 ## `docs-import-service_prune-empty-manuscripts`
@@ -165,17 +231,28 @@ A manuscript with real content is NEVER deleted: `max_body_chars` sets how many 
 `collection` scopes the scan to one manuscript collection by name; null scans every manuscript in the store.
 
 - **safety**: `destructive`
-- **reads**: "manuscript"
+- **reads**: "manuscript", "manuscript-collection"
 - **writes**: "manuscript"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `apply` | boolean | yes | *(undocumented)* |
-| `collection` | — | no | *(undocumented)* |
-| `max_body_chars` | integer | yes | *(undocumented)* |
+| `apply` | boolean | yes | True to delete reported shells; false only reports them. |
+| `collection` | — | no | Manuscript collection name to restrict the scan; null scans all. |
+| `max_body_chars` | integer | yes | Maximum trimmed body character count considered empty. |
 
-_No examples yet._
+**Examples**
+
+- `preview-empty-shell` — Tier A:
+
+  ```json
+  {"collection":"G3 empty shells","max_body_chars":0,"apply":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"dry_run":true,"examined":1,"empty":1,"deleted":0,"manuscripts":[{"id":"59000000-0000-4000-8000-000000000040","deleted":false}]}
+  ```
 
 ## `docs-import-service_record-produced-rows`
 
@@ -188,17 +265,28 @@ This is the seam between file-level bookkeeping (here) and each app's real impor
 `replace` is what makes deletions detectable. Re-importing an edited `.bib` that lost an entry returns that entry's id in `removed_ids`, so the caller can decide what "the source no longer contains this" should mean — a product decision, and therefore not one this crate makes. Pass `replace: false` to union instead, which is what an incremental append wants.
 
 - **safety**: `mutating`
-- **reads**: "watched-file@1.0.0"
+- **reads**: "watched-file@1.0.0", target(produced_ids)
 - **writes**: "watched-file@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file_id` | string | yes | *(undocumented)* |
-| `produced_ids` | array | yes | *(undocumented)* |
-| `replace` | boolean | yes | *(undocumented)* |
+| `file_id` | string | yes | UUID of an indexed watched file. |
+| `produced_ids` | array | yes | UUIDs of rows produced by importing that file. |
+| `replace` | boolean | yes | True to replace old attribution; false unions new IDs into it. |
 
-_No examples yet._
+**Examples**
+
+- `attribute-produced-row` — Tier A:
+
+  ```json
+  {"file_id":"59000000-0000-4000-8000-000000000036","produced_ids":["59000000-0000-4000-8000-000000000038"],"replace":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"added":1,"removed_ids":[]}
+  ```
 
 ## `docs-import-service_remove-watched-folder`
 
@@ -215,10 +303,21 @@ Stop watching a folder.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `delete_file_rows` | boolean | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `delete_file_rows` | boolean | yes | True to remove its watched-file index rows too; source files survive. |
+| `id` | string | yes | UUID of the watched folder to stop tracking. |
 
-_No examples yet._
+**Examples**
+
+- `unwatch-folder` — Tier A:
+
+  ```json
+  {"id":"59000000-0000-4000-8000-000000000032","delete_file_rows":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"removed":true,"file_rows_deleted":0}
+  ```
 
 ## `docs-import-service_update-watched-folder`
 
@@ -233,12 +332,23 @@ Change a watched folder's mutable facets. Every field is optional and a null lea
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bookmark_base64` | — | no | *(undocumented)* |
-| `display_name` | — | no | *(undocumented)* |
-| `enabled` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `recursive` | — | no | *(undocumented)* |
-| `volume_state` | — | no | *(undocumented)* |
+| `bookmark_base64` | — | no | Optional base64 bookmark; null leaves it unchanged. |
+| `display_name` | — | no | Optional visible name; null leaves it unchanged. |
+| `enabled` | — | no | Optional enabled state; null leaves it unchanged. |
+| `id` | string | yes | UUID of the watched folder to change. |
+| `recursive` | — | no | Optional recursion setting; null leaves it unchanged. |
+| `volume_state` | — | no | Optional `indexed`, `unindexed`, `scan-on-demand`, or `unavailable`. |
 
-_No examples yet._
+**Examples**
+
+- `pause-watch` — Tier A:
+
+  ```json
+  {"id":"59000000-0000-4000-8000-000000000031","enabled":false,"recursive":null,"display_name":null,"bookmark_base64":null,"volume_state":null}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"folder":{"id":"59000000-0000-4000-8000-000000000031","enabled":false}}
+  ```
 

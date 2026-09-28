@@ -13,14 +13,14 @@ Count research artifacts, optionally only those of one schema.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `schema_filter` | — | no | *(undocumented)* |
+| `schema_filter` | — | no | Canonical artifact schema to count, or null for all artifact kinds. |
 
 **Examples**
 
-- `default`:
+- `count_scratch_datasets` — Tier A:
 
   ```json
-  {}
+  {"schema_filter":"impress/artifact/dataset"}
   ```
 
 ## `imbib-artifacts-service_create-artifact`
@@ -34,22 +34,33 @@ Create a research artifact in imbib. Artifacts are non-paper items: notes, webpa
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact_subtype` | — | no | *(undocumented)* |
-| `capture_context` | — | no | *(undocumented)* |
-| `event_date` | — | no | *(undocumented)* |
-| `event_name` | — | no | *(undocumented)* |
-| `file_hash` | — | no | *(undocumented)* |
-| `file_mime_type` | — | no | *(undocumented)* |
-| `file_name` | — | no | *(undocumented)* |
-| `file_size` | — | no | *(undocumented)* |
-| `notes` | — | no | *(undocumented)* |
-| `original_author` | — | no | *(undocumented)* |
-| `schema` | string | yes | *(undocumented)* |
-| `source_url` | — | no | *(undocumented)* |
-| `tags` | array | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `artifact_subtype` | — | no | More specific kind within the chosen schema, if known. |
+| `capture_context` | — | no | Context in which the artifact was captured. |
+| `event_date` | — | no | Date associated with that event, if known. |
+| `event_name` | — | no | Event associated with a poster or presentation. |
+| `file_hash` | — | no | Content hash of an associated file, if present. |
+| `file_mime_type` | — | no | MIME type of an associated file, if present. |
+| `file_name` | — | no | Name of an associated file, if present. |
+| `file_size` | — | no | Associated file size in bytes, if present. |
+| `notes` | — | no | Research notes stored alongside the artifact. |
+| `original_author` | — | no | Attribution of the source creator, if known. |
+| `schema` | string | yes | Canonical `impress/artifact/*` schema describing the artifact kind. |
+| `source_url` | — | no | Original web URL, if this artifact came from a page. |
+| `tags` | array | yes | Existing or new tag paths to attach to the artifact. |
+| `title` | string | yes | Human-readable artifact title. |
 
-_No examples yet._
+**Examples**
+
+- `create_research_note` — Tier A:
+
+  ```json
+  {"schema":"impress/artifact/note","title":"G3 newly created research note","notes":"An owned scratch observation.","tags":[]}
+  ```
+  expects:
+
+  ```json
+  {"title":"G3 newly created research note","schema":"impress/artifact/note"}
+  ```
 
 ## `imbib-artifacts-service_delete-artifact`
 
@@ -62,9 +73,20 @@ Delete a research artifact. This permanently removes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the artifact to remove permanently. |
 
-_No examples yet._
+**Examples**
+
+- `delete_disposable_note` — Tier A:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-artifacts-service_get-artifact`
 
@@ -77,24 +99,46 @@ Get detailed information about a specific research artifact by ID.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored artifact to read. |
 
-_No examples yet._
+**Examples**
+
+- `get_scratch_note` — Tier A:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000001","title":"G3 artifact note","schema":"impress/artifact/note"}
+  ```
 
 ## `imbib-artifacts-service_get-artifact-relations`
 
 List the relationships an artifact has to papers and other items.
 
 - **safety**: `read_only`, idempotent
-- **reads**: target(id)
+- **reads**: target(id), any("resolves the target of each artifact relation, of any kind")
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the artifact whose outgoing typed links are needed. |
 
-_No examples yet._
+**Examples**
+
+- `get_scratch_relations` — Tier A:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000006"}
+  ```
+  expects:
+
+  ```json
+  [{"target_id":"60000000-0000-4000-8000-000000000020","edge_type":"RelatesTo","target_title":"G3 paper for artifacts"}]
+  ```
 
 ## `imbib-artifacts-service_link-artifact-to-publication`
 
@@ -107,10 +151,21 @@ Link a research artifact to a paper in the bibliography. Creates a bidirectional
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact_id` | string | yes | *(undocumented)* |
-| `publication_id` | string | yes | *(undocumented)* |
+| `artifact_id` | string | yes | UUID of the stored artifact receiving the relation. |
+| `publication_id` | string | yes | UUID of the existing bibliography entry to link. |
 
-_No examples yet._
+**Examples**
+
+- `link_dataset_to_paper` — Tier A:
+
+  ```json
+  {"artifact_id":"60000000-0000-4000-8000-000000000005","publication_id":"60000000-0000-4000-8000-000000000020"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-artifacts-service_list-artifacts`
 
@@ -123,29 +178,46 @@ List available artifacts across all impress apps. Returns a summary of papers, d
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `ascending` | boolean | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `offset` | integer | yes | *(undocumented)* |
-| `schema_filter` | — | no | *(undocumented)* |
-| `sort_field` | string | yes | *(undocumented)* |
+| `ascending` | boolean | yes | True for ascending order, false for newest/highest first. |
+| `limit` | integer | yes | Maximum rows; zero selects the service default of fifty. |
+| `offset` | integer | yes | Number of sorted rows to skip before returning results. |
+| `schema_filter` | — | no | Canonical artifact schema to restrict the list, or null for all artifact kinds. |
+| `sort_field` | string | yes | Sort field such as `title` or `date_added`; blank selects date added. |
 
-_No examples yet._
+**Examples**
+
+- `list_scratch_notes` — Tier A:
+
+  ```json
+  {"schema_filter":"impress/artifact/note","sort_field":"title","ascending":true,"limit":50,"offset":0}
+  ```
 
 ## `imbib-artifacts-service_search-artifacts`
 
 Search research artifacts by title, notes, or other metadata. Returns matching artifacts.
 
 - **safety**: `read_only`, idempotent
-- **reads**: prefix("impress/artifact/"), "imbib/tag-definition"
+- **reads**: any("searches every indexed kind before filtering artifact schemas"), "imbib/tag-definition"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | yes | *(undocumented)* |
-| `schema_filter` | — | no | *(undocumented)* |
+| `query` | string | yes | Text to find in title, notes, source URL, or original author. |
+| `schema_filter` | — | no | Canonical artifact schema to restrict matches, or null for all artifact kinds. |
 
-_No examples yet._
+**Examples**
+
+- `find_scratch_dataset` — Tier A:
+
+  ```json
+  {"query":"G3-artifact-needle","schema_filter":"impress/artifact/dataset"}
+  ```
+  expects:
+
+  ```json
+  [{"id":"60000000-0000-4000-8000-000000000003","title":"G3-artifact-needle dataset"}]
+  ```
 
 ## `imbib-artifacts-service_update-artifact`
 
@@ -158,15 +230,26 @@ Update an artifact's metadata fields; a field left null keeps its current value.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact_subtype` | — | no | *(undocumented)* |
-| `capture_context` | — | no | *(undocumented)* |
-| `event_date` | — | no | *(undocumented)* |
-| `event_name` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `notes` | — | no | *(undocumented)* |
-| `original_author` | — | no | *(undocumented)* |
-| `source_url` | — | no | *(undocumented)* |
-| `title` | — | no | *(undocumented)* |
+| `artifact_subtype` | — | no | Replacement subtype, or null to retain it. |
+| `capture_context` | — | no | Replacement capture context, or null to retain it. |
+| `event_date` | — | no | Replacement event date, or null to retain it. |
+| `event_name` | — | no | Replacement event name, or null to retain it. |
+| `id` | string | yes | UUID of the artifact whose metadata should change. |
+| `notes` | — | no | Replacement notes, or null to retain them. |
+| `original_author` | — | no | Replacement creator attribution, or null to retain it. |
+| `source_url` | — | no | Replacement source URL, or null to retain it. |
+| `title` | — | no | Replacement title, or null to retain the current title. |
 
-_No examples yet._
+**Examples**
+
+- `rename_scratch_note` — Tier A:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000002","title":"G3 revised artifact note"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 

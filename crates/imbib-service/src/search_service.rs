@@ -89,6 +89,10 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// Find the paper with a cite key, optionally within one library; null on
     /// a miss (`resolve_cite_key` says why a lookup missed).
     #[impress_method]
+    #[impress_example(
+        name = "known-cite-key",
+        args = r#"{"cite_key":"G3Search2026","library_id":"63000000-0000-4000-8000-000000000001"}"#
+    )]
     async fn find_by_cite_key(
         &self,
         cite_key: String,
@@ -107,6 +111,11 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// default). A leading `@` is accepted and stripped, so a key lifted
     /// straight out of Typst source works.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library"]))]
+    #[impress_example(
+        name = "typst-key",
+        args = r#"{"cite_key":"@G3Search2026","library_id":"63000000-0000-4000-8000-000000000001"}"#,
+        expect = r#"{"cite_key":"G3Search2026","status":"resolved","library_size":1}"#
+    )]
     async fn resolve_cite_key(
         &self,
         cite_key: String,
@@ -114,16 +123,23 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     ) -> CiteKeyResolution;
     /// Find the papers carrying a DOI.
     #[impress_method]
+    #[impress_example(name = "doi-in-library", args = r#"{"doi":"10.6300/g3-search"}"#)]
     async fn find_by_doi(&self, doi: String) -> Vec<PublicationSummary>;
     /// Find the papers carrying an arXiv id.
     #[impress_method]
+    #[impress_example(name = "arxiv-in-library", args = r#"{"arxiv_id":"2609.06300"}"#)]
     async fn find_by_arxiv(&self, arxiv_id: String) -> Vec<PublicationSummary>;
     /// Find the papers carrying an ADS bibcode.
     #[impress_method]
+    #[impress_example(name = "bibcode-in-library", args = r#"{"bibcode":"2026G3...6300S"}"#)]
     async fn find_by_bibcode(&self, bibcode: String) -> Vec<PublicationSummary>;
     /// Find every paper matching any of the given DOIs, arXiv ids or bibcodes
     /// in one query.
     #[impress_method]
+    #[impress_example(
+        name = "combined-identifiers",
+        args = r#"{"dois":["10.6300/g3-search"],"arxiv_ids":["2609.06300"],"bibcodes":["2026G3...6300S"]}"#
+    )]
     async fn find_by_identifiers_batch(
         &self,
         dois: Vec<String>,
@@ -135,6 +151,10 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// Search the imbib library for papers by title, author, abstract, or
     /// keywords. Returns matching papers with metadata and BibTeX.
     #[impress_method]
+    #[impress_example(
+        name = "title-phrase",
+        args = r#"{"query":"G3 search spectra","parent_id":"63000000-0000-4000-8000-000000000001","limit":10}"#
+    )]
     async fn full_text_search(
         &self,
         query: String,
@@ -146,13 +166,20 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// List saved smart searches. Pass the Exploration library's ID to
     /// enumerate the rows of imbib's Exploration sidebar section.
     #[impress_method(effects(reads = ["imbib/smart-search"]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "saved-library-search",
+        args = r#"{"library_id":"63000000-0000-4000-8000-000000000001"}"#
+    )]
     async fn list_smart_searches(&self, library_id: Option<String>) -> Vec<SmartSearchRecord>;
     /// Fetch one smart search by UUID: its query string, owning library,
     /// result cap, and its feeds-to-inbox / auto-refresh settings. Use to
     /// inspect or confirm a search before changing or deleting it; find the
     /// UUID with `imbib-search-service_list-smart-searches`.
     #[impress_method(effects(reads = ["imbib/smart-search"]))]
+    #[impress_example(
+        name = "saved-search-detail",
+        args = r#"{"id":"63000000-0000-4000-8000-000000000003"}"#
+    )]
     async fn get_smart_search(&self, id: String) -> Option<SmartSearchRecord>;
     /// Save a query as a smart search (an Exploration sidebar row) in a
     /// library — the 'keep an eye on this topic' tool. To run a search ONCE
@@ -164,6 +191,11 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// an ongoing feed rather than a saved query. List with
     /// `imbib-search-service_list-smart-searches`, remove with imbib_delete_smart_searches.
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/smart-search"]))]
+    #[impress_example(
+        name = "save-spectra-query",
+        args = r#"{"name":"Spectra alerts","query":"spectra","library_id":"63000000-0000-4000-8000-000000000001","source_ids_json":null,"max_results":25,"feeds_to_inbox":false,"auto_refresh_enabled":false,"refresh_interval_seconds":3600}"#,
+        expect = r#"{"name":"Spectra alerts","query":"spectra"}"#
+    )]
     async fn create_smart_search(
         &self,
         name: String,
@@ -501,16 +533,72 @@ impress_service_impl! {
     impl = DefaultImbibSearchService,
     instance = || crate::backend::search_service_instance(),
     methods = [
-        find_by_cite_key(cite_key: String, library_id: Option<String>) -> Option<PublicationSummary>,
+        find_by_cite_key(
+            /// Exact BibTeX cite key, without the Typst `@` prefix.
+            cite_key: String,
+            /// Library UUID to search, or null for every library.
+            library_id: Option<String>
+        ) -> Option<PublicationSummary>,
         /// Resolve a manuscript cite key to a paper, saying WHY on a miss.
-        resolve_cite_key(cite_key: String, library_id: Option<String>) -> CiteKeyResolution,
-        find_by_doi(doi: String) -> Vec<PublicationSummary>,
-        find_by_arxiv(arxiv_id: String) -> Vec<PublicationSummary>,
-        find_by_bibcode(bibcode: String) -> Vec<PublicationSummary>,
-        find_by_identifiers_batch(dois: Vec<String>, arxiv_ids: Vec<String>, bibcodes: Vec<String>) -> Vec<PublicationSummary>,
-        full_text_search(query: String, parent_id: Option<String>, limit: u32) -> Vec<PublicationSummary>,
-        list_smart_searches(library_id: Option<String>) -> Vec<SmartSearchRecord>,
-        get_smart_search(id: String) -> Option<SmartSearchRecord>,
-        create_smart_search(name: String, query: String, library_id: String, source_ids_json: Option<String>, max_results: i64, feeds_to_inbox: bool, auto_refresh_enabled: bool, refresh_interval_seconds: i64) -> Option<SmartSearchRecord>,
+        resolve_cite_key(
+            /// BibTeX key, optionally with a leading Typst `@`.
+            cite_key: String,
+            /// Library UUID to search, or null for the whole bibliography.
+            library_id: Option<String>
+        ) -> CiteKeyResolution,
+        find_by_doi(
+            /// Exact DOI saved on a bibliography entry.
+            doi: String
+        ) -> Vec<PublicationSummary>,
+        find_by_arxiv(
+            /// Exact arXiv identifier saved on a bibliography entry.
+            arxiv_id: String
+        ) -> Vec<PublicationSummary>,
+        find_by_bibcode(
+            /// Exact ADS bibcode saved on a bibliography entry.
+            bibcode: String
+        ) -> Vec<PublicationSummary>,
+        find_by_identifiers_batch(
+            /// DOI candidates to match in one lookup.
+            dois: Vec<String>,
+            /// arXiv identifier candidates to match in the same lookup.
+            arxiv_ids: Vec<String>,
+            /// ADS bibcode candidates to match in the same lookup.
+            bibcodes: Vec<String>
+        ) -> Vec<PublicationSummary>,
+        full_text_search(
+            /// Text to find in title, author, abstract, or keywords.
+            query: String,
+            /// Library UUID to restrict matches, or null for all papers.
+            parent_id: Option<String>,
+            /// Maximum matches; zero uses the default of fifty.
+            limit: u32
+        ) -> Vec<PublicationSummary>,
+        list_smart_searches(
+            /// Owning library UUID to filter saved searches, or null for all.
+            library_id: Option<String>
+        ) -> Vec<SmartSearchRecord>,
+        get_smart_search(
+            /// UUID of the saved smart search.
+            id: String
+        ) -> Option<SmartSearchRecord>,
+        create_smart_search(
+            /// Name shown for this search in the Exploration sidebar.
+            name: String,
+            /// Saved text query to run when the search is refreshed.
+            query: String,
+            /// UUID of the library that owns the saved search.
+            library_id: String,
+            /// JSON array of source IDs, or null for the default sources.
+            source_ids_json: Option<String>,
+            /// Maximum results stored per refresh.
+            max_results: i64,
+            /// Route new results into Inbox when explicitly enabled.
+            feeds_to_inbox: bool,
+            /// Refresh on the timer when explicitly enabled.
+            auto_refresh_enabled: bool,
+            /// Interval in seconds between automatic refreshes.
+            refresh_interval_seconds: i64
+        ) -> Option<SmartSearchRecord>,
     ],
 }

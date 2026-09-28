@@ -165,26 +165,41 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// when omitted): the static catalogue merged with live discovery,
     /// including load state, context limit, modalities and the helper flag.
     #[impress_method(safety = external, effects(reach = [provider]))]
+    #[impress_example(
+        name = "catalogue-after-provider-discovery",
+        tier = "b",
+        args = r#"{"provider":"ollama"}"#
+    )]
     async fn list_models(&self, provider: Option<String>) -> ModelsResult;
 
     /// Every catalogued AI provider with this device's endpoint, readiness
     /// and credential status (which fields are set — never their values).
     #[impress_method(safety = external, effects(reach = [provider, fs]))]
+    #[impress_example(name = "device-provider-readiness", tier = "b", args = r#"{}"#)]
     async fn list_providers(&self) -> ProvidersResult;
 
     /// The device-local AI preferences: selected provider/model, endpoint
     /// overrides, oMLX auto-start and per-task-category assignments.
     #[impress_method]
+    #[impress_example(name = "scratch-device-preferences", args = r#"{}"#)]
     async fn ai_preferences(&self) -> AiPreferencesResult;
 
     /// Pin the device's provider and (optionally) model. Every app and daemon
     /// on the device follows it. Helper pseudo-models are rejected.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "select-local-model",
+        args = r#"{"provider":"ollama","model":"llama3.2"}"#
+    )]
     async fn select_model(&self, provider: String, model: Option<String>) -> AiPreferencesResult;
 
     /// Override (or, with `None`, reset) a provider's endpoint — e.g. an
     /// oMLX host reached over Tailscale. Secrets never go here.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "set-scratch-endpoint",
+        args = r#"{"provider":"ollama","endpoint":"http://127.0.0.1:11435"}"#
+    )]
     async fn set_provider_endpoint(
         &self,
         provider: String,
@@ -195,20 +210,38 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// never launches a host. For oMLX it reports version, loaded/total
     /// models and memory.
     #[impress_method(safety = external, effects(reach = [provider]))]
+    #[impress_example(
+        name = "local-provider-probe",
+        tier = "b",
+        args = r#"{"provider":"ollama"}"#
+    )]
     async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult;
 
     /// List durable AI conversations from the shared Impress item graph.
     #[impress_method(effects(reads = ["conversation@1.0.0"]))]
+    #[impress_example(
+        name = "scratch-conversation-list",
+        args = r#"{"include_archived":false}"#
+    )]
     async fn list_conversations(&self, include_archived: bool) -> ConversationsResult;
 
     /// Read a conversation with its ordered messages and pending durable
     /// response tasks.
-    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message"]))]
+    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message", "task@1.0.0"]))]
+    #[impress_example(
+        name = "scratch-conversation-detail",
+        args = r#"{"conversation_id":"65000000-0000-4000-8000-000000000002"}"#
+    )]
     async fn get_conversation(&self, conversation_id: String) -> ConversationResult;
 
     /// Create a durable conversation. Enabled tools are stable capability ids
     /// such as `scix`, `impress-mcp`, and `web`.
     #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["conversation@1.0.0"]))]
+    #[impress_example(
+        name = "start-research-conversation",
+        args = r#"{"title":"G3 literature review","model":"llama3.2","provider":"ollama","system_prompt":null,"temperature":0.3,"max_tokens":512,"thinking":false,"web_access":false,"enabled_tools":["impress-mcp"]}"#,
+        expect = r#"{"success":true}"#
+    )]
     #[allow(clippy::too_many_arguments)]
     async fn create_conversation(
         &self,
@@ -225,7 +258,12 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Atomically append a user message and queue its offline-capable response
     /// task. Attachment ids must already identify content-blob items.
-    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["chat-message", "task@1.0.0"]))]
+    #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0", "chat-message"], writes = ["conversation@1.0.0", "chat-message", "task@1.0.0"]))]
+    #[impress_example(
+        name = "queue-scratch-question",
+        args = r#"{"conversation_id":"68000000-0000-4000-8000-000000000001","body":"Summarize the methods in this project.","attachment_ids":[]}"#,
+        expect = r#"{"success":true}"#
+    )]
     async fn queue_message(
         &self,
         conversation_id: String,
@@ -235,6 +273,11 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Replace the conversation's enabled tool-capability policy.
     #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["conversation@1.0.0"]))]
+    #[impress_example(
+        name = "allow-research-tools",
+        args = r#"{"conversation_id":"68000000-0000-4000-8000-000000000002","enabled_tools":["impress-mcp","web"]}"#,
+        expect = r#"{"success":true}"#
+    )]
     async fn set_enabled_tools(
         &self,
         conversation_id: String,
@@ -242,28 +285,48 @@ pub trait ImpressAiService: Send + Sync + 'static {
     ) -> ConversationMutationResult;
 
     /// Read durable scheduler/run progress for a queued response task.
-    #[impress_method(effects(reads = ["task@1.0.0"]))]
+    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "chat-message"]))]
+    #[impress_example(
+        name = "pending-scratch-task",
+        args = r#"{"task_id":"68000000-0000-4000-8000-000000000003"}"#,
+        expect = r#"{"task":{"state":"pending"}}"#
+    )]
     async fn task_status(&self, task_id: String) -> TaskStatusResult;
 
     /// Return the latest model run lineage for a response task: canonical
     /// inputs, tool invocations, and attributed outputs.
-    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0"]))]
+    #[impress_method(effects(reads = ["task@1.0.0", "agent-run@1.0.0", "tool-invocation@1.0.0", any("run lineage loads produced outputs of any record kind")]))]
+    #[impress_example(
+        name = "scratch-task-lineage",
+        args = r#"{"task_id":"68000000-0000-4000-8000-000000000004"}"#
+    )]
     async fn task_provenance(&self, task_id: String) -> ProvenanceResult;
 
     /// Return complete lineage for a specific agent-run item.
-    #[impress_method(effects(reads = ["agent-run@1.0.0", "tool-invocation@1.0.0"]))]
+    #[impress_method(effects(reads = ["agent-run@1.0.0", "task@1.0.0", "tool-invocation@1.0.0", any("run lineage loads produced outputs of any record kind")]))]
+    #[impress_example(
+        name = "scratch-run-lineage",
+        args = r#"{"run_id":"68000000-0000-4000-8000-000000000006"}"#
+    )]
     async fn run_provenance(&self, run_id: String) -> ProvenanceResult;
 
     /// Store-hygiene health from the AI daemon: db/WAL/freelist sizes, the
     /// maintenance lease, last verb outcomes, and the trailing-24h op rate.
     /// `daemon_reachable: false` (never an error) when it isn't running.
     #[impress_method(safety = external, effects(reach = [network]))]
+    #[impress_example(
+        name = "isolated-daemon-health",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"{"daemon_reachable":true}"#
+    )]
     async fn ai_health(&self) -> AiHealthResult;
 
     /// Mint a single-use browser pairing link for the AI daemon (15-minute
     /// expiry). Requires the local keychain bearer (`com.impress.ai-http`),
     /// so this works on the Mac that runs the daemon, not remotely.
     #[impress_method(safety = external, effects(reach = [network]))]
+    #[impress_example(name = "isolated-daemon-pairing", tier = "b", args = r#"{}"#)]
     async fn mint_pairing_link(&self) -> PairingLinkResult;
 }
 
@@ -772,37 +835,82 @@ impress_service_impl! {
     impl = DefaultImpressAiService,
     instance = || service_instance(),
     methods = [
-        list_models(provider: Option<String>) -> ModelsResult,
+        list_models(
+            /// Provider ID to discover, or null for the device default.
+            provider: Option<String>
+        ) -> ModelsResult,
         list_providers() -> ProvidersResult,
         ai_preferences() -> AiPreferencesResult,
-        select_model(provider: String, model: Option<String>) -> AiPreferencesResult,
-        set_provider_endpoint(provider: String, endpoint: Option<String>) -> AiPreferencesResult,
-        provider_health(provider: Option<String>) -> ProviderHealthResult,
-        list_conversations(include_archived: bool) -> ConversationsResult,
-        get_conversation(conversation_id: String) -> ConversationResult,
+        select_model(
+            /// Catalogue provider ID to select for this device.
+            provider: String,
+            /// Chat model ID to pin, or null to use its provider default.
+            model: Option<String>
+        ) -> AiPreferencesResult,
+        set_provider_endpoint(
+            /// Editable provider ID whose endpoint changes.
+            provider: String,
+            /// HTTP(S) endpoint URL, or null to reset to the catalogue default.
+            endpoint: Option<String>
+        ) -> AiPreferencesResult,
+        provider_health(
+            /// Provider ID to probe, or null for the device default.
+            provider: Option<String>
+        ) -> ProviderHealthResult,
+        list_conversations(
+            /// Whether archived conversations are included.
+            include_archived: bool
+        ) -> ConversationsResult,
+        get_conversation(
+            /// UUID of the durable conversation to read.
+            conversation_id: String
+        ) -> ConversationResult,
         create_conversation(
+            /// Display title for the new conversation.
             title: String,
+            /// Model ID to use for assistant responses.
             model: String,
+            /// Provider ID, or null to resolve from device preferences.
             provider: Option<String>,
+            /// Optional system instruction to start the conversation.
             system_prompt: Option<String>,
+            /// Sampling temperature for future model responses.
             temperature: f32,
+            /// Maximum response tokens.
             max_tokens: u32,
+            /// Whether model thinking is requested.
             thinking: bool,
+            /// Whether the `web` tool is enabled.
             web_access: bool,
+            /// Stable capability IDs the assistant may call.
             enabled_tools: Vec<String>
         ) -> ConversationMutationResult,
         queue_message(
+            /// UUID of the conversation that receives the user turn.
             conversation_id: String,
+            /// User message text; private content is redacted from public tool logs.
             #[impress_private] body: String,
+            /// Existing content-blob UUIDs to attach, or an empty list.
             attachment_ids: Vec<String>
         ) -> QueuedMessageResult,
         set_enabled_tools(
+            /// UUID of the conversation whose tool policy changes.
             conversation_id: String,
+            /// Stable capability IDs enabled for subsequent turns.
             enabled_tools: Vec<String>
         ) -> ConversationMutationResult,
-        task_status(task_id: String) -> TaskStatusResult,
-        task_provenance(task_id: String) -> ProvenanceResult,
-        run_provenance(run_id: String) -> ProvenanceResult,
+        task_status(
+            /// UUID of the durable response task to inspect.
+            task_id: String
+        ) -> TaskStatusResult,
+        task_provenance(
+            /// UUID of the response task whose latest model run is traced.
+            task_id: String
+        ) -> ProvenanceResult,
+        run_provenance(
+            /// UUID of the specific agent run to trace.
+            run_id: String
+        ) -> ProvenanceResult,
         ai_health() -> AiHealthResult,
         mint_pairing_link() -> PairingLinkResult,
     ],

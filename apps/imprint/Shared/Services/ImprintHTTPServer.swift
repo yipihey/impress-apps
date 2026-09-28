@@ -30,17 +30,36 @@ import OSLog
 /// - `POST /api/documents/{id}/compile` - Compile to PDF
 /// - `POST /api/documents/{id}/insert-citation` - Insert citation
 ///
-/// Usage:
-/// ```swift
-/// await ImprintHTTPServer.shared.start()
-/// // Later...
-/// await ImprintHTTPServer.shared.stop()
-/// ```
+/// The app snapshots registry values on the main actor, then passes the
+/// Sendable configuration to this actor so listener startup stays detached.
+@MainActor
+enum ImprintAutomationSettings {
+    static let credentialDidChange = Notification.Name("ImprintAutomationCredentialDidChange")
+
+    static func snapshot(defaults: UserDefaults = .standard) -> AutomationServerSettings {
+        let registry = ImpressSettings.shared
+        let savedPort = registry.value("imprint.automation.http_port", as: Int.self)
+        let port = (1...Int(UInt16.max)).contains(savedPort)
+            ? UInt16(savedPort) : ImprintHTTPServer.defaultPort
+        return AutomationServerSettings(
+            httpEnabled: registry.value("imprint.automation.http_enabled", as: Bool.self),
+            port: port,
+            logRequests: registry.value("imprint.automation.log_requests", as: Bool.self),
+            allowNetworkAccess: registry.value("imprint.automation.allow_network_access", as: Bool.self),
+            // The bearer is intentionally outside the generated, agent-readable
+            // settings surface. Keep the existing credential key intact.
+            networkAuthToken: defaults.string(forKey: AutomationServerSettings.Keys.networkAuthToken),
+            networkBindAddress: registry.value("imprint.automation.network_bind_address", as: String.self)
+        ).applyingLaunchOverrides(from: defaults)
+    }
+}
+
 public actor ImprintHTTPServer {
 
     // MARK: - Singleton
 
     public static let shared = ImprintHTTPServer()
+    public static let didApplySettings = Notification.Name("ImprintHTTPServerDidApplySettings")
 
     // MARK: - Configuration
 
@@ -48,18 +67,11 @@ public actor ImprintHTTPServer {
     /// (`SiblingApp.descriptors`) rather than re-declared here.
     public static let defaultPort: UInt16 = SiblingApp.imprint.httpPort
 
-    // MARK: - Settings
-
-    /// The shared settings (P0, SEC-4): enabled, port, logging and the
-    /// network fields, the same six keys in every app.
-    private static var settings: AutomationServerSettings {
-        AutomationServerSettings.load(defaultPort: defaultPort)
-    }
-
     // MARK: - State
 
     private let server: HTTPServer<ImprintHTTPRouter>
     private let router: ImprintHTTPRouter
+    private var appliedSettings: AutomationServerSettings?
 
     // MARK: - Initialization
 
@@ -70,15 +82,39 @@ public actor ImprintHTTPServer {
 
     // MARK: - Lifecycle
 
-    /// Start the HTTP server on the configured port.
-    public func start() async {
+    /// Apply a main-actor snapshot only when its effective configuration
+    /// changed. A settings feed tick must not tear down a live listener.
+    public func apply(settings: AutomationServerSettings) async {
+        guard appliedSettings != settings else { return }
+        let previous = appliedSettings
+        appliedSettings = settings
+        guard settings.httpEnabled else {
+            if previous?.httpEnabled == true { await stop() }
+            await announceAppliedSettings()
+            return
+        }
+        if previous?.httpEnabled == true {
+            await restart(settings: settings)
+        } else {
+            await start(settings: settings)
+        }
+        await announceAppliedSettings()
+    }
+
+    private func announceAppliedSettings() async {
+        await MainActor.run {
+            NotificationCenter.default.post(name: Self.didApplySettings, object: nil)
+        }
+    }
+
+    /// Start the HTTP server on the snapshotted port.
+    public func start(settings: AutomationServerSettings) async {
         let alreadyRunning = await server.running
         guard !alreadyRunning else {
             Logger.httpServer.infoCapture("HTTP server already running", category: "http-server")
             return
         }
 
-        let settings = Self.settings
         guard settings.httpEnabled else {
             Logger.httpServer.infoCapture("HTTP server is disabled in settings", category: "http-server")
             return
@@ -103,14 +139,14 @@ public actor ImprintHTTPServer {
     }
 
     /// Restart the server (e.g., after port change).
-    public func restart() async {
+    public func restart(settings: AutomationServerSettings) async {
         do {
             try ImprintNativeVerbs.install()
         } catch {
             Logger.httpServer.errorCapture("Native verbs unavailable: \(error)", category: "http-server")
             return
         }
-        let configuration = HTTPServerConfiguration(settings: Self.settings, loggerSubsystem: "com.imprint.app")
+        let configuration = HTTPServerConfiguration(settings: settings, loggerSubsystem: "com.imprint.app")
 
         await server.restart(configuration: configuration)
     }

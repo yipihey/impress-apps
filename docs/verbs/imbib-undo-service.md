@@ -13,14 +13,20 @@ List the most recent undoable operation groups, newest first.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `max_entries` | integer | yes | *(undocumented)* |
+| `max_entries` | integer | yes | Maximum number of recent groups; zero selects the default of 25. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"max_entries": 5}
+  ```
+
+- `scratch-history` — Tier A:
+
+  ```json
+  {"max_entries":50}
   ```
 
 ## `imbib-undo-service_undo-batch`
@@ -34,9 +40,20 @@ Undo all operations sharing a batch id.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `batch_id` | string | yes | *(undocumented)* |
+| `batch_id` | string | yes | Shared batch ID of the operations to reverse. |
 
-_No examples yet._
+**Examples**
+
+- `undo-scratch-batch` — Tier A:
+
+  ```json
+  {"batch_id":"61000000-0000-4000-8000-000000000005"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-undo-service_undo-operation`
 
@@ -49,7 +66,18 @@ Undo a single operation by id.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `operation_id` | string | yes | *(undocumented)* |
+| `operation_id` | string | yes | Operation UUID selected from `recent_undo_groups`. |
 
-_No examples yet._
+**Examples**
+
+- `selected-history-operation` — Tier A:
+
+  ```json
+  {"operation_id":"{{fixture.undo_operation_id}}"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 

@@ -1369,9 +1369,35 @@ async fn cap_export_document_headless_refusal() -> CapabilityResult {
             if svc.get_document(w.manuscript_id.clone()).await.is_none() {
                 return Err("seeded manuscript missing before export".into());
             }
-            let bytes = svc.export_document(w.manuscript_id, "typst".into()).await;
-            if !bytes.is_empty() {
-                return Err("headless export unexpectedly returned native bytes".into());
+            // Capture this deliberate negative call in its own pipeline scope;
+            // its refusal must not overwrite the enclosing selftest report.
+            use impress_service_core::{
+                pipeline::{self, Call, CallerIdentity},
+                VerbDescriptor,
+            };
+            let verb = VerbDescriptor::find("imprint-manuscript-service_export-document")
+                .ok_or("export descriptor is not linked")?;
+            let mut call = Call::new(
+                CallerIdentity::system("selftest-export"),
+                serde_json::json!({"id":w.manuscript_id,"format":"typst"}),
+            );
+            call.store = Some(w.store.clone());
+            let result = pipeline::invoke_with(verb, call, |_| async {
+                Ok(serde_json::json!(
+                    svc.export_document(w.manuscript_id, "typst".into()).await
+                ))
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            if result["ok"] != false
+                || result["code"] != "invalid-argument"
+                || !result["message"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("native imprint host"))
+            {
+                return Err(format!(
+                    "headless export did not report the native-host refusal: {result}"
+                ));
             }
             Ok("valid document refused without native host".into())
         },

@@ -1895,3 +1895,61 @@ agent-surfaces.md, ex = an example surface, test); Desc = `fallback` when the de
   contract, not the still-unpackaged native domain backends. Post-S3 main `10ee5acd` separately
   passed the isolated serial workspace run: 4,324 passed, 0 failed, 23 ignored, including doctests
   (`/tmp/impress-s3-main-workspace.log`). A new main run follows G5's merge.
+
+- 2026-09-28 — **G3 remainder, implementation checkpoint** on
+  `claude/gui-g3-remainder` / `g3-remainder`, with the reviewed P8/R3 changes
+  integrated locally while their hosted checks run. The default inventory audit
+  found 355 verbs without examples (249 headless, 106 external) and 936 missing
+  argument descriptions; the earlier ~170 figure was a headless subset. Small
+  service batches are being committed on this one package branch. Explicit
+  `tier = "b"` metadata and the isolated-host invocation seam now exist; Tier A
+  excludes those examples. The capabilities harness shares per-example scratch
+  fixtures, full input/output JSON Schema checks and persisted readback with the
+  effects spy, without charging setup/readback to a verb's observed effects.
+  `{{fixture.root}}` resolves only inside the runner-owned directory; parent
+  traversal is refused, and surface `{{state...}}` strings remain literal.
+  Store, settings, source assets/cache, imprint workspace/compiler cache and
+  embedding sidecar paths are explicitly isolated; HOME is not reassigned.
+  The first integrated run passed **181 examples on 166 headless verbs**
+  (`/tmp/impress-g3-third-tier-a.log`, plus the path containment check). This
+  covers the first parser/memory, settings/source/collaboration, collection/import
+  and layout slices. The strengthened expectation check caught an older
+  scenario-record example whose negative expectation contradicted its seeded
+  trace; it now checks successful recording. The effects spy exposed missing
+  declarations in source/collaboration/collection/import/layout handlers, which
+  are being corrected against their actual reads and writes. Remaining service
+  batches, complete generated tables, the hard completeness gate, native proofs,
+  package gates, PR and merge are still pending. No external example was run on
+  a user's app or data.
+
+- 2026-09-28 — **G3 remainder, complete descriptor coverage checkpoint.** All
+  479 linked verbs (including optional semantic search) now have examples and
+  all 1,068 top-level arguments have descriptions. The hard completeness gate
+  passes; Tier A executes 403 examples successfully. The tables were regenerated
+  from the `census`, `descriptor`, and `effects` dumps with `semantic-search`;
+  seeded effects coverage is now 327 verbs plus seven catalogue checks, and the
+  exception ceiling drops from 300 to 145. Reference pages come from the default
+  inventory generator. Fixtures verify persisted state after mutations and
+  resolve deletion targets before and after execution without weakening effects.
+  Explicit Tier B proofs also pass for two PDFKit source-image examples, three
+  semantic examples against a real model/index in an owned cache, the stored
+  scenario runner, and three headless selftest catalogues. The semantic paths
+  honor explicit store/index overrides; the negative semantic fixture refuses
+  before downloading a model. The imprint selftest captures its intentional
+  native-export refusal in an inner pipeline scope instead of leaking it into
+  the enclosing report. Remaining work is the final package gates, native
+  framework cohort and host proofs, PR, and merge. Device/network/credential
+  examples are marked Tier B and are not counted as executed by the headless run.
+
+- 2026-09-28 — **G3 final Rust and framework gates.** Both workspace clippy
+  shards and every quick gate pass (coverage/docs, strict kit dependencies,
+  standalone kit, Swift kit boundary, UniFFI bindings, schema references and
+  hakari diff). The isolated touched-crate run passed **1,413 tests, zero
+  failures, six ignored**, across 25 crates; the semantic-enabled capabilities
+  run separately passed 44 tests, zero failures, three ignored. All twelve
+  arm64 macOS/iOS framework scripts passed with swiftformat absent from PATH
+  and without `--fast`. The isolated imprint host proof is running before PR
+  readiness. Logs are `/tmp/impress-g3-{touched-tests,capabilities}.log` and
+  `/tmp/impress-g3-framework-*.log`. Examples requiring devices, credentials or
+  particular native fixture state remain explicit Tier B runs; the reference
+  index now explains their prerequisites and does not imply headless coverage.

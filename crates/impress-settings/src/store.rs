@@ -5,12 +5,15 @@
 //! precedent the plan measured (`preferences.rs:161-246`): re-parse only when
 //! the file's mtime or length moved, write temp + `fsync` + rename, and hold
 //! an advisory `flock` (`impress-fs-lock`) around every read-modify-write.
-//! One difference: there is one file per [`Scope`], so an app's file and the
-//! device file can be written by different processes without contention.
+//! One difference: there is one file per [`Scope`]. Writers retain each
+//! scope's flock and share a short cursor lock so cross-file timestamps are
+//! monotonic for polling across processes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Write};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -84,6 +87,10 @@ struct ScopeFile {
 struct Fingerprint {
     modified: Option<SystemTime>,
     len: u64,
+    // Atomic rename replaces the inode. mtime and length alone can remain
+    // equal for two same-clock writes of equally sized values.
+    #[cfg(unix)]
+    inode: u64,
 }
 
 impl Fingerprint {
@@ -92,6 +99,8 @@ impl Fingerprint {
             Ok(metadata) => Ok(Some(Self {
                 modified: metadata.modified().ok(),
                 len: metadata.len(),
+                #[cfg(unix)]
+                inode: metadata.ino(),
             })),
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
@@ -151,6 +160,32 @@ impl SettingsStore {
         self.directory.join(format!("{file_name}.lock"))
     }
 
+    fn cursor_lock_path(&self) -> PathBuf {
+        self.directory.join(".updated-at.lock")
+    }
+
+    fn scope_files() -> Vec<String> {
+        let mut files: Vec<String> = registry()
+            .iter()
+            .filter_map(|def| def.scope.file_name())
+            .collect();
+        files.sort();
+        files.dedup();
+        files
+    }
+
+    /// Read every known scope directly from disk while holding the cursor
+    /// lock. A per-file maximum is insufficient: the public cursor is the
+    /// maximum across all files, so a write to another file must exceed it.
+    fn newest_on_disk(&self) -> io::Result<i64> {
+        Self::scope_files()
+            .iter()
+            .map(|file_name| self.read_fresh(file_name).map(|file| file.updated_at_ms))
+            .try_fold(0, |newest, timestamp| {
+                timestamp.map(|value| newest.max(value))
+            })
+    }
+
     fn read_fresh(&self, file_name: &str) -> io::Result<ScopeFile> {
         let path = self.path(file_name);
         let bytes = match fs::read(&path) {
@@ -191,9 +226,19 @@ impl SettingsStore {
         Ok(file)
     }
 
-    fn save(&self, file_name: &str, mut file: ScopeFile) -> io::Result<ScopeFile> {
+    /// Called only under the cursor lock and this scope's file lock.
+    fn save(
+        &self,
+        file_name: &str,
+        mut file: ScopeFile,
+        observed_now_ms: i64,
+    ) -> io::Result<ScopeFile> {
         file.version = SETTINGS_FILE_VERSION;
-        file.updated_at_ms = now_ms();
+        let next = self
+            .newest_on_disk()?
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("settings update cursor exhausted"))?;
+        file.updated_at_ms = observed_now_ms.max(next);
         fs::create_dir_all(&self.directory)?;
         let path = self.path(file_name);
         let temporary = self
@@ -224,10 +269,24 @@ impl SettingsStore {
         file_name: &str,
         mutate: F,
     ) -> io::Result<ScopeFile> {
+        self.update_at(file_name, now_ms(), mutate)
+    }
+
+    /// `observed_now_ms` is injectable so same-clock writes can be tested
+    /// without depending on scheduler timing or wall-clock precision.
+    fn update_at<F: FnOnce(&mut ScopeFile)>(
+        &self,
+        file_name: &str,
+        observed_now_ms: i64,
+        mutate: F,
+    ) -> io::Result<ScopeFile> {
+        // Lock order is global cursor, then scope. All writers use this order;
+        // separate scopes still retain their own read-modify-write flock.
+        let _cursor_lock = FileLock::exclusive(self.cursor_lock_path())?;
         let _lock = FileLock::exclusive(self.lock_path(file_name))?;
         let mut file = self.read_fresh(file_name)?;
         mutate(&mut file);
-        self.save(file_name, file)
+        self.save(file_name, file, observed_now_ms)
     }
 
     fn synced(&self) -> Option<Arc<dyn SyncedBackend>> {
@@ -361,13 +420,7 @@ impl SettingsStore {
     /// The newest `updated_at_ms` across the scope files this build knows —
     /// the cursor a poller compares.
     pub fn updated_at_ms(&self) -> i64 {
-        let mut files: Vec<String> = registry()
-            .iter()
-            .filter_map(|def| def.scope.file_name())
-            .collect();
-        files.sort();
-        files.dedup();
-        files
+        Self::scope_files()
             .iter()
             .filter_map(|file_name| self.load(file_name).ok())
             .map(|file| file.updated_at_ms)
@@ -378,16 +431,12 @@ impl SettingsStore {
     /// Has any scope file been written since `updated_at_ms`? A file that
     /// cannot be read counts as changed, so a poller re-reads and reports.
     pub fn changed_since(&self, updated_at_ms: i64) -> bool {
-        let mut files: Vec<String> = registry()
+        Self::scope_files()
             .iter()
-            .filter_map(|def| def.scope.file_name())
-            .collect();
-        files.sort();
-        files.dedup();
-        files.iter().any(|file_name| match self.load(file_name) {
-            Ok(file) => file.updated_at_ms > updated_at_ms,
-            Err(_) => true,
-        })
+            .any(|file_name| match self.load(file_name) {
+                Ok(file) => file.updated_at_ms > updated_at_ms,
+                Err(_) => true,
+            })
     }
 }
 
@@ -587,6 +636,82 @@ mod tests {
         for key in keys {
             assert_eq!(store.get(key).unwrap().source, ValueSource::Stored, "{key}");
         }
+    }
+
+    #[test]
+    fn same_clock_writes_advance_the_cross_process_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = SettingsStore::open(dir.path());
+        let second = SettingsStore::open(dir.path());
+        let clock = 1_000;
+
+        first
+            .update_at("device.json", clock, |file| {
+                file.values.insert(INBOX.into(), Value::from(7));
+            })
+            .unwrap();
+        let cursor = second.updated_at_ms();
+        assert_eq!(cursor, clock);
+        assert!(!second.changed_since(cursor));
+
+        second
+            .update_at("device.json", clock, |file| {
+                file.values.insert(INBOX.into(), Value::from(8));
+            })
+            .unwrap();
+        assert_eq!(second.updated_at_ms(), clock + 1);
+        assert!(first.changed_since(cursor));
+        assert_eq!(first.get(INBOX).unwrap().value, Value::from(8));
+
+        // The cursor covers all scope files, not merely writes to the same
+        // file. An app-scoped write must exceed the device-scoped maximum.
+        let next_cursor = first.updated_at_ms();
+        first
+            .update_at("app-imbib.json", clock, |file| {
+                file.values.insert(PORT.into(), Value::from(23181));
+            })
+            .unwrap();
+        assert_eq!(first.updated_at_ms(), clock + 2);
+        assert!(second.changed_since(next_cursor));
+        assert_eq!(second.get(PORT).unwrap().value, Value::from(23181));
+    }
+
+    #[test]
+    fn concurrent_scope_writes_share_one_monotonic_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let start = Arc::new(std::sync::Barrier::new(3));
+        let handles: Vec<_> = [
+            ("device.json", INBOX, Value::from(7)),
+            ("app-imbib.json", PORT, Value::from(23181)),
+        ]
+        .into_iter()
+        .map(|(file_name, key, value)| {
+            let path = path.clone();
+            let start = start.clone();
+            std::thread::spawn(move || {
+                let store = SettingsStore::open(path);
+                start.wait();
+                store
+                    .update_at(file_name, 1_000, |file| {
+                        file.values.insert(key.into(), value);
+                    })
+                    .unwrap()
+                    .updated_at_ms
+            })
+        })
+        .collect();
+        start.wait();
+        let mut timestamps: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        timestamps.sort();
+        assert_eq!(timestamps, [1_000, 1_001]);
+        let reader = SettingsStore::open(dir.path());
+        assert_eq!(reader.updated_at_ms(), 1_001);
+        assert_eq!(reader.get(INBOX).unwrap().value, Value::from(7));
+        assert_eq!(reader.get(PORT).unwrap().value, Value::from(23181));
     }
 
     #[derive(Default)]

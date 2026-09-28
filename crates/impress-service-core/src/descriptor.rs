@@ -250,12 +250,19 @@ pub struct Safety {
     pub idempotent: bool,
 }
 
+/// Which explicitly isolated runner may execute a declared example.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExampleTier {
+    /// Headless example over an isolated scratch store.
+    A,
+    /// Requires an explicitly supplied isolated app or external host.
+    B,
+}
+
 /// A named example call, declared beside the method with
 /// `#[impress_example(name = "…", args = r#"{…}"#, expect = r#"{…}"#)]`.
-///
-/// P1 defines the attribute and the storage; ADR-0035 G3 populates the
-/// inventory and runs each example in Tier A. `args` and `expect` are JSON
-/// text (the macro checks they parse) so the static needs no allocation.
+/// `args` and `expect` are JSON text (validated at macro expansion) so the
+/// static descriptor needs no allocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Example {
     pub name: &'static str,
@@ -263,6 +270,8 @@ pub struct Example {
     pub args: &'static str,
     /// The expected result shape, as JSON text, when the example states one.
     pub expect: Option<&'static str>,
+    /// Execution environment. An omitted macro annotation defaults to A.
+    pub tier: ExampleTier,
 }
 
 impl Example {
@@ -599,6 +608,7 @@ mod tests {
                 name: "one",
                 args: r#"{"id": "x"}"#,
                 expect: None,
+                tier: ExampleTier::A,
             }],
             deprecated: None,
             aliases: &[],

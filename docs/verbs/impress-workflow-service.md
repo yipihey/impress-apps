@@ -13,11 +13,11 @@ Store a spec as a new `impress/workflow@1.0.0` row, after validating it exactly 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `spec` | object | yes | The stored document (`impress/workflow@1.0.0`). |
+| `spec` | object | yes | Complete workflow document; agent callers always create a proposed workflow. |
 
 **Examples**
 
-- `manual macro`:
+- `manual macro` — Tier A:
 
   ```json
   {"spec": {"wire_version": 1, "name": "example", "state": "proposed", "author": {"kind": "agent", "name": "example"}, "trigger": {"manual": {}}, "steps": []}}
@@ -34,9 +34,20 @@ Turns a workflow off. No review restriction — an agent may always disable a wo
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored workflow row returned by workflow-create or workflow-list. |
 
-_No examples yet._
+**Examples**
+
+- `g3-disable-running-workflow` — Tier A:
+
+  ```json
+  {"id":"64000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"spec":{"state":"disabled"}}
+  ```
 
 ## `impress-workflow-service_workflow-dry-run`
 
@@ -49,10 +60,21 @@ _No examples yet._
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `event` | — | no | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `event` | — | no | Trigger payload used to resolve event templates; defaults to an empty object. |
+| `id` | string | yes | UUID of the stored workflow to plan without running its steps. |
 
-_No examples yet._
+**Examples**
+
+- `g3-plan-without-executing` — Tier A:
+
+  ```json
+  {"id":"64000000-0000-4000-8000-000000000002","event":{"flag":"red"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"would_call":[{"verb":"triage-service_set-flag","args":{"id":"64000000-0000-4000-8000-000000000011","flag":"red"}}]}
+  ```
 
 ## `impress-workflow-service_workflow-enable`
 
@@ -65,9 +87,20 @@ Turns a workflow on. From an agent caller on a `proposed` workflow, this is a re
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored workflow row returned by workflow-create or workflow-list. |
 
-_No examples yet._
+**Examples**
+
+- `g3-enable-reviewed-workflow` — Tier A:
+
+  ```json
+  {"id":"64000000-0000-4000-8000-000000000003"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"spec":{"state":"enabled"}}
+  ```
 
 ## `impress-workflow-service_workflow-get`
 
@@ -80,9 +113,20 @@ One workflow row, spec included.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | UUID of the stored workflow row returned by workflow-create or workflow-list. |
 
-_No examples yet._
+**Examples**
+
+- `g3-read-stored-workflow` — Tier A:
+
+  ```json
+  {"id":"64000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"spec":{"name":"G3 reviewable workflow"}}
+  ```
 
 ## `impress-workflow-service_workflow-list`
 
@@ -97,7 +141,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -114,11 +158,11 @@ Every problem with a workflow, by JSON pointer and severity: the surface validat
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `spec` | object | yes | The stored document (`impress/workflow@1.0.0`). |
+| `spec` | object | yes | Complete workflow document to validate without storing or executing it. |
 
 **Examples**
 
-- `manual spec`:
+- `manual spec` — Tier A:
 
   ```json
   {"spec": {"wire_version": 1, "name": "example", "state": "proposed", "author": {"kind": "agent", "name": "example"}, "trigger": {"manual": {}}, "steps": []}}

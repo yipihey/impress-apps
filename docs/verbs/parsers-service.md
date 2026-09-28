@@ -13,14 +13,19 @@ Decode RFC 2047 encoded-words (`=?UTF-8?B?…?=` / `=?…?Q?…?=`) in a mail he
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `value` | string | yes | *(undocumented)* |
+| `value` | string | yes | Mail header value containing optional RFC 2047 encoded words. |
 
 **Examples**
 
-- `default`:
+- `encoded-subject` — Tier A:
 
   ```json
-  {"value": "=?utf-8?q?hello?="}
+  {"value":"=?UTF-8?Q?M=C3=BCller?="}
+  ```
+  expects:
+
+  ```json
+  "Müller"
   ```
 
 ## `parsers-service_decode-quoted-printable`
@@ -34,15 +39,20 @@ Decode a quoted-printable body. `charset` is the `charset=` parameter from the p
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `charset` | string | yes | *(undocumented)* |
-| `encoded` | string | yes | *(undocumented)* |
+| `charset` | string | yes | Declared content charset; an empty value defaults to UTF-8. |
+| `encoded` | string | yes | Quoted-printable encoded text, including `=XX` escapes. |
 
 **Examples**
 
-- `default`:
+- `utf8-body` — Tier A:
 
   ```json
-  {"encoded": "a=3Db", "charset": "utf-8"}
+  {"encoded":"M=C3=BCller","charset":"utf-8"}
+  ```
+  expects:
+
+  ```json
+  "Müller"
   ```
 
 ## `parsers-service_extract-landing-page-pdf`
@@ -56,11 +66,22 @@ Extract the PDF link from a publisher landing page's HTML, using that publisher'
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `base_url` | string | yes | *(undocumented)* |
-| `html` | string | yes | *(undocumented)* |
-| `publisher_host` | string | yes | *(undocumented)* |
+| `base_url` | string | yes | Landing-page URL used to resolve relative PDF links. |
+| `html` | string | yes | Already-fetched landing-page markup; this call does not fetch it. |
+| `publisher_host` | string | yes | Publisher host used to choose an HTML extraction strategy. |
 
-_No examples yet._
+**Examples**
+
+- `citation-meta-tag` — Tier A:
+
+  ```json
+  {"html":"<meta name=\"citation_pdf_url\" content=\"https://example.org/paper.pdf\">","base_url":"https://example.org/article","publisher_host":"example.org"}
+  ```
+  expects:
+
+  ```json
+  {"parser_id":"generic","pdf_url":"https://example.org/paper.pdf"}
+  ```
 
 ## `parsers-service_list-publisher-rules`
 
@@ -75,7 +96,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `publisher-catalogue` — Tier A:
 
   ```json
   {}
@@ -94,10 +115,21 @@ Parse an mbox archive (imbib's export format, or any RFC 4155 mbox) into message
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `content` | string | yes | *(undocumented)* |
-| `max_messages` | integer | yes | *(undocumented)* |
+| `content` | string | yes | Complete RFC 4155 mbox text, including each `From ` separator. |
+| `max_messages` | integer | yes | Maximum messages to return; zero or less returns all messages. |
 
-_No examples yet._
+**Examples**
+
+- `one-message` — Tier A:
+
+  ```json
+  {"content":"From reader@example.org Thu Jan 01 00:00:00 2024\nFrom: Reader <reader@example.org>\nSubject: A paper\nMessage-ID: <paper@example.org>\n\nPlease read this paper.\n","max_messages":0}
+  ```
+  expects:
+
+  ```json
+  {"message_count":1,"truncated":false,"messages":[{"from":"Reader <reader@example.org>","subject":"A paper","message_id":"paper","body":"Please read this paper.\n","attachments":[]}] }
+  ```
 
 ## `parsers-service_resolve-publisher-pdf`
 
@@ -110,7 +142,18 @@ Which publisher owns a DOI, whether its PDF URL is predictable, and what to try.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doi` | string | yes | *(undocumented)* |
+| `doi` | string | yes | Complete DOI whose registered prefix selects a publisher rule. |
 
-_No examples yet._
+**Examples**
+
+- `aps-doi` — Tier B (explicit isolated run):
+
+  ```json
+  {"doi":"10.1103/PhysRevD.1.1"}
+  ```
+  expects:
+
+  ```json
+  {"doi":"10.1103/PhysRevD.1.1","rule":{"id":"aps"},"constructed_pdf_url":"https://link.aps.org/pdf/10.1103/PhysRevD.1.1"}
+  ```
 

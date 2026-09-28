@@ -118,6 +118,11 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     /// List PDF annotations on a paper. Includes highlights, underlines,
     /// notes, and text comments made on the PDF.
     #[impress_method(effects(reads = ["imbib/annotation"]))]
+    #[impress_example(
+        name = "highlight_on_scratch_pdf",
+        args = r#"{"linked_file_id":"60000000-0000-4000-8000-000000000021","page_number":2}"#,
+        expect = r#"[{"id":"60000000-0000-4000-8000-000000000022","annotation_type":"highlight","page_number":2}]"#
+    )]
     async fn list_annotations(
         &self,
         linked_file_id: String,
@@ -125,10 +130,20 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     ) -> Vec<AnnotationRecord>;
     /// Count the PDF annotations on one linked file.
     #[impress_method(effects(reads = ["imbib/annotation"]))]
+    #[impress_example(
+        name = "count_scratch_highlight",
+        args = r#"{"linked_file_id":"60000000-0000-4000-8000-000000000021"}"#,
+        expect = "1"
+    )]
     async fn count_annotations(&self, linked_file_id: String) -> u32;
     /// Add a PDF annotation to a paper. Supports highlights, underlines,
     /// strikethroughs, notes, and free text.
     #[impress_method(safety = mutating, effects(reads = ["imbib/linked-file"], writes = ["imbib/annotation"]))]
+    #[impress_example(
+        name = "annotate_scratch_pdf",
+        args = r#"{"linked_file_id":"60000000-0000-4000-8000-000000000023","annotation_type":"highlight","page_number":3,"color":"yellow","selected_text":"A measured effect","author_name":"G3 researcher"}"#,
+        expect = r#"{"annotation_type":"highlight","page_number":3,"selected_text":"A measured effect","linked_file_id":"60000000-0000-4000-8000-000000000023"}"#
+    )]
     async fn create_annotation(
         &self,
         linked_file_id: String,
@@ -144,19 +159,39 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     // ---- Comments (threaded, on any item) ----
     /// List comments on any item by UUID (publication, artifact, or other
     /// item type).
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/comment", target(item_id)]))]
+    #[impress_example(
+        name = "comments_on_scratch_artifact",
+        args = r#"{"item_id":"60000000-0000-4000-8000-000000000040"}"#,
+        expect = r#"[{"id":"60000000-0000-4000-8000-000000000031","text":"Check the method.","parent_item_id":"60000000-0000-4000-8000-000000000040"}]"#
+    )]
     async fn list_comments_for_item(&self, item_id: String) -> Vec<CommentRecord>;
     /// List all comments on a paper. Comments support threaded replies for
     /// discussions.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/comment", "imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "comments_on_scratch_paper",
+        args = r#"{"publication_id":"60000000-0000-4000-8000-000000000020"}"#,
+        expect = r#"[{"id":"60000000-0000-4000-8000-000000000030","text":"Compare the spectra."}]"#
+    )]
     async fn list_comments(&self, publication_id: String) -> Vec<CommentRecord>;
     /// List the comments on an item written after a store clock value, for
     /// following a thread incrementally.
-    #[impress_method]
+    #[impress_method(effects(reads = ["imbib/comment"]))]
+    #[impress_example(
+        name = "incremental_scratch_comments",
+        args = r#"{"item_id":"60000000-0000-4000-8000-000000000041","since_clock":1}"#,
+        expect = r#"[{"id":"60000000-0000-4000-8000-000000000032","text":"The later observation."}]"#
+    )]
     async fn list_comments_since(&self, item_id: String, since_clock: u64) -> Vec<CommentRecord>;
     /// Add a comment to a paper. Can be a top-level comment or a reply to
     /// an existing comment.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/comment"]))]
+    #[impress_example(
+        name = "comment_on_scratch_paper",
+        args = r#"{"publication_id":"60000000-0000-4000-8000-000000000024","text":"A useful comparison.","author_identifier":"g3-researcher"}"#,
+        expect = r#"{"text":"A useful comparison.","parent_item_id":"60000000-0000-4000-8000-000000000024"}"#
+    )]
     async fn create_comment(
         &self,
         publication_id: String,
@@ -168,6 +203,11 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     /// Add a comment to any item by UUID (publication, artifact, or other
     /// item type).
     #[impress_method(safety = mutating, effects(reads = [target(item_id)], writes = ["imbib/comment"]))]
+    #[impress_example(
+        name = "comment_on_scratch_artifact",
+        args = r#"{"item_id":"60000000-0000-4000-8000-000000000042","text":"Preserve the dataset provenance.","author_display_name":"G3 researcher"}"#,
+        expect = r#"{"text":"Preserve the dataset provenance.","parent_item_id":"60000000-0000-4000-8000-000000000042"}"#
+    )]
     async fn create_comment_on_item(
         &self,
         item_id: String,
@@ -178,6 +218,11 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     ) -> Option<CommentRecord>;
     /// Edit the text of an existing comment.
     #[impress_method(safety = destructive, effects(reads = ["imbib/comment"], writes = ["imbib/comment"]))]
+    #[impress_example(
+        name = "revise_scratch_comment",
+        args = r#"{"id":"60000000-0000-4000-8000-000000000033","text":"The revised interpretation."}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn update_comment(&self, id: String, text: String) -> MutationResult;
 }
 
@@ -341,14 +386,77 @@ impress_service_impl! {
     impl = DefaultImbibAnnotationsService,
     instance = || crate::backend::annotations_service_instance(),
     methods = [
-        list_annotations(linked_file_id: String, page_number: Option<i32>) -> Vec<AnnotationRecord>,
-        count_annotations(linked_file_id: String) -> u32,
-        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, #[impress_private] contents: Option<String>, selected_text: Option<String>, author_name: Option<String>) -> Option<AnnotationRecord>,
-        list_comments_for_item(item_id: String) -> Vec<CommentRecord>,
-        list_comments(publication_id: String) -> Vec<CommentRecord>,
-        list_comments_since(item_id: String, since_clock: u64) -> Vec<CommentRecord>,
-        create_comment(publication_id: String, #[impress_private] text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
-        create_comment_on_item(item_id: String, #[impress_private] text: String, author_identifier: Option<String>, author_display_name: Option<String>, parent_comment_id: Option<String>) -> Option<CommentRecord>,
-        update_comment(id: String, #[impress_private] text: String) -> MutationResult,
+        list_annotations(
+            /// UUID of the linked PDF file whose annotations are requested.
+            linked_file_id: String,
+            /// Zero-based page to filter to, or null for all pages.
+            page_number: Option<i32>
+        ) -> Vec<AnnotationRecord>,
+        count_annotations(
+            /// UUID of the linked PDF file to count annotations on.
+            linked_file_id: String
+        ) -> u32,
+        create_annotation(
+            /// UUID of the linked PDF file receiving the annotation.
+            linked_file_id: String,
+            /// Annotation kind, such as `highlight` or `note`.
+            annotation_type: String,
+            /// Zero-based PDF page containing the annotation.
+            page_number: i64,
+            /// Optional serialized PDF rectangle geometry.
+            bounds_json: Option<String>,
+            /// Optional annotation color name.
+            color: Option<String>,
+            /// Private note text attached to the annotation.
+            #[impress_private] contents: Option<String>,
+            /// Text selected by a highlight, if present.
+            selected_text: Option<String>,
+            /// Human-readable annotation author, if known.
+            author_name: Option<String>
+        ) -> Option<AnnotationRecord>,
+        list_comments_for_item(
+            /// UUID of any stored item whose comments are requested.
+            item_id: String
+        ) -> Vec<CommentRecord>,
+        list_comments(
+            /// UUID of the bibliography entry whose comments are requested.
+            publication_id: String
+        ) -> Vec<CommentRecord>,
+        list_comments_since(
+            /// UUID of the item whose later comments are requested.
+            item_id: String,
+            /// Exclusive logical-clock cursor; zero starts at the beginning.
+            since_clock: u64
+        ) -> Vec<CommentRecord>,
+        create_comment(
+            /// UUID of the bibliography entry receiving the comment.
+            publication_id: String,
+            /// Private body of the new comment.
+            #[impress_private] text: String,
+            /// Stable author or agent identifier, if known.
+            author_identifier: Option<String>,
+            /// Display name for the author, if known.
+            author_display_name: Option<String>,
+            /// UUID of the parent comment for a reply, or null for top-level.
+            parent_comment_id: Option<String>
+        ) -> Option<CommentRecord>,
+        create_comment_on_item(
+            /// UUID of any stored item receiving the comment.
+            item_id: String,
+            /// Private body of the new comment.
+            #[impress_private] text: String,
+            /// Stable author or agent identifier, if known.
+            author_identifier: Option<String>,
+            /// Display name for the author, if known.
+            author_display_name: Option<String>,
+            /// UUID of the parent comment for a reply, or null for top-level.
+            parent_comment_id: Option<String>
+        ) -> Option<CommentRecord>,
+        update_comment(
+            /// UUID of the comment whose body should be replaced.
+            id: String,
+            /// New private comment body.
+            #[impress_private] text: String
+        ) -> MutationResult,
     ],
 }

@@ -59,6 +59,9 @@ impl SemanticState {
     /// The default embeddings path — `dirs::data_dir()/imbib/embeddings.sqlite`,
     /// the same default `impress-mcp`'s `main.rs` computed before P3c.
     pub fn default_embeddings_path() -> PathBuf {
+        if let Some(path) = std::env::var_os("IMPRESS_EMBEDDINGS_PATH") {
+            return path.into();
+        }
         dirs::data_dir()
             .expect("Could not determine data directory")
             .join("imbib/embeddings.sqlite")
@@ -67,6 +70,9 @@ impl SemanticState {
     /// The default main store path — the same default `impress-mcp`'s
     /// `main.rs` computed before P3c.
     pub fn default_main_store_path() -> PathBuf {
+        if let Some(path) = std::env::var_os("IMPRESS_STORE_PATH") {
+            return path.into();
+        }
         dirs::home_dir()
             .expect("Could not determine home directory")
             .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")

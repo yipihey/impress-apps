@@ -53,6 +53,10 @@ packages:
     path: ../../packages/ImpressAutomation
   ImpressKeyboard:
     path: ../../packages/ImpressKeyboard
+  ImpressLayout:
+    path: ../../packages/ImpressLayout
+  ImpressSurface:
+    path: ../../packages/ImpressSurface
   ImpressOperationQueue:
     path: ../../packages/ImpressOperationQueue
   ImpressSidebar:
@@ -259,6 +263,9 @@ targets:
       - package: ImpressRustCore
       - package: ImpressAutomation
       - package: ImpressKit
+      - package: ImpressKeyboard
+      - package: ImpressLayout
+      - package: ImpressSurface
       - package: PublicationManagerCore
     settings:
       base:

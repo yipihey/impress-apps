@@ -66,6 +66,11 @@ pub trait ImpressWorkflowService: Send + Sync + 'static {
 
     /// One workflow row, spec included.
     #[impress_method(effects(reads = ["impress/workflow@1.0.0"]))]
+    #[impress_example(
+        name = "g3-read-stored-workflow",
+        args = r#"{"id":"64000000-0000-4000-8000-000000000001"}"#,
+        expect = r#"{"ok":true,"spec":{"name":"G3 reviewable workflow"}}"#
+    )]
     async fn workflow_get(&self, id: String) -> WorkflowResult;
 
     /// Every stored workflow, oldest first, without their specs (see
@@ -79,6 +84,11 @@ pub trait ImpressWorkflowService: Send + Sync + 'static {
     /// `would_call` rather than executed — the same table a review surface
     /// shows (plan § Workflows, "Dry run and validation").
     #[impress_method(effects(reads = ["impress/workflow@1.0.0"]))]
+    #[impress_example(
+        name = "g3-plan-without-executing",
+        args = r#"{"id":"64000000-0000-4000-8000-000000000002","event":{"flag":"red"}}"#,
+        expect = r#"{"ok":true,"would_call":[{"verb":"triage-service_set-flag","args":{"id":"64000000-0000-4000-8000-000000000011","flag":"red"}}]}"#
+    )]
     async fn workflow_dry_run(&self, id: String, event: Option<Value>) -> WorkflowDryRunResult;
 
     /// Turns a workflow on. From an agent caller on a `proposed` workflow,
@@ -86,11 +96,21 @@ pub trait ImpressWorkflowService: Send + Sync + 'static {
     /// row left `proposed`. A person (or the app acting for them) enables
     /// it outright.
     #[impress_method(safety = mutating, effects(reads = ["impress/workflow@1.0.0"], writes = ["impress/workflow@1.0.0"]))]
+    #[impress_example(
+        name = "g3-enable-reviewed-workflow",
+        args = r#"{"id":"64000000-0000-4000-8000-000000000003"}"#,
+        expect = r#"{"ok":true,"spec":{"state":"enabled"}}"#
+    )]
     async fn workflow_enable(&self, id: String) -> WorkflowResult;
 
     /// Turns a workflow off. No review restriction — an agent may always
     /// disable a workflow it or a person enabled.
     #[impress_method(safety = mutating, effects(reads = ["impress/workflow@1.0.0"], writes = ["impress/workflow@1.0.0"]))]
+    #[impress_example(
+        name = "g3-disable-running-workflow",
+        args = r#"{"id":"64000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"spec":{"state":"disabled"}}"#
+    )]
     async fn workflow_disable(&self, id: String) -> WorkflowResult;
 }
 
@@ -438,12 +458,32 @@ impress_service_impl! {
     instance = DefaultWorkflowService::new,
     strict_args = true,
     methods = [
-        workflow_validate(spec: WorkflowSpecArg) -> WorkflowValidateResult,
-        workflow_create(spec: WorkflowSpecArg) -> WorkflowResult,
-        workflow_get(id: String) -> WorkflowResult,
+        workflow_validate(
+            /// Complete workflow document to validate without storing or executing it.
+            spec: WorkflowSpecArg
+        ) -> WorkflowValidateResult,
+        workflow_create(
+            /// Complete workflow document; agent callers always create a proposed workflow.
+            spec: WorkflowSpecArg
+        ) -> WorkflowResult,
+        workflow_get(
+            /// UUID of the stored workflow row returned by workflow-create or workflow-list.
+            id: String
+        ) -> WorkflowResult,
         workflow_list() -> WorkflowListResult,
-        workflow_dry_run(id: String, event: Option<Value>) -> WorkflowDryRunResult,
-        workflow_enable(id: String) -> WorkflowResult,
-        workflow_disable(id: String) -> WorkflowResult,
+        workflow_dry_run(
+            /// UUID of the stored workflow to plan without running its steps.
+            id: String,
+            /// Trigger payload used to resolve event templates; defaults to an empty object.
+            event: Option<Value>
+        ) -> WorkflowDryRunResult,
+        workflow_enable(
+            /// UUID of the stored workflow row returned by workflow-create or workflow-list.
+            id: String
+        ) -> WorkflowResult,
+        workflow_disable(
+            /// UUID of the stored workflow row returned by workflow-create or workflow-list.
+            id: String
+        ) -> WorkflowResult,
     ],
 }

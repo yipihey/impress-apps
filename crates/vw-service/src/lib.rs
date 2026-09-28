@@ -199,6 +199,12 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// expert to remember/analyze an attached VW photo or clearly supplies it
     /// as diagnostic evidence. Never use it for unrelated images.
     #[impress_method(safety = external, effects(reads = ["vw/diagnostic-session@1.0.0"], writes = ["vw/photo-evidence@1.0.0", "content-blob@1.0.0"], reach = [network, fs]))]
+    #[impress_example(
+        name = "g3-ingest-photo",
+        args = r##"{"photo":{"file_id":"g3-private-url","download_url":"http://127.0.0.1/private.png","mime_type":"image/png","file_name":"private.png"},"title":"Private address refusal","description":"Reject private network access before downloading.","component":null,"diagnostic_session_id":null,"captured_at":null,"tags":[]}"##,
+        expect = r##"{"ok":false,"status":"invalid_file_url"}"##,
+        tier = "b"
+    )]
     async fn ingest_photo(
         &self,
         photo: ChatGptFile,
@@ -214,6 +220,11 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// titles, descriptions, component names, filenames, and tags; optionally
     /// constrain results to one diagnostic session.
     #[impress_method(effects(reads = ["vw/photo-evidence@1.0.0"]))]
+    #[impress_example(
+        name = "g3-search-photos",
+        args = r##"{"query":"G3 photo","diagnostic_session_id":null,"limit":5}"##,
+        expect = r##"{"ok":true}"##
+    )]
     async fn search_photos(
         &self,
         query: String,
@@ -224,15 +235,30 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// Retrieve one previously ingested VW user photo as MCP image content.
     /// Call search-photos first when the evidence id is unknown.
     #[impress_method(effects(reads = ["vw/photo-evidence@1.0.0", "content-blob@1.0.0"]))]
+    #[impress_example(
+        name = "g3-get-photo",
+        args = r##"{"evidence_id":"{{fixture.vw_photo_id}}"}"##,
+        expect = r##"{"ok":true}"##
+    )]
     async fn get_photo(&self, evidence_id: String) -> PhotoEvidenceResult;
 
     /// Create a persistent diagnostic session pinned to the active knowledge
     /// pack. command_id makes retries idempotent.
     #[impress_method(safety = mutating, effects(reads = ["vw/vehicle@1.0.0", "vw/configuration@1.0.0", "vw/diagnostic-session@1.0.0"], writes = ["vw/diagnostic-session@1.0.0", "vw/vehicle@1.0.0", "vw/configuration@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_example(
+        name = "g3-create-session",
+        args = r##"{"request":{"command_id":"67000000-0000-4000-8000-000000000001","vehicle_name":"G3 fictional vehicle","vin":null,"configuration":{"id":"67000000-0000-4000-8000-000000000002","model_family":"Type 2","model_year":1978,"market":"california","emissions_spec":"California","engine_code":"fixture","fuel_system":"L-Jetronic","transmission":null,"installed_options":[],"installed_components":[],"deviations":[],"verification":"unverified"},"concern":"Record a fictional intermittent starting concern","odometer":null,"notes":"Synthetic example; no diagnosis is asserted."}}"##,
+        expect = r##"{"ok":true,"session":{"revision":0}}"##
+    )]
     async fn create_session(&self, request: CreateSessionRequest) -> SessionResult;
 
     /// Load one typed diagnostic session and its current optimistic revision.
     #[impress_method(effects(reads = ["vw/diagnostic-session@1.0.0"]))]
+    #[impress_example(
+        name = "g3-get-session",
+        args = r##"{"session_id":"{{fixture.vw_session_id}}"}"##,
+        expect = r##"{"ok":true,"session":{"revision":0}}"##
+    )]
     async fn get_session(&self, session_id: String) -> SessionResult;
 
     /// List recent diagnostic sessions without exposing raw store records.
@@ -242,17 +268,32 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// Record a controlled observation. The command is rejected if its expected
     /// revision is stale and replayed safely if command_id was already applied.
-    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/observation@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/diagnostic-session@1.0.0", "vw/observation@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_example(
+        name = "g3-record-observation",
+        args = r##"{"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":0,"command_id":"67000000-0000-4000-8000-000000000003","kind":"symptom","value":{"type":"text","value":"Fictional engine pauses at idle"},"acquisition":{"type":"user_reported"},"confidence":"uncertain","component_key":null,"conditions":[],"notes":null,"supersedes":null}}"##,
+        expect = r##"{"ok":true,"session":{"revision":1}}"##
+    )]
     async fn record_observation(&self, command: RecordObservationCommand) -> SessionResult;
 
     /// Record a typed measurement with unit, acquisition method, conditions,
     /// and optional component/terminal context.
-    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/measurement@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/diagnostic-session@1.0.0", "vw/measurement@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_example(
+        name = "g3-record-measurement",
+        args = r##"{"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":0,"command_id":"67000000-0000-4000-8000-000000000004","quantity":"fixture_voltage","value":{"value":12.4,"unit":"V","uncertainty":0.1},"acquisition":{"type":"instrument","kind":"fictional meter","identifier":null},"component_key":null,"terminals":null,"conditions":[],"source_step":null,"notes":"Synthetic measurement; not a diagnostic threshold."}}"##,
+        expect = r##"{"ok":true,"session":{"revision":1}}"##
+    )]
     async fn record_measurement(&self, command: RecordMeasurementCommand) -> SessionResult;
 
     /// Evaluate published rules against an explicit session revision and return
     /// ordinal hypothesis priorities, citations, and a deterministic trace.
     #[impress_method]
+    #[impress_example(
+        name = "g3-evaluate-session",
+        args = r##"{"session_id":"{{fixture.vw_session_id}}","expected_revision":0}"##,
+        expect = r##"{"ok":true}"##
+    )]
     async fn evaluate_session(
         &self,
         session_id: String,
@@ -261,6 +302,11 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
 
     /// Return the highest-ranked safe and applicable next diagnostic procedure.
     #[impress_method]
+    #[impress_example(
+        name = "g3-recommend-next-test",
+        args = r##"{"session_id":"{{fixture.vw_session_id}}","expected_revision":0}"##,
+        expect = r##"{"ok":true}"##
+    )]
     async fn recommend_next_test(
         &self,
         session_id: String,
@@ -270,20 +316,40 @@ pub trait VwDiagnosticService: Send + Sync + 'static {
     /// List published procedures applicable to the session's exact vehicle
     /// configuration.
     #[impress_method(effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"]))]
+    #[impress_example(
+        name = "g3-list-applicable-procedures",
+        args = r##"{"session_id":"{{fixture.vw_session_id}}"}"##,
+        expect = r##"{"ok":true}"##
+    )]
     async fn list_applicable_procedures(&self, session_id: String) -> ProcedureListResult;
 
     /// Start a published procedure only after required hazards are explicitly
     /// acknowledged.
     #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/procedure-run@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_example(
+        name = "g3-start-procedure",
+        args = r##"{"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":1,"command_id":"67000000-0000-4000-8000-000000000005","procedure_id":"closed-session-guard","acknowledged_hazard_ids":[],"performed_by":"fixture"}}"##,
+        expect = r##"{"ok":false,"error":{"code":"invalid_state"}}"##
+    )]
     async fn start_procedure(&self, command: StartProcedureCommand) -> SessionResult;
 
     /// Record the result of exactly the procedure run's current step. The
     /// domain state machine selects the next legal step.
     #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0", "vw/procedure-run@1.0.0"], writes = ["vw/procedure-run@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_example(
+        name = "g3-record-procedure-step",
+        args = r##"{"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":1,"command_id":"67000000-0000-4000-8000-000000000006","procedure_run_id":"closed-session-guard","step_key":"guard","result":"must not be recorded"}}"##,
+        expect = r##"{"ok":false,"error":{"code":"invalid_state"}}"##
+    )]
     async fn record_procedure_step(&self, command: RecordProcedureStepCommand) -> SessionResult;
 
     /// Close a session with a durable outcome; closed sessions reject further
     /// evidence mutations.
     #[impress_method(safety = mutating, effects(reads = ["vw/diagnostic-session@1.0.0"], writes = ["vw/diagnostic-session@1.0.0", "vw/command-receipt@1.0.0"]))]
+    #[impress_example(
+        name = "g3-close-session",
+        args = r##"{"command":{"session_id":"{{fixture.vw_session_id}}","expected_revision":0,"command_id":"67000000-0000-4000-8000-000000000007","outcome":"Fictional example complete; no diagnostic conclusion"}}"##,
+        expect = r##"{"ok":true,"session":{"revision":1}}"##
+    )]
     async fn close_session(&self, command: CloseSessionCommand) -> SessionResult;
 }

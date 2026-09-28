@@ -33,52 +33,52 @@ read.
 | Service | Crate | Verbs | Real description | Args (required) | Args described | Strict |
 |---|---|---:|---:|---:|---:|---:|
 | `capabilities-service` | capabilities-service | 4 | 4 | 5 (1) | 5 | 4 |
-| `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 0 | 12 |
-| `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 0 | 10 |
-| `history-service` | impress-store-service | 7 | 7 | 15 (9) | 14 | 7 |
-| `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 0 | 9 |
-| `imbib-app-service` | imbib-service | 17 | 17 | 24 (19) | 0 | 17 |
-| `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 0 | 9 |
-| `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 0 | 6 |
-| `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 0 | 22 |
-| `imbib-library-service` | imbib-service | 46 | 46 | 85 (65) | 0 | 46 |
-| `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 0 | 7 |
-| `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 0 | 7 |
-| `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 0 | 10 |
-| `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 0 | 3 |
+| `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 25 | 12 |
+| `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
+| `history-service` | impress-store-service | 7 | 7 | 15 (9) | 15 | 7 |
+| `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 27 | 9 |
+| `imbib-app-service` | imbib-service | 17 | 17 | 24 (19) | 24 | 17 |
+| `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
+| `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 8 | 6 |
+| `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 35 | 22 |
+| `imbib-library-service` | imbib-service | 46 | 46 | 85 (65) | 85 | 46 |
+| `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
+| `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
+| `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 23 | 10 |
+| `imbib-semantic-service` | imbib-semantic-service | 3 | 3 | 4 (2) | 4 | 3 |
 | `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 20 | 10 |
-| `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 0 | 5 |
-| `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 0 | 3 |
-| `impart-service` | impart-service | 10 | 10 | 22 (14) | 0 | 10 |
-| `impel-service` | impel-service | 11 | 11 | 15 (12) | 0 | 11 |
-| `implore-service` | implore-service | 20 | 20 | 26 (13) | 8 | 20 |
-| `impress-ai-service` | impress-ai-service | 16 | 16 | 25 (19) | 0 | 16 |
-| `impress-bridges-service` | impress-bridges-service | 18 | 18 | 30 (29) | 0 | 18 |
+| `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 7 | 5 |
+| `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 3 | 3 |
+| `impart-service` | impart-service | 10 | 10 | 22 (14) | 22 | 10 |
+| `impel-service` | impel-service | 11 | 11 | 15 (12) | 15 | 11 |
+| `implore-service` | implore-service | 20 | 20 | 26 (13) | 26 | 20 |
+| `impress-ai-service` | impress-ai-service | 16 | 16 | 25 (19) | 25 | 16 |
+| `impress-bridges-service` | impress-bridges-service | 18 | 18 | 30 (29) | 30 | 18 |
 | `impress-scenario-service` | impress-scenario-service | 6 | 6 | 11 (4) | 11 | 6 |
-| `impress-surface-service` | impress-surface-service | 15 | 15 | 33 (18) | 16 | 15 |
-| `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 2 | 7 |
-| `imprint-app-service` | imprint-service | 15 | 15 | 29 (22) | 0 | 15 |
-| `imprint-manuscript-service` | imprint-service | 17 | 17 | 34 (34) | 0 | 17 |
-| `imprint-project-service` | imprint-service | 30 | 30 | 97 (47) | 0 | 30 |
-| `imprint-selftest-service` | imprint-selftest | 1 | 1 | 1 (1) | 0 | 1 |
-| `imprint-text-service` | imprint-service | 5 | 5 | 11 (11) | 0 | 5 |
-| `imprint-throughline-service` | imprint-service | 9 | 9 | 16 (16) | 0 | 9 |
-| `layout-selftest-service` | impress-layout-service | 1 | 1 | 1 (1) | 0 | 1 |
-| `layout-service` | impress-layout-service | 36 | 36 | 184 (83) | 26 | 36 |
-| `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 0 | 4 |
-| `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 7 |
-| `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 6 |
-| `perf-service` | perf-service | 4 | 4 | 4 (3) | 0 | 4 |
+| `impress-surface-service` | impress-surface-service | 15 | 15 | 33 (18) | 33 | 15 |
+| `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 7 | 7 |
+| `imprint-app-service` | imprint-service | 15 | 15 | 29 (22) | 29 | 15 |
+| `imprint-manuscript-service` | imprint-service | 17 | 17 | 34 (34) | 34 | 17 |
+| `imprint-project-service` | imprint-service | 30 | 30 | 97 (47) | 97 | 30 |
+| `imprint-selftest-service` | imprint-selftest | 1 | 1 | 1 (1) | 1 | 1 |
+| `imprint-text-service` | imprint-service | 5 | 5 | 11 (11) | 11 | 5 |
+| `imprint-throughline-service` | imprint-service | 9 | 9 | 16 (16) | 16 | 9 |
+| `layout-selftest-service` | impress-layout-service | 1 | 1 | 1 (1) | 1 | 1 |
+| `layout-service` | impress-layout-service | 36 | 36 | 184 (83) | 184 | 36 |
+| `manuscript-collab-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
+| `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 20 | 7 |
+| `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 9 | 6 |
+| `perf-service` | perf-service | 4 | 4 | 4 (3) | 4 | 4 |
 | `provider-service` | impress-store-service | 2 | 2 | 2 (2) | 2 | 2 |
 | `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
-| `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 10 |
-| `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 9 |
+| `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 28 | 10 |
+| `source-service` | impress-store-service | 9 | 9 | 21 (10) | 21 | 9 |
 | `store-query-service` | impress-store-service | 4 | 4 | 8 (8) | 8 | 4 |
-| `surface-demo-service` | surface-demo-service | 2 | 2 | 4 (4) | 0 | 2 |
-| `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 1 |
+| `surface-demo-service` | surface-demo-service | 2 | 2 | 4 (4) | 4 | 2 |
+| `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
-| `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 15 |
-| **Total** | 21 crates, 46 services | **479** | **479** | **1068 (709)** | **128** | **479** |
+| `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
+| **Total** | 21 crates, 46 services | **479** | **479** | **1068 (709)** | **1068** | **479** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -100,8 +100,8 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `array-of-scalars` | 52 |
 | `inline-object` | 6 |
 | `map` | 2 |
-| `other` | 7 |
-| `ref-object` | 40 |
+| `other` | 43 |
+| `ref-object` | 4 |
 | `scalar` | 958 |
 <!-- verb-coverage-shapes:end -->
 

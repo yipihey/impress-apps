@@ -13,6 +13,7 @@
 
 #if os(macOS)
 import AppKit
+import ImpressKeyboard
 import ImpressKit
 import ImprintCore
 import PublicationManagerCore
@@ -101,7 +102,9 @@ struct ProjectBuildPanel: View {
                         Label("Build", systemImage: "hammer.fill")
                     }
                 }
-                .keyboardShortcut("b", modifiers: [.command, .option])
+                .keyboardShortcut(
+                    KeymapRegistry.shared.shortcut(for: "imprint.edit.build_manuscript")
+                        ?? KeyboardShortcut("b", modifiers: [.command, .option]))
                 .disabled(model.isBuilding)
                 .help("Build this target from the store and record it (⌥⌘B)")
             }

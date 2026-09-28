@@ -62,6 +62,8 @@ impress-workspace-hack.workspace = true
 # spy. Dev-dependencies only: this crate's library still depends on the
 # service crates alone.
 [dev-dependencies]
+# G3 executes examples against their full input/output JSON Schemas in tests only.
+jsonschema = { version = "0.33", default-features = false }
 impress-core = { workspace = true, features = ["sqlite", "effects-spy"] }
 impress-store-service = { workspace = true }
 impress-layout-service = { workspace = true }

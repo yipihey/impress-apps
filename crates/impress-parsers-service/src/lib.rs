@@ -149,26 +149,45 @@ pub trait ParsersService: Send + Sync + 'static {
     ///
     /// `max_messages` caps the list; pass 0 for no cap.
     #[impress_method]
+    #[impress_example(
+        name = "one-message",
+        args = r#"{"content":"From reader@example.org Thu Jan 01 00:00:00 2024\nFrom: Reader <reader@example.org>\nSubject: A paper\nMessage-ID: <paper@example.org>\n\nPlease read this paper.\n","max_messages":0}"#,
+        expect = r#"{"message_count":1,"truncated":false,"messages":[{"from":"Reader <reader@example.org>","subject":"A paper","message_id":"paper","body":"Please read this paper.\n","attachments":[]}] }"#
+    )]
     async fn parse_mbox(&self, content: String, max_messages: i64) -> MboxParseReport;
 
     /// Decode RFC 2047 encoded-words (`=?UTF-8?B?…?=` / `=?…?Q?…?=`) in a mail
     /// header value, honouring the declared charset. Useful for reading a
     /// `Subject:` or a `filename=` parameter as a human would see it.
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{"value": "=?utf-8?q?hello?="}"#)]
+    #[impress_example(
+        name = "encoded-subject",
+        args = r#"{"value":"=?UTF-8?Q?M=C3=BCller?="}"#,
+        expect = r#""Müller""#
+    )]
     async fn decode_mime_header(&self, value: String) -> String;
 
     /// Decode a quoted-printable body. `charset` is the `charset=` parameter
     /// from the part's `Content-Type` — pass `UTF-8` when absent. Invalid
     /// sequences fall back to Latin-1 rather than yielding an empty string.
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{"encoded": "a=3Db", "charset": "utf-8"}"#)]
+    #[impress_example(
+        name = "utf8-body",
+        args = r#"{"encoded":"M=C3=BCller","charset":"utf-8"}"#,
+        expect = r#""Müller""#
+    )]
     async fn decode_quoted_printable(&self, encoded: String, charset: String) -> String;
 
     /// Which publisher owns a DOI, whether its PDF URL is predictable, and what
     /// to try. This is the table imbib's PDF auto-download consults, so the
     /// answer is what the app would do.
     #[impress_method(effects(reach = [network]))]
+    #[impress_example(
+        name = "aps-doi",
+        tier = "b",
+        args = r#"{"doi":"10.1103/PhysRevD.1.1"}"#,
+        expect = r#"{"doi":"10.1103/PhysRevD.1.1","rule":{"id":"aps"},"constructed_pdf_url":"https://link.aps.org/pdf/10.1103/PhysRevD.1.1"}"#
+    )]
     async fn resolve_publisher_pdf(&self, doi: String) -> PdfResolutionReport;
 
     /// The whole publisher rule table covering the astronomy and physics
@@ -177,7 +196,7 @@ pub trait ParsersService: Send + Sync + 'static {
     /// `rule_table_is_complete` pins the reported ids against `DEFAULT_RULES`
     /// itself, so growth is free and a lost row goes red.)
     #[impress_method]
-    #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(name = "publisher-catalogue", args = r#"{}"#)]
     async fn list_publisher_rules(&self) -> Vec<PublisherRuleReport>;
 
     /// Extract the PDF link from a publisher landing page's HTML, using that
@@ -185,6 +204,11 @@ pub trait ParsersService: Send + Sync + 'static {
     /// already have. `publisher_host` selects the strategy; `base_url` resolves
     /// relative links.
     #[impress_method]
+    #[impress_example(
+        name = "citation-meta-tag",
+        args = r##"{"html":"<meta name=\"citation_pdf_url\" content=\"https://example.org/paper.pdf\">","base_url":"https://example.org/article","publisher_host":"example.org"}"##,
+        expect = r#"{"parser_id":"generic","pdf_url":"https://example.org/paper.pdf"}"#
+    )]
     async fn extract_landing_page_pdf(
         &self,
         html: String,
@@ -331,14 +355,33 @@ impress_service_impl! {
     impl = DefaultParsersService,
     instance = || parsers_instance(),
     methods = [
-        parse_mbox(content: String, max_messages: i64) -> MboxParseReport,
-        decode_mime_header(value: String) -> String,
-        decode_quoted_printable(encoded: String, charset: String) -> String,
-        resolve_publisher_pdf(doi: String) -> PdfResolutionReport,
+        parse_mbox(
+            /// Complete RFC 4155 mbox text, including each `From ` separator.
+            content: String,
+            /// Maximum messages to return; zero or less returns all messages.
+            max_messages: i64
+        ) -> MboxParseReport,
+        decode_mime_header(
+            /// Mail header value containing optional RFC 2047 encoded words.
+            value: String
+        ) -> String,
+        decode_quoted_printable(
+            /// Quoted-printable encoded text, including `=XX` escapes.
+            encoded: String,
+            /// Declared content charset; an empty value defaults to UTF-8.
+            charset: String
+        ) -> String,
+        resolve_publisher_pdf(
+            /// Complete DOI whose registered prefix selects a publisher rule.
+            doi: String
+        ) -> PdfResolutionReport,
         list_publisher_rules() -> Vec<PublisherRuleReport>,
         extract_landing_page_pdf(
+            /// Already-fetched landing-page markup; this call does not fetch it.
             html: String,
+            /// Landing-page URL used to resolve relative PDF links.
             base_url: String,
+            /// Publisher host used to choose an HTML extraction strategy.
             publisher_host: String
         ) -> LandingPageReport,
     ],

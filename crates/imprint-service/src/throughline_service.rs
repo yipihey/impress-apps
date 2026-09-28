@@ -97,16 +97,30 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
     /// Create a throughline for a document (explicit opt-in, ADR-0016 D1).
     /// Fails if one already exists.
     #[impress_method(effects(reads = ["manuscript", "throughline"], writes = ["throughline"]))]
+    #[impress_example(
+        name = "g3-create-throughline",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000012","title":"G3 research story"}"#,
+        expect = r#"{"title":"G3 research story"}"#
+    )]
     async fn create_throughline(&self, doc_id: String, title: String)
         -> Option<ThroughlineInfoDto>;
 
     /// Fetch a document's throughline, or None if it has none.
     #[impress_method(safety = read_only, effects(reads = ["throughline"]))]
+    #[impress_example(
+        name = "g3-get-throughline",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000013"}"#,
+        expect = r#"{"title":"G3 research story"}"#
+    )]
     async fn get_throughline(&self, doc_id: String) -> Option<ThroughlineInfoDto>;
 
     /// Replace the narrative source. The ledger is untouched — edited
     /// paragraphs derive `throughline-ahead` until a sync is accepted.
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "g3-update-throughline",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000014","source":"= G3 story\n\nNew evidence strengthens the claim. <tl-overview>"}"#
+    )]
     async fn update_throughline_source(
         &self,
         doc_id: String,
@@ -116,18 +130,36 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
     /// Remove a document's throughline (deactivation). Returns whether one
     /// existed.
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "g3-delete-throughline",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000015"}"#,
+        expect = "true"
+    )]
     async fn delete_throughline(&self, doc_id: String) -> bool;
 
     /// Derived anchor states (empty when the document has no throughline).
     #[impress_method(safety = read_only, effects(reads = ["throughline", "manuscript-section", "manuscript"]))]
+    #[impress_example(
+        name = "g3-anchor-states",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000016"}"#
+    )]
     async fn get_anchor_states(&self, doc_id: String) -> Vec<AnchorStateDto>;
 
     /// Coverage report (ADR-0016 D7).
     #[impress_method(safety = read_only, effects(reads = ["throughline", "manuscript-section", "manuscript"]))]
+    #[impress_example(
+        name = "g3-coverage",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000017"}"#,
+        expect = r#"{"has_throughline":true}"#
+    )]
     async fn get_coverage(&self, doc_id: String) -> CoverageDto;
 
     /// Anchor a paragraph label to section keys, baselining ledger hashes.
     #[impress_method(effects(reads = ["throughline", "manuscript-section"], writes = ["throughline"]))]
+    #[impress_example(
+        name = "g3-set-anchor",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000018","label":"tl-overview","section_keys":["intro"]}"#
+    )]
     async fn set_anchor(
         &self,
         doc_id: String,
@@ -137,10 +169,18 @@ pub trait ImprintThroughlineService: Send + Sync + 'static {
 
     /// Remove an anchor from the ledger.
     #[impress_method]
+    #[impress_example(
+        name = "g3-remove-anchor",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-000000000019","label":"tl-overview"}"#
+    )]
     async fn remove_anchor(&self, doc_id: String, label: String) -> Option<ThroughlineInfoDto>;
 
     /// Mark or unmark a section as deliberate supporting detail.
     #[impress_method]
+    #[impress_example(
+        name = "g3-mark-supporting",
+        args = r#"{"doc_id":"62000000-0000-4000-8000-00000000001a","section_key":"intro","supporting":true}"#
+    )]
     async fn mark_supporting(
         &self,
         doc_id: String,
@@ -301,14 +341,55 @@ impress_service_impl! {
     impl = DefaultImprintThroughlineService,
     instance = || crate::backend::throughline_service_instance(),
     methods = [
-        create_throughline(doc_id: String, title: String) -> Option<ThroughlineInfoDto>,
-        get_throughline(doc_id: String) -> Option<ThroughlineInfoDto>,
-        update_throughline_source(doc_id: String, source: String) -> Option<ThroughlineInfoDto>,
-        delete_throughline(doc_id: String) -> bool,
-        get_anchor_states(doc_id: String) -> Vec<AnchorStateDto>,
-        get_coverage(doc_id: String) -> CoverageDto,
-        set_anchor(doc_id: String, label: String, section_keys: Vec<String>) -> Option<ThroughlineInfoDto>,
-        remove_anchor(doc_id: String, label: String) -> Option<ThroughlineInfoDto>,
-        mark_supporting(doc_id: String, section_key: String, supporting: bool) -> Option<ThroughlineInfoDto>,
+        create_throughline(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Human-readable title for the new throughline.
+            title: String,
+        ) -> Option<ThroughlineInfoDto>,
+        get_throughline(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+        ) -> Option<ThroughlineInfoDto>,
+        update_throughline_source(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// New Typst narrative source; existing anchor ledger remains unchanged.
+            source: String,
+        ) -> Option<ThroughlineInfoDto>,
+        delete_throughline(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+        ) -> bool,
+        get_anchor_states(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+        ) -> Vec<AnchorStateDto>,
+        get_coverage(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+        ) -> CoverageDto,
+        set_anchor(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable paragraph label in the throughline, such as `tl-overview`.
+            label: String,
+            /// Section keys to anchor to the labeled throughline paragraph.
+            section_keys: Vec<String>,
+        ) -> Option<ThroughlineInfoDto>,
+        remove_anchor(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable paragraph label in the throughline, such as `tl-overview`.
+            label: String,
+        ) -> Option<ThroughlineInfoDto>,
+        mark_supporting(
+            /// UUID of the owning manuscript document.
+            doc_id: String,
+            /// Stable key of a section in this manuscript.
+            section_key: String,
+            /// True marks the section as deliberate supporting detail; false clears it.
+            supporting: bool,
+        ) -> Option<ThroughlineInfoDto>,
     ],
 }

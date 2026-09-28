@@ -13,13 +13,13 @@ Compose an inline citation token (typst `@key` / latex `\cite{key}`).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `append_space` | boolean | yes | *(undocumented)* |
-| `cite_key` | string | yes | *(undocumented)* |
-| `format` | string | yes | *(undocumented)* |
+| `append_space` | boolean | yes | Whether to prepend one space before the citation token. |
+| `cite_key` | string | yes | BibTeX citation key to insert, without an @ or citation command. |
+| `format` | string | yes | Output markup: latex or tex selects LaTeX; other values select Typst. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"cite_key": "abel2026", "format": "typst", "append_space": false}
@@ -36,13 +36,13 @@ Compose a heading line at a 1-based level.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `format` | string | yes | *(undocumented)* |
-| `level` | integer | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `format` | string | yes | Output markup: latex or tex selects LaTeX; other values select Typst. |
+| `level` | integer | yes | Heading depth; Typst clamps to 1–6, LaTeX maps 1–4 then subparagraph. |
+| `title` | string | yes | Heading text to include in the generated markup. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"title": "Introduction", "level": 1, "format": "typst"}
@@ -59,12 +59,12 @@ Extract every cite-key usage with offsets + context.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | *(undocumented)* |
-| `syntax` | string | yes | *(undocumented)* |
+| `source` | string | yes | Manuscript source text whose citation positions should be returned. |
+| `syntax` | string | yes | Citation syntax: typst, latex or mixed; unknown values use mixed. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"source": "@abel2026", "syntax": "typst"}
@@ -81,12 +81,12 @@ Extract the unique sorted set of cite keys from a manuscript source.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | *(undocumented)* |
-| `syntax` | string | yes | *(undocumented)* |
+| `source` | string | yes | Manuscript source text to scan for citations. |
+| `syntax` | string | yes | Citation syntax: typst, latex or mixed; unknown values use mixed. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"source": "@abel2026", "syntax": "typst"}
@@ -103,11 +103,11 @@ Beautify a LaTeX source string.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | *(undocumented)* |
+| `source` | string | yes | Complete LaTeX source to format without changing its commands. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"source": "\\section{A}"}

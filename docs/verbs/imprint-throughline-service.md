@@ -13,10 +13,21 @@ Create a throughline for a document (explicit opt-in, ADR-0016 D1). Fails if one
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `title` | string | yes | Human-readable title for the new throughline. |
 
-_No examples yet._
+**Examples**
+
+- `g3-create-throughline` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000012","title":"G3 research story"}
+  ```
+  expects:
+
+  ```json
+  {"title":"G3 research story"}
+  ```
 
 ## `imprint-throughline-service_delete-throughline`
 
@@ -29,9 +40,20 @@ Remove a document's throughline (deactivation). Returns whether one existed.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-delete-throughline` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000015"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `imprint-throughline-service_get-anchor-states`
 
@@ -44,9 +66,15 @@ Derived anchor states (empty when the document has no throughline).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-anchor-states` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000016"}
+  ```
 
 ## `imprint-throughline-service_get-coverage`
 
@@ -59,9 +87,20 @@ Coverage report (ADR-0016 D7).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-coverage` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000017"}
+  ```
+  expects:
+
+  ```json
+  {"has_throughline":true}
+  ```
 
 ## `imprint-throughline-service_get-throughline`
 
@@ -74,9 +113,20 @@ Fetch a document's throughline, or None if it has none.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
 
-_No examples yet._
+**Examples**
+
+- `g3-get-throughline` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000013"}
+  ```
+  expects:
+
+  ```json
+  {"title":"G3 research story"}
+  ```
 
 ## `imprint-throughline-service_mark-supporting`
 
@@ -89,11 +139,17 @@ Mark or unmark a section as deliberate supporting detail.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `section_key` | string | yes | *(undocumented)* |
-| `supporting` | boolean | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `section_key` | string | yes | Stable key of a section in this manuscript. |
+| `supporting` | boolean | yes | True marks the section as deliberate supporting detail; false clears it. |
 
-_No examples yet._
+**Examples**
+
+- `g3-mark-supporting` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-00000000001a","section_key":"intro","supporting":true}
+  ```
 
 ## `imprint-throughline-service_remove-anchor`
 
@@ -106,10 +162,16 @@ Remove an anchor from the ledger.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `label` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `label` | string | yes | Stable paragraph label in the throughline, such as `tl-overview`. |
 
-_No examples yet._
+**Examples**
+
+- `g3-remove-anchor` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000019","label":"tl-overview"}
+  ```
 
 ## `imprint-throughline-service_set-anchor`
 
@@ -122,11 +184,17 @@ Anchor a paragraph label to section keys, baselining ledger hashes.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `label` | string | yes | *(undocumented)* |
-| `section_keys` | array | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `label` | string | yes | Stable paragraph label in the throughline, such as `tl-overview`. |
+| `section_keys` | array | yes | Section keys to anchor to the labeled throughline paragraph. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-anchor` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000018","label":"tl-overview","section_keys":["intro"]}
+  ```
 
 ## `imprint-throughline-service_update-throughline-source`
 
@@ -139,8 +207,14 @@ Replace the narrative source. The ledger is untouched — edited paragraphs deri
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `doc_id` | string | yes | *(undocumented)* |
-| `source` | string | yes | *(undocumented)* |
+| `doc_id` | string | yes | UUID of the owning manuscript document. |
+| `source` | string | yes | New Typst narrative source; existing anchor ledger remains unchanged. |
 
-_No examples yet._
+**Examples**
+
+- `g3-update-throughline` — Tier A:
+
+  ```json
+  {"doc_id":"62000000-0000-4000-8000-000000000014","source":"= G3 story\n\nNew evidence strengthens the claim. <tl-overview>"}
+  ```
 

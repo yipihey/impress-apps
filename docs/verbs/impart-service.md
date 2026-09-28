@@ -13,15 +13,26 @@ Append a message to a conversation. `role` is the speaker (`user`, `assistant`, 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `content` | string | yes | *(undocumented)* |
-| `conversation_id` | string | yes | *(undocumented)* |
-| `role` | — | no | *(undocumented)* |
+| `content` | string | yes | Message Markdown to append; kept private in call logs. |
+| `conversation_id` | string | yes | UUID of the conversation receiving the message. |
+| `role` | — | no | Speaker role or collaborator name; omit for `user`. |
 
-_No examples yet._
+**Examples**
+
+- `append_fixture_observation` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5b000000-0000-4000-8000-000000000011","content":"The fixture result needs a second check.","role":"user"}
+  ```
+  expects:
+
+  ```json
+  {"role":"user","content":"The fixture result needs a second check."}
+  ```
 
 ## `impart-service_branch-conversation`
 
-Branch a conversation from a point, to explore an alternative without losing the original thread.
+Branch a conversation to explore an alternative without losing the original thread. The current verb links the parent conversation, not a particular message or branch point.
 
 - **safety**: `external`
 - **reads**: —
@@ -30,10 +41,21 @@ Branch a conversation from a point, to explore an alternative without losing the
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the parent conversation to branch. |
+| `title` | string | yes | Title for the new alternative research thread. |
 
-_No examples yet._
+**Examples**
+
+- `branch_fixture_thread` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5b000000-0000-4000-8000-000000000011","title":"G3 counter-hypothesis"}
+  ```
+  expects:
+
+  ```json
+  {"title":"G3 counter-hypothesis"}
+  ```
 
 ## `impart-service_create-conversation`
 
@@ -46,14 +68,25 @@ Start a new research conversation.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `summary` | — | no | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `summary` | — | no | Optional opening summary of its research question. |
+| `title` | string | yes | Title for the new research conversation. |
 
-_No examples yet._
+**Examples**
+
+- `start_research_thread` — Tier B (explicit isolated run):
+
+  ```json
+  {"title":"G3 alternative hypothesis","summary":"Compare two interpretations of the fixture evidence."}
+  ```
+  expects:
+
+  ```json
+  {"title":"G3 alternative hypothesis","summary":"Compare two interpretations of the fixture evidence."}
+  ```
 
 ## `impart-service_get-conversation`
 
-One conversation with its messages.
+One conversation's metadata and message count. Read message details from the app's conversation view; this DTO does not embed messages.
 
 - **safety**: `external`
 - **reads**: —
@@ -62,9 +95,20 @@ One conversation with its messages.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the research conversation to read. |
 
-_No examples yet._
+**Examples**
+
+- `read_fixture_thread` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5b000000-0000-4000-8000-000000000011"}
+  ```
+  expects:
+
+  ```json
+  {"id":"5b000000-0000-4000-8000-000000000011","title":"G3 research fixture"}
+  ```
 
 ## `impart-service_get-logs`
 
@@ -77,10 +121,16 @@ Recent lines from impart's in-memory log store.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `level` | — | no | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
+| `level` | — | no | Comma-separated log levels; omit for every level. |
+| `limit` | integer | yes | Maximum recent log entries to return. |
 
-_No examples yet._
+**Examples**
+
+- `recent_research_logs` — Tier B (explicit isolated run):
+
+  ```json
+  {"limit":10,"level":"info,warning,error"}
+  ```
 
 ## `impart-service_list-conversations`
 
@@ -93,10 +143,16 @@ Research conversations, most recently updated first. START HERE: every other con
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `include_archived` | boolean | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
+| `include_archived` | boolean | yes | Include archived research conversations when true. |
+| `limit` | integer | yes | Maximum conversations to return, capped at 1,000. |
 
-_No examples yet._
+**Examples**
+
+- `recent_research_threads` — Tier B (explicit isolated run):
+
+  ```json
+  {"limit":20,"include_archived":false}
+  ```
 
 ## `impart-service_record-artifact`
 
@@ -109,16 +165,27 @@ Record an artifact a conversation produced — a figure, a dataset, a draft. Lin
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
-| `kind` | — | no | *(undocumented)* |
-| `reference` | — | no | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the conversation that produced or referenced the artifact. |
+| `kind` | — | no | Artifact type matching the `impress://` URI, such as `paper`. |
+| `reference` | — | no | `impress://` artifact URI to attach to the conversation. |
+| `title` | string | yes | Human-readable artifact title. |
 
-_No examples yet._
+**Examples**
+
+- `link_fixture_paper` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5b000000-0000-4000-8000-000000000011","title":"Fixture paper","kind":"paper","reference":"impress://imbib/papers/g3-fixture"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `impart-service_record-decision`
 
-Record a DECISION reached in a conversation, separately from the messages that led to it. Do this whenever the discussion settles something: a decision left inside a message is invisible to the tools that later assemble an outline or a methods section from the thread.
+Record a DECISION reached in a conversation in the running app's process-local provenance. This is separate from the durable messages and does not survive an app restart.
 
 - **safety**: `external`
 - **reads**: —
@@ -127,11 +194,22 @@ Record a DECISION reached in a conversation, separately from the messages that l
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
-| `decision` | string | yes | *(undocumented)* |
-| `rationale` | — | no | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the conversation in which the decision was reached. |
+| `decision` | string | yes | Decision statement retained as process-local provenance. |
+| `rationale` | — | no | Optional reasoning for this decision. |
 
-_No examples yet._
+**Examples**
+
+- `record_fixture_decision` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5b000000-0000-4000-8000-000000000011","decision":"Retain the control group.","rationale":"It distinguishes the competing interpretations."}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 
 ## `impart-service_status`
 
@@ -144,7 +222,18 @@ Whether impart is running, and its version and port.
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `isolated_app_status` — Tier B (explicit isolated run):
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"running":true}
+  ```
 
 ## `impart-service_update-conversation`
 
@@ -157,9 +246,20 @@ Edit a conversation's title or summary.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `conversation_id` | string | yes | *(undocumented)* |
-| `summary` | — | no | *(undocumented)* |
-| `title` | — | no | *(undocumented)* |
+| `conversation_id` | string | yes | UUID of the conversation to edit. |
+| `summary` | — | no | Replacement summary; omit to retain the current summary. |
+| `title` | — | no | Replacement title; omit to retain the current title. |
 
-_No examples yet._
+**Examples**
+
+- `summarize_fixture_thread` — Tier B (explicit isolated run):
+
+  ```json
+  {"conversation_id":"5b000000-0000-4000-8000-000000000011","summary":"The fixture evidence supports a revision."}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
 

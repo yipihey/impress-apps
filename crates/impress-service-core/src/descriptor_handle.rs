@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::descriptor::{Effects, Reach, Safety, VerbDescriptor};
+use crate::descriptor::{Effects, ExampleTier, Reach, Safety, VerbDescriptor};
 use crate::provider::{ProviderStatus, ProviderVerb};
 
 const PROVIDER_EFFECTS: Effects = Effects {
@@ -32,6 +32,7 @@ pub struct ExampleView<'a> {
     pub name: &'a str,
     pub args: &'a str,
     pub expect: Option<&'a str>,
+    pub tier: ExampleTier,
 }
 
 impl ExampleView<'_> {
@@ -155,6 +156,7 @@ impl VerbHandle {
                     name: example.name,
                     args: example.args,
                     expect: example.expect,
+                    tier: example.tier,
                 })
                 .collect(),
             Self::Provider(verb) => verb
@@ -164,6 +166,7 @@ impl VerbHandle {
                     name: &example.name,
                     args: &example.args,
                     expect: example.expect.as_deref(),
+                    tier: ExampleTier::B,
                 })
                 .collect(),
         }
