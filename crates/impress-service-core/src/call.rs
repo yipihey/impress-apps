@@ -17,7 +17,7 @@
 use serde_json::Value;
 
 use crate::pipeline::{self, Call, CallerIdentity, PipelineError};
-use crate::{runtime, McpToolDescriptor};
+use crate::{descriptor_handle::VerbHandle, registry_runtime, runtime};
 
 /// Error from [`call`] / [`call_async`].
 ///
@@ -54,8 +54,8 @@ impl CallError {
 
 /// Every MCP tool descriptor linked into this binary — the one process-wide
 /// `inventory` collection, not a subset of it.
-pub fn descriptors() -> impl Iterator<Item = &'static McpToolDescriptor> {
-    McpToolDescriptor::iter()
+pub fn descriptors() -> impl Iterator<Item = VerbHandle> {
+    registry_runtime::current().descriptors().into_iter()
 }
 
 /// Look up one descriptor by its exact MCP tool name
@@ -64,10 +64,8 @@ pub fn descriptors() -> impl Iterator<Item = &'static McpToolDescriptor> {
 /// still dispatches, but is never advertised: `tools/list` and the CLI's own
 /// listing read [`crate::descriptor::VerbDescriptor::aliases`] and print the
 /// canonical name only.
-pub fn find(name: &str) -> Option<&'static McpToolDescriptor> {
-    McpToolDescriptor::iter()
-        .find(|d| d.name == name)
-        .or_else(|| McpToolDescriptor::iter().find(|d| d.verb.has_alias(name)))
+pub fn find(name: &str) -> Option<VerbHandle> {
+    registry_runtime::current().find(name)
 }
 
 /// The identity [`call`] and [`call_async`] run as when nothing says
@@ -90,21 +88,16 @@ pub fn call(name: &str, args: Value) -> Result<Value, CallError> {
 /// [`call`] with the caller's identity stated.
 pub fn call_as(name: &str, caller: CallerIdentity, args: Value) -> Result<Value, CallError> {
     let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    let call = call_for(descriptor, name, caller, args);
-    runtime::block_on(pipeline::invoke(descriptor.verb, call))
-        .map_err(|e| CallError::from_pipeline(descriptor.name, e))
+    let call = call_for(&descriptor, name, caller, args);
+    runtime::block_on(pipeline::invoke_handle(descriptor.clone(), call))
+        .map_err(|e| CallError::from_pipeline(descriptor.name(), e))
 }
 
 /// A [`Call`] carrying `name` as its `requested_name` when `name` is not
 /// `descriptor.name` — i.e. `name` resolved through an alias.
-fn call_for(
-    descriptor: &'static McpToolDescriptor,
-    name: &str,
-    caller: CallerIdentity,
-    args: Value,
-) -> Call {
+fn call_for(descriptor: &VerbHandle, name: &str, caller: CallerIdentity, args: Value) -> Call {
     let call = Call::new(caller, args);
-    if descriptor.name == name {
+    if descriptor.name() == name {
         call
     } else {
         call.with_requested_name(name)
@@ -123,10 +116,10 @@ pub async fn call_async_as(
     args: Value,
 ) -> Result<Value, CallError> {
     let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    let call = call_for(descriptor, name, caller, args);
-    pipeline::invoke(descriptor.verb, call)
+    let call = call_for(&descriptor, name, caller, args);
+    pipeline::invoke_handle(descriptor.clone(), call)
         .await
-        .map_err(|e| CallError::from_pipeline(descriptor.name, e))
+        .map_err(|e| CallError::from_pipeline(descriptor.name(), e))
 }
 
 #[cfg(test)]
@@ -174,9 +167,10 @@ mod tests {
     fn find_resolves_an_alias_to_its_verb() {
         let direct = find("call-test-service_renamed").expect("direct name resolves");
         let via_alias = find("call-test-service_old-name").expect("alias resolves");
-        assert_eq!(direct.name, "call-test-service_renamed");
+        assert_eq!(direct.name(), "call-test-service_renamed");
         assert_eq!(
-            via_alias.name, "call-test-service_renamed",
+            via_alias.name(),
+            "call-test-service_renamed",
             "the alias resolves to the SAME (canonical) descriptor"
         );
     }

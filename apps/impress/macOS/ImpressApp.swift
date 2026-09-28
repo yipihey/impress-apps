@@ -41,6 +41,11 @@ struct ImpressApp: App {
             // `SharedStore.setVerbHost`'s own doc comment.
             if let store = RustStoreAdapter.shared.layoutSharedStore() {
                 ImpelToolsVerbHost.install(on: store)
+                do {
+                    try ImpressProviderHost.install(on: store)
+                } catch {
+                    logWarning("provider host unavailable: \(error)", category: "surface")
+                }
             }
         }
     }

@@ -1554,3 +1554,73 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   remain the final checks. The release-lane audit also found older debt outside
   this fix: implore's release workflow names a missing `apps/implore/build-rust.sh`,
   and imprint/implore release lanes do not build their full older sibling graph.
+
+- 2026-09-28 — **P8 runtime providers, integration checkpoint** (branch
+  `claude/pipeline-p8-providers`, based on reviewed P7 while #127 finishes hosted CI).
+  Added owned runtime descriptors behind the shared inventory; strict provider
+  registration, local private credentials and the approved `provider@1.0.0` row;
+  authenticated MCP HTTP registration/deregistration; host-only JSON Schema
+  validation and loopback transport; Person-only generated trust action; and
+  runtime readers for MCP, CLI, Python, impel/AI tools, surfaces and reference docs.
+  No kit dependency was added: the JSON Schema engine stays in non-kit
+  `impress-app-transport`, with native raw callbacks through ImpelToolsFFI.
+  Provider writes use guarded store clocks, cross-process trust is refreshed
+  before policy, and successful results must match the declared output schema.
+  Native health changes now invalidate catalogue/provider source caches, retaining
+  unavailable descriptors by name. Tables were regenerated from semantic-search
+  test dumps; the effects exception ceiling remains 300, with a durable Person
+  trust capability proving the successful path. The real isolated Python Tier B
+  lifecycle passed; local unit/integration tests are green so far. Full P8 gates,
+  regenerated native bindings/cohort, native proof, PR and merge are still pending
+  at this checkpoint. No running user app, launcher or real store was used.
+
+- 2026-09-28 — **P7 merged as #127 (`9d7ee7a4`).** The repaired hosted impart
+  job (`36460078624` / `109056163908`) passed both the macOS build and the iOS
+  simulator install smoke; all eight PR checks were green. A fresh fetch and
+  main-ancestry check passed before the authorized normal merge. Main was fast
+  forwarded, and P8 merged that main. The next full native workspace run belongs
+  to the P7/P8 merge batch. Tom's accepted `Cow<'static, str>` refinement remains
+  recorded in D-P9; no representation decision is outstanding.
+
+- 2026-09-28 — **P8 implementation and local verification complete; push/PR next.**
+  Parent review and the isolated native proof found and fixed three integration
+  failures: the native metadata host was missing the capabilities inventory;
+  independent Rust-image health/trust refreshes needed both revision numbers to
+  invalidate catalogue sources; and a structured provider refusal needed to fail
+  a surface source/action rather than become successful JSON data. The runtime
+  retains the resolved handle through the pipeline, preserves linked contracts,
+  and reports the refused provider verb by name. History, scenarios and lifecycle
+  reporting now include owned descriptors; dropped references are reported without
+  modifying user documents. Seventeen negative examples complete the default
+  linked example runner's existing gaps without changing verb arguments.
+
+  A cheaper worker's bounded security review also caught stale cross-host token
+  acceptance and unbounded response reads. HTTP provider identity now refreshes
+  the persisted row off the reactor and fails closed; health bodies are bounded
+  to 4 KiB and verb JSON to 2 MiB while streaming. Two-host rotation/read-failure
+  and chunked-body tests pass. Registration clocks, private immutable credentials,
+  pre-policy refresh and output-schema validation were reviewed. No kit dependency
+  was added, and only the previously approved provider schema was introduced.
+
+  The final isolated 18-crate run, including capabilities, passed **1,424 tests,
+  0 failures, 6 ignored** in 58 groups (`/tmp/impress-p8-verified-touched-tests-green.log`,
+  workspace `/tmp/impress-cargo-tests.QPc9O7/workspace`). Both clippy shards, fmt,
+  coverage/docs, strict kit deps/standalone (21 crates), Swift kit boundaries,
+  bindings, schema refs and hakari diff passed. Seven verb tables were regenerated
+  from semantic-search test dumps; default reference pages are current (45 services).
+  All twelve native framework scripts passed with every supported arm64 slice,
+  swiftformat off PATH and no fast mode (`/tmp/impress-p8-verified-native-<crate>.log`).
+  The real Python Tier B lifecycle passed again; the existing debug CLI/MCP linker
+  `__eh_frame` size warning also occurs in P7 and is not new.
+
+  The opt-in native proof passed on its own unsigned bundle, derived-data path,
+  ports, device ID and PID-owned store. It proves agent trust refusal, the generated
+  Person trust action, a separate CLI's persisted trust read, generated provider
+  form invocation, the same subscribed catalogue's offline update, and a named
+  source refusal after stopping its own Python child. Evidence:
+  `/private/tmp/impress-p8-proof-9y64dfo5/output/host-60903/proof.json`; native symbol
+  checks pass and `/api/logs` returned 200. The app and both children exited; no
+  user app, launcher or real store was used. This is SurfacePaneModel dispatch,
+  not a claimed physical click. Reproduce with the checked-in
+  `scripts/test-runtime-provider-native.py` and the example README.
+  P8 contains merged main `9d7ee7a4`; normal pre-push, PR and merge remain next.

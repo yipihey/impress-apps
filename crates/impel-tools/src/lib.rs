@@ -14,7 +14,14 @@
 //! The same inventory is what `crates/impress-mcp` serves over MCP, so agents
 //! inside and outside impel see one surface.
 
-use impress_service_core::McpToolDescriptor;
+use impress_service_core::{call, ProviderStatus, VerbHandle};
+
+mod providers;
+pub use providers::{
+    configure_provider_store, provider_call, provider_health, provider_inventory_revision,
+    provider_validate_endpoint, provider_validate_instance, provider_validate_schema,
+    ProviderPrimitiveReply,
+};
 
 uniffi::setup_scaffolding!();
 
@@ -135,12 +142,12 @@ fn backends() -> ToolBackends {
 #[uniffi::export]
 pub fn list_tools() -> Vec<ToolDescriptor> {
     impress_capabilities::force_link();
-    McpToolDescriptor::iter()
+    call::descriptors()
         .map(|d| ToolDescriptor {
-            name: d.name.to_string(),
-            description: d.description.to_string(),
-            input_schema_json: (d.input_schema)().to_string(),
-            namespace: namespace_of(d.name).unwrap_or_default().to_string(),
+            name: d.name().to_string(),
+            description: d.description().to_string(),
+            input_schema_json: d.input_schema().to_string(),
+            namespace: namespace_of(d.name()).unwrap_or_default().to_string(),
         })
         .collect()
 }
@@ -155,7 +162,9 @@ pub fn list_available_tools() -> Vec<ToolDescriptor> {
     let backends = backends();
     list_tools()
         .into_iter()
-        .filter(|t| is_available(&t.name, &backends))
+        .filter(|t| {
+            call::find(&t.name).is_some_and(|handle| is_available_handle(&handle, &backends))
+        })
         .collect()
 }
 
@@ -172,6 +181,9 @@ fn namespace_of(name: &str) -> Option<&str> {
 /// verb host) asks rather than keeps a copy of this rule (review RS-S19).
 #[uniffi::export]
 pub fn tool_app(name: String) -> Option<String> {
+    if call::find(&name).is_some_and(|handle| matches!(handle, VerbHandle::Provider(_))) {
+        return None;
+    }
     app_of(&name).map(str::to_string)
 }
 
@@ -196,6 +208,12 @@ fn is_available(name: &str, backends: &ToolBackends) -> bool {
     matches!(app_backend(name, backends), Some(Backend::Http) | None)
 }
 
+fn is_available_handle(handle: &VerbHandle, backends: &ToolBackends) -> bool {
+    (matches!(handle, VerbHandle::Provider(_)) || is_available(handle.name(), backends))
+        && handle.provider_status() != Some(ProviderStatus::Unavailable)
+        && (!matches!(handle, VerbHandle::Provider(_)) || handle.deprecation_notice().is_none())
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
@@ -209,11 +227,20 @@ fn is_available(name: &str, backends: &ToolBackends) -> bool {
 #[uniffi::export]
 pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
     impress_capabilities::force_link();
-    let descriptor = McpToolDescriptor::iter()
-        .find(|d| d.name == name)
-        .ok_or_else(|| ToolError::UnknownTool { name: name.clone() })?;
+    let descriptor =
+        call::find(&name).ok_or_else(|| ToolError::UnknownTool { name: name.clone() })?;
 
-    if let Some(app) = app_of(&name) {
+    if descriptor.provider_status() == Some(ProviderStatus::Unavailable)
+        || (matches!(&descriptor, VerbHandle::Provider(_))
+            && descriptor.deprecation_notice().is_some())
+    {
+        return Err(ToolError::AppUnavailable {
+            app: descriptor.provider_id().unwrap_or("provider").to_string(),
+            name,
+        });
+    }
+
+    if let Some(app) = descriptor.linked().and_then(|_| app_of(&name)) {
         if !CONFIGURED.load(std::sync::atomic::Ordering::Acquire) {
             return Err(ToolError::AppUnavailable {
                 app: app.to_string(),
@@ -236,17 +263,22 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
 
     // impel's tool loop is an agent (ADR-0034 D3); the surface runtime in
     // the app reaches this through `ImpressVerbHost` and is one too.
-    let outcome = impress_service_core::pipeline::invoke_blocking(
-        descriptor.verb,
-        impress_service_core::pipeline::Call::agent("impel", args),
-    );
+    let outcome =
+        impress_service_core::runtime::block_on(impress_service_core::pipeline::invoke_handle(
+            descriptor.clone(),
+            impress_service_core::pipeline::Call::agent("impel", args),
+        ));
     match outcome {
         Ok(value)
             if value.get("code").and_then(serde_json::Value::as_str)
                 == Some("host-unavailable") =>
         {
             Err(ToolError::AppUnavailable {
-                app: app_of(&name).unwrap_or("app").to_string(),
+                app: descriptor
+                    .provider_id()
+                    .or_else(|| app_of(&name))
+                    .unwrap_or("app")
+                    .to_string(),
                 name,
             })
         }
@@ -271,6 +303,33 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use impress_service_core::{ProviderVerb, Safety, SafetyClass};
+    use std::sync::Arc;
+
+    fn provider(status: ProviderStatus) -> VerbHandle {
+        VerbHandle::Provider(Arc::new(ProviderVerb {
+            name: "fixture-service_echo".into(),
+            service: "fixture-service".into(),
+            method: "echo".into(),
+            description: "Echo text".into(),
+            input_schema: serde_json::json!({"type":"object"}),
+            output_schema: serde_json::json!({"type":"object"}),
+            declared_safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effective_safety: Safety {
+                class: SafetyClass::External,
+                idempotent: false,
+            },
+            since: "0.1.0".into(),
+            examples: vec![],
+            provider_id: "fixture".into(),
+            status,
+            deprecated_since: None,
+            generation: 1,
+        }))
+    }
 
     #[test]
     fn inventory_is_linked_in() {
@@ -284,12 +343,31 @@ mod tests {
             "imbib-text-service_decode-latex",
             "imbib-library-service_create-collection",
             "imprint-manuscript-service_list-sections",
+            "capabilities-service_list-verbs",
+            "capabilities-service_verb-surface",
+            "capabilities-service_catalogue-surface",
         ] {
             assert!(
                 tools.iter().any(|t| t.name == expected),
                 "expected {expected} in inventory",
             );
         }
+    }
+
+    #[test]
+    fn provider_visibility_respects_registry_status_not_sibling_backend() {
+        let backends = ToolBackends {
+            imbib: Backend::Unavailable,
+            imprint: Backend::Unavailable,
+        };
+        assert!(is_available_handle(
+            &provider(ProviderStatus::Available),
+            &backends
+        ));
+        assert!(!is_available_handle(
+            &provider(ProviderStatus::Unavailable),
+            &backends
+        ));
     }
 
     /// The doc comment on `list_tools` claims the fastembed-backed semantic

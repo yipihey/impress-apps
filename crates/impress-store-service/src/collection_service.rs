@@ -250,8 +250,9 @@ pub trait CollectionService: Send + Sync + 'static {
     /// Rename a collection.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}"#
+        name = "missing-collection",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult;
 
@@ -262,8 +263,9 @@ pub trait CollectionService: Send + Sync + 'static {
     /// every caller rather than only the ones that remembered it.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}"#
+        name = "missing-collection",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn reparent(
         &self,
@@ -275,8 +277,9 @@ pub trait CollectionService: Send + Sync + 'static {
     /// Set a collection's position among its siblings. Lower sorts first.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}"#
+        name = "missing-collection",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult;
 
@@ -285,8 +288,9 @@ pub trait CollectionService: Send + Sync + 'static {
     /// collection that does not exist is an error, not a no-op.
     #[impress_method(safety = destructive)]
     #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}"#
+        name = "missing-collection",
+        args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn delete(&self, binding: String, id: String) -> CollectionMutationResult;
 
@@ -295,8 +299,9 @@ pub trait CollectionService: Send + Sync + 'static {
     /// items of every kind at once.
     #[impress_method(effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection", target(item_ids)], writes = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
     #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#
+        name = "missing-collection",
+        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn add_members(
         &self,
@@ -310,8 +315,9 @@ pub trait CollectionService: Send + Sync + 'static {
     /// unfiled. Returns how many were actually removed.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#
+        name = "missing-collection",
+        args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn remove_members(
         &self,

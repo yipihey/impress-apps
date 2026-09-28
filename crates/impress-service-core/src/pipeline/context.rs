@@ -83,7 +83,7 @@ pub struct CallContext {
     /// Who is calling, as the transport established it.
     pub caller: CallerIdentity,
     /// The verb being run.
-    pub verb: &'static str,
+    pub verb: std::borrow::Cow<'static, str>,
     /// The store this call runs against instead of the process-wide one.
     /// Type-erased because this crate is on the kit's pure tier and cannot
     /// name `SqliteItemStore`; [`store_override`] downcasts it.
@@ -168,7 +168,7 @@ mod tests {
             trace_id: "t".to_string(),
             parent_call: None,
             caller: CallerIdentity::Person,
-            verb: "x-service_y",
+            verb: "x-service_y".into(),
             store_override: None,
             mutation_ids: MutationIds::default(),
         })

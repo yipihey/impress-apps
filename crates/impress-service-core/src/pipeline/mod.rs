@@ -51,9 +51,11 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::descriptor::{SafetyClass, VerbDescriptor};
+use crate::descriptor_handle::VerbHandle;
 use crate::BoxError;
 pub use context::CallContext;
 pub use identity::CallerIdentity;
+use std::borrow::Cow;
 
 /// One call, as an entry path hands it to the pipeline.
 #[derive(Debug, Clone)]
@@ -179,6 +181,32 @@ fn cached_schema(verb: &'static VerbDescriptor, output: bool) -> &'static Value 
     built
 }
 
+/// Linked schemas keep their existing process cache; provider schemas borrow from
+/// the owned registration snapshot and are never interned into a static cache.
+fn handle_schema(verb: &VerbHandle, output: bool) -> Cow<'_, Value> {
+    if let Some(linked) = verb.linked() {
+        Cow::Borrowed(cached_schema(linked, output))
+    } else if output {
+        verb.output_schema()
+    } else {
+        verb.input_schema()
+    }
+}
+
+fn handle_name(verb: &VerbHandle) -> Cow<'static, str> {
+    match verb.linked() {
+        Some(linked) => Cow::Borrowed(linked.name),
+        None => Cow::Owned(verb.name().to_owned()),
+    }
+}
+
+fn handle_since(verb: &VerbHandle) -> Cow<'static, str> {
+    match verb.linked() {
+        Some(linked) => Cow::Borrowed(linked.since),
+        None => Cow::Owned(verb.since().to_owned()),
+    }
+}
+
 /// What the layers before the handler produced.
 struct Prepared {
     context: Arc<CallContext>,
@@ -193,9 +221,17 @@ struct Prepared {
 /// The layers before the handler: identity, strict args, reachability,
 /// policy, the span. `Ok(Err(value))` is a refusal envelope to answer
 /// without running the handler.
-fn prepare(
-    verb: &'static VerbDescriptor,
+fn prepare(verb: &VerbHandle, call: Call) -> Result<Result<Prepared, Value>, PipelineError> {
+    prepare_inner(verb, call, false)
+}
+
+// A provider refresh can fail before policy. Keep that refusal on the normal
+// span/audit path, while deliberately skipping checks that would short-circuit
+// before `finish` and obscure the original host-unavailable diagnosis.
+fn prepare_inner(
+    verb: &VerbHandle,
     call: Call,
+    preflight_refusal: bool,
 ) -> Result<Result<Prepared, Value>, PipelineError> {
     run_installers();
     let Call {
@@ -227,36 +263,45 @@ fn prepare(
     let trace_id = trace_id.unwrap_or_else(|| call_id.clone());
 
     // 2. strict args.
-    if verb.strict {
-        let schema = input_schema(verb);
-        if let Err(refusal) = crate::strict::check_args(verb.name, &args, schema) {
+    if !preflight_refusal && verb.strict() {
+        let schema = handle_schema(verb, false);
+        if let Err(refusal) = crate::strict::check_args(verb.name(), &args, &schema) {
             return Ok(Err(crate::strict::refusal_value(&refusal)));
         }
     }
 
     // 3. reachability.
-    if let Some(app) = reachability::unavailable_app(verb.name) {
-        // A native request is already executing inside its owning app. A
-        // client router co-linked in that process must not gate it on a
-        // second probe (or send it back over HTTP to itself).
-        // A scenario with an explicit store also runs locally, independent
-        // of the client's process-wide app availability configuration.
-        if store.is_none() && !matches!(&caller, CallerIdentity::App(owner) if owner == app) {
-            return Err(PipelineError::Unavailable {
-                app,
-                verb: verb.name,
-            });
+    if !preflight_refusal {
+        if let Some((linked, app)) = verb
+            .linked()
+            .and_then(|linked| reachability::unavailable_app(linked.name).map(|app| (linked, app)))
+        {
+            // A native request is already executing inside its owning app. A
+            // client router co-linked in that process must not gate it on a
+            // second probe (or send it back over HTTP to itself).
+            // A scenario with an explicit store also runs locally, independent
+            // of the client's process-wide app availability configuration.
+            if store.is_none() && !matches!(&caller, CallerIdentity::App(owner) if owner == app) {
+                return Err(PipelineError::Unavailable {
+                    app,
+                    verb: linked.name,
+                });
+            }
         }
-    }
 
-    // 4. policy.
-    match policy::decide(&caller, verb) {
-        policy::Decision::Run => {}
-        policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
-        policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
-        // D-R11: a destructive verb whose declared writes overlap another
-        // call's still in flight on the same kind.
-        policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
+        if let Err(refusal) = crate::registry_runtime::check_available(verb, &args) {
+            return Ok(Err(crate::strict::refusal_value(&refusal)));
+        }
+
+        // 4. policy.
+        match policy::decide(&caller, verb) {
+            policy::Decision::Run => {}
+            policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
+            policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
+            // D-R11: a destructive verb whose declared writes overlap another
+            // call's still in flight on the same kind.
+            policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
+        }
     }
 
     // 5. span.
@@ -264,7 +309,7 @@ fn prepare(
     let span = tracing::info_span!(
         target: "verb",
         "verb",
-        name = verb.name,
+        name = verb.name(),
         requested_name = requested_name.as_deref().unwrap_or(""),
         caller = %caller,
         call_id = %call_id,
@@ -277,7 +322,7 @@ fn prepare(
         duration_us = tracing::field::Empty,
         budget_ms = tracing::field::Empty,
     );
-    if let Some(budget_ms) = verb.budget_ms {
+    if let Some(budget_ms) = verb.budget_ms() {
         span.record("budget_ms", budget_ms);
     }
     let context = Arc::new(CallContext {
@@ -285,7 +330,7 @@ fn prepare(
         trace_id,
         parent_call,
         caller,
-        verb: verb.name,
+        verb: handle_name(verb),
         store_override: store,
         mutation_ids: context::MutationIds::default(),
     });
@@ -331,7 +376,7 @@ fn outcome(result: &Result<Value, BoxError>) -> (bool, Option<String>, usize, us
 /// itself (not just an old name for it) is deprecated. Applied to object
 /// results only — array, scalar and error results are unchanged.
 fn apply_deprecation_notice(
-    verb: &'static VerbDescriptor,
+    verb: &VerbHandle,
     requested_name: Option<&str>,
     result: Result<Value, BoxError>,
 ) -> Result<Value, BoxError> {
@@ -353,11 +398,24 @@ fn apply_deprecation_notice(
 }
 
 /// The layers after the handler: envelope and audit.
-fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Value, BoxError>) {
+fn finish(verb: &VerbHandle, prepared: Prepared, result: &Result<Value, BoxError>) {
+    finish_inner(verb, prepared, result, false);
+}
+
+fn finish_inner(
+    verb: &VerbHandle,
+    prepared: Prepared,
+    result: &Result<Value, BoxError>,
+    force_audit: bool,
+) {
     // D-R11: give back the write lease `prepare`'s policy step took for this
     // call (a no-op if it took none — read-only, no literal declared
     // writes, or refused before reaching here).
-    policy::release(verb);
+    // The forced provider preflight refusal never entered policy or acquired
+    // a write lease. Releasing here could steal an overlapping call's lease.
+    if !force_audit {
+        policy::release(verb);
+    }
     let Prepared {
         context,
         span,
@@ -378,7 +436,7 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
     // D-P2: a budget breach is a warning on the `perf` target, the same
     // bridged category `impress-store-ffi::tracing_bridge` forwards to the
     // Console (G7a) — never a refusal, the call already answered.
-    if let Some(budget_ms) = verb.budget_ms {
+    if let Some(budget_ms) = verb.budget_ms() {
         // The aggregator records integer microseconds from this same
         // duration. Compare at that resolution so its breach_count and the
         // Console warning agree at a sub-millisecond boundary.
@@ -386,27 +444,30 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
         if duration_us > budget_ms.saturating_mul(1_000) {
             tracing::warn!(
                 target: "perf",
-                verb = verb.name,
+                verb = verb.name(),
                 budget_ms,
                 duration_us,
                 "{} took {duration_us}us, over its {budget_ms}ms budget",
-                verb.name,
+                verb.name(),
             );
         }
     }
 
-    if verb.safety.class != SafetyClass::ReadOnly || audit::log_all() {
-        let (recorded_args, args_replayable) =
-            audit::recorded_args(&prepared.args, input_schema(verb), verb.replay_full);
+    if force_audit || verb.safety().class != SafetyClass::ReadOnly || audit::log_all() {
+        let (recorded_args, args_replayable) = audit::recorded_args(
+            &prepared.args,
+            &handle_schema(verb, false),
+            verb.replay_full(),
+        );
         let (result_ids, result_ids_truncated) = match result {
-            Ok(value) => audit::result_ids(value, cached_schema(verb, true)),
+            Ok(value) => audit::result_ids(value, &handle_schema(verb, true)),
             Err(_) => Default::default(),
         };
         let (inserted_ids, deleted_ids) = context.mutation_ids.snapshot();
         audit::record(audit::VerbCallRecord {
             call_id: context.call_id.clone(),
-            verb: verb.name,
-            since: verb.since,
+            verb: handle_name(verb),
+            since: handle_since(verb),
             caller: context.caller.clone(),
             trace_id: context.trace_id.clone(),
             parent_call: context.parent_call.clone(),
@@ -431,13 +492,34 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
 
 /// Run `verb` through the chain with its own handler as the handler step.
 pub async fn invoke(verb: &'static VerbDescriptor, call: Call) -> Result<Value, PipelineError> {
-    invoke_with(verb, call, |args| async move {
-        if let Some(router) = transport::current() {
-            if let Some(result) = router.route(verb, args.clone()).await {
-                return result;
-            }
+    invoke_handle(VerbHandle::Linked(verb), call).await
+}
+
+/// Run a linked or registered runtime verb through the same eight layers.
+pub async fn invoke_handle(verb: VerbHandle, call: Call) -> Result<Value, PipelineError> {
+    let verb = match crate::registry_runtime::current_for_call(verb.clone()).await {
+        Ok(verb) => verb,
+        Err(refusal) => {
+            let prepared = prepare_inner(&verb, call, true)?
+                .expect("provider preflight refusal bypasses early checks");
+            let result: Result<Value, BoxError> = Ok(crate::strict::refusal_value(&refusal));
+            finish_inner(&verb, prepared, &result, true);
+            return result.map_err(PipelineError::Handler);
         }
-        (verb.handler)(args).await
+    };
+    let work_verb = verb.clone();
+    invoke_handle_with(&verb, call, move |args| async move {
+        match work_verb {
+            VerbHandle::Linked(linked) => {
+                if let Some(router) = transport::current() {
+                    if let Some(result) = router.route(linked, args.clone()).await {
+                        return result;
+                    }
+                }
+                (linked.handler)(args).await
+            }
+            provider => crate::registry_runtime::invoke(&provider, args).await,
+        }
     })
     .await
 }
@@ -459,6 +541,19 @@ pub async fn invoke_on<S: std::any::Any + Send + Sync>(
 /// verb on the FFI's own service instance).
 pub async fn invoke_with<F, Fut>(
     verb: &'static VerbDescriptor,
+    call: Call,
+    work: F,
+) -> Result<Value, PipelineError>
+where
+    F: FnOnce(Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, BoxError>>,
+{
+    let handle = VerbHandle::Linked(verb);
+    invoke_handle_with(&handle, call, work).await
+}
+
+async fn invoke_handle_with<F, Fut>(
+    verb: &VerbHandle,
     call: Call,
     work: F,
 ) -> Result<Value, PipelineError>
@@ -509,6 +604,8 @@ pub fn invoke_sync_with<F>(
 where
     F: FnOnce(Value) -> Result<Value, BoxError>,
 {
+    let handle = VerbHandle::Linked(verb);
+    let verb = &handle;
     let prepared = match prepare(verb, call)? {
         Ok(prepared) => prepared,
         Err(refused) => return Ok(refused),
@@ -531,7 +628,7 @@ pub fn invoke_blocking(verb: &'static VerbDescriptor, call: Call) -> Result<Valu
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::descriptor::{Safety, Source};
     use crate::ServiceFuture;
@@ -596,7 +693,7 @@ mod tests {
         ..ECHO
     };
 
-    struct Captured(Mutex<Vec<audit::VerbCallRecord>>);
+    pub(crate) struct Captured(pub(crate) Mutex<Vec<audit::VerbCallRecord>>);
     impl audit::Sink for Captured {
         fn record(&self, record: audit::VerbCallRecord) {
             self.0.lock().unwrap().push(record);
@@ -605,7 +702,7 @@ mod tests {
 
     /// The sink is process-global and the tests run in parallel, so they
     /// share one.
-    fn captured() -> Arc<Captured> {
+    pub(crate) fn captured() -> Arc<Captured> {
         static SINK: std::sync::OnceLock<Arc<Captured>> = std::sync::OnceLock::new();
         SINK.get_or_init(|| {
             let sink = Arc::new(Captured(Mutex::new(Vec::new())));

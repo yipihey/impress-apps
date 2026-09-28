@@ -30,7 +30,8 @@ use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
 use serde_json::Value;
 
 use super::identity::CallerIdentity;
-use crate::descriptor::{Kind, SafetyClass, VerbDescriptor};
+use crate::descriptor::{Effects, Kind, Safety, SafetyClass, VerbDescriptor};
+use crate::descriptor_handle::VerbHandle;
 use crate::refusal::Refusal;
 
 /// The generic refusal code for a call the policy queued.
@@ -146,8 +147,8 @@ static IN_FLIGHT: LazyLock<InFlight> = LazyLock::new(InFlight::new);
 /// same "dynamic declarations are this static walk's blind spot, not its
 /// problem to solve" reasoning `impress-surface-service::runtime`'s
 /// `verb_declared_read_refs` gives for reads (E3).
-fn literal_write_kinds(verb: &VerbDescriptor) -> Vec<&'static str> {
-    verb.effects
+fn literal_write_kinds(verb: &dyn VerbFacts) -> Vec<&'static str> {
+    verb.effects()
         .writes
         .iter()
         .filter_map(|k| match k {
@@ -166,8 +167,8 @@ fn literal_write_kinds(verb: &VerbDescriptor) -> Vec<&'static str> {
 /// (`tracing::warn!`) and still takes its lease and runs — the row's
 /// "refused / logged" split, by class. [`release`] undoes what this took,
 /// once the call finishes.
-fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
-    if !conflict_detection_enabled() || verb.safety.class == SafetyClass::ReadOnly {
+fn check_conflict(verb: &dyn VerbFacts) -> Option<Decision> {
+    if !conflict_detection_enabled() || verb.safety().class == SafetyClass::ReadOnly {
         return None;
     }
     let writes = literal_write_kinds(verb);
@@ -178,7 +179,7 @@ fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
     if overlap.is_empty() {
         return None;
     }
-    match verb.safety.class {
+    match verb.safety().class {
         SafetyClass::Destructive | SafetyClass::External => {
             // This call will not run: give back the lease `overlap_and_record`
             // just took for it.
@@ -188,7 +189,7 @@ fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
         _ => {
             tracing::warn!(
                 target: "verb",
-                verb = verb.name,
+                verb = verb.name(),
                 kinds = %overlap.join(", "),
                 "mutating call overlaps another in-flight call's declared writes (D-R11)"
             );
@@ -203,23 +204,61 @@ fn check_conflict(verb: &VerbDescriptor) -> Option<Decision> {
 /// reachability — no lease was taken, so this is a harmless no-op), or
 /// failed. Never called for a call `decide` answered `Conflict` for: that
 /// call never took a lease (see [`check_conflict`]).
-pub fn release(verb: &VerbDescriptor) {
+pub fn release(verb: &dyn VerbFacts) {
     let writes = literal_write_kinds(verb);
     if !writes.is_empty() {
         IN_FLIGHT.release(&writes);
     }
 }
 
+/// Facts the policy reads from either a linked descriptor or an owned provider snapshot.
+/// Keeping this view borrowed lets a runtime provider use the same policy and review queue.
+pub trait VerbFacts {
+    fn name(&self) -> &str;
+    fn safety(&self) -> Safety;
+    fn effects(&self) -> Effects;
+    fn is_provider(&self) -> bool {
+        false
+    }
+}
+
+impl VerbFacts for VerbDescriptor {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn safety(&self) -> Safety {
+        self.safety
+    }
+    fn effects(&self) -> Effects {
+        self.effects
+    }
+}
+
+impl VerbFacts for VerbHandle {
+    fn name(&self) -> &str {
+        self.name()
+    }
+    fn safety(&self) -> Safety {
+        self.safety()
+    }
+    fn effects(&self) -> Effects {
+        self.effects()
+    }
+    fn is_provider(&self) -> bool {
+        self.linked().is_none()
+    }
+}
+
 /// A policy is a pure function of the caller and the descriptor.
 pub trait Policy: Send + Sync {
-    fn decide(&self, caller: &CallerIdentity, verb: &VerbDescriptor) -> Decision;
+    fn decide(&self, caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision;
 }
 
 /// Runs everything: the default until a host configures otherwise.
 pub struct RunEverything;
 
 impl Policy for RunEverything {
-    fn decide(&self, _: &CallerIdentity, _: &VerbDescriptor) -> Decision {
+    fn decide(&self, _: &CallerIdentity, _: &dyn VerbFacts) -> Decision {
         Decision::Run
     }
 }
@@ -246,11 +285,11 @@ impl ReviewAgents {
 }
 
 impl Policy for ReviewAgents {
-    fn decide(&self, caller: &CallerIdentity, verb: &VerbDescriptor) -> Decision {
+    fn decide(&self, caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision {
         let reviewed = matches!(
             caller,
             CallerIdentity::Agent(_) | CallerIdentity::Provider(_)
-        ) && self.classes.contains(&verb.safety.class);
+        ) && self.classes.contains(&verb.safety().class);
         if reviewed {
             Decision::Review
         } else {
@@ -265,7 +304,7 @@ pub trait ReviewQueue: Send + Sync {
     fn enqueue(
         &self,
         caller: &CallerIdentity,
-        verb: &VerbDescriptor,
+        verb: &dyn VerbFacts,
         args: &Value,
     ) -> Result<String, Refusal>;
 }
@@ -302,10 +341,11 @@ fn from_env() -> Option<Arc<dyn Policy>> {
 /// Decide for one call: D-R11's conflict check first (every caller, not
 /// just agents — a resource conflict is not a review policy), then the
 /// installed policy, else the environment's, else run.
-pub fn decide(caller: &CallerIdentity, verb: &VerbDescriptor) -> Decision {
+pub fn decide(caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision {
     let installed = POLICY.read().ok().and_then(|p| p.clone());
     let decision = match installed.or_else(from_env) {
         Some(policy) => policy.decide(caller, verb),
+        None if verb.is_provider() => ReviewAgents::DESTRUCTIVE.decide(caller, verb),
         None => Decision::Run,
     };
     // D-R11's conflict check only matters for a call this policy would let
@@ -320,7 +360,7 @@ pub fn decide(caller: &CallerIdentity, verb: &VerbDescriptor) -> Decision {
 }
 
 /// Queue a reviewed call and build its answer.
-pub fn queue(caller: &CallerIdentity, verb: &VerbDescriptor, args: &Value) -> Value {
+pub fn queue(caller: &CallerIdentity, verb: &dyn VerbFacts, args: &Value) -> Value {
     let queue = QUEUE.read().ok().and_then(|q| q.clone());
     let mut answer = match queue {
         Some(queue) => match queue.enqueue(caller, verb, args) {
@@ -329,7 +369,7 @@ pub fn queue(caller: &CallerIdentity, verb: &VerbDescriptor, args: &Value) -> Va
                     REVIEW_PENDING,
                     format!(
                         "{} from {caller} is queued for review; confirm surface {surface_id}",
-                        verb.name
+                        verb.name()
                     ),
                 ));
                 v["surface_id"] = Value::String(surface_id);
@@ -342,28 +382,32 @@ pub fn queue(caller: &CallerIdentity, verb: &VerbDescriptor, args: &Value) -> Va
             format!(
                 "{} is {} and {caller} may not run it without review; no review queue \
                  is installed in this process, so the call was not run",
-                verb.name, verb.safety.class
+                verb.name(),
+                verb.safety().class
             ),
         )),
     };
     if let Some(object) = answer.as_object_mut() {
-        object.insert("verb".into(), Value::String(verb.name.to_string()));
+        object.insert("verb".into(), Value::String(verb.name().to_string()));
     }
     answer
 }
 
 /// The answer for a denied call.
-pub fn deny(verb: &VerbDescriptor, reason: String) -> Value {
-    crate::strict::refusal_value(&Refusal::new(FORBIDDEN, format!("{}: {reason}", verb.name)))
+pub fn deny(verb: &dyn VerbFacts, reason: String) -> Value {
+    crate::strict::refusal_value(&Refusal::new(
+        FORBIDDEN,
+        format!("{}: {reason}", verb.name()),
+    ))
 }
 
 /// The answer for a call refused over D-R11: a destructive verb whose
 /// declared writes overlap another call's in-flight writes on `kinds`.
-pub fn conflict(verb: &VerbDescriptor, kinds: String) -> Value {
+pub fn conflict(verb: &dyn VerbFacts, kinds: String) -> Value {
     crate::strict::refusal_value(&Refusal::conflict(format!(
         "{} is destructive and its declared writes ({kinds}) overlap another call still in \
          flight on the same kind (D-R11)",
-        verb.name
+        verb.name()
     )))
 }
 

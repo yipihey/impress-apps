@@ -248,8 +248,8 @@ mod tests {
     fn record_of(n: usize) -> VerbCallRecord {
         VerbCallRecord {
             call_id: format!("c{n}"),
-            verb: "t-service_x",
-            since: "0.1.0",
+            verb: "t-service_x".into(),
+            since: "0.1.0".into(),
             requested_name: None,
             caller: impress_service_core::pipeline::CallerIdentity::Person,
             trace_id: "t".into(),

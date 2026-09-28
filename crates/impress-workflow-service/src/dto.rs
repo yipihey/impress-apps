@@ -11,7 +11,7 @@
 use impress_service_core::pipeline::policy::REVIEW_PENDING;
 use impress_service_core::refusal::codes;
 use impress_service_core::wire::{wire_version, WIRE_VERSION};
-use impress_service_core::{Refusal, VerbDescriptor};
+use impress_service_core::Refusal;
 use impress_workflow::{Problem, WorkflowSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -196,13 +196,16 @@ pub struct WouldCallDto {
 
 impl WouldCallDto {
     pub fn new(verb: String, args: Value) -> Self {
-        let descriptor = VerbDescriptor::find(&verb);
+        let descriptor = impress_service_core::call::find(&verb);
         Self {
             verb,
             args,
-            safety: descriptor.map(|d| d.safety.class.as_str().to_string()),
+            safety: descriptor
+                .as_ref()
+                .map(|d| d.safety().class.as_str().to_string()),
             effects_writes: descriptor
-                .map(|d| d.effects.writes.iter().map(|k| k.describe()).collect())
+                .as_ref()
+                .map(|d| d.effects().writes.iter().map(|k| k.describe()).collect())
                 .unwrap_or_default(),
         }
     }

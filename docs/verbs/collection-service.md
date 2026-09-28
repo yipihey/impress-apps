@@ -19,10 +19,15 @@ File items into a collection. Idempotent per item; returns how many were applied
 
 **Examples**
 
-- `default`:
+- `missing-collection`:
 
   ```json
   {"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `collection-service_create`
@@ -67,10 +72,15 @@ Delete a collection. Members are NEVER deleted — only the membership goes away
 
 **Examples**
 
-- `default`:
+- `missing-collection`:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `collection-service_member-counts`
@@ -152,10 +162,15 @@ Remove items from a collection. The items themselves are untouched; items filed 
 
 **Examples**
 
-- `default`:
+- `missing-collection`:
 
   ```json
   {"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `collection-service_rename`
@@ -175,10 +190,15 @@ Rename a collection.
 
 **Examples**
 
-- `default`:
+- `missing-collection`:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `collection-service_reorder`
@@ -198,10 +218,15 @@ Set a collection's position among its siblings. Lower sorts first.
 
 **Examples**
 
-- `default`:
+- `missing-collection`:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `collection-service_reparent`
@@ -223,10 +248,15 @@ Refuses self-parenting and any move under one of the collection's own descendant
 
 **Examples**
 
-- `default`:
+- `missing-collection`:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `collection-service_rollback`

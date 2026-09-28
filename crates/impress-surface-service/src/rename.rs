@@ -43,9 +43,11 @@ use std::sync::Arc;
 
 use impress_core::item::ActorKind;
 use impress_core::sqlite_store::SqliteItemStore;
-use impress_service_core::lifecycle::{RenameTable, RenameVisitor};
+use impress_service_core::lifecycle::{
+    DeprecatedProviderNames, DeprecatedReference, RenameTable, RenameVisitor,
+};
 use impress_service_core::Refusal;
-use impress_surface::spec::SurfaceSpec;
+use impress_surface::spec::{walk_actions, Action, Source, SurfaceSpec};
 
 use crate::store::{Result, SurfaceStore};
 
@@ -53,10 +55,13 @@ use crate::store::{Result, SurfaceStore};
 pub const MARKER_KEY: &str = "lifecycle.rename.surface-service";
 
 /// What one run of [`RenamePass::run`] did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RenameReport {
     pub surfaces_visited: usize,
     pub surfaces_rewritten: usize,
+    /// Read-only findings, including when no rename table has shipped or its
+    /// version was applied earlier. No provider reference is rewritten.
+    pub deprecated_provider_references: Vec<DeprecatedReference>,
 }
 
 /// The surface-service rename pass — the
@@ -85,13 +90,31 @@ impl RenamePass {
     /// Run `table` against this store if it has not already been applied at
     /// this version or later. Call once, at store open or service start.
     pub fn run_if_needed(&self, table: &RenameTable) -> Result<RenameReport> {
+        let names =
+            DeprecatedProviderNames::from_handles(impress_service_core::call::descriptors());
+        self.run_if_needed_with(table, &names)
+    }
+
+    /// Same pass with an explicit inventory snapshot, useful for a host that
+    /// already hydrated its registry and for isolated tests.
+    pub fn run_if_needed_with(
+        &self,
+        table: &RenameTable,
+        names: &DeprecatedProviderNames,
+    ) -> Result<RenameReport> {
         if table.is_empty() {
-            return Ok(RenameReport::default());
+            return Ok(RenameReport {
+                deprecated_provider_references: self.report_deprecated_provider_refs_with(names)?,
+                ..RenameReport::default()
+            });
         }
         if self.applied_version()?.is_some_and(|v| v >= table.version) {
-            return Ok(RenameReport::default());
+            return Ok(RenameReport {
+                deprecated_provider_references: self.report_deprecated_provider_refs_with(names)?,
+                ..RenameReport::default()
+            });
         }
-        let report = self.run(table)?;
+        let report = self.run_with(table, names)?;
         self.record_version(table.version)?;
         Ok(report)
     }
@@ -100,6 +123,16 @@ impl RenamePass {
     /// tests call directly, and what [`Self::run_if_needed`] calls once it
     /// has decided the table is not already applied.
     pub fn run(&self, table: &RenameTable) -> Result<RenameReport> {
+        let names =
+            DeprecatedProviderNames::from_handles(impress_service_core::call::descriptors());
+        self.run_with(table, &names)
+    }
+
+    fn run_with(
+        &self,
+        table: &RenameTable,
+        names: &DeprecatedProviderNames,
+    ) -> Result<RenameReport> {
         let mut report = RenameReport::default();
         for row in self.store.list()? {
             report.surfaces_visited += 1;
@@ -125,7 +158,65 @@ impl RenamePass {
                 report.surfaces_rewritten
             );
         }
+        report.deprecated_provider_references = self.report_deprecated_provider_refs_with(names)?;
         Ok(report)
+    }
+
+    /// Recheck current stored references after runtime provider changes,
+    /// independently of the once-per-version rewrite marker. A dropped verb
+    /// may appear long after the shipped table was marked applied.
+    pub fn report_deprecated_provider_refs(&self) -> Result<Vec<DeprecatedReference>> {
+        let names =
+            DeprecatedProviderNames::from_handles(impress_service_core::call::descriptors());
+        self.report_deprecated_provider_refs_with(&names)
+    }
+
+    pub fn report_deprecated_provider_refs_with(
+        &self,
+        names: &DeprecatedProviderNames,
+    ) -> Result<Vec<DeprecatedReference>> {
+        if names.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut references = Vec::new();
+        for row in self.store.list()? {
+            let document_id = row.id.to_string();
+            for (source_name, source) in &row.spec.sources {
+                if let Source::Verb { verb, .. } = source {
+                    if names.contains(verb) {
+                        references.push(DeprecatedReference {
+                            document_kind: "surface",
+                            document_id: document_id.clone(),
+                            pointer: format!("/sources/{}/verb", escape_pointer(source_name)),
+                            verb: verb.clone(),
+                        });
+                    }
+                }
+            }
+            for (pointer, action) in walk_actions(&row.spec.root) {
+                if let Action::Call { verb, .. } = action {
+                    if names.contains(verb) {
+                        references.push(DeprecatedReference {
+                            document_kind: "surface",
+                            document_id: document_id.clone(),
+                            pointer: format!("{pointer}/call/verb"),
+                            verb: verb.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        for reference in &references {
+            tracing::warn!(
+                target: "surface",
+                "deprecated provider reference: {} {} {} -> {}",
+                reference.document_kind,
+                reference.document_id,
+                reference.pointer,
+                reference.verb,
+            );
+        }
+        Ok(references)
     }
 
     fn applied_version(&self) -> Result<Option<u32>> {
@@ -143,6 +234,10 @@ impl RenamePass {
             .set_store_metadata(MARKER_KEY, &version.to_string())
             .map_err(|e| Refusal::store(format!("write rename marker: {e}")))
     }
+}
+
+fn escape_pointer(segment: &str) -> String {
+    segment.replace('~', "~0").replace('/', "~1")
 }
 
 /// Recursively rewrite every `verb` and `view_kind` string key against
@@ -283,8 +378,17 @@ mod tests {
         let first = pass.run_if_needed(&TEST_TABLE).expect("first run");
         assert_eq!(first.surfaces_rewritten, 1);
 
-        let second = pass.run_if_needed(&TEST_TABLE).expect("second run");
-        assert_eq!(second, RenameReport::default());
+        let names = DeprecatedProviderNames::from_names(["triage-service_b".into()]);
+        let second = pass
+            .run_if_needed_with(&TEST_TABLE, &names)
+            .expect("second run");
+        assert_eq!(second.surfaces_visited, 0);
+        assert_eq!(second.surfaces_rewritten, 0);
+        assert_eq!(second.deprecated_provider_references.len(), 1);
+        assert_eq!(
+            second.deprecated_provider_references[0].pointer,
+            "/sources/s/verb"
+        );
     }
 
     #[test]
@@ -313,5 +417,71 @@ mod tests {
         let report = pass.run(&TEST_TABLE).expect("run");
         assert_eq!(report.surfaces_visited, 1);
         assert_eq!(report.surfaces_rewritten, 0);
+    }
+
+    #[test]
+    fn dropped_provider_references_are_reported_without_rewriting_empty_table() {
+        let store = scratch_store();
+        let surfaces = SurfaceStore::new(store.clone());
+        let spec: SurfaceSpec = serde_json::from_value(serde_json::json!({
+            "surface": "1.0",
+            "name": "dropped provider",
+            "sources": {
+                "data/name~": {
+                    "verb": "julia-service_dropped",
+                    "args": {"verb": "julia-service_dropped"}
+                }
+            },
+            "root": {
+                "button": {
+                    "label": "Run",
+                    "on_click": [{"call": {
+                        "verb": "julia-service_dropped",
+                        "args": {"verb": "julia-service_dropped"}
+                    }}]
+                }
+            }
+        }))
+        .expect("valid surface");
+        let row = surfaces
+            .create(&spec, None, &[], ActorKind::System)
+            .expect("create");
+        let before = surfaces.get(row.id).unwrap().unwrap();
+        let before_ops = store.operations_for(row.id, None).unwrap().len();
+        let names = DeprecatedProviderNames::from_names(["julia-service_dropped".into()]);
+        let empty = RenameTable {
+            version: 0,
+            verbs: &[],
+            view_kinds: &[],
+        };
+        let pass = RenamePass::new(store.clone());
+        let report = pass.run_if_needed_with(&empty, &names).expect("report");
+        assert_eq!(report.surfaces_visited, 0);
+        assert_eq!(report.surfaces_rewritten, 0);
+        assert_eq!(report.deprecated_provider_references.len(), 2);
+        assert_eq!(
+            report.deprecated_provider_references[0],
+            DeprecatedReference {
+                document_kind: "surface",
+                document_id: row.id.to_string(),
+                pointer: "/sources/data~1name~0/verb".into(),
+                verb: "julia-service_dropped".into(),
+            }
+        );
+        assert_eq!(
+            report.deprecated_provider_references[1].pointer,
+            "/root/button/on_click/0/call/verb"
+        );
+        assert_eq!(
+            pass.report_deprecated_provider_refs_with(&names).unwrap(),
+            report.deprecated_provider_references,
+        );
+        let after = surfaces.get(row.id).unwrap().unwrap();
+        assert_eq!(after.spec_text, before.spec_text);
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(
+            store.operations_for(row.id, None).unwrap().len(),
+            before_ops
+        );
     }
 }

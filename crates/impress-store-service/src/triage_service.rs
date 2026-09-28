@@ -49,8 +49,9 @@ pub trait TriageService: Send + Sync + 'static {
     /// Star or unstar an item.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "starred": true}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "starred": true}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn set_starred(&self, id: String, starred: bool) -> TriageResult;
 
@@ -58,8 +59,9 @@ pub trait TriageService: Send + Sync + 'static {
     /// clear the flag by passing null.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "color": "red"}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "color": "red"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn set_flag(&self, id: String, color: Option<String>) -> TriageResult;
 
@@ -67,16 +69,18 @@ pub trait TriageService: Send + Sync + 'static {
     /// ("reading/queue"). Idempotent.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn add_tag(&self, id: String, tag: String) -> TriageResult;
 
     /// Remove a tag from an item. A tag the item does not carry is a no-op.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn remove_tag(&self, id: String, tag: String) -> TriageResult;
 
@@ -95,8 +99,9 @@ pub trait TriageService: Send + Sync + 'static {
     /// `transition`.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "status": "archived"}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "status": "archived"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn set_status(&self, id: String, status: Option<String>) -> TriageResult;
 }

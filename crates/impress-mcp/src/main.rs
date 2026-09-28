@@ -4,6 +4,7 @@
 //! Model Context Protocol (JSON-RPC 2.0 over stdio).
 
 mod inventory_bridge;
+mod providers;
 mod raster;
 mod reachability;
 mod server;
@@ -43,6 +44,8 @@ fn print_help(store_path: &std::path::Path) {
     println!();
     println!("USAGE");
     println!("  impress-mcp [--store-path PATH]");
+    println!("  impress-mcp --http 127.0.0.1:PORT --token-file PATH [--store-path PATH]");
+    println!("  impress-mcp --provider-docs OUTPUT_DIR [--store-path PATH]");
     println!("  impress-mcp --help | --version");
     println!();
     println!("Speaks MCP over stdio; it is launched by a client, not run by hand.");
@@ -77,7 +80,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tracing::subscriber::set_global_default(subscriber);
     }
     impress_app_transport::install(true);
-    reachability::refresh();
 
     let args: Vec<String> = std::env::args().collect();
 
@@ -85,6 +87,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| std::env::var_os("IMBIB_STORE_PATH"))
         .map(PathBuf::from)
         .unwrap_or_else(default_main_store_path);
+
+    let mut provider_docs: Option<PathBuf> = None;
+    let mut http_bind: Option<String> = None;
+    let mut token_file: Option<PathBuf> = None;
 
     // Parse CLI overrides
     let mut i = 1;
@@ -95,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // connection check the guide describes: the probes above have
             // already run, so we can report what is reachable.
             "--help" | "-h" => {
+                reachability::refresh();
                 print_help(&store_path);
                 return Ok(());
             }
@@ -108,6 +115,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // a hand-written `ToolContext` this binary constructed itself,
             // and that service picks its own default embeddings path
             // (`SemanticState::default_embeddings_path`).
+            "--provider-docs" => {
+                i += 1;
+                provider_docs = Some(PathBuf::from(
+                    args.get(i).ok_or("Missing value for --provider-docs")?,
+                ));
+            }
+            "--http" => {
+                i += 1;
+                http_bind = Some(args.get(i).ok_or("Missing value for --http")?.clone());
+            }
+            "--token-file" => {
+                i += 1;
+                token_file = Some(PathBuf::from(
+                    args.get(i).ok_or("Missing value for --token-file")?,
+                ));
+            }
             "--store-path" => {
                 i += 1;
                 store_path = PathBuf::from(args.get(i).expect("Missing value for --store-path"));
@@ -139,5 +162,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // app launch (impel); a store that was large, locked, or mid-WAL-recovery
     // delayed `initialize` past the client's patience.
 
-    server::run_server()
+    if let Some(out_dir) = provider_docs {
+        if http_bind.is_some() || token_file.is_some() {
+            return Err("--provider-docs cannot be combined with --http or --token-file".into());
+        }
+        providers::restore()?;
+        let docs = impress_capabilities::verb_docs::render(impress_capabilities::descriptors());
+        let count = docs.write_to_dir(&out_dir)?;
+        eprintln!("wrote {count} reference pages to {}", out_dir.display());
+        return Ok(());
+    }
+    if let Some(bind) = http_bind {
+        let token_file = token_file.ok_or("--http requires --token-file")?;
+        return providers::run_http(&bind, &token_file);
+    }
+    if token_file.is_some() {
+        return Err("--token-file requires --http".into());
+    }
+    reachability::refresh();
+    providers::restore()?;
+    let health = impress_service_core::runtime::spawn(async {
+        loop {
+            // Read-only liveness probes do not mutate store rows.
+            impress_service_core::registry_runtime::refresh_health().await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
+    let result = server::run_server();
+    health.abort();
+    result
 }

@@ -23,10 +23,15 @@ An unknown id is `ok: false` with "not found", never an empty success.
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `store-query-service_list-items`
@@ -77,10 +82,15 @@ Everything connected to one item, in BOTH directions, across ALL edge types — 
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "limit": 10}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `store-query-service_search-all`

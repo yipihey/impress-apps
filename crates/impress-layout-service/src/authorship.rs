@@ -149,7 +149,7 @@ mod tests {
                 trace_id: "t".into(),
                 parent_call: None,
                 caller,
-                verb: "layout-service_split",
+                verb: "layout-service_split".into(),
                 store_override: None,
                 mutation_ids: Default::default(),
             })

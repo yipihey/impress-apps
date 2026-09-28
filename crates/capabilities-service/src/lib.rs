@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_service_core::descriptor::Kind;
-use impress_service_core::VerbDescriptor;
+use impress_service_core::{call, HandleSource, ProviderStatus, VerbHandle};
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +56,20 @@ pub struct VerbSummary {
     /// (`SafetyClass::as_str`).
     pub safety: String,
     pub since: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_safety: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_safety: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated_since: Option<String>,
 }
 
 /// `list-verbs`'s answer: every linked verb matching the query, grouped by
@@ -206,23 +220,22 @@ fn literal_ref(k: &Kind) -> Option<&'static str> {
 }
 
 fn verbs_touching_kind(kind: &str) -> Vec<VerbTouch> {
-    VerbDescriptor::iter()
+    call::descriptors()
         .filter_map(|v| {
-            let reads = v
-                .effects
+            let effects = v.effects();
+            let reads = effects
                 .reads
                 .iter()
                 .filter_map(literal_ref)
                 .any(|r| r == kind);
-            let writes = v
-                .effects
+            let writes = effects
                 .writes
                 .iter()
                 .filter_map(literal_ref)
                 .any(|r| r == kind);
             if reads || writes {
                 Some(VerbTouch {
-                    verb: v.name.to_string(),
+                    verb: v.name().to_string(),
                     reads,
                     writes,
                 })
@@ -233,7 +246,7 @@ fn verbs_touching_kind(kind: &str) -> Vec<VerbTouch> {
         .collect()
 }
 
-fn kinds_touched_by(verb: &VerbDescriptor) -> Vec<VerbTouch> {
+fn kinds_touched_by(verb: &VerbHandle) -> Vec<VerbTouch> {
     let mut out: Vec<VerbTouch> = Vec::new();
     let mut touch = |kind: &str, is_read: bool, is_write: bool| {
         if let Some(existing) = out.iter_mut().find(|t| t.verb == kind) {
@@ -247,13 +260,47 @@ fn kinds_touched_by(verb: &VerbDescriptor) -> Vec<VerbTouch> {
             });
         }
     };
-    for k in verb.effects.reads.iter().filter_map(literal_ref) {
+    let effects = verb.effects();
+    for k in effects.reads.iter().filter_map(literal_ref) {
         touch(k, true, false);
     }
-    for k in verb.effects.writes.iter().filter_map(literal_ref) {
+    for k in effects.writes.iter().filter_map(literal_ref) {
         touch(k, false, true);
     }
     out
+}
+
+fn summarize(verb: &VerbHandle) -> VerbSummary {
+    let provider = match verb {
+        VerbHandle::Provider(provider) => Some(provider),
+        VerbHandle::Linked(_) => None,
+    };
+    VerbSummary {
+        name: verb.name().to_string(),
+        service: verb.service().to_string(),
+        description: verb.description().to_string(),
+        safety: verb.safety().class.as_str().to_string(),
+        since: verb.since().to_string(),
+        source: match verb.source() {
+            HandleSource::Linked => None,
+            HandleSource::Provider(_) => Some("provider".to_string()),
+        },
+        provider_id: verb.provider_id().map(str::to_string),
+        available: provider
+            .map(|p| p.status == ProviderStatus::Available && p.deprecated_since.is_none()),
+        availability: provider.map(|p| {
+            if p.deprecated_since.is_some() {
+                "deprecated".to_string()
+            } else if p.status == ProviderStatus::Available {
+                "available".to_string()
+            } else {
+                "unavailable".to_string()
+            }
+        }),
+        declared_safety: provider.map(|p| p.declared_safety.class.as_str().to_string()),
+        effective_safety: provider.map(|p| p.effective_safety.class.as_str().to_string()),
+        deprecated_since: provider.and_then(|p| p.deprecated_since.clone()),
+    }
 }
 
 /// Stored surfaces naming any of `needles` (verb names, or a bare kind) as a
@@ -301,9 +348,9 @@ impl CapabilitiesService for DefaultCapabilitiesService {
         }
 
         if let Some(verb_name) = &verb {
-            match VerbDescriptor::find(verb_name) {
+            match call::find(verb_name) {
                 Some(descriptor) => {
-                    result.kinds_touched = kinds_touched_by(descriptor);
+                    result.kinds_touched = kinds_touched_by(&descriptor);
                     // Narrow `verbs` to the intersection when both a kind and
                     // a verb were given: does THIS verb actually touch that
                     // kind, by declaration?
@@ -313,7 +360,7 @@ impl CapabilitiesService for DefaultCapabilitiesService {
                     needles.push(verb_name.clone());
                 }
                 None => {
-                    result.message = format!("`{verb_name}` is not a linked verb");
+                    result.message = format!("`{verb_name}` is not a registered verb");
                     return result;
                 }
             }
@@ -321,7 +368,7 @@ impl CapabilitiesService for DefaultCapabilitiesService {
 
         if kind.is_some() && result.verbs.is_empty() && verb.is_none() {
             result.message = format!(
-                "no linked verb declares `{}` among its reads or writes",
+                "no verb declares `{}` among its reads or writes",
                 kind.as_deref().unwrap_or_default()
             );
         }
@@ -335,28 +382,26 @@ impl CapabilitiesService for DefaultCapabilitiesService {
         let needle = search.as_deref().map(str::to_lowercase);
         let mut groups: Vec<String> = Vec::new();
         let mut verbs: Vec<VerbSummary> = Vec::new();
-        for v in VerbDescriptor::iter() {
+        for v in call::descriptors() {
             if let Some(g) = &group {
-                if v.service != g.as_str() {
+                if v.service() != g.as_str() {
                     continue;
                 }
             }
-            if !groups.iter().any(|g| g == v.service) {
-                groups.push(v.service.to_string());
+            if !groups.iter().any(|g| g == v.service()) {
+                groups.push(v.service().to_string());
             }
             if let Some(needle) = &needle {
-                let hay = format!("{} {}", v.name.to_lowercase(), v.description.to_lowercase());
+                let hay = format!(
+                    "{} {}",
+                    v.name().to_lowercase(),
+                    v.description().to_lowercase()
+                );
                 if !hay.contains(needle.as_str()) {
                     continue;
                 }
             }
-            verbs.push(VerbSummary {
-                name: v.name.to_string(),
-                service: v.service.to_string(),
-                description: v.description.to_string(),
-                safety: v.safety.class.as_str().to_string(),
-                since: v.since.to_string(),
-            });
+            verbs.push(summarize(&v));
         }
         ListVerbsResult {
             total: verbs.len(),
@@ -366,16 +411,25 @@ impl CapabilitiesService for DefaultCapabilitiesService {
     }
 
     async fn verb_surface(&self, verb: String) -> VerbSurfaceResult {
-        match VerbDescriptor::find(&verb) {
-            Some(descriptor) => VerbSurfaceResult {
-                ok: true,
-                message: format!("generated form for `{verb}`"),
-                code: None,
-                spec: Some(impress_verb_surface::verb_surface(descriptor)),
-            },
+        match call::find(&verb) {
+            Some(descriptor) => {
+                let unavailable = matches!(&descriptor, VerbHandle::Provider(_))
+                    && (descriptor.provider_status() == Some(ProviderStatus::Unavailable)
+                        || descriptor.deprecation_notice().is_some());
+                VerbSurfaceResult {
+                    ok: true,
+                    message: if unavailable {
+                        format!("generated warning form for unavailable `{verb}`")
+                    } else {
+                        format!("generated form for `{verb}`")
+                    },
+                    code: None,
+                    spec: Some(impress_verb_surface::verb_surface_handle(&descriptor)),
+                }
+            }
             None => VerbSurfaceResult {
                 ok: false,
-                message: format!("`{verb}` is not a linked verb"),
+                message: format!("`{verb}` is not a registered verb"),
                 code: Some("not-found".to_string()),
                 spec: None,
             },
@@ -427,6 +481,8 @@ impress_service_impl! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use impress_service_core::{ProviderVerb, Safety, SafetyClass};
+    use serde_json::json;
 
     fn store() -> Arc<SqliteItemStore> {
         Arc::new(SqliteItemStore::open_in_memory().unwrap())
@@ -452,7 +508,10 @@ mod tests {
         let result = svc
             .impact(None, Some("no-such-service_no-such".to_string()))
             .await;
-        assert!(result.message.contains("not a linked verb"), "{result:?}");
+        assert!(
+            result.message.contains("not a registered verb"),
+            "{result:?}"
+        );
     }
 
     #[tokio::test]
@@ -476,5 +535,43 @@ mod tests {
             result.kinds_touched.is_empty(),
             "impact declares reads = [any(\"...\")], no literal kind: {result:?}"
         );
+    }
+
+    #[test]
+    fn provider_summary_exposes_source_safety_and_unavailable_state() {
+        let declared = Safety {
+            class: SafetyClass::ReadOnly,
+            idempotent: true,
+        };
+        let effective = Safety {
+            class: SafetyClass::External,
+            idempotent: false,
+        };
+        let handle = VerbHandle::Provider(Arc::new(ProviderVerb {
+            name: "fixture-service_echo".into(),
+            service: "fixture-service".into(),
+            method: "echo".into(),
+            description: "Echo text".into(),
+            input_schema: json!({"type":"object"}),
+            output_schema: json!({"type":"object"}),
+            declared_safety: declared,
+            effective_safety: effective,
+            since: "0.1.0".into(),
+            examples: vec![],
+            provider_id: "fixture".into(),
+            status: ProviderStatus::Unavailable,
+            deprecated_since: None,
+            generation: 1,
+        }));
+        let summary = summarize(&handle);
+        assert_eq!(summary.source.as_deref(), Some("provider"));
+        assert_eq!(summary.provider_id.as_deref(), Some("fixture"));
+        assert_eq!(summary.safety, "external");
+        assert_eq!(summary.declared_safety.as_deref(), Some("read_only"));
+        assert_eq!(summary.effective_safety.as_deref(), Some("external"));
+        assert_eq!(summary.available, Some(false));
+        assert_eq!(summary.availability.as_deref(), Some("unavailable"));
+        let wire = serde_json::to_value(summary).unwrap();
+        assert_eq!(wire["available"], false);
     }
 }

@@ -238,8 +238,9 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// above 500 are clamped.
     #[impress_method(effects(reads = [target(id), any("walks references across kinds")]))]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "limit": 10}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000", "limit": 10}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn related_items(&self, id: String, limit: i64) -> RelatedResult;
 
@@ -261,8 +262,9 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// An unknown id is `ok: false` with "not found", never an empty success.
     #[impress_method]
     #[impress_example(
-        name = "default",
-        args = r#"{"id": "00000000-0000-0000-0000-000000000000"}"#
+        name = "missing-item",
+        args = r#"{"id": "00000000-0000-0000-0000-000000000000"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn get_item(&self, id: String) -> ItemResult;
 
