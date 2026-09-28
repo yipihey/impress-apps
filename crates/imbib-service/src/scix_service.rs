@@ -53,14 +53,23 @@ impl From<&imbib_core::unified::shaped_queries::SciXLibraryRow> for SciXLibraryR
 pub trait ImbibScixService: Send + Sync + 'static {
     /// List the SciX (ADS) libraries mirrored in imbib.
     #[impress_method(effects(reads = ["imbib/scix-library"]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(name = "mirrored-library-list", args = r#"{}"#)]
     async fn list_scix_libraries(&self) -> Vec<SciXLibraryRecord>;
     /// Get one mirrored SciX library by its imbib id.
     #[impress_method(effects(reads = ["imbib/scix-library"]))]
+    #[impress_example(
+        name = "mirrored-library-detail",
+        args = r#"{"id":"63000000-0000-4000-8000-000000000004"}"#
+    )]
     async fn get_scix_library(&self, id: String) -> Option<SciXLibraryRecord>;
     /// Create imbib's local record of a SciX library, keyed by its remote id.
     /// This does not create the library on SciX.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "mirror-existing-remote-library",
+        args = r#"{"remote_id":"g3-remote-6300","name":"G3 SciX reading list","description":"Owned scratch mirror","is_public":false,"permission_level":"owner","owner_email":null}"#,
+        expect = r#"{"remote_id":"g3-remote-6300","name":"G3 SciX reading list"}"#
+    )]
     async fn create_scix_library(
         &self,
         remote_id: String,
@@ -73,6 +82,11 @@ pub trait ImbibScixService: Send + Sync + 'static {
     /// Add papers to a mirrored SciX library's local membership; pushing the
     /// change to SciX is the app's sync, not this verb.
     #[impress_method(safety = mutating, effects(reads = ["imbib/scix-library", "imbib/bibliography-entry"], writes = ["imbib/scix-library"]))]
+    #[impress_example(
+        name = "link-local-paper",
+        args = r#"{"publication_ids":["63000000-0000-4000-8000-000000000002"],"scix_library_id":"63000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn add_to_scix_library(
         &self,
         publication_ids: Vec<String>,
@@ -81,6 +95,11 @@ pub trait ImbibScixService: Send + Sync + 'static {
     /// Remove papers from a mirrored SciX library's local membership; the
     /// papers themselves are untouched.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "unlink-local-paper",
+        args = r#"{"publication_ids":["63000000-0000-4000-8000-000000000002"],"scix_library_id":"63000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn remove_from_scix_library(
         &self,
         publication_ids: Vec<String>,
@@ -88,6 +107,10 @@ pub trait ImbibScixService: Send + Sync + 'static {
     ) -> MutationResult;
     /// List the papers in a mirrored SciX library, sorted and paged.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/scix-library"]))]
+    #[impress_example(
+        name = "linked-paper-page",
+        args = r#"{"scix_library_id":"63000000-0000-4000-8000-000000000004","sort_field":"title","ascending":true,"limit":10,"offset":0}"#
+    )]
     async fn query_scix_library_publications(
         &self,
         scix_library_id: String,
@@ -98,6 +121,11 @@ pub trait ImbibScixService: Send + Sync + 'static {
     ) -> Vec<PublicationSummary>;
     /// Count the papers in a mirrored SciX library.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/scix-library"]))]
+    #[impress_example(
+        name = "linked-paper-count",
+        args = r#"{"scix_library_id":"63000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"1"#
+    )]
     async fn count_scix_library_publications(&self, scix_library_id: String) -> u32;
 }
 
@@ -245,11 +273,51 @@ impress_service_impl! {
     instance = || crate::backend::scix_service_instance(),
     methods = [
         list_scix_libraries() -> Vec<SciXLibraryRecord>,
-        get_scix_library(id: String) -> Option<SciXLibraryRecord>,
-        create_scix_library(remote_id: String, name: String, description: Option<String>, is_public: bool, permission_level: String, owner_email: Option<String>) -> Option<SciXLibraryRecord>,
-        add_to_scix_library(publication_ids: Vec<String>, scix_library_id: String) -> MutationResult,
-        remove_from_scix_library(publication_ids: Vec<String>, scix_library_id: String) -> MutationResult,
-        query_scix_library_publications(scix_library_id: String, sort_field: String, ascending: bool, limit: u32, offset: u32) -> Vec<PublicationSummary>,
-        count_scix_library_publications(scix_library_id: String) -> u32,
+        get_scix_library(
+            /// UUID of the local SciX mirror record.
+            id: String
+        ) -> Option<SciXLibraryRecord>,
+        create_scix_library(
+            /// Identifier of an existing remote SciX library; no remote request is made.
+            remote_id: String,
+            /// Name shown for the local mirror.
+            name: String,
+            /// Optional description shown with the mirror.
+            description: Option<String>,
+            /// Whether the remote library is publicly visible.
+            is_public: bool,
+            /// Permission reported by the remote library, such as `owner`.
+            permission_level: String,
+            /// Remote owner's email, if known.
+            owner_email: Option<String>
+        ) -> Option<SciXLibraryRecord>,
+        add_to_scix_library(
+            /// Local bibliography-entry UUIDs to link to the mirror.
+            publication_ids: Vec<String>,
+            /// UUID of the local SciX mirror record.
+            scix_library_id: String
+        ) -> MutationResult,
+        remove_from_scix_library(
+            /// Local bibliography-entry UUIDs whose mirror links should be removed.
+            publication_ids: Vec<String>,
+            /// UUID of the local SciX mirror record.
+            scix_library_id: String
+        ) -> MutationResult,
+        query_scix_library_publications(
+            /// UUID of the local SciX mirror record.
+            scix_library_id: String,
+            /// Paper sort field, such as `title`; blank uses date added.
+            sort_field: String,
+            /// Whether to sort from low/old to high/new.
+            ascending: bool,
+            /// Maximum page size; zero uses fifty.
+            limit: u32,
+            /// Number of sorted papers to skip.
+            offset: u32
+        ) -> Vec<PublicationSummary>,
+        count_scix_library_publications(
+            /// UUID of the local SciX mirror record to count.
+            scix_library_id: String
+        ) -> u32,
     ],
 }
