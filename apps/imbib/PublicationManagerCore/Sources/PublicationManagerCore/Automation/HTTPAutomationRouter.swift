@@ -5339,7 +5339,8 @@ extension HTTPAutomationRouter {
         case "download_pdfs":
             guard let ids = strings("publication_ids") else { return nativeFailure(400, "invalid-args", "Missing publication_ids") }
             if ids.isEmpty { return nativeSuccess(0) }
-            response = await handleDownloadPDFs(request("POST", ["identifiers": ids])); field = "downloaded"
+            response = await handleDownloadPDFs(request("POST", ["identifiers": ids]))
+            return Self.nativeDownloadPDFResult(response)
         case "open_manuscript_papers":
             guard let id = uuid("manuscript_id") else { return nativeFailure(400, "invalid-args", "Invalid manuscript_id") }
             response = await handleOpenManuscriptPapers(manuscriptID: id)
@@ -5396,7 +5397,7 @@ extension HTTPAutomationRouter {
             guard let identifier = string("identifier") else { return nativeFailure(400, "invalid-args", "Missing identifier") }
             response = await handleResolvePaper(request("POST", [
                 "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
-            return nativeMapped(response) { ($0["paper"] as? [String: Any])?["citeKey"] ?? NSNull() }
+            return Self.nativeResolveIdentifierResult(response)
         case "add_to_library":
             guard let ids = strings("publication_ids"), let library = string("library_id") else {
                 return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")
@@ -5409,6 +5410,37 @@ extension HTTPAutomationRouter {
         }
         guard let field else { return nativeFailure(500, "internal", "No native result field") }
         return nativeMapped(response) { $0[field] }
+    }
+
+    /// The legacy handler reports IDs, while the service verb promises a count.
+    /// Keeping this conversion here makes an omitted `downloaded` field a
+    /// refusal instead of a fabricated zero.
+    static func nativeDownloadPDFResult(_ response: HTTPResponse) -> NativeCallResult {
+        nativeMapped(response) { body in
+            (body["downloaded"] as? [String])?.count
+        }
+    }
+
+    /// A ranked candidate set needs caller selection. It is not a clean miss.
+    static func nativeResolveIdentifierResult(_ response: HTTPResponse) -> NativeCallResult {
+        if (200..<300).contains(response.status),
+           let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
+           body["status"] as? String == "ok" {
+            if (body["paper"] as? [String: Any])?["citeKey"] is String {
+                return nativeMapped(response) { ($0["paper"] as? [String: Any])?["citeKey"] }
+            }
+            if let candidates = body["candidates"] as? [Any], !candidates.isEmpty {
+                return nativeFailure(409, "ambiguous-identifier", "Multiple papers matched; choose one candidate")
+            }
+            if let duplicates = body["duplicates"] as? [Any], !duplicates.isEmpty {
+                return nativeFailure(409, "duplicate-identifier", "A matching paper already exists; resolve its cite key")
+            }
+            if body["via"] as? String == "not-found" {
+                return nativeSuccess(NSNull())
+            }
+            return nativeFailure(500, "internal", "Identifier resolver omitted its result")
+        }
+        return nativeMapped(response) { ($0["paper"] as? [String: Any])?["citeKey"] }
     }
 
     @MainActor private func setNativeArtifactTags(id: UUID, tags: [String]) -> NativeCallResult {

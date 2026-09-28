@@ -79,4 +79,43 @@ struct ImbibNativeVerbsTests {
             body: #"{"publication_ids":[]}"#))
         #expect(scixMutation.status == 404)
     }
+
+    @Test func resolverCandidatesRefuseInsteadOfBecomingCleanMiss() throws {
+        let ambiguous = HTTPAutomationRouter.nativeResolveIdentifierResult(.json([
+            "status": "ok", "via": "external-candidates",
+            "candidates": [["title": "Candidate", "identifier": "doi:10.1/example"]]
+        ]))
+        #expect(ambiguous.status == 409)
+        let refusal = try #require(JSONSerialization.jsonObject(with: Data(ambiguous.bodyJson.utf8)) as? [String: Any])
+        #expect(refusal["code"] as? String == "ambiguous-identifier")
+
+        let duplicate = HTTPAutomationRouter.nativeResolveIdentifierResult(.json([
+            "status": "ok", "via": "duplicate", "duplicates": ["Existing2026"]
+        ]))
+        #expect(duplicate.status == 409)
+
+        let miss = HTTPAutomationRouter.nativeResolveIdentifierResult(.json([
+            "status": "ok", "via": "not-found", "reason": "no match"
+        ]))
+        #expect(miss.status == 200)
+        #expect(miss.bodyJson == "null")
+
+        let found = HTTPAutomationRouter.nativeResolveIdentifierResult(.json([
+            "status": "ok", "via": "local-identifier", "paper": ["citeKey": "Found2026"]
+        ]))
+        #expect(found.status == 200)
+        #expect(found.bodyJson == #""Found2026""#)
+    }
+
+    @Test func downloadedIDsBecomeCountAndMissingCountRefuses() {
+        let downloaded = HTTPAutomationRouter.nativeDownloadPDFResult(.json([
+            "status": "ok", "downloaded": ["paper-a", "paper-b"],
+            "alreadyHad": ["paper-c"], "failed": [] as [String]
+        ]))
+        #expect(downloaded.status == 200)
+        #expect(downloaded.bodyJson == "2")
+
+        let missing = HTTPAutomationRouter.nativeDownloadPDFResult(.json(["status": "ok"]))
+        #expect(missing.status == 500)
+    }
 }
