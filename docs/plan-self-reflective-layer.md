@@ -2878,3 +2878,13 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   clippy shards passed. Logs: `/tmp/impress-retention-cutoff-tests2.log` and
   `/tmp/impress-retention-cutoff-repeat.log`. The first test build exhausted
   disk space before running; obsolete session caches were cleared before retry.
+
+- 2026-09-28 — **S3 nested host-context follow-up (implementation pending
+  verification)**: the surface FFI now carries the current pipeline caller,
+  trace and parent call in a separate, strictly parsed context value across
+  `SharedVerbHost` into `impel-tools`; domain arguments cannot set those fields.
+  Existing app transport continues the trace and parent forwarding from the
+  nested pipeline call. Added focused context round-trip, malformed-context,
+  argument-separation and Rust callback tests. The additive UniFFI export and
+  callback signature require binding regeneration; native builds/proof and
+  workspace verification remain for integration.

@@ -11,8 +11,9 @@
 //  (`ImpelToolsFFI`, CounselEngine's product) — this file is the one
 //  registration that hands the running `SharedStore` a way to reach it. No
 //  logic of its own: `hasVerb`/`callVerb` are a straight pass-through to
-//  `impel-tools`' own `list_tools`/`call_tool`, which already refuses a verb
-//  whose owning app is not running rather than falling through to the store.
+//  `impel-tools`' own `list_tools`/`call_tool`, with a separate trusted
+//  pipeline context for nested calls, which refuses a verb whose owning app
+//  is not running rather than falling through to the store.
 //
 
 import Foundation
@@ -46,10 +47,18 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
         listTools().contains { $0.name == name }
     }
 
-    func callVerb(name: String, argsJson: String) throws -> String {
+    func callVerb(name: String, argsJson: String, contextJson: String) throws -> String {
         logInfo("verb host call: \(name)", category: "surface")
         do {
-            let result = try callTool(name: name, argsJson: argsJson)
+            let result: String
+            if contextJson.isEmpty {
+                result = try callTool(name: name, argsJson: argsJson)
+            } else {
+                result = try callToolWithContext(
+                    name: name,
+                    argsJson: argsJson,
+                    contextJson: contextJson)
+            }
             // Which app owns a verb is impel-tools' rule, asked, not copied
             // (review RS-S19).
             noteReachable(app: toolApp(name: name))
