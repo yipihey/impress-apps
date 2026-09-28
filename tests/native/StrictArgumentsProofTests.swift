@@ -59,11 +59,17 @@ final class StrictArgumentsProofTests: XCTestCase {
         let valid: [String: Any] = ["freq": 1.5, "n": 4]
         let invalid: [String: Any] = ["freq": 1.5, "n": 4, "g5_extra": true]
         let positive = try await request(base + "/api/verb/" + verb, body: valid, bearer: bearer)
-        XCTAssertEqual(positive.status, 200)
+        XCTAssertEqual(positive.status, 200, "\(positive.body)")
         XCTAssertEqual((positive.body["x"] as? [Any])?.count, 4)
         XCTAssertEqual(positive.body["x"] as? [Double], [0.0, 0.25, 0.5, 0.75])
         XCTAssertEqual((positive.body["values"] as? [Any])?.count, 4)
         XCTAssertNil(positive.body["error"])
+        // Both demo descriptors must survive the native archive link. A
+        // folded zero-sized constructor used to drop their registrations.
+        let histogram = try await request(base + "/api/verb/surface-demo-service_histogram",
+                                          body: ["values": [0.0, 1.0, 2.0, 3.0], "bins": 2], bearer: bearer)
+        XCTAssertEqual(histogram.status, 200, "\(histogram.body)")
+        XCTAssertEqual(histogram.body["counts"] as? [Int], [2, 2])
         let refused = try await request(base + "/api/verb/" + verb, body: invalid, bearer: bearer)
         XCTAssertEqual(refused.status, 400)
         XCTAssertEqual(refused.body["ok"] as? Bool, false)

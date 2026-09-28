@@ -148,17 +148,16 @@ pub async fn prepare(
     #[cfg(feature = "imbib")]
     g3_imbib_maintenance::prepare(verb.name, example.name, store, root()).await?;
     #[cfg(feature = "semantic-search")]
-    if verb.name.starts_with("imbib-semantic-service_") {
-        if example.name == "unavailable-owned-index" {
-            let disabled = root().join("unavailable-semantic-index");
-            std::fs::create_dir_all(&disabled).map_err(|e| e.to_string())?;
-            std::env::set_var("IMPRESS_EMBEDDINGS_PATH", &disabled);
-            if imbib_semantic_service::SemanticState::default_embeddings_path() != disabled
-                || imbib_semantic_service::SemanticState::default_main_store_path()
-                    != root().join("impress.sqlite")
-            {
-                return Err("semantic defaults ignored owned path overrides".into());
-            }
+    if verb.name.starts_with("imbib-semantic-service_") && example.name == "unavailable-owned-index"
+    {
+        let disabled = root().join("unavailable-semantic-index");
+        std::fs::create_dir_all(&disabled).map_err(|e| e.to_string())?;
+        std::env::set_var("IMPRESS_EMBEDDINGS_PATH", &disabled);
+        if imbib_semantic_service::SemanticState::default_embeddings_path() != disabled
+            || imbib_semantic_service::SemanticState::default_main_store_path()
+                != root().join("impress.sqlite")
+        {
+            return Err("semantic defaults ignored owned path overrides".into());
         }
     }
     let args = example.args_value();

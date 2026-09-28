@@ -1953,3 +1953,14 @@ agent-surfaces.md, ex = an example surface, test); Desc = `fallback` when the de
   `/tmp/impress-g3-framework-*.log`. Examples requiring devices, credentials or
   particular native fixture state remain explicit Tier B runs; the reference
   index now explains their prerequisites and does not imply headless coverage.
+
+- 2026-09-28 — **G3 native linker regression verified.** The first imprint
+  proof found the zero-sized demo constructor had been folded away, dropping
+  both demo registrations from the native image. Direct descriptor anchors
+  retain both handlers; the shared hosted test now checks series and histogram.
+  After rebuilding all twelve full arm64 framework bundles, the isolated
+  imprint proof passed: two XCTest cases, one stored scenario, three surface
+  cases and fourteen layout cases, no failures or skips. Evidence is in
+  `/tmp/impress-g5-proof-2vo19xr6`; host PID 4269 exited. The earlier normal push
+  stopped when it overlapped a framework rebuild and could not find the scix
+  bundle. Retry only after the complete cohort is stable; no hook was bypassed.
