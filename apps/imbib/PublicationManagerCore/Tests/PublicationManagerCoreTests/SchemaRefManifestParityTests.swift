@@ -41,6 +41,7 @@ final class SchemaRefManifestParityTests: XCTestCase {
             XCTAssertEqual(rows.first?.schemaRef, spelling)
             XCTAssertEqual(try store.countBySchema(schemaRef: spelling), 1)
         }
+        // schema-ref-lint:allow — unknown wire name deliberately matches no rows.
         XCTAssertEqual(try store.countBySchema(schemaRef: "fixture/absent"), 0)
     }
 
