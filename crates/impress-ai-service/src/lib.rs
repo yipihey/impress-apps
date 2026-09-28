@@ -165,26 +165,41 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// when omitted): the static catalogue merged with live discovery,
     /// including load state, context limit, modalities and the helper flag.
     #[impress_method(safety = external, effects(reach = [provider]))]
+    #[impress_example(
+        name = "catalogue-after-provider-discovery",
+        tier = "b",
+        args = r#"{"provider":"ollama"}"#
+    )]
     async fn list_models(&self, provider: Option<String>) -> ModelsResult;
 
     /// Every catalogued AI provider with this device's endpoint, readiness
     /// and credential status (which fields are set — never their values).
     #[impress_method(safety = external, effects(reach = [provider, fs]))]
+    #[impress_example(name = "device-provider-readiness", tier = "b", args = r#"{}"#)]
     async fn list_providers(&self) -> ProvidersResult;
 
     /// The device-local AI preferences: selected provider/model, endpoint
     /// overrides, oMLX auto-start and per-task-category assignments.
     #[impress_method]
+    #[impress_example(name = "scratch-device-preferences", args = r#"{}"#)]
     async fn ai_preferences(&self) -> AiPreferencesResult;
 
     /// Pin the device's provider and (optionally) model. Every app and daemon
     /// on the device follows it. Helper pseudo-models are rejected.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "select-local-model",
+        args = r#"{"provider":"ollama","model":"llama3.2"}"#
+    )]
     async fn select_model(&self, provider: String, model: Option<String>) -> AiPreferencesResult;
 
     /// Override (or, with `None`, reset) a provider's endpoint — e.g. an
     /// oMLX host reached over Tailscale. Secrets never go here.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "set-scratch-endpoint",
+        args = r#"{"provider":"ollama","endpoint":"http://127.0.0.1:11435"}"#
+    )]
     async fn set_provider_endpoint(
         &self,
         provider: String,
@@ -195,20 +210,38 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// never launches a host. For oMLX it reports version, loaded/total
     /// models and memory.
     #[impress_method(safety = external, effects(reach = [provider]))]
+    #[impress_example(
+        name = "local-provider-probe",
+        tier = "b",
+        args = r#"{"provider":"ollama"}"#
+    )]
     async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult;
 
     /// List durable AI conversations from the shared Impress item graph.
     #[impress_method(effects(reads = ["conversation@1.0.0"]))]
+    #[impress_example(
+        name = "scratch-conversation-list",
+        args = r#"{"include_archived":false}"#
+    )]
     async fn list_conversations(&self, include_archived: bool) -> ConversationsResult;
 
     /// Read a conversation with its ordered messages and pending durable
     /// response tasks.
-    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message"]))]
+    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message", "task@1.0.0"]))]
+    #[impress_example(
+        name = "scratch-conversation-detail",
+        args = r#"{"conversation_id":"65000000-0000-4000-8000-000000000002"}"#
+    )]
     async fn get_conversation(&self, conversation_id: String) -> ConversationResult;
 
     /// Create a durable conversation. Enabled tools are stable capability ids
     /// such as `scix`, `impress-mcp`, and `web`.
     #[impress_method(safety = mutating, effects(reads = ["conversation@1.0.0"], writes = ["conversation@1.0.0"]))]
+    #[impress_example(
+        name = "start-research-conversation",
+        args = r#"{"title":"G3 literature review","model":"llama3.2","provider":"ollama","system_prompt":null,"temperature":0.3,"max_tokens":512,"thinking":false,"web_access":false,"enabled_tools":["impress-mcp"]}"#,
+        expect = r#"{"success":true}"#
+    )]
     #[allow(clippy::too_many_arguments)]
     async fn create_conversation(
         &self,
@@ -772,23 +805,54 @@ impress_service_impl! {
     impl = DefaultImpressAiService,
     instance = || service_instance(),
     methods = [
-        list_models(provider: Option<String>) -> ModelsResult,
+        list_models(
+            /// Provider ID to discover, or null for the device default.
+            provider: Option<String>
+        ) -> ModelsResult,
         list_providers() -> ProvidersResult,
         ai_preferences() -> AiPreferencesResult,
-        select_model(provider: String, model: Option<String>) -> AiPreferencesResult,
-        set_provider_endpoint(provider: String, endpoint: Option<String>) -> AiPreferencesResult,
-        provider_health(provider: Option<String>) -> ProviderHealthResult,
-        list_conversations(include_archived: bool) -> ConversationsResult,
-        get_conversation(conversation_id: String) -> ConversationResult,
+        select_model(
+            /// Catalogue provider ID to select for this device.
+            provider: String,
+            /// Chat model ID to pin, or null to use its provider default.
+            model: Option<String>
+        ) -> AiPreferencesResult,
+        set_provider_endpoint(
+            /// Editable provider ID whose endpoint changes.
+            provider: String,
+            /// HTTP(S) endpoint URL, or null to reset to the catalogue default.
+            endpoint: Option<String>
+        ) -> AiPreferencesResult,
+        provider_health(
+            /// Provider ID to probe, or null for the device default.
+            provider: Option<String>
+        ) -> ProviderHealthResult,
+        list_conversations(
+            /// Whether archived conversations are included.
+            include_archived: bool
+        ) -> ConversationsResult,
+        get_conversation(
+            /// UUID of the durable conversation to read.
+            conversation_id: String
+        ) -> ConversationResult,
         create_conversation(
+            /// Display title for the new conversation.
             title: String,
+            /// Model ID to use for assistant responses.
             model: String,
+            /// Provider ID, or null to resolve from device preferences.
             provider: Option<String>,
+            /// Optional system instruction to start the conversation.
             system_prompt: Option<String>,
+            /// Sampling temperature for future model responses.
             temperature: f32,
+            /// Maximum response tokens.
             max_tokens: u32,
+            /// Whether model thinking is requested.
             thinking: bool,
+            /// Whether the `web` tool is enabled.
             web_access: bool,
+            /// Stable capability IDs the assistant may call.
             enabled_tools: Vec<String>
         ) -> ConversationMutationResult,
         queue_message(
