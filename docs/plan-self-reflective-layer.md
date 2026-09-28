@@ -2809,6 +2809,40 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   1.136 s). All 33 focused PMC settings/keymap contract tests pass, as does the
   arm64 imprint iOS simulator build. Normal pre-push and hosted CI remain.
 
+- 2026-09-28 — **S2b interpreter gaps, implementation checkpoint** on
+  `claude/reflective-s2b-gaps`. Added bounded `store` predicate selection using
+  the existing `store-query-service_list-items` and `get-item` verbs through
+  the same Caller in either tier. Predicates reuse the closed field checks;
+  captures expose the selected envelope and parsed payload. Truncated payloads,
+  missing captures, exhausted bounds and no matches fail explicitly. No kit
+  dependency, verb argument, schema reference or record kind was added.
+  `best_effort` accepts only a call and its arguments/identity, without an
+  assertion or capture; operational refusals appear in report detail while
+  later steps continue. Authoring errors still fail before execution. The
+  `{{!state.field}}` escape preserves `{{state.field}}` for a nested surface,
+  including a surface serialized inside a string; `{{!uuid}}` stays literal.
+  A checked-in Tier A scenario selects a seeded manuscript, tolerates an
+  optional lookup refusal and validates an escaped surface. Initial tests:
+  39 passed, zero failures, covering paging, bounds, truncation, templates,
+  operational failures and existing scenarios. Full gates and native proof
+  remain pending. Existing native catalogue entries retain their current route
+  assertions; this change supplies the missing interpreter mechanisms.
+
+- 2026-09-28 — **S2b final verification**: 84 integrated Rust tests passed,
+  zero failed, three ignored (`/tmp/impress-s2b-final-tests.log`). Both clippy
+  shards and all quick gates pass. All twelve supported arm64 framework builds
+  pass with swiftformat off PATH, `IMPRESS_SKIP_X86=1` and no `--fast`.
+  The isolated imprint proof passed two XCTest cases, two stored scenarios,
+  three surface cases and fourteen layout cases. The new scenario selects its
+  own stored row, reports optional 422/404 refusals, preserves a nested surface
+  template until its click emits the expected value, and deletes that surface.
+  Evidence: `/tmp/impress-g5-proof-4pgger3v/output/gaps-run.json` and `proof.json`.
+  The first proof fixture searched for a read-only demo audit row; read-only
+  calls intentionally are not recorded, so the corrected fixture selects its
+  own scenario ID. The app exited. Native reproduction uses
+  `scripts/prove-strict-args.py imprint --scenario-gaps --cli <this-revision-cli>
+  --derived-data <owned-target-g5-directory>`. No user's apps or data were used.
+
 - 2026-09-28 — **R3 hosted smoke check**: the normal push passed, but hosted
   run 36488811160 built and launched impart-iOS (PID 84886) then reported it
   missing. The `launchctl list | grep -q` check under `pipefail` can report a

@@ -1,0 +1,29 @@
+{
+  "wire_version": 1,
+  "id": "interpreter.gaps",
+  "description": "Select an owned record, continue after an optional refusal, and preserve a nested surface template",
+  "tier": "a",
+  "seed": [
+    {"kind": "manuscript", "payload": {"title": "Unrelated fixture"}},
+    {"kind": "manuscript", "payload": {"title": "Selected fixture"}}
+  ],
+  "steps": [
+    {
+      "store": {"schema_ref": "manuscript", "where": [{"path": "$.payload.title", "equals": "Selected fixture"}]},
+      "capture": {"selected_id": "$.item.id"}
+    },
+    {
+      "best_effort": {"call": "store-query-service_get-item", "args": {"id": "not-an-id"}}
+    },
+    {
+      "call": "store-query-service_get-item",
+      "args": {"id": "{{state.selected_id}}"},
+      "expect": {"ok": true, "fields": [{"path": "$.item.title", "equals": "Selected fixture"}]}
+    },
+    {
+      "call": "impress-surface-service_surface-validate",
+      "args": {"spec": {"surface": "1.0", "name": "Escaped fixture", "state": {"label": "inside surface"}, "root": {"text": "{{!state.label}}"}}},
+      "expect": {"ok": true}
+    }
+  ]
+}
