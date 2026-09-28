@@ -185,13 +185,12 @@ public actor ArtifactService {
 
     /// Get all artifacts for a conversation.
     public func getArtifacts(forConversation conversationId: UUID) async throws -> [ArtifactReference] {
-        let context = persistenceController.container.viewContext
-        let fetchRequest: NSFetchRequest<CDArtifactReference> = CDArtifactReference.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "sourceConversationId == %@", conversationId as CVarArg)
-        fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \CDArtifactReference.createdAt, ascending: true)]
-
-        let results = try context.fetch(fetchRequest)
-        return results.map { $0.toArtifactReference() }
+        try await persistenceController.performBackgroundTask { context in
+            let request = CDArtifactReference.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceConversation.id == %@", conversationId as CVarArg)
+            request.sortDescriptors = [NSSortDescriptor(key: "introducedAt", ascending: true)]
+            return try context.fetch(request).map { $0.toArtifactReference() }
+        }
     }
 
     // MARK: - Mention Tracking

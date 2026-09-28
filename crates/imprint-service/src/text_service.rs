@@ -32,8 +32,8 @@ use imprint_core::citations::extract::{
     extract_cite_keys as core_extract_cite_keys, CitationSyntax, CiteKeyUsage,
 };
 
-// Re-export so downstream crates (imprint-service-http) can name the type
-// without taking a direct imprint-core dep.
+// Re-export so service consumers can name the type without taking a direct
+// imprint-core dependency.
 pub use imprint_core::citations::extract::CiteKeyUsage as CiteKeyUsageType;
 use imprint_core::latex::formatter::{format_latex as core_format_latex, FormatOptions};
 

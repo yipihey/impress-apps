@@ -17,6 +17,10 @@ private let repositoryLogger = Logger(subsystem: "com.impart", category: "resear
 /// Actor for managing research conversation persistence.
 public actor ResearchConversationRepository {
 
+    // A repository actor can re-enter while awaiting Core Data. Keep the
+    // read-max/write transaction serialized even across repository instances
+    // that share the same persistent container in this process.
+    private static let appendWriter = NSLock()
     private let persistenceController: PersistenceController
 
     public init(persistenceController: PersistenceController) {
@@ -130,6 +134,44 @@ public actor ResearchConversationRepository {
         }
     }
 
+    /// Persist and attach an artifact to an existing research conversation.
+    /// The relationship is the UI's source for the conversation's artifact bar.
+    public func recordArtifact(
+        uri: ArtifactURI,
+        title: String,
+        in conversationId: UUID
+    ) async throws {
+        try await persistenceController.performBackgroundTask { context in
+            let conversationRequest = CDResearchConversation.fetchRequest()
+            conversationRequest.predicate = NSPredicate(format: "id == %@", conversationId as CVarArg)
+            conversationRequest.fetchLimit = 1
+            guard let conversation = try context.fetch(conversationRequest).first else {
+                throw RepositoryError.conversationNotFound(conversationId)
+            }
+
+            let artifactRequest = CDArtifactReference.fetchRequest()
+            artifactRequest.predicate = NSPredicate(
+                format: "uriString == %@ AND sourceConversation.id == %@",
+                uri.uri, conversationId as CVarArg)
+            artifactRequest.fetchLimit = 1
+            let artifact: CDArtifactReference
+            if let existing = try context.fetch(artifactRequest).first {
+                artifact = existing
+            } else {
+                artifact = CDArtifactReference(context: context)
+                artifact.id = UUID()
+                artifact.uriString = uri.uri
+                artifact.typeRaw = uri.type.rawValue
+                artifact.displayName = title
+                artifact.version = uri.version
+                artifact.introducedAt = Date()
+            }
+            conversation.mutableSetValue(forKey: "artifacts").add(artifact)
+            conversation.lastActivityAt = Date()
+            try context.save()
+        }
+    }
+
     // MARK: - Message Operations
 
     /// Fetch messages for a conversation.
@@ -145,6 +187,62 @@ public actor ResearchConversationRepository {
 
             let results = try context.fetch(request)
             return results.map { $0.toDTO() }
+        }
+    }
+
+    /// Append a native message with its next conversation sequence. The max
+    /// lookup and save run in one background context while the writer lock is
+    /// held; separate awaited fetch/save calls can assign the same sequence.
+    public func appendMessage(
+        to conversationId: UUID,
+        content: String,
+        senderRole: ResearchSenderRole,
+        senderId: String
+    ) async throws -> ResearchMessage {
+        try await persistenceController.performBackgroundTask { context in
+            Self.appendWriter.lock()
+            defer { Self.appendWriter.unlock() }
+
+            let conversationRequest = CDResearchConversation.fetchRequest()
+            conversationRequest.predicate = NSPredicate(format: "id == %@", conversationId as CVarArg)
+            conversationRequest.fetchLimit = 1
+            guard let conversation = try context.fetch(conversationRequest).first else {
+                throw RepositoryError.conversationNotFound(conversationId)
+            }
+
+            let latestRequest = CDResearchMessage.fetchRequest()
+            latestRequest.predicate = NSPredicate(
+                format: "conversation.id == %@", conversationId as CVarArg)
+            latestRequest.sortDescriptors = [
+                NSSortDescriptor(key: "conversationSequence", ascending: false)
+            ]
+            latestRequest.fetchLimit = 1
+            let latestSequence = try context.fetch(latestRequest).first?.conversationSequence ?? 0
+            guard latestSequence < Int32.max else { throw RepositoryError.messageSequenceExhausted }
+
+            let message = ResearchMessage(
+                conversationId: conversationId, sequence: Int(latestSequence) + 1,
+                senderRole: senderRole, senderId: senderId, contentMarkdown: content)
+            let cd = CDResearchMessage(context: context)
+            cd.id = message.id
+            cd.conversationSequence = Int32(message.sequence)
+            cd.senderRole = message.senderRole
+            cd.senderId = message.senderId
+            cd.modelUsed = message.modelUsed
+            cd.contentMarkdown = message.contentMarkdown
+            cd.sentAt = message.sentAt
+            cd.correlationId = message.correlationId
+            cd.causationId = message.causationId
+            cd.isSideConversationSynthesis = message.isSideConversationSynthesis
+            cd.sideConversationId = message.sideConversationId
+            cd.tokenCount = Int32(message.tokenCount ?? 0)
+            cd.processingDurationMs = Int32(message.processingDurationMs ?? 0)
+            cd.conversation = conversation
+            conversation.lastActivityAt = message.sentAt
+
+            try context.save()
+            repositoryLogger.info("Saved message \(message.id) to conversation \(conversationId)")
+            return message
         }
     }
 
@@ -186,6 +284,7 @@ public actor ResearchConversationRepository {
             cd.correlationId = message.correlationId
             cd.causationId = message.causationId
             cd.isSideConversationSynthesis = message.isSideConversationSynthesis
+            cd.sideConversationId = message.sideConversationId
             cd.tokenCount = Int32(message.tokenCount ?? 0)
             cd.processingDurationMs = Int32(message.processingDurationMs ?? 0)
             cd.conversation = conversation
@@ -314,6 +413,7 @@ public actor ResearchConversationRepository {
 public enum RepositoryError: LocalizedError {
     case conversationNotFound(UUID)
     case messageNotFound(UUID)
+    case messageSequenceExhausted
 
     public var errorDescription: String? {
         switch self {
@@ -321,6 +421,8 @@ public enum RepositoryError: LocalizedError {
             return "Conversation not found: \(id)"
         case .messageNotFound(let id):
             return "Message not found: \(id)"
+        case .messageSequenceExhausted:
+            return "Conversation message sequence is exhausted"
         }
     }
 }

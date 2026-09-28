@@ -808,8 +808,9 @@ public class CDResearchMessage: NSManagedObject, Identifiable {
     /// The conversation containing this message
     @NSManaged public var conversation: CDResearchConversation?
 
-    /// Side conversation details (expandable agent-to-agent exchange)
-    @NSManaged public var sideConversation: CDResearchConversation?
+    /// Side conversation ID. The model stores a UUID attribute, not a
+    /// relationship; reading an undeclared relationship crashes Core Data.
+    @NSManaged public var sideConversationId: UUID?
 
     /// Artifact mentions in this message
     @NSManaged public var artifactMentions: Set<CDArtifactMention>?
@@ -832,7 +833,7 @@ public extension CDResearchMessage {
 
     /// Whether this message has a side conversation that can be expanded.
     var hasSideConversation: Bool {
-        sideConversation != nil
+        sideConversationId != nil
     }
 
     /// Get artifact URIs mentioned in this message.
@@ -877,6 +878,14 @@ public class CDArtifactReference: NSManagedObject, Identifiable {
             didChangeValue(forKey: "id")
         }
     }
+
+    // The programmatic Core Data model's actual persisted keys. Native verb
+    // writes and UI readback must use these, not the legacy aliases below.
+    @NSManaged public var uriString: String
+    @NSManaged public var typeRaw: String
+    @NSManaged public var version: String?
+    @NSManaged public var introducedAt: Date
+    @NSManaged public var sourceConversation: CDResearchConversation?
 
     /// The impress:// URI (e.g., "impress://imbib/papers/Fowler2012")
     @NSManaged public var uri: String?
@@ -928,13 +937,12 @@ public extension CDArtifactReference {
 
     /// Get the artifact type enum.
     var type: ArtifactType {
-        guard let raw = artifactType else { return .unknown }
-        return ArtifactType(rawValue: raw) ?? .unknown
+        ArtifactType(rawValue: typeRaw) ?? .unknown
     }
 
     /// Set the artifact type.
     func setType(_ type: ArtifactType) {
-        artifactType = type.rawValue
+        typeRaw = type.rawValue
     }
 
     /// Decode metadata.
@@ -955,15 +963,15 @@ public extension CDArtifactReference {
     func toArtifactReference() -> ArtifactReference {
         ArtifactReference(
             id: id,
-            uri: ArtifactURI(uri: uri ?? "") ?? ArtifactURI(type: .unknown, provider: "unknown", resourcePath: ""),
+            uri: ArtifactURI(uri: uriString) ?? ArtifactURI(type: .unknown, provider: "unknown", resourcePath: ""),
             displayName: displayName ?? "Unknown",
-            createdAt: createdAt ?? Date(),
+            createdAt: introducedAt,
             introducedBy: introducedBy,
-            sourceConversationId: sourceConversationId,
-            sourceMessageId: sourceMessageId,
+            sourceConversationId: sourceConversation?.id,
+            sourceMessageId: nil,
             metadata: metadata,
-            isResolved: isResolved,
-            lastAccessedAt: lastAccessedAt
+            isResolved: false,
+            lastAccessedAt: nil
         )
     }
 
@@ -1119,7 +1127,7 @@ public extension CDResearchMessage {
             correlationId: correlationId,
             causationId: causationId,
             isSideConversationSynthesis: isSideConversationSynthesis,
-            sideConversationId: sideConversation?.id,
+            sideConversationId: sideConversationId,
             tokenCount: tokenCount > 0 ? Int(tokenCount) : nil,
             processingDurationMs: processingDurationMs > 0 ? Int(processingDurationMs) : nil,
             mentionedArtifactURIs: mentionedArtifactURIs

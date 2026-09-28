@@ -7,6 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# One SQLite implementation per native app process, including package dylibs.
+source "$SCRIPT_DIR/../../scripts/native-sqlite.sh"
+
 # Incremental release codegen for the framework loop only. This used to be
 # `[profile.release] incremental = true` in the root manifest, where it also
 # applied to the signed binaries in target/release.
@@ -195,22 +198,18 @@ echo "Copying Swift bindings..."
 impress_sync_file "$FRAMEWORK_DIR/generated/impart_core.swift" "$FRAMEWORK_DIR/impart_core.swift"
 echo "  Copied impart_core.swift"
 
-# Keep the package's committed bindings paired with the freshly built
-# framework, as every other crate's script does. impart-core has no
-# `#[uniffi::export]` yet, so `generated/impart_core.swift` is a stub and
-# nothing is committed under ImpartRustCore/Sources today — the step is here
-# so that the first real export syncs automatically rather than depending on
-# someone remembering a hand copy. (That is the omission that broke imbib's
-# build on 2026-09-07.) When it does produce a tracked file, add the path to
-# BINDINGS in scripts/check-uniffi-bindings.sh, which currently fails loudly
-# if impart-core gains an export with no registered binding.
-#
-# Resolve via git, not $0: the script cds internally, so a relative $0 breaks
-# when invoked from the repo root (as scripts/build-xcframeworks.sh does).
-PKG_BINDINGS_DIR="$(git rev-parse --show-toplevel)/apps/impart/ImpartRustCore/Sources/ImpartRustCore"
-if [ -d "$PKG_BINDINGS_DIR" ]; then
-    cp "$FRAMEWORK_DIR/generated/impart_core.swift" "$PKG_BINDINGS_DIR/impart_core.swift"
+# ImpartRustCore is still a Swift placeholder without a binary target.
+# Publishing generated bindings there makes its next Swift build fail: the
+# RustBuffer/UniFFI declarations have no linked module. Keep the generated
+# output beside the archive until the package explicitly adopts that archive.
+# Once it does, publish the paired Swift file just like the other wrappers.
+PKG_DIR="$(git rev-parse --show-toplevel)/apps/impart/ImpartRustCore"
+PKG_BINDINGS_DIR="$PKG_DIR/Sources/ImpartRustCore"
+if grep -qE '^[[:space:]]*\.binaryTarget\(' "$PKG_DIR/Package.swift"; then
+    impress_sync_file "$FRAMEWORK_DIR/generated/impart_core.swift" "$PKG_BINDINGS_DIR/impart_core.swift"
     echo "  Synced bindings to ImpartRustCore package"
+else
+    echo "  ImpartRustCore is a placeholder; generated bindings remain beside the archive"
 fi
 
 echo ""

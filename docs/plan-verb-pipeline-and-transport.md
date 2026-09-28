@@ -1397,3 +1397,85 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   divergences) all OK — `impress-py` is not a kit crate, so none of the three moved; `cargo hakari
   manage-deps` (no operations) and `cargo hakari generate --diff` (no changes) — the new crate needed
   no `workspace-hack` entry of its own beyond the existing `pyo3`/`pythonize` lines.
+
+- 2026-09-27 — **P5b started after G5 #124.** Worktree `p5b-transport`, branch
+  `claude/pipeline-p5b-transport`, starts at `85cf0520`. Source inspection confirmed that the
+  implore/impart service defaults refuse or return empty values while live domain state remains
+  in Swift. Their per-app FFIs therefore need async native state callbacks, not just inventory
+  linking. Shared `dispatch_async`, namespace-selected Swift dispatch and task-local native
+  refusal reporting are in `05e14e9c`: a callback failure replaces a typed placeholder before
+  envelope/audit, preserving existing verb signatures. Isolated core tests passed 91 and shared
+  Swift route tests passed 7. Native domain bridge implementation and the client router are
+  in progress; no P5b native app has launched and no adapter deletion is yet accepted.
+  Impart decisions retain the existing process-local ProvenanceService semantics; no new schema
+  or invented message record is being introduced to imply durable decision storage.
+
+- 2026-09-28 — **P5b verification in progress.** Shared native dispatch and
+  exact store selection are implemented in `claude/pipeline-p5b-transport`.
+  Initial touched-crate tests passed 2,293 (5 ignored), and both clippy shards
+  passed. The 185 actual adapter methods pass mock forwarding/refusal parity;
+  this is wire coverage, not a claim of native semantic parity.
+  A hosted imprint startup crash exposed four separately bundled SQLite
+  implementations in its Mach-O images. All twelve native framework scripts now
+  select the platform library, leaving headless Cargo's bundled feature alone;
+  wrapper packages link sqlite3. All full arm64 builds passed, and 672 core
+  tests passed using the platform library. Both hosted proof runners reject a
+  bundle with any `_sqlite3_open_v2` definition before launching it.
+  Rebuilt imbib, impart, implore and impel proofs passed on their own device IDs,
+  ephemeral ports, distinct bundles and PID-owned stores. Evidence roots:
+  `/tmp/impress-p5b-transport-k050kncx`, `ewotapuq`, `78o6z3xd`, and `nxuwp68r`
+  (all use the same `/tmp/impress-p5b-transport-` prefix). Imprint's owned proof
+  `qpw7yjve` passed the 78-image SQLite check, then exposed the missing Tokio
+  reactor at async FFI and placeholder manuscript handlers; fixes are pending.
+  No user's app or store was used. Remaining distinct REST contracts are
+  documented in `docs/p5b-retained-http-endpoints.md`; their retirement needs
+  the caller/contract decision already requested from Tom. Final native proofs,
+  adapter retirement and gates are still required; no P5b PR is open yet.
+
+- 2026-09-28 — **P5b native transport verified; retirement narrowed by actual contracts.**
+  The four typed HTTP adapter crates and `impress-app-client` are removed;
+  their 185 actual trait methods retain a mock forwarding/refusal parity test.
+  Four app-owned FFIs dispatch the same service inventories with native Swift
+  callbacks where GUI state is required. Foreign async entry runs on the shared
+  Tokio runtime and aborts a cancelled dispatch future. Imprint manuscript
+  metadata reads now use the exact shared store; export uses the native handler,
+  and invalid/missing IDs remain refusals. Native writes install a per-image
+  audit sink bound to the GUI database, rather than relying on a different
+  framework's globals or an environment fallback.
+  A real imprint proof found that dyld interposed Rust implementation symbols
+  across SwiftPM frameworks: one image wrote its refusal while another read it.
+  All 11 native wrapper manifests and the six app projects now keep Rust
+  implementation symbols private while preserving the public UniFFI C ABI.
+  The prelaunch bundle checker rejects those exports and bundled SQLite;
+  four checker fixtures and a 78-image imprint scan passed. All twelve full
+  arm64 xcframework builds passed with swiftformat absent and no fast builds.
+  Impart's archive builder now leaves generated bindings beside its archive
+  while ImpartRustCore remains a placeholder without a binary target.
+  Final isolated native proofs: imbib `90w2ucgr` (PID 94153, 8 HTTP calls),
+  imprint `l4gp9bcz` (90768, 14), impart `iglcruqj` (92934, 8), implore `y2bb5seh`
+  (90202, 5 plus its dedicated RG/figure proof), and impel `zryomkul` (91283, 2).
+  Each root has prefix `/tmp/impress-p5b-transport-`. The four domain proofs
+  verify committed writes and exact supplied trace, parent-call and caller in
+  their own store's verb-call row. Imprint also proves real PDF compilation,
+  native edits, pending human buffer preservation, UTF-16 comments, three
+  export formats and failed-ID refusals. All launched proof processes exited.
+  Strict-argument proofs also passed on all five shells: five stored scenarios,
+  15 surface catalogue cases, 56 layout catalogue cases and zero skips;
+  `/tmp/impress-p5b-final-strict-summary.json` records their roots and PIDs.
+  Final native tests across 27 touched crates (including capabilities) passed
+  3,052 with 19 ignored in 82 groups. Both clippy shards, fmt, coverage/docs,
+  strict kit dependencies, 21 standalone kit crates, 11 bindings, schema refs
+  (410 sites, 85 refs), and hakari diff passed. Tables were regenerated from
+  the census/descriptor/effects dumps with semantic-search enabled: 477 verbs,
+  84 example-verified, 93 catalogue-verified, 300 exceptions. Reference pages
+  use the default feature inventory.
+  Thirty-four equivalent Swift route registrations are retired. The original
+  estimate of 160 mirrored arms conflated several richer REST contracts with
+  the narrower verb signatures. `docs/p5b-retained-http-endpoints.md` records
+  retained data, arguments and active callers; further retirement requires the
+  caller/contract decision already requested from Tom. No verb arguments,
+  schemas or record kinds were changed to invent that equivalence. [PR #126](https://github.com/yipihey/impress-apps/pull/126) is ready. The normal
+  pre-push hook passed macOS and arm64 iOS simulator builds after its chassis
+  allowlist caught PMC's now-explicit edge to ImprintRustCore (already transitive
+  through ImprintCore; no new archive). Push log: `/tmp/impress-p5b-push-r2.log`.
+  No P5b merge is claimed by this entry.

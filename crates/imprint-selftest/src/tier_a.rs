@@ -4,6 +4,7 @@
 //! bound to a throwaway temp workspace, exercises one behavior, and asserts on
 //! the result. These run as ordinary `cargo test` and in CI.
 
+use impress_core::{sqlite_store::SqliteItemStore, store::ItemStore};
 use std::sync::Arc;
 
 use imprint_service::manuscript_service::{
@@ -541,8 +542,8 @@ async fn cap_manuscript_formats() -> CapabilityResult {
 
             let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
             let path = dir.path().join("impress.sqlite").to_string_lossy().to_string();
-            let store = impress_store_ffi::SharedStore::open(path).map_err(|e| e.to_string())?;
-            let id = uuid::Uuid::new_v4().to_string();
+            let store = SqliteItemStore::open(std::path::Path::new(&path)).map_err(|e| e.to_string())?;
+            let id = uuid::Uuid::new_v4();
             let body = "# Decision\n\nUse *one* store.";
             let payload = serde_json::json!({
                 "title": "ARD",
@@ -553,18 +554,18 @@ async fn cap_manuscript_formats() -> CapabilityResult {
             })
             .to_string();
             store
-                .upsert_item(id.clone(), "manuscript".into(), payload)
+                .upsert_payload(id, "manuscript".into(), serde_json::from_str(&payload).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
             let row = store
-                .get_item(id)
+                .get(id)
                 .map_err(|e| e.to_string())?
                 .ok_or("manuscript not found after upsert")?;
             let decoded: serde_json::Value =
-                serde_json::from_str(&row.payload_json).map_err(|e| e.to_string())?;
+                serde_json::to_value(&row.payload).map_err(|e| e.to_string())?;
             if decoded["format"] != "markdown" || decoded["body_content"] != body {
                 return Err(format!("round-trip mangled payload: {decoded}"));
             }
-            Ok("format set stable; markdown body round-trips via SharedStore".to_string())
+            Ok("format set stable; markdown body round-trips via the core store".to_string())
         },
     )
     .await
@@ -572,7 +573,7 @@ async fn cap_manuscript_formats() -> CapabilityResult {
 
 /// ADR-0027: two editors that loaded the same manuscript commit from the same
 /// stale base; under the old compare-and-set one of them lost. Through the
-/// SharedStore verbs (the exact FFI imprint's adapter calls) both edits must
+/// core store operations (the same operations the Swift FFI delegates to) both edits must
 /// land, the second committer must receive the MERGED body, and the row's
 /// materialized `body_content` must equal it — plus the never-touched
 /// manuscript's genesis must be deterministic across two store handles.
@@ -589,8 +590,8 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
                 .to_string_lossy()
                 .to_string();
             let store =
-                impress_store_ffi::SharedStore::open(path.clone()).map_err(|e| e.to_string())?;
-            let id = uuid::Uuid::new_v4().to_string();
+                SqliteItemStore::open(std::path::Path::new(&path)).map_err(|e| e.to_string())?;
+            let id = uuid::Uuid::new_v4();
             let body = "The quick brown fox.";
             let payload = serde_json::json!({
                 "title": "Collab",
@@ -601,43 +602,37 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
             })
             .to_string();
             store
-                .upsert_item(id.clone(), "manuscript".into(), payload)
+                .upsert_payload(
+                    id,
+                    "manuscript".into(),
+                    serde_json::from_str(&payload).map_err(|e| e.to_string())?,
+                )
                 .map_err(|e| e.to_string())?;
 
             // Two editors load the same base.
             let base = store
-                .manuscript_collab_heads(id.clone())
+                .manuscript_collab_heads(id)
                 .map_err(|e| e.to_string())?;
             if base.is_empty() {
                 return Err("genesis produced no heads".into());
             }
             let a = store
-                .commit_manuscript_body(
-                    id.clone(),
-                    base.clone(),
-                    "Note: The quick brown fox.".into(),
-                    "editor:a".into(),
-                )
+                .commit_manuscript_body(id, &base, "Note: The quick brown fox.", "editor:a")
                 .map_err(|e| e.to_string())?;
             if a.merged_external {
                 return Err("first committer must not see external edits".into());
             }
             let b = store
-                .commit_manuscript_body(
-                    id.clone(),
-                    base,
-                    "The quick brown fox. Jumps.".into(),
-                    "editor:b".into(),
-                )
+                .commit_manuscript_body(id, &base, "The quick brown fox. Jumps.", "editor:b")
                 .map_err(|e| e.to_string())?;
             let want = "Note: The quick brown fox. Jumps.";
             if !b.merged_external || b.body != want {
                 return Err(format!("stale-base commit did not merge: got {:?}", b.body));
             }
-            let row = store.get_item(id.clone()).map_err(|e| e.to_string())?;
+            let row = store.get(id).map_err(|e| e.to_string())?;
             let materialized = row
                 .and_then(|item| {
-                    serde_json::from_str::<serde_json::Value>(&item.payload_json)
+                    serde_json::to_value(&item.payload)
                         .ok()
                         .and_then(|v| v["body_content"].as_str().map(str::to_string))
                 })
@@ -656,20 +651,23 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
                 .join("impress.sqlite")
                 .to_string_lossy()
                 .to_string();
-            let store2 = impress_store_ffi::SharedStore::open(path2).map_err(|e| e.to_string())?;
-            let id2 = uuid::Uuid::new_v4().to_string();
+            let store2 =
+                SqliteItemStore::open(std::path::Path::new(&path2)).map_err(|e| e.to_string())?;
+            let id2 = uuid::Uuid::new_v4();
             for s in [&store, &store2] {
-                s.upsert_item(
-                    id2.clone(),
+                s.upsert_payload(
+                    id2,
                     "manuscript".into(),
-                    serde_json::json!({"title": "G", "status": "draft", "format": "typst",
-                        "current_revision_ref": id2, "body_content": "same seed"})
-                    .to_string(),
+                    serde_json::from_value(
+                        serde_json::json!({"title": "G", "status": "draft", "format": "typst",
+                        "current_revision_ref": id2, "body_content": "same seed"}),
+                    )
+                    .map_err(|e| e.to_string())?,
                 )
                 .map_err(|e| e.to_string())?;
             }
             let g1 = store
-                .manuscript_collab_heads(id2.clone())
+                .manuscript_collab_heads(id2)
                 .map_err(|e| e.to_string())?;
             let g2 = store2
                 .manuscript_collab_heads(id2)
@@ -688,7 +686,7 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
 /// The status-lifecycle convention (docs/status-lifecycle.md): `dismissed`
 /// hides an item from every working scope and is reversible; `archived` is a
 /// distinct end-state. Verified through the same flat query surface the GUIs
-/// use (`query_items` payload_eq on status).
+/// use (payload equality on status).
 async fn cap_status_lifecycle() -> CapabilityResult {
     check(
         "store.status_lifecycle",
@@ -701,9 +699,10 @@ async fn cap_status_lifecycle() -> CapabilityResult {
                 .join("impress.sqlite")
                 .to_string_lossy()
                 .to_string();
-            let store = impress_store_ffi::SharedStore::open(path).map_err(|e| e.to_string())?;
+            let store =
+                SqliteItemStore::open(std::path::Path::new(&path)).map_err(|e| e.to_string())?;
 
-            let id = uuid::Uuid::new_v4().to_string();
+            let id = uuid::Uuid::new_v4();
             let payload = serde_json::json!({
                 "title": "Lifecycle probe",
                 "status": "draft",
@@ -713,32 +712,35 @@ async fn cap_status_lifecycle() -> CapabilityResult {
             })
             .to_string();
             store
-                .upsert_item(id.clone(), "manuscript".into(), payload)
+                .upsert_payload(
+                    id,
+                    "manuscript".into(),
+                    serde_json::from_str(&payload).map_err(|e| e.to_string())?,
+                )
                 .map_err(|e| e.to_string())?;
 
-            let count_status = |status: &str| -> Result<u32, String> {
+            let count_status = |status: &str| -> Result<usize, String> {
                 store
-                    .count_items(impress_store_ffi::SharedItemQuery {
-                        schema_ref: Some("manuscript".into()),
-                        parent_id: None,
-                        payload_eq: vec![impress_store_ffi::SharedFieldEq {
-                            field: "status".into(),
-                            value_json: format!("\"{status}\""),
-                        }],
-                        modified_after_ms: None,
-                        sort_field: String::new(),
-                        ascending: false,
-                        limit: 0,
-                        offset: 0,
+                    .count(&impress_core::query::ItemQuery {
+                        schema: Some("manuscript".into()),
+                        predicates: vec![impress_core::query::Predicate::Eq(
+                            "payload.status".into(),
+                            impress_core::item::Value::String(status.into()),
+                        )],
+                        ..Default::default()
                     })
                     .map_err(|e| e.to_string())
             };
             let set_status = |status: &str| -> Result<(), String> {
                 store
-                    .upsert_item(
-                        id.clone(),
+                    .upsert_payload(
+                        id,
                         "manuscript".into(),
-                        format!(r#"{{"status": "{status}"}}"#),
+                        [(
+                            "status".into(),
+                            impress_core::item::Value::String(status.into()),
+                        )]
+                        .into(),
                     )
                     .map_err(|e| e.to_string())
             };

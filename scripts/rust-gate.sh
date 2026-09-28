@@ -18,15 +18,15 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # The imprint tree links Typst and dominates cold compile time; impress-mcp is
-# in this list because it is the one crate that enables imprint-service's
-# typst-render, and leaving it in `rest` put the whole Typst tree there too.
-IMPRINT_SELECT=(-p imprint-core -p imprint-service -p imprint-service-http
+# in this list because it enables imprint-service's typst-render. The native
+# app verb bridge now enables it too; neither belongs in the `rest` shard.
+IMPRINT_SELECT=(-p imprint-core -p imprint-service -p imprint-verbs-ffi
                 -p imprint-selftest -p imprint-cli -p impress-mcp)
-IMPRINT_FEATURES=(--features imprint-core/native)
+IMPRINT_FEATURES=(--features imprint-core/native,imprint-verbs-ffi/native)
 # uniffi-bindgen is excluded deliberately: selecting it would unify uniffi's
 # `cli` feature back onto every library in the shard.
 REST_SELECT=(--workspace --exclude imprint-core --exclude imprint-service
-             --exclude imprint-service-http --exclude imprint-selftest
+             --exclude imprint-verbs-ffi --exclude imprint-selftest
              --exclude imprint-cli --exclude impress-mcp --exclude uniffi-bindgen)
 REST_FEATURES=(--features native)
 

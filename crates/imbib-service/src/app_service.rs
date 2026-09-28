@@ -16,8 +16,8 @@
 //!   it "what was I just reading?" rather than "what arrived?".
 //!
 //! So the default backend refuses each of these and says to open imbib, the
-//! same shape `backup_service`'s restore uses. The HTTP backend in
-//! `imbib-service-http` does the real work. Refusing loudly beats returning an
+//! same shape `backup_service`'s restore uses. The native callbacks installed
+//! by `imbib-verbs-ffi` do the real work. Refusing loudly beats returning an
 //! empty list that reads like "you have no papers".
 //!
 //! # The mutation tail

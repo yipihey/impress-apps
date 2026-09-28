@@ -23,7 +23,10 @@ use uuid::Uuid;
 
 use crate::blob_store::BlobStore;
 use crate::error::ServiceError;
-use impress_store_ffi::{SharedItemRow, SharedStore};
+use impress_core::item::Item;
+use impress_core::query::{ItemQuery, SortDescriptor};
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::{ItemStore, StoreError};
 
 /// Schema reference stored on each section item. Matches the Swift adapter.
 pub const SECTION_SCHEMA_REF: &str = "manuscript-section";
@@ -100,18 +103,18 @@ struct SectionPayload {
 
 /// Persistence layer for manuscript sections.
 ///
-/// Owns an `Arc<SharedStore>` (the shared SQLite item store) plus a
+/// Owns an `Arc<SqliteItemStore>` (the shared SQLite item store) plus a
 /// content-addressed blob directory on disk.
 #[derive(Clone)]
 pub struct SectionStore {
-    store: Arc<SharedStore>,
+    store: Arc<SqliteItemStore>,
     blobs: BlobStore,
 }
 
 impl SectionStore {
     /// Build a `SectionStore` that uses the provided shared store and writes
     /// content-addressed blobs under `blob_root`.
-    pub fn new(store: Arc<SharedStore>, blob_root: PathBuf) -> Self {
+    pub fn new(store: Arc<SqliteItemStore>, blob_root: PathBuf) -> Self {
         Self {
             store,
             blobs: BlobStore::new(blob_root),
@@ -130,20 +133,20 @@ impl SectionStore {
             path: root.to_path_buf(),
             source,
         })?;
-        let store = SharedStore::open(db_path.to_string_lossy().into_owned())?;
+        let store = Arc::new(SqliteItemStore::open(&db_path)?);
         Ok(Self::new(store, blob_root))
     }
 
     /// Open an in-memory store (intended for tests). The blob directory still
     /// has to live on disk; pass a `tempfile::TempDir` path.
     pub fn open_in_memory(blob_root: PathBuf) -> Result<Self, ServiceError> {
-        let store = SharedStore::open_in_memory()?;
+        let store = Arc::new(SqliteItemStore::open_in_memory()?);
         Ok(Self::new(store, blob_root))
     }
 
     /// Borrow the underlying shared store. Useful for higher-level services
     /// that want to issue cross-schema queries.
-    pub fn shared_store(&self) -> &SharedStore {
+    pub fn shared_store(&self) -> &SqliteItemStore {
         &self.store
     }
 
@@ -200,16 +203,13 @@ impl SectionStore {
             section_key: Some(section_key.to_string()),
             content_hash: content_hash.clone(),
         };
-        let payload_json = serde_json::to_string(&payload)?;
+        let payload = serde_json::from_value(serde_json::to_value(payload)?)?;
 
-        self.store.upsert_item(
-            item_id.to_string(),
-            SECTION_SCHEMA_REF.to_string(),
-            payload_json,
-        )?;
+        self.store
+            .upsert_payload(item_id, SECTION_SCHEMA_REF.into(), payload)?;
 
         // Re-read to learn the canonical created_ms timestamp.
-        let row = self.store.get_item(item_id.to_string())?.ok_or_else(|| {
+        let row = self.store.get(item_id)?.ok_or_else(|| {
             ServiceError::Internal(format!(
                 "section {} disappeared immediately after upsert",
                 item_id
@@ -226,7 +226,7 @@ impl SectionStore {
             order_index: metadata.order_index,
             word_count,
             content_hash,
-            created_ms: row.created_ms,
+            created_ms: row.created.timestamp_millis(),
         })
     }
 
@@ -238,7 +238,7 @@ impl SectionStore {
         section_key: &str,
     ) -> Result<Option<SectionRecord>, ServiceError> {
         let item_id = Self::item_id(document_id, section_key);
-        let row = match self.store.get_item(item_id.to_string())? {
+        let row = match self.store.get(item_id)? {
             Some(r) => r,
             None => return Ok(None),
         };
@@ -250,9 +250,9 @@ impl SectionStore {
     /// idempotent deletes safely).
     pub fn delete_section(&self, document_id: Uuid, section_key: &str) -> Result<(), ServiceError> {
         let item_id = Self::item_id(document_id, section_key);
-        match self.store.delete_item(item_id.to_string()) {
+        match self.store.delete(item_id) {
             Ok(()) => Ok(()),
-            Err(impress_store_ffi::SharedStoreError::NotFound { .. }) => Ok(()),
+            Err(StoreError::NotFound(_)) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
@@ -269,9 +269,7 @@ impl SectionStore {
         let page_size = if limit == 0 { 500 } else { limit };
         let mut offset: u32 = 0;
         loop {
-            let rows =
-                self.store
-                    .query_by_schema(SECTION_SCHEMA_REF.to_string(), page_size, offset)?;
+            let rows = self.query_sections(page_size, offset)?;
             let row_count = rows.len() as u32;
             for row in rows {
                 if let Some(rec) = self.try_row_to_section_for_doc(row, document_id)? {
@@ -303,9 +301,7 @@ impl SectionStore {
         let page_size = if limit == 0 { 500 } else { limit };
         let mut offset: u32 = 0;
         loop {
-            let rows =
-                self.store
-                    .query_by_schema(SECTION_SCHEMA_REF.to_string(), page_size, offset)?;
+            let rows = self.query_sections(page_size, offset)?;
             let row_count = rows.len() as u32;
             for row in rows {
                 let rec = self.row_to_section(row)?;
@@ -322,14 +318,28 @@ impl SectionStore {
         Ok(all)
     }
 
+    fn query_sections(&self, limit: u32, offset: u32) -> Result<Vec<Item>, ServiceError> {
+        Ok(self.store.query(&ItemQuery {
+            schema: Some(SECTION_SCHEMA_REF.into()),
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            limit: Some(limit as usize),
+            offset: Some(offset as usize),
+            assume_schema_rare: true,
+            ..ItemQuery::default()
+        })?)
+    }
+
     // ── internals ───────────────────────────────────────────────────────────
 
     fn try_row_to_section_for_doc(
         &self,
-        row: SharedItemRow,
+        row: Item,
         document_id: Uuid,
     ) -> Result<Option<SectionRecord>, ServiceError> {
-        let payload: SectionPayload = serde_json::from_str(&row.payload_json)?;
+        let payload: SectionPayload = serde_json::from_value(serde_json::to_value(&row.payload)?)?;
         // Filter rows whose payload doc id doesn't match the requested document.
         if let Some(ref doc_str) = payload.document_id {
             if doc_str != &document_id.to_string() {
@@ -342,17 +352,17 @@ impl SectionStore {
         Ok(Some(rec))
     }
 
-    fn row_to_section(&self, row: SharedItemRow) -> Result<SectionRecord, ServiceError> {
-        let payload: SectionPayload = serde_json::from_str(&row.payload_json)?;
+    fn row_to_section(&self, row: Item) -> Result<SectionRecord, ServiceError> {
+        let payload: SectionPayload = serde_json::from_value(serde_json::to_value(&row.payload)?)?;
         self.assemble_section(row, payload)
     }
 
     fn assemble_section(
         &self,
-        row: SharedItemRow,
+        row: Item,
         payload: SectionPayload,
     ) -> Result<SectionRecord, ServiceError> {
-        let item_id: Uuid = row.id.parse()?;
+        let item_id = row.id;
         let document_id = payload
             .document_id
             .as_ref()
@@ -383,7 +393,7 @@ impl SectionStore {
             order_index: payload.order_index,
             word_count: payload.word_count,
             content_hash: payload.content_hash,
-            created_ms: row.created_ms,
+            created_ms: row.created.timestamp_millis(),
         })
     }
 }

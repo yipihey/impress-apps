@@ -3,10 +3,12 @@
 //! The shared store FFI links kit services only. This target links
 //! `imbib-service` so its registered verbs are available to the GUI.
 
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use impress_service_core::dispatch;
+mod native;
+pub use native::{register_native_backend, ImbibNativeCallbacks, NativeCallResult};
 
 // Inventory registration is link-time work: retain imbib-service even though
 // dispatch only names a verb at runtime.
@@ -44,6 +46,27 @@ pub enum ImbibVerbStoreError {
 // across init prevents two GUI calls from racing into the service singleton.
 static INITIALIZED_PATH: Mutex<Option<String>> = Mutex::new(None);
 
+fn bind_audit_store(path: &str) -> Result<(), String> {
+    let requested = Path::new(path);
+    if !requested.is_absolute()
+        || requested.file_name().and_then(|name| name.to_str()) != Some("impress.sqlite")
+    {
+        return Err("expected an absolute impress.sqlite database path".into());
+    }
+    let parent = requested
+        .parent()
+        .ok_or("database has no workspace parent")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let canonical = std::fs::canonicalize(parent)
+        .map_err(|error| error.to_string())?
+        .join("impress.sqlite");
+    let store = impress_core::sqlite_store::SqliteItemStore::open(&canonical)
+        .map_err(|error| format!("cannot open audit database: {error}"))?;
+    impress_store_service::store::install_store_at(Arc::new(store), &canonical)?;
+    impress_store_service::audit::install();
+    Ok(())
+}
+
 #[cfg(feature = "native")]
 uniffi::setup_scaffolding!();
 
@@ -69,6 +92,7 @@ pub fn initialize_verb_store(path: String) -> Result<(), ImbibVerbStoreError> {
         None => {}
     }
 
+    bind_audit_store(&path).map_err(|message| ImbibVerbStoreError::Initialization { message })?;
     imbib_service::init_imbib_store(PathBuf::from(&path))
         .map_err(|message| ImbibVerbStoreError::Initialization { message })?;
     *initialized = Some(path);
@@ -82,5 +106,43 @@ pub fn dispatch_verb(
     args_json: String,
     caller_json: String,
 ) -> SharedVerbDispatchResult {
+    if INITIALIZED_PATH.lock().map_or(true, |path| path.is_none()) {
+        return store_unavailable();
+    }
     dispatch::dispatch(&name, &args_json, &caller_json).into()
+}
+
+/// Await app-owned callbacks without blocking the main actor.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub async fn dispatch_verb_async(
+    name: String,
+    args_json: String,
+    caller_json: String,
+) -> SharedVerbDispatchResult {
+    if INITIALIZED_PATH.lock().map_or(true, |path| path.is_none()) {
+        return store_unavailable();
+    }
+    dispatch::dispatch_foreign_async(&name, &args_json, &caller_json)
+        .await
+        .into()
+}
+
+fn store_unavailable() -> SharedVerbDispatchResult {
+    SharedVerbDispatchResult {
+        status: 503,
+        body_json: serde_json::json!({
+            "wire_version": 1,
+            "ok": false,
+            "code": "store-unavailable",
+            "message": "imbib verb store has not been initialized at the GUI database path"
+        })
+        .to_string(),
+    }
+}
+
+/// Descriptors, rather than a Swift method list, identify direct store writes.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn verb_writes_store(name: String) -> bool {
+    impress_service_core::descriptor::VerbDescriptor::find(&name)
+        .is_some_and(|verb| !verb.effects.writes.is_empty())
 }

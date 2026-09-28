@@ -21,6 +21,13 @@ let package = Package(
             dependencies: ["imbib_coreFFI"],
             path: "Sources/ImbibRustCore",
             linkerSettings: [
+                // Each Mach-O image owns its Rust globals (audit, refusals, stores).
+                // Export only the public FFI, not Rust implementation symbols.
+                .unsafeFlags([
+                    "-Xlinker", "-unexported_symbol", "-Xlinker", "__R*",
+                    "-Xlinker", "-unexported_symbol", "-Xlinker", "__ZN*17h*E"
+                ]),
+                .linkedLibrary("sqlite3"),
                 // Required by Rust's system-configuration crate (used by reqwest for proxy config)
                 .linkedFramework("SystemConfiguration"),
                 // Required by Rust's security-framework crate (used by native-tls)

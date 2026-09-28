@@ -10,7 +10,10 @@
 //! it links `implore-service` directly and is not part of the kit, so the
 //! check does not apply to it.
 //!
-//! One export, [`dispatch_verb`] — the same shape as
+//! The async native dispatch and host callback keep the app's live viewer
+//! state in Swift while the Rust service remains the sole verb definition.
+//! [`dispatch_verb`] remains available for non-native callers and tests.
+//! Both exports have the same result shape as
 //! `impress-store-ffi::verb::dispatch_verb`, and the same underlying
 //! function (`impress_service_core::dispatch::dispatch`), so implore's
 //! binary answers `/api/verb/<name>` for its own five previously-dead verbs
@@ -32,6 +35,8 @@
 //! and ready for it.
 
 use impress_service_core::dispatch;
+mod native;
+pub use native::{install_native_host, ImploreVerbHost, NativeReply};
 
 // Force the linker to keep `implore-service`'s `inventory::submit!` entries.
 // Nothing in this crate calls it by name — the whole point of `dispatch` is
@@ -75,6 +80,19 @@ pub fn dispatch_verb(
     caller_json: String,
 ) -> SharedVerbDispatchResult {
     dispatch::dispatch(&name, &args_json, &caller_json).into()
+}
+
+/// Native app dispatch must not block the Swift main actor while a service
+/// method calls back into the app's live viewer or figure state.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub async fn dispatch_verb_async(
+    name: String,
+    args_json: String,
+    caller_json: String,
+) -> SharedVerbDispatchResult {
+    dispatch::dispatch_foreign_async(&name, &args_json, &caller_json)
+        .await
+        .into()
 }
 
 #[cfg(test)]

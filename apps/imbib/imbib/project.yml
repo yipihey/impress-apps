@@ -5,6 +5,7 @@ name: imbib
 # once for the whole suite; see the header of that file.
 include:
   - path: ../../chassis-utis.yml
+  - path: ../../native-rust-linkage.yml
 
 options:
   bundleIdPrefix: com.impress
@@ -33,6 +34,8 @@ settings:
       COPY_PHASE_STRIP: YES
 
 packages:
+  ImpressRustCore:
+    path: ../../../packages/ImpressRustCore
   PublicationManagerCore:
     path: ../PublicationManagerCore
   ImpressHelixCore:
@@ -470,7 +473,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: imbibSafariExtension/imbibSafariExtension.entitlements
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
-        OTHER_LDFLAGS: "-framework SafariServices"
+        OTHER_LDFLAGS: "$(inherited) -framework SafariServices"
         ENABLE_HARDENED_RUNTIME: YES
     entitlements:
       path: imbibSafariExtension/imbibSafariExtension.entitlements
@@ -512,7 +515,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
         SKIP_INSTALL: YES
         TARGETED_DEVICE_FAMILY: "1,2"
-        OTHER_LDFLAGS: "-framework SafariServices"
+        OTHER_LDFLAGS: "$(inherited) -framework SafariServices"
     entitlements:
       path: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
       properties:
@@ -634,10 +637,12 @@ targets:
     platform: macOS
     sources:
       - path: ../../../tests/native/StrictArgumentsProofTests.swift
+      - path: ../../../tests/native/TransportProofTests.swift
       - path: imbibTests
         optional: true
     dependencies:
       - target: imbib
+      - package: ImpressRustCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.impress.imbib.tests

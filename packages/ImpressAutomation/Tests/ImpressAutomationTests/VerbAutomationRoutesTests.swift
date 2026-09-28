@@ -78,4 +78,26 @@ struct VerbAutomationRoutesTests {
         #expect(VerbAutomationRoutes.statusText(503) == "Service Unavailable")
         #expect(VerbAutomationRoutes.statusText(999) == "Error")
     }
+
+    @Test
+    func domain_dispatch_awaits_the_host_and_preserves_its_refusal() async throws {
+        let service = "proof-\(UUID().uuidString)-service"
+        let verb = service + "_read"
+        let body = #"{"ok":false,"code":"not-found","message":"native record missing","wire_version":1}"#
+        VerbAutomationRoutes.registerDomainDispatcher(services: [service]) { name, args, caller in
+            #expect(name == verb)
+            #expect(args == #"{"id":"missing"}"#)
+            #expect(caller.contains("proof-trace"))
+            await MainActor.run {}
+            return VerbDispatchResponse(status: 404, bodyJSON: body)
+        }
+        let request = HTTPRequest(
+            method: "POST", path: "/api/verb/" + verb,
+            headers: ["traceparent": "proof-trace"], body: #"{"id":"missing"}"#)
+        let response = try #require(await VerbAutomationRoutes.route(
+            request.path, method: request.method, request: request))
+        #expect(response.status == 404)
+        // A fallback to the kit would replace this with "no such verb".
+        #expect(response.body == Data(body.utf8))
+    }
 }

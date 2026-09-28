@@ -1,33 +1,15 @@
-//! Which sibling apps answered at startup, and which tools that gates.
+//! MCP presentation of the pipeline's app ownership rules.
 //!
-//! Most `#[impress_service]` tools read the shared store and work with every
-//! app closed. A minority cannot: source search needs imbib's keychain
-//! credentials, manuscript edits need imprint's open editor, and implore's
-//! datasets and impart's conversations exist only in those apps' memory.
-//!
-//! Those services have refusing default implementations, which is right as far
-//! as it goes — but a method returning `Vec<T>` can only refuse by returning an
-//! empty list, and an empty list is indistinguishable from "you have none".
-//! That is not a hypothetical: it is the same shape as two real bugs found
-//! while porting (imbib's nested `/api/logs` envelope and imprint's
-//! non-existent per-document search route), both of which looked like success.
-//!
-//! So the honest fix is not to advertise them. A tool the model cannot
-//! successfully call is worse than an absent one, because it spends a turn
-//! discovering that and may believe the empty answer.
-//!
-//! Since plan-verb-pipeline P2 the *rule* — which namespaces need which app —
-//! lives once, in `impress_service_core::pipeline::reachability`, and is the
-//! pipeline's reachability layer on every path. This module keeps what is
-//! this server's: the startup probe's record, installed as the layer's
-//! configuration (store fallback on: an owned namespace that is not
-//! app-gated runs against the shared store, as this server always did), and
-//! the listing-time questions `tools/list` asks.
-
-use std::sync::{Arc, OnceLock};
+//! AppTransport owns the live probe cache and invocation routing. This module
+//! reads that cache for tools/list and connection reporting; it keeps no
+//! second snapshot or cooldown. Store-backed verbs remain available offline.
 
 use impress_service_core::pipeline::reachability as layer;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+static CONFIGURED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum App {
     Imbib,
@@ -36,6 +18,7 @@ pub enum App {
     Impart,
 }
 
+#[cfg(test)]
 impl App {
     fn parse(name: &str) -> Option<App> {
         match name {
@@ -56,48 +39,22 @@ pub struct Reachable {
     pub impart: bool,
 }
 
-impl Reachable {
-    fn has(&self, app: App) -> bool {
-        match app {
-            App::Imbib => self.imbib,
-            App::Imprint => self.imprint,
-            App::Implore => self.implore,
-            App::Impart => self.impart,
-        }
+/// Warm the shared transport cache before the initial tools/list.
+pub fn refresh() {
+    CONFIGURED.store(true, Ordering::Release);
+    for app in ["imbib", "imprint", "implore", "impart"] {
+        impress_app_transport::probe_app_blocking(app);
     }
 }
 
-static REACHABLE: OnceLock<Reachable> = OnceLock::new();
-
-/// Record what the startup probes found, and install it as the pipeline's
-/// reachability configuration. Call once, before serving.
-pub fn record(reachable: Reachable) {
-    let _ = REACHABLE.set(reachable);
-    install();
-}
-
-fn reachable() -> Reachable {
-    REACHABLE.get().copied().unwrap_or_default()
-}
-
-/// The layer's configuration for this process: the recorded probe (nothing
-/// recorded means every app down — refusing by default is the safe
-/// direction), the shared store as the fallback for owned namespaces, and
-/// `IMPRESS_MCP_LIST_ALL=1` disabling the gate for introspection.
-fn install() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        layer::install(layer::Config {
-            probe: Arc::new(|app: &str| App::parse(app).is_some_and(|app| reachable().has(app))),
-            store_fallback: true,
-            list_all: list_all(),
-        });
-    });
-}
-
-/// What the startup probes found, for reporting (`--help`).
 pub fn current() -> Reachable {
-    reachable()
+    let up = |app| impress_app_transport::cached_reachability(app).unwrap_or(false);
+    Reachable {
+        imbib: up("imbib"),
+        imprint: up("imprint"),
+        implore: up("implore"),
+        impart: up("impart"),
+    }
 }
 
 /// The app a tool needs, if it needs one at all (the layer's table).
@@ -112,18 +69,23 @@ pub fn required_app(tool_name: &str) -> Option<App> {
 /// ledger, a capability audit — needs the full inventory, and it must not
 /// depend on which apps happened to be open when it ran.
 pub fn is_available(tool_name: &str) -> bool {
-    install();
-    layer::is_available(tool_name)
+    if std::env::var("IMPRESS_MCP_LIST_ALL").as_deref() == Ok("1") {
+        return true;
+    }
+    layer::gated_app(tool_name).is_none_or(|app| {
+        CONFIGURED.load(Ordering::Acquire) && impress_app_transport::probe_app_blocking(app)
+    })
 }
 
+#[cfg(test)]
 fn list_all() -> bool {
     std::env::var("IMPRESS_MCP_LIST_ALL").as_deref() == Ok("1")
 }
 
 /// Why a tool was withheld, for the `tools/call` error.
 pub fn unavailable_reason(tool_name: &str) -> Option<String> {
-    install();
-    layer::unavailable_reason(tool_name)
+    (!is_available(tool_name))
+        .then(|| layer::reason_text(layer::gated_app(tool_name).unwrap(), tool_name))
 }
 
 #[cfg(test)]

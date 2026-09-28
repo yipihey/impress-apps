@@ -1,10 +1,11 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-Main at `10ee5acd` includes W3, G7c, W4 and S3. A fresh isolated
-`cargo test --workspace --features native -- --test-threads=1` passed on that main:
-**4,324 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
-Evidence is `/tmp/impress-s3-main-workspace.log`; its workspace was
-`/tmp/impress-cargo-tests.m00DSW/workspace`. The earlier `f7af1c37` batch also passed
+Main at `7d28f88c` includes W3, G7c, W4, S3, G5 and the audit-flush barrier (#125).
+A fresh isolated `cargo test --workspace --features native -- --test-threads=1` passed there:
+**4,330 passed, 0 failed, 23 ignored**, including doctests (220 result groups).
+Evidence is `/tmp/impress-post-audit-main-workspace.log`; its workspace was
+`/tmp/impress-cargo-tests.tgkKla/workspace`. The pre-G5 run at `10ee5acd` also passed
+4,324 tests in `/tmp/impress-s3-main-workspace.log`. The earlier `f7af1c37` batch also passed
 4,291 tests, with 23 ignored, in `/tmp/impress-open-packages-workspace-serial.log`.
 Its initial parallel run hit the known impel-tools global-backend race; the serial rerun passed.
 Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-transport.md`,
@@ -15,7 +16,7 @@ Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-t
 | Plan | Packages |
 |---|---|
 | Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P6 Python, B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
-| GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
+| GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G5 strict default ([PR #124](https://github.com/yipihey/impress-apps/pull/124), merge `85cf0520`), G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
 | Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), S3 session recording ([PR #123](https://github.com/yipihey/impress-apps/pull/123), merge `10ee5acd`), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
 
 ## Completed package verification
@@ -55,7 +56,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
 
 ## Next packages
 
-- **G5 (verified, PR #124 awaiting merge)**: `g5-strict` / `claude/gui-g5-strict`, based on
+- **G5 (merged #124, `85cf0520`)**: `g5-strict` / `claude/gui-g5-strict`, based on
   `10ee5acd`. All 476 descriptors are strict. All requested quick gates and the normal pre-push
   macOS/iOS builds passed. Isolated macro/core/capabilities tests passed 136 (3 ignored); the
   deterministic layout-fixture fix passed 98 layout tests. All five native proofs passed their
@@ -64,9 +65,41 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   `/tmp/impress-g5-proof-summary.json` and the dated G5 entry in the GUI plan. The archive cohort
   was fully rebuilt for every supported arm64 slice. Test-only legacy storage/index paths and
   background startup were isolated without changing production paths or schemas. No build
-  artifacts are committed. Domain dispatch remains P5b. Verify fresh main ancestry and merge
-  [PR #124](https://github.com/yipihey/impress-apps/pull/124) before beginning P5b.
-- **P5b**: package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
+  artifacts are committed. Domain dispatch remains P5b. Fresh main ancestry was verified before normal merge; GitHub jobs were still queued.
+  The initial post-G5 full run failed at
+  `impress-workflow-service::runner::tests::a_proposed_workflow_never_runs_through_the_engine`
+  (zero proposals instead of one); focused reruns passed. PR #125 replaced heuristic audit
+  flushing with a FIFO writer acknowledgement and explicit timeout/disconnection errors.
+  It also waits for the final job event before checking its cursor. The original failure
+  was not conclusively attributed to either race; the fresh full main run above is green.
+- **P5b ([PR #126](https://github.com/yipihey/impress-apps/pull/126) ready; merge pending)**: `p5b-transport` /
+  `claude/pipeline-p5b-transport`, based on main `7d28f88c`. Native domain
+  dispatch, exact GUI store binding, the shared transport in Rust clients,
+  and one feature-gated inventory are implemented. The four `*-service-http`
+  crates and `impress-app-client` are deleted (7,942 lines of obsolete code).
+  Thirty-four equivalent Swift registrations are retired. The richer retained
+  contracts and their callers are recorded in `docs/p5b-retained-http-endpoints.md`;
+  this is not a claim that the plan's estimated 160 arms have all been removed.
+  Completing that retirement needs the caller/contract decision already requested
+  from Tom, including capabilities not representable by existing verb arguments.
+  All twelve full arm64 archive builds passed with platform SQLite. Rust
+  implementation symbols are now private to each native image; otherwise dyld
+  paired one image's refusal writer with another image's reader and returned
+  HTTP 200 for a failed call. Each native FFI installs its own audit sink on
+  the exact GUI database. The prelaunch checker checks both invariants.
+  All five native transport proofs passed, including persisted app-owned writes,
+  real imprint compilation/exports, implore RG operations, and exact trace,
+  parent-call and caller audit readback for the four domain apps. All five
+  strict-argument proofs passed: five stored scenarios, 15 surface catalogue
+  cases and 56 chassis layout cases, with zero skips. Proof evidence is in
+  `/tmp/impress-p5b-final-strict-summary.json` and the dated pipeline plan log.
+  Final tests across 27 touched crates, including capabilities, passed 3,052
+  with 19 ignored in 82 groups; log `/tmp/impress-p5b-final-touched-tests.log`,
+  scratch `/tmp/impress-cargo-tests.TlWc60/workspace`. Both clippy shards and all
+  requested quick gates passed. The normal pre-push hook passed, including both
+  macOS and arm64 iOS simulator builds. Only merge remains for this native
+  transport slice; richer REST retirement remains the separate contract decision.
+  No user's running app, launcher or real store was used.
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
 - **R3**: imprint's settings and chords through the registries.
@@ -94,6 +127,14 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   crate hash: the app linked but native triage dispatch returned 404. Rebuild ImbibCore,
   ImbibVerbsFfi, ImpressStoreFfi and the macOS ImpelTools inventory together for those changes;
   unchanged generated Swift bindings alone do not prove the embedded Rust copies agree.
+- P5b native archives must use platform SQLite via `scripts/native-sqlite.sh`.
+  All native wrapper packages and app projects also hide Rust implementation
+  symbols; keep both settings. Run `scripts/check-native-sqlite.py <owned.app>`
+  before a live proof (both proof runners do so). The check rejects bundled
+  SQLite and exported Rust internals. ImpartRustCore remains a placeholder:
+  its core build keeps generated bindings beside the archive, not in that
+  unconfigured Swift target. Use the real Homebrew `xcodegen` entry point for
+  app generation; a symlink copied into a scratch PATH loses its settings resources.
 - Per PR, run the quick gates and touched-crate/capabilities tests. Later batches need a new full workspace run on main.
 - Concurrent worktrees need separate Cargo target directories; sharing a target across differing branches caused a rustdoc dependency-load failure. Use the root cache serially, or a worktree's ignored `target-<pkg>-gates` directory.
 - Run Rust tests with a fresh scratch workspace and process-local environment, before any test can initialize a store singleton:
@@ -106,6 +147,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
     export IMBIB_STORE_PATH="$IMPRESS_STORE_PATH"
     export IMPRESS_WORKSPACE="$impress_test_root/workspace"
     export IMPRESS_DEVICE_ID="test-$$"
+    export IMPRINT_COMPILE_CACHE_DIR="$impress_test_root/compile-cache"
     cargo test --workspace --features native
   )
   ```

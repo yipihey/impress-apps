@@ -11,6 +11,7 @@ from pathlib import Path
 import plistlib
 import socket
 import subprocess
+import sys
 import tempfile
 import uuid
 
@@ -21,7 +22,7 @@ def main():
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--build-only", action="store_true")
-    parser.add_argument("--derived-data", type=Path, help="Reuse an owned target-g5-* build directory sequentially")
+    parser.add_argument("--derived-data", type=Path, help="Reuse an owned target-g5-* or target-p5b-* build directory sequentially")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     cli = args.cli.resolve(strict=True)
@@ -29,11 +30,13 @@ def main():
         parser.error("--cli must be an executable from this revision")
     app_dir = repo / ("apps/imbib/imbib" if args.app == "imbib" else "apps/" + args.app)
     derived = (args.derived_data or repo / ("target-g5-proof-" + args.app)).resolve()
-    if derived.parent != repo or not derived.name.startswith("target-g5-"):
-        parser.error("--derived-data must be an owned target-g5-* directory in this worktree")
+    if derived.parent != repo or not derived.name.startswith(("target-g5-", "target-p5b-")):
+        parser.error("--derived-data must be an owned target-g5-* or target-p5b-* directory in this worktree")
     proof = Path(tempfile.mkdtemp(prefix="impress-g5-proof-", dir="/tmp"))
     bootstrap = proof / "bootstrap"
     bootstrap.mkdir()
+    compile_cache = proof / "compile-cache"
+    compile_cache.mkdir()
     output = proof / "output"
     output.mkdir()
     with socket.socket() as listener:
@@ -55,6 +58,14 @@ def main():
                 "DEAD_CODE_STRIPPING=YES",
                 "PRODUCT_BUNDLE_IDENTIFIER=com.impress.g5proof." + args.app,
             ], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    # Both a fresh build and --skip-build must pass the same bundle check
+    # before test-without-building can launch the app.
+    app_bundle = derived / "Build/Products/Debug" / (args.app + ".app")
+    with (proof / "build.log").open("a") as log:
+        subprocess.run(
+            [sys.executable, str(repo / "scripts/check-native-sqlite.py"), str(app_bundle)],
+            cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT, check=True,
+        )
     if args.build_only:
         return
     products = derived / "Build/Products"
@@ -73,6 +84,7 @@ def main():
         "IMPRESS_G5_CLI": str(cli), "IMPRESS_G5_ROOT": str(proof), "IMPRESS_G5_OUTPUT": str(output),
         "IMPRESS_STORE_PATH": str(bootstrap / "impress.sqlite"),
         "IMBIB_STORE_PATH": str(bootstrap / "impress.sqlite"),
+        "IMPRINT_COMPILE_CACHE_DIR": str(compile_cache),
         "IMPRESS_WORKSPACE": str(bootstrap), "IMPRESS_DEVICE_ID": "codex-g5-" + str(uuid.uuid4()),
         "IMBIB_LIBRARY_FILES_MIGRATION": "off",
     }

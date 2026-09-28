@@ -16,6 +16,11 @@ private let provenanceLogger = Logger(subsystem: "com.impart", category: "proven
 /// Actor-based service for managing provenance events.
 public actor ProvenanceService {
 
+    /// The running app's process-local provenance timeline. The native verb
+    /// host and research UI share this actor; persistence remains a later
+    /// schema decision.
+    public static let shared = ProvenanceService()
+
     // MARK: - Properties
 
     /// In-memory event storage (will be replaced with Rust FFI when available).

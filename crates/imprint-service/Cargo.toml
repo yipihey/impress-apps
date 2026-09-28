@@ -25,7 +25,6 @@ typst-render = ["imprint-core/typst-render"]
 
 [dependencies]
 # Shared impress workspace crates
-impress-store-ffi = { workspace = true }
 imprint-core = { workspace = true, features = ["schema"] }
 impress-core = { workspace = true, features = ["sqlite"] }
 # The one shared store handle (ADR-0030 D12): project verbs and the collab

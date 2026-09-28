@@ -5,6 +5,7 @@ name: implore
 # once for the whole suite; see the header of that file.
 include:
   - path: ../chassis-utis.yml
+  - path: ../native-rust-linkage.yml
 options:
   bundleIdPrefix: com.impress.implore
   deploymentTarget:
@@ -29,6 +30,8 @@ settings:
 packages:
   ImploreRustCore:
     path: ImploreRustCore
+  ImploreVerbsFFI:
+    path: ImploreVerbsFFI
   ImploreCore:
     path: Packages/ImploreCore
   ImpressTestKit:
@@ -114,6 +117,7 @@ targets:
           - "$(PROJECT_DIR)/../../Frameworks"
     dependencies:
       - package: ImploreCore
+      - package: ImploreVerbsFFI
       - package: ImpressHelixCore
       - package: ImpressAutomation
       - package: ImpressLogging
@@ -158,8 +162,11 @@ targets:
     platform: macOS
     sources:
       - path: ../../tests/native/StrictArgumentsProofTests.swift
+      - path: ../../tests/native/TransportProofTests.swift
+      - path: Tests/ImploreNativeVerbProofTests.swift
     dependencies:
       - target: implore
+      - package: ImpressRustCore
     settings:
       base:
         PRODUCT_NAME: imploreTests

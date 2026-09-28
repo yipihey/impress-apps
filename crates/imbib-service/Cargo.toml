@@ -26,6 +26,7 @@ dirs = { workspace = true }
 
 # The e-ink verbs run the blocking mirror engine off the async executor.
 tokio = { workspace = true }
+uuid = { workspace = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]
@@ -46,4 +47,3 @@ impress-workflow-service = { workspace = true }
 # workflow's `retention_cleanup` call actually lands a `core/verb-call@1.0.0`
 # row for the test to read back.
 impress-store-service = { workspace = true }
-uuid = { workspace = true }

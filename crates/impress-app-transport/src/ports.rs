@@ -30,9 +30,15 @@ pub fn port_of(app: &str) -> Option<u16> {
 /// accepts (`IMBIB_HTTP_URL`, …).
 pub fn base_url(app: &str) -> Option<String> {
     let env_key = format!("IMPRESS_{}_HTTP_URL", app.to_uppercase().replace('-', "_"));
-    if let Ok(url) = std::env::var(&env_key) {
-        if !url.trim().is_empty() {
-            return Some(url);
+    for key in [
+        env_key,
+        format!("{}_HTTP_URL", app.to_uppercase()),
+        format!("{}_BASE_URL", app.to_uppercase()),
+    ] {
+        if let Ok(url) = std::env::var(&key) {
+            if !url.trim().is_empty() {
+                return Some(url);
+            }
         }
     }
     port_of(app).map(|port| format!("http://127.0.0.1:{port}"))

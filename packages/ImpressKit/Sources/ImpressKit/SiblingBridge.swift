@@ -1,4 +1,5 @@
 import Foundation
+import ImpressRustCore
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -19,6 +20,7 @@ public actor SiblingBridge {
     public static let shared = SiblingBridge()
 
     private let session: URLSession
+    private let tokenProvider: @Sendable (SiblingApp) -> String?
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -27,6 +29,64 @@ public actor SiblingBridge {
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
+        self.tokenProvider = Self.loopbackBearer
+    }
+
+    init(session: URLSession, tokenProvider: @escaping @Sendable (SiblingApp) -> String?) {
+        self.session = session
+        self.tokenProvider = tokenProvider
+    }
+
+    /// Call a canonical service verb. Mutating and read-only verbs both use
+    /// POST, so the server's per-launch loopback bearer is required.
+    public func callVerbRaw(
+        _ name: String,
+        on app: SiblingApp,
+        arguments: [String: Any] = [:]
+    ) async throws -> Data {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(app.httpPort)
+        components.path = "/api/verb/\(name)"
+        guard let url = components.url else {
+            throw SiblingBridgeError.invalidURL(components.path)
+        }
+        guard let token = tokenProvider(app) else {
+            throw SiblingBridgeError.missingAuthorization(app)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: arguments)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return data
+    }
+
+    public func callVerb<T: Decodable & Sendable>(
+        _ name: String,
+        on app: SiblingApp,
+        arguments: [String: Any] = [:]
+    ) async throws -> T {
+        let data = try await callVerbRaw(name, on: app, arguments: arguments)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private static func loopbackBearer(for app: SiblingApp) -> String? {
+        if let override = ProcessInfo.processInfo.environment["IMPRESS_APP_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
+            return override
+        }
+        let path = loopbackTokenPath(
+            containerRoot: SharedContainer.rootDirectory.path,
+            port: app.httpPort)
+        guard let value = try? String(contentsOfFile: path, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     // MARK: - Generic HTTP Methods
@@ -209,6 +269,7 @@ public enum SiblingBridgeError: LocalizedError, Sendable {
     case invalidResponse
     case httpError(statusCode: Int)
     case appNotAvailable(SiblingApp)
+    case missingAuthorization(SiblingApp)
 
     public var errorDescription: String? {
         switch self {
@@ -216,6 +277,7 @@ public enum SiblingBridgeError: LocalizedError, Sendable {
         case .invalidResponse: "Invalid HTTP response"
         case .httpError(let code): "HTTP error \(code)"
         case .appNotAvailable(let app): "\(app.displayName) is not responding"
+        case .missingAuthorization(let app): "No automation token is available for \(app.displayName)"
         }
     }
 }

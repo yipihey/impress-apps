@@ -1,13 +1,13 @@
 //! Running a linked verb by its MCP tool name.
 //!
 //! The one copy of "find the descriptor, run it through the pipeline". It
-//! lives here rather than in `impress-capabilities-kit` because
+//! lives here rather than in `impress-capabilities` because
 //! `impress-surface-service` runs verbs too (a surface's sources and `call`
 //! effects), and the kit depends on that crate, so the crate cannot depend
 //! back on the kit (review RS-S21). Every crate that links an inventory
 //! already depends on this one.
 //!
-//! `impress-capabilities-kit` re-exports all of it, and `impress-capabilities`
+//! `impress-capabilities` re-exports all of it, and `impress-capabilities`
 //! re-exports the kit's, so every existing caller compiles unchanged. Since
 //! P2 every call here goes through [`crate::pipeline::invoke`]; the caller
 //! identity is the entry path's to state — [`call`] and [`call_async`] keep

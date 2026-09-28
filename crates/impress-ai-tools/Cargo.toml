@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+impress-app-transport.workspace = true
 async-trait.workspace = true
 impress-ai.workspace = true
 impress-ai-service.workspace = true
@@ -26,9 +27,4 @@ impress-capabilities = { path = "../impress-capabilities", default-features = fa
     "imbib", "impart", "implore", "imprint", "ai", "bridges", "parsers", "smart-search", "vw",
 ] }
 impress-store-service.workspace = true
-# The probes that install each app's HTTP backend (`probe_reachability`).
-imbib-service-http.workspace = true
-impart-service-http.workspace = true
-implore-service-http.workspace = true
-imprint-service-http.workspace = true
 impress-workspace-hack.workspace = true

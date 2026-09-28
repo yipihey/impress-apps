@@ -22,6 +22,7 @@
 //! `ops` count.
 
 use std::any::Any;
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
@@ -93,6 +94,30 @@ pub struct CallContext {
 
 tokio::task_local! {
     static CURRENT: Arc<CallContext>;
+    static REPORTED_REFUSAL: RefCell<Option<crate::refusal::Refusal>>;
+}
+
+/// Preserve a native backend failure when an existing service method returns
+/// a primitive or `Option` rather than `Result`. Its typed placeholder never
+/// escapes the pipeline: the handler step replaces it with this refusal before
+/// envelope handling and audit. Keep the first failure, and isolate nested calls.
+pub fn report_refusal(code: impl Into<String>, message: impl Into<String>) {
+    let refusal = crate::refusal::Refusal::new(code, message);
+    if REPORTED_REFUSAL
+        .try_with(|slot| {
+            slot.borrow_mut().get_or_insert(refusal);
+        })
+        .is_err()
+    {
+        tracing::error!("native backend refusal reported outside the invoker pipeline");
+    }
+}
+
+pub(crate) fn take_reported_refusal() -> Option<crate::refusal::Refusal> {
+    REPORTED_REFUSAL
+        .try_with(|slot| slot.borrow_mut().take())
+        .ok()
+        .flatten()
 }
 
 /// The context of the call this code is running inside, if any.
@@ -122,13 +147,15 @@ pub fn store_override<T: Any + Send + Sync>() -> Option<Arc<T>> {
 
 /// Run `future` with `context` current.
 pub async fn scope<F: std::future::Future>(context: Arc<CallContext>, future: F) -> F::Output {
-    CURRENT.scope(context, future).await
+    REPORTED_REFUSAL
+        .scope(RefCell::new(None), CURRENT.scope(context, future))
+        .await
 }
 
 /// Run `work` with `context` current, synchronously — the FFI's layout
 /// `apply`, which is a sync call from Swift.
 pub fn sync_scope<T>(context: Arc<CallContext>, work: impl FnOnce() -> T) -> T {
-    CURRENT.sync_scope(context, work)
+    REPORTED_REFUSAL.sync_scope(RefCell::new(None), || CURRENT.sync_scope(context, work))
 }
 
 #[cfg(test)]

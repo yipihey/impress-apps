@@ -15,8 +15,8 @@
 //!   resolved against the imbib library — it exists only as a compile input.
 //! * **Logs and status** describe a running process.
 //!
-//! The default backend refuses and says so; `imprint-service-http` does the
-//! real work.
+//! The default backend refuses and says so; native callbacks installed by
+//! `imprint-verbs-ffi` do the real work in the running app.
 
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
@@ -125,14 +125,14 @@ pub trait ImprintAppService: Send + Sync + 'static {
     #[impress_method]
     async fn get_content(&self, document_id: String) -> Option<String>;
 
-    /// Insert text at a character offset in a manuscript. Goes through the
+    /// Insert text at a UTF-16 editor offset in a manuscript. Goes through the
     /// running app so the open editor, its undo stack and its source map stay
     /// in step. Prefer section-level writes when you are replacing a whole
     /// section — they are compare-and-set and cannot clobber a concurrent edit.
     #[impress_method]
     async fn insert_text(&self, document_id: String, offset: u32, text: String) -> bool;
 
-    /// Delete a character range from a manuscript. Offsets are into the source
+    /// Delete a UTF-16 editor range from a manuscript. Offsets are into the source
     /// text; read it first, since they shift with every edit.
     #[impress_method]
     async fn delete_text(&self, document_id: String, offset: u32, length: u32) -> bool;
@@ -170,8 +170,9 @@ pub trait ImprintAppService: Send + Sync + 'static {
         anchor: Option<String>,
     ) -> Option<CommentRecord>;
 
-    /// Edit a comment's body, or set its status (`open`, `accepted`,
-    /// `rejected`).
+    /// Edit a comment's body, or set its status to `open` or `resolved`.
+    /// The native app refuses `accepted` and `rejected` until an immediate
+    /// suggestion action can preserve their distinct review semantics.
     #[impress_method]
     async fn update_comment(
         &self,

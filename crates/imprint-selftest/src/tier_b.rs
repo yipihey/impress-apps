@@ -23,16 +23,22 @@
 //! (`impress-ai-server`) unauthenticated health route, a different app
 //! entirely from the one this catalogue's `requires.app` names.
 
-use impress_app_client::ImprintClient;
+use impress_layout_service::scenario_caller::LoopbackClient;
 use impress_scenario::Scenario;
+use serde_json::Value;
 use url::Url;
 
 use crate::scenario_caller::ImprintTierBCaller;
 use crate::{check, skipped, CapabilityResult, Tier};
 
 /// Build a client for `base_url`, or `None` if the URL is malformed.
-fn client_for(base_url: &str) -> Option<ImprintClient> {
-    Url::parse(base_url).ok().map(ImprintClient::with_base_url)
+fn client_for(base_url: &str) -> Option<(String, LoopbackClient)> {
+    let url = Url::parse(base_url).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return None;
+    }
+    let origin = url.origin().ascii_serialization();
+    Some((origin.clone(), LoopbackClient::new(&origin)))
 }
 
 /// The six converted scenario documents, embedded at compile time (SC-1: they
@@ -62,7 +68,7 @@ pub fn scenarios() -> Vec<Scenario> {
 /// Run all Tier B capabilities against `base_url`. Skips everything if the app
 /// isn't reachable.
 pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
-    let client = match client_for(base_url) {
+    let (origin, client) = match client_for(base_url) {
         Some(c) => c,
         None => {
             return vec![skipped(
@@ -75,8 +81,13 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     };
 
     // One probe gates the whole tier: no app → skip, don't fail.
-    let info = client.probe().await;
-    if info.is_none() {
+    let info = client
+        .post(
+            "/api/verb/imprint-app-service_status",
+            &serde_json::json!({}),
+        )
+        .await;
+    if !matches!(info, Ok((200, ref value)) if value["running"] == true) {
         let reason = format!("no imprint app responding at {base_url}");
         let mut out = vec![skipped(
             "app.reachable",
@@ -110,7 +121,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     let mut out = Vec::new();
 
     for scenario in scenarios() {
-        let mut caller = ImprintTierBCaller::new(client_for(base_url).expect("valid base url"));
+        let mut caller = ImprintTierBCaller::new(&origin);
         out.push(impress_scenario::run(&scenario, &mut caller).await);
     }
 
@@ -128,41 +139,52 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
 /// 200× over.
 ///
 /// SC-1 class (iv): reads a second daemon entirely, not this catalogue's app.
+/// It must be an explicitly supplied test-owned endpoint: never probe the
+/// default AI daemon on this machine.
 async fn store_wal_health_capability() -> CapabilityResult {
     let id = "store.wal_health";
     let desc = "Shared-store WAL stays within the maintenance budget";
-    let health = reqwest::Client::new()
-        .get("http://127.0.0.1:8787/api/health")
-        .timeout(std::time::Duration::from_secs(3))
-        .send()
-        .await;
-    let response = match health {
-        Ok(response) if response.status().is_success() => response,
-        Ok(response) => {
+    let endpoint = match std::env::var("IMPRINT_SELFTEST_WAL_HEALTH_URL") {
+        Ok(value) => value,
+        Err(_) => return skipped(id, desc, Tier::B, "no explicit test-owned WAL health URL"),
+    };
+    let url = match Url::parse(&endpoint) {
+        Ok(url)
+            if url.scheme() == "http"
+                && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1"))
+                && url.path() == "/api/health" =>
+        {
+            url
+        }
+        _ => {
             return skipped(
                 id,
                 desc,
                 Tier::B,
-                &format!("ai daemon health returned HTTP {}", response.status()),
+                "IMPRINT_SELFTEST_WAL_HEALTH_URL must be a loopback /api/health URL",
             )
         }
-        Err(_) => return skipped(id, desc, Tier::B, "impress-ai-server not running on 8787"),
     };
-    let body: serde_json::Value = match response.json().await {
-        Ok(body) => body,
-        Err(error) => {
-            return check(id, desc, Tier::B, || async move {
-                Err(format!("health body did not parse: {error}"))
-            })
-            .await
-        }
+    let result = LoopbackClient::new(&url.origin().ascii_serialization())
+        .get("/api/health")
+        .await;
+    let outcome = match result {
+        Ok((200, body)) => wal_health_result(&body),
+        Ok((status, body)) => Err(format!("WAL health returned HTTP {status}: {body}")),
+        Err(error) => Err(format!("explicit WAL health endpoint failed: {error}")),
     };
-    let wal = body["wal_bytes"].as_u64().unwrap_or(0);
+    check(id, desc, Tier::B, || async move { outcome }).await
+}
+
+fn wal_health_result(body: &Value) -> Result<String, String> {
+    let wal = body["wal_bytes"]
+        .as_u64()
+        .ok_or("WAL health omitted numeric wal_bytes")?;
     let budget = body["wal_budget_bytes"]
         .as_u64()
-        .unwrap_or(64 * 1024 * 1024);
+        .ok_or("WAL health omitted numeric wal_budget_bytes")?;
     let db = body["db_bytes"].as_u64().unwrap_or(0);
-    let outcome = if wal <= budget.saturating_mul(4) {
+    if wal <= budget.saturating_mul(4) {
         Ok(format!(
             "WAL {} MB (budget {} MB), db {} MB",
             wal / (1024 * 1024),
@@ -175,8 +197,7 @@ async fn store_wal_health_capability() -> CapabilityResult {
             wal / (1024 * 1024),
             budget / (1024 * 1024)
         ))
-    };
-    check(id, desc, Tier::B, || async move { outcome }).await
+    }
 }
 
 /// The "Manuscript Not Found for a healthy manuscript" regression gate: every
@@ -186,12 +207,21 @@ async fn store_wal_health_capability() -> CapabilityResult {
 ///
 /// SC-1 class (iii): needs real manuscripts in the store and loops over
 /// however many rows are there — app state, not a closed call sequence.
-async fn manuscript_detail_history_capability(client: &ImprintClient) -> CapabilityResult {
+async fn manuscript_detail_history_capability(client: &LoopbackClient) -> CapabilityResult {
     let id = "manuscripts.detail_and_history";
     let desc =
         "Every manuscript row resolves in the Info-tab store read, with history/revisions queryable";
 
-    let rows = match client.list_manuscripts().await {
+    let rows = match client
+        .get("/api/manuscripts")
+        .await
+        .and_then(|(status, body)| {
+            ensure_ok(status, &body, "list_manuscripts")?;
+            body["manuscripts"]
+                .as_array()
+                .cloned()
+                .ok_or("list_manuscripts omitted manuscripts array".into())
+        }) {
         Ok(rows) => rows,
         Err(e) => {
             return check(id, desc, Tier::B, || async move {
@@ -209,12 +239,16 @@ async fn manuscript_detail_history_capability(client: &ImprintClient) -> Capabil
     let body = async {
         let mut unresolved: Vec<String> = Vec::new();
         for row in &rows {
-            let probe = client
-                .manuscript_detail_probe(&row.id)
-                .await
-                .map_err(|e| format!("detail probe {} failed: {e}", row.id))?;
-            if !probe.store_detail_found {
-                unresolved.push(format!("{} ({})", row.id, row.title));
+            let id = required_row_string(row, "id")?;
+            let title = required_row_string(row, "title")?;
+            let path = format!("/api/manuscripts/{id}");
+            let (status, body) = client.get(&path).await?;
+            ensure_ok(status, &body, &format!("detail probe {id}"))?;
+            let found = body["manuscript"]["storeDetailFound"]
+                .as_bool()
+                .ok_or_else(|| format!("detail probe {id} omitted storeDetailFound"))?;
+            if !found {
+                unresolved.push(format!("{id} ({title})"));
             }
         }
         if !unresolved.is_empty() {
@@ -227,14 +261,18 @@ async fn manuscript_detail_history_capability(client: &ImprintClient) -> Capabil
         }
         let mut history_total = 0u64;
         for row in rows.iter().take(3) {
-            history_total += client
-                .manuscript_history_count(&row.id)
-                .await
-                .map_err(|e| format!("history {} failed: {e}", row.id))?;
-            let _ = client
-                .manuscript_revisions_count(&row.id)
-                .await
-                .map_err(|e| format!("revisions {} failed: {e}", row.id))?;
+            let id = required_row_string(row, "id")?;
+            for (suffix, total) in [("history", true), ("revisions", false)] {
+                let path = format!("/api/manuscripts/{id}/{suffix}");
+                let (status, body) = client.get(&path).await?;
+                ensure_ok(status, &body, &format!("{suffix} {id}"))?;
+                let count = body["count"]
+                    .as_u64()
+                    .ok_or_else(|| format!("{suffix} {id} omitted count"))?;
+                if total {
+                    history_total += count;
+                }
+            }
         }
         Ok(format!(
             "{} rows all resolve; {} history ops across first 3",
@@ -244,6 +282,20 @@ async fn manuscript_detail_history_capability(client: &ImprintClient) -> Capabil
     };
     let outcome = body.await;
     check(id, desc, Tier::B, || async move { outcome }).await
+}
+
+fn ensure_ok(status: u16, body: &Value, operation: &str) -> Result<(), String> {
+    if status == 200 && body["status"] == "ok" {
+        Ok(())
+    } else {
+        Err(format!("{operation}: HTTP {status}: {body}"))
+    }
+}
+
+fn required_row_string<'a>(row: &'a Value, key: &str) -> Result<&'a str, String> {
+    row[key]
+        .as_str()
+        .ok_or_else(|| format!("manuscript row omitted {key}"))
 }
 
 #[cfg(test)]
@@ -288,5 +340,18 @@ mod tests {
             ]
         );
         assert!(results.iter().all(|r| r.skipped && !r.pass));
+    }
+
+    #[test]
+    fn wal_health_requires_actual_telemetry() {
+        assert!(wal_health_result(&serde_json::json!({})).is_err());
+        assert!(wal_health_result(&serde_json::json!({
+            "wal_bytes": 5, "wal_budget_bytes": 1
+        }))
+        .is_err());
+        assert!(wal_health_result(&serde_json::json!({
+            "wal_bytes": 4, "wal_budget_bytes": 1, "db_bytes": 9
+        }))
+        .is_ok());
     }
 }

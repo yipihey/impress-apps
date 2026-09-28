@@ -20,8 +20,6 @@ import ImpressLogging
 ///
 /// API Endpoints (GET):
 /// - `GET /api/status` - Server health and app state
-/// - `GET /api/datasets` - List open datasets
-/// - `GET /api/datasets/{id}` - Get dataset details
 /// - `GET /api/figures` - List all figures
 /// - `GET /api/figures/{id}` - Get figure details
 /// - `GET /api/figures/{id}/export` - Export figure to a file (params: format png|svg, width, height, scale)
@@ -52,6 +50,73 @@ public actor ImploreHTTPRouter: HTTPRouter {
     // MARK: - Initialization
 
     public init() {}
+
+    /// In-process service adapter. The verb names and argument validation
+    /// remain in `ImploreService`; this maps its already-decoded arguments to
+    /// the same live-state functions used by the app's legacy HTTP endpoints.
+    public func invokeNativeVerb(method: String, argsJSON: String) async -> HTTPResponse {
+        guard let data = argsJSON.data(using: .utf8),
+              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .badRequest("Invalid native verb arguments")
+        }
+
+        func string(_ key: String) -> String? { args[key] as? String }
+        func query(_ keys: [String]) -> [String: String] {
+            var result: [String: String] = [:]
+            for key in keys {
+                if let value = args[key] as? String { result[key] = value }
+                else if let value = args[key] as? NSNumber { result[key] = value.stringValue }
+            }
+            return result
+        }
+        func request(_ verb: String, _ path: String, _ keys: [String] = []) -> HTTPRequest {
+            HTTPRequest(method: verb, path: path, queryParams: query(keys), body: argsJSON)
+        }
+
+        switch method {
+        case "plot_series":
+            guard let names = args["series"] as? [String] else {
+                return .badRequest("Missing series")
+            }
+            return await renderPlotSeries(names: names, title: string("title"))
+        case "plot_histogram":
+            return await handlePlotHistogram(request("GET", "/api/plot/histogram", ["quantity", "bins"]))
+        case "rg_slice_png":
+            // A String-returning verb cannot carry a binary HTTP response.
+            var params = query(["format"])
+            params["format"] = "base64"
+            return await handleRgSlicePng(HTTPRequest(method: "GET", path: "/api/rg/slice/png", queryParams: params))
+        case "rg_slice_raw":
+            return await handleRgSliceRaw(request("GET", "/api/rg/slice/raw", ["quantity", "axis", "position", "downsample"]))
+        case "rg_statistics":
+            return await handleRgStatistics(request("GET", "/api/rg/statistics", ["scope", "quantity", "axis", "position"]))
+        case "status": return await handleStatus()
+        case "get_logs": return await route(request("GET", "/api/logs", ["limit", "level"]))
+        case "list_datasets": return await handleListDatasets()
+        case "get_dataset":
+            guard let id = string("dataset_id") else { return .badRequest("Missing dataset_id") }
+            return await handleGetDataset(id: id)
+        case "list_figures":
+            var params: [String: String] = [:]
+            if let id = string("dataset_id") { params["dataset"] = id }
+            return await handleListFigures(HTTPRequest(method: "GET", path: "/api/figures", queryParams: params))
+        case "get_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleGetFigure(id: id)
+        case "create_figure": return await handleCreateFigure(request("POST", "/api/figures"))
+        case "export_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleExportFigure(id: id, request: request("POST", "/api/figures/\(id)/export"))
+        case "rg_load": return await handleRgLoad(request("POST", "/api/rg/load"))
+        case "rg_state": return await handleRgState()
+        case "rg_control": return await handleRgControl(request("POST", "/api/rg/control"))
+        case "rg_slice_save": return await handleRgSliceSave(request("POST", "/api/rg/slice/save"))
+        case "rg_batch": return await handleRgBatch(request("POST", "/api/rg/batch"))
+        case "rg_colormaps": return handleRgColormaps()
+        case "rg_cascade_plot": return await handleRgCascadePlot()
+        default: return .notFound("Unknown implore native method")
+        }
+    }
 
     // MARK: - Routing
 
@@ -93,16 +158,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
             return await handleStatus()
         }
 
-        if path == "/api/datasets" {
-            return await handleListDatasets()
-        }
-
-        // GET /api/datasets/{id}
-        if path.hasPrefix("/api/datasets/") && !path.contains("/export") {
-            let id = String(originalPath.dropFirst("/api/datasets/".count))
-            return await handleGetDataset(id: id)
-        }
-
         if path == "/api/figures" {
             return await handleListFigures(request)
         }
@@ -120,20 +175,8 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
 
         // RG viewer endpoints
-        if path == "/api/rg/state" {
-            return await handleRgState()
-        }
         if path == "/api/rg/slice/png" {
             return await handleRgSlicePng(request)
-        }
-        if path == "/api/rg/slice/raw" {
-            return await handleRgSliceRaw(request)
-        }
-        if path == "/api/rg/statistics" {
-            return await handleRgStatistics(request)
-        }
-        if path == "/api/rg/colormaps" {
-            return handleRgColormaps()
         }
 
         // Plot endpoints
@@ -169,18 +212,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
 
         // RG viewer POST endpoints
-        if path == "/api/rg/load" {
-            return await handleRgLoad(request)
-        }
-        if path == "/api/rg/control" {
-            return await handleRgControl(request)
-        }
-        if path == "/api/rg/slice/save" {
-            return await handleRgSliceSave(request)
-        }
-        if path == "/api/rg/batch" {
-            return await handleRgBatch(request)
-        }
 
         return .notFound("Unknown POST endpoint: \(path)")
     }
@@ -943,21 +974,25 @@ public actor ImploreHTTPRouter: HTTPRouter {
     /// Query params: series (comma-separated names), title (optional).
     @MainActor
     private func handlePlotSvg(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let viewer = AppState.shared?.rgViewerState else {
-            return .badRequest("No RG dataset loaded")
-        }
-
         guard let seriesParam = request.queryParams["series"] else {
             return .badRequest("Missing required query param: series (comma-separated names)")
         }
 
         let names = seriesParam.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
-        let title = request.queryParams["title"] ?? "\(names.count) series"
+        return renderPlotSeries(names: names, title: request.queryParams["title"])
+    }
+
+    @MainActor
+    private func renderPlotSeries(names: [String], title: String?) -> HTTPResponse {
+        guard let viewer = AppState.shared?.rgViewerState else {
+            return .badRequest("No RG dataset loaded")
+        }
+        let actualTitle = title ?? "\(names.count) series"
 
         logInfo("Plot SVG: \(names.joined(separator: ", "))", category: "plot-api")
 
         do {
-            let svg = try viewer.dataset.plotDataSeries(names: names, title: title)
+            let svg = try viewer.dataset.plotDataSeries(names: names, title: actualTitle)
             return .svg(svg)
         } catch {
             return .serverError("Failed to render plot: \(error)")
@@ -1071,16 +1106,10 @@ public actor ImploreHTTPRouter: HTTPRouter {
             "endpoints": [
                 // GET endpoints
                 "GET /api/status": "Server health and app state (includes RG viewer state if loaded)",
-                "GET /api/datasets": "List open datasets",
-                "GET /api/datasets/{id}": "Get dataset details with columns",
                 "GET /api/figures": "List all figures (params: dataset)",
                 "GET /api/figures/{id}": "Get figure configuration",
                 "GET /api/figures/{id}/export": "Export to <workspace>/exports/figures/<id>.<png|svg>; returns path, sha256, base64 data (params: format, width, height, scale)",
-                "GET /api/rg/state": "Current RG viewer state + dataset info",
                 "GET /api/rg/slice/png": "Export current slice as PNG (?format=base64 for JSON)",
-                "GET /api/rg/slice/raw": "Raw f32 values (?quantity, ?axis, ?position, ?downsample)",
-                "GET /api/rg/statistics": "Slice or field statistics (?quantity, ?scope=slice|field)",
-                "GET /api/rg/colormaps": "List available colormap names",
                 "GET /api/rg/cascade_plot": "Canonical mu-vs-level cascade statistics SVG",
                 "GET /api/plot/svg": "Render data series as SVG (?series=a,b&title=...)",
                 "GET /api/plot/histogram": "Render field histogram as SVG (?quantity, ?bins)",
@@ -1093,10 +1122,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 // POST endpoints
                 "POST /api/figures": "Create a figure and store its rendered PNG as data_hash (body: datasetId, type|plotType, xColumn|x?, yColumn|y?, title?, width?, height?, and data as series [{label?, x, y}] | spec (implore PlotSpec) | svg)",
                 "POST /api/figures/{id}/export": "Same as GET /api/figures/{id}/export, params in the body",
-                "POST /api/rg/load": "Load .npz file (body: {path})",
-                "POST /api/rg/control": "Change viewer params (body: {quantity?, axis?, position?, colormap?})",
-                "POST /api/rg/slice/save": "Save current slice PNG to disk (body: {path})",
-                "POST /api/rg/batch": "Capture multiple positions (body: {positions, quantity?, axis?, colormap?})",
                 // PATCH endpoints
                 "PATCH /api/figures/{id}": "Update a figure (same fields as POST); re-renders its artifact",
                 // DELETE endpoints

@@ -3951,6 +3951,7 @@ dependencies = [
  "reqwest",
  "rstest",
  "rusqlite",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4015,27 +4016,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "imbib-service-http"
+name = "imbib-verbs-ffi"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "imbib-service",
- "impress-app-client",
- "impress-workspace-hack",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "imbib-verbs-ffi"
-version = "0.1.0"
-dependencies = [
- "imbib-service",
+ "impress-core",
  "impress-service-core",
+ "impress-store-service",
  "impress-workspace-hack",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "uniffi",
 ]
 
@@ -4081,19 +4075,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "impart-service-http"
+name = "impart-verbs-ffi"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "impart-service",
- "impress-app-client",
+ "impress-core",
+ "impress-service-core",
+ "impress-store-service",
  "impress-workspace-hack",
- "reqwest",
  "serde",
  "serde_json",
- "tokio",
- "url",
- "urlencoding",
+ "tempfile",
+ "uniffi",
 ]
 
 [[package]]
@@ -4242,12 +4236,12 @@ name = "impel-tools"
 version = "0.1.0"
 dependencies = [
  "imbib-service",
- "imbib-service-http",
+ "impress-app-transport",
+ "impress-capabilities",
  "impress-memory-service",
  "impress-service-core",
  "impress-workspace-hack",
  "imprint-service",
- "imprint-service-http",
  "serde_json",
  "thiserror 2.0.18",
  "uniffi",
@@ -4336,23 +4330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "implore-service-http"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "implore-core",
- "implore-service",
- "impress-app-client",
- "impress-workspace-hack",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "url",
- "urlencoding",
-]
-
-[[package]]
 name = "implore-stats"
 version = "0.1.0"
 dependencies = [
@@ -4365,10 +4342,17 @@ dependencies = [
 name = "implore-verbs-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "implore-core",
  "implore-service",
+ "impress-core",
  "impress-service-core",
+ "impress-store-service",
  "impress-workspace-hack",
+ "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
  "uniffi",
 ]
 
@@ -4446,37 +4430,15 @@ name = "impress-ai-tools"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "imbib-service-http",
- "impart-service-http",
- "implore-service-http",
  "impress-ai",
  "impress-ai-service",
+ "impress-app-transport",
  "impress-capabilities",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
- "imprint-service-http",
  "serde_json",
  "tokio",
-]
-
-[[package]]
-name = "impress-app-client"
-version = "0.1.0"
-dependencies = [
- "imbib-service",
- "impress-core",
- "impress-workspace-hack",
- "imprint-service",
- "mockito",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "url",
- "urlencoding",
- "uuid",
 ]
 
 [[package]]
@@ -4540,7 +4502,6 @@ dependencies = [
  "implore-service",
  "impress-ai-service",
  "impress-bridges-service",
- "impress-capabilities-kit",
  "impress-core",
  "impress-keymap",
  "impress-layout-service",
@@ -4557,6 +4518,7 @@ dependencies = [
  "imprint-service",
  "perf-service",
  "serde_json",
+ "surface-demo-service",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4564,24 +4526,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "impress-capabilities-kit"
-version = "0.1.0"
-dependencies = [
- "impress-layout-service",
- "impress-service-core",
- "impress-store-service",
- "impress-surface-service",
- "impress-workspace-hack",
- "serde_json",
- "surface-demo-service",
-]
-
-[[package]]
 name = "impress-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
- "implore-service-http",
+ "impress-app-transport",
  "impress-capabilities",
  "impress-memory-service",
  "impress-service-core",
@@ -4755,19 +4704,18 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",
- "imbib-service-http",
- "impart-service-http",
- "implore-service-http",
+ "impress-app-transport",
  "impress-capabilities",
  "impress-memory-service",
  "impress-service-core",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-service",
- "imprint-service-http",
+ "mockito",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5018,7 +4966,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "impress-ai",
- "impress-capabilities-kit",
+ "impress-capabilities",
  "impress-core",
  "impress-keymap",
  "impress-layout",
@@ -5388,16 +5336,14 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "impress-app-client",
  "impress-core",
+ "impress-layout-service",
  "impress-scenario",
  "impress-service-core",
  "impress-service-macros",
- "impress-store-ffi",
  "impress-workspace-hack",
  "imprint-core",
  "imprint-service",
- "reqwest",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -5418,7 +5364,6 @@ dependencies = [
  "impress-core",
  "impress-service-core",
  "impress-service-macros",
- "impress-store-ffi",
  "impress-store-service",
  "impress-workspace-hack",
  "imprint-core",
@@ -5435,16 +5380,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "imprint-service-http"
+name = "imprint-verbs-ffi"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "impress-app-client",
+ "impress-core",
+ "impress-service-core",
+ "impress-store-service",
  "impress-workspace-hack",
- "imprint-core",
  "imprint-service",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
- "url",
+ "uniffi",
 ]
 
 [[package]]

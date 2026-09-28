@@ -28,10 +28,10 @@ imprint-service = { workspace = true }
 imprint-core = { workspace = true }
 # Tier A store capabilities: manuscript format set + round-trip against the
 # shared item store (same crates imprint-service itself persists through).
-impress-core = { workspace = true, features = ["sqlite"] }
-impress-store-ffi = { workspace = true }
-# Tier B: drive the running app over HTTP.
-impress-app-client = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite", "collab"] }
+# Tier B: use the shared loopback/token client for native verbs and the
+# manuscript Info-tab facade probe's remaining nonverb reads.
+impress-layout-service = { workspace = true }
 # The scenario spec + interpreter (SC-1's "one runner"): the class-(i) Tier B
 # entries are stored `impress/scenario@1.0.0` documents under `scenarios/`,
 # run through `impress_scenario::run` against this crate's own `Caller`
@@ -42,7 +42,6 @@ impress-scenario = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true }
 tokio = { workspace = true }
 tempfile = "3"
 uuid = { workspace = true, features = ["v4"] }

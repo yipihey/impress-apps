@@ -680,4 +680,41 @@ fn dump() {
             println!("fallback description: {}", v.service);
         }
     }
+    // Keep curated verdicts, drop retired workspace members, and classify
+    // the app-owned dispatch bridges by their deliberately narrow role.
+    // Printing this table too lets callers regenerate every changed census
+    // block from the test dump instead of editing Markdown rows by hand.
+    let doc = coverage_doc();
+    let block = marker_block(&doc, "verb-coverage-crates");
+    let rows: BTreeMap<_, _> = block
+        .into_iter()
+        .filter(|line| line.starts_with("| `"))
+        .map(|line| {
+            let name = line.split('`').nth(1).expect("crate row name");
+            (name, line)
+        })
+        .collect();
+    println!("\n| Crate | Role | Verdict | Reason / uncovered capabilities |");
+    println!("|---|---|---|---|");
+    for name in workspace_members() {
+        if let Some(row) = rows.get(name.as_str()) {
+            println!("{row}");
+        } else if let Some(app) = name.strip_suffix("-verbs-ffi") {
+            println!("| `{name}` | ffi | internal | {app}'s native app dispatcher over its service inventory; no independent capability |");
+        } else {
+            panic!("classify new workspace crate {name} before regenerating its verdict");
+        }
+    }
+    // The transport invokes already-registered verbs through Router::route;
+    // this is the inventory's own glue, not an independent HTTP capability.
+    // Include its reviewed exception in the dump rather than hand-editing a
+    // generated coverage table. Keep the other curated binding explanations.
+    println!("\n| Crate | Binding | Reason |");
+    println!("|---|---|---|");
+    for line in marker_block(&doc, "verb-coverage-internal-bindings") {
+        if line.starts_with("| `") && !line.starts_with("| `impress-service-core`") {
+            println!("{line}");
+        }
+    }
+    println!("| `impress-service-core` | `.route(` | the pipeline's app transport router invokes the registered verb inventory; it defines no independent capability |");
 }

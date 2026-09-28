@@ -14,6 +14,7 @@ import ImpressAutomation
 import ImpressKit
 import ImpressLogging
 import ImpressRustCore
+import ImbibVerbsFFI
 import ImprintCore
 import OSLog
 
@@ -27,7 +28,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/status` - Server health and library statistics
 /// - `GET /api/search?q=...&limit=...` - Search library
 /// - `GET /api/papers/{citeKey}` - Get single paper with BibTeX
-/// - `GET /api/export?keys=a,b,c` - Export BibTeX for multiple cite keys
+/// - `GET /api/export?keys=a,b,c&format=ris` - Export RIS for multiple cite keys
 /// - `GET /api/collections` - List all collections
 /// - `GET /api/libraries` - List all libraries
 /// - `GET /api/collections/{id}/papers` - List papers in a collection
@@ -121,7 +122,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 ///
 /// API Endpoints (DELETE):
 /// - `DELETE /api/papers` - Delete papers
-/// - `DELETE /api/collections/{id}` - Delete a collection
 /// - `DELETE /api/libraries/{id}` - Delete a single library (papers unlinked, undoable)
 /// - `DELETE /api/libraries` - Batch delete libraries (body: `{"identifiers":[UUID,…],"deleteFiles":false}`)
 /// - `DELETE /api/smart-searches/{id}` - Delete a smart search (Exploration row); papers untouched
@@ -473,14 +473,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleListMutedItems(request)
         }
 
-        // GET /api/libraries/default
-        if path == "/api/libraries/default" {
-            return await handleGetDefaultLibrary()
-        }
-        // GET /api/libraries/inbox
-        if path == "/api/libraries/inbox" {
-            return await handleGetInboxLibrary()
-        }
         // GET /api/libraries/{id}/export-bibtex
         if path.hasPrefix("/api/libraries/") && path.hasSuffix("/export-bibtex") {
             let segment = String(originalPath.dropFirst("/api/libraries/".count).dropLast("/export-bibtex".count))
@@ -529,39 +521,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetItemByUUID(itemID: itemID)
         }
 
-        // GET /api/scix-libraries
-        if path == "/api/scix-libraries" {
-            return await handleListScixLibraries()
-        }
-        // GET /api/scix-libraries/{id}
-        if path.hasPrefix("/api/scix-libraries/") && !path.contains("/papers") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleGetScixLibrary(id: id)
-        }
-        // GET /api/scix-libraries/{id}/papers
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleQueryScixLibraryPapers(scixLibraryID: id, request: request)
-        }
-        // GET /api/scix-libraries/{id}/papers/count
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers/count") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers/count".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleCountScixLibraryPapers(scixLibraryID: id)
-        }
-
-        // GET /api/undo/recent
-        if path == "/api/undo/recent" {
-            return await handleRecentUndoGroups(request)
-        }
 
         // GET /api/artifacts/{id}/relations — must come before /api/artifacts/{id} below
         if path.hasPrefix("/api/artifacts/") && path.hasSuffix("/relations") {
@@ -572,7 +531,9 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetArtifactRelations(id: artifactID)
         }
 
-        if path == "/api/export" {
+        // RIS has no canonical verb. BibTeX export uses
+        // POST /api/verb/imbib-library-service_export-bibtex.
+        if path == "/api/export" && request.queryParams["format"] == "ris" {
             return await handleExport(request)
         }
 
@@ -995,30 +956,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if path == "/api/papers/find-by-identifiers" {
             return await handleFindByIdentifiers(request)
         }
-        // POST /api/libraries/{id}/set-default
-        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/set-default") {
-            let segment = String(path.dropFirst("/api/libraries/".count).dropLast("/set-default".count))
-            guard let libraryID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid library ID")
-            }
-            return await handleSetLibraryDefault(libraryID: libraryID)
-        }
-        // POST /api/libraries/{id}/deduplicate
-        if path.hasPrefix("/api/libraries/") && path.hasSuffix("/deduplicate") {
-            let segment = String(path.dropFirst("/api/libraries/".count).dropLast("/deduplicate".count))
-            guard let libraryID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid library ID")
-            }
-            return await handleDeduplicateLibrary(libraryID: libraryID)
-        }
-        // POST /api/collections/{id}/purge-dismissed
-        if path.hasPrefix("/api/collections/") && path.hasSuffix("/purge-dismissed") {
-            let segment = String(path.dropFirst("/api/collections/".count).dropLast("/purge-dismissed".count))
-            guard let collectionID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid collection ID")
-            }
-            return await handlePurgeDismissedFromCollection(collectionID: collectionID)
-        }
         // POST /api/dismissed-papers — body has identifiers
         if path == "/api/dismissed-papers" {
             return await handleDismissPaper(request)
@@ -1026,10 +963,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         // POST /api/muted-items
         if path == "/api/muted-items" {
             return await handleCreateMutedItem(request)
-        }
-        // POST /api/tags
-        if path == "/api/tags" {
-            return await handleCreateTag(request)
         }
         // POST /api/smart-searches
         if path == "/api/smart-searches" {
@@ -1058,33 +991,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
             return await handleCreateAnnotationForFile(linkedFileID: fileID, request: request)
         }
-        // POST /api/scix-libraries
-        if path == "/api/scix-libraries" {
-            return await handleCreateScixLibrary(request)
-        }
-        // POST /api/scix-libraries/{id}/papers — add publications
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
-            let segment = String(path.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleAddToScixLibrary(scixLibraryID: id, request: request)
-        }
-        // POST /api/undo/operation/{id}
-        if path.hasPrefix("/api/undo/operation/") {
-            let opID = String(path.dropFirst("/api/undo/operation/".count))
-            return await handleUndoOperation(operationID: opID)
-        }
-        // POST /api/undo/batch/{id}
-        if path.hasPrefix("/api/undo/batch/") {
-            let batchID = String(path.dropFirst("/api/undo/batch/".count))
-            return await handleUndoBatch(batchID: batchID)
-        }
-
-        if path == "/api/libraries" {
-            return await handleCreateLibrary(request)
-        }
-
         if path == "/api/collections" {
             return await handleCreateCollection(request)
         }
@@ -1217,18 +1123,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
 
         // ===== Phase D: tag CRUD + artifact update =====
-        // PUT /api/tags/{path}/rename
-        if path.hasPrefix("/api/tags/") && path.hasSuffix("/rename") {
-            let raw = String(originalPath.dropFirst("/api/tags/".count).dropLast("/rename".count))
-            let tagPath = raw.removingPercentEncoding ?? raw
-            return await handleRenameTag(oldPath: tagPath, request: request)
-        }
-        // PUT /api/tags/{path} — color update
-        if path.hasPrefix("/api/tags/") && !path.hasSuffix("/rename") {
-            let raw = String(originalPath.dropFirst("/api/tags/".count))
-            let tagPath = raw.removingPercentEncoding ?? raw
-            return await handleUpdateTag(path: tagPath, request: request)
-        }
         // PUT /api/artifacts/{id} (NOT /tags) — update fields
         if path.hasPrefix("/api/artifacts/")
             && !path.hasSuffix("/tags")
@@ -1387,22 +1281,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleDeleteComment(commentID: commentID)
         }
 
-        // ===== Phase D additions: tag delete, scix-library remove =====
-        // DELETE /api/tags/{path}
-        if path.hasPrefix("/api/tags/") {
-            let raw = String(originalPath.dropFirst("/api/tags/".count))
-            let tagPath = raw.removingPercentEncoding ?? raw
-            return await handleDeleteTag(path: tagPath)
-        }
-        // DELETE /api/scix-libraries/{id}/papers — remove publications
-        if path.hasPrefix("/api/scix-libraries/") && path.hasSuffix("/papers") {
-            let segment = String(originalPath.dropFirst("/api/scix-libraries/".count).dropLast("/papers".count))
-            guard let id = UUID(uuidString: segment) else {
-                return .badRequest("Invalid scix-library ID")
-            }
-            return await handleRemoveFromScixLibrary(scixLibraryID: id, request: request)
-        }
-
         // DELETE /api/papers/{citeKey}/files/{linkedFileId}
         if path.hasPrefix("/api/papers/"),
            let filesRange = originalPath.range(of: "/files/", options: .caseInsensitive) {
@@ -1464,14 +1342,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleDeleteArtifact(id: artifactID)
         }
 
-        // DELETE /api/collections/{id}
-        if path.hasPrefix("/api/collections/") {
-            let segment = String(originalPath.dropFirst("/api/collections/".count))
-            guard let collectionID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid collection ID")
-            }
-            return await handleDeleteCollection(collectionID: collectionID)
-        }
 
         // DELETE /api/smart-searches (batch — must precede single-id route)
         if path == "/api/smart-searches" {
@@ -1691,8 +1561,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/export?keys=a,b,c&format=bibtex
-    /// Export BibTeX for specified cite keys.
+    /// GET /api/export?keys=a,b,c&format=ris
+    /// The remaining legacy export route; BibTeX uses the canonical verb.
     private func handleExport(_ request: HTTPRequest) async -> HTTPResponse {
         guard let keysParam = request.queryParams["keys"], !keysParam.isEmpty else {
             return .badRequest("Missing 'keys' parameter")
@@ -2439,7 +2309,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/search?q=...": "Search library (params: q, limit, offset, tag, flag, read, collection, library, addedAfter, addedBefore)",
                 "GET /api/search/external?q=...": "Search external sources like ADS, arXiv, Crossref (params: q, source, limit)",
                 "GET /api/papers/{citeKey}": "Get paper by cite key",
-                "GET /api/export?keys=...": "Export BibTeX (params: keys, format)",
+                "GET /api/export?keys=...&format=ris": "Export RIS (BibTeX uses POST /api/verb/imbib-library-service_export-bibtex)",
                 "GET /api/collections": "List all collections",
                 "GET /api/collections/{id}/papers": "List papers in a collection (params: limit, offset)",
                 "GET /api/libraries": "List all libraries with sharing info",
@@ -2513,7 +2383,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "PUT /api/papers/{citeKey}/notes": "Update notes (body: notes)",
                 // DELETE endpoints
                 "DELETE /api/papers": "Delete papers (body: identifiers)",
-                "DELETE /api/collections/{id}": "Delete a collection",
                 "DELETE /api/comments/{id}": "Delete a comment",
                 "DELETE /api/assignments/{id}": "Delete an assignment",
                 "DELETE /api/libraries/{id}/share": "Unshare a library (body: keepCopy?)",
@@ -5176,7 +5045,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/papers/recent-activity?limit=N
+    /// GET /api/papers/recent-activity?limit=N&parent_id=...
     /// (also reachable as `GET /api/papers/recent?source=activity`)
     ///
     /// **Recent USER ACTIVITY** — papers the user viewed or added by hand,
@@ -5193,12 +5062,26 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let limit = request.queryParams["limit"].flatMap { UInt32($0) }
             ?? UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
         let store = RustStoreAdapter.shared
-        let entries = store.recentActivityEntries(limit: limit)
-        let activityByID = Dictionary(
-            entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-
         do {
-            let papers = try store.imbibStore.queryRecentActivity(limit: limit)
+            let parent = request.queryParams["parent_id"] ?? request.queryParams["parentId"]
+            let memberIDs: Set<String>?
+            if let parent {
+                guard let parentID = UUID(uuidString: parent) else {
+                    return .badRequest("Invalid parent ID")
+                }
+                // queryPublicationIds uses the same HasParent-or-Contains
+                // membership predicate as queryRecent(parentId:). Filtering
+                // after a global limit would drop older matches incorrectly.
+                memberIDs = Set(try store.imbibStore.queryPublicationIds(parentId: parentID.uuidString))
+            } else {
+                memberIDs = nil
+            }
+            let scanLimit = memberIDs == nil ? limit : UInt32.max
+            let entries = store.recentActivityEntries(limit: scanLimit)
+            let activityByID = Dictionary(
+                entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let recent = try store.imbibStore.queryRecentActivity(limit: scanLimit)
+            let papers = Array(recent.filter { memberIDs?.contains($0.id) ?? true }.prefix(Int(limit)))
             let payload: [[String: Any]] = papers.map { paper in
                 var dict = bibToDict(paper)
                 if let activity = activityByID[UUID(uuidString: paper.id) ?? UUID()] {
@@ -5343,6 +5226,312 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if let f = p.flag?.color { dict["flag_color"] = f }
         return dict
     }
+}
+
+// MARK: - App-owned service verbs
+
+/// Calls the same private handlers as the legacy routes without sending a
+/// request to this process's HTTP port. The old routing arms can be removed
+/// after hosted parity without changing this callback.
+extension HTTPAutomationRouter {
+    func invokeNativeVerb(method: String, argsJSON: String) async -> NativeCallResult {
+        guard let data = argsJSON.data(using: .utf8),
+              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nativeFailure(400, "invalid-args", "Invalid native arguments")
+        }
+        if Self.nativeManuscriptMethods.contains(method) {
+            return await invokeNativeManuscriptVerb(method: method, args: args)
+        }
+        func string(_ key: String) -> String? { args[key] as? String }
+        func strings(_ key: String) -> [String]? { args[key] as? [String] }
+        func uuid(_ key: String) -> UUID? { string(key).flatMap(UUID.init(uuidString:)) }
+        func request(_ method: String, _ body: [String: Any] = [:], query: [String: String] = [:]) -> HTTPRequest {
+            let json = try? JSONSerialization.data(withJSONObject: body)
+            return HTTPRequest(method: method, path: "/native/imbib-app-service", queryParams: query,
+                               body: json.flatMap { String(data: $0, encoding: .utf8) })
+        }
+        var response: HTTPResponse
+        var field: String?
+        switch method {
+        case "search_sources":
+            guard let query = string("query") else { return nativeFailure(400, "invalid-args", "Missing query") }
+            var q = ["q": query, "limit": String((args["limit"] as? Int) ?? 20)]
+            if let sources = string("sources") { q["source"] = sources }
+            response = await handleSearchExternal(request("GET", query: q))
+            return nativeMapped(response) { body in
+                guard let results = body["results"] as? [[String: Any]] else { return nil }
+                return results.map { item -> [String: Any] in
+                    var paper = item
+                    paper["abstract_text"] = item["abstract"]
+                    return paper
+                }
+            }
+        case "recent_activity":
+            var q = ["limit": String((args["limit"] as? Int) ?? 0)]
+            if let parent = string("parent_id") { q["parentId"] = parent }
+            response = await handleQueryRecentActivity(request("GET", query: q)); field = "papers"
+        case "download_pdfs":
+            guard let ids = strings("publication_ids") else { return nativeFailure(400, "invalid-args", "Missing publication_ids") }
+            if ids.isEmpty { return nativeSuccess(0) }
+            response = await handleDownloadPDFs(request("POST", ["identifiers": ids]))
+            return Self.nativeDownloadPDFResult(response)
+        case "open_manuscript_papers":
+            guard let id = uuid("manuscript_id") else { return nativeFailure(400, "invalid-args", "Invalid manuscript_id") }
+            response = await handleOpenManuscriptPapers(manuscriptID: id)
+            if response.status == 200,
+               let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
+               body["opened"] as? Bool == false,
+               body["message"] is String {
+                return nativeSuccess(body)
+            }
+            return nativeMapped(response) { $0 }
+        case "sync_nudge":
+            response = await handleSyncNudge()
+            return nativeMapped(response) { ["accepted": $0["accepted"] ?? false, "reason": $0["reason"] ?? NSNull()] }
+        case "sync_status":
+            response = await handleSyncStatus()
+            return nativeStatus(response)
+        case "status":
+            response = await handleStatus()
+            return nativeStatus(response)
+        case "get_logs":
+            var q = ["limit": String((args["limit"] as? Int) ?? 100)]
+            for key in ["level", "category", "search"] { if let value = string(key) { q[key] = value } }
+            response = await LogEndpointHandler.handle(request("GET", query: q))
+            return nativeMapped(response) { ($0["data"] as? [String: Any])?["entries"] }
+        case "get_notes":
+            guard let key = string("cite_key") else { return nativeFailure(400, "invalid-args", "Missing cite_key") }
+            response = await handleGetNotes(citeKey: key)
+            if response.status == 404 { return nativeSuccess(NSNull()) }
+            field = "notes"
+        case "update_notes":
+            guard let key = string("cite_key"), let notes = string("notes") else {
+                return nativeFailure(400, "invalid-args", "Missing cite_key or notes")
+            }
+            response = await handleUpdateNotes(citeKey: key, request: request("PUT", ["notes": notes]))
+            return nativeMapped(response) { _ in true }
+        case "delete_annotation":
+            guard let id = uuid("annotation_id") else { return nativeFailure(400, "invalid-args", "Invalid annotation_id") }
+            response = await handleDeleteAnnotation(annotationID: id); field = "deleted"
+        case "delete_comment":
+            guard let id = uuid("comment_id") else { return nativeFailure(400, "invalid-args", "Invalid comment_id") }
+            response = await handleDeleteComment(commentID: id); field = "deleted"
+        case "delete_collection":
+            guard let id = uuid("collection_id") else { return nativeFailure(400, "invalid-args", "Invalid collection_id") }
+            response = await handleDeleteCollection(collectionID: id); field = "deleted"
+        case "delete_smart_searches":
+            guard let ids = strings("ids") else { return nativeFailure(400, "invalid-args", "Missing ids") }
+            response = await handleDeleteSmartSearchesBatch(request("DELETE", ["identifiers": ids])); field = "deleted"
+        case "tag_artifact":
+            guard let id = uuid("artifact_id"), let tags = strings("tags") else {
+                return nativeFailure(400, "invalid-args", "Invalid artifact_id or tags")
+            }
+            return await setNativeArtifactTags(id: id, tags: tags)
+        case "resolve_identifier":
+            guard let identifier = string("identifier") else { return nativeFailure(400, "invalid-args", "Missing identifier") }
+            response = await handleResolvePaper(request("POST", [
+                "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
+            return Self.nativeResolveIdentifierResult(response)
+        case "add_to_library":
+            guard let ids = strings("publication_ids"), let library = string("library_id") else {
+                return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")
+            }
+            if ids.isEmpty { return nativeSuccess(0) }
+            response = await handleAddToLibrary(request("POST", ["identifiers": ids, "libraryID": library]))
+            return nativeMapped(response) { (($0["assigned"] as? [Any])?.count).map { $0 as Any } }
+        default:
+            return nativeFailure(404, "verb-not-found", "Unknown imbib native method")
+        }
+        guard let field else { return nativeFailure(500, "internal", "No native result field") }
+        return nativeMapped(response) { $0[field] }
+    }
+
+    /// The legacy handler reports IDs, while the service verb promises a count.
+    /// Keeping this conversion here makes an omitted `downloaded` field a
+    /// refusal instead of a fabricated zero.
+    static func nativeDownloadPDFResult(_ response: HTTPResponse) -> NativeCallResult {
+        nativeMapped(response) { body in
+            (body["downloaded"] as? [String])?.count
+        }
+    }
+
+    /// A ranked candidate set needs caller selection. It is not a clean miss.
+    static func nativeResolveIdentifierResult(_ response: HTTPResponse) -> NativeCallResult {
+        if (200..<300).contains(response.status),
+           let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
+           body["status"] as? String == "ok" {
+            if (body["paper"] as? [String: Any])?["citeKey"] is String {
+                return nativeMapped(response) { ($0["paper"] as? [String: Any])?["citeKey"] }
+            }
+            if let candidates = body["candidates"] as? [Any], !candidates.isEmpty {
+                return nativeFailure(409, "ambiguous-identifier", "Multiple papers matched; choose one candidate")
+            }
+            if let duplicates = body["duplicates"] as? [Any], !duplicates.isEmpty {
+                return nativeFailure(409, "duplicate-identifier", "A matching paper already exists; resolve its cite key")
+            }
+            if body["via"] as? String == "not-found" {
+                return nativeSuccess(NSNull())
+            }
+            return nativeFailure(500, "internal", "Identifier resolver omitted its result")
+        }
+        return nativeMapped(response) { ($0["paper"] as? [String: Any])?["citeKey"] }
+    }
+
+    @MainActor private func setNativeArtifactTags(id: UUID, tags: [String]) -> NativeCallResult {
+        let adapter = RustStoreAdapter.shared
+        guard let artifact = adapter.getArtifact(id: id) else {
+            return nativeFailure(404, "not-found", "Artifact not found")
+        }
+        let old = Set(artifact.tags.map(\.path))
+        let desired = Set(tags)
+        do {
+            for tag in old.subtracting(desired) {
+                _ = try adapter.imbibStore.removeTag(ids: [id.uuidString], tagPath: tag)
+            }
+            for tag in desired.subtracting(old) {
+                _ = try adapter.imbibStore.addTag(ids: [id.uuidString], tagPath: tag)
+            }
+            if old != desired { adapter.notifyMutationFromBackground() }
+            routerLogger.infoCapture("Native artifact tags saved id=\(id) count=\(desired.count)", category: "automation")
+            return nativeSuccess(true)
+        } catch {
+            adapter.notifyMutationFromBackground()
+            return nativeFailure(500, "store-error", "Could not update artifact tags: \(error.localizedDescription)")
+        }
+    }
+}
+
+extension HTTPAutomationRouter {
+    private static let nativeManuscriptMethods: Set<String> = [
+        "list_manuscripts", "get_manuscript", "create_manuscript", "write_manuscript_body",
+        "compile_manuscript", "list_templates", "create_manuscript_from_template",
+    ]
+
+    private func invokeNativeManuscriptVerb(method: String, args: [String: Any]) async -> NativeCallResult {
+        switch method {
+        case "list_manuscripts":
+            do {
+                let rows = try await MainActor.run {
+                    try RustStoreAdapter.shared.imbibStore.listManuscripts(
+                        collectionId: nil, status: nil, sortField: "modified", ascending: false,
+                        limit: nil, offset: nil)
+                }
+                return nativeSuccess(rows.map { row in
+                    ["id": row.id, "title": row.title, "format": row.format, "status": row.status]
+                })
+            } catch {
+                return nativeFailure(500, "store-error", error.localizedDescription)
+            }
+        case "get_manuscript":
+            guard let text = args["manuscript_id"] as? String, let id = UUID(uuidString: text) else {
+                return nativeFailure(400, "invalid-args", "Invalid manuscript_id")
+            }
+            do {
+                guard let detail = try await MainActor.run(body: {
+                    try RustStoreAdapter.shared.imbibStore.getManuscriptDetail(id: id.uuidString)
+                }) else { return nativeSuccess(NSNull()) }
+                return nativeSuccess([
+                    "id": detail.id, "title": detail.title, "format": detail.format,
+                    "manuscriptStatus": detail.status,
+                    "contentHash": detail.bodyContentHash.map { $0 as Any } ?? NSNull(),
+                ])
+            } catch {
+                return nativeFailure(500, "store-error", error.localizedDescription)
+            }
+        case "create_manuscript":
+            guard let title = args["title"] as? String, !title.isEmpty else {
+                return nativeFailure(400, "invalid-args", "Missing title")
+            }
+            let format = (args["format"] as? String) ?? "typst"
+            guard let row = await MainActor.run(body: {
+                RustStoreAdapter.shared.createManuscript(title: title, format: format)
+            }) else { return nativeFailure(500, "store-error", "Could not create manuscript") }
+            routerLogger.infoCapture("Native manuscript saved id=\(row.id)", category: "manuscripts")
+            return nativeSuccess(["id": row.id, "title": row.title, "format": row.format])
+        case "write_manuscript_body":
+            guard let text = args["manuscript_id"] as? String, let id = UUID(uuidString: text),
+                  let body = args["body"] as? String,
+                  let expected = args["expected_hash"] as? String else {
+                return nativeFailure(400, "invalid-args", "Invalid manuscript body arguments")
+            }
+            guard let outcome = await MainActor.run(body: {
+                RustStoreAdapter.shared.setManuscriptBody(id: id, body: body, expectedHash: expected)
+            }) else { return nativeFailure(404, "not-found", "Manuscript could not be written") }
+            if !outcome.applied {
+                return nativeSuccess([
+                    "ok": false, "content_hash": NSNull(),
+                    "message": "Manuscript changed since it was read; re-read before writing",
+                ])
+            }
+            routerLogger.infoCapture("Native manuscript body saved id=\(id)", category: "manuscripts")
+            return nativeSuccess([
+                "ok": true, "content_hash": outcome.newHash.map { $0 as Any } ?? NSNull(),
+                "message": "Manuscript body replaced.",
+            ])
+        case "compile_manuscript":
+            guard let text = args["manuscript_id"] as? String, let id = UUID(uuidString: text) else {
+                return nativeFailure(400, "invalid-args", "Invalid manuscript_id")
+            }
+            let response = await Self.compileManuscript(id: id, includePDF: false)
+            guard let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any] else {
+                return nativeFailure(500, "internal", "Compile returned invalid JSON")
+            }
+            // A Typst diagnostic is a typed CompileResult, not a transport error.
+            if response.status == 422, body["ok"] as? Bool == false { return nativeSuccess(body) }
+            return nativeMapped(response) { $0 }
+        case "list_templates":
+            return nativeSuccess(TemplateCatalog.all().map { TemplateCatalog.dictionary(for: $0) })
+        case "create_manuscript_from_template":
+            guard let template = args["template_id"] as? String,
+                  let title = args["title"] as? String, !title.isEmpty else {
+                return nativeFailure(400, "invalid-args", "Missing template_id or title")
+            }
+            guard let starter = TemplateCatalog.starterDocument(
+                templateID: template, title: title, authors: []) else {
+                return nativeFailure(404, "not-found", "Unknown manuscript template")
+            }
+            guard let row = await MainActor.run(body: {
+                RustStoreAdapter.shared.createManuscript(title: title, format: "typst", body: starter)
+            }) else { return nativeFailure(500, "store-error", "Could not create template manuscript") }
+            routerLogger.infoCapture("Native template manuscript saved id=\(row.id)", category: "manuscripts")
+            return nativeSuccess(["id": row.id, "title": row.title, "format": row.format])
+        default:
+            return nativeFailure(404, "verb-not-found", "Unknown manuscript method")
+        }
+    }
+}
+
+private func nativeStatus(_ response: HTTPResponse) -> NativeCallResult {
+    nativeMapped(response) { body in
+        let json = (try? JSONSerialization.data(withJSONObject: body)).flatMap { String(data: $0, encoding: .utf8) }
+        return json.map { ["running": true, "detail": $0] }
+    }
+}
+
+private func nativeMapped(_ response: HTTPResponse, extract: ([String: Any]) -> Any?) -> NativeCallResult {
+    guard let body = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any] else {
+        return nativeFailure(500, "internal", "Native handler returned invalid JSON")
+    }
+    if !(200..<300).contains(response.status) || (body["status"] as? String) == "error" {
+        return nativeFailure(UInt16(clamping: response.status == 200 ? 422 : response.status),
+                             body["code"] as? String ?? "verb-failed",
+                             body["error"] as? String ?? body["message"] as? String ?? "imbib operation failed")
+    }
+    guard let value = extract(body) else { return nativeFailure(500, "internal", "Native handler omitted required result") }
+    return nativeSuccess(value)
+}
+
+private func nativeSuccess(_ value: Any) -> NativeCallResult {
+    guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+          let json = String(data: data, encoding: .utf8) else {
+        return nativeFailure(500, "internal", "Could not encode native result")
+    }
+    return NativeCallResult(status: 200, bodyJson: json)
+}
+
+private func nativeFailure(_ status: UInt16, _ code: String, _ message: String) -> NativeCallResult {
+    let data = try? JSONSerialization.data(withJSONObject: ["code": code, "message": message])
+    return NativeCallResult(status: status, bodyJson: data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}")
 }
 
 // MARK: - API Response Types

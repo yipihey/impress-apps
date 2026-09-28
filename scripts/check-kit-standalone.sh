@@ -95,6 +95,8 @@ def block(name):
     return m.group(1)
 
 
+feature_selection = dict(re.findall(r"^- `([^`]+)`: `([^`]+)`", block("kit-feature-selection"), re.M))
+
 kit = [re.match(r"\| `([^`]+)`", l).group(1)
        for l in block("kit-crates").splitlines() if l.startswith("| `")]
 findings = {}
@@ -168,6 +170,13 @@ for c in members:
                 continue
             pkg, rel = r
             if pkg in member_set:
+                # A kit test may ask the shared inventory for app features.
+                # That is an out-of-cut dev dependency just like a direct
+                # imprint-core dev dependency; omit the affected test targets.
+                selected = set(feature_selection.get(pkg, "").split(","))
+                if sec.endswith("dev-dependencies") and pkg in feature_selection and set(spec.get("features", [])) - selected:
+                    drops.setdefault(c, []).append((sec, key, pkg))
+                    continue
                 if rel != Path("crates") / pkg:
                     errors.append(f"{c} -> {pkg} lives at {rel}, not crates/{pkg}")
                 continue
@@ -196,8 +205,8 @@ for c, ds in opt_drops.items():
     manifest = tomllib.loads((ROOT / "crates" / c / "Cargo.toml").read_text())
     for sec, key, pkg in ds:
         feats = gating_features(manifest, key)
-        if "default" in feats or any(
-                f in (manifest.get("features") or {}).get("default", []) for f in feats):
+        effective_default = feature_selection.get(c, "").split(",") if c in feature_selection else (manifest.get("features") or {}).get("default", [])
+        if "default" in feats or any(f in effective_default for f in feats):
             errors.append(f"{c}'s optional {pkg} is on by default, so the kit pulls it: "
                           f"it could not leave")
             continue
@@ -209,6 +218,8 @@ for c, ds in opt_drops.items():
         for other in members:
             om = tomllib.loads((ROOT / "crates" / other / "Cargo.toml").read_text())
             for osec, odeps in sections(om):
+                if osec.endswith("dev-dependencies"):
+                    continue  # dev cuts are handled and reported separately
                 spec = odeps.get(c)
                 if isinstance(spec, dict) and set(spec.get("features", [])) & set(feats):
                     errors.append(f"kit crate {other} enables {c}'s "
@@ -348,6 +359,16 @@ try:
         if isinstance(spec, dict) and "path" in spec and not (scratch / spec["path"]).exists():
             fail(f"scratch [workspace.dependencies] still points at {spec['path']}")
     (scratch / "Cargo.toml").write_text(text)
+
+    # Select the manifest's standalone feature cut in the copied workspace.
+    # The repository crate keeps its normal default feature set unchanged.
+    for c, selected in feature_selection.items():
+        if c in member_set:
+            mpath = scratch / "crates" / c / "Cargo.toml"
+            mtext = re.sub(r'(?m)^default\s*=\s*\[[^\]]*\]',
+                          'default = [' + ', '.join('"' + f + '"' for f in selected.split(",")) + ']', mpath.read_text())
+            mpath.write_text(mtext)
+            print(f"kit feature selection: {c} --no-default-features --features {selected}")
 
     # Optional out-of-kit dependencies nothing in the kit enables: gone from the copy,
     # with the features that would turn them on.

@@ -49,7 +49,6 @@ import AppKit
 /// - `POST /api/documents/{id}/insert` - Insert text at position
 /// - `POST /api/documents/{id}/delete` - Delete text range
 /// - `POST /api/documents/{id}/bibliography` - Add citation to bibliography
-/// - `POST /api/documents/create` - Create new document (does NOT persist; see from-template)
 /// - `POST /api/documents/from-template` - Create a manuscript from a journal template
 ///   (body: template_id, title, authors?, affiliations?, abstract?, keywords?, include_sections?)
 /// - `GET /api/templates` - List manuscript templates (params: category, q)
@@ -61,7 +60,6 @@ import AppKit
 /// - `GET /api/store-timings` - StoreTimings snapshot (per-caller stats)
 /// - `POST /api/store-timings/reset` - Reset StoreTimings counters
 /// - `GET /api/manuscripts` - List every manuscript known to the store
-/// - `GET /api/manuscripts/{id}/sections` - List sections for a manuscript
 /// - `GET /api/sections/{id}` - Fetch a single section (id, body, metadata)
 /// - `GET /api/search?q=...` - Cross-document manuscript search
 /// - `GET /api/citation-usages` - List citation-usage records
@@ -81,6 +79,64 @@ public actor ImprintHTTPRouter: HTTPRouter {
     // MARK: - Initialization
 
     public init() {}
+
+    /// Native service callback entry. Keep the handler implementations after
+    /// P5b removes the mirrored REST routing arms below.
+    public func invokeNativeVerb(
+        method: String, id: String? = nil, request: HTTPRequest
+    ) async -> HTTPResponse {
+        switch method {
+        case "status": return await handleStatus()
+        case "get_logs":
+            return await SharedAutomationRoutes.route(request)
+                ?? .serverError("Log route unavailable")
+        case "update_document":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "update_metadata":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "get_content":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleGetDocumentContent(id: id)
+        case "insert_text":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "delete_text":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "replace":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await ImprintNativeEdits.apply(method: method, id: id, request: request)
+        case "get_pdf":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleGetPDF(id: id)
+        case "get_bibliography":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleGetBibliography(id: id)
+        case "export_document":
+            guard let id else { return .badRequest("Missing document ID") }
+            switch request.queryParams["format"] {
+            case "typst": return await handleExportTypst(id: id)
+            case "latex": return await handleExportLatex(id: id, request: request)
+            case "text": return await handleExportText(id: id)
+            default: return .badRequest("Unsupported export format")
+            }
+        case "list_comments":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleListComments(docId: id, filter: nil, authorAgentId: nil)
+        case "create_comment":
+            guard let id else { return .badRequest("Missing document ID") }
+            return await handleCreateComment(docId: id, request: request)
+        case "update_comment":
+            guard let id else { return .badRequest("Missing comment ID") }
+            return await handlePatchComment(id: id, request: request)
+        case "delete_comment":
+            guard let id else { return .badRequest("Missing comment ID") }
+            return await handleDeleteComment(id: id)
+        default: return .notFound("Unknown imprint native method")
+        }
+    }
 
     // MARK: - Routing
 
@@ -165,10 +221,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
             if pathLower.hasPrefix("/api/manuscripts/") {
                 let remainder = String(path.dropFirst("/api/manuscripts/".count))
-                if remainder.hasSuffix("/sections") {
-                    let docId = String(remainder.dropLast("/sections".count))
-                    return handleManuscriptSections(id: docId)
-                }
                 if remainder.hasSuffix("/history") {
                     let docId = String(remainder.dropLast("/history".count))
                     return await handleManuscriptHistory(id: docId)
@@ -368,10 +420,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
             // to imprint-core (typst) or LaTeXCompilationService (LaTeX engines).
             if pathLower == "/api/compile/bundle" {
                 return await handleBundleCompile(request)
-            }
-
-            if pathLower == "/api/documents/create" {
-                return await handleCreateDocument(request)
             }
 
             if pathLower == "/api/documents/from-template" {
@@ -1035,38 +1083,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     // MARK: - POST Handlers
 
-    /// POST /api/documents/create
-    /// Create a new document.
-    private func handleCreateDocument(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let body = request.body,
-              let data = body.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return .badRequest("Invalid JSON body")
-        }
-
-        let title = json["title"] as? String ?? "Untitled"
-        let content = json["source"] as? String
-
-        #if os(macOS)
-        // Create new document on main thread
-        let docId = await MainActor.run {
-            let doc = ImprintDocument()
-            // Note: We can't easily create documents programmatically in a document-based app
-            // Return the ID of what would be created
-            return doc.id
-        }
-
-        return .json([
-            "status": "ok",
-            "message": "Document creation requested",
-            "id": docId.uuidString,
-            "title": title
-        ])
-        #else
-        return .badRequest("Document creation not supported on this platform")
-        #endif
-    }
-
     // MARK: - Template Handlers
 
     /// GET /api/templates
@@ -1133,9 +1149,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
     /// Body: `{template_id, title, authors?, affiliations?, abstract?,
     ///         keywords?, include_sections?}`
     ///
-    /// Unlike `/api/documents/create` (which does not persist anything), this
-    /// writes a real manuscript through `ManuscriptStoreAdapter` and returns its
-    /// id, so the document is immediately openable and compilable.
+    /// This writes a real manuscript through `ManuscriptStoreAdapter` and
+    /// returns its id, so the document is immediately openable and compilable.
     private func handleCreateDocumentFromTemplate(_ request: HTTPRequest) async -> HTTPResponse {
         guard let json = Self.plotJSONBody(request) else {
             return .badRequest("Invalid JSON body")
@@ -2316,28 +2331,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
         }
     }
 
-    /// GET /api/manuscripts/{id}/sections — list every stored section
-    /// for a document, sorted by `order_index`. Body is inline; large
-    /// content-addressed bodies are not rehydrated here — call
-    /// `/api/sections/{id}` for those.
-    private func handleManuscriptSections(id: String) -> HTTPResponse {
-        guard let uuid = UUID(uuidString: id) else {
-            return .badRequest("Invalid manuscript id: \(id)")
-        }
-        #if canImport(ImpressRustCore)
-        let sections = ImprintImpressStore.shared.listSectionsForDocument(documentID: uuid)
-        let payload: [[String: Any]] = sections.map { Self.sectionToJSON($0) }
-        return .json([
-            "status": "ok",
-            "manuscriptID": id,
-            "count": sections.count,
-            "sections": payload
-        ])
-        #else
-        return .json(["status": "ok", "manuscriptID": id, "count": 0, "sections": []])
-        #endif
-    }
-
     /// GET /api/sections/{id} — fetch a single section with its body
     /// rehydrated from content-addressed storage when needed.
     private func handleGetSection(id: String) -> HTTPResponse {
@@ -3160,7 +3153,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 "GET /api/documents/{id}/export/latex": "Export as LaTeX (param: template)",
                 "GET /api/documents/{id}/export/text": "Export as plain text",
                 "GET /api/documents/{id}/export/typst": "Export Typst source + bibliography",
-                "POST /api/documents/create": "Create new document (body: {title, source})",
                 "GET /api/templates":
                     "List manuscript templates (params: category=journal|conference|thesis|report|custom, q)",
                 "GET /api/templates/{id}": "Template metadata (journal, page defaults, tags)",

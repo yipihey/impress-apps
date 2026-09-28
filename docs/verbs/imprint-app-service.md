@@ -52,7 +52,7 @@ _No examples yet._
 
 ## `imprint-app-service_delete-text`
 
-Delete a character range from a manuscript. Offsets are into the source text; read it first, since they shift with every edit.
+Delete a UTF-16 editor range from a manuscript. Offsets are into the source text; read it first, since they shift with every edit.
 
 - **safety**: `external`
 - **reads**: —
@@ -131,7 +131,7 @@ _No examples yet._
 
 ## `imprint-app-service_insert-text`
 
-Insert text at a character offset in a manuscript. Goes through the running app so the open editor, its undo stack and its source map stay in step. Prefer section-level writes when you are replacing a whole section — they are compare-and-set and cannot clobber a concurrent edit.
+Insert text at a UTF-16 editor offset in a manuscript. Goes through the running app so the open editor, its undo stack and its source map stay in step. Prefer section-level writes when you are replacing a whole section — they are compare-and-set and cannot clobber a concurrent edit.
 
 - **safety**: `external`
 - **reads**: —
@@ -193,7 +193,7 @@ _No examples yet._
 
 ## `imprint-app-service_update-comment`
 
-Edit a comment's body, or set its status (`open`, `accepted`, `rejected`).
+Edit a comment's body, or set its status to `open` or `resolved`. The native app refuses `accepted` and `rejected` until an immediate suggestion action can preserve their distinct review semantics.
 
 - **safety**: `external`
 - **reads**: —

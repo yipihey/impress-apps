@@ -350,6 +350,66 @@ const ITEM_COLUMNS: &str = "id, schema_ref, payload, created, modified, author, 
      message_type, produced_by, version, batch_id, op_target_id";
 
 impl SqliteItemStore {
+    /// Insert a payload or additively update its supplied fields. This is the
+    /// shared write behind the Swift FFI and native Rust domain services;
+    /// omitted fields and the existing immutable envelope are preserved.
+    pub fn upsert_payload(
+        &self,
+        id: crate::item::ItemId,
+        schema: crate::schema::SchemaRef,
+        payload: std::collections::BTreeMap<String, crate::item::Value>,
+    ) -> Result<(), StoreError> {
+        use crate::item::{ActorKind, Item, Priority, Visibility};
+        let item = Item {
+            id,
+            schema,
+            payload: payload.clone(),
+            created: chrono::Utc::now(),
+            modified: chrono::Utc::now(),
+            author: "local".into(),
+            author_kind: ActorKind::Human,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::None,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        };
+        match self.insert(item) {
+            Ok(_) => Ok(()),
+            Err(StoreError::AlreadyExists(_)) => {
+                let mutations = payload
+                    .into_iter()
+                    .map(|(key, value)| FieldMutation::SetPayload(key, value))
+                    .collect::<Vec<_>>();
+                if !mutations.is_empty() {
+                    self.update(id, mutations)?;
+                }
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The database SQLite actually opened. In-memory stores have no path.
+    pub fn database_path(&self) -> Option<std::path::PathBuf> {
+        self.conn
+            .lock()
+            .ok()?
+            .path()
+            .filter(|path| !path.is_empty())
+            .map(std::path::PathBuf::from)
+    }
+
     /// Open (or create) a database at the given path with default config.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         Self::open_with_config(path, StoreConfig::default())

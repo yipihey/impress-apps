@@ -36,6 +36,10 @@ struct ImpartIOSApp: App {
         // rule. No-op unless the process was launched with `--uitesting-seed`.
         ImpartIOSUITestSeed.seedIfRequested()
 
+        Task { @MainActor in
+            ImpartNativeVerbs.install()
+        }
+
         // iOS can sync conversation/message/task rows while the laptop model
         // host is offline. Startup work remains deferred by 120 seconds.
         CloudSyncEngineLauncher.startAfterGrace()

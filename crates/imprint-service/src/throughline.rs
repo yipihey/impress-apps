@@ -28,7 +28,8 @@ use uuid::Uuid;
 use crate::blob_store::BlobStore;
 use crate::error::ServiceError;
 use crate::sections::{SectionRecord, SectionStore};
-use impress_store_ffi::SharedStore;
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::ItemStore;
 
 /// Schema reference stored on the throughline mirror item. Matches
 /// `impress-core::schemas::throughline`.
@@ -418,7 +419,7 @@ impl ThroughlineStore {
         Self { sections }
     }
 
-    fn store(&self) -> &SharedStore {
+    fn store(&self) -> &SqliteItemStore {
         self.sections.shared_store()
     }
 
@@ -442,10 +443,7 @@ impl ThroughlineStore {
     /// Does this document have a throughline? Cheap opt-in check
     /// (ADR-0016 D1): one keyed get, no scan, no writes.
     pub fn has_throughline(&self, document_id: Uuid) -> Result<bool, ServiceError> {
-        Ok(self
-            .store()
-            .get_item(Self::item_id(document_id).to_string())?
-            .is_some())
+        Ok(self.store().get(Self::item_id(document_id))?.is_some())
     }
 
     /// Fetch the throughline mirror for a document, if it exists.
@@ -454,10 +452,11 @@ impl ThroughlineStore {
         document_id: Uuid,
     ) -> Result<Option<ThroughlineRecord>, ServiceError> {
         let id = Self::item_id(document_id);
-        let Some(row) = self.store().get_item(id.to_string())? else {
+        let Some(row) = self.store().get(id)? else {
             return Ok(None);
         };
-        let payload: ThroughlinePayload = serde_json::from_str(&row.payload_json)?;
+        let payload: ThroughlinePayload =
+            serde_json::from_value(serde_json::to_value(&row.payload)?)?;
         let source = payload.body_content.unwrap_or_default();
         let anchor_map = match payload.anchor_map_json.as_deref() {
             Some(json) => AnchorMap::parse(json)?,
@@ -503,10 +502,10 @@ impl ThroughlineStore {
             paragraph_count: Some(paragraphs.len() as i64),
         };
         let id = Self::item_id(document_id);
-        self.store().upsert_item(
-            id.to_string(),
-            THROUGHLINE_SCHEMA_REF.to_string(),
-            serde_json::to_string(&payload)?,
+        self.store().upsert_payload(
+            id,
+            THROUGHLINE_SCHEMA_REF.into(),
+            serde_json::from_value(serde_json::to_value(payload)?)?,
         )?;
         Ok(ThroughlineRecord {
             item_id: id.to_string(),
@@ -554,10 +553,10 @@ impl ThroughlineStore {
     /// Remove a document's throughline (deactivation, ADR-0016 D1).
     pub fn delete_throughline(&self, document_id: Uuid) -> Result<bool, ServiceError> {
         let id = Self::item_id(document_id);
-        if self.store().get_item(id.to_string())?.is_none() {
+        if self.store().get(id)?.is_none() {
             return Ok(false);
         }
-        self.store().delete_item(id.to_string())?;
+        self.store().delete(id)?;
         Ok(true)
     }
 

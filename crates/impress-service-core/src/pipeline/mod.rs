@@ -43,6 +43,7 @@ pub mod identity;
 pub mod perf;
 pub mod policy;
 pub mod reachability;
+pub mod transport;
 
 use std::sync::{Arc, Once};
 use std::time::Instant;
@@ -235,10 +236,17 @@ fn prepare(
 
     // 3. reachability.
     if let Some(app) = reachability::unavailable_app(verb.name) {
-        return Err(PipelineError::Unavailable {
-            app,
-            verb: verb.name,
-        });
+        // A native request is already executing inside its owning app. A
+        // client router co-linked in that process must not gate it on a
+        // second probe (or send it back over HTTP to itself).
+        // A scenario with an explicit store also runs locally, independent
+        // of the client's process-wide app availability configuration.
+        if store.is_none() && !matches!(&caller, CallerIdentity::App(owner) if owner == app) {
+            return Err(PipelineError::Unavailable {
+                app,
+                verb: verb.name,
+            });
+        }
     }
 
     // 4. policy.
@@ -423,7 +431,15 @@ fn finish(verb: &'static VerbDescriptor, prepared: Prepared, result: &Result<Val
 
 /// Run `verb` through the chain with its own handler as the handler step.
 pub async fn invoke(verb: &'static VerbDescriptor, call: Call) -> Result<Value, PipelineError> {
-    invoke_with(verb, call, verb.handler).await
+    invoke_with(verb, call, |args| async move {
+        if let Some(router) = transport::current() {
+            if let Some(result) = router.route(verb, args.clone()).await {
+                return result;
+            }
+        }
+        (verb.handler)(args).await
+    })
+    .await
 }
 
 /// Run `verb` through the chain on `store` instead of the process-wide
@@ -457,7 +473,10 @@ where
     let entered = prepared.span.clone();
     let result = {
         let _guard = entered.enter();
-        let future = work(prepared.args.clone());
+        let future = async {
+            let result = work(prepared.args.clone()).await;
+            native_backend_result(result)
+        };
         drop(_guard);
         tracing::Instrument::instrument(context::scope(prepared.context.clone(), future), entered)
             .await
@@ -465,6 +484,18 @@ where
     let result = apply_deprecation_notice(verb, prepared.requested_name.as_deref(), result);
     finish(verb, prepared, &result);
     result.map_err(PipelineError::Handler)
+}
+
+fn native_backend_result(result: Result<Value, BoxError>) -> Result<Value, BoxError> {
+    match context::take_reported_refusal() {
+        Some(refusal) => Ok(serde_json::json!({
+            "ok": false,
+            "code": refusal.code,
+            "message": refusal.message,
+            "wire_version": crate::wire::WIRE_VERSION,
+        })),
+        None => result,
+    }
 }
 
 /// [`invoke_with`] for a synchronous handler step (the FFI's layout
@@ -484,7 +515,9 @@ where
     };
     let result = {
         let _guard = prepared.span.enter();
-        context::sync_scope(prepared.context.clone(), || work(prepared.args.clone()))
+        context::sync_scope(prepared.context.clone(), || {
+            native_backend_result(work(prepared.args.clone()))
+        })
     };
     let result = apply_deprecation_notice(verb, prepared.requested_name.as_deref(), result);
     finish(verb, prepared, &result);
@@ -685,6 +718,52 @@ mod tests {
         let err = invoke_blocking(&FAILING, Call::person(json!({}))).unwrap_err();
         assert!(matches!(err, PipelineError::Handler(_)));
         assert_eq!(err.to_string(), "boom");
+    }
+
+    #[tokio::test]
+    async fn native_refusals_replace_placeholders_without_leaking_between_calls() {
+        let refused = invoke_with(&ECHO, Call::person(json!({})), |_| async {
+            context::report_refusal("store-error", "native save failed");
+            tokio::task::yield_now().await;
+            context::report_refusal("internal", "secondary failure");
+            Ok(Value::Null)
+        });
+        let clean = invoke_with(&ECHO, Call::person(json!({})), |_| async {
+            tokio::task::yield_now().await;
+            Ok(json!([1, 2]))
+        });
+        let (refused, clean) = tokio::join!(refused, clean);
+        assert_eq!(
+            refused.unwrap(),
+            serde_json::json!({
+                "ok": false, "code": "store-error", "message": "native save failed", "wire_version": 1
+            })
+        );
+        assert_eq!(clean.unwrap(), json!([1, 2]));
+
+        let outer = invoke_with(&ECHO, Call::person(json!({})), |_| async {
+            let inner = invoke_with(&ECHO, Call::person(json!({})), |_| async {
+                context::report_refusal("not-found", "missing child");
+                Ok(Value::Null)
+            })
+            .await?;
+            Ok(json!({"handled_child": inner["code"]}))
+        })
+        .await
+        .unwrap();
+        assert_eq!(outer, json!({"handled_child": "not-found"}));
+    }
+
+    #[test]
+    fn a_native_sync_failure_is_not_a_successful_false_result() {
+        let result = invoke_sync_with(&ECHO, Call::person(json!({})), |_| {
+            context::report_refusal("verb-failed", "native callback failed");
+            Ok(json!(false))
+        })
+        .unwrap();
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["code"], "verb-failed");
+        assert_eq!(result["message"], "native callback failed");
     }
 
     #[test]

@@ -31,23 +31,26 @@ change with it. They do not keep a second list.
 | `impress-verb-surface` | pure | `verb_surface(&VerbDescriptor) -> SurfaceSpec` and `catalogue()`: the generated form, Run button, review step and result view for every linked verb (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4). Depends on `impress-service-core` (the descriptor) and `impress-surface` (the vocabulary) alone. |
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
 | `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
-| `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities-kit`. |
+| `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities`. |
 | `impress-keymap` | pure | R2: the one registry of app chords (`Chord`, `Binding`, `keymap_json`, the coverage test), declared as data with no store or inventory dependency. In the kit because `impress-store-ffi` links it to export `keymap_json`. |
 | `impress-scenario` | pure | S1's scenario spec and interpreter (`Scenario`, `Caller`, `run`, `validate`, `{{…}}` templating): reaches only `impress-surface` (templating) and `impress-service-core` (the shared `CapabilityResult`/`Tier` report shape) — no store, no IO, confirmed by `cargo tree -p impress-scenario` before this row was added. S2 kept it out of the kit so `impress-layout-service`/`impress-surface-service` could not reach it without an ask-first manifest change (ADR-0033 D7); Tom approved the join 2026-09-27 (docs/plan-self-reflective-layer.md S2b) so those two crates' Tier B catalogues can run their non-dynamic entries as stored `impress/scenario@1.0.0` documents through the one interpreter, like `imprint-selftest` already does. |
-| `impress-store-service` | store | Store-generic verbs (the collection kernel, triage, the settings registry's `settings-service`), with no app dependency. **Added in W6:** `impress-layout-service` calls its `store_instance()` to share the one store connection, and `impress-capabilities-kit` links it. |
+| `impress-store-service` | store | Store-generic verbs (the collection kernel, triage, the settings registry's `settings-service`), with no app dependency. **Added in W6:** `impress-layout-service` calls its `store_instance()` to share the one store connection, and `impress-capabilities` links it. |
 | `impress-workflow` | pure | W1/W2 (plan-self-reflective-layer.md § Workflows): the workflow spec, validator, pure planner (`plan`) and pure trigger engine (`trigger::tick`). Reaches `impress-surface` only. |
 | `impress-workflow-service` | store | W1/W2: the workflow verbs (`validate`/`create`/`get`/`list`/`dry-run`/`enable`/`disable`) and `WorkflowEngine` (W2's planner wired to a store — the `store`/`job`/`call` signal scans, the daemon-vs-app lease, running a fired workflow's steps through the pipeline). **Added in W2** so `impress-store-ffi` can export `workflow_tick()` — the app-side host runs the identical engine `impel-taskd`'s fourth spawn rule does. |
 | `impress-layout-service` | store | The layout verbs over a store-backed live layout (`impress/ui/layout@1.0.0` rows), plus the Tier-B catalogue. |
 | `impress-surface-service` | store | The surface verbs, surface records and the runtime that executes a surface's effects. |
-| `impress-capabilities-kit` | store | The kit's slice of the linked `#[impress_service]` inventory (the four service crates above), so the FFI can link it without a package cycle. |
+| `impress-capabilities` | store | The one linked inventory, with only its `kit` feature selected and default features disabled (P5). |
 | `impress-ai` | store | Provenance-first AI conversations and the provider registry, which the FFI binds (`ai.rs`, `ai_registry.rs`, ADR-0029). **Added in W6:** it reaches only `impress-core` (sqlite) once its `executor` feature (the impel task executors, and its one path to `impel-core`) is off, which it is for every kit consumer. |
 | `impress-store-ffi` | store | The UniFFI bindings the Swift side links (`ImpressRustCore`'s xcframework): store, layout, surface, and the AI conversation and registry bindings. |
 | `impress-workspace-hack` | pure | Dependency glue, no code: the cargo-hakari crate every workspace member depends on so every lane resolves one third-party feature set (plan-verb-pipeline-and-transport § Build cost, B4). In the table because every kit crate reaches it; it reaches no workspace crate. The standalone check copies it as the **stub** hakari prescribes for a crate that leaves (its generated section emptied), because the real one names the whole suite's dependencies. |
 <!-- kit-crates:end -->
 
-`impress-capabilities` (the whole suite's inventory) is **not** in the kit. It links
-every app's services, and it reaches the kit only through its `kit` feature, which
-depends on `impress-capabilities-kit`.
+The inventory crate has both kit and app features. The checks select this
+feature set for the standalone cut; full clients retain their app features.
+
+<!-- kit-feature-selection:begin -->
+- `impress-capabilities`: `kit` (no default features)
+<!-- kit-feature-selection:end -->
 
 ## The one allowed reach: `impress-core`'s store
 

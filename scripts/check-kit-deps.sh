@@ -239,7 +239,12 @@ while read -r crate tier; do
         continue
     fi
 
-    tree_output="$(cargo -q tree -p "$crate" --target all -e normal --prefix none -f '{p}|{f}' 2>&1)" || {
+    feature_args=""
+    selected_features="$(manifest_block kit-feature-selection | awk -v c="$crate" '$2 == "`" c "`:" { gsub(/`/, "", $3); print $3 }')"
+    if [[ -n "$selected_features" ]]; then
+        feature_args="--no-default-features --features $selected_features"
+    fi
+    tree_output="$(cargo -q tree -p "$crate" $feature_args --target all -e normal --prefix none -f '{p}|{f}' 2>&1)" || {
         echo "FAIL: 'cargo tree -p $crate' errored:" >&2
         echo "$tree_output" >&2
         status=1

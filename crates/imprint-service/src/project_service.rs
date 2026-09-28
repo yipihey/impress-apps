@@ -3635,7 +3635,7 @@ impress_service_impl! {
         reach: [],
     },
     impl = DefaultImprintProjectService,
-    instance = DefaultImprintProjectService::new,
+    instance = || crate::backend::project_service_instance(),
     methods = [
         project_tree(manuscript_id: String) -> ProjectTreeRecord,
         project_file(manuscript_id: String, path: String) -> ProjectFileContentRecord,
