@@ -49,3 +49,6 @@ examples = []
 [[example]]
 name = "live_check"
 required-features = ["examples"]
+
+[lints]
+workspace = true

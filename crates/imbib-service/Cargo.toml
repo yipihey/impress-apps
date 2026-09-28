@@ -47,3 +47,6 @@ impress-workflow-service = { workspace = true }
 # workflow's `retention_cleanup` call actually lands a `core/verb-call@1.0.0`
 # row for the test to read back.
 impress-store-service = { workspace = true }
+
+[lints]
+workspace = true

@@ -22,3 +22,6 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 rstest = "0.18"
+
+[lints]
+workspace = true

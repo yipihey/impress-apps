@@ -51,3 +51,6 @@ impress-service-macros = { path = "../impress-service-macros" }
 [[example]]
 name = "echo_demo"
 required-features = ["examples"]
+
+[lints]
+workspace = true

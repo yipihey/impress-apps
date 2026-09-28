@@ -36,3 +36,6 @@ examples = []
 [[example]]
 name = "usb_spike"
 required-features = ["examples"]
+
+[lints]
+workspace = true

@@ -126,3 +126,6 @@ vw = ["dep:vw-impress-adapter"]
 semantic-search = ["dep:imbib-semantic-service"]
 impact = ["dep:capabilities-service", "kit"]
 workflow = ["dep:impress-workflow-service"]
+
+[lints]
+workspace = true

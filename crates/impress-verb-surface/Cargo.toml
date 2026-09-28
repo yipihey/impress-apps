@@ -46,3 +46,6 @@ tokio = { workspace = true }
 # is a dev-dependency cycle, which cargo permits (the dev graph is built
 # after the lib graph); see `tests/proof_catalogue_and_run.rs`'s doc comment.
 capabilities-service = { workspace = true }
+
+[lints]
+workspace = true

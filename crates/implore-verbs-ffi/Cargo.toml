@@ -33,3 +33,6 @@ impress-workspace-hack.workspace = true
 implore-core = { workspace = true, features = ["uniffi"] }
 tokio = { workspace = true }
 tempfile = "3"
+
+[lints]
+workspace = true

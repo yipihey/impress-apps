@@ -42,3 +42,5 @@ impress-workspace-hack.workspace = true
 # rerun-if-changed. The build-dep still pulled uniffi_build ->
 # uniffi_bindgen (+ askama, goblin, uniffi_udl) into the host graph.
 
+[lints]
+workspace = true

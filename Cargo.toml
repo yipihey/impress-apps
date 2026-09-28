@@ -178,6 +178,15 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/yipihey/impress-apps"
 
+[workspace.lints.rust]
+# Keep unsafe operations explicit even inside an unsafe function.
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+# Accidental debug output and unfinished branches must not ship in a verb host.
+dbg_macro = "warn"
+todo = "warn"
+
 [workspace.dependencies]
 # The cargo-hakari workspace-hack crate: every member depends on it so every
 # lane resolves one third-party feature set (plan-verb-pipeline-and-transport

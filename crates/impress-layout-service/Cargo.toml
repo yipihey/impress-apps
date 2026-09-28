@@ -79,3 +79,6 @@ path = "tests/main.rs"
 [[test]]
 name = "fallback_store"
 path = "tests/fallback_store.rs"
+
+[lints]
+workspace = true

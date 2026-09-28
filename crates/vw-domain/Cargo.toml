@@ -15,3 +15,6 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 sha2 = "0.10"
 impress-workspace-hack.workspace = true
+
+[lints]
+workspace = true

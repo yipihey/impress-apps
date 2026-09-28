@@ -19,3 +19,6 @@ uniffi = { workspace = true, optional = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]
+
+[lints]
+workspace = true

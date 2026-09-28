@@ -17,3 +17,6 @@ impress-workspace-hack.workspace = true
 # the only thing switching imprint-core to its uniffi shape in the CI `rest`
 # shard. The test now lives at crates/imprint-core/tests/plot_render_typst.rs,
 # where the Typst engine already is.
+
+[lints]
+workspace = true

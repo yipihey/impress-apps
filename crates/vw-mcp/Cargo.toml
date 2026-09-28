@@ -29,3 +29,6 @@ impress-workspace-hack.workspace = true
 base64 = "0.22"
 tempfile = "3"
 vw-service = { path = "../vw-service" }
+
+[lints]
+workspace = true

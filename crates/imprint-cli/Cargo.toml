@@ -23,3 +23,6 @@ impress-service-core = { workspace = true, features = ["cli"] }
 impress-store-service = { workspace = true }
 serde_json = { workspace = true }
 impress-workspace-hack.workspace = true
+
+[lints]
+workspace = true

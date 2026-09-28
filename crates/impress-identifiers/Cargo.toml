@@ -20,3 +20,6 @@ uniffi = { workspace = true, optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
 tokio = { version = "1", features = ["rt", "macros"], optional = true }
 impress-workspace-hack.workspace = true
+
+[lints]
+workspace = true
