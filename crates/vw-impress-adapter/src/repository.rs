@@ -379,7 +379,7 @@ impl DiagnosticRepository for ImpressDiagnosticRepository {
     fn list_sessions(&self, limit: usize) -> Result<Vec<DiagnosticSession>, RepositoryError> {
         self.store
             .query(&ItemQuery {
-                schema: Some(VW_DIAGNOSTIC_SESSION_SCHEMA.into()),
+                schema: Some(VW_DIAGNOSTIC_SESSION_SCHEMA),
                 sort: vec![SortDescriptor {
                     field: "modified".into(),
                     ascending: false,

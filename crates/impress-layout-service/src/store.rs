@@ -504,7 +504,7 @@ impl LayoutStore {
     /// silently-empty comparison this repo has a lint about.
     fn rows(&self, app_id: &str) -> Result<Vec<Item>> {
         let query = ItemQuery {
-            schema: Some(LAYOUT_SCHEMA_REF.into()),
+            schema: Some(LAYOUT_SCHEMA_REF),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -553,7 +553,7 @@ impl LayoutStore {
         let now = Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: LAYOUT_SCHEMA_REF.into(),
+            schema: LAYOUT_SCHEMA_REF,
             payload,
             created: now,
             modified: now,

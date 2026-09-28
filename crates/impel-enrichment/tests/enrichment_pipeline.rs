@@ -80,7 +80,7 @@ fn bibliography_entry(doi: &str, title: &str) -> Item {
     payload.insert("doi".into(), Value::String(doi.into()));
     Item {
         id: Uuid::new_v4(),
-        schema: BIBLIOGRAPHY_ENTRY_SCHEMA.into(),
+        schema: BIBLIOGRAPHY_ENTRY_SCHEMA,
         payload,
         created: Utc::now(),
         modified: Utc::now(),

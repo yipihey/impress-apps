@@ -309,7 +309,10 @@ def mentions(path, lib):
 try:
     for c in members:
         copy_tracked(Path("crates") / c)
-    for f in ("rust-toolchain.toml", ".cargo/config.toml", "Cargo.lock"):
+    # P7's vocabulary is a build input shared by core and the pure metadata
+    # crates. Carry the manifest itself, never a generated copy from target/.
+    for f in ("rust-toolchain.toml", ".cargo/config.toml", "Cargo.lock",
+              "schema-refs.json", "clippy.toml"):
         if (ROOT / f).exists():
             (scratch / f).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, scratch / f)

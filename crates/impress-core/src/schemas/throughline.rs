@@ -21,7 +21,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// (no new core `EdgeType` variant, per ADR-0016 D3).
 pub fn throughline_schema() -> Schema {
     Schema {
-        id: "throughline".into(),
+        id: crate::schema::refs::THROUGHLINE,
         name: "Throughline".into(),
         version: "1.0.0".into(),
         fields: vec![

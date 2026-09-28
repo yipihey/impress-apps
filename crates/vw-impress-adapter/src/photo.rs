@@ -205,7 +205,7 @@ impl PhotoEvidenceStore {
         } as usize;
         let query = query.trim().to_lowercase();
         let mut hits = match store.query(&ItemQuery {
-            schema: Some(VW_PHOTO_EVIDENCE_SCHEMA.into()),
+            schema: Some(VW_PHOTO_EVIDENCE_SCHEMA),
             predicates: vec![],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -507,7 +507,7 @@ fn ensure_media_source(
     store
         .insert(Item {
             id,
-            schema: MEDIA_SCHEMA.into(),
+            schema: MEDIA_SCHEMA,
             payload,
             created: now,
             modified: now,
@@ -613,7 +613,7 @@ fn insert_evidence(
     store
         .insert(Item {
             id: Uuid::parse_str(&evidence.id).map_err(|error| error.to_string())?,
-            schema: VW_PHOTO_EVIDENCE_SCHEMA.into(),
+            schema: VW_PHOTO_EVIDENCE_SCHEMA,
             payload,
             created: now,
             modified: now,
@@ -672,7 +672,7 @@ fn read_evidence_bytes(
 fn content_blob_for_hash(store: &SqliteItemStore, hash: &str) -> Result<Option<Uuid>, String> {
     store
         .query(&ItemQuery {
-            schema: Some(CONTENT_BLOB_SCHEMA.into()),
+            schema: Some(CONTENT_BLOB_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "payload.sha256".into(),
                 Value::String(hash.into()),
@@ -892,7 +892,7 @@ mod tests {
         assert_eq!(
             store
                 .query(&ItemQuery {
-                    schema: Some(VW_PHOTO_EVIDENCE_SCHEMA.into()),
+                    schema: Some(VW_PHOTO_EVIDENCE_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap()

@@ -1,3 +1,4 @@
+use crate::schema::refs::{CORE_OPERATION, MANUSCRIPT_REVISION, TASK};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -33,12 +34,12 @@ pub const STORE_MUTATED_DARWIN_NOTE: &str = "com.impress.suite.store.mutated";
 /// `items.schema_ref` of the kernel's task rows, as an SQL literal. Kept in
 /// step with `schemas::task::TASK_SCHEMA` by
 /// `retention_schema_refs_match_the_canonical_constants`.
-const TASK_SCHEMA_REF: &str = "task@1.0.0";
+const TASK_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::TASK;
 
 /// `items.schema_ref` of the kernel's review checkpoints, as an SQL literal.
 /// Owned by `impel-core` (which this crate cannot depend on — the dependency
 /// runs the other way), so the same test pins it against a live row instead.
-const REVIEW_SCHEMA_REF: &str = "review-request@1.0.0";
+const REVIEW_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::REVIEW_REQUEST;
 
 /// The task states a retention sweep considers finished, as an SQL `IN` list.
 ///
@@ -555,15 +556,17 @@ impl SqliteItemStore {
                 .map_err(|e| StoreError::Storage(e.to_string()))?;
             let changed = conn
                 .execute(
-                    "UPDATE items SET retention = 'compactable'
+                    &format!(
+                        "UPDATE items SET retention = 'compactable'
                      WHERE rowid IN (
                          SELECT rowid FROM items
-                         WHERE schema_ref = 'core/operation'
+                         WHERE schema_ref = '{CORE_OPERATION}'
                            AND retention = 'durable'
                            AND author = 'system:local'
                            AND json_extract(payload, '$.intent') = 'routine'
                          LIMIT ?1
-                     )",
+                     )"
+                    ),
                     params![BATCH],
                 )
                 .map_err(|e| StoreError::Storage(format!("demote routine ops: {}", e)))?;
@@ -596,8 +599,10 @@ impl SqliteItemStore {
     pub fn ops_minted_since(&self, since_ms: i64) -> Result<u64, StoreError> {
         self.with_read(|conn| {
             conn.query_row(
-                "SELECT COUNT(*) FROM items
-                 WHERE schema_ref = 'core/operation' AND created >= ?1",
+                &format!(
+                    "SELECT COUNT(*) FROM items
+                 WHERE schema_ref = '{CORE_OPERATION}' AND created >= ?1"
+                ),
                 params![since_ms],
                 |row| row.get::<_, i64>(0),
             )
@@ -638,12 +643,12 @@ impl SqliteItemStore {
     ) -> Result<Vec<(String, String, u64)>, StoreError> {
         self.with_read(|conn| {
             let mut stmt = conn
-                .prepare(
+                .prepare(&format!(
                     "SELECT author, author_kind, COUNT(*) AS n FROM items
-                     WHERE schema_ref = 'core/operation' AND created >= ?1
+                     WHERE schema_ref = '{CORE_OPERATION}' AND created >= ?1
                      GROUP BY author, author_kind
-                     ORDER BY n DESC LIMIT ?2",
-                )
+                     ORDER BY n DESC LIMIT ?2"
+                ))
                 .map_err(|e| StoreError::Storage(format!("ops_by_author prepare: {}", e)))?;
             let rows = stmt
                 .query_map(params![since_ms, limit as i64], |row| {
@@ -670,12 +675,12 @@ impl SqliteItemStore {
     ) -> Result<Vec<(String, u64)>, StoreError> {
         self.with_read(|conn| {
             let mut stmt = conn
-                .prepare(
+                .prepare(&format!(
                     "SELECT COALESCE(t.schema_ref, '<orphan>') AS target, COUNT(*) AS n
                      FROM items o LEFT JOIN items t ON t.id = o.op_target_id
-                     WHERE o.schema_ref = 'core/operation' AND o.created >= ?1
-                     GROUP BY target ORDER BY n DESC LIMIT ?2",
-                )
+                     WHERE o.schema_ref = '{CORE_OPERATION}' AND o.created >= ?1
+                     GROUP BY target ORDER BY n DESC LIMIT ?2"
+                ))
                 .map_err(|e| StoreError::Storage(format!("ops_by_target prepare: {}", e)))?;
             let rows = stmt
                 .query_map(params![since_ms, limit as i64], |row| {
@@ -693,7 +698,7 @@ impl SqliteItemStore {
     /// Row count of one record kind — the transparency number for kinds
     /// whose growth someone must own (ADR-0027 chunks: inserts mint no ops,
     /// so `ops_by_target_schema` cannot see them; this can).
-    pub fn count_items_of_schema(&self, schema_ref: &str) -> Result<u64, StoreError> {
+    pub fn count_items_of_schema(&self, schema_ref: &crate::SchemaRef) -> Result<u64, StoreError> {
         self.with_read(|conn| {
             conn.query_row(
                 "SELECT COUNT(*) FROM items WHERE schema_ref = ?1",
@@ -969,9 +974,9 @@ impl SqliteItemStore {
             // this partial expression index each pass re-walks every task
             // row ever created (5,883 live at time of writing, growing ~2
             // per ingested paper).
-            "CREATE INDEX IF NOT EXISTS idx_items_task_state
+            &format!("CREATE INDEX IF NOT EXISTS idx_items_task_state
                 ON items(json_extract(payload, '$.state'))
-                WHERE schema_ref = 'task@1.0.0'",
+                WHERE schema_ref = '{TASK}'"),
         ] {
             // .ok() — on existing DBs these columns don't exist yet; migrate_schema handles it
             let _ = conn.execute(idx_sql, []);
@@ -1815,7 +1820,7 @@ impl SqliteItemStore {
             // so every pre-backoff row keeps its old semantics.
             let sql = format!(
                 "SELECT {ITEM_COLUMNS} FROM items t
-                 WHERE t.schema_ref = 'task@1.0.0'
+                 WHERE t.schema_ref = '{TASK}'
                    AND json_extract(t.payload, '$.state') IN ('pending', 'queued')
                    AND COALESCE(json_extract(t.payload, '$.task_kind'), '') != ''
                    AND COALESCE(json_extract(t.payload, '$.next_attempt_at'), 0) <= ?2
@@ -2285,8 +2290,8 @@ impl SqliteItemStore {
         // `manuscript-change@1.0.0` chunks (ADR-0027 D3) are immutable for the
         // same reason with a sharper edge: a chunk's bytes ARE the history,
         // and every replica must load identical bytes to converge.
-        if target_schema == "manuscript-revision"
-            || target_schema == crate::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF
+        if target_schema == MANUSCRIPT_REVISION.as_str()
+            || target_schema == crate::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF.as_str()
         {
             match &spec.op_type {
                 OperationType::SetPayload(_, _)
@@ -2325,7 +2330,7 @@ impl SqliteItemStore {
 
         let op_item = Item {
             id: op_id,
-            schema: "core/operation".into(),
+            schema: crate::schema::refs::CORE_OPERATION,
             payload: op_payload,
             created: Utc::now(),
             modified: Utc::now(),
@@ -2462,7 +2467,7 @@ impl SqliteItemStore {
 
             let op_item = Item {
                 id: op_id,
-                schema: "core/operation".into(),
+                schema: crate::schema::refs::CORE_OPERATION,
                 payload: op_payload,
                 created: Utc::now(),
                 modified: Utc::now(),
@@ -2545,7 +2550,7 @@ impl SqliteItemStore {
             .get(operation_id)?
             .ok_or(StoreError::NotFound(operation_id))?;
 
-        if op_item.schema != "core/operation" {
+        if op_item.schema != crate::schema::refs::CORE_OPERATION {
             return Err(StoreError::Validation(format!(
                 "Item {} is not an operation (schema: {})",
                 operation_id, op_item.schema
@@ -2604,7 +2609,7 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(e.to_string()))?;
 
         let sql = format!(
-            "SELECT {} FROM items WHERE batch_id = ?1 AND schema_ref = 'core/operation' ORDER BY logical_clock DESC",
+            "SELECT {} FROM items WHERE batch_id = ?1 AND schema_ref = '{CORE_OPERATION}' ORDER BY logical_clock DESC",
             ITEM_COLUMNS
         );
 
@@ -3559,11 +3564,13 @@ impl SqliteItemStore {
         target_id_str: &str,
     ) -> Result<Option<(u64, i64)>, StoreError> {
         conn.query_row(
-            "SELECT logical_clock, created FROM items
+            &format!(
+                "SELECT logical_clock, created FROM items
              WHERE op_target_id = ?1
-               AND schema_ref = 'core/operation'
+               AND schema_ref = '{CORE_OPERATION}'
                AND json_extract(payload, '$.op_type') = 'custom:snapshot'
-             ORDER BY logical_clock DESC, created DESC LIMIT 1",
+             ORDER BY logical_clock DESC, created DESC LIMIT 1"
+            ),
             params![target_id_str],
             |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)?)),
         )
@@ -3922,7 +3929,7 @@ impl SqliteItemStore {
 
         Ok(Item {
             id,
-            schema: schema_ref,
+            schema: crate::SchemaRef::from_stored(schema_ref),
             payload,
             created,
             modified,
@@ -4094,7 +4101,7 @@ impl SqliteItemStore {
 
         Ok(Item {
             id,
-            schema: schema_ref,
+            schema: crate::SchemaRef::from_stored(schema_ref),
             payload,
             created,
             modified,
@@ -4689,7 +4696,7 @@ impl SqliteItemStore {
             .unwrap_or_else(Utc::now);
         let snap_item = Item {
             id: Uuid::new_v4(),
-            schema: "core/operation".into(),
+            schema: crate::schema::refs::CORE_OPERATION,
             payload: snap_payload,
             created: created_dt,
             modified: created_dt,
@@ -4798,7 +4805,7 @@ impl SqliteItemStore {
             &format!(
                 "SELECT COUNT(*) FROM items o
                  JOIN items t ON t.id = o.op_target_id
-                 WHERE o.schema_ref = 'core/operation'
+                 WHERE o.schema_ref = '{CORE_OPERATION}'
                    AND t.schema_ref = ?1
                    AND json_extract(t.payload, '$.state') IN ({TERMINAL_TASK_STATES})
                    AND t.modified < ?2"
@@ -4966,14 +4973,14 @@ impl SqliteItemStore {
                 .map_err(|e| StoreError::Storage(e.to_string()))?;
 
             let mut stmt = conn
-                .prepare(
+                .prepare(&format!(
                     "SELECT op_target_id, MAX(created) FROM items
-                     WHERE schema_ref = 'core/operation'
+                     WHERE schema_ref = '{CORE_OPERATION}'
                        AND retention IN ('compactable', 'ephemeral')
                        AND created < ?1
                        AND op_target_id IS NOT NULL
-                     GROUP BY op_target_id",
-                )
+                     GROUP BY op_target_id"
+                ))
                 .map_err(|e| StoreError::Storage(format!("compact_operations prepare: {}", e)))?;
 
             let rows: Vec<(String, i64)> = stmt
@@ -4992,10 +4999,12 @@ impl SqliteItemStore {
                 let needs_revision = is_manuscript && {
                     let fresh: i64 = conn
                         .query_row(
-                            "SELECT COUNT(*) FROM items
-                             WHERE schema_ref = 'manuscript-revision'
+                            &format!(
+                                "SELECT COUNT(*) FROM items
+                             WHERE schema_ref = '{MANUSCRIPT_REVISION}'
                                AND json_extract(payload, '$.parent_manuscript_ref') = ?1
-                               AND created >= ?2",
+                               AND created >= ?2"
+                            ),
                             params![&target_str, watermark_ms],
                             |row| row.get(0),
                         )
@@ -5043,11 +5052,13 @@ impl SqliteItemStore {
             // is per-target: the newest compactable op being deleted).
             let (count, max_clock, max_created): (i64, Option<i64>, Option<i64>) = tx
                 .query_row(
-                    "SELECT COUNT(*), MAX(logical_clock), MAX(created) FROM items
-                     WHERE schema_ref = 'core/operation'
+                    &format!(
+                        "SELECT COUNT(*), MAX(logical_clock), MAX(created) FROM items
+                     WHERE schema_ref = '{CORE_OPERATION}'
                        AND retention IN ('compactable', 'ephemeral')
                        AND created < ?1
-                       AND op_target_id = ?2",
+                       AND op_target_id = ?2"
+                    ),
                     params![cutoff_ms, &plan.target_str],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
@@ -5082,11 +5093,13 @@ impl SqliteItemStore {
             // Delete the compacted range. The snapshot survives (durable).
             let deleted = tx
                 .execute(
-                    "DELETE FROM items
-                     WHERE schema_ref = 'core/operation'
+                    &format!(
+                        "DELETE FROM items
+                     WHERE schema_ref = '{CORE_OPERATION}'
                        AND retention IN ('compactable', 'ephemeral')
                        AND created < ?1
-                       AND op_target_id = ?2",
+                       AND op_target_id = ?2"
+                    ),
                     params![cutoff_ms, &plan.target_str],
                 )
                 .map_err(|e| StoreError::Storage(format!("compact delete: {}", e)))?;
@@ -5244,7 +5257,7 @@ impl ItemStore for SqliteItemStore {
         let id = item.id;
         Self::insert_item(&conn, &item, &self.origin_id)?;
         drop(conn);
-        let schema = item.schema.clone();
+        let schema = item.schema.to_string();
         self.emit_mutation(StoreMutation::new(
             id,
             Some(schema.clone()),
@@ -5274,7 +5287,7 @@ impl ItemStore for SqliteItemStore {
 
         drop(conn);
         for item in items {
-            let schema = item.schema.clone();
+            let schema = item.schema.to_string();
             self.emit_mutation(StoreMutation::new(
                 item.id,
                 Some(schema.clone()),
@@ -5583,7 +5596,7 @@ impl ItemStore for SqliteItemStore {
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?
             .push(EventSubscriber {
-                schema_prefix: q.schema,
+                schema_prefix: q.schema.map(|schema| schema.to_string()),
                 tx,
             });
         Ok(rx)
@@ -5873,7 +5886,8 @@ impl SqliteItemStore {
 
         // Group operations by COALESCE(batch_id, id) to treat unbatched ops as their own group.
         // Filter out Correction operations (those are undo/redo ops, not user actions).
-        let sql = "
+        let sql = &format!(
+            "
             SELECT
                 MIN(id) as operation_id,
                 batch_id,
@@ -5884,13 +5898,14 @@ impl SqliteItemStore {
                 author_kind,
                 payload
             FROM items
-            WHERE schema_ref = 'core/operation'
+            WHERE schema_ref = '{CORE_OPERATION}'
               AND (json_extract(payload, '$.intent') != 'correction'
                    OR json_extract(payload, '$.intent') IS NULL)
             GROUP BY COALESCE(batch_id, id)
             ORDER BY max_clock DESC
             LIMIT ?1
-        ";
+        "
+        );
 
         let mut stmt = conn.prepare(sql).map_err(|e| {
             crate::store::StoreError::Storage(format!("prepare recent_undo_groups: {}", e))
@@ -5993,16 +6008,18 @@ impl SqliteItemStore {
             .map_err(|e| crate::store::StoreError::Storage(e.to_string()))?;
 
         // Find the logical_clock cutoff: keep the N most recent groups
-        let cutoff_sql = "
+        let cutoff_sql = &format!(
+            "
             SELECT MIN(max_clock) FROM (
                 SELECT MAX(logical_clock) as max_clock
                 FROM items
-                WHERE schema_ref = 'core/operation'
+                WHERE schema_ref = '{CORE_OPERATION}'
                 GROUP BY COALESCE(batch_id, id)
                 ORDER BY max_clock DESC
                 LIMIT ?1
             )
-        ";
+        "
+        );
 
         let cutoff: Option<i64> = conn
             .query_row(cutoff_sql, params![keep as i64], |row| row.get(0))
@@ -6025,14 +6042,14 @@ impl SqliteItemStore {
         // `compact_operations`).
         let plans: Vec<(String, u64, i64)> = {
             let mut stmt = tx
-                .prepare(
+                .prepare(&format!(
                     "SELECT op_target_id, MAX(logical_clock), MAX(created) FROM items
-                     WHERE schema_ref = 'core/operation'
+                     WHERE schema_ref = '{CORE_OPERATION}'
                        AND logical_clock < ?1
                        AND (retention != 'durable' OR retention IS NULL)
                        AND op_target_id IS NOT NULL
-                     GROUP BY op_target_id",
-                )
+                     GROUP BY op_target_id"
+                ))
                 .map_err(|e| {
                     crate::store::StoreError::Storage(format!("undo watermark prepare: {}", e))
                 })?;
@@ -6063,12 +6080,14 @@ impl SqliteItemStore {
 
         // Delete the doomed range. Snapshots we just wrote are durable, so this
         // never touches them; they are not counted in the returned total.
-        let delete_sql = "
+        let delete_sql = &format!(
+            "
             DELETE FROM items
-            WHERE schema_ref = 'core/operation'
+            WHERE schema_ref = '{CORE_OPERATION}'
               AND logical_clock < ?1
               AND (retention != 'durable' OR retention IS NULL)
-        ";
+        "
+        );
         let deleted = tx
             .execute(delete_sql, params![cutoff_clock])
             .map_err(|e| crate::store::StoreError::Storage(format!("compact delete: {}", e)))?;
@@ -6089,6 +6108,7 @@ mod tests {
     };
     use crate::query::{ItemQuery, Predicate};
     use crate::reference::{EdgeType, TypedReference};
+    use crate::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY;
     use chrono::Utc;
     use std::collections::BTreeMap;
     use uuid::Uuid;
@@ -7399,8 +7419,10 @@ mod tests {
         let target = id.to_string();
         let rows: Vec<(Option<String>, String)> = store
             .query_raw(
-                "SELECT json_extract(payload,'$.op_data.field'), retention FROM items
-                 WHERE schema_ref = 'core/operation' AND op_target_id = ?1",
+                &format!(
+                    "SELECT json_extract(payload,'$.op_data.field'), retention FROM items
+                 WHERE schema_ref = '{CORE_OPERATION}' AND op_target_id = ?1"
+                ),
                 &[&target as &dyn rusqlite::types::ToSql],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -7516,8 +7538,10 @@ mod tests {
 
         let rows: Vec<(String, String)> = store
             .query_raw(
-                "SELECT op_target_id, retention FROM items
-                 WHERE schema_ref = 'core/operation' ORDER BY logical_clock",
+                &format!(
+                    "SELECT op_target_id, retention FROM items
+                 WHERE schema_ref = '{CORE_OPERATION}' ORDER BY logical_clock"
+                ),
                 &[],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -7579,7 +7603,7 @@ mod tests {
             store
                 .insert(Item {
                     id: call_id,
-                    schema: crate::schemas::verb_call::VERB_CALL_SCHEMA.into(),
+                    schema: crate::schemas::verb_call::VERB_CALL_SCHEMA,
                     payload,
                     created,
                     modified: created,
@@ -7679,8 +7703,10 @@ mod tests {
 
         let rows: Vec<(String, String)> = store
             .query_raw(
-                "SELECT json_extract(payload,'$.op_data.field'), retention FROM items
-                 WHERE schema_ref = 'core/operation' ORDER BY 1",
+                &format!(
+                    "SELECT json_extract(payload,'$.op_data.field'), retention FROM items
+                 WHERE schema_ref = '{CORE_OPERATION}' ORDER BY 1"
+                ),
                 &[],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -8831,8 +8857,10 @@ mod tests {
         };
         let compiled = crate::sql_query::compile_query(&unread_query);
         let unread_sql = format!("SELECT COUNT(*) FROM items {}", compiled.where_clause);
-        let ops_sql = "SELECT COUNT(*) FROM items
-             WHERE schema_ref = 'core/operation' AND created >= 12345";
+        let ops_sql = &format!(
+            "SELECT COUNT(*) FROM items
+             WHERE schema_ref = '{CORE_OPERATION}' AND created >= 12345"
+        );
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let plan_for = |conn: &rusqlite::Connection, sql: &str| -> String {
@@ -8896,23 +8924,29 @@ mod tests {
                 .unwrap();
         }
 
-        let unread_sql = "SELECT lib_id, COUNT(*) FROM (
+        let unread_sql = &format!(
+            "SELECT lib_id, COUNT(*) FROM (
                  SELECT parent_id AS lib_id, id FROM items
-                  WHERE schema_ref = 'imbib/bibliography-entry' AND is_read = 0
+                  WHERE schema_ref = '{IMBIB_BIBLIOGRAPHY_ENTRY}' AND is_read = 0
                     AND parent_id IS NOT NULL
                  UNION
                  SELECT r.source_id AS lib_id, i.id
                    FROM items i JOIN item_references r
                      ON r.target_id = i.id AND r.edge_type = ?1
-                  WHERE i.schema_ref = 'imbib/bibliography-entry' AND i.is_read = 0
-             ) GROUP BY lib_id";
-        let flag_sql = "SELECT flag_color, COUNT(*) FROM items
-              WHERE schema_ref = 'imbib/bibliography-entry' AND flag_color IS NOT NULL
-              GROUP BY flag_color";
-        let tags_sql = "SELECT t.tag_path, t.item_id FROM item_tags t
+                  WHERE i.schema_ref = '{IMBIB_BIBLIOGRAPHY_ENTRY}' AND i.is_read = 0
+             ) GROUP BY lib_id"
+        );
+        let flag_sql = &format!(
+            "SELECT flag_color, COUNT(*) FROM items
+              WHERE schema_ref = '{IMBIB_BIBLIOGRAPHY_ENTRY}' AND flag_color IS NOT NULL
+              GROUP BY flag_color"
+        );
+        let tags_sql = &format!(
+            "SELECT t.tag_path, t.item_id FROM item_tags t
               WHERE EXISTS (SELECT 1 FROM items i
                              WHERE i.id = t.item_id
-                               AND i.schema_ref = 'imbib/bibliography-entry')";
+                               AND i.schema_ref = '{IMBIB_BIBLIOGRAPHY_ENTRY}')"
+        );
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let plan_for = |conn: &rusqlite::Connection, sql: &str| -> String {

@@ -183,7 +183,7 @@ impl MemoryConsolidationExecutor {
         let runs = ItemStore::query(
             self.store.as_ref(),
             &ItemQuery {
-                schema: Some(AGENT_RUN_SCHEMA.into()),
+                schema: Some(AGENT_RUN_SCHEMA),
                 predicates: vec![Predicate::HasReference(EdgeType::ProducedBy, task.id)],
                 limit: Some(1),
                 include_tags: false,
@@ -200,7 +200,7 @@ impl MemoryConsolidationExecutor {
         let runs = ItemStore::query(
             self.store.as_ref(),
             &ItemQuery {
-                schema: Some(AGENT_RUN_SCHEMA.into()),
+                schema: Some(AGENT_RUN_SCHEMA),
                 predicates: vec![
                     Predicate::Gte("modified".into(), Value::Int(start_ms)),
                     Predicate::Lt("modified".into(), Value::Int(end_ms)),

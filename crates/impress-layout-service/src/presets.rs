@@ -1422,7 +1422,7 @@ impl PresetStore {
     /// kind of silently-empty comparison this repo has a lint about.
     fn items(&self, app_id: &str) -> Result<Vec<Item>> {
         let query = ItemQuery {
-            schema: Some(PRESET_SCHEMA_REF.into()),
+            schema: Some(PRESET_SCHEMA_REF),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -1668,7 +1668,7 @@ fn build_item(
     let now = Utc::now();
     Ok(Item {
         id,
-        schema: PRESET_SCHEMA_REF.into(),
+        schema: PRESET_SCHEMA_REF,
         payload,
         created: now,
         modified: now,

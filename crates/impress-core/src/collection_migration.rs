@@ -553,7 +553,7 @@ fn rows_of_schema(conn: &Connection, schema_ref: &str) -> Result<Vec<RawRow>, St
 }
 
 fn generic_rows(conn: &Connection) -> Result<Vec<RawRow>, StoreError> {
-    rows_of_schema(conn, COLLECTION_SCHEMA)
+    rows_of_schema(conn, &COLLECTION_SCHEMA)
 }
 
 /// Rows already converged FROM this legacy schema by an earlier run.
@@ -1002,7 +1002,7 @@ mod tests {
         store: &SqliteItemStore,
         binding: &collection_ops::CollectionSchemaBinding,
     ) -> Fixture {
-        match binding.schema_ref {
+        match binding.schema_ref.as_str() {
             "imbib/collection" => imbib_fixture(store),
             "manuscript-collection" => manuscript_fixture(store),
             "figure-collection" => figure_fixture(store),
@@ -1109,7 +1109,7 @@ mod tests {
         let line = report
             .bindings
             .iter()
-            .find(|b| b.schema_ref == binding.schema_ref)
+            .find(|b| b.schema_ref == binding.schema_ref.as_str())
             .unwrap();
         assert_eq!(line.found, 3, "{}: found", binding.schema_ref);
         assert_eq!(
@@ -1170,7 +1170,7 @@ mod tests {
             assert!(item.payload.contains_key(LEGACY_PAYLOAD_KEY));
             assert_eq!(
                 item.payload.get(LEGACY_SCHEMA_REF_KEY),
-                Some(&Value::String(binding.schema_ref.into()))
+                Some(&Value::String(binding.schema_ref.to_string()))
             );
         }
 
@@ -1184,7 +1184,7 @@ mod tests {
         );
 
         // Extra legacy keys are preserved, not eaten.
-        let with_extras = match binding.schema_ref {
+        let with_extras = match binding.schema_ref.as_str() {
             "imbib/collection" => &fixture.root,
             _ => &fixture.child,
         };
@@ -1217,7 +1217,8 @@ mod tests {
         assert_eq!(rollback.restored(), 3);
         assert_eq!(rollback.native_generic_untouched, 0);
         assert_eq!(
-            rollback.bindings[0].schema_ref, binding.schema_ref,
+            rollback.bindings[0].schema_ref,
+            binding.schema_ref.as_str(),
             "restored to the schema it came from"
         );
         assert_eq!(
@@ -1727,7 +1728,7 @@ mod tests {
             assert_eq!(off.membership, binding.membership);
 
             let on = binding.resolved(true);
-            assert_eq!(on.schema_ref, COLLECTION_SCHEMA.as_str());
+            assert_eq!(*on.schema_ref, COLLECTION_SCHEMA);
             assert_eq!(
                 on.parent_field,
                 crate::collection_ops::ParentField::Payload("parent_id")
@@ -1768,7 +1769,7 @@ mod tests {
         assert!(
             !MIGRATED_BINDINGS
                 .iter()
-                .any(|b| b.schema_ref == COLLECTION_SCHEMA.as_str()),
+                .any(|b| *b.schema_ref == COLLECTION_SCHEMA),
             "the generic schema is the destination, never a source"
         );
     }

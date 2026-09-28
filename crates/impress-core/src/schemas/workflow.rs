@@ -19,7 +19,7 @@ use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The canonical spelling (schema-refs.json).
-pub const WORKFLOW_SCHEMA: &str = "impress/workflow@1.0.0";
+pub const WORKFLOW_SCHEMA: crate::SchemaRef = crate::schema::refs::IMPRESS_WORKFLOW;
 
 fn described(mut def: FieldDef, description: &str) -> FieldDef {
     def.description = Some(description.into());
@@ -37,7 +37,7 @@ fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
 
 pub fn workflow_schema() -> Schema {
     Schema {
-        id: WORKFLOW_SCHEMA.into(),
+        id: WORKFLOW_SCHEMA,
         name: "Workflow".into(),
         version: "1.0.0".into(),
         fields: vec![

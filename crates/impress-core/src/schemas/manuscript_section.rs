@@ -15,7 +15,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// `content_hash` and an empty `body`.
 pub fn manuscript_section_schema() -> Schema {
     Schema {
-        id: "manuscript-section".into(),
+        id: crate::schema::refs::MANUSCRIPT_SECTION,
         name: "Manuscript Section".into(),
         version: "1.0.0".into(),
         fields: vec![

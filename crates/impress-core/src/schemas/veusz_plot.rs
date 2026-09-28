@@ -12,7 +12,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// itself emits no outbound edges by default but may be annotated.
 pub fn veusz_plot_schema() -> Schema {
     Schema {
-        id: "veusz-plot".into(),
+        id: crate::schema::refs::VEUSZ_PLOT,
         name: "Veusz Plot".into(),
         version: "1.0.0".into(),
         fields: vec![

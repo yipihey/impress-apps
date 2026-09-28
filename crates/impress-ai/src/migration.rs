@@ -186,7 +186,7 @@ fn import_one(
         .as_bytes(),
     );
     let existing = store.query(&ItemQuery {
-        schema: Some(AI_IMPORT_LEDGER_SCHEMA.into()),
+        schema: Some(AI_IMPORT_LEDGER_SCHEMA),
         predicates: vec![
             Predicate::Eq(
                 "payload.source_database_id".into(),
@@ -849,7 +849,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(CONVERSATION_SCHEMA.into()),
+                    schema: Some(CONVERSATION_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -858,7 +858,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(AGENT_RUN_SCHEMA.into()),
+                    schema: Some(AGENT_RUN_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -867,7 +867,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(AI_IMPORT_LEDGER_SCHEMA.into()),
+                    schema: Some(AI_IMPORT_LEDGER_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -879,7 +879,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(CONVERSATION_SCHEMA.into()),
+                    schema: Some(CONVERSATION_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -901,7 +901,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(CONVERSATION_SCHEMA.into()),
+                    schema: Some(CONVERSATION_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -910,7 +910,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(AI_IMPORT_LEDGER_SCHEMA.into()),
+                    schema: Some(AI_IMPORT_LEDGER_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),

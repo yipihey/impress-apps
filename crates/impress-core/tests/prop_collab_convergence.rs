@@ -65,7 +65,7 @@ fn body_of(store: &SqliteItemStore, id: ItemId) -> String {
 fn chunks_of(store: &SqliteItemStore, id: ItemId) -> Vec<Item> {
     store
         .query(&ItemQuery {
-            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF.into()),
+            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF),
             predicates: vec![Predicate::HasParent(id)],
             ..Default::default()
         })

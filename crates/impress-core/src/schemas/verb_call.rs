@@ -17,7 +17,7 @@ use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The canonical spelling (schema-refs.json).
-pub const VERB_CALL_SCHEMA: &str = "core/verb-call@1.0.0";
+pub const VERB_CALL_SCHEMA: crate::SchemaRef = crate::schema::refs::CORE_VERB_CALL;
 
 /// The payload's field names, as the audit layer writes them.
 pub mod field {
@@ -55,7 +55,7 @@ fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
 
 pub fn verb_call_schema() -> Schema {
     Schema {
-        id: VERB_CALL_SCHEMA.into(),
+        id: VERB_CALL_SCHEMA,
         name: "Verb Call".into(),
         version: "1.0.0".into(),
         fields: vec![

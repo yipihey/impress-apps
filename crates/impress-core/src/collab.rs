@@ -161,7 +161,7 @@ impl TextFields {
                 hash: "body_content_hash",
                 modified: Modified::Iso("body_modified_at"),
             }),
-            MANUSCRIPT_FILE_SCHEMA_REF => Some(Self {
+            schema if schema == MANUSCRIPT_FILE_SCHEMA_REF.as_str() => Some(Self {
                 text: "content",
                 hash: "content_hash",
                 modified: Modified::Millis("modified_ms"),
@@ -191,7 +191,7 @@ impl SqliteItemStore {
     #[cfg(test)]
     fn manuscript_chunks(&self, manuscript: ItemId) -> Result<Vec<Item>, StoreError> {
         let q = ItemQuery {
-            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF.into()),
+            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF),
             predicates: vec![Predicate::HasParent(manuscript)],
             sort: vec![],
             limit: None,
@@ -277,7 +277,7 @@ impl SqliteItemStore {
         let now = Utc::now();
         let item = Item {
             id: Uuid::new_v4(),
-            schema: MANUSCRIPT_CHANGE_SCHEMA_REF.into(),
+            schema: MANUSCRIPT_CHANGE_SCHEMA_REF,
             payload,
             created: now,
             modified: now,
@@ -677,7 +677,7 @@ impl SqliteItemStore {
     /// Returns the number of chunk items removed.
     pub fn compact_manuscript_changes(&self, min_chunks: usize) -> Result<usize, StoreError> {
         let q = ItemQuery {
-            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF.into()),
+            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF),
             predicates: vec![],
             sort: vec![],
             limit: None,

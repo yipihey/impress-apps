@@ -298,7 +298,7 @@ fn the_call_row_is_the_batch_of_its_operations() {
     let batches: BTreeSet<Option<String>> = ops.iter().map(|op| op.batch_id.clone()).collect();
     let calls = store
         .query(&ItemQuery {
-            schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),
+            schema: Some(impress_core::schemas::VERB_CALL_SCHEMA),
             ..Default::default()
         })
         .expect("calls");
@@ -328,7 +328,7 @@ fn the_call_row_is_the_batch_of_its_operations() {
     impress_store_service::audit::flush().expect("audit flush");
     let after = store
         .count(&ItemQuery {
-            schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),
+            schema: Some(impress_core::schemas::VERB_CALL_SCHEMA),
             ..Default::default()
         })
         .expect("count");

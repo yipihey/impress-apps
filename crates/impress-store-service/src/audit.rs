@@ -608,7 +608,7 @@ mod tests {
         flush().expect("audit flush");
         let rows = store
             .count(&impress_core::query::ItemQuery {
-                schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),
+                schema: Some(impress_core::schemas::VERB_CALL_SCHEMA),
                 ..Default::default()
             })
             .expect("count");

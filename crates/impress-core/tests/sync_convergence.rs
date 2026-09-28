@@ -86,8 +86,7 @@ fn open_store(author: &str) -> SqliteItemStore {
     .unwrap()
 }
 
-#[path = "support/schema_fixture.rs"]
-mod schema_fixture;
+use crate::schema_fixture;
 
 fn make_item(
     id: Uuid,

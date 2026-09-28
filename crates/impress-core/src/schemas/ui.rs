@@ -78,31 +78,33 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// equality, so `impress/ui/layout` — the bare spelling — matches no rows
 /// forever, silently. The constant exists so L3's `layout-service` and L6's
 /// projection never spell the string at all.
-pub const LAYOUT_SCHEMA_REF: &str = "impress/ui/layout@1.0.0";
+pub const LAYOUT_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::IMPRESS_UI_LAYOUT;
 
 /// The canonical preset ref. **VERSIONED**, for the same reason as
 /// [`LAYOUT_SCHEMA_REF`]: the payload shape is the contract every preset
 /// reader depends on, and a v2 must be able to coexist with v1 rows in a
 /// live store rather than requiring a migration of the user's saved work.
-pub const PRESET_SCHEMA_REF: &str = "impress/ui/preset@1.0.0";
+pub const PRESET_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::IMPRESS_UI_PRESET;
 
 /// The canonical surface ref (ADR-0033 D1). **VERSIONED**, for the same
 /// reason as [`LAYOUT_SCHEMA_REF`]: `spec` is a `SurfaceSpec`, a versioned
 /// document (`"surface": "1.0"` inside the payload itself), and a v2 spec
 /// shape must be able to coexist with v1 rows in a live store.
-pub const SURFACE_SCHEMA_REF: &str = "impress/ui/surface@1.0.0";
+pub const SURFACE_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::IMPRESS_UI_SURFACE;
 
 /// The canonical surface-state ref (ADR-0033 D5). **VERSIONED**. One row per
 /// `(surface, host)` pair — the working state a running instance of a surface
 /// has accumulated (`state.freq`, `state.bins`, …) — read by `surface_render`
 /// and written by `surface_dispatch`.
-pub const SURFACE_STATE_SCHEMA_REF: &str = "impress/ui/surface-state@1.0.0";
+pub const SURFACE_STATE_SCHEMA_REF: crate::SchemaRef =
+    crate::schema::refs::IMPRESS_UI_SURFACE_STATE;
 
 /// The canonical surface-event ref (ADR-0033 D5). **VERSIONED**. One row per
 /// event a surface has emitted (`{ "emit": { name, payload } }` actions),
 /// pruned to the last 200 per `(surface, host)` pair. `surface_wait` long-polls
 /// this ref for rows with `seq` past the caller's cursor.
-pub const SURFACE_EVENT_SCHEMA_REF: &str = "impress/ui/surface-event@1.0.0";
+pub const SURFACE_EVENT_SCHEMA_REF: crate::SchemaRef =
+    crate::schema::refs::IMPRESS_UI_SURFACE_EVENT;
 
 /// Schema for [`LAYOUT_SCHEMA_REF`] — a named or live workspace arrangement.
 ///
@@ -127,7 +129,7 @@ pub const SURFACE_EVENT_SCHEMA_REF: &str = "impress/ui/surface-event@1.0.0";
 /// layout is *about*).
 pub fn layout_schema() -> Schema {
     Schema {
-        id: LAYOUT_SCHEMA_REF.into(),
+        id: LAYOUT_SCHEMA_REF,
         name: "Workspace Layout".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -251,7 +253,7 @@ pub fn layout_schema() -> Schema {
 /// schema version bump.
 pub fn preset_schema() -> Schema {
     Schema {
-        id: PRESET_SCHEMA_REF.into(),
+        id: PRESET_SCHEMA_REF,
         name: "Workspace Preset".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -371,7 +373,7 @@ pub fn preset_schema() -> Schema {
 /// conversation, not scratch state.
 pub fn surface_schema() -> Schema {
     Schema {
-        id: SURFACE_SCHEMA_REF.into(),
+        id: SURFACE_SCHEMA_REF,
         name: "Agent Surface".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -465,7 +467,7 @@ pub fn surface_schema() -> Schema {
 /// liveness poll (S5, ADR-0033 D6).
 pub fn surface_state_schema() -> Schema {
     Schema {
-        id: SURFACE_STATE_SCHEMA_REF.into(),
+        id: SURFACE_STATE_SCHEMA_REF,
         name: "Surface State".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -539,7 +541,7 @@ pub fn surface_state_schema() -> Schema {
 /// row is what `wait` waits on.
 pub fn surface_event_schema() -> Schema {
     Schema {
-        id: SURFACE_EVENT_SCHEMA_REF.into(),
+        id: SURFACE_EVENT_SCHEMA_REF,
         name: "Surface Event".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -621,7 +623,7 @@ pub fn surface_event_schema() -> Schema {
 /// enumerates workspace record kinds from. Hardcoding these spellings
 /// anywhere else is the schema-refs drift class; the parity test below pins
 /// this array to what [`register_ui_schemas`] actually registers.
-pub const UI_SCHEMA_REFS: [&str; 5] = [
+pub const UI_SCHEMA_REFS: [crate::SchemaRef; 5] = [
     LAYOUT_SCHEMA_REF,
     PRESET_SCHEMA_REF,
     SURFACE_SCHEMA_REF,

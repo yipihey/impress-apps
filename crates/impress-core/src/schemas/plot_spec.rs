@@ -16,7 +16,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// identity + listing + sync, not queryability of individual plot knobs.
 pub fn plot_spec_schema() -> Schema {
     Schema {
-        id: "plot-spec".into(),
+        id: crate::schema::refs::PLOT_SPEC,
         name: "Plot Spec".into(),
         version: "1.0.0".into(),
         fields: vec![

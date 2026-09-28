@@ -21,7 +21,7 @@ pub const WORKFLOW_WIRE_VERSION: u64 = 1;
 /// `impress_store_service::history_service::WORKFLOW_SCHEMA`). Kept here as
 /// the second half of that pair's single source of truth: the schema module
 /// in `impress-core` names this same string in its own doc comment.
-pub const WORKFLOW_SCHEMA_REF: &str = "impress/workflow@1.0.0";
+pub const WORKFLOW_SCHEMA_REF: &str = crate::schema_names::IMPRESS_WORKFLOW;
 
 /// A workflow's lifecycle state (D-R6). `Proposed`: written by an agent, not
 /// yet reviewed by a person. `ReviewPending`: an agent asked to enable a

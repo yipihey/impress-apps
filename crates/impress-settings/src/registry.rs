@@ -15,7 +15,7 @@ use serde_json::Value;
 
 /// The one store row the `Synced` scope rides (decision D-R1). Spelled here so
 /// the store-tier backend copies the constant, never a sibling call site.
-pub const SYNCED_SCHEMA_REF: &str = "impress/settings@1.0.0";
+pub const SYNCED_SCHEMA_REF: &str = crate::schema_names::IMPRESS_SETTINGS;
 
 /// When the registry first shipped; the `since` of every key declared with it.
 pub const SETTINGS_SINCE: &str = "2026-09-26";

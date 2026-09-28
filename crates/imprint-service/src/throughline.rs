@@ -504,7 +504,7 @@ impl ThroughlineStore {
         let id = Self::item_id(document_id);
         self.store().upsert_payload(
             id,
-            THROUGHLINE_SCHEMA_REF.into(),
+            THROUGHLINE_SCHEMA_REF,
             serde_json::from_value(serde_json::to_value(payload)?)?,
         )?;
         Ok(ThroughlineRecord {

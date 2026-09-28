@@ -61,7 +61,7 @@ pub use impress_pane_query::{
 
 /// The chassis's built-in record kinds.
 ///
-/// Every string below is copied from the `canonical` table of
+/// The references below are generated from the `canonical` table of
 /// `schema-refs.json` — which is also where the seven Swift
 /// `RecordKindDescriptor`s get theirs (`BuiltinRecordKinds.swift`). The
 /// store matches `items.schema_ref` by EXACT EQUALITY, so a ref spelled
@@ -78,23 +78,32 @@ pub use impress_pane_query::{
 pub fn builtin_manifest() -> KindManifest {
     let kinds: BTreeMap<RecordKindId, Vec<String>> = [
         // The seven chassis descriptors (BuiltinRecordKinds.swift).
-        ("publication", vec!["imbib/bibliography-entry"]),
-        ("manuscript", vec!["manuscript"]),
-        ("figure", vec!["figure"]),
-        ("message", vec!["email-message", "chat-message"]),
-        ("task", vec!["task@1.0.0"]),
-        ("agent-run", vec!["agent-run@1.0.0"]),
+        (
+            "publication",
+            vec![crate::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY],
+        ),
+        ("manuscript", vec![crate::schema::refs::MANUSCRIPT]),
+        ("figure", vec![crate::schema::refs::FIGURE]),
+        (
+            "message",
+            vec![
+                crate::schema::refs::EMAIL_MESSAGE,
+                crate::schema::refs::CHAT_MESSAGE,
+            ],
+        ),
+        ("task", vec![crate::schema::refs::TASK]),
+        ("agent-run", vec![crate::schema::refs::AGENT_RUN]),
         (
             "artifact",
             vec![
-                "impress/artifact/code",
-                "impress/artifact/dataset",
-                "impress/artifact/general",
-                "impress/artifact/media",
-                "impress/artifact/note",
-                "impress/artifact/poster",
-                "impress/artifact/presentation",
-                "impress/artifact/webpage",
+                crate::schema::refs::IMPRESS_ARTIFACT_CODE,
+                crate::schema::refs::IMPRESS_ARTIFACT_DATASET,
+                crate::schema::refs::IMPRESS_ARTIFACT_GENERAL,
+                crate::schema::refs::IMPRESS_ARTIFACT_MEDIA,
+                crate::schema::refs::IMPRESS_ARTIFACT_NOTE,
+                crate::schema::refs::IMPRESS_ARTIFACT_POSTER,
+                crate::schema::refs::IMPRESS_ARTIFACT_PRESENTATION,
+                crate::schema::refs::IMPRESS_ARTIFACT_WEBPAGE,
             ],
         ),
         // Navigable kinds the sidebar itself is made of. `collection`
@@ -104,23 +113,23 @@ pub fn builtin_manifest() -> KindManifest {
         (
             "collection",
             vec![
-                "collection",
-                "imbib/collection",
-                "manuscript-collection",
-                "figure-collection",
+                crate::schema::refs::COLLECTION,
+                crate::schema::refs::IMBIB_COLLECTION,
+                crate::schema::refs::MANUSCRIPT_COLLECTION,
+                crate::schema::refs::FIGURE_COLLECTION,
             ],
         ),
-        ("library", vec!["imbib/library"]),
+        ("library", vec![crate::schema::refs::IMBIB_LIBRARY]),
         // ADR-0033 D1: a surface pane's query is `item(id)` of this kind, so
         // `surface_show` (impress-surface-service, S4) can compile a query
         // naming it the same way every other detail pane names its kind.
-        ("surface", vec!["impress/ui/surface@1.0.0"]),
+        ("surface", vec![crate::schema::refs::IMPRESS_UI_SURFACE]),
     ]
     .into_iter()
     .map(|(kind, refs)| {
         (
             kind.to_string(),
-            refs.into_iter().map(str::to_string).collect(),
+            refs.into_iter().map(String::from).collect(),
         )
     })
     .collect();
@@ -248,7 +257,7 @@ mod compiler {
     /// because operation rows ARE most of the table — the hint would trade a
     /// fast sort-index walk for probe-and-sort-everything (see
     /// [`ItemQuery::assume_schema_rare`]).
-    const OPERATION_SCHEMA_REF: &str = "core/operation";
+    const OPERATION_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::CORE_OPERATION;
 
     /// The column FTS routes through. `sql_query` turns `Contains` on any
     /// `items_fts`-backed field into `items_fts MATCH ?`, which is unqualified
@@ -595,7 +604,7 @@ mod compiler {
         // several become `In("schema_ref", …)`, because `schema` holds exactly
         // one and dropping the others would widen the pane silently.
         let schema = if schema_refs.len() == 1 {
-            Some(schema_refs[0].clone())
+            Some(crate::SchemaRef::from_stored(schema_refs[0].clone()))
         } else {
             predicates.push(Predicate::In(
                 "schema_ref".into(),
@@ -604,7 +613,9 @@ mod compiler {
             None
         };
 
-        let assume_schema_rare = schema.as_deref().is_some_and(|s| s != OPERATION_SCHEMA_REF);
+        let assume_schema_rare = schema
+            .as_deref()
+            .is_some_and(|s| s != OPERATION_SCHEMA_REF.as_str());
 
         let item_query = ItemQuery {
             schema,

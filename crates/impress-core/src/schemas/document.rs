@@ -5,7 +5,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// Schema for annotations — highlights or anchored notes on readable items.
 pub fn annotation_schema() -> Schema {
     Schema {
-        id: "annotation".into(),
+        id: crate::schema::refs::ANNOTATION,
         name: "Annotation".into(),
         version: "1.0.0".into(),
         fields: vec![

@@ -57,7 +57,7 @@ pub fn record_verb_call(
     let now = Utc::now();
     store.insert(Item {
         id,
-        schema: VERB_CALL_SCHEMA.into(),
+        schema: VERB_CALL_SCHEMA,
         payload: fields,
         created: now,
         modified: now,

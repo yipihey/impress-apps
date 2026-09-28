@@ -91,6 +91,7 @@ impress-workspace-hack.workspace = true
 tempfile = "3"
 
 [build-dependencies]
+serde_json.workspace = true
 # No uniffi build-dependency: this crate uses the proc-macro
 # `uniffi::setup_scaffolding!()`, so its build.rs only prints
 # rerun-if-changed. The build-dep still pulled uniffi_build ->

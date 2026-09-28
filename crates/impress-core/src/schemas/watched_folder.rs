@@ -43,12 +43,12 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// The canonical watched-folder ref. VERSIONED, exactly as ADR-0023 D2 names
 /// it — copy this spelling, never a sibling call site (root CLAUDE.md,
 /// "Definition of done — schema refs").
-pub const WATCHED_FOLDER_SCHEMA: &str = "watched-folder@1.0.0";
+pub const WATCHED_FOLDER_SCHEMA: crate::SchemaRef = crate::schema::refs::WATCHED_FOLDER;
 
 /// The canonical discovered-file ref. Versioned for the same reason its parent
 /// is: this row's shape is the provenance contract W2–W5 build on, and a v2
 /// that changes it must be able to coexist with v1 rows in a live store.
-pub const WATCHED_FILE_SCHEMA: &str = "watched-file@1.0.0";
+pub const WATCHED_FILE_SCHEMA: crate::SchemaRef = crate::schema::refs::WATCHED_FILE;
 
 // ── Vocabularies ─────────────────────────────────────────────────────────────
 
@@ -90,7 +90,7 @@ pub const VOLUME_STATES: [&str; 4] = [
 /// Schema for the `watched-folder@1.0.0` item type (ADR-0023 D2).
 pub fn watched_folder_schema() -> Schema {
     Schema {
-        id: WATCHED_FOLDER_SCHEMA.into(),
+        id: WATCHED_FOLDER_SCHEMA,
         name: "Watched Folder".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -183,7 +183,7 @@ pub fn watched_folder_schema() -> Schema {
 /// Schema for the `watched-file@1.0.0` item type (ADR-0023 D4).
 pub fn watched_file_schema() -> Schema {
     Schema {
-        id: WATCHED_FILE_SCHEMA.into(),
+        id: WATCHED_FILE_SCHEMA,
         name: "Watched File".into(),
         version: "1.0.0".into(),
         fields: vec![

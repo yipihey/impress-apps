@@ -273,7 +273,7 @@ fn value_str(value: &str) -> Value {
 
 fn device_query() -> ItemQuery {
     ItemQuery {
-        schema: Some(SCHEMA_DEVICE.into()),
+        schema: Some(SCHEMA_DEVICE),
         sort: vec![SortDescriptor {
             field: "created".into(),
             ascending: true,
@@ -300,7 +300,7 @@ fn mirror_query(
         predicates.push(Predicate::HasParent(publication));
     }
     ItemQuery {
-        schema: Some(SCHEMA_MIRROR.into()),
+        schema: Some(SCHEMA_MIRROR),
         predicates,
         sort: vec![SortDescriptor {
             field: "modified".into(),

@@ -2544,7 +2544,7 @@ mod watched_folder_tests {
         assert_eq!(
             store
                 .query(&ItemQuery {
-                    schema: Some(WATCHED_FILE_SCHEMA.into()),
+                    schema: Some(WATCHED_FILE_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap()
@@ -2730,7 +2730,7 @@ mod watched_folder_tests {
         assert!(
             store
                 .query(&ItemQuery {
-                    schema: Some(WATCHED_FILE_SCHEMA.into()),
+                    schema: Some(WATCHED_FILE_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap()
@@ -3179,7 +3179,7 @@ mod watched_folder_tests {
         assert_eq!(
             store
                 .query(&ItemQuery {
-                    schema: Some(WATCHED_FILE_SCHEMA.into()),
+                    schema: Some(WATCHED_FILE_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap()

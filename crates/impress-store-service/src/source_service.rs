@@ -285,7 +285,7 @@ fn figure_regions(
 ) -> Result<Vec<FigureRegionEvidence>, String> {
     store
         .query(&ItemQuery {
-            schema: Some(FIGURE_REGION_SCHEMA.into()),
+            schema: Some(FIGURE_REGION_SCHEMA),
             predicates: vec![Predicate::HasParent(source_id)],
             include_tags: false,
             include_references: false,
@@ -457,7 +457,7 @@ fn page_extraction_metadata(
 ) -> (Option<Uuid>, Option<String>) {
     let mut run = store
         .query(&ItemQuery {
-            schema: Some(CONTENT_CHUNK_SCHEMA.into()),
+            schema: Some(CONTENT_CHUNK_SCHEMA),
             predicates: vec![Predicate::HasParent(source)],
             include_tags: false,
             include_references: false,
@@ -479,7 +479,7 @@ fn page_extraction_metadata(
     if run.is_none() {
         run = store
             .query(&ItemQuery {
-                schema: Some(SOURCE_CITATION_SCHEMA.into()),
+                schema: Some(SOURCE_CITATION_SCHEMA),
                 predicates: vec![Predicate::HasParent(source)],
                 include_tags: false,
                 include_references: false,
@@ -2259,7 +2259,7 @@ mod tests {
         let citation = service
             .store()
             .query(&ItemQuery {
-                schema: Some(SOURCE_CITATION_SCHEMA.into()),
+                schema: Some(SOURCE_CITATION_SCHEMA),
                 predicates: vec![Predicate::HasParent(source)],
                 include_tags: false,
                 include_references: false,

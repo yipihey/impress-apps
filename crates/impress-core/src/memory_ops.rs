@@ -207,7 +207,7 @@ impl MemoryKind {
     /// lives — every query, filter and payload in this module goes through it
     /// rather than spelling a ref, because the store matches by exact equality
     /// and a second spelling is a silently-empty result set forever.
-    pub fn schema_ref(self) -> &'static str {
+    pub fn schema_ref(self) -> crate::SchemaRef {
         match self {
             MemoryKind::Claim => MEMORY_CLAIM_SCHEMA,
             MemoryKind::Episode => MEMORY_EPISODE_SCHEMA,
@@ -217,11 +217,11 @@ impl MemoryKind {
 
     /// The kind a `schema_ref` names, or `None` for a ref that is not a memory
     /// schema.
-    pub fn from_schema_ref(schema_ref: &str) -> Option<Self> {
+    pub fn from_schema_ref(schema_ref: &crate::SchemaRef) -> Option<Self> {
         match schema_ref {
-            r if r == MEMORY_CLAIM_SCHEMA => Some(MemoryKind::Claim),
-            r if r == MEMORY_EPISODE_SCHEMA => Some(MemoryKind::Episode),
-            r if r == MEMORY_INSTRUCTION_SCHEMA => Some(MemoryKind::Instruction),
+            r if *r == MEMORY_CLAIM_SCHEMA => Some(MemoryKind::Claim),
+            r if *r == MEMORY_EPISODE_SCHEMA => Some(MemoryKind::Episode),
+            r if *r == MEMORY_INSTRUCTION_SCHEMA => Some(MemoryKind::Instruction),
             _ => None,
         }
     }
@@ -237,7 +237,7 @@ impl MemoryKind {
 }
 
 /// Every memory `schema_ref`, for callers that filter a mixed result set.
-pub fn memory_schemas() -> [&'static str; 3] {
+pub fn memory_schemas() -> [crate::SchemaRef; 3] {
     [
         MEMORY_CLAIM_SCHEMA,
         MEMORY_EPISODE_SCHEMA,
@@ -443,7 +443,7 @@ pub fn insert_memory_item(
     let now = chrono::Utc::now();
     let item = Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created: now,
         modified: now,
@@ -506,7 +506,7 @@ fn push_edge(
 /// [`DEFAULT_RECALL_LIMIT`].
 pub fn claim_heads(
     store: &SqliteItemStore,
-    schema_ref: &str,
+    schema_ref: crate::SchemaRef,
     limit: u32,
 ) -> Result<Vec<ItemId>, StoreError> {
     let limit = clamp_limit(limit);
@@ -679,7 +679,7 @@ pub struct NearDup {
 /// Ordered by overlap descending, ties broken by ascending id.
 pub fn fts_near_duplicates(
     store: &SqliteItemStore,
-    kind_schema: &str,
+    kind_schema: crate::SchemaRef,
     text: &str,
     k: u32,
 ) -> Result<Vec<NearDup>, StoreError> {
@@ -695,7 +695,7 @@ pub fn fts_near_duplicates(
 
     let hits = search_ops::search_all(store, &probe, width)?;
     let mut scored: Vec<NearDup> = Vec::new();
-    for hit in hits.iter().filter(|h| h.schema_ref == kind_schema) {
+    for hit in hits.iter().filter(|h| h.schema_ref == kind_schema.as_str()) {
         let Ok(id) = Uuid::parse_str(&hit.id) else {
             continue;
         };
@@ -1042,7 +1042,7 @@ pub fn recall(
     let mut retrieved: Vec<(ItemId, Option<f32>)> = Vec::new();
     let has_query = search_ops::fts_match_expression(query).is_some();
     if has_query {
-        let schemas: BTreeSet<&str> = kinds.iter().map(|k| k.schema_ref()).collect();
+        let schemas: BTreeSet<crate::SchemaRef> = kinds.iter().map(|k| k.schema_ref()).collect();
         for hit in search_ops::search_all(store, query, width)? {
             if !schemas.contains(hit.schema_ref.as_str()) {
                 continue;
@@ -1234,11 +1234,11 @@ fn superseded_ids(store: &SqliteItemStore, ids: &[String]) -> Result<BTreeSet<St
 /// `include_superseded` twin of [`claim_heads`].
 fn items_by_recency(
     store: &SqliteItemStore,
-    schema_ref: &str,
+    schema_ref: crate::SchemaRef,
     limit: u32,
 ) -> Result<Vec<ItemId>, StoreError> {
     let q = ItemQuery {
-        schema: Some(schema_ref.to_string()),
+        schema: Some(schema_ref),
         sort: vec![SortDescriptor {
             field: "modified".into(),
             ascending: false,
@@ -1280,7 +1280,7 @@ fn confirmations_of(item: &Item) -> u32 {
 fn entry(item: &Item, score: f32) -> RecallEntry {
     RecallEntry {
         id: item.id.to_string(),
-        schema_ref: item.schema.clone(),
+        schema_ref: item.schema.to_string(),
         title: string_field(item, "title").unwrap_or_default(),
         body: string_field(item, "body").unwrap_or_default(),
         claim_type: string_field(item, "claim_type"),
@@ -1684,7 +1684,7 @@ mod tests {
         store
             .insert(Item {
                 id: Uuid::new_v4(),
-                schema: MEMORY_CLAIM_SCHEMA.into(),
+                schema: MEMORY_CLAIM_SCHEMA,
                 payload,
                 created: at,
                 modified: at,
@@ -1841,7 +1841,7 @@ mod tests {
         assert_eq!(
             store
                 .query(&ItemQuery {
-                    schema: Some(MEMORY_EPISODE_SCHEMA.into()),
+                    schema: Some(MEMORY_EPISODE_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap()

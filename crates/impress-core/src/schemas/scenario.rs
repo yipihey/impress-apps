@@ -13,7 +13,7 @@ use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The canonical spelling (schema-refs.json).
-pub const SCENARIO_SCHEMA_REF: &str = "impress/scenario@1.0.0";
+pub const SCENARIO_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::IMPRESS_SCENARIO;
 
 pub mod field {
     /// The scenario's stable id (`layout.saved_round_trip`) — distinct
@@ -31,7 +31,7 @@ pub mod field {
 
 pub fn scenario_schema() -> Schema {
     Schema {
-        id: SCENARIO_SCHEMA_REF.into(),
+        id: SCENARIO_SCHEMA_REF,
         name: "Scenario".into(),
         version: "1.0.0".into(),
         fields: vec![

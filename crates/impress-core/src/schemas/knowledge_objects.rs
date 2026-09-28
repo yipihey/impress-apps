@@ -28,7 +28,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// (ADR-0012 D6) — they are never compacted.
 pub fn review_schema() -> Schema {
     Schema {
-        id: "review".into(),
+        id: crate::schema::refs::REVIEW,
         name: "Review".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -124,7 +124,7 @@ pub fn review_schema() -> Schema {
 /// author them directly.
 pub fn revision_note_schema() -> Schema {
     Schema {
-        id: "revision-note".into(),
+        id: crate::schema::refs::REVISION_NOTE,
         name: "Revision Note".into(),
         version: "1.0.0".into(),
         fields: vec![

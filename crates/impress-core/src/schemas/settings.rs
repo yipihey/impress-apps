@@ -16,11 +16,11 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// The canonical synced-settings ref. **VERSIONED**, spelled exactly like
 /// this; copy the constant (or `impress_settings::SYNCED_SCHEMA_REF`, which
 /// equals it by test), never a sibling call site.
-pub const SETTINGS_SCHEMA_REF: &str = "impress/settings@1.0.0";
+pub const SETTINGS_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::IMPRESS_SETTINGS;
 
 pub fn settings_schema() -> Schema {
     Schema {
-        id: SETTINGS_SCHEMA_REF.into(),
+        id: SETTINGS_SCHEMA_REF,
         name: "Synced Settings".into(),
         version: "1.0.0".into(),
         fields: vec![

@@ -129,19 +129,19 @@ pub struct SpellingMove {
 pub const CONVERGED_SPELLINGS: [SpellingMove; 4] = [
     SpellingMove {
         legacy_ref: "impel/task",
-        canonical_ref: TASK_SCHEMA,
+        canonical_ref: crate::schema::names::TASK,
     },
     SpellingMove {
         legacy_ref: "task",
-        canonical_ref: TASK_SCHEMA,
+        canonical_ref: crate::schema::names::TASK,
     },
     SpellingMove {
         legacy_ref: "impel/agent-run",
-        canonical_ref: AGENT_RUN_SCHEMA,
+        canonical_ref: crate::schema::names::AGENT_RUN,
     },
     SpellingMove {
         legacy_ref: "agent-run",
-        canonical_ref: AGENT_RUN_SCHEMA,
+        canonical_ref: crate::schema::names::AGENT_RUN,
     },
 ];
 
@@ -322,8 +322,8 @@ pub fn migration_status(store: &SqliteItemStore) -> Result<MigrationStatus, Stor
     Ok(MigrationStatus {
         migrated,
         legacy,
-        canonical_tasks: count_of_schema(store, TASK_SCHEMA)?,
-        canonical_runs: count_of_schema(store, AGENT_RUN_SCHEMA)?,
+        canonical_tasks: count_of_schema(store, &TASK_SCHEMA)?,
+        canonical_runs: count_of_schema(store, &AGENT_RUN_SCHEMA)?,
         ledger_rows,
     })
 }
@@ -525,7 +525,7 @@ fn plan_migration(
     let mut plans = Vec::with_capacity(CONVERGED_SPELLINGS.len());
     for spelling in CONVERGED_SPELLINGS {
         let ids = ids_of_schema(conn, spelling.legacy_ref)?;
-        let newly_schedulable = if spelling.canonical_ref == TASK_SCHEMA {
+        let newly_schedulable = if spelling.canonical_ref == TASK_SCHEMA.as_str() {
             schedulable_count(conn, spelling.legacy_ref)?
         } else {
             0

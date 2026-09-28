@@ -1312,7 +1312,7 @@ impl InvalidationFeed {
         // mutations to this feed. `crate::ui_feed::ExternalPoll` is the same
         // mechanism `surface.rs`'s feed uses, narrowed to its own prefix.
         let mut external = ExternalPoll::baseline(&self.store)
-            .track_deletes(&self.store, schemas::ui::LAYOUT_SCHEMA_REF);
+            .track_deletes(&self.store, &schemas::ui::LAYOUT_SCHEMA_REF);
         let mut last_external_poll = Instant::now();
         // In-process, cross-object liveness: the session registry is shared
         // with the surface executor and the inventory (see
@@ -1393,7 +1393,7 @@ impl InvalidationFeed {
                     }
                     mutations.push(impress_core::event::StoreMutation::new(
                         item.id,
-                        Some(item.schema),
+                        Some(item.schema.into()),
                         impress_core::event::MutationKind::Updated,
                     ));
                 }
@@ -1881,7 +1881,8 @@ mod tests {
         );
     }
 
-    const PUBLICATION_SCHEMA: &str = "imbib/bibliography-entry";
+    const PUBLICATION_SCHEMA: impress_core::SchemaRef =
+        impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY;
 
     fn open() -> (Arc<SharedStore>, Arc<SharedLayout>) {
         let store = SharedStore::open_in_memory().expect("open");
@@ -2346,7 +2347,7 @@ mod tests {
     #[test]
     fn compiling_a_query_needs_no_pane() {
         let manifest = kind_manifest_json();
-        assert!(manifest.contains(PUBLICATION_SCHEMA));
+        assert!(manifest.contains(PUBLICATION_SCHEMA.as_str()));
 
         let compiled = compile_pane_query(
             r#"{"kinds":["publication"]}"#.into(),
@@ -2355,7 +2356,7 @@ mod tests {
         )
         .expect("compile");
         assert!(
-            compiled.contains(PUBLICATION_SCHEMA),
+            compiled.contains(PUBLICATION_SCHEMA.as_str()),
             "the compiled query names the schema ref: {compiled}"
         );
 

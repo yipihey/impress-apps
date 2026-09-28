@@ -83,7 +83,7 @@ impl ScenarioStore {
         let now = Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: SCENARIO_SCHEMA_REF.into(),
+            schema: SCENARIO_SCHEMA_REF,
             payload,
             created: now,
             modified: now,
@@ -129,7 +129,7 @@ impl ScenarioStore {
 
     pub fn list(&self) -> Result<Vec<ScenarioRow>> {
         let query = ItemQuery {
-            schema: Some(SCENARIO_SCHEMA_REF.into()),
+            schema: Some(SCENARIO_SCHEMA_REF),
             include_tags: false,
             include_references: false,
             ..Default::default()

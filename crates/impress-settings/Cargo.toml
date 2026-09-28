@@ -25,3 +25,7 @@ tempfile = "3"
 
 [lints]
 workspace = true
+
+[build-dependencies]
+# The existing JSON dependency also reads the schema manifest at build time.
+serde_json.workspace = true

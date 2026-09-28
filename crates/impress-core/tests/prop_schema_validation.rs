@@ -18,8 +18,7 @@ use uuid::Uuid;
 // Helpers
 // ---------------------------------------------------------------------------
 
-#[path = "support/schema_fixture.rs"]
-mod schema_fixture;
+use crate::schema_fixture;
 
 fn make_item(schema: impl AsRef<str>, payload: BTreeMap<String, Value>) -> Item {
     Item {

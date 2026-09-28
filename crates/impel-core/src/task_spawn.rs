@@ -200,7 +200,7 @@ pub fn create_task_dag_from(
         }
         let item = Item {
             id: Uuid::new_v4(),
-            schema: TASK_SCHEMA.into(),
+            schema: TASK_SCHEMA,
             payload,
             created: Utc::now(),
             modified: Utc::now(),

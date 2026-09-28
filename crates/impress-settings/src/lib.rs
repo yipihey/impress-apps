@@ -52,3 +52,9 @@ pub use store::{
     SETTINGS_DIRECTORY, SETTINGS_FILE_VERSION,
 };
 pub use surface::{section_surface, surface_state_key};
+
+// Manifest metadata without a runtime dependency back on the store.
+#[allow(dead_code)]
+mod schema_names {
+    include!(concat!(env!("OUT_DIR"), "/schema_ref_names.rs"));
+}

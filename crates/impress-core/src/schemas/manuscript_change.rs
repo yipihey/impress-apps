@@ -3,7 +3,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The exact `items.schema_ref` of a manuscript change chunk. Versioned, and
 /// the ONLY spelling — copy it, never retype it (root CLAUDE.md § schema refs).
-pub const MANUSCRIPT_CHANGE_SCHEMA_REF: &str = "manuscript-change@1.0.0";
+pub const MANUSCRIPT_CHANGE_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::MANUSCRIPT_CHANGE;
 
 /// Schema for the `manuscript-change@1.0.0` item type (ADR-0027 D3).
 ///
@@ -20,7 +20,7 @@ pub const MANUSCRIPT_CHANGE_SCHEMA_REF: &str = "manuscript-change@1.0.0";
 /// rejected in `apply_operation()` exactly as for `manuscript-revision`.
 pub fn manuscript_change_schema() -> Schema {
     Schema {
-        id: MANUSCRIPT_CHANGE_SCHEMA_REF.into(),
+        id: MANUSCRIPT_CHANGE_SCHEMA_REF,
         name: "Manuscript Change".into(),
         version: "1.0.0".into(),
         fields: vec![

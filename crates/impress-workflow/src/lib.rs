@@ -36,3 +36,9 @@ pub use spec::{
 };
 pub use trigger::{parse_duration_ms, Clock, DueRun, EngineCursors, Signal, SystemClock};
 pub use validate::{validate, validate_with, Problem, Severity, VerbEffects};
+
+// Manifest metadata without a runtime dependency back on the store.
+#[allow(dead_code)]
+mod schema_names {
+    include!(concat!(env!("OUT_DIR"), "/schema_ref_names.rs"));
+}

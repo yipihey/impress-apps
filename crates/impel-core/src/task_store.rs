@@ -310,7 +310,7 @@ impl TaskStoreApi for SqliteItemStore {
 
     fn reviews_for(&self, task_id: ItemId) -> Result<(Vec<Item>, Vec<Item>), TaskStoreError> {
         let q = ItemQuery {
-            schema: Some(REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(REVIEW_REQUEST_SCHEMA),
             predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, task_id)],
             // Newest first, for real — the doc promised it while the query
             // had no ORDER BY, so `resolved.first()` picked an arbitrary
@@ -336,7 +336,7 @@ impl TaskStoreApi for SqliteItemStore {
 
     fn running_tasks(&self, assigned_to: &str) -> Result<Vec<Item>, TaskStoreError> {
         let q = ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![
                 Predicate::Eq(
                     "payload.state".into(),
@@ -393,7 +393,7 @@ impl TaskStoreApi for SqliteItemStore {
         &self,
     ) -> Result<std::collections::HashSet<ItemId>, TaskStoreError> {
         let q = ItemQuery {
-            schema: Some(REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(REVIEW_REQUEST_SCHEMA),
             include_tags: false,
             // References ARE the payload here: the OperatesOn edge names
             // the suspended task.
@@ -418,7 +418,7 @@ impl TaskStoreApi for SqliteItemStore {
 
     fn orphaned_running_tasks(&self) -> Result<Vec<Item>, TaskStoreError> {
         let q = ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "payload.state".into(),
                 Value::String(TaskState::Running.as_str().into()),
@@ -438,7 +438,7 @@ impl TaskStoreApi for SqliteItemStore {
 
     fn dependents_of(&self, task_id: ItemId) -> Result<Vec<Item>, TaskStoreError> {
         let q = ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![Predicate::HasReference(EdgeType::DependsOn, task_id)],
             include_tags: false,
             include_references: true,

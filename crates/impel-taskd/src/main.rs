@@ -205,7 +205,7 @@ const RESPAWN_COOLOFF_MS: i64 = 24 * 3_600_000;
 ///   spawned", so one transient store error duplicated whole DAGs.
 fn should_spawn_enrichment(store: &SqliteItemStore, entry_id: uuid::Uuid) -> bool {
     let q = ItemQuery {
-        schema: Some(TASK_SCHEMA.into()),
+        schema: Some(TASK_SCHEMA),
         predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, entry_id)],
         sort: vec![impress_core::query::SortDescriptor {
             field: "modified".into(),
@@ -253,7 +253,7 @@ fn should_spawn_enrichment(store: &SqliteItemStore, entry_id: uuid::Uuid) -> boo
 fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bool {
     use impress_core::item::Value;
     let q = ItemQuery {
-        schema: Some(TASK_SCHEMA.into()),
+        schema: Some(TASK_SCHEMA),
         predicates: vec![
             Predicate::HasReference(EdgeType::OperatesOn, throughline_id),
             Predicate::In(
@@ -421,7 +421,7 @@ fn expire_stale_reviews(store: &SqliteItemStore, expiry_days: i64, cap: usize) -
     let mut offset = 0;
     while expired < cap {
         let q = ItemQuery {
-            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA),
             predicates: vec![Predicate::Lt("created".into(), Value::Int(cutoff))],
             sort: vec![impress_core::query::SortDescriptor {
                 field: "created".into(),
@@ -500,7 +500,7 @@ fn withdraw_orphaned_reviews(store: &SqliteItemStore, cap: usize) -> usize {
     let mut offset = 0;
     while withdrawn < cap {
         let q = ItemQuery {
-            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA),
             sort: vec![impress_core::query::SortDescriptor {
                 field: "created".into(),
                 ascending: true,
@@ -605,7 +605,7 @@ fn cancel_stranded_dependents(store: &SqliteItemStore) -> usize {
     use impress_core::item::Value;
     use impress_core::task::TaskState;
     let q = ItemQuery {
-        schema: Some(TASK_SCHEMA.into()),
+        schema: Some(TASK_SCHEMA),
         predicates: vec![Predicate::Eq(
             "payload.state".into(),
             Value::String("pending".into()),
@@ -966,7 +966,7 @@ async fn main() {
     let events = ItemStore::subscribe(
         store.as_ref(),
         ItemQuery {
-            schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA.into()),
+            schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA),
             ..Default::default()
         },
     )

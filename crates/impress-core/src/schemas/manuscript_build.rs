@@ -13,7 +13,7 @@ use crate::reference::EdgeType;
 use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
-pub const MANUSCRIPT_BUILD_SCHEMA_REF: &str = "manuscript-build@1.0.0";
+pub const MANUSCRIPT_BUILD_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::MANUSCRIPT_BUILD;
 
 /// How many builds `compact_builds` keeps per manuscript.
 pub const BUILD_RETENTION: usize = 20;
@@ -25,7 +25,7 @@ pub const BUILD_STATUS_CANCELLED: &str = "cancelled";
 
 pub fn manuscript_build_schema() -> Schema {
     Schema {
-        id: MANUSCRIPT_BUILD_SCHEMA_REF.into(),
+        id: MANUSCRIPT_BUILD_SCHEMA_REF,
         name: "Manuscript Build".into(),
         version: "1.0.0".into(),
         fields: vec![

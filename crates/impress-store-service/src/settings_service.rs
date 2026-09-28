@@ -161,7 +161,7 @@ impl SyncedBackend for StoreSyncedBackend {
                 let now = Utc::now();
                 let item = Item {
                     id,
-                    schema: SETTINGS_SCHEMA_REF.into(),
+                    schema: SETTINGS_SCHEMA_REF,
                     payload,
                     created: now,
                     modified: now,

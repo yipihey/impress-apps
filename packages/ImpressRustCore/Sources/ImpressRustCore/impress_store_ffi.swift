@@ -2703,7 +2703,7 @@ public protocol SharedStoreProtocol : AnyObject {
     /**
      * Count items with the given schema (e.g. for sidebar badges).
      */
-    func countBySchema(schemaRef: String) throws  -> UInt32
+    func countBySchema(schemaRef: StoreSchemaRef) throws  -> UInt32
     
     /**
      * Count of items matching `query` (limit/offset/sort ignored).
@@ -2898,7 +2898,7 @@ public protocol SharedStoreProtocol : AnyObject {
      * - `limit`: Maximum number of results (0 = default of 100).
      * - `offset`: Pagination offset.
      */
-    func queryBySchema(schemaRef: String, limit: UInt32, offset: UInt32) throws  -> [SharedItemRow]
+    func queryBySchema(schemaRef: StoreSchemaRef, limit: UInt32, offset: UInt32) throws  -> [SharedItemRow]
     
     /**
      * Flat predicate query (Stage 0): schema/parent/payload-equality/
@@ -2957,7 +2957,7 @@ public protocol SharedStoreProtocol : AnyObject {
      * Searches the FTS5 index (title, author_text, abstract_text, note fields).
      * Matches items where any of those fields contains `query`.
      */
-    func search(query: String, schemaFilter: String?, limit: UInt32) throws  -> [SharedItemRow]
+    func search(query: String, schemaFilter: StoreSchemaRef?, limit: UInt32) throws  -> [SharedItemRow]
     
     /**
      * Full-text search across every record kind at once (ADR-0022 D6).
@@ -3675,10 +3675,10 @@ open func commitManuscriptBody(id: String, baseHeads: [String], body: String, au
     /**
      * Count items with the given schema (e.g. for sidebar badges).
      */
-open func countBySchema(schemaRef: String)throws  -> UInt32 {
+open func countBySchema(schemaRef: StoreSchemaRef)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_count_by_schema(self.uniffiClonePointer(),
-        FfiConverterString.lower(schemaRef),$0
+        FfiConverterTypeStoreSchemaRef.lower(schemaRef),$0
     )
 })
 }
@@ -4109,10 +4109,10 @@ open func operationsFor(id: String, limit: UInt32)throws  -> [SharedOperationRow
      * - `limit`: Maximum number of results (0 = default of 100).
      * - `offset`: Pagination offset.
      */
-open func queryBySchema(schemaRef: String, limit: UInt32, offset: UInt32)throws  -> [SharedItemRow] {
+open func queryBySchema(schemaRef: StoreSchemaRef, limit: UInt32, offset: UInt32)throws  -> [SharedItemRow] {
     return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_query_by_schema(self.uniffiClonePointer(),
-        FfiConverterString.lower(schemaRef),
+        FfiConverterTypeStoreSchemaRef.lower(schemaRef),
         FfiConverterUInt32.lower(limit),
         FfiConverterUInt32.lower(offset),$0
     )
@@ -4215,11 +4215,11 @@ open func resolveReview(id: String, resolution: String, resolvedBy: String)throw
      * Searches the FTS5 index (title, author_text, abstract_text, note fields).
      * Matches items where any of those fields contains `query`.
      */
-open func search(query: String, schemaFilter: String?, limit: UInt32)throws  -> [SharedItemRow] {
+open func search(query: String, schemaFilter: StoreSchemaRef?, limit: UInt32)throws  -> [SharedItemRow] {
     return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_search(self.uniffiClonePointer(),
         FfiConverterString.lower(query),
-        FfiConverterOptionString.lower(schemaFilter),
+        FfiConverterOptionTypeStoreSchemaRef.lower(schemaFilter),
         FfiConverterUInt32.lower(limit),$0
     )
 })
@@ -10297,7 +10297,7 @@ public func FfiConverterTypeSharedHybridCandidate_lower(_ value: SharedHybridCan
  * predicates. All filters are ANDed.
  */
 public struct SharedItemQuery {
-    public var schemaRef: String?
+    public var schemaRef: StoreSchemaRef?
     /**
      * Envelope parent filter (children of a folder/account/collection).
      */
@@ -10320,7 +10320,7 @@ public struct SharedItemQuery {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(schemaRef: String?, 
+    public init(schemaRef: StoreSchemaRef?, 
         /**
          * Envelope parent filter (children of a folder/account/collection).
          */parentId: String?, payloadEq: [SharedFieldEq], 
@@ -10395,7 +10395,7 @@ public struct FfiConverterTypeSharedItemQuery: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedItemQuery {
         return
             try SharedItemQuery(
-                schemaRef: FfiConverterOptionString.read(from: &buf), 
+                schemaRef: FfiConverterOptionTypeStoreSchemaRef.read(from: &buf), 
                 parentId: FfiConverterOptionString.read(from: &buf), 
                 payloadEq: FfiConverterSequenceTypeSharedFieldEq.read(from: &buf), 
                 modifiedAfterMs: FfiConverterOptionInt64.read(from: &buf), 
@@ -10407,7 +10407,7 @@ public struct FfiConverterTypeSharedItemQuery: FfiConverterRustBuffer {
     }
 
     public static func write(_ value: SharedItemQuery, into buf: inout [UInt8]) {
-        FfiConverterOptionString.write(value.schemaRef, into: &buf)
+        FfiConverterOptionTypeStoreSchemaRef.write(value.schemaRef, into: &buf)
         FfiConverterOptionString.write(value.parentId, into: &buf)
         FfiConverterSequenceTypeSharedFieldEq.write(value.payloadEq, into: &buf)
         FfiConverterOptionInt64.write(value.modifiedAfterMs, into: &buf)
@@ -15508,6 +15508,654 @@ extension AiStreamEvent: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Canonical store schema names, generated from the suite manifest.
+ */
+
+public enum SchemaRef {
+    
+    case agentRun
+    case aiImportLedger
+    case annotation
+    case bibliographyEntry
+    case chatMessage
+    case citationUsage
+    case collection
+    case contentBlob
+    case contentChunk
+    case conversation
+    case coreOperation
+    case coreVerbCall
+    case dataset
+    case emailMessage
+    case extractionRun
+    case figure
+    case figureCollection
+    case figureRegion
+    case gitProject
+    case imbibActivityRecord
+    case imbibAnnotation
+    case imbibAssignment
+    case imbibBibliographyEntry
+    case imbibCollection
+    case imbibComment
+    case imbibDismissedPaper
+    case imbibEinkDevice
+    case imbibEinkMirror
+    case imbibLibrary
+    case imbibLinkedFile
+    case imbibMutedItem
+    case imbibRecommendationProfile
+    case imbibScixLibrary
+    case imbibSmartSearch
+    case imbibTagDefinition
+    case impressArtifactCode
+    case impressArtifactDataset
+    case impressArtifactGeneral
+    case impressArtifactMedia
+    case impressArtifactNote
+    case impressArtifactPoster
+    case impressArtifactPresentation
+    case impressArtifactWebpage
+    case impressScenario
+    case impressSettings
+    case impressUiLayout
+    case impressUiPreset
+    case impressUiSurfaceEvent
+    case impressUiSurfaceState
+    case impressUiSurface
+    case impressWorkflow
+    case mailAccount
+    case mailFolder
+    case manuscript
+    case manuscriptBuild
+    case manuscriptChange
+    case manuscriptCollection
+    case manuscriptFile
+    case manuscriptRevision
+    case manuscriptSection
+    case manuscriptSubmission
+    case memoryClaim
+    case memoryEpisode
+    case memoryInstruction
+    case plotSpec
+    case review
+    case reviewRequest
+    case revisionNote
+    case sourceCitation
+    case taskEvent
+    case task
+    case throughline
+    case toolInvocation
+    case veuszPlot
+    case vwCommandReceipt
+    case vwConfiguration
+    case vwDiagnosticSession
+    case vwKnowledgePack
+    case vwMeasurement
+    case vwObservation
+    case vwPhotoEvidence
+    case vwProcedureRun
+    case vwVehicle
+    case watchedFile
+    case watchedFolder
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSchemaRef: FfiConverterRustBuffer {
+    typealias SwiftType = SchemaRef
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SchemaRef {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .agentRun
+        
+        case 2: return .aiImportLedger
+        
+        case 3: return .annotation
+        
+        case 4: return .bibliographyEntry
+        
+        case 5: return .chatMessage
+        
+        case 6: return .citationUsage
+        
+        case 7: return .collection
+        
+        case 8: return .contentBlob
+        
+        case 9: return .contentChunk
+        
+        case 10: return .conversation
+        
+        case 11: return .coreOperation
+        
+        case 12: return .coreVerbCall
+        
+        case 13: return .dataset
+        
+        case 14: return .emailMessage
+        
+        case 15: return .extractionRun
+        
+        case 16: return .figure
+        
+        case 17: return .figureCollection
+        
+        case 18: return .figureRegion
+        
+        case 19: return .gitProject
+        
+        case 20: return .imbibActivityRecord
+        
+        case 21: return .imbibAnnotation
+        
+        case 22: return .imbibAssignment
+        
+        case 23: return .imbibBibliographyEntry
+        
+        case 24: return .imbibCollection
+        
+        case 25: return .imbibComment
+        
+        case 26: return .imbibDismissedPaper
+        
+        case 27: return .imbibEinkDevice
+        
+        case 28: return .imbibEinkMirror
+        
+        case 29: return .imbibLibrary
+        
+        case 30: return .imbibLinkedFile
+        
+        case 31: return .imbibMutedItem
+        
+        case 32: return .imbibRecommendationProfile
+        
+        case 33: return .imbibScixLibrary
+        
+        case 34: return .imbibSmartSearch
+        
+        case 35: return .imbibTagDefinition
+        
+        case 36: return .impressArtifactCode
+        
+        case 37: return .impressArtifactDataset
+        
+        case 38: return .impressArtifactGeneral
+        
+        case 39: return .impressArtifactMedia
+        
+        case 40: return .impressArtifactNote
+        
+        case 41: return .impressArtifactPoster
+        
+        case 42: return .impressArtifactPresentation
+        
+        case 43: return .impressArtifactWebpage
+        
+        case 44: return .impressScenario
+        
+        case 45: return .impressSettings
+        
+        case 46: return .impressUiLayout
+        
+        case 47: return .impressUiPreset
+        
+        case 48: return .impressUiSurfaceEvent
+        
+        case 49: return .impressUiSurfaceState
+        
+        case 50: return .impressUiSurface
+        
+        case 51: return .impressWorkflow
+        
+        case 52: return .mailAccount
+        
+        case 53: return .mailFolder
+        
+        case 54: return .manuscript
+        
+        case 55: return .manuscriptBuild
+        
+        case 56: return .manuscriptChange
+        
+        case 57: return .manuscriptCollection
+        
+        case 58: return .manuscriptFile
+        
+        case 59: return .manuscriptRevision
+        
+        case 60: return .manuscriptSection
+        
+        case 61: return .manuscriptSubmission
+        
+        case 62: return .memoryClaim
+        
+        case 63: return .memoryEpisode
+        
+        case 64: return .memoryInstruction
+        
+        case 65: return .plotSpec
+        
+        case 66: return .review
+        
+        case 67: return .reviewRequest
+        
+        case 68: return .revisionNote
+        
+        case 69: return .sourceCitation
+        
+        case 70: return .taskEvent
+        
+        case 71: return .task
+        
+        case 72: return .throughline
+        
+        case 73: return .toolInvocation
+        
+        case 74: return .veuszPlot
+        
+        case 75: return .vwCommandReceipt
+        
+        case 76: return .vwConfiguration
+        
+        case 77: return .vwDiagnosticSession
+        
+        case 78: return .vwKnowledgePack
+        
+        case 79: return .vwMeasurement
+        
+        case 80: return .vwObservation
+        
+        case 81: return .vwPhotoEvidence
+        
+        case 82: return .vwProcedureRun
+        
+        case 83: return .vwVehicle
+        
+        case 84: return .watchedFile
+        
+        case 85: return .watchedFolder
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SchemaRef, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .agentRun:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .aiImportLedger:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .annotation:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .bibliographyEntry:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .chatMessage:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .citationUsage:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .collection:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .contentBlob:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .contentChunk:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .conversation:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .coreOperation:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .coreVerbCall:
+            writeInt(&buf, Int32(12))
+        
+        
+        case .dataset:
+            writeInt(&buf, Int32(13))
+        
+        
+        case .emailMessage:
+            writeInt(&buf, Int32(14))
+        
+        
+        case .extractionRun:
+            writeInt(&buf, Int32(15))
+        
+        
+        case .figure:
+            writeInt(&buf, Int32(16))
+        
+        
+        case .figureCollection:
+            writeInt(&buf, Int32(17))
+        
+        
+        case .figureRegion:
+            writeInt(&buf, Int32(18))
+        
+        
+        case .gitProject:
+            writeInt(&buf, Int32(19))
+        
+        
+        case .imbibActivityRecord:
+            writeInt(&buf, Int32(20))
+        
+        
+        case .imbibAnnotation:
+            writeInt(&buf, Int32(21))
+        
+        
+        case .imbibAssignment:
+            writeInt(&buf, Int32(22))
+        
+        
+        case .imbibBibliographyEntry:
+            writeInt(&buf, Int32(23))
+        
+        
+        case .imbibCollection:
+            writeInt(&buf, Int32(24))
+        
+        
+        case .imbibComment:
+            writeInt(&buf, Int32(25))
+        
+        
+        case .imbibDismissedPaper:
+            writeInt(&buf, Int32(26))
+        
+        
+        case .imbibEinkDevice:
+            writeInt(&buf, Int32(27))
+        
+        
+        case .imbibEinkMirror:
+            writeInt(&buf, Int32(28))
+        
+        
+        case .imbibLibrary:
+            writeInt(&buf, Int32(29))
+        
+        
+        case .imbibLinkedFile:
+            writeInt(&buf, Int32(30))
+        
+        
+        case .imbibMutedItem:
+            writeInt(&buf, Int32(31))
+        
+        
+        case .imbibRecommendationProfile:
+            writeInt(&buf, Int32(32))
+        
+        
+        case .imbibScixLibrary:
+            writeInt(&buf, Int32(33))
+        
+        
+        case .imbibSmartSearch:
+            writeInt(&buf, Int32(34))
+        
+        
+        case .imbibTagDefinition:
+            writeInt(&buf, Int32(35))
+        
+        
+        case .impressArtifactCode:
+            writeInt(&buf, Int32(36))
+        
+        
+        case .impressArtifactDataset:
+            writeInt(&buf, Int32(37))
+        
+        
+        case .impressArtifactGeneral:
+            writeInt(&buf, Int32(38))
+        
+        
+        case .impressArtifactMedia:
+            writeInt(&buf, Int32(39))
+        
+        
+        case .impressArtifactNote:
+            writeInt(&buf, Int32(40))
+        
+        
+        case .impressArtifactPoster:
+            writeInt(&buf, Int32(41))
+        
+        
+        case .impressArtifactPresentation:
+            writeInt(&buf, Int32(42))
+        
+        
+        case .impressArtifactWebpage:
+            writeInt(&buf, Int32(43))
+        
+        
+        case .impressScenario:
+            writeInt(&buf, Int32(44))
+        
+        
+        case .impressSettings:
+            writeInt(&buf, Int32(45))
+        
+        
+        case .impressUiLayout:
+            writeInt(&buf, Int32(46))
+        
+        
+        case .impressUiPreset:
+            writeInt(&buf, Int32(47))
+        
+        
+        case .impressUiSurfaceEvent:
+            writeInt(&buf, Int32(48))
+        
+        
+        case .impressUiSurfaceState:
+            writeInt(&buf, Int32(49))
+        
+        
+        case .impressUiSurface:
+            writeInt(&buf, Int32(50))
+        
+        
+        case .impressWorkflow:
+            writeInt(&buf, Int32(51))
+        
+        
+        case .mailAccount:
+            writeInt(&buf, Int32(52))
+        
+        
+        case .mailFolder:
+            writeInt(&buf, Int32(53))
+        
+        
+        case .manuscript:
+            writeInt(&buf, Int32(54))
+        
+        
+        case .manuscriptBuild:
+            writeInt(&buf, Int32(55))
+        
+        
+        case .manuscriptChange:
+            writeInt(&buf, Int32(56))
+        
+        
+        case .manuscriptCollection:
+            writeInt(&buf, Int32(57))
+        
+        
+        case .manuscriptFile:
+            writeInt(&buf, Int32(58))
+        
+        
+        case .manuscriptRevision:
+            writeInt(&buf, Int32(59))
+        
+        
+        case .manuscriptSection:
+            writeInt(&buf, Int32(60))
+        
+        
+        case .manuscriptSubmission:
+            writeInt(&buf, Int32(61))
+        
+        
+        case .memoryClaim:
+            writeInt(&buf, Int32(62))
+        
+        
+        case .memoryEpisode:
+            writeInt(&buf, Int32(63))
+        
+        
+        case .memoryInstruction:
+            writeInt(&buf, Int32(64))
+        
+        
+        case .plotSpec:
+            writeInt(&buf, Int32(65))
+        
+        
+        case .review:
+            writeInt(&buf, Int32(66))
+        
+        
+        case .reviewRequest:
+            writeInt(&buf, Int32(67))
+        
+        
+        case .revisionNote:
+            writeInt(&buf, Int32(68))
+        
+        
+        case .sourceCitation:
+            writeInt(&buf, Int32(69))
+        
+        
+        case .taskEvent:
+            writeInt(&buf, Int32(70))
+        
+        
+        case .task:
+            writeInt(&buf, Int32(71))
+        
+        
+        case .throughline:
+            writeInt(&buf, Int32(72))
+        
+        
+        case .toolInvocation:
+            writeInt(&buf, Int32(73))
+        
+        
+        case .veuszPlot:
+            writeInt(&buf, Int32(74))
+        
+        
+        case .vwCommandReceipt:
+            writeInt(&buf, Int32(75))
+        
+        
+        case .vwConfiguration:
+            writeInt(&buf, Int32(76))
+        
+        
+        case .vwDiagnosticSession:
+            writeInt(&buf, Int32(77))
+        
+        
+        case .vwKnowledgePack:
+            writeInt(&buf, Int32(78))
+        
+        
+        case .vwMeasurement:
+            writeInt(&buf, Int32(79))
+        
+        
+        case .vwObservation:
+            writeInt(&buf, Int32(80))
+        
+        
+        case .vwPhotoEvidence:
+            writeInt(&buf, Int32(81))
+        
+        
+        case .vwProcedureRun:
+            writeInt(&buf, Int32(82))
+        
+        
+        case .vwVehicle:
+            writeInt(&buf, Int32(83))
+        
+        
+        case .watchedFile:
+            writeInt(&buf, Int32(84))
+        
+        
+        case .watchedFolder:
+            writeInt(&buf, Int32(85))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchemaRef_lift(_ buf: RustBuffer) throws -> SchemaRef {
+    return try FfiConverterTypeSchemaRef.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchemaRef_lower(_ value: SchemaRef) -> RustBuffer {
+    return FfiConverterTypeSchemaRef.lower(value)
+}
+
+
+
+extension SchemaRef: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Which collection schema the kernel operates on.
  *
  * ADR-0022 D2 unifies the API before the data: `Publication`, `Manuscript`
@@ -17200,6 +17848,30 @@ fileprivate struct FfiConverterOptionTypeAiStreamEvent: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeStoreSchemaRef: FfiConverterRustBuffer {
+    typealias SwiftType = StoreSchemaRef?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeStoreSchemaRef.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeStoreSchemaRef.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
     typealias SwiftType = [UInt32]
 
@@ -18397,6 +19069,50 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
         return dict
     }
 }
+
+
+/**
+ * Typealias from the type name used in the UDL file to the builtin type.  This
+ * is needed because the UDL type name is used in function/method signatures.
+ */
+public typealias StoreSchemaRef = String
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStoreSchemaRef: FfiConverter {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StoreSchemaRef {
+        return try FfiConverterString.read(from: &buf)
+    }
+
+    public static func write(_ value: StoreSchemaRef, into buf: inout [UInt8]) {
+        return FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func lift(_ value: RustBuffer) throws -> StoreSchemaRef {
+        return try FfiConverterString.lift(value)
+    }
+
+    public static func lower(_ value: StoreSchemaRef) -> RustBuffer {
+        return FfiConverterString.lower(value)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStoreSchemaRef_lift(_ value: RustBuffer) throws -> StoreSchemaRef {
+    return try FfiConverterTypeStoreSchemaRef.lift(value)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStoreSchemaRef_lower(_ value: StoreSchemaRef) -> RustBuffer {
+    return FfiConverterTypeStoreSchemaRef.lower(value)
+}
+
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
 
@@ -18682,6 +19398,16 @@ public func refusalHttpStatus(code: String) -> UInt16 {
 })
 }
 /**
+ * The manifest spelling of a canonical schema, for existing Swift APIs.
+ */
+public func schemaRefName(schema: SchemaRef) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_schema_ref_name(
+        FfiConverterTypeSchemaRef.lower(schema),$0
+    )
+})
+}
+/**
  * The record kind each section serves in `app_id`'s shipped shell, as JSON:
  * `{"<SidebarSectionType case>": "<kind short id>"}` — `{}` for an app that
  * ships no preset. `AppShellConfiguration`'s shipped presets read their
@@ -18784,6 +19510,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_refusal_http_status() != 65103) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_schema_ref_name() != 60753) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_section_bindings_json() != 33769) {
@@ -19086,7 +19815,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_commit_manuscript_body() != 35406) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 21485) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 56049) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_items() != 51428) {
@@ -19185,7 +19914,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_operations_for() != 9390) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_by_schema() != 32264) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_by_schema() != 3343) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_items() != 63649) {
@@ -19206,7 +19935,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_resolve_review() != 13522) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_search() != 42949) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_search() != 50121) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_search_all() != 49100) {

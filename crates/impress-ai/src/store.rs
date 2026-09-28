@@ -218,7 +218,7 @@ impl AiStore {
             ));
         }
         Ok(self.store.query(&ItemQuery {
-            schema: Some(CONVERSATION_SCHEMA.into()),
+            schema: Some(CONVERSATION_SCHEMA),
             predicates,
             sort: vec![SortDescriptor {
                 field: "payload.last_activity_at".into(),
@@ -232,7 +232,7 @@ impl AiStore {
         let conversation = self.require_item(conversation_id, CONVERSATION_SCHEMA)?;
         let messages = self.messages(conversation_id)?;
         let pending_tasks = self.store.query(&ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![
                 Predicate::HasParent(conversation_id),
                 Predicate::In(
@@ -259,7 +259,7 @@ impl AiStore {
     pub fn task_progress(&self, task_id: ItemId) -> Result<TaskProgress> {
         let task = self.require_item(task_id, TASK_SCHEMA)?;
         let mut runs = self.store.query(&ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.into()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, task_id)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -272,7 +272,7 @@ impl AiStore {
         let response_message_id = if let Some(run) = &run {
             self.store
                 .query(&ItemQuery {
-                    schema: Some(CHAT_MESSAGE_SCHEMA.into()),
+                    schema: Some(CHAT_MESSAGE_SCHEMA),
                     predicates: vec![Predicate::Eq(
                         "produced_by".into(),
                         Value::String(run.id.to_string()),
@@ -310,7 +310,7 @@ impl AiStore {
         let run = self
             .store
             .query(&ItemQuery {
-                schema: Some(AGENT_RUN_SCHEMA.into()),
+                schema: Some(AGENT_RUN_SCHEMA),
                 predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, task_id)],
                 sort: vec![SortDescriptor {
                     field: "created".into(),
@@ -460,7 +460,7 @@ impl AiStore {
         if let Some(task) = self
             .store
             .query(&ItemQuery {
-                schema: Some(TASK_SCHEMA.into()),
+                schema: Some(TASK_SCHEMA),
                 predicates: vec![
                     Predicate::HasParent(conversation_id),
                     Predicate::Eq(
@@ -1022,7 +1022,7 @@ impl AiStore {
     /// re-executing the still-running task would create a duplicate response.
     pub fn has_completed_run(&self, task_id: ItemId) -> Result<bool> {
         Ok(self.store.count(&ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.into()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![
                 Predicate::HasReference(EdgeType::OperatesOn, task_id),
                 Predicate::Eq("payload.status".into(), Value::String("completed".into())),
@@ -1326,7 +1326,7 @@ impl AiStore {
 
     fn messages(&self, conversation_id: ItemId) -> Result<Vec<Item>> {
         Ok(self.store.query(&ItemQuery {
-            schema: Some(CHAT_MESSAGE_SCHEMA.into()),
+            schema: Some(CHAT_MESSAGE_SCHEMA),
             predicates: vec![Predicate::HasParent(conversation_id)],
             sort: vec![SortDescriptor {
                 field: "payload.sequence".into(),
@@ -1358,7 +1358,7 @@ impl AiStore {
         Ok(self
             .store
             .query(&ItemQuery {
-                schema: Some(AGENT_RUN_SCHEMA.into()),
+                schema: Some(AGENT_RUN_SCHEMA),
                 predicates: vec![
                     Predicate::HasReference(EdgeType::OperatesOn, task_id),
                     Predicate::Eq("payload.status".into(), Value::String("running".into())),

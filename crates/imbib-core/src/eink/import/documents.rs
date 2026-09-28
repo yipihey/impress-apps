@@ -135,7 +135,7 @@ pub fn document_kind(doc: &RemarkableDocument) -> &'static str {
 /// superseded.
 fn known_remote_ids(store: &ImbibStore) -> Result<HashSet<String>, StoreApiError> {
     let q = ItemQuery {
-        schema: Some(SCHEMA_MIRROR.into()),
+        schema: Some(SCHEMA_MIRROR),
         include_tags: false,
         include_references: false,
         ..Default::default()

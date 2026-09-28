@@ -187,7 +187,7 @@ impl SurfaceStore {
         let now = Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: SURFACE_SCHEMA_REF.into(),
+            schema: SURFACE_SCHEMA_REF,
             payload,
             created: now,
             modified: now,
@@ -354,7 +354,7 @@ impl SurfaceStore {
 
     pub fn list(&self) -> Result<Vec<SurfaceRow>> {
         let query = ItemQuery {
-            schema: Some(SURFACE_SCHEMA_REF.into()),
+            schema: Some(SURFACE_SCHEMA_REF),
             include_tags: false,
             include_references: false,
             ..Default::default()

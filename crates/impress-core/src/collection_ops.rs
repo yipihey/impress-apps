@@ -107,7 +107,7 @@ use crate::collection_migration;
 use crate::item::{Item, ItemId, Priority, Value, Visibility};
 use crate::query::{ItemQuery, Predicate, SortDescriptor};
 use crate::reference::{EdgeType, TypedReference};
-use crate::schemas::collection::{COLLECTION_SCHEMA, KIND_SCOPE_ANY};
+use crate::schemas::collection::KIND_SCOPE_ANY;
 use crate::sqlite_store::SqliteItemStore;
 use crate::store::{FieldMutation, ItemStore, StoreError};
 
@@ -188,12 +188,18 @@ pub enum EnvelopeParent {
     TreeParent,
 }
 
+// Borrow stable manifest values so the small binding descriptors remain Copy.
+static IMBIB_COLLECTION_SCHEMA: crate::SchemaRef = crate::schema::refs::IMBIB_COLLECTION;
+static MANUSCRIPT_COLLECTION_SCHEMA: crate::SchemaRef = crate::schema::refs::MANUSCRIPT_COLLECTION;
+static FIGURE_COLLECTION_SCHEMA: crate::SchemaRef = crate::schema::refs::FIGURE_COLLECTION;
+static GENERIC_COLLECTION_SCHEMA: crate::SchemaRef = crate::schema::refs::COLLECTION;
+
 /// Descriptor binding the kernel to one concrete collection schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CollectionSchemaBinding {
     /// Exact `schema_ref` stored on collection items (queries match it with
     /// string equality, so this is the stored form, not the display form).
-    pub schema_ref: &'static str,
+    pub schema_ref: &'static crate::SchemaRef,
     pub parent_field: ParentField,
     pub membership: Membership,
     /// Payload field naming the record kind the collection organises, for
@@ -225,7 +231,7 @@ pub struct CollectionSchemaBinding {
 /// (`container_field`), it has smart rows (`smart_field`), and its tree parent
 /// is a payload ref while its envelope is the library.
 pub const IMBIB_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
-    schema_ref: "imbib/collection",
+    schema_ref: &IMBIB_COLLECTION_SCHEMA,
     parent_field: ParentField::Payload("parent_id"),
     membership: Membership::ContainsEdge,
     kind_scope_field: None,
@@ -238,7 +244,7 @@ pub const IMBIB_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
 /// imprint manuscript folders (`manuscript-collection@1.0.0`, stored bare as
 /// `manuscript-collection`): payload `parent_collection_ref` tree.
 pub const MANUSCRIPT_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
-    schema_ref: "manuscript-collection",
+    schema_ref: &MANUSCRIPT_COLLECTION_SCHEMA,
     parent_field: ParentField::Payload("parent_collection_ref"),
     membership: Membership::ContainsEdge,
     kind_scope_field: None,
@@ -257,7 +263,7 @@ pub const MANUSCRIPT_COLLECTION: CollectionSchemaBinding = CollectionSchemaBindi
 /// schema has no parent field at all, so both nesting and membership run
 /// through the envelope parent.
 pub const FIGURE_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
-    schema_ref: "figure-collection",
+    schema_ref: &FIGURE_COLLECTION_SCHEMA,
     parent_field: ParentField::Envelope,
     membership: Membership::EnvelopeParent,
     kind_scope_field: None,
@@ -273,7 +279,7 @@ pub const FIGURE_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
 
 /// The generic `collection@1.0.0` kernel schema (ADR-0022 D1).
 pub const GENERIC_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
-    schema_ref: COLLECTION_SCHEMA,
+    schema_ref: &GENERIC_COLLECTION_SCHEMA,
     parent_field: ParentField::Payload("parent_id"),
     membership: Membership::ContainsEdge,
     kind_scope_field: Some("kind_scope"),
@@ -304,7 +310,7 @@ pub const ALL_BINDINGS: [CollectionSchemaBinding; 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedBinding {
     /// The `schema_ref` to query and to write.
-    pub schema_ref: &'static str,
+    pub schema_ref: &'static crate::SchemaRef,
     /// Where the tree parent is read from and written to.
     pub parent_field: ParentField,
     /// Unchanged by the flip, always.
@@ -340,7 +346,7 @@ impl ResolvedBinding {
     /// `SqliteItemStore::update_with_undo` — its operation-log rows are what
     /// the history panel reads, which the kernel's `CollectionMutation` is not
     /// — so it cannot delegate to [`rename`]. But its
-    /// `item.schema == "imbib/collection"` guard is exactly what turns into an
+    /// `item.schema == crate::schema::refs::IMBIB_COLLECTION` guard is exactly what turns into an
     /// unconditional `NotFound` at the flip. Resolving the binding once and
     /// asking it this question is the whole fix, and it does not fork
     /// [`resolve`].
@@ -372,7 +378,7 @@ impl CollectionSchemaBinding {
             // the generic schema, scoped to this binding's kind, through the
             // canonical payload tree field. Membership is untouched.
             (true, Some(kind_scope)) => ResolvedBinding {
-                schema_ref: COLLECTION_SCHEMA,
+                schema_ref: &GENERIC_COLLECTION_SCHEMA,
                 parent_field: ParentField::Payload("parent_id"),
                 membership: self.membership,
                 kind_scope_field: self.kind_scope_field,
@@ -579,7 +585,7 @@ fn list_tree_resolved(
         predicates.push(Predicate::HasParent(container));
     }
     let q = ItemQuery {
-        schema: Some(b.schema_ref.into()),
+        schema: Some(b.schema_ref.clone()),
         predicates,
         sort: vec![SortDescriptor {
             field: "payload.sort_order".into(),
@@ -1265,7 +1271,7 @@ fn scope_predicates(b: &ResolvedBinding) -> Vec<Predicate> {
 /// Does this item belong to the resolved binding — right schema, and (once
 /// converged) right `kind_scope`?
 fn is_bound(b: &ResolvedBinding, item: &Item) -> bool {
-    if item.schema != b.schema_ref {
+    if item.schema != *b.schema_ref {
         return false;
     }
     match b.kind_scope {
@@ -1442,7 +1448,7 @@ fn containing_items(
             let mut predicates = scope_predicates(b);
             predicates.push(Predicate::HasReference(EdgeType::Contains, member));
             store.query(&ItemQuery {
-                schema: Some(b.schema_ref.into()),
+                schema: Some(b.schema_ref.clone()),
                 predicates,
                 sort: vec![SortDescriptor {
                     field: "payload.sort_order".into(),
@@ -1499,13 +1505,13 @@ fn member_query(b: &ResolvedBinding, collection: ItemId) -> ItemQuery {
 
 pub(crate) fn new_item(
     store: &SqliteItemStore,
-    schema: &str,
+    schema: &crate::SchemaRef,
     payload: BTreeMap<String, Value>,
 ) -> Item {
     let now = Utc::now();
     Item {
         id: Uuid::new_v4(),
-        schema: schema.into(),
+        schema: schema.clone(),
         payload,
         created: now,
         modified: now,
@@ -1563,7 +1569,11 @@ mod tests {
     fn make_item(store: &SqliteItemStore, schema: &str, title: &str) -> String {
         let mut payload: BTreeMap<String, Value> = BTreeMap::new();
         payload.insert("title".into(), Value::String(title.into()));
-        let item = new_item(store, schema, payload);
+        let item = new_item(
+            store,
+            &crate::SchemaRef::from_stored(schema.to_owned()),
+            payload,
+        );
         let id = store.insert(item).expect("insert item");
         id.to_string()
     }
@@ -2034,7 +2044,7 @@ mod tests {
 
     #[test]
     fn all_bindings_have_distinct_schema_refs() {
-        let mut refs: Vec<&str> = ALL_BINDINGS.iter().map(|b| b.schema_ref).collect();
+        let mut refs: Vec<&str> = ALL_BINDINGS.iter().map(|b| b.schema_ref.as_str()).collect();
         refs.sort_unstable();
         let unique = refs.len();
         refs.dedup();

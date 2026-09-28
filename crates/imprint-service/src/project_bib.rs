@@ -105,7 +105,7 @@ impl StoreBibliographyResolver {
 impl BibliographyResolver for StoreBibliographyResolver {
     fn entry_for_key(&self, key: &str) -> Option<ResolvedEntry> {
         let q = ItemQuery {
-            schema: Some(ENTRY_SCHEMA.into()),
+            schema: Some(ENTRY_SCHEMA),
             predicates: vec![Predicate::Eq("cite_key".into(), Value::String(key.into()))],
             limit: Some(1),
             include_tags: false,
@@ -145,7 +145,7 @@ impl BibliographyResolver for StoreBibliographyResolver {
             return Vec::new();
         };
         let q = ItemQuery {
-            schema: Some(ENTRY_SCHEMA.into()),
+            schema: Some(ENTRY_SCHEMA),
             predicates: vec![Predicate::HasParent(id)],
             include_tags: false,
             include_references: false,

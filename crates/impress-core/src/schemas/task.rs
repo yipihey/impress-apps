@@ -41,23 +41,23 @@ use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The canonical task ref. Written by `impel_core::task_spawn::create_task_dag`
 /// and impel's `SharedTaskBridge`; selected by `ready_tasks`.
-pub const TASK_SCHEMA: &str = "task@1.0.0";
+pub const TASK_SCHEMA: crate::SchemaRef = crate::schema::refs::TASK;
 
 /// The canonical agent-run ref. Written by
 /// `impel_core::TaskStoreApi::record_agent_run` and impel's `SharedTaskBridge`.
-pub const AGENT_RUN_SCHEMA: &str = "agent-run@1.0.0";
+pub const AGENT_RUN_SCHEMA: crate::SchemaRef = crate::schema::refs::AGENT_RUN;
 
 /// The canonical task-event ref (ADR-0034 D6). **VERSIONED**, like the two
 /// kinds above it. One row per progress event a job emitted, pruned to the
 /// last [`crate::job::EVENT_RING_CAPACITY`] per task — the surface event
 /// ring's shape (`seq`, gap-free, bounded) applied to a `task@1.0.0` row.
 /// Written and read ONLY by `impress_core::job`.
-pub const TASK_EVENT_SCHEMA: &str = "task-event@1.0.0";
+pub const TASK_EVENT_SCHEMA: crate::SchemaRef = crate::schema::refs::TASK_EVENT;
 
 /// Schema for task items — units of work assigned to humans or agents.
 pub fn task_schema() -> Schema {
     Schema {
-        id: TASK_SCHEMA.into(),
+        id: TASK_SCHEMA,
         name: "Task".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -147,7 +147,7 @@ pub fn task_schema() -> Schema {
 /// Schema for agent-run items — records of a single AI agent execution.
 pub fn agent_run_schema() -> Schema {
     Schema {
-        id: AGENT_RUN_SCHEMA.into(),
+        id: AGENT_RUN_SCHEMA,
         name: "Agent Run".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -240,7 +240,7 @@ pub fn agent_run_schema() -> Schema {
 /// on the surface ring.
 pub fn task_event_schema() -> Schema {
     Schema {
-        id: TASK_EVENT_SCHEMA.into(),
+        id: TASK_EVENT_SCHEMA,
         name: "Task Event".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -295,7 +295,7 @@ fn register_task_pair(registry: &mut SchemaRegistry) {
 /// without the duplicate-id error. Two entry points registering ONE definition
 /// is fine; the thing C4 removed was two definitions.
 pub fn register_task_schemas_if_absent(registry: &mut SchemaRegistry) {
-    if registry.get(TASK_SCHEMA).is_none() && registry.get(AGENT_RUN_SCHEMA).is_none() {
+    if registry.get(&TASK_SCHEMA).is_none() && registry.get(&AGENT_RUN_SCHEMA).is_none() {
         register_task_pair(registry);
     }
 }

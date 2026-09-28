@@ -34,8 +34,7 @@ use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 
-#[path = "support/schema_fixture.rs"]
-mod schema_fixture;
+use crate::schema_fixture;
 
 fn temp_store() -> (tempfile::TempDir, SqliteItemStore) {
     let dir = tempfile::tempdir().expect("tempdir");

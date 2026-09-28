@@ -28,8 +28,10 @@ mod layout;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
+mod schema_refs;
 /// The settings registry as Swift reads it (ADR-0036 D5, plan R1).
 mod settings;
+pub use schema_refs::{schema_ref_name, SchemaRef, StoreSchemaRef};
 /// The ADR-0033 agent-surface tree as Swift drives it (work package S6).
 mod surface;
 /// The layout and surface crates' `tracing` events, and this crate's own
@@ -221,7 +223,7 @@ pub struct SharedFieldEq {
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
 #[derive(Debug, Clone)]
 pub struct SharedItemQuery {
-    pub schema_ref: Option<String>,
+    pub schema_ref: Option<StoreSchemaRef>,
     /// Envelope parent filter (children of a folder/account/collection).
     pub parent_id: Option<String>,
     pub payload_eq: Vec<SharedFieldEq>,
@@ -1009,7 +1011,8 @@ impl SharedStore {
                 message: format!("invalid payload JSON: {e}"),
             })?;
 
-        self.inner.upsert_payload(item_id, schema_ref, payload)?;
+        self.inner
+            .upsert_payload(item_id, decode_wire_schema(schema_ref)?, payload)?;
         Ok(())
     }
 
@@ -1240,7 +1243,7 @@ impl SharedStore {
     /// - `offset`: Pagination offset.
     pub fn query_by_schema(
         &self,
-        schema_ref: String,
+        schema_ref: StoreSchemaRef,
         limit: u32,
         offset: u32,
     ) -> Result<Vec<SharedItemRow>, SharedStoreError> {
@@ -1271,7 +1274,7 @@ impl SharedStore {
     pub fn search(
         &self,
         query: String,
-        schema_filter: Option<String>,
+        schema_filter: Option<StoreSchemaRef>,
         limit: u32,
     ) -> Result<Vec<SharedItemRow>, SharedStoreError> {
         let effective_limit = if limit == 0 { 50 } else { limit as usize };
@@ -1411,7 +1414,7 @@ impl SharedStore {
             .ok_or_else(|| SharedStoreError::NotFound {
                 message: id.clone(),
             })?;
-        if item.schema != "review-request@1.0.0" {
+        if item.schema != impress_core::schema::refs::REVIEW_REQUEST {
             return Err(SharedStoreError::InvalidArgument {
                 message: format!(
                     "resolve_review requires schema review-request@1.0.0, got {}",
@@ -1440,7 +1443,7 @@ impl SharedStore {
     }
 
     /// Count items with the given schema (e.g. for sidebar badges).
-    pub fn count_by_schema(&self, schema_ref: String) -> Result<u32, SharedStoreError> {
+    pub fn count_by_schema(&self, schema_ref: StoreSchemaRef) -> Result<u32, SharedStoreError> {
         let q = ItemQuery {
             schema: Some(schema_ref),
             ..ItemQuery::default()
@@ -2533,7 +2536,17 @@ fn sync_report_to_ffi(r: impress_core::sync::SyncApplyReport) -> SyncApplyReport
     }
 }
 
-fn build_item(id: ItemId, schema: String, payload: BTreeMap<String, Value>) -> Item {
+/// Existing item/sync wire formats preserve opaque names. New Rust queries
+/// instead take StoreSchemaRef and use the manifest constants.
+fn decode_wire_schema(value: String) -> Result<StoreSchemaRef, SharedStoreError> {
+    serde_json::from_value(serde_json::Value::String(value)).map_err(|error| {
+        SharedStoreError::InvalidArgument {
+            message: format!("invalid schema reference: {error}"),
+        }
+    })
+}
+
+fn build_item(id: ItemId, schema: StoreSchemaRef, payload: BTreeMap<String, Value>) -> Item {
     use chrono::Utc;
 
     Item {
@@ -2614,7 +2627,7 @@ fn item_to_row(item: Item) -> SharedItemRow {
     let flag_color = item.flag.as_ref().map(|f| f.color.clone());
     SharedItemRow {
         id: item.id.to_string(),
-        schema_ref: item.schema,
+        schema_ref: item.schema.into(),
         payload_json,
         created_ms: item.created.timestamp_millis(),
         modified_ms: item.modified.timestamp_millis(),
@@ -2732,7 +2745,7 @@ fn build_item_from_upsert(
 ) -> Result<Item, SharedStoreError> {
     use chrono::{TimeZone, Utc};
 
-    let mut item = build_item(id, row.schema_ref.clone(), payload);
+    let mut item = build_item(id, decode_wire_schema(row.schema_ref.clone())?, payload);
     if let Some(ms) = row.created_ms {
         let ts = Utc.timestamp_millis_opt(ms).single().ok_or_else(|| {
             SharedStoreError::InvalidArgument {
@@ -3071,7 +3084,7 @@ mod tests {
 
         let by_parent = store
             .query_items(SharedItemQuery {
-                schema_ref: Some("manuscript".into()),
+                schema_ref: Some(impress_core::schema::refs::MANUSCRIPT),
                 parent_id: Some(folder.clone()),
                 payload_eq: vec![],
                 modified_after_ms: None,
@@ -3086,7 +3099,7 @@ mod tests {
 
         let dismissed = store
             .query_items(SharedItemQuery {
-                schema_ref: Some("manuscript".into()),
+                schema_ref: Some(impress_core::schema::refs::MANUSCRIPT),
                 parent_id: None,
                 payload_eq: vec![SharedFieldEq {
                     field: "status".into(),
@@ -3106,7 +3119,7 @@ mod tests {
         // far-future.
         let all = store
             .count_items(SharedItemQuery {
-                schema_ref: Some("manuscript".into()),
+                schema_ref: Some(impress_core::schema::refs::MANUSCRIPT),
                 parent_id: None,
                 payload_eq: vec![],
                 modified_after_ms: Some(0),
@@ -3119,7 +3132,7 @@ mod tests {
         assert_eq!(all, 2);
         let none = store
             .count_items(SharedItemQuery {
-                schema_ref: Some("manuscript".into()),
+                schema_ref: Some(impress_core::schema::refs::MANUSCRIPT),
                 parent_id: None,
                 payload_eq: vec![],
                 modified_after_ms: Some(4_102_444_800_000),
@@ -3158,7 +3171,7 @@ mod tests {
         assert_eq!((second.inserted, second.updated), (0, 5));
         assert_eq!(
             store
-                .count_by_schema("email-message".into())
+                .count_by_schema(impress_core::schema::refs::EMAIL_MESSAGE)
                 .expect("count"),
             5
         );
@@ -3273,7 +3286,7 @@ mod tests {
             .expect("upsert2");
 
         let rows = store
-            .query_by_schema("bibliography-entry".into(), 10, 0)
+            .query_by_schema(impress_core::schema::refs::BIBLIOGRAPHY_ENTRY, 10, 0)
             .expect("query");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].schema_ref, "bibliography-entry");
@@ -3391,7 +3404,7 @@ mod tests {
 
         // Verify it shows up in schema queries
         let rows = store
-            .query_by_schema("imbib/bibliography-entry".into(), 10, 0)
+            .query_by_schema(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY, 10, 0)
             .expect("query");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, id);
@@ -3455,7 +3468,7 @@ mod tests {
             "expected two SetPayload operations"
         );
         for op in &set_payload_ops {
-            assert_eq!(op.schema, "core/operation");
+            assert_eq!(op.schema, impress_core::schema::refs::CORE_OPERATION);
             assert_eq!(op.author, "tom");
             assert_eq!(op.author_kind, ActorKind::Human);
             assert_eq!(
@@ -3700,15 +3713,22 @@ mod tests {
 
         assert_eq!(
             store
-                .count_by_schema("review-request@1.0.0".into())
+                .count_by_schema(impress_core::schema::refs::REVIEW_REQUEST)
                 .expect("count"),
             3
         );
         assert_eq!(
-            store.count_by_schema("task@1.0.0".into()).expect("count"),
+            store
+                .count_by_schema(impress_core::schema::refs::TASK)
+                .expect("count"),
             1
         );
-        assert_eq!(store.count_by_schema("nothing".into()).expect("count"), 0);
+        assert_eq!(
+            store
+                .count_by_schema(decode_wire_schema("nothing".into()).unwrap())
+                .expect("count"),
+            0
+        );
     }
 
     #[test]
@@ -3743,19 +3763,19 @@ mod tests {
 
         // Each schema query returns only its own items
         let pubs = store
-            .query_by_schema("imbib/bibliography-entry".into(), 10, 0)
+            .query_by_schema(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY, 10, 0)
             .expect("query pubs");
         assert_eq!(pubs.len(), 1);
         assert_eq!(pubs[0].id, pub_id);
 
         let tasks = store
-            .query_by_schema("task@1.0.0".into(), 10, 0)
+            .query_by_schema(impress_core::schema::refs::TASK, 10, 0)
             .expect("query tasks");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, task_id);
 
         let emails = store
-            .query_by_schema("email-message".into(), 10, 0)
+            .query_by_schema(impress_core::schema::refs::EMAIL_MESSAGE, 10, 0)
             .expect("query emails");
         assert_eq!(emails.len(), 1);
         assert_eq!(emails[0].id, email_id);

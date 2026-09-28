@@ -658,7 +658,7 @@ fn write_proposal(
     let id = uuid::Uuid::new_v4();
     let outcome = store.insert(Item {
         id,
-        schema: WORKFLOW_SCHEMA.into(),
+        schema: WORKFLOW_SCHEMA,
         payload,
         created: now,
         modified: now,
@@ -702,7 +702,7 @@ impl HistoryService for DefaultHistoryService {
     ) -> CallsResult {
         let store = self.store();
         let query = ItemQuery {
-            schema: Some(VERB_CALL_SCHEMA.into()),
+            schema: Some(VERB_CALL_SCHEMA),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: false,
@@ -784,7 +784,7 @@ impl HistoryService for DefaultHistoryService {
         let operation_calls: std::collections::HashSet<String> =
             entries.iter().map(|entry| entry.batch_id.clone()).collect();
         let call_rows = match store.query(&ItemQuery {
-            schema: Some(VERB_CALL_SCHEMA.into()),
+            schema: Some(VERB_CALL_SCHEMA),
             include_tags: false,
             include_references: false,
             assume_schema_rare: true,
@@ -843,7 +843,7 @@ impl HistoryService for DefaultHistoryService {
     async fn trace(&self, trace_id: String) -> TraceResult {
         let store = self.store();
         let query = ItemQuery {
-            schema: Some(VERB_CALL_SCHEMA.into()),
+            schema: Some(VERB_CALL_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "trace_id".into(),
                 serde_json_to_item_value(&Value::String(trace_id.clone())),
@@ -1063,7 +1063,7 @@ impl HistoryService for DefaultHistoryService {
         let id = uuid::Uuid::new_v4();
         let outcome = store.insert(Item {
             id,
-            schema: WORKFLOW_SCHEMA.into(),
+            schema: WORKFLOW_SCHEMA,
             payload,
             created: now,
             modified: now,
@@ -1128,7 +1128,7 @@ impl HistoryService for DefaultHistoryService {
         };
 
         let query = ItemQuery {
-            schema: Some(VERB_CALL_SCHEMA.into()),
+            schema: Some(VERB_CALL_SCHEMA),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: true,
@@ -1211,13 +1211,13 @@ impl HistoryService for DefaultHistoryService {
         let sink_health = crate::audit::health();
         let rows = store
             .count(&ItemQuery {
-                schema: Some(VERB_CALL_SCHEMA.into()),
+                schema: Some(VERB_CALL_SCHEMA),
                 ..Default::default()
             })
             .unwrap_or(0);
         let oldest = store
             .query(&ItemQuery {
-                schema: Some(VERB_CALL_SCHEMA.into()),
+                schema: Some(VERB_CALL_SCHEMA),
                 sort: vec![SortDescriptor {
                     field: "created".into(),
                     ascending: true,

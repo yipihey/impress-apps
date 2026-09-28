@@ -9,15 +9,15 @@ use crate::reference::EdgeType;
 use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
-pub const CONVERSATION_SCHEMA: &str = "conversation@1.0.0";
-pub const CONTENT_BLOB_SCHEMA: &str = "content-blob@1.0.0";
-pub const TOOL_INVOCATION_SCHEMA: &str = "tool-invocation@1.0.0";
-pub const AI_IMPORT_LEDGER_SCHEMA: &str = "ai-import-ledger@1.0.0";
+pub const CONVERSATION_SCHEMA: crate::SchemaRef = crate::schema::refs::CONVERSATION;
+pub const CONTENT_BLOB_SCHEMA: crate::SchemaRef = crate::schema::refs::CONTENT_BLOB;
+pub const TOOL_INVOCATION_SCHEMA: crate::SchemaRef = crate::schema::refs::TOOL_INVOCATION;
+pub const AI_IMPORT_LEDGER_SCHEMA: crate::SchemaRef = crate::schema::refs::AI_IMPORT_LEDGER;
 
 /// A durable research conversation rendered primarily by impart.
 pub fn conversation_schema() -> Schema {
     Schema {
-        id: CONVERSATION_SCHEMA.into(),
+        id: CONVERSATION_SCHEMA,
         name: "Conversation".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -47,7 +47,7 @@ pub fn conversation_schema() -> Schema {
 /// in CloudKit's size-limited `payload_json`.
 pub fn content_blob_schema() -> Schema {
     Schema {
-        id: CONTENT_BLOB_SCHEMA.into(),
+        id: CONTENT_BLOB_SCHEMA,
         name: "Content Blob".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -75,7 +75,7 @@ pub fn content_blob_schema() -> Schema {
 /// another capability during an AI run.
 pub fn tool_invocation_schema() -> Schema {
     Schema {
-        id: TOOL_INVOCATION_SCHEMA.into(),
+        id: TOOL_INVOCATION_SCHEMA,
         name: "Tool Invocation".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -106,7 +106,7 @@ pub fn tool_invocation_schema() -> Schema {
 /// conversation that changed after its first migration.
 pub fn ai_import_ledger_schema() -> Schema {
     Schema {
-        id: AI_IMPORT_LEDGER_SCHEMA.into(),
+        id: AI_IMPORT_LEDGER_SCHEMA,
         name: "AI Import Ledger".into(),
         version: "1.0.0".into(),
         fields: vec![
