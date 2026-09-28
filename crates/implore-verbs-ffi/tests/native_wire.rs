@@ -23,7 +23,19 @@ impl ImploreVerbHost for Fixture {
 
 #[tokio::test]
 async fn async_dispatch_preserves_values_and_reports_native_refusal() {
-    install_native_host(Box::new(Fixture));
+    let scratch = tempfile::tempdir().unwrap();
+    let database = scratch.path().join("impress.sqlite");
+    assert_eq!(
+        install_native_host(database.display().to_string(), Box::new(Fixture)),
+        None
+    );
+    assert_eq!(
+        impress_store_service::store::store_path(),
+        std::fs::canonicalize(scratch.path())
+            .unwrap()
+            .join("impress.sqlite")
+    );
+    assert!(impress_service_core::pipeline::audit::has_sink());
     let caller = r#"{"kind":"app","name":"implore"}"#;
     for (name, args, expected) in [
         (

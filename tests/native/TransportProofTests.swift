@@ -2,6 +2,7 @@
 import Foundation
 import ImpressAutomation
 import ImpressKit
+import ImpressRustCore
 import PublicationManagerCore
 import XCTest
 
@@ -84,11 +85,12 @@ final class TransportProofTests: XCTestCase {
         case "impel": break // kit series is the app-independent transport proof
         default: throw failure("unknown proof app: \(app)")
         }
+        let audit = try await verifyNativeAudit(app: app, databasePath: db.path)
         let logs = try await request(base, bearer, "/api/logs?limit=200", nil)
         try require(logs.status == 200, "logs HTTP \(logs.status): \(logs.value)")
         let evidence: [String: Any] = [
             "app": app, "pid": pid, "port": Int(port), "store": db.path,
-            "calls": calls, "logs": logs.value,
+            "calls": calls, "audit": audit, "logs": logs.value,
         ]
         let data = try JSONSerialization.data(withJSONObject: evidence,
                                               options: [.prettyPrinted, .sortedKeys])
@@ -226,8 +228,48 @@ final class TransportProofTests: XCTestCase {
         let status = try object(try await verb(base, bearer, "implore-service_status", [:]),
                                 "implore status")
         try require(status["running"] as? Bool == true, "implore app status is running")
+        let datasetID = "p5b-audit-\(UUID().uuidString)"
+        let created = try object(try await verb(base, bearer, "implore-service_create-figure", [
+            "dataset_id": datasetID, "plot_type": "scatter", "x": "time", "y": "value",
+            "name": "Audit proof", "series": [["label": "proof", "x": [0.0, 1.0], "y": [1.0, 2.0]]]
+        ]), "created figure")
+        let figureID = try XCTUnwrap(created["id"] as? String)
+        try require(created["ok"] as? Bool == true && UUID(uuidString: figureID) != nil,
+                    "figure creation persisted")
+        let readback = try object(try await verb(base, bearer, "implore-service_get-figure",
+                                             ["figure_id": figureID]), "figure readback")
+        try require(readback["id"] as? String == figureID, "created figure reads back")
         // ImploreNativeVerbProofTests separately loads the owned rg-volume
         // fixture and asserts the five formerly-dead verbs against its viewer.
+    }
+
+    private func verifyNativeAudit(app: String, databasePath: String) async throws -> [String: Any] {
+        let expectedVerb: String
+        switch app {
+        case "imbib": expectedVerb = "imbib-library-service_create-library"
+        case "imprint": expectedVerb = "imprint-app-service_create-document"
+        case "impart": expectedVerb = "impart-service_create-conversation"
+        case "implore": expectedVerb = "implore-service_create-figure"
+        case "impel": return [:] // This app's transport proof invokes only read-only kit verbs.
+        default: throw failure("unknown audit proof app: \(app)")
+        }
+        let store = try SharedStore.open(path: databasePath)
+        for _ in 0..<100 {
+            let rows = try store.queryBySchema(schemaRef: "core/verb-call@1.0.0", limit: 200, offset: 0)
+            for row in rows {
+                guard let payload = try? JSONSerialization.jsonObject(with: Data(row.payloadJson.utf8)) as? [String: Any],
+                      payload["verb"] as? String == expectedVerb else { continue }
+                let trace = try XCTUnwrap(payload["trace_id"] as? String)
+                try require(UUID(uuidString: row.id) != nil && UUID(uuidString: trace) != nil,
+                            "native audit has a call and trace UUID")
+                try require(payload["ok"] as? Bool == true && payload["caller"] is [String: Any],
+                            "native audit records successful caller identity")
+                return ["id": row.id, "verb": expectedVerb, "trace_id": trace,
+                        "caller": payload["caller"] ?? [:], "ok": true]
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw failure("No \(expectedVerb) audit row appeared in the exact PID-owned store")
     }
 
     private struct Reply {

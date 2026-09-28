@@ -16,6 +16,8 @@ native = ["uniffi"]
 
 [dependencies]
 impress-service-core = { workspace = true }
+impress-core = { workspace = true }
+impress-store-service = { workspace = true }
 imbib-service = { workspace = true }
 uniffi = { workspace = true, optional = true }
 thiserror = { workspace = true }

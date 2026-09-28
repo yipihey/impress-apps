@@ -212,6 +212,7 @@ fn try_install_native_host(
     let store = impress_core::sqlite_store::SqliteItemStore::open(&canonical_db)
         .map_err(|e| format!("cannot open native database: {e}"))?;
     impress_store_service::store::install_store_at(Arc::new(store), &canonical_db)?;
+    impress_store_service::audit::install();
 
     let service = imprint_service::open(&workspace)
         .map_err(|e| format!("cannot open manuscript workspace: {e}"))?;

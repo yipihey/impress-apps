@@ -2,6 +2,7 @@
 //! Swift state. The callback is an implementation detail of the native app;
 //! only `ImploreService` defines public verb names and arguments.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use implore_service::{
@@ -40,10 +41,38 @@ impl ImploreBackend for NativeBackend {
 /// Install the app's live-state host. Reinstalling replaces an earlier host,
 /// e.g. after the automation server restarts in a hosted test.
 #[cfg_attr(feature = "native", uniffi::export)]
-pub fn install_native_host(host: Box<dyn ImploreVerbHost>) {
+pub fn install_native_host(
+    database_path: String,
+    host: Box<dyn ImploreVerbHost>,
+) -> Option<String> {
+    if let Err(error) = bind_audit_store(&database_path) {
+        return Some(error);
+    }
     register_backend(Box::new(NativeBackend(Arc::new(NativeService {
         host: Arc::from(host),
     }))));
+    None
+}
+
+fn bind_audit_store(database_path: &str) -> Result<(), String> {
+    let requested = Path::new(database_path);
+    if !requested.is_absolute()
+        || requested.file_name().and_then(|name| name.to_str()) != Some("impress.sqlite")
+    {
+        return Err("expected an absolute impress.sqlite database path".into());
+    }
+    let parent = requested
+        .parent()
+        .ok_or("database has no workspace parent")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let canonical = std::fs::canonicalize(parent)
+        .map_err(|error| error.to_string())?
+        .join("impress.sqlite");
+    let store = impress_core::sqlite_store::SqliteItemStore::open(&canonical)
+        .map_err(|error| format!("cannot open audit database: {error}"))?;
+    impress_store_service::store::install_store_at(Arc::new(store), &canonical)?;
+    impress_store_service::audit::install();
+    Ok(())
 }
 
 impl NativeService {

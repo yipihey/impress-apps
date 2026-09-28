@@ -3,8 +3,8 @@
 //! The shared store FFI links kit services only. This target links
 //! `imbib-service` so its registered verbs are available to the GUI.
 
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use impress_service_core::dispatch;
 mod native;
@@ -46,6 +46,27 @@ pub enum ImbibVerbStoreError {
 // across init prevents two GUI calls from racing into the service singleton.
 static INITIALIZED_PATH: Mutex<Option<String>> = Mutex::new(None);
 
+fn bind_audit_store(path: &str) -> Result<(), String> {
+    let requested = Path::new(path);
+    if !requested.is_absolute()
+        || requested.file_name().and_then(|name| name.to_str()) != Some("impress.sqlite")
+    {
+        return Err("expected an absolute impress.sqlite database path".into());
+    }
+    let parent = requested
+        .parent()
+        .ok_or("database has no workspace parent")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let canonical = std::fs::canonicalize(parent)
+        .map_err(|error| error.to_string())?
+        .join("impress.sqlite");
+    let store = impress_core::sqlite_store::SqliteItemStore::open(&canonical)
+        .map_err(|error| format!("cannot open audit database: {error}"))?;
+    impress_store_service::store::install_store_at(Arc::new(store), &canonical)?;
+    impress_store_service::audit::install();
+    Ok(())
+}
+
 #[cfg(feature = "native")]
 uniffi::setup_scaffolding!();
 
@@ -71,6 +92,7 @@ pub fn initialize_verb_store(path: String) -> Result<(), ImbibVerbStoreError> {
         None => {}
     }
 
+    bind_audit_store(&path).map_err(|message| ImbibVerbStoreError::Initialization { message })?;
     imbib_service::init_imbib_store(PathBuf::from(&path))
         .map_err(|message| ImbibVerbStoreError::Initialization { message })?;
     *initialized = Some(path);

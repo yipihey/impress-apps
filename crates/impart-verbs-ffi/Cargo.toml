@@ -16,6 +16,8 @@ native = ["uniffi"]
 
 [dependencies]
 impress-service-core.workspace = true
+impress-core.workspace = true
+impress-store-service.workspace = true
 impart-service.workspace = true
 async-trait.workspace = true
 serde.workspace = true

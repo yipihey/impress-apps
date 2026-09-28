@@ -246,7 +246,13 @@ public enum ImpartNativeVerbs {
     /// Register the native backend before starting the HTTP automation route.
     @MainActor public static func install(persistence: PersistenceController = .shared) {
         let repository = ResearchConversationRepository(persistenceController: persistence)
-        registerNativeBackend(callback: NativeImpartHost(repository: repository, provenance: .shared))
+        if let error = registerNativeBackend(
+            databasePath: ImpartStoreAdapter.shared.databasePath,
+            callback: NativeImpartHost(repository: repository, provenance: .shared)
+        ) {
+            logError("Native impart verb audit store unavailable: \(error)", category: "automation")
+            return
+        }
         activeRepository = repository
         activePersistence = persistence
         VerbAutomationRoutes.registerDomainDispatcher(services: ["impart-service"]) {

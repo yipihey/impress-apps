@@ -17,6 +17,8 @@ native = ["uniffi"]
 [dependencies]
 async-trait = { workspace = true }
 impress-service-core = { workspace = true }
+impress-core = { workspace = true }
+impress-store-service = { workspace = true }
 implore-service = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -30,3 +32,4 @@ impress-workspace-hack.workspace = true
 [dev-dependencies]
 implore-core = { workspace = true, features = ["uniffi"] }
 tokio = { workspace = true }
+tempfile = "3"

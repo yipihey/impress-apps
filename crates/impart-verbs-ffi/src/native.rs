@@ -1,5 +1,6 @@
 //! Async callback boundary into the running impart app.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use impart_service::{
@@ -188,8 +189,36 @@ impl ImpartService for NativeImpartService {
 
 /// Install the app-owned callback before accepting any verb dispatch.
 #[cfg_attr(feature = "native", uniffi::export)]
-pub fn register_native_backend(callback: Box<dyn ImpartNativeCallbacks>) {
+pub fn register_native_backend(
+    database_path: String,
+    callback: Box<dyn ImpartNativeCallbacks>,
+) -> Option<String> {
+    if let Err(error) = bind_audit_store(&database_path) {
+        return Some(error);
+    }
     impart_service::register_backend(Box::new(NativeBackend {
         callback: Arc::from(callback),
     }));
+    None
+}
+
+fn bind_audit_store(database_path: &str) -> Result<(), String> {
+    let requested = Path::new(database_path);
+    if !requested.is_absolute()
+        || requested.file_name().and_then(|name| name.to_str()) != Some("impress.sqlite")
+    {
+        return Err("expected an absolute impress.sqlite database path".into());
+    }
+    let parent = requested
+        .parent()
+        .ok_or("database has no workspace parent")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let canonical = std::fs::canonicalize(parent)
+        .map_err(|error| error.to_string())?
+        .join("impress.sqlite");
+    let store = impress_core::sqlite_store::SqliteItemStore::open(&canonical)
+        .map_err(|error| format!("cannot open audit database: {error}"))?;
+    impress_store_service::store::install_store_at(Arc::new(store), &canonical)?;
+    impress_store_service::audit::install();
+    Ok(())
 }

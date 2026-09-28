@@ -1,6 +1,7 @@
 import Foundation
 import ImploreVerbsFFI
 import ImpressAutomation
+import ImpressKit
 
 /// The service owns the public verb surface. This host only gives its Rust
 /// implementation access to the same live app state as implore's UI.
@@ -26,7 +27,12 @@ private final class NativeImploreHost: ImploreVerbHost, @unchecked Sendable {
 
 enum ImploreNativeVerbs {
     static func install() {
-        installNativeHost(host: NativeImploreHost())
+        if let error = installNativeHost(
+            databasePath: SharedWorkspace.databasePath, host: NativeImploreHost()
+        ) {
+            NSLog("Native implore verb audit store unavailable: %@", error)
+            return
+        }
         VerbAutomationRoutes.registerDomainDispatcher(services: ["implore-service"]) {
             name, argsJSON, callerJSON in
             let result = await dispatchVerbAsync(
