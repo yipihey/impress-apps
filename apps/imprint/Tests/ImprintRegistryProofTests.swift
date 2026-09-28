@@ -53,7 +53,7 @@ final class ImprintRegistryProofTests: XCTestCase {
         XCTAssertEqual(ImpressSettings.shared.value("imprint.general.auto_save_interval", as: Int.self), 73)
         XCTAssertEqual(ImpressSettings.shared.record("imprint.general.auto_save_interval")?.source, "stored")
         XCTAssertEqual(legacy.integer(forKey: "autoSaveInterval"), 73)
-        let migrated = try await runCLI(context, "get", ["settings-service_get", "--key",
+        let migrated = try await runCLI(context, "get", ["get", "--key",
                                                        "imprint.general.auto_save_interval"])
         XCTAssertEqual(Self.settingValue(migrated) as? Int, 73)
 
@@ -86,7 +86,7 @@ final class ImprintRegistryProofTests: XCTestCase {
         let before = try await Self.http(context.statusURL, bearer: initialToken)
         XCTAssertEqual(before.0, 200)
 
-        let changed = try await runCLI(context, "set", ["settings-service_set", "--key",
+        let changed = try await runCLI(context, "set", ["set", "--key",
                                                        "imprint.automation.log_requests", "--value", "false"])
         XCTAssertEqual(Self.settingValue(changed) as? Bool, false)
         try await waitUntil("CLI value reaches GUI registry", seconds: 10) {
@@ -112,7 +112,7 @@ final class ImprintRegistryProofTests: XCTestCase {
             return (try? await Self.http(context.statusURL, bearer: token))?.0 == 200
         }
         XCTAssertEqual(UserDefaults.standard.integer(forKey: "httpAutomationPort"), Int(context.appPort))
-        let got = try await runCLI(context, "get-after-set", ["settings-service_get", "--key",
+        let got = try await runCLI(context, "get-after-set", ["get", "--key",
                                                            "imprint.automation.log_requests"])
         XCTAssertEqual(Self.settingValue(got) as? Bool, false)
 
@@ -260,7 +260,10 @@ final class ImprintRegistryProofTests: XCTestCase {
         try child.run()
         try await waitUntil("owned CLI \(label) exit", seconds: 20) { !child.isRunning }
         child.waitUntilExit()
-        XCTAssertEqual(child.terminationStatus, 0, "see \(stderr.path)")
+        guard child.terminationStatus == 0 else {
+            XCTFail("CLI \(label) failed (\(child.terminationStatus)); see \(stderr.path)")
+            throw ProofError.cli(label)
+        }
         return try Self.object(Data(contentsOf: stdout))
     }
 
@@ -337,5 +340,5 @@ private struct ProofContext {
     var logsURL: URL { URL(string: "http://127.0.0.1:\(appPort)/api/logs?limit=100")! }
 }
 
-private enum ProofError: Error { case timeout(String) }
+private enum ProofError: Error { case timeout(String), cli(String) }
 #endif

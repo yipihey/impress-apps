@@ -2788,3 +2788,23 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   copied xctestrun before launching its unchanged three suites. Three no-launch
   Python fixture tests pass. Hosted imprint proof, PMC checks, normal pre-push,
   PR and merge are still pending at this checkpoint.
+
+- 2026-09-28 — **R3 native verification**: the mounted imprint Automation pane
+  installed surface `cbe41e0b-6740-4703-a246-6d8e97dd1039`, then the independent
+  CLI changed `imprint.automation.log_requests` to false. The same surface row
+  and a native pane model showed false; the settings feed restarted the listener
+  on the same isolated port (56754) and rotated its loopback token. Native menu
+  equivalents and all 60 registry bindings were checked; a legacy saved value
+  was copied without deletion and read back by the CLI. `/api/logs` returned 200.
+  Proof evidence is
+  `/private/tmp/impress-r3-proof-kkc8spwk/output/host-56007/proof.json`; the app
+  process exited. This is a mounted SwiftUI pane and its shared rendered model,
+  not a claim of physical clicks or private SwiftUI-state introspection.
+  `scripts/test-imprint-registry-native.py --derived-data <owned-build> --cli
+  <built-impress>` reproduces it; the runner requires the exact isolated bundle
+  ID `com.impress.imprint.codex.r3`. The build needs the existing ImpressLayout
+  and ImpressSurface products linked explicitly into the test target.
+  The initial proof invocation used qualified CLI names for unique methods;
+  the final proof uses the generated `get`/`set` names and passes (1 test,
+  1.136 s). All 33 focused PMC settings/keymap contract tests pass, as does the
+  arm64 imprint iOS simulator build. Normal pre-push and hosted CI remain.
