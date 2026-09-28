@@ -46,7 +46,7 @@ pub trait ItemStore: Send + Sync {
     fn count(&self, q: &ItemQuery) -> Result<usize, StoreError>;
 
     /// Get all items reachable from the given item via the specified edge types,
-    /// up to the given depth.
+    /// up to the given depth. An empty edge filter traverses all edge types.
     fn neighbors(
         &self,
         id: ItemId,
