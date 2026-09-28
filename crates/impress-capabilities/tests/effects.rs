@@ -329,10 +329,10 @@ fn resolve(kind: &Kind, args: &Value, store: &SqliteItemStore) -> Option<Vec<Str
                 ..Default::default()
             };
             if let Ok(rows) = store.query(&q) {
-                kinds.extend(rows.into_iter().map(|r| r.schema));
+                kinds.extend(rows.into_iter().map(|r| r.schema.to_string()));
             }
         } else if let Ok(Some(row)) = store.get(id) {
-            kinds.push(row.schema);
+            kinds.push(row.schema.to_string());
         }
     }
     if kinds.is_empty() {
@@ -436,7 +436,7 @@ fn scratch_store() -> Arc<SqliteItemStore> {
 fn seed_item(id: ItemId, schema: &str, parent: Option<ItemId>) -> Item {
     Item {
         id,
-        schema: schema.into(),
+        schema: schema.parse().expect("declared effects fixture schema"),
         payload: BTreeMap::new(),
         created: std::time::SystemTime::UNIX_EPOCH.into(),
         modified: std::time::SystemTime::UNIX_EPOCH.into(),

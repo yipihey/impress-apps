@@ -744,14 +744,14 @@ impl SurfaceStore {
     fn try_insert_ephemeral(
         &self,
         id: ItemId,
-        schema: &str,
+        schema: impress_core::SchemaRef,
         payload: BTreeMap<String, ItemValue>,
         actor: ActorKind,
     ) -> std::result::Result<ItemId, StoreError> {
         let now = Utc::now();
         let item = Item {
             id,
-            schema: schema.into(),
+            schema,
             payload,
             created: now,
             modified: now,
@@ -805,7 +805,7 @@ pub fn event_row_id(surface: ItemId, host: &str, seq: u64) -> ItemId {
 /// operation rows — exactly the shape `ItemQuery::assume_schema_rare`
 /// exists for; without it, and with the filter done in Rust, every read was a
 /// scan of every such row on the device.
-fn rare_rows(schema: &str, surface: ItemId, host: Option<&str>) -> ItemQuery {
+fn rare_rows(schema: impress_core::SchemaRef, surface: ItemId, host: Option<&str>) -> ItemQuery {
     let mut predicates = vec![Predicate::Eq(
         field::event::SURFACE.into(),
         ItemValue::String(surface.to_string()),
@@ -817,7 +817,7 @@ fn rare_rows(schema: &str, surface: ItemId, host: Option<&str>) -> ItemQuery {
         ));
     }
     ItemQuery {
-        schema: Some(schema.into()),
+        schema: Some(schema),
         predicates,
         include_tags: false,
         include_references: false,

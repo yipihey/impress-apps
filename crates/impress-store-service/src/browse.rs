@@ -101,10 +101,10 @@ pub fn schema_overview(
     let mut rows: Vec<SchemaRow> = registered
         .iter()
         .map(|schema| SchemaRow {
-            schema_ref: schema.id.clone(),
+            schema_ref: schema.id.to_string(),
             name: Some(schema.name.clone()),
             version: Some(schema.version.clone()),
-            inherits: schema.inherits.clone(),
+            inherits: schema.inherits.as_ref().map(ToString::to_string),
             registered: true,
             item_count: count_of(&schema.id),
             fields: schema.fields.iter().map(|f| f.name.clone()).collect(),

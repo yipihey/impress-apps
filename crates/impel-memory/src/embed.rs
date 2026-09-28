@@ -38,9 +38,6 @@ use std::time::Instant;
 use async_trait::async_trait;
 use impel_core::{AgentRunRecord, ExecutionOutcome, TaskError, TaskExecutor, TaskStoreApi};
 use impress_core::item::{Item, ItemId, Value};
-use impress_core::schemas::memory::{
-    MEMORY_CLAIM_SCHEMA, MEMORY_EPISODE_SCHEMA, MEMORY_INSTRUCTION_SCHEMA,
-};
 use impress_core::schemas::source::CONTENT_CHUNK_SCHEMA;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
@@ -88,10 +85,10 @@ pub const MAX_SCAN_ROWS: i64 = 65_536;
 /// "Definition of done — schema refs").
 pub fn embeddable_schemas() -> [&'static str; 4] {
     [
-        CONTENT_CHUNK_SCHEMA,
-        MEMORY_CLAIM_SCHEMA,
-        MEMORY_EPISODE_SCHEMA,
-        MEMORY_INSTRUCTION_SCHEMA,
+        impress_core::schema::names::CONTENT_CHUNK,
+        impress_core::schema::names::MEMORY_CLAIM,
+        impress_core::schema::names::MEMORY_EPISODE,
+        impress_core::schema::names::MEMORY_INSTRUCTION,
     ]
 }
 
@@ -479,7 +476,7 @@ impl TaskExecutor for EmbedBackfillExecutor {
 /// is loaded, because the already-embedded probe in `execute` matches on it
 /// per candidate row, ahead of any payload fetch.
 fn source_type_for(schema: &str) -> &'static str {
-    if schema == CONTENT_CHUNK_SCHEMA {
+    if schema == CONTENT_CHUNK_SCHEMA.as_str() {
         SOURCE_TYPE_CHUNK
     } else {
         SOURCE_TYPE_MEMORY

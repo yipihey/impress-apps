@@ -152,7 +152,8 @@ async fn dispatch(world: &World, id: &str) -> (Vec<EffectOutcomeDto>, usize) {
     let layout_writes = writes
         .try_iter()
         .filter(|m| {
-            m.schema_ref.as_deref() == Some(LAYOUT_SCHEMA_REF) && m.kind == MutationKind::Updated
+            m.schema_ref.as_deref() == Some(LAYOUT_SCHEMA_REF.as_str())
+                && m.kind == MutationKind::Updated
         })
         .count();
     (effects, layout_writes)

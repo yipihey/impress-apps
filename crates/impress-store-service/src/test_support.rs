@@ -83,7 +83,12 @@ pub fn make_item_named(store: &SqliteItemStore, schema: &str, title: &str) -> St
     payload.insert("title".into(), Value::String(title.into()));
     let item = Item {
         id: uuid::Uuid::new_v4(),
-        schema: schema.into(),
+        // Query and triage tests deliberately include historical opaque refs
+        // such as `task` and `figure`. Seed them through the persisted-row
+        // decoder, which preserves those refs without admitting them as new
+        // production schema names.
+        schema: serde_json::from_value(serde_json::Value::String(schema.to_owned()))
+            .expect("fixture schema decodes"),
         payload,
         created: now,
         modified: now,

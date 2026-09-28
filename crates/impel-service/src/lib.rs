@@ -740,7 +740,7 @@ impl ImpelService for DefaultImpelService {
                 message: format!("no item {review_id}"),
             };
         };
-        if review.schema.as_str() != REVIEW_REQUEST_SCHEMA {
+        if review.schema != REVIEW_REQUEST_SCHEMA {
             return ActionReport {
                 ok: false,
                 message: format!("{review_id} is a {}, not a review", review.schema.as_str()),
@@ -795,7 +795,7 @@ impl ImpelService for DefaultImpelService {
                 message: format!("no item {task_id}"),
             };
         };
-        if task.schema.as_str() != TASK_SCHEMA {
+        if task.schema != TASK_SCHEMA {
             return ActionReport {
                 ok: false,
                 message: format!("{task_id} is a {}, not a task", task.schema.as_str()),

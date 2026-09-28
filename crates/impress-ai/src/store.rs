@@ -26,7 +26,7 @@ use crate::{Error, Result};
 
 pub const INFERENCE_TASK_KIND: &str = "impress.ai.respond";
 pub const TITLE_SUGGESTION_TASK_KIND: &str = "impress.ai.suggest-title";
-const CHAT_MESSAGE_SCHEMA: &str = "chat-message";
+const CHAT_MESSAGE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CHAT_MESSAGE;
 
 #[derive(Debug, Clone)]
 pub struct ConversationDraft {
@@ -695,7 +695,7 @@ impl AiStore {
                 )),
             );
             let artifact = self.item(
-                "impress/artifact/webpage",
+                impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE,
                 payload,
                 Some(prepared.conversation_id),
                 vec![
@@ -1383,7 +1383,7 @@ impl AiStore {
         source_hash: &str,
     ) -> Result<Option<ItemId>> {
         let candidates = self.store.query(&ItemQuery {
-            schema: Some("impress/artifact/webpage".into()),
+            schema: Some(impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE),
             predicates: vec![
                 Predicate::HasParent(conversation_id),
                 Predicate::Eq(
@@ -1417,7 +1417,7 @@ impl AiStore {
         Ok(None)
     }
 
-    fn require_item(&self, id: ItemId, schema: &str) -> Result<Item> {
+    fn require_item(&self, id: ItemId, schema: impress_core::SchemaRef) -> Result<Item> {
         let item = self
             .store
             .get(id)?
@@ -1433,7 +1433,7 @@ impl AiStore {
 
     fn item(
         &self,
-        schema: &str,
+        schema: impress_core::SchemaRef,
         payload: BTreeMap<String, Value>,
         parent: Option<ItemId>,
         references: Vec<TypedReference>,
@@ -1442,7 +1442,7 @@ impl AiStore {
         let now = Utc::now();
         Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema,
             payload,
             created: now,
             modified: now,
@@ -1935,7 +1935,7 @@ mod tests {
             store
                 .shared_store()
                 .count(&ItemQuery {
-                    schema: Some("impress/artifact/webpage".into()),
+                    schema: Some(impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE),
                     predicates: vec![Predicate::HasParent(conversation)],
                     ..Default::default()
                 })

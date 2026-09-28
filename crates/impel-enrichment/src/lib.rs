@@ -39,7 +39,8 @@ pub use spawn::EnrichmentSpawnRule;
 /// papers yet". `enrichment_trigger_matches_the_ref_imbib_actually_writes`
 /// in tests/enrichment_pipeline.rs pins this against imbib's real writer;
 /// see schema-refs.json for the canonical spelling of every ref.
-pub const BIBLIOGRAPHY_ENTRY_SCHEMA: &str = "imbib/bibliography-entry";
+pub const BIBLIOGRAPHY_ENTRY_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY;
 
 /// Task kinds (dispatch keys) of the pipeline.
 pub const KIND_METADATA_RESOLVE: &str = "metadata-resolve";

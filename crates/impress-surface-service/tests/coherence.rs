@@ -313,7 +313,7 @@ fn insert_paper(store: &SqliteItemStore, title: &str) -> ItemId {
     store
         .insert(Item {
             id: uuid::Uuid::new_v4(),
-            schema: PUBLICATION_REF.into(),
+            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,

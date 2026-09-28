@@ -36,7 +36,8 @@ use uuid::Uuid;
 pub const KIND_THROUGHLINE_SYNC: &str = "throughline-sync";
 
 /// Schema whose mutations trigger the spawn rule.
-pub const MANUSCRIPT_SECTION_SCHEMA: &str = "manuscript-section";
+pub const MANUSCRIPT_SECTION_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::MANUSCRIPT_SECTION;
 
 /// Actor id for all writes from this pipeline.
 const ACTOR: &str = "impel/throughline-sync";
@@ -148,7 +149,7 @@ pub struct ThroughlineSpawnRule;
 #[async_trait]
 impl SpawnRule for ThroughlineSpawnRule {
     fn trigger_schema(&self) -> &str {
-        MANUSCRIPT_SECTION_SCHEMA
+        impress_core::schema::names::MANUSCRIPT_SECTION
     }
 
     fn rule_id(&self) -> &str {
@@ -229,7 +230,7 @@ pub struct ThroughlineSourceSpawnRule;
 #[async_trait]
 impl SpawnRule for ThroughlineSourceSpawnRule {
     fn trigger_schema(&self) -> &str {
-        imprint_service::throughline::THROUGHLINE_SCHEMA_REF
+        impress_core::schema::names::THROUGHLINE
     }
 
     fn rule_id(&self) -> &str {

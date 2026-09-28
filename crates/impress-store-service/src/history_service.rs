@@ -65,7 +65,7 @@ use crate::store::store_instance;
 /// under this crate's own name because every call site here already spells
 /// it `WORKFLOW_SCHEMA` and existed before W1 registered the canonical
 /// definition in `impress-core` — see that module's doc comment.
-pub const WORKFLOW_SCHEMA: &str = CORE_WORKFLOW_SCHEMA;
+pub const WORKFLOW_SCHEMA: impress_core::SchemaRef = CORE_WORKFLOW_SCHEMA;
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -1333,7 +1333,7 @@ mod tests {
     use impress_service_core::VerbDescriptor;
 
     fn item(store: &SqliteItemStore) -> uuid::Uuid {
-        crate::test_support::make_item(store, "test")
+        crate::test_support::make_item(store, "manuscript")
             .parse()
             .unwrap()
     }
@@ -1344,7 +1344,7 @@ mod tests {
         store
             .insert(Item {
                 id,
-                schema: "imbib/bibliography-entry".into(),
+                schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
                 payload: Default::default(),
                 created: now,
                 modified: now,

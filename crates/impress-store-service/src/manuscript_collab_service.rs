@@ -334,7 +334,7 @@ mod tests {
         let now = chrono::Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: "manuscript".into(),
+            schema: impress_core::schema::refs::MANUSCRIPT,
             payload,
             created: now,
             modified: now,

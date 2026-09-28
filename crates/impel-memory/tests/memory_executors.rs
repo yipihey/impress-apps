@@ -36,6 +36,7 @@ use impress_core::schemas::source::CONTENT_CHUNK_SCHEMA;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::{ItemStore, StoreError};
 use impress_core::task::TaskState;
+use impress_core::SchemaRef;
 use impress_embeddings::EmbeddingStore;
 use uuid::Uuid;
 
@@ -153,11 +154,11 @@ impl ClaimDistiller for StubDistiller {
 
 const STUB_MODEL: &str = "stub/test-v1";
 
-fn bare_item(schema: &str, payload: BTreeMap<String, Value>) -> Item {
+fn bare_item(schema: SchemaRef, payload: BTreeMap<String, Value>) -> Item {
     let now = chrono::Utc::now();
     Item {
         id: Uuid::new_v4(),
-        schema: schema.into(),
+        schema,
         payload,
         created: now,
         modified: now,
@@ -355,7 +356,7 @@ fn consolidate_run(store: &SqliteItemStore) -> Item {
     let runs = ItemStore::query(
         store,
         &ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.to_string()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "payload.agent_id".into(),
                 Value::String(CONSOLIDATE_AGENT_ID.into()),
@@ -369,11 +370,11 @@ fn consolidate_run(store: &SqliteItemStore) -> Item {
     runs.into_iter().next().expect("one run")
 }
 
-fn count_schema(store: &SqliteItemStore, schema: &str) -> usize {
+fn count_schema(store: &SqliteItemStore, schema: SchemaRef) -> usize {
     ItemStore::query(
         store,
         &ItemQuery {
-            schema: Some(schema.to_string()),
+            schema: Some(schema),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -529,7 +530,7 @@ async fn already_embedded_rows_are_skipped_not_re_embedded() {
     let summaries: Vec<String> = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.to_string()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "payload.agent_id".into(),
                 Value::String(EMBED_AGENT_ID.into()),
@@ -741,7 +742,7 @@ async fn consolidation_distils_terminal_runs_and_skips_running_ones() {
     let episodes = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Episode.schema_ref().to_string()),
+            schema: Some(MemoryKind::Episode.schema_ref()),
             include_tags: false,
             ..Default::default()
         },
@@ -820,7 +821,7 @@ async fn an_episode_carries_the_task_kind_of_the_run_it_distils() {
     let episodes = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Episode.schema_ref().to_string()),
+            schema: Some(MemoryKind::Episode.schema_ref()),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -865,7 +866,7 @@ async fn provenance_is_one_run_with_derived_from_edges_to_every_source() {
     let runs = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.to_string()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "payload.agent_id".into(),
                 Value::String(CONSOLIDATE_AGENT_ID.into()),
@@ -902,7 +903,7 @@ async fn provenance_is_one_run_with_derived_from_edges_to_every_source() {
     let episodes = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Episode.schema_ref().to_string()),
+            schema: Some(MemoryKind::Episode.schema_ref()),
             include_tags: false,
             ..Default::default()
         },
@@ -959,7 +960,7 @@ async fn a_second_pass_over_the_same_window_adds_no_episodes() {
     let self_episodes = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Episode.schema_ref().to_string()),
+            schema: Some(MemoryKind::Episode.schema_ref()),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -1264,7 +1265,7 @@ async fn claims_are_parsed_gated_and_written_alongside_episodes() {
     let claims = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            schema: Some(MemoryKind::Claim.schema_ref()),
             include_tags: false,
             ..Default::default()
         },
@@ -1334,7 +1335,7 @@ async fn about_run_ids_outside_the_window_are_dropped_from_evidence_refs() {
     let claims = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            schema: Some(MemoryKind::Claim.schema_ref()),
             include_tags: false,
             ..Default::default()
         },
@@ -1516,7 +1517,7 @@ async fn a_duplicate_claim_across_two_windows_confirms_not_duplicates() {
     let claims = ItemStore::query(
         &*store,
         &ItemQuery {
-            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            schema: Some(MemoryKind::Claim.schema_ref()),
             include_tags: false,
             include_references: false,
             ..Default::default()

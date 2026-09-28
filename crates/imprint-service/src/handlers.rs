@@ -376,7 +376,7 @@ fn document_summary(item: &Item) -> DocumentSummary {
 impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
     async fn list_documents(&self) -> Result<Vec<DocumentSummary>, ServiceError> {
         let rows = self.sections.shared_store().query(&ItemQuery {
-            schema: Some("manuscript".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: false,
@@ -393,7 +393,7 @@ impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
             .sections
             .shared_store()
             .get(id)?
-            .filter(|item| item.schema == "manuscript")
+            .filter(|item| item.schema == impress_core::schema::refs::MANUSCRIPT)
             .ok_or_else(|| ServiceError::NotFound(format!("manuscript {id}")))?;
         Ok(document_summary(&item))
     }

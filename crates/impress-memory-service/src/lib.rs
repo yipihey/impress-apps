@@ -1027,7 +1027,11 @@ fn failed_status(message: String) -> StatusResult {
 
 /// The markdown heading for one brief section.
 fn section_heading(schema_ref: &str) -> &'static str {
-    match MemoryKind::from_schema_ref(schema_ref) {
+    match schema_ref
+        .parse::<impress_core::SchemaRef>()
+        .ok()
+        .and_then(|schema| MemoryKind::from_schema_ref(&schema))
+    {
         Some(MemoryKind::Instruction) => "Instructions",
         Some(MemoryKind::Claim) => "Claims",
         Some(MemoryKind::Episode) => "Episodes",
@@ -1415,11 +1419,14 @@ impl MemoryService for DefaultMemoryService {
         let mut schemas = Vec::with_capacity(3);
         for kind in MemoryKind::all() {
             let schema_ref = kind.schema_ref();
-            let heads =
-                match memory_ops::claim_heads(&store, schema_ref, memory_ops::MAX_RECALL_LIMIT) {
-                    Ok(ids) => ids.len() as u32,
-                    Err(e) => return failed_status(describe(e)),
-                };
+            let heads = match memory_ops::claim_heads(
+                &store,
+                schema_ref.clone(),
+                memory_ops::MAX_RECALL_LIMIT,
+            ) {
+                Ok(ids) => ids.len() as u32,
+                Err(e) => return failed_status(describe(e)),
+            };
             let total = match store.query_raw(
                 "SELECT COUNT(*) FROM items WHERE schema_ref = ?1",
                 &[&schema_ref],
@@ -1742,7 +1749,7 @@ mod tests {
         let now = chrono::Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: "manuscript".into(),
+            schema: impress_core::schema::refs::MANUSCRIPT,
             payload: Default::default(),
             created: now,
             modified: now,
@@ -1849,7 +1856,7 @@ mod tests {
         assert!(found.ok, "{}", found.message);
         assert_eq!(found.entries.len(), 1, "{:?}", found.entries);
         assert_eq!(found.entries[0].id, r.claim_id);
-        assert_eq!(found.entries[0].schema_ref, MEMORY_CLAIM_SCHEMA);
+        assert_eq!(found.entries[0].schema_ref, MEMORY_CLAIM_SCHEMA.as_str());
         assert_eq!(found.entries[0].claim_type.as_deref(), Some("fact"));
         // The kernel's RecallEntry carries confidence as f32 (rank_memory_candidates'
         // signal type), so a round trip through it loses a little precision —
@@ -2534,7 +2541,7 @@ mod tests {
         let claim_row = status
             .schemas
             .iter()
-            .find(|s| s.schema_ref == MEMORY_CLAIM_SCHEMA)
+            .find(|s| s.schema_ref == MEMORY_CLAIM_SCHEMA.as_str())
             .expect("claim row");
         assert_eq!(claim_row.heads, 2);
         assert_eq!(claim_row.total, 2);
@@ -2542,7 +2549,7 @@ mod tests {
         let episode_row = status
             .schemas
             .iter()
-            .find(|s| s.schema_ref == MEMORY_EPISODE_SCHEMA)
+            .find(|s| s.schema_ref == MEMORY_EPISODE_SCHEMA.as_str())
             .expect("episode row");
         assert_eq!(episode_row.heads, 1);
         assert_eq!(episode_row.total, 1);
@@ -2550,7 +2557,7 @@ mod tests {
         let instruction_row = status
             .schemas
             .iter()
-            .find(|s| s.schema_ref == MEMORY_INSTRUCTION_SCHEMA)
+            .find(|s| s.schema_ref == MEMORY_INSTRUCTION_SCHEMA.as_str())
             .expect("instruction row");
         assert_eq!(instruction_row.heads, 0);
         assert_eq!(instruction_row.total, 0);
@@ -2582,7 +2589,7 @@ mod tests {
         let claim_row = status
             .schemas
             .iter()
-            .find(|s| s.schema_ref == MEMORY_CLAIM_SCHEMA)
+            .find(|s| s.schema_ref == MEMORY_CLAIM_SCHEMA.as_str())
             .expect("claim row");
         assert_eq!(claim_row.total, 2, "old + new both exist");
         assert_eq!(claim_row.heads, 1, "only the replacement is a head");

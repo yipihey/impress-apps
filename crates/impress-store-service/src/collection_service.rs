@@ -899,14 +899,17 @@ mod tests {
             assert!(binding_for(name).is_ok(), "{name} must resolve");
         }
         assert_eq!(
-            binding_for("publication").unwrap().schema_ref,
+            binding_for("publication").unwrap().schema_ref.as_str(),
             "imbib/collection"
         );
         assert_eq!(
-            binding_for("IMPRINT").unwrap().schema_ref,
+            binding_for("IMPRINT").unwrap().schema_ref.as_str(),
             "manuscript-collection"
         );
-        assert_eq!(binding_for("any").unwrap().schema_ref, "collection");
+        assert_eq!(
+            binding_for("any").unwrap().schema_ref.as_str(),
+            "collection"
+        );
         let err = binding_for("mailbox").unwrap_err();
         assert!(
             err.contains("generic"),

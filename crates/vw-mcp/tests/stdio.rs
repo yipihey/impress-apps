@@ -290,7 +290,7 @@ fn automatic_figure_ingest_resolves_as_image_over_stdio() {
     let store = SqliteItemStore::open(&store_path).expect("open ingested store");
     let source = store
         .query(&ItemQuery {
-            schema: Some("impress/artifact/general".into()),
+            schema: Some(impress_core::schema::refs::IMPRESS_ARTIFACT_GENERAL),
             ..Default::default()
         })
         .expect("query source")
@@ -371,7 +371,7 @@ fn page_image_crosses_the_actual_stdio_boundary_as_mcp_image_content() {
     store
         .insert(Item {
             id: source,
-            schema: "impress/artifact/general".into(),
+            schema: impress_core::schema::refs::IMPRESS_ARTIFACT_GENERAL,
             payload: std::collections::BTreeMap::from([
                 ("title".into(), Value::String("Synthetic MCP Manual".into())),
                 ("file_hash".into(), Value::String(hash.clone())),

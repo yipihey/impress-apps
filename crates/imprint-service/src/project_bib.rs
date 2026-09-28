@@ -18,7 +18,7 @@ use imprint_core::project::{BibliographyResolver, ResolvedEntry};
 
 /// THE publication ref imbib writes (see `schema-refs.json`: reading the bare
 /// `bibliography-entry` is the iOS-citation-picker bug).
-const ENTRY_SCHEMA: &str = "imbib/bibliography-entry";
+const ENTRY_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY;
 
 pub struct StoreBibliographyResolver {
     store: Arc<SqliteItemStore>,

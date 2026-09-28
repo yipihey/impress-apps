@@ -176,7 +176,7 @@ fn sections_are_written_under_the_bare_ref_the_swift_readers_query() {
     // What the Swift readers ask for TODAY. Must be non-empty.
     let live = shared
         .query(&impress_core::query::ItemQuery {
-            schema: Some("manuscript-section".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT_SECTION),
             ..Default::default()
         })
         .unwrap();
@@ -189,20 +189,18 @@ fn sections_are_written_under_the_bare_ref_the_swift_readers_query() {
     // What they asked for BEFORE the fix. Must find nothing — this is the
     // assertion that would have failed loudly instead of the feature failing
     // quietly.
-    let dead = shared
-        .query(&impress_core::query::ItemQuery {
-            // schema-ref-lint:allow — naming the dead spelling is the point.
-            schema: Some("manuscript-section@1.0.0".into()),
-            ..Default::default()
-        })
-        .unwrap();
+    // schema-ref-lint:allow — naming the dead spelling is the point.
     assert!(
-        dead.is_empty(),
-        "a versioned ref must match nothing; if this ever returns rows, some \
-         writer started emitting `@1.0.0` and schema-refs.json is now wrong"
+        "manuscript-section@1.0.0"
+            .parse::<impress_core::SchemaRef>()
+            .is_err(),
+        "the versioned spelling must remain outside the canonical schema vocabulary"
     );
 
     // And the constant the writer exports is exactly the canonical spelling,
     // so the manifest, the lint and the Swift readers all name one string.
-    assert_eq!(imprint_service::SECTION_SCHEMA_REF, "manuscript-section");
+    assert_eq!(
+        imprint_service::SECTION_SCHEMA_REF.as_str(),
+        "manuscript-section"
+    );
 }

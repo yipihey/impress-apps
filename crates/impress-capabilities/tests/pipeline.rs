@@ -188,10 +188,13 @@ fn run(store: &Arc<SqliteItemStore>, caller: CallerIdentity, verb: &str, args: V
     .unwrap_or_else(|e| panic!("{verb}: {e}"))
 }
 
-fn authors_of(store: &SqliteItemStore, schema: &str) -> BTreeSet<(String, String)> {
+fn authors_of(
+    store: &SqliteItemStore,
+    schema: impress_core::SchemaRef,
+) -> BTreeSet<(String, String)> {
     store
         .query(&ItemQuery {
-            schema: Some(schema.into()),
+            schema: Some(schema),
             ..Default::default()
         })
         .expect("query")
@@ -221,7 +224,7 @@ fn an_agents_claim_to_be_human_is_recorded_as_the_agent() {
     assert_eq!(answer["ok"], true, "{answer}");
     impress_store_service::audit::flush().expect("audit flush");
 
-    let ops = authors_of(&store, "core/operation");
+    let ops = authors_of(&store, impress_core::schema::refs::CORE_OPERATION);
     assert!(!ops.is_empty(), "the split wrote operations");
     for (author, kind) in &ops {
         assert_eq!(kind, "Agent", "{author} on an operation");
@@ -255,7 +258,7 @@ fn the_person_is_recorded_as_the_person() {
     );
     assert_eq!(answer["ok"], true, "{answer}");
     impress_store_service::audit::flush().expect("audit flush");
-    let ops = authors_of(&store, "core/operation");
+    let ops = authors_of(&store, impress_core::schema::refs::CORE_OPERATION);
     assert!(ops.iter().all(|(_, kind)| kind == "Human"), "{ops:?}");
     let calls = authors_of(&store, impress_core::schemas::VERB_CALL_SCHEMA);
     assert_eq!(

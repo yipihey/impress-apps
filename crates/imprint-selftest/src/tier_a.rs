@@ -113,7 +113,7 @@ impl ProjectWorld {
         store
             .insert(Item {
                 id,
-                schema: "manuscript".into(),
+                schema: impress_core::schema::refs::MANUSCRIPT,
                 payload,
                 created: now,
                 modified: now,
@@ -192,7 +192,9 @@ impl ProjectWorld {
         self.store
             .insert(Item {
                 id,
-                schema: schema.into(),
+                schema: schema
+                    .parse::<impress_core::SchemaRef>()
+                    .map_err(|e| e.to_string())?,
                 payload,
                 created: now,
                 modified: now,
@@ -554,7 +556,7 @@ async fn cap_manuscript_formats() -> CapabilityResult {
             })
             .to_string();
             store
-                .upsert_payload(id, "manuscript".into(), serde_json::from_str(&payload).map_err(|e| e.to_string())?)
+                .upsert_payload(id, impress_core::schema::refs::MANUSCRIPT, serde_json::from_str(&payload).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
             let row = store
                 .get(id)
@@ -604,7 +606,7 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
             store
                 .upsert_payload(
                     id,
-                    "manuscript".into(),
+                    impress_core::schema::refs::MANUSCRIPT,
                     serde_json::from_str(&payload).map_err(|e| e.to_string())?,
                 )
                 .map_err(|e| e.to_string())?;
@@ -657,7 +659,7 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
             for s in [&store, &store2] {
                 s.upsert_payload(
                     id2,
-                    "manuscript".into(),
+                    impress_core::schema::refs::MANUSCRIPT,
                     serde_json::from_value(
                         serde_json::json!({"title": "G", "status": "draft", "format": "typst",
                         "current_revision_ref": id2, "body_content": "same seed"}),
@@ -714,7 +716,7 @@ async fn cap_status_lifecycle() -> CapabilityResult {
             store
                 .upsert_payload(
                     id,
-                    "manuscript".into(),
+                    impress_core::schema::refs::MANUSCRIPT,
                     serde_json::from_str(&payload).map_err(|e| e.to_string())?,
                 )
                 .map_err(|e| e.to_string())?;
@@ -722,7 +724,7 @@ async fn cap_status_lifecycle() -> CapabilityResult {
             let count_status = |status: &str| -> Result<usize, String> {
                 store
                     .count(&impress_core::query::ItemQuery {
-                        schema: Some("manuscript".into()),
+                        schema: Some(impress_core::schema::refs::MANUSCRIPT),
                         predicates: vec![impress_core::query::Predicate::Eq(
                             "payload.status".into(),
                             impress_core::item::Value::String(status.into()),
@@ -735,7 +737,7 @@ async fn cap_status_lifecycle() -> CapabilityResult {
                 store
                     .upsert_payload(
                         id,
-                        "manuscript".into(),
+                        impress_core::schema::refs::MANUSCRIPT,
                         [(
                             "status".into(),
                             impress_core::item::Value::String(status.into()),

@@ -792,7 +792,7 @@ fn new_manuscript(id: Uuid, payload: BTreeMap<String, Value>) -> Item {
     let now = chrono::Utc::now();
     Item {
         id,
-        schema: "manuscript".into(),
+        schema: impress_core::schema::refs::MANUSCRIPT,
         payload,
         created: now,
         modified: now,
@@ -929,7 +929,7 @@ impl DocsImportService for DefaultDocsImportService {
                 }
             };
             if let Some(item) = &existing {
-                if item.schema != "manuscript" {
+                if item.schema != impress_core::schema::refs::MANUSCRIPT {
                     skipped.push(SkippedDocDto {
                         source_path: relative,
                         reason: format!(
@@ -1106,7 +1106,7 @@ impl DocsImportService for DefaultDocsImportService {
                     match collection_ops::list_members(&store, &MANUSCRIPT_COLLECTION, &id) {
                         Ok(items) => items
                             .into_iter()
-                            .filter(|i| i.schema == "manuscript")
+                            .filter(|i| i.schema == impress_core::schema::refs::MANUSCRIPT)
                             .collect(),
                         Err(e) => return PruneResult::failed(e.to_string()),
                     }
@@ -1118,7 +1118,7 @@ impl DocsImportService for DefaultDocsImportService {
             },
             None => {
                 let q = ItemQuery {
-                    schema: Some("manuscript".into()),
+                    schema: Some(impress_core::schema::refs::MANUSCRIPT),
                     ..Default::default()
                 };
                 match store.query(&q) {
@@ -1913,7 +1913,7 @@ mod tests {
         assert_eq!(ids_first, ids_again);
         let all = store
             .query(&ItemQuery {
-                schema: Some("manuscript".into()),
+                schema: Some(impress_core::schema::refs::MANUSCRIPT),
                 ..Default::default()
             })
             .unwrap();
@@ -2040,7 +2040,7 @@ mod tests {
         // Nothing was written: no manuscripts, no collection.
         assert!(store
             .query(&ItemQuery {
-                schema: Some("manuscript".into()),
+                schema: Some(impress_core::schema::refs::MANUSCRIPT),
                 ..Default::default()
             })
             .unwrap()

@@ -2425,7 +2425,7 @@ mod tests {
     /// A library row, so a paper's `parent_id` has something to reference.
     fn library(id: ItemId) -> Item {
         Item {
-            schema: "imbib/library".into(),
+            schema: impress_core::schema::refs::IMBIB_LIBRARY,
             parent: None,
             ..paper(id, id, false)
         }
@@ -2438,7 +2438,7 @@ mod tests {
         payload.insert("title".to_string(), Value::String(format!("paper {id}")));
         Item {
             id,
-            schema: "imbib/bibliography-entry".into(),
+            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,

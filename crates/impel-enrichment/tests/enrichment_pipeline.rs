@@ -320,14 +320,15 @@ fn enrichment_trigger_matches_the_ref_imbib_actually_writes() {
     // What the trigger asks for. Must find the row imbib just wrote.
     let trigger_ref = EnrichmentSpawnRule.trigger_schema().to_string();
     assert_eq!(
-        trigger_ref, seeded_ref,
+        trigger_ref,
+        seeded_ref.as_str(),
         "the enrichment trigger must name the ref imbib's writer emits; \
          schema-refs.json records the canonical spelling"
     );
     let matched = ItemStore::query(
         &store,
         &ItemQuery {
-            schema: Some(trigger_ref.clone()),
+            schema: Some(seeded_ref.clone()),
             ..Default::default()
         },
     )
@@ -343,18 +344,12 @@ fn enrichment_trigger_matches_the_ref_imbib_actually_writes() {
 
     // The dead spelling must match nothing. If this ever returns rows, some
     // writer started emitting it and schema-refs.json is now wrong.
-    let dead = ItemStore::query(
-        &store,
-        &ItemQuery {
-            // schema-ref-lint:allow — naming the dead spelling is the point.
-            schema: Some("bibliography-entry@1.0.0".into()),
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    // schema-ref-lint:allow — naming the dead spelling is the point.
     assert!(
-        dead.is_empty(),
-        "`bibliography-entry@1.0.0` is written by nothing; it must match no rows"
+        "bibliography-entry@1.0.0"
+            .parse::<impress_core::SchemaRef>()
+            .is_err(),
+        "`bibliography-entry@1.0.0` must remain outside the canonical schema vocabulary"
     );
 }
 
@@ -372,7 +367,10 @@ async fn spawn_rule_yields_the_dag_for_a_real_imbib_row() {
     let id = TaskStoreApi::create_item(store.as_ref(), row).unwrap();
 
     let trigger = TaskStoreApi::get_item(store.as_ref(), id).unwrap().unwrap();
-    assert_eq!(trigger.schema, EnrichmentSpawnRule.trigger_schema());
+    assert_eq!(
+        trigger.schema.as_str(),
+        EnrichmentSpawnRule.trigger_schema()
+    );
 
     let specs = EnrichmentSpawnRule
         .spawn(&trigger, store.as_ref())
@@ -599,7 +597,7 @@ async fn the_run_record_names_the_tags_and_the_executor_kind() {
     let runs = ItemStore::query(
         s.as_ref(),
         &ItemQuery {
-            schema: Some("agent-run@1.0.0".into()),
+            schema: Some(impress_core::schema::refs::AGENT_RUN),
             ..Default::default()
         },
     )
@@ -831,7 +829,7 @@ fn tagging_run(store: &Arc<SqliteItemStore>) -> Item {
     ItemStore::query(
         store.as_ref(),
         &ItemQuery {
-            schema: Some("agent-run@1.0.0".into()),
+            schema: Some(impress_core::schema::refs::AGENT_RUN),
             include_tags: false,
             ..Default::default()
         },

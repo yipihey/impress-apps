@@ -27,8 +27,9 @@ use uuid::Uuid;
 
 use crate::{BlobStore, Error, Result};
 
-const CHAT_MESSAGE_SCHEMA: &str = "chat-message";
-const WEBPAGE_SCHEMA: &str = "impress/artifact/webpage";
+const CHAT_MESSAGE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CHAT_MESSAGE;
+const WEBPAGE_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE;
 const IMPORT_NAMESPACE: Uuid = Uuid::from_u128(0x674f_e0b3_399c_4b77_a114_4824_88c9_a5d1);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -717,7 +718,7 @@ fn ledger_item(
 
 fn item(
     id: ItemId,
-    schema: &str,
+    schema: impress_core::SchemaRef,
     payload: BTreeMap<String, Value>,
     parent: Option<ItemId>,
     references: Vec<TypedReference>,
@@ -726,7 +727,7 @@ fn item(
 ) -> Item {
     Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created,
         modified: created,

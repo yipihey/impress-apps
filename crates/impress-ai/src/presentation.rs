@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AiStore, Error, Result, INFERENCE_TASK_KIND};
 
-const CHAT_MESSAGE_SCHEMA: &str = "chat-message";
+const CHAT_MESSAGE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CHAT_MESSAGE;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AiToolOption {

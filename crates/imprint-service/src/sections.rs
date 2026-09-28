@@ -29,7 +29,8 @@ use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::{ItemStore, StoreError};
 
 /// Schema reference stored on each section item. Matches the Swift adapter.
-pub const SECTION_SCHEMA_REF: &str = "manuscript-section";
+pub const SECTION_SCHEMA_REF: impress_core::SchemaRef =
+    impress_core::schema::refs::MANUSCRIPT_SECTION;
 
 /// Namespace for the deterministic UUID-v5 we derive from
 /// `(document_id, section_key)`. Picked once and frozen so the ids are stable

@@ -33,7 +33,7 @@ use impress_core::store::ItemStore;
 
 /// Schema reference stored on the throughline mirror item. Matches
 /// `impress-core::schemas::throughline`.
-pub const THROUGHLINE_SCHEMA_REF: &str = "throughline";
+pub const THROUGHLINE_SCHEMA_REF: impress_core::SchemaRef = impress_core::schema::refs::THROUGHLINE;
 
 /// Sidecar file names inside the `.imprint` package (ADR-0016 D2).
 pub const THROUGHLINE_SOURCE_FILENAME: &str = "throughline.typ";

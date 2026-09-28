@@ -625,7 +625,9 @@ fn put_source_asset(
                 Value::String(value) => Some(value.as_str()),
                 _ => None,
             });
-        if existing.schema == "impress/artifact/general" && existing_hash == Some(source_hash) {
+        if existing.schema == impress_core::schema::refs::IMPRESS_ARTIFACT_GENERAL
+            && existing_hash == Some(source_hash)
+        {
             return Ok(());
         }
         return Err(format!("source item {id} already exists with different content").into());
@@ -674,7 +676,7 @@ fn put_source_asset(
     let now = chrono::Utc::now();
     store.insert(Item {
         id,
-        schema: "impress/artifact/general".into(),
+        schema: impress_core::schema::refs::IMPRESS_ARTIFACT_GENERAL,
         payload,
         created: now,
         modified: now,

@@ -936,7 +936,7 @@ mod paper_triage_loop {
         );
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: "imbib/bibliography-entry".to_string(),
+            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,

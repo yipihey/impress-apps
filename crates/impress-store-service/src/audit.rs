@@ -277,7 +277,7 @@ mod tests {
         store
             .insert(Item {
                 id,
-                schema: "test".into(),
+                schema: impress_core::schema::refs::MANUSCRIPT,
                 payload: Default::default(),
                 created: now,
                 modified: now,
