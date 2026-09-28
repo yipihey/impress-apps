@@ -21,6 +21,7 @@ def main():
     parser.add_argument("app", choices=("imbib", "imprint", "implore", "impel", "impart"))
     parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--scenario-gaps", action="store_true", help="Also prove store predicates, optional calls and nested surface templates")
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--derived-data", type=Path, help="Reuse an owned target-g5-* or target-p5b-* build directory sequentially")
     args = parser.parse_args()
@@ -88,6 +89,8 @@ def main():
         "IMPRESS_WORKSPACE": str(bootstrap), "IMPRESS_DEVICE_ID": "codex-g5-" + str(uuid.uuid4()),
         "IMBIB_LIBRARY_FILES_MIGRATION": "off",
     }
+    if args.scenario_gaps:
+        overrides["IMPRESS_SCENARIO_GAPS_PROOF"] = "1"
     target.setdefault("EnvironmentVariables", {}).update(overrides)
     configured = products / ("g5-proof-" + args.app + ".xctestrun")
     configured.write_bytes(plistlib.dumps(config))

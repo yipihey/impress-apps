@@ -101,6 +101,44 @@ final class StrictArgumentsProofTests: XCTestCase {
                                                       "--tier", "b", "--base-url", base])
         try assertPassed(report)
 
+        if env["IMPRESS_SCENARIO_GAPS_PROOF"] == "1" {
+            let gapsID = "gaps.\(app).\(UUID().uuidString.lowercased())"
+            let gaps: [String: Any] = [
+                "wire_version": 1, "id": gapsID, "tier": "b",
+                "description": "Read the owned audit store and preserve surface templates over native HTTP",
+                "steps": [
+                    ["store": ["schema_ref": "core/verb-call@1.0.0", "max_rows": 1000,
+                               "where": [["path": "$.payload.verb", "equals": verb]]],
+                     "capture": ["call_id": "$.item.id"]],
+                    ["best_effort": ["call": "store-query-service_get-item", "args": ["id": "not-a-uuid"]]],
+                    ["call": "store-query-service_get-item", "args": ["id": "{{state.call_id}}"],
+                     "expect": ["ok": true]],
+                    ["call": "impress-surface-service_surface-create", "args": ["spec": [
+                        "surface": "1.0", "name": gapsID, "state": ["bins": 9],
+                        "root": ["id": "choose", "button": ["label": "Use", "on_click": [
+                            ["emit": ["name": "chosen", "payload": ["bins": "{{!state.bins}}"]]]
+                        ]]]
+                    ]], "expect": ["ok": true], "capture": ["surface_id": "$.id"]],
+                    ["event": ["surface": "{{state.surface_id}}", "widget": "choose", "kind": "click"]],
+                    ["call": "impress-surface-service_surface-events",
+                     "args": ["id": "{{state.surface_id}}", "after_seq": 0],
+                     "expect": ["ok": true, "fields": [["path": "$.events.0.payload.bins", "equals": 9]]]],
+                    ["call": "impress-surface-service_surface-delete", "args": ["id": "{{state.surface_id}}"],
+                     "expect": ["ok": true]],
+                ],
+                "teardown": [["best_effort": ["call": "impress-surface-service_surface-delete",
+                                               "args": ["id": "{{state.surface_id}}"]]]],
+            ]
+            let gapsJSON = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: gaps), encoding: .utf8))
+            let saved = try await cli.call("gaps-create", ["scenario-create", "--spec", gapsJSON])
+            XCTAssertEqual(saved["ok"] as? Bool, true)
+            let result = try await cli.call("gaps-run", ["scenario-run", "--scenario-id", gapsID,
+                                                       "--tier", "b", "--base-url", base])
+            try assertPassed(result)
+            let results = try XCTUnwrap(result["results"] as? [[String: Any]])
+            XCTAssertTrue((results.first?["detail"] as? String)?.contains("best_effort") == true)
+        }
+
         // The shared surface catalogue is reachable in every shell. The
         // layout-tree catalogue applies to chassis shells; imbib still owns
         // its separate pre-chassis pane layout (its briefing documents why).
