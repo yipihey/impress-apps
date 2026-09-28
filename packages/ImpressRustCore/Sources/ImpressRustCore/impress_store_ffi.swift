@@ -2892,6 +2892,12 @@ public protocol SharedStoreProtocol : AnyObject {
     func operationsFor(id: String, limit: UInt32) throws  -> [SharedOperationRow]
     
     /**
+     * Exact file path selected by this store, for another native image that
+     * needs to hydrate its own read-only provider inventory.
+     */
+    func providerStorePath() throws  -> String
+    
+    /**
      * List items by schema, sorted by creation time (newest first).
      *
      * - `schema_ref`: e.g. `"bibliography-entry"`.
@@ -2990,6 +2996,13 @@ public protocol SharedStoreProtocol : AnyObject {
      * moves must be explicit.
      */
     func setParent(id: String, parentId: String?) throws 
+    
+    /**
+     * Install runtime providers against this exact GUI store and workspace.
+     * The host supplies only schema validation and raw network transport;
+     * descriptor ownership, policy, and audit remain in this Rust image.
+     */
+    func setProviderHost(host: SharedProviderHost) throws 
     
     /**
      * Mark an item as read or unread.
@@ -4103,6 +4116,17 @@ open func operationsFor(id: String, limit: UInt32)throws  -> [SharedOperationRow
 }
     
     /**
+     * Exact file path selected by this store, for another native image that
+     * needs to hydrate its own read-only provider inventory.
+     */
+open func providerStorePath()throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_provider_store_path(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * List items by schema, sorted by creation time (newest first).
      *
      * - `schema_ref`: e.g. `"bibliography-entry"`.
@@ -4274,6 +4298,18 @@ open func setParent(id: String, parentId: String?)throws  {try rustCallWithError
     uniffi_impress_store_ffi_fn_method_sharedstore_set_parent(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterOptionString.lower(parentId),$0
+    )
+}
+}
+    
+    /**
+     * Install runtime providers against this exact GUI store and workspace.
+     * The host supplies only schema validation and raw network transport;
+     * descriptor ownership, policy, and audit remain in this Rust image.
+     */
+open func setProviderHost(host: SharedProviderHost)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_set_provider_host(self.uniffiClonePointer(),
+        FfiConverterCallbackInterfaceSharedProviderHost.lower(host),$0
     )
 }
 }
@@ -12149,6 +12185,88 @@ public func FfiConverterTypeSharedProjectSnapshot_lower(_ value: SharedProjectSn
 }
 
 
+public struct SharedProviderReply {
+    public var ok: Bool
+    public var code: String?
+    public var message: String?
+    public var bodyJson: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, code: String?, message: String?, bodyJson: String?) {
+        self.ok = ok
+        self.code = code
+        self.message = message
+        self.bodyJson = bodyJson
+    }
+}
+
+
+
+extension SharedProviderReply: Equatable, Hashable {
+    public static func ==(lhs: SharedProviderReply, rhs: SharedProviderReply) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.code != rhs.code {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.bodyJson != rhs.bodyJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(code)
+        hasher.combine(message)
+        hasher.combine(bodyJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedProviderReply: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedProviderReply {
+        return
+            try SharedProviderReply(
+                ok: FfiConverterBool.read(from: &buf), 
+                code: FfiConverterOptionString.read(from: &buf), 
+                message: FfiConverterOptionString.read(from: &buf), 
+                bodyJson: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedProviderReply, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterOptionString.write(value.code, into: &buf)
+        FfiConverterOptionString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.bodyJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProviderReply_lift(_ buf: RustBuffer) throws -> SharedProviderReply {
+    return try FfiConverterTypeSharedProviderReply.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProviderReply_lower(_ value: SharedProviderReply) -> RustBuffer {
+    return FfiConverterTypeSharedProviderReply.lower(value)
+}
+
+
 /**
  * A scored candidate. The vector this comes back in **is** the rank order.
  */
@@ -15578,6 +15696,7 @@ public enum SchemaRef {
     case memoryEpisode
     case memoryInstruction
     case plotSpec
+    case provider
     case review
     case reviewRequest
     case revisionNote
@@ -15741,45 +15860,47 @@ public struct FfiConverterTypeSchemaRef: FfiConverterRustBuffer {
         
         case 65: return .plotSpec
         
-        case 66: return .review
+        case 66: return .provider
         
-        case 67: return .reviewRequest
+        case 67: return .review
         
-        case 68: return .revisionNote
+        case 68: return .reviewRequest
         
-        case 69: return .sourceCitation
+        case 69: return .revisionNote
         
-        case 70: return .taskEvent
+        case 70: return .sourceCitation
         
-        case 71: return .task
+        case 71: return .taskEvent
         
-        case 72: return .throughline
+        case 72: return .task
         
-        case 73: return .toolInvocation
+        case 73: return .throughline
         
-        case 74: return .veuszPlot
+        case 74: return .toolInvocation
         
-        case 75: return .vwCommandReceipt
+        case 75: return .veuszPlot
         
-        case 76: return .vwConfiguration
+        case 76: return .vwCommandReceipt
         
-        case 77: return .vwDiagnosticSession
+        case 77: return .vwConfiguration
         
-        case 78: return .vwKnowledgePack
+        case 78: return .vwDiagnosticSession
         
-        case 79: return .vwMeasurement
+        case 79: return .vwKnowledgePack
         
-        case 80: return .vwObservation
+        case 80: return .vwMeasurement
         
-        case 81: return .vwPhotoEvidence
+        case 81: return .vwObservation
         
-        case 82: return .vwProcedureRun
+        case 82: return .vwPhotoEvidence
         
-        case 83: return .vwVehicle
+        case 83: return .vwProcedureRun
         
-        case 84: return .watchedFile
+        case 84: return .vwVehicle
         
-        case 85: return .watchedFolder
+        case 85: return .watchedFile
+        
+        case 86: return .watchedFolder
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -16049,84 +16170,88 @@ public struct FfiConverterTypeSchemaRef: FfiConverterRustBuffer {
             writeInt(&buf, Int32(65))
         
         
-        case .review:
+        case .provider:
             writeInt(&buf, Int32(66))
         
         
-        case .reviewRequest:
+        case .review:
             writeInt(&buf, Int32(67))
         
         
-        case .revisionNote:
+        case .reviewRequest:
             writeInt(&buf, Int32(68))
         
         
-        case .sourceCitation:
+        case .revisionNote:
             writeInt(&buf, Int32(69))
         
         
-        case .taskEvent:
+        case .sourceCitation:
             writeInt(&buf, Int32(70))
         
         
-        case .task:
+        case .taskEvent:
             writeInt(&buf, Int32(71))
         
         
-        case .throughline:
+        case .task:
             writeInt(&buf, Int32(72))
         
         
-        case .toolInvocation:
+        case .throughline:
             writeInt(&buf, Int32(73))
         
         
-        case .veuszPlot:
+        case .toolInvocation:
             writeInt(&buf, Int32(74))
         
         
-        case .vwCommandReceipt:
+        case .veuszPlot:
             writeInt(&buf, Int32(75))
         
         
-        case .vwConfiguration:
+        case .vwCommandReceipt:
             writeInt(&buf, Int32(76))
         
         
-        case .vwDiagnosticSession:
+        case .vwConfiguration:
             writeInt(&buf, Int32(77))
         
         
-        case .vwKnowledgePack:
+        case .vwDiagnosticSession:
             writeInt(&buf, Int32(78))
         
         
-        case .vwMeasurement:
+        case .vwKnowledgePack:
             writeInt(&buf, Int32(79))
         
         
-        case .vwObservation:
+        case .vwMeasurement:
             writeInt(&buf, Int32(80))
         
         
-        case .vwPhotoEvidence:
+        case .vwObservation:
             writeInt(&buf, Int32(81))
         
         
-        case .vwProcedureRun:
+        case .vwPhotoEvidence:
             writeInt(&buf, Int32(82))
         
         
-        case .vwVehicle:
+        case .vwProcedureRun:
             writeInt(&buf, Int32(83))
         
         
-        case .watchedFile:
+        case .vwVehicle:
             writeInt(&buf, Int32(84))
         
         
-        case .watchedFolder:
+        case .watchedFile:
             writeInt(&buf, Int32(85))
+        
+        
+        case .watchedFolder:
+            writeInt(&buf, Int32(86))
         
         }
     }
@@ -17085,6 +17210,223 @@ fileprivate struct FfiConverterCallbackInterfaceSharedLogSink {
 #endif
 extension FfiConverterCallbackInterfaceSharedLogSink : FfiConverter {
     typealias SwiftType = SharedLogSink
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+
+
+public protocol SharedProviderHost : AnyObject {
+    
+    func validateEndpoint(endpoint: String)  -> SharedProviderReply
+    
+    func validateSchema(schemaJson: String)  -> SharedProviderReply
+    
+    func validateInstance(schemaJson: String, argsJson: String)  -> SharedProviderReply
+    
+    func health(endpoint: String, token: String)  -> SharedProviderReply
+    
+    func invoke(endpoint: String, token: String, name: String, argsJson: String, traceId: String?, parentCallId: String?)  -> SharedProviderReply
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceSharedProviderHost {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceSharedProviderHost = UniffiVTableCallbackInterfaceSharedProviderHost(
+        validateEndpoint: { (
+            uniffiHandle: UInt64,
+            endpoint: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> SharedProviderReply in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedProviderHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.validateEndpoint(
+                     endpoint: try FfiConverterString.lift(endpoint)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeSharedProviderReply.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        validateSchema: { (
+            uniffiHandle: UInt64,
+            schemaJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> SharedProviderReply in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedProviderHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.validateSchema(
+                     schemaJson: try FfiConverterString.lift(schemaJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeSharedProviderReply.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        validateInstance: { (
+            uniffiHandle: UInt64,
+            schemaJson: RustBuffer,
+            argsJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> SharedProviderReply in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedProviderHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.validateInstance(
+                     schemaJson: try FfiConverterString.lift(schemaJson),
+                     argsJson: try FfiConverterString.lift(argsJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeSharedProviderReply.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        health: { (
+            uniffiHandle: UInt64,
+            endpoint: RustBuffer,
+            token: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> SharedProviderReply in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedProviderHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.health(
+                     endpoint: try FfiConverterString.lift(endpoint),
+                     token: try FfiConverterString.lift(token)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeSharedProviderReply.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        invoke: { (
+            uniffiHandle: UInt64,
+            endpoint: RustBuffer,
+            token: RustBuffer,
+            name: RustBuffer,
+            argsJson: RustBuffer,
+            traceId: RustBuffer,
+            parentCallId: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> SharedProviderReply in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedProviderHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.invoke(
+                     endpoint: try FfiConverterString.lift(endpoint),
+                     token: try FfiConverterString.lift(token),
+                     name: try FfiConverterString.lift(name),
+                     argsJson: try FfiConverterString.lift(argsJson),
+                     traceId: try FfiConverterOptionString.lift(traceId),
+                     parentCallId: try FfiConverterOptionString.lift(parentCallId)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeSharedProviderReply.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceSharedProviderHost.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface SharedProviderHost: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitSharedProviderHost() {
+    uniffi_impress_store_ffi_fn_init_callback_vtable_sharedproviderhost(&UniffiCallbackInterfaceSharedProviderHost.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceSharedProviderHost {
+    fileprivate static var handleMap = UniffiHandleMap<SharedProviderHost>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceSharedProviderHost : FfiConverter {
+    typealias SwiftType = SharedProviderHost
     typealias FfiType = UInt64
 
 #if swift(>=5.8)
@@ -19914,6 +20256,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_operations_for() != 9390) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_provider_store_path() != 40822) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_by_schema() != 3343) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19945,6 +20290,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_parent() != 22423) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_provider_host() != 42562) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_read() != 9862) {
@@ -20112,6 +20460,21 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlogsink_log() != 38040) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedproviderhost_validate_endpoint() != 42882) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedproviderhost_validate_schema() != 57143) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedproviderhost_validate_instance() != 55591) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedproviderhost_health() != 25073) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedproviderhost_invoke() != 35072) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 53629) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20124,6 +20487,7 @@ private var initializationResult: InitializationResult = {
 
     uniffiCallbackInitSharedLayoutListener()
     uniffiCallbackInitSharedLogSink()
+    uniffiCallbackInitSharedProviderHost()
     uniffiCallbackInitSharedSurfaceListener()
     uniffiCallbackInitSharedVerbHost()
     return InitializationResult.ok

@@ -44,10 +44,10 @@ use impress_core::schemas::{VERB_CALL_SCHEMA, WORKFLOW_SCHEMA as CORE_WORKFLOW_S
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_service_core::async_trait;
+use impress_service_core::call;
 use impress_service_core::descriptor::SafetyClass;
 use impress_service_core::pipeline::{self, Call};
 use impress_service_core::refusal::codes;
-use impress_service_core::VerbDescriptor;
 use impress_service_macros::{impress_service, impress_service_impl};
 use impress_workflow::spec::{
     Action, Author, Guards, Review, Trigger, WorkflowSpec, WorkflowState,
@@ -263,8 +263,9 @@ pub trait HistoryService: Send + Sync + 'static {
         )
     )]
     #[impress_example(
-        name = "default",
-        args = r#"{"call_ids": ["00000000-0000-0000-0000-000000000000"], "dry_run": true}"#
+        name = "missing-call",
+        args = r#"{"call_ids": ["00000000-0000-0000-0000-000000000000"], "dry_run": true}"#,
+        expect = r#"{"ok":false,"results":[{"code":"not-found"}]}"#
     )]
     async fn replay(&self, call_ids: Vec<String>, dry_run: bool) -> ReplayResult;
 
@@ -277,8 +278,9 @@ pub trait HistoryService: Send + Sync + 'static {
         effects(reads = ["core/verb-call@1.0.0"], writes = ["impress/workflow@1.0.0"])
     )]
     #[impress_example(
-        name = "default",
-        args = r#"{"call_ids": ["00000000-0000-0000-0000-000000000000"], "name": "my-macro"}"#
+        name = "missing-call",
+        args = r#"{"call_ids": ["00000000-0000-0000-0000-000000000000"], "name": "my-macro"}"#,
+        expect = r#"{"ok":false}"#
     )]
     async fn save_macro(&self, call_ids: Vec<String>, name: String) -> SaveMacroResult;
 
@@ -303,7 +305,11 @@ pub trait HistoryService: Send + Sync + 'static {
             writes = ["impress/workflow@1.0.0"]
         )
     )]
-    #[impress_example(name = "default", args = r#"{"min_repeats": 3}"#)]
+    #[impress_example(
+        name = "missing-max-len",
+        args = r#"{"min_repeats": 3}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
     async fn propose_workflows(
         &self,
         since: Option<String>,
@@ -458,7 +464,7 @@ const DEFAULT_MAX_LEN: usize = 6;
 /// sequences of. An unlinked verb (should not happen for a recorded call,
 /// but the log outlives a build that removed one) is never mutating.
 fn is_mutating(verb: &str) -> bool {
-    VerbDescriptor::find(verb).is_some_and(|d| d.safety.class == SafetyClass::Mutating)
+    call::find(verb).is_some_and(|d| d.safety().class == SafetyClass::Mutating)
 }
 
 /// A stable grouping key for one call's caller: prefer the name (an agent
@@ -947,7 +953,7 @@ impl HistoryService for DefaultHistoryService {
                 });
                 continue;
             }
-            let Some(descriptor) = VerbDescriptor::find(&verb_name) else {
+            let Some(descriptor) = call::find(&verb_name) else {
                 results.push(ReplayOutcome {
                     call_id: call_id.clone(),
                     verb: Some(verb_name.clone()),
@@ -973,8 +979,9 @@ impl HistoryService for DefaultHistoryService {
                 .and_then(|c| c.get("name"))
                 .and_then(Value::as_str)
                 .unwrap_or(&item.author);
-            let call = Call::agent(format!("replay:{original_caller}"), args);
-            match pipeline::invoke_on(store.clone(), descriptor, call).await {
+            let mut call = Call::agent(format!("replay:{original_caller}"), args);
+            call.store = Some(store.clone());
+            match pipeline::invoke_handle(descriptor, call).await {
                 Ok(answer) => {
                     let ok = answer.get("ok").and_then(Value::as_bool).unwrap_or(true);
                     results.push(ReplayOutcome {
@@ -1583,6 +1590,70 @@ mod tests {
         assert!(result.ok, "{result:?}");
         assert!(result.dry_run);
         assert!(result.results[0].message.contains("would call"));
+    }
+
+    #[test]
+    fn runtime_provider_is_resolved_for_mutation_mining_and_replay_preview() {
+        use impress_service_core::provider::{RegistrationRequest, Registry, SchemaValidator};
+        use impress_service_core::registry_runtime;
+
+        struct RestoreRegistry(Arc<Registry>);
+        impl Drop for RestoreRegistry {
+            fn drop(&mut self) {
+                registry_runtime::install(self.0.clone());
+            }
+        }
+        let _restore = RestoreRegistry(registry_runtime::current());
+
+        struct AcceptSchema;
+        impl SchemaValidator for AcceptSchema {
+            fn validate(&self, _: &Value) -> Result<(), String> {
+                Ok(())
+            }
+            fn validate_instance(&self, _: &Value, _: &Value) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let registry = Arc::new(Registry::new().with_validator(Arc::new(AcceptSchema)));
+        let request: RegistrationRequest = serde_json::from_value(json!({
+            "provider":{"id":"history-provider-fixture","language":"Python","version":"1.0.0","endpoint":"http://127.0.0.1:1"},
+            "verbs":[{"name":"history-provider-fixture-service_change","description":"Change a value",
+                "input_schema":{"type":"object","properties":{"value":{"type":"string","description":"Value"}},"required":["value"],"additionalProperties":false},
+                "output_schema":{"type":"object","properties":{"ok":{"type":"boolean"}}},
+                "safety":{"class":"mutating"},"since":"1.0.0",
+                "examples":[{"name":"change","args":{"value":"hello"}}]}]
+        }))
+        .unwrap();
+        registry.register(request).unwrap();
+        registry
+            .set_trusted("history-provider-fixture", true)
+            .unwrap();
+        registry_runtime::install(registry);
+        let name = "history-provider-fixture-service_change";
+        assert!(is_mutating(name));
+
+        let store = crate::test_support::test_store();
+        let call_id = uuid::Uuid::new_v4().to_string();
+        let payload = json!({
+            "verb":name,"args":{"value":"hello"},"args_replayable":true,
+            "caller":{"kind":"agent","name":"fixture"},"ok":true
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        impress_core::call_context::record_verb_call(
+            &*store,
+            &call_id,
+            &pipeline::CallerIdentity::agent("fixture"),
+            payload,
+        )
+        .unwrap();
+        let result = impress_service_core::runtime::block_on(
+            DefaultHistoryService::with_store(store).replay(vec![call_id], true),
+        );
+        assert!(result.ok, "{result:?}");
+        assert!(result.results[0].message.contains(name));
     }
 
     #[test]

@@ -628,7 +628,7 @@ pub fn invoke_blocking(verb: &'static VerbDescriptor, call: Call) -> Result<Valu
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::descriptor::{Safety, Source};
     use crate::ServiceFuture;
@@ -693,7 +693,7 @@ mod tests {
         ..ECHO
     };
 
-    struct Captured(Mutex<Vec<audit::VerbCallRecord>>);
+    pub(crate) struct Captured(pub(crate) Mutex<Vec<audit::VerbCallRecord>>);
     impl audit::Sink for Captured {
         fn record(&self, record: audit::VerbCallRecord) {
             self.0.lock().unwrap().push(record);
@@ -702,7 +702,7 @@ mod tests {
 
     /// The sink is process-global and the tests run in parallel, so they
     /// share one.
-    fn captured() -> Arc<Captured> {
+    pub(crate) fn captured() -> Arc<Captured> {
         static SINK: std::sync::OnceLock<Arc<Captured>> = std::sync::OnceLock::new();
         SINK.get_or_init(|| {
             let sink = Arc::new(Captured(Mutex::new(Vec::new())));

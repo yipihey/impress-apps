@@ -553,22 +553,22 @@ mod tests {
         let listed: Vec<&str> = grouped.iter().filter_map(|t| t["name"].as_str()).collect();
 
         for d in available() {
-            if listed.contains(&d.name) {
+            if listed.contains(&d.name()) {
                 continue; // primary, or an unclassified flat passthrough
             }
-            let domain = domain_of(d.name).unwrap_or_else(|| {
+            let domain = domain_of(d.name()).unwrap_or_else(|| {
                 panic!(
                     "{} is neither listed flat nor classified into a domain",
-                    d.name
+                    d.name()
                 )
             });
-            let action = action_of(d.name, domain)
-                .unwrap_or_else(|| panic!("{} has no action label", d.name));
+            let action = action_of(d.name(), domain)
+                .unwrap_or_else(|| panic!("{} has no action label", d.name()));
             assert_eq!(
                 resolve(domain, &action),
-                Some(d.name),
+                Some(d.name().to_owned()),
                 "{} is advertised under {domain}/{action} but does not resolve back",
-                d.name,
+                d.name(),
             );
         }
     }

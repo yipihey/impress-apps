@@ -194,12 +194,11 @@ pub async fn refresh_health() {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Mutex;
 
     use serde_json::json;
 
     use super::*;
-    use crate::pipeline::{self, audit, Call};
+    use crate::pipeline::{self, Call};
     use crate::provider::{PersistedProvider, ProviderPersistence, SchemaValidator};
 
     #[derive(Default)]
@@ -245,11 +244,26 @@ mod tests {
 
     struct TestValidator;
 
-    struct Captured(Mutex<Vec<audit::VerbCallRecord>>);
+    // Registry and transport are process-wide. Serialize the two replacement
+    // tests and restore the prior host even when an assertion unwinds.
+    static HOST_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    impl audit::Sink for Captured {
-        fn record(&self, record: audit::VerbCallRecord) {
-            self.0.lock().unwrap().push(record);
+    struct RestoreHost {
+        registry: Arc<Registry>,
+        invoker: Option<Arc<dyn ProviderInvoker>>,
+    }
+    impl RestoreHost {
+        fn capture() -> Self {
+            Self {
+                registry: current(),
+                invoker: invoker(),
+            }
+        }
+    }
+    impl Drop for RestoreHost {
+        fn drop(&mut self) {
+            install(self.registry.clone());
+            *INVOKER.write().unwrap_or_else(|e| e.into_inner()) = self.invoker.clone();
         }
     }
 
@@ -298,6 +312,8 @@ mod tests {
 
     #[tokio::test]
     async fn cross_process_trust_is_applied_before_policy_and_outputs_are_checked() {
+        let _serial = HOST_TEST.lock().await;
+        let _restore = RestoreHost::capture();
         let persistence = Arc::new(MemoryPersistence::default());
         let validator: Arc<dyn SchemaValidator> = Arc::new(TestValidator);
         let first = Registry::new()
@@ -366,11 +382,12 @@ mod tests {
                 .unwrap();
         assert_eq!(reviewed["code"], "review-pending");
         assert_eq!(invocations.load(Ordering::Relaxed), before);
-        install(Arc::new(Registry::new()));
     }
 
     #[tokio::test]
     async fn failed_refresh_has_named_audited_refusal() {
+        let _serial = HOST_TEST.lock().await;
+        let _restore = RestoreHost::capture();
         let persistence = Arc::new(MemoryPersistence::default());
         let registry = Arc::new(
             Registry::new()
@@ -393,8 +410,7 @@ mod tests {
             .unwrap();
         let name = "refresh-failure-fixture-service_echo";
         let handle = registry.find(name).unwrap();
-        let sink = Arc::new(Captured(Mutex::new(Vec::new())));
-        audit::install(sink.clone());
+        let sink = crate::pipeline::tests::captured();
         install(registry);
         persistence.fail_load.store(true, Ordering::Relaxed);
         let answer = pipeline::invoke_handle(handle, Call::person(json!({"text":"hello"})))
@@ -409,6 +425,5 @@ mod tests {
             Some(crate::refusal::codes::HOST_UNAVAILABLE)
         );
         drop(records);
-        install(Arc::new(Registry::new()));
     }
 }

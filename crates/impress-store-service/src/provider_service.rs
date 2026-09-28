@@ -76,9 +76,18 @@ impl DefaultProviderService {
 #[async_trait::async_trait]
 impl ProviderService for DefaultProviderService {
     async fn list(&self) -> ProviderListResult {
+        let providers = self.registry().summaries();
+        log::debug!(
+            "provider display: {} registrations, {} available",
+            providers.len(),
+            providers
+                .iter()
+                .filter(|provider| provider.available)
+                .count()
+        );
         ProviderListResult {
             ok: true,
-            providers: self.registry().summaries(),
+            providers,
             wire_version: 1,
         }
     }

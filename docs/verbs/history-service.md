@@ -64,10 +64,15 @@ Mines the call log for sequences of consecutive mutating verb calls by one calle
 
 **Examples**
 
-- `default`:
+- `missing-max-len`:
 
   ```json
   {"min_repeats": 3}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"code":"invalid-argument"}
   ```
 
 ## `history-service_replay`
@@ -86,10 +91,15 @@ Re-invoke recorded calls through the pipeline, as `Agent("replay:<original calle
 
 **Examples**
 
-- `default`:
+- `missing-call`:
 
   ```json
   {"call_ids": ["00000000-0000-0000-0000-000000000000"], "dry_run": true}
+  ```
+  expects:
+
+  ```json
+  {"ok":false,"results":[{"code":"not-found"}]}
   ```
 
 ## `history-service_save-macro`
@@ -108,10 +118,15 @@ Turn a list of recorded call ids into a stored, reviewable `impress/workflow@1.0
 
 **Examples**
 
-- `default`:
+- `missing-call`:
 
   ```json
   {"call_ids": ["00000000-0000-0000-0000-000000000000"], "name": "my-macro"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `history-service_trace`

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use impress_core::item::ActorKind;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_service_core::wire::WIRE_VERSION;
-use impress_service_core::{Refusal, VerbDescriptor};
+use impress_service_core::Refusal;
 use impress_service_macros::{impress_service, impress_service_impl};
 
 #[allow(unused_imports)]
@@ -35,8 +35,9 @@ pub trait ImpressScenarioService: Send + Sync + 'static {
     /// This stores a document for review and editing; it executes no steps.
     #[impress_method(safety = mutating, effects(reads = ["core/verb-call@1.0.0", "impress/scenario@1.0.0"], writes = ["impress/scenario@1.0.0"]))]
     #[impress_example(
-        name = "recorded-session",
-        args = r#"{"trace_id":"scenario-record-example"}"#
+        name = "missing-trace",
+        args = r#"{"trace_id":"scenario-record-example"}"#,
+        expect = r#"{"ok":false,"code":"not-found"}"#
     )]
     async fn scenario_record(
         &self,
@@ -122,7 +123,7 @@ impl DefaultImpressScenarioService {
 
     /// Everything `impress-scenario::validate` finds, plus — when the
     /// inventory this process links has it — every `call` step naming a
-    /// verb that does not exist.
+    /// verb that does not exist. Provider reach must use Tier B.
     fn problems_of(
         &self,
         raw: &serde_json::Value,
@@ -146,11 +147,24 @@ impl DefaultImpressScenarioService {
         let mut problems = impress_scenario::validate(&scenario);
         for (index, step) in scenario.steps.iter().enumerate() {
             if let impress_scenario::Step::Call(call) = step {
-                if VerbDescriptor::find(&call.call).is_none() {
-                    problems.push(impress_scenario::Problem {
+                match impress_service_core::call::find(&call.call) {
+                    None => problems.push(impress_scenario::Problem {
                         step: Some(index),
                         message: format!("no such verb: {}", call.call),
-                    });
+                    }),
+                    Some(descriptor)
+                        if scenario.tier == impress_scenario::Tier::A
+                            && descriptor
+                                .effects()
+                                .reach
+                                .contains(&impress_service_core::descriptor::Reach::Provider) =>
+                    {
+                        problems.push(impress_scenario::Problem {
+                            step: Some(index),
+                            message: format!("provider verb {} requires Tier B", call.call),
+                        });
+                    }
+                    Some(_) => {}
                 }
             }
         }
@@ -415,4 +429,66 @@ impress_service_impl! {
             base_url: Option<String>
         ) -> ScenarioRunResult,
     ],
+}
+
+#[cfg(test)]
+mod provider_reader_tests {
+    use super::*;
+    use impress_scenario::Caller;
+    use impress_service_core::provider::{RegistrationRequest, Registry, SchemaValidator};
+    use impress_service_core::registry_runtime;
+    use serde_json::{json, Value};
+
+    struct AcceptSchema;
+    impl SchemaValidator for AcceptSchema {
+        fn validate(&self, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
+        fn validate_instance(&self, _: &Value, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_calls_validate_as_tier_b_and_never_run_in_tier_a() {
+        struct RestoreRegistry(Arc<Registry>);
+        impl Drop for RestoreRegistry {
+            fn drop(&mut self) {
+                registry_runtime::install(self.0.clone());
+            }
+        }
+        let _restore = RestoreRegistry(registry_runtime::current());
+        let registry = Arc::new(Registry::new().with_validator(Arc::new(AcceptSchema)));
+        let request: RegistrationRequest = serde_json::from_value(json!({
+            "provider":{"id":"scenario-provider-fixture","language":"Python","version":"1.0.0","endpoint":"http://127.0.0.1:1"},
+            "verbs":[{"name":"scenario-provider-fixture-service_echo","description":"Echo text",
+                "input_schema":{"type":"object","properties":{"text":{"type":"string","description":"Text"}},"required":["text"],"additionalProperties":false},
+                "output_schema":{"type":"object","properties":{"echo":{"type":"string"}}},
+                "safety":{"class":"read_only"},"since":"1.0.0",
+                "examples":[{"name":"echo","args":{"text":"hello"}}]}]
+        }))
+        .unwrap();
+        registry.register(request).unwrap();
+        registry_runtime::install(registry);
+        let name = "scenario-provider-fixture-service_echo";
+        let spec = |tier| {
+            json!({
+                "wire_version":1,"id":"provider.example","description":"Provider call",
+                "tier":tier,"steps":[{"call":name,"args":{"text":"hello"},"as":"agent:scenario"}]
+            })
+        };
+        let service = DefaultImpressScenarioService::new();
+        let (_, a_problems) = service.problems_of(&spec("a"));
+        assert!(a_problems
+            .iter()
+            .any(|p| p.message.contains("requires Tier B")));
+        let (_, b_problems) = service.problems_of(&spec("b"));
+        assert!(b_problems.is_empty(), "{b_problems:?}");
+        let mut caller = TierACaller::open().unwrap();
+        let error = caller
+            .call(name, json!({"text":"hello"}), "agent:scenario")
+            .await
+            .unwrap_err();
+        assert!(error.contains("requires Tier B"), "{error}");
+    }
 }

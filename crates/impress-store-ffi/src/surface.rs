@@ -1221,6 +1221,15 @@ impl SurfaceFeed {
                 let revision = impress_service_core::registry_runtime::current().revision();
                 if revision != provider_revision {
                     provider_revision = revision;
+                    // This feed already runs off the UI thread. Report dropped
+                    // provider references without rewriting user surfaces or
+                    // waiting for a shipped rename-table version to change.
+                    if let Err(error) =
+                        impress_surface_service::rename::RenamePass::new(self.store.clone())
+                            .report_deprecated_provider_refs()
+                    {
+                        tracing::warn!(target: "surface", "provider lifecycle report: {error}");
+                    }
                     for id in self.registry.invalidate_provider_inventory() {
                         merge(
                             &mut held,

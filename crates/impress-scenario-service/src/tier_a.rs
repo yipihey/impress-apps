@@ -26,6 +26,7 @@ use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_scenario::{CallOutcome, Caller, EventBody, WaitBody};
+use impress_service_core::descriptor_handle::VerbHandle;
 use impress_service_core::pipeline::{self, Call, CallerIdentity};
 use serde_json::Value;
 
@@ -63,10 +64,16 @@ impl Caller for TierACaller {
         args: Value,
         as_ident: &str,
     ) -> Result<CallOutcome, String> {
-        let descriptor = impress_service_core::VerbDescriptor::find(verb)
+        let descriptor = impress_service_core::call::find(verb)
             .ok_or_else(|| format!("no such verb: {verb}"))?;
-        let call = Call::new(caller_identity(as_ident), args);
-        let result = pipeline::invoke_on(self.store.clone(), descriptor, call)
+        // Provider transport is a Tier B reach even if its registered safety
+        // is read-only. A scratch Tier A scenario must never contact it.
+        if matches!(&descriptor, VerbHandle::Provider(_)) {
+            return Err(format!("provider verb {verb} requires Tier B"));
+        }
+        let mut call = Call::new(caller_identity(as_ident), args);
+        call.store = Some(self.store.clone());
+        let result = pipeline::invoke_handle(descriptor, call)
             .await
             .map_err(|e| e.to_string())?;
         Ok(CallOutcome {

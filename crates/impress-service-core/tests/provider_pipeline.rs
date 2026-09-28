@@ -17,8 +17,15 @@ use serde_json::{json, Value};
 struct FixtureSchema;
 impl SchemaValidator for FixtureSchema {
     fn validate_instance(&self, schema: &Value, value: &Value) -> Result<(), String> {
-        impress_service_core::strict::check_args("pipeline-fixture-service_echo", value, schema)
-            .map_err(|e| e.to_string())
+        if !value.is_object() {
+            return Err("fixture requires an object".into());
+        }
+        if schema["additionalProperties"] == false {
+            impress_service_core::strict::check_args("pipeline-fixture-service_echo", value, schema)
+                .map_err(|e| e.to_string())
+        } else {
+            Ok(())
+        }
     }
     fn validate(&self, _: &Value) -> Result<(), String> {
         Ok(())

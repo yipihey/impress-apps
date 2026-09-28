@@ -399,6 +399,30 @@ fileprivate class UniffiHandleMap<T> {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -435,6 +459,88 @@ fileprivate struct FfiConverterString: FfiConverter {
         writeInt(&buf, len)
         writeBytes(&buf, value.utf8)
     }
+}
+
+
+public struct ProviderPrimitiveReply {
+    public var ok: Bool
+    public var code: String?
+    public var message: String?
+    public var bodyJson: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, code: String?, message: String?, bodyJson: String?) {
+        self.ok = ok
+        self.code = code
+        self.message = message
+        self.bodyJson = bodyJson
+    }
+}
+
+
+
+extension ProviderPrimitiveReply: Equatable, Hashable {
+    public static func ==(lhs: ProviderPrimitiveReply, rhs: ProviderPrimitiveReply) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.code != rhs.code {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.bodyJson != rhs.bodyJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(code)
+        hasher.combine(message)
+        hasher.combine(bodyJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProviderPrimitiveReply: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProviderPrimitiveReply {
+        return
+            try ProviderPrimitiveReply(
+                ok: FfiConverterBool.read(from: &buf), 
+                code: FfiConverterOptionString.read(from: &buf), 
+                message: FfiConverterOptionString.read(from: &buf), 
+                bodyJson: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProviderPrimitiveReply, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterOptionString.write(value.code, into: &buf)
+        FfiConverterOptionString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.bodyJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProviderPrimitiveReply_lift(_ buf: RustBuffer) throws -> ProviderPrimitiveReply {
+    return try FfiConverterTypeProviderPrimitiveReply.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProviderPrimitiveReply_lower(_ value: ProviderPrimitiveReply) -> RustBuffer {
+    return FfiConverterTypeProviderPrimitiveReply.lower(value)
 }
 
 
@@ -853,6 +959,17 @@ public func configure(imbibUrl: String?, imprintUrl: String?) -> ToolBackends {
 })
 }
 /**
+ * Initialize this image's provider inventory from the same database the GUI
+ * opened. A fallback or different already-selected store is a hard refusal.
+ */
+public func configureProviderStore(path: String) -> ProviderPrimitiveReply {
+    return try!  FfiConverterTypeProviderPrimitiveReply.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_configure_provider_store(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
  * Only the tools impel can actually call right now: store-generic tools (no
  * owning app) are always included, and imbib-/imprint- tools are included
  * only when their app backend is reachable. This is what impel should
@@ -875,6 +992,48 @@ public func listAvailableTools() -> [ToolDescriptor] {
 public func listTools() -> [ToolDescriptor] {
     return try!  FfiConverterSequenceTypeToolDescriptor.lift(try! rustCall() {
     uniffi_impel_tools_fn_func_list_tools($0
+    )
+})
+}
+public func providerCall(endpoint: String, token: String, name: String, argsJson: String, traceId: String?, parentCallId: String?) -> ProviderPrimitiveReply {
+    return try!  FfiConverterTypeProviderPrimitiveReply.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_provider_call(
+        FfiConverterString.lower(endpoint),
+        FfiConverterString.lower(token),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(argsJson),
+        FfiConverterOptionString.lower(traceId),
+        FfiConverterOptionString.lower(parentCallId),$0
+    )
+})
+}
+public func providerHealth(endpoint: String, token: String) -> ProviderPrimitiveReply {
+    return try!  FfiConverterTypeProviderPrimitiveReply.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_provider_health(
+        FfiConverterString.lower(endpoint),
+        FfiConverterString.lower(token),$0
+    )
+})
+}
+public func providerValidateEndpoint(endpoint: String) -> ProviderPrimitiveReply {
+    return try!  FfiConverterTypeProviderPrimitiveReply.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_provider_validate_endpoint(
+        FfiConverterString.lower(endpoint),$0
+    )
+})
+}
+public func providerValidateInstance(schemaJson: String, argsJson: String) -> ProviderPrimitiveReply {
+    return try!  FfiConverterTypeProviderPrimitiveReply.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_provider_validate_instance(
+        FfiConverterString.lower(schemaJson),
+        FfiConverterString.lower(argsJson),$0
+    )
+})
+}
+public func providerValidateSchema(schemaJson: String) -> ProviderPrimitiveReply {
+    return try!  FfiConverterTypeProviderPrimitiveReply.lift(try! rustCall() {
+    uniffi_impel_tools_fn_func_provider_validate_schema(
+        FfiConverterString.lower(schemaJson),$0
     )
 })
 }
@@ -913,10 +1072,28 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impel_tools_checksum_func_configure() != 26147) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impel_tools_checksum_func_configure_provider_store() != 49791) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impel_tools_checksum_func_list_available_tools() != 48254) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impel_tools_checksum_func_list_tools() != 52882) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_provider_call() != 61494) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_provider_health() != 5978) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_provider_validate_endpoint() != 27746) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_provider_validate_instance() != 62871) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_provider_validate_schema() != 23712) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impel_tools_checksum_func_tool_app() != 31972) {
