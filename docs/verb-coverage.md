@@ -145,11 +145,9 @@ and the implore owner decides between verbs and deletion.
 | `imbib-core` | domain-core | should-be-verb | reached by `imbib-service` through `ImbibStore` (48 of 180 methods); RIS parse/format/import/export, `merge_publications`, the reference-filter grammar and ≈170 of 259 `uniffi::export` items have no verb |
 | `imbib-semantic-service` | verb-crate | optional-feature | `semantic-search` — the three legacy semantic-search MCP tools; deliberately not in `full` (the fastembed/tokenizers stack is a cost only `impress-mcp` should pay); only `impress-mcp` enables it |
 | `imbib-service` | verb-crate | verb-crate | |
-| `imbib-service-http` | service-http | internal | the HTTP adapter of `imbib-service` for a running app; no capability of its own |
 | `imbib-verbs-ffi` | ffi | internal | imbib per-app dispatch and exact-store initialization (P5b prerequisite for W3); no independent capability |
 | `impart-core` | domain-core | should-be-verb | `provenance::queries::{trace_lineage, trace_effects, artifact_history, decision_history, …}` have no verb; `impart-service` calls nothing in it |
 | `impart-service` | verb-crate | verb-crate | |
-| `impart-service-http` | service-http | internal | the HTTP adapter of `impart-service`; no capability of its own |
 | `impart-verbs-ffi` | ffi | internal | impart's native app dispatcher over its service inventory; no independent capability |
 | `impel-core` | domain-core | should-be-verb | `escalation::{acknowledge, resolve, dismiss}` and `coordination::{available_threads, threads_by_state, open_escalations}` reach agents only over `impel-server`'s HTTP |
 | `impel-enrichment` | library | internal | task executors (`HeuristicClassifier`, `LlmClassifier`, `MetadataResolveExecutor`) that run only as scheduled impel tasks |
@@ -164,14 +162,12 @@ and the implore owner decides between verbs and deletion.
 | `implore-io` | library | should-be-verb | `reader::open_file` / `DataReader`, `Hdf5Reader::list_datasets`, `NpzFile::array_names` — no verb opens a data file and returns its schema |
 | `implore-selection` | library | internal | `parser::parse_selection` and `Evaluator::{evaluate, selected_indices}` have zero callers in the workspace (C-2); the implore owner decides between a verb and deletion |
 | `implore-service` | verb-crate | verb-crate | |
-| `implore-service-http` | service-http | internal | the HTTP adapter of `implore-service`; no capability of its own |
 | `implore-stats` | library | should-be-verb | `Ecdf::{from_data, quantile, five_number_summary}`, `SummaryStats::{from_data, zscore, robust_zscore, winsorize}` have no verb and zero callers (C-2) |
 | `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
 | `impress-ai-service` | verb-crate | verb-crate | |
 | `impress-ai-tools` | glue/inventory | internal | a third force-link list beside `impress-capabilities` (recorded in the pipeline plan) |
-| `impress-app-client` | library | internal | `ImprintClient` selftest probes; the same data has store-service and imprint verbs |
 | `impress-app-transport` | library | internal | the P5 transport's client side (`call(app, verb, args)`); no capability of its own, it reaches a verb another crate already holds |
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |
 | `impress-bridges-service` | verb-crate | verb-crate | |
@@ -219,7 +215,6 @@ and the implore owner decides between verbs and deletion.
 | `imprint-core` | domain-core | should-be-verb | reached by `imprint-service` through `{project, render, latex, citations, presentation}`; `sourcemap::{generate_source_map, source_map_lookup}` and ≈22 `uniffi::export` items have no verb (`selection` is UI-bound and correctly internal) |
 | `imprint-selftest` | verb-crate | verb-crate | |
 | `imprint-service` | verb-crate | verb-crate | |
-| `imprint-service-http` | service-http | internal | the HTTP adapter of `imprint-service`; no capability of its own |
 | `imprint-verbs-ffi` | ffi | internal | imprint's native app dispatcher over its service inventory; no independent capability |
 | `perf-service` | verb-crate | verb-crate | |
 | `scix-client-ffi` | ffi | should-be-verb | `scix_search`, `scix_count`, `scix_fetch_{references, citations, similar, coreads}` — the ADS citation graph, 19 exports, all Swift-only |
@@ -256,6 +251,7 @@ as `docs/kit-manifest.md`'s open findings.
 | `impress-helix` | `#[uniffi::export]` | `HelixState`/`FfiHelixEditor::handle_key` crosses to Swift because it is a keystroke state machine bound to a live editor buffer — rule (b) excludes it regardless of the binding |
 | `impress-mcp-host` | `.route(` | hosts the linked inventory for an in-process MCP client; the route serves verbs already in the census, not a new capability |
 | `impress-toolbox` | `.route(` | `execute::{handle_execute, handle_execute_file}` run a local command over its own server — deliberately unsandboxed, deliberately outside the inventory |
+| `impress-service-core` | `.route(` | the pipeline's app transport router invokes the registered verb inventory; it defines no independent capability |
 <!-- verb-coverage-internal-bindings:end -->
 
 ## How each check enforces it

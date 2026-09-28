@@ -705,4 +705,16 @@ fn dump() {
             panic!("classify new workspace crate {name} before regenerating its verdict");
         }
     }
+    // The transport invokes already-registered verbs through Router::route;
+    // this is the inventory's own glue, not an independent HTTP capability.
+    // Include its reviewed exception in the dump rather than hand-editing a
+    // generated coverage table. Keep the other curated binding explanations.
+    println!("\n| Crate | Binding | Reason |");
+    println!("|---|---|---|");
+    for line in marker_block(&doc, "verb-coverage-internal-bindings") {
+        if line.starts_with("| `") && !line.starts_with("| `impress-service-core`") {
+            println!("{line}");
+        }
+    }
+    println!("| `impress-service-core` | `.route(` | the pipeline's app transport router invokes the registered verb inventory; it defines no independent capability |");
 }
