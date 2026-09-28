@@ -156,6 +156,40 @@ where
     .await
 }
 
+/// Run one explicitly selected Tier B example after its host prepared owned
+/// fixture arguments. No default app or provider is chosen by this function.
+pub async fn run_linked_tier_b_example_with_args<I, Fut, E, V>(
+    verb: &'static VerbDescriptor,
+    example: &Example,
+    args: Value,
+    caller: CallerIdentity,
+    invoke: I,
+    validate_output: V,
+) -> Outcome
+where
+    I: FnOnce(Value, CallerIdentity) -> Fut,
+    Fut: Future<Output = Result<Value, E>>,
+    E: std::fmt::Display,
+    V: Fn(&Value, &Value) -> Result<(), String>,
+{
+    if example.tier != ExampleTier::B {
+        return Outcome::Failed(format!(
+            "`{}` example `{}` is not Tier B",
+            verb.name, example.name
+        ));
+    }
+    let schema = (verb.output_schema)();
+    check_invocation(
+        verb.name,
+        example.name,
+        example.expect,
+        verb.budget_ms,
+        invoke(args, caller),
+        Some((&schema, &validate_output)),
+    )
+    .await
+}
+
 /// Explicit linked Tier B entry. An isolated host supplies an invoker (for
 /// example its owned HTTP app) and schema validator. Merely enumerating the
 /// inventory cannot run this path. The caller identity is repeated for each
@@ -172,16 +206,15 @@ where
     E: std::fmt::Display,
     V: Fn(&Value, &Value) -> Result<(), String>,
 {
-    let schema = (verb.output_schema)();
     let mut out = Vec::new();
     for example in verb.examples.iter().filter(|ex| ex.tier == ExampleTier::B) {
-        let outcome = check_invocation(
-            verb.name,
-            example.name,
-            example.expect,
-            verb.budget_ms,
-            invoke(example.args_value(), caller.clone()),
-            Some((&schema, &validate_output)),
+        let outcome = run_linked_tier_b_example_with_args(
+            verb,
+            example,
+            example.args_value(),
+            caller.clone(),
+            &mut invoke,
+            &validate_output,
         )
         .await;
         out.push(ExampleResult {
