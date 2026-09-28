@@ -2808,3 +2808,27 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   the final proof uses the generated `get`/`set` names and passes (1 test,
   1.136 s). All 33 focused PMC settings/keymap contract tests pass, as does the
   arm64 imprint iOS simulator build. Normal pre-push and hosted CI remain.
+
+- 2026-09-28 — **R3 hosted smoke check**: the normal push passed, but hosted
+  run 36488811160 built and launched impart-iOS (PID 84886) then reported it
+  missing. The `launchctl list | grep -q` check under `pipefail` can report a
+  false failure when the producer gets a closed pipe; a large process-list
+  fixture reproduced that behavior. Read the complete list into a file before
+  matching, and print it on a real absence. This fixes the check without
+  relaxing it; the original run did not preserve enough diagnostics to prove
+  whether that defect or an actual process exit caused its failure.
+
+- 2026-09-28 — **R3 normal push and review checkpoint**: ready PR
+  [#130](https://github.com/yipihey/impress-apps/pull/130) follows P8 #129. The
+  installed pre-push symlink originally selected main's older script even from
+  the R3 worktree; the first attempt was stopped during impart's build, before
+  that host launched. A worktree-aware dispatcher now runs the invoking
+  worktree's complete hook. The committed installer replaces only that exact
+  legacy link atomically and refuses custom hooks. All ten Python installer
+  and isolation-runner fixtures passed. The complete normal retry passed the
+  impel, impart and impress interlock suites with unique bundles, ports, device
+  IDs and owned stores, then macOS imbib and arm64 iOS simulator imbib. Evidence:
+  `/tmp/impress-r3-push2.log` and
+  `/var/folders/nt/x289rxb53njg4qpvf0b6l8080000gn/T/impress-pre-push.aP2NSB/`.
+  Hosted checks and fresh-main verification before merge remain. No user's app,
+  launcher or store was used.
