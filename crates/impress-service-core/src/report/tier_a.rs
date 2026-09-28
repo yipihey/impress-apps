@@ -32,7 +32,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::descriptor::{Example, Reach, VerbDescriptor};
+use crate::descriptor::{Reach, VerbDescriptor};
+use crate::descriptor_handle::{ExampleView, VerbHandle};
+use crate::pipeline::CallerIdentity;
 
 /// A verb is Tier A-eligible when nothing it declares leaves the process.
 pub fn is_tier_a(v: &VerbDescriptor) -> bool {
@@ -64,6 +66,14 @@ pub struct ExampleResult {
     pub outcome: Outcome,
 }
 
+/// The same outcome with owned names for a runtime provider descriptor.
+#[derive(Debug)]
+pub struct ProviderExampleResult {
+    pub verb: String,
+    pub example: String,
+    pub outcome: Outcome,
+}
+
 /// How long a single example may run before this runner calls it a failure.
 /// Generous: this is a correctness check, not the `budget_ms` performance
 /// gate below.
@@ -90,8 +100,18 @@ pub async fn run_verb(v: &'static VerbDescriptor) -> Vec<ExampleResult> {
         return Vec::new();
     }
     let mut out = Vec::with_capacity(v.examples.len());
+    let handle = VerbHandle::Linked(v);
     for ex in v.examples {
-        let outcome = run_one(v, ex).await;
+        let outcome = run_one(
+            &handle,
+            ExampleView {
+                name: ex.name,
+                args: ex.args,
+                expect: ex.expect,
+            },
+            CallerIdentity::system("tier-a"),
+        )
+        .await;
         out.push(ExampleResult {
             verb: v.name,
             example: ex.name,
@@ -101,62 +121,92 @@ pub async fn run_verb(v: &'static VerbDescriptor) -> Vec<ExampleResult> {
     out
 }
 
-async fn run_one(v: &'static VerbDescriptor, ex: &Example) -> Outcome {
+/// Explicit Tier B test entry for a registered provider. The caller must
+/// install the provider transport and a scratch host store first. Enumerating
+/// descriptors never calls this function; providers remain ineligible for
+/// [`run_all`] and [`run_verb`]. System identity avoids interactive review
+/// during this deliberate test run, while the ordinary pipeline still applies
+/// strict arguments, liveness, tracing, auditing, and refusal handling.
+pub async fn run_provider_examples(
+    verb: &VerbHandle,
+) -> Result<Vec<ProviderExampleResult>, &'static str> {
+    if !matches!(verb, VerbHandle::Provider(_)) {
+        return Err("Tier B provider example runner requires a provider handle");
+    }
+    let mut out = Vec::new();
+    for example in verb.examples() {
+        let outcome = run_one(
+            verb,
+            example,
+            CallerIdentity::system("tier-b-provider-example"),
+        )
+        .await;
+        out.push(ProviderExampleResult {
+            verb: verb.name().to_owned(),
+            example: example.name.to_owned(),
+            outcome,
+        });
+    }
+    Ok(out)
+}
+
+async fn run_one(v: &VerbHandle, ex: ExampleView<'_>, caller: CallerIdentity) -> Outcome {
     let args = ex.args_value();
-    // Through the pipeline like every other path (ADR-0034 D2), as the
-    // Tier A runner: a system caller, so policy never queues it for review.
-    let call = crate::pipeline::invoke(
-        v,
-        crate::pipeline::Call::new(crate::pipeline::CallerIdentity::system("tier-a"), args),
-    );
+    let call = crate::pipeline::invoke_handle(v.clone(), crate::pipeline::Call::new(caller, args));
     let started = Instant::now();
     let outcome = match tokio::time::timeout(EXAMPLE_TIMEOUT, call).await {
         Err(_) => Outcome::Failed(format!(
             "`{}` example `{}` did not finish in {:?}",
-            v.name, ex.name, EXAMPLE_TIMEOUT
+            v.name(),
+            ex.name,
+            EXAMPLE_TIMEOUT
         )),
-        Ok(Err(e)) => Outcome::Failed(format!("`{}` example `{}` failed: {e}", v.name, ex.name)),
-        Ok(Ok(result)) => {
-            if let Some(expect) = ex.expect {
-                match serde_json::from_str::<Value>(expect) {
-                    Err(e) => Outcome::Failed(format!(
-                        "`{}` example `{}` has an `expect` that is not JSON: {e}",
-                        v.name, ex.name
-                    )),
-                    Ok(expected) => {
-                        if shape_matches(&expected, &result) {
-                            Outcome::Passed { result }
-                        } else {
-                            Outcome::Failed(format!(
-                                "`{}` example `{}`: expected shape {expected}, got {result}",
-                                v.name, ex.name
-                            ))
-                        }
-                    }
-                }
-            } else {
-                Outcome::Passed { result }
-            }
-        }
+        Ok(Err(e)) => Outcome::Failed(format!("`{}` example `{}` failed: {e}", v.name(), ex.name)),
+        Ok(Ok(result)) => check_result(v.name(), ex.name, ex.expect, result),
     };
     // D-P2: a Tier A example whose verb declares `budget_ms` fails when it
     // blows that budget by more than `BUDGET_SLACK_FACTOR` — checked after
     // (never instead of) correctness, so a failing example is reported for
     // failing, not for running long while broken.
     if outcome.is_pass() {
-        if let Some(budget_ms) = v.budget_ms {
+        if let Some(budget_ms) = v.budget_ms() {
             let elapsed_us = started.elapsed().as_micros() as u64;
             let ceiling_ms = budget_ms.saturating_mul(u64::from(BUDGET_SLACK_FACTOR));
             if elapsed_us > ceiling_ms.saturating_mul(1_000) {
                 return Outcome::Failed(format!(
                     "`{}` example `{}` took {elapsed_us}us, over its {budget_ms}ms budget \
                      (even with {BUDGET_SLACK_FACTOR}x CI slack, ceiling {ceiling_ms}ms)",
-                    v.name, ex.name
+                    v.name(),
+                    ex.name
                 ));
             }
         }
     }
     outcome
+}
+
+fn check_result(name: &str, example: &str, expect: Option<&str>, result: Value) -> Outcome {
+    if result.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Outcome::Failed(format!(
+            "`{name}` example `{example}` refused: {}",
+            result
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+        ));
+    }
+    let Some(expect) = expect else {
+        return Outcome::Passed { result };
+    };
+    match serde_json::from_str::<Value>(expect) {
+        Err(e) => Outcome::Failed(format!(
+            "`{name}` example `{example}` has an `expect` that is not JSON: {e}"
+        )),
+        Ok(expected) if shape_matches(&expected, &result) => Outcome::Passed { result },
+        Ok(expected) => Outcome::Failed(format!(
+            "`{name}` example `{example}`: expected shape {expected}, got {result}"
+        )),
+    }
 }
 
 /// Whether `actual` matches the shape `expected` describes. This is a
@@ -219,8 +269,10 @@ mod tests {
         assert!(!shape_matches(&expected, &serde_json::json!({"x": [1, 2]})));
     }
 
-    use crate::descriptor::{Effects, Safety, SafetyClass, Source};
+    use crate::descriptor::{Effects, Example, Safety, SafetyClass, Source};
+    use crate::provider::{ProviderExample, ProviderStatus, ProviderVerb};
     use crate::ServiceFuture;
+    use std::sync::Arc;
 
     fn schema() -> Value {
         serde_json::json!({})
@@ -305,6 +357,68 @@ mod tests {
         assert!(
             results[0].outcome.is_pass(),
             "no budget_ms means no ceiling, however long the call took"
+        );
+    }
+
+    #[test]
+    fn shared_result_checker_matches_expect_and_rejects_refusals() {
+        assert!(check_result(
+            "fixture-service_echo",
+            "one",
+            Some(r#"{"echo":"hello"}"#),
+            serde_json::json!({"echo":"hello","extra":1}),
+        )
+        .is_pass());
+        let refused = check_result(
+            "fixture-service_echo",
+            "one",
+            None,
+            serde_json::json!({"ok":false,"code":"host-unavailable","message":"down"}),
+        );
+        assert!(
+            matches!(refused, Outcome::Failed(message) if message.contains("host-unavailable"))
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_examples_are_explicit_tier_b_and_never_tier_a() {
+        static LINKED: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        let linked =
+            LINKED.get_or_init(|| budgeted_verb("tier-a-budget-test_linked", None, instant_ok));
+        assert!(run_provider_examples(&VerbHandle::Linked(linked))
+            .await
+            .is_err());
+
+        let safety = Safety {
+            class: SafetyClass::ReadOnly,
+            idempotent: true,
+        };
+        let provider = VerbHandle::Provider(Arc::new(ProviderVerb {
+            name: "fixture-service_echo".into(),
+            service: "fixture-service".into(),
+            method: "echo".into(),
+            description: "Echo text".into(),
+            input_schema: serde_json::json!({"type":"object","properties":{},"additionalProperties":false}),
+            output_schema: serde_json::json!({"type":"object"}),
+            declared_safety: safety,
+            effective_safety: safety,
+            since: "0.1.0".into(),
+            examples: vec![ProviderExample {
+                name: "one".into(),
+                args: "{}".into(),
+                expect: Some(r#"{"echo":"hello"}"#.into()),
+            }],
+            provider_id: "fixture".into(),
+            status: ProviderStatus::Unavailable,
+            deprecated_since: None,
+            generation: 1,
+        }));
+        let results = run_provider_examples(&provider).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].verb, "fixture-service_echo");
+        assert_eq!(results[0].example, "one");
+        assert!(
+            matches!(&results[0].outcome, Outcome::Failed(message) if message.contains("host-unavailable"))
         );
     }
 }
