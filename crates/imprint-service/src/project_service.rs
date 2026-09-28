@@ -734,7 +734,7 @@ pub trait ImprintProjectService: Send + Sync + 'static {
     /// each paper's linked PDF (`imbib/linked-file`), not just the paper row —
     /// found by the store spy once it stopped early-returning on an empty
     /// query (plan E2b).
-    #[impress_method(safety = read_only, effects(reads = ["manuscript", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"]))]
+    #[impress_method(safety = read_only, effects(reads = ["manuscript", "manuscript-file@1.0.0", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"]))]
     #[impress_example(
         name = "g3-reading-list",
         args = r#"{"manuscript_id":"5e000000-0000-4000-8000-000000000014"}"#,
