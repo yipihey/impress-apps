@@ -108,6 +108,20 @@ fn row(v: &VerbDescriptor, evidence: &str) -> String {
 }
 
 #[test]
+fn every_verb_has_an_example_and_documented_arguments() {
+    let handles: Vec<_> = verbs()
+        .into_iter()
+        .map(impress_service_core::VerbHandle::Linked)
+        .collect();
+    let problems = impress_capabilities::verb_docs::documentation_problems(&handles);
+    assert!(
+        problems.is_empty(),
+        "Verb reference is incomplete:\n- {}",
+        problems.join("\n- ")
+    );
+}
+
+#[test]
 fn every_verb_declares_the_class_the_table_records() {
     let verbs = verbs();
     let table = table();

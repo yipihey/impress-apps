@@ -196,6 +196,40 @@ fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
     out
 }
 
+/// Missing reference information, reported before the checked-in generator
+/// writes any pages. Runtime hosts may still preview an incomplete provider's
+/// metadata with `render`; publishing the linked reference requires completeness.
+pub fn documentation_problems<'a>(
+    handles: impl IntoIterator<Item = &'a VerbHandle>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for verb in handles {
+        if verb.examples().is_empty() {
+            problems.push(format!("{} has no example", verb.name()));
+        }
+        if let Some(properties) = verb
+            .input_schema()
+            .get("properties")
+            .and_then(Value::as_object)
+        {
+            for (name, property) in properties {
+                if property
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .is_none_or(|doc| doc.trim().is_empty())
+                {
+                    problems.push(format!(
+                        "{} argument {name} has no description",
+                        verb.name()
+                    ));
+                }
+            }
+        }
+    }
+    problems.sort();
+    problems
+}
+
 /// A complete set of pages, including the index, ready to write to an owned
 /// directory. Keeping rendering separate from I/O lets hosts preview output.
 pub struct RenderedVerbDocs {
