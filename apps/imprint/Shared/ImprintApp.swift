@@ -9,6 +9,7 @@ import ImpressAutomation
 import ImpressLogging
 import ImprintCore
 import ImpressKit
+import ImpressKeyboard
 import ImpressSpotlight
 import ImpressSyntaxHighlight
 import ImpressTheme
@@ -774,7 +775,7 @@ struct ImprintApp: App {
                 editorAppearance = "follow"
                 pdfAppearance = "follow"
             }
-            .keyboardShortcut("D", modifiers: [.command, .control])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.all_dark_light"))
         }
     }
 
@@ -826,12 +827,12 @@ struct ImprintApp: App {
             Button("New Typst Manuscript") {
                 createNewManuscript(format: .typst)
             }
-            .keyboardShortcut("N", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.file.new_typst"))
 
             Button("New LaTeX Manuscript") {
                 createNewManuscript(format: .latex)
             }
-            .keyboardShortcut("N", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.file.new_latex"))
 
             Button("New Markdown Document") {
                 createNewManuscript(format: .markdown)
@@ -847,19 +848,19 @@ struct ImprintApp: App {
             Button("New Manuscript from Template…") {
                 openWindow(id: "new-from-template")
             }
-            .keyboardShortcut("N", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.file.new_from_template"))
 
             Divider()
 
             Button("Open Manuscript Library") {
                 openWindow(id: "project-browser")
             }
-            .keyboardShortcut("L", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.file.open_library"))
 
             Button("Import to Manuscript Library…") {
                 handleImportToLibrary()
             }
-            .keyboardShortcut("I", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.file.import_library"))
 
             Button("Import Folder as Manuscript…") {
                 handleImportFolderAsManuscript()
@@ -873,51 +874,51 @@ struct ImprintApp: App {
                 // used to post `.insertCitation`, which nothing observed.
                 ManuscriptCitationInserter.shared.openPalette()
             }
-            .keyboardShortcut("K", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.insert_citation"))
 
             Button("Papers...") {
                 // imbib's papers window on this manuscript's collection — what
                 // replaced imprint's own Papers panel.
                 ManuscriptPapersCommand.request()
             }
-            .keyboardShortcut("R", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.papers"))
 
             Button("Add Comment...") {
                 NotificationCenter.default.post(name: .addCommentAtSelection, object: nil)
             }
-            .keyboardShortcut("M", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.add_comment"))
 
             Divider()
 
             Button("Symbol Palette...") {
                 NotificationCenter.default.post(name: .showSymbolPalette, object: nil)
             }
-            .keyboardShortcut("Y", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.symbol_palette"))
 
             Button("AI Assistant...") {
                 NotificationCenter.default.post(name: .showAIContextMenu, object: nil)
             }
-            .keyboardShortcut("A", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.ai_assistant"))
 
             Divider()
 
             Button("Build Manuscript") {
                 NotificationCenter.default.post(name: .buildManuscript, object: nil)
             }
-            .keyboardShortcut("b", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.build_manuscript"))
             .help("Build the manuscript's target from the store — every file of the project — and record it")
 
             Button("Compile to PDF") {
                 NotificationCenter.default.post(name: .compileDocument, object: nil)
             }
-            .keyboardShortcut(.return, modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.compile_pdf"))
 
             Divider()
 
             Button("Search Across Manuscripts…") {
                 openWindow(id: "cross-document-search")
             }
-            .keyboardShortcut("F", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.edit.search_manuscripts"))
         }
 
         // View menu additions.
@@ -926,13 +927,13 @@ struct ImprintApp: App {
         // secondary (preview/detail) pane, ⌘\ splits the editor.
         CommandGroup(after: .sidebar) {
             Button("Text Only") { appState.editMode = .textOnly }
-                .keyboardShortcut("1", modifiers: [.command])
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.text_only"))
             Button("Split View") { appState.editMode = .splitView }
-                .keyboardShortcut("2", modifiers: [.command])
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.split_view"))
             Button("Direct PDF") { appState.editMode = .directPdf }
-                .keyboardShortcut("3", modifiers: [.command])
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.direct_pdf"))
             Button("Cycle Edit Mode") { appState.editMode.cycle() }
-                .keyboardShortcut(.tab)
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.cycle_edit_mode"))
 
             Divider()
 
@@ -953,23 +954,23 @@ struct ImprintApp: App {
             // `listTitle` is a parameter at all. `listPaneVisible` is not
             // manuscript-specific; relabelling a live menu entry is a UX
             // decision, so the label stays until someone makes it.
-            ImpressPaneLayoutButtons(listTitle: "Toggle Manuscript List")
+            ImpressPaneLayoutButtons(listTitle: "Toggle Manuscript List", appID: "imprint")
 
             Button(appState.isEditorSplit ? "Close Split Editor" : "Split Editor") {
                 withAnimation { appState.isEditorSplit.toggle() }
             }
-            .keyboardShortcut("\\", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.split_editor"))
 
             Button(appState.editorSplitSideBySide ? "Split Editor: Stack Vertically" : "Split Editor: Side by Side") {
                 appState.editorSplitSideBySide.toggle()
                 appState.isEditorSplit = true
             }
-            .keyboardShortcut("\\", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.split_editor_orientation"))
 
             Button("Open PDF on Second Display") {
                 NotificationCenter.default.post(name: .openDetachedPDF, object: nil)
             }
-            .keyboardShortcut("P", modifiers: [.command, .control])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.detach_pdf"))
 
             layoutsMenu
 
@@ -978,24 +979,24 @@ struct ImprintApp: App {
             Button(appState.isFocusMode ? "Exit Focus Mode" : "Focus Mode") {
                 NotificationCenter.default.post(name: .toggleFocusMode, object: nil)
             }
-            .keyboardShortcut("F", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.focus_mode"))
 
             Divider()
 
             Button(appState.showingAIAssistant ? "Hide AI Assistant" : "Show AI Assistant") {
                 NotificationCenter.default.post(name: .toggleAIAssistant, object: nil)
             }
-            .keyboardShortcut(".", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.toggle_ai_assistant"))
 
             Button(appState.showingComments ? "Hide Comments" : "Show Comments") {
                 NotificationCenter.default.post(name: .toggleCommentsSidebar, object: nil)
             }
-            .keyboardShortcut("K", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.toggle_comments"))
 
             Button(appState.showingThroughline ? "Hide Throughline" : "Show Throughline") {
                 NotificationCenter.default.post(name: .toggleThroughlinePane, object: nil)
             }
-            .keyboardShortcut("T", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.toggle_throughline"))
 
             appearanceMenu
 
@@ -1004,18 +1005,18 @@ struct ImprintApp: App {
             Button("Show Console") {
                 openWindow(id: "console")
             }
-            .keyboardShortcut("C", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.show_console"))
 
             Button("Show Plots Panel") {
                 NotificationCenter.default.post(
                     name: .manuscriptShowSidePanel, object: nil, userInfo: ["panel": "plots"])
             }
-            .keyboardShortcut("P", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.show_plots"))
 
             Button("Keyboard Shortcuts…") {
                 openWindow(id: "shortcuts-help")
             }
-            .keyboardShortcut("/", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.view.keyboard_shortcuts"))
         }
 
 
@@ -1024,12 +1025,12 @@ struct ImprintApp: App {
             Button("Bold") {
                 NotificationCenter.default.post(name: .formatBold, object: nil)
             }
-            .keyboardShortcut("B", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.format.bold"))
 
             Button("Italic") {
                 NotificationCenter.default.post(name: .formatItalic, object: nil)
             }
-            .keyboardShortcut("I", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.format.italic"))
 
             Divider()
 
@@ -1037,17 +1038,17 @@ struct ImprintApp: App {
                 Button("Heading 1") {
                     NotificationCenter.default.post(name: .insertHeading, object: 1)
                 }
-                .keyboardShortcut("1", modifiers: [.command, .option])
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.format.heading_1"))
 
                 Button("Heading 2") {
                     NotificationCenter.default.post(name: .insertHeading, object: 2)
                 }
-                .keyboardShortcut("2", modifiers: [.command, .option])
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.format.heading_2"))
 
                 Button("Heading 3") {
                     NotificationCenter.default.post(name: .insertHeading, object: 3)
                 }
-                .keyboardShortcut("3", modifiers: [.command, .option])
+                .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.format.heading_3"))
             }
         }
 
@@ -1056,7 +1057,7 @@ struct ImprintApp: App {
             Button("Print Compiled PDF...") {
                 NotificationCenter.default.post(name: .printPDF, object: nil)
             }
-            .keyboardShortcut("P", modifiers: [.command])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.file.print_pdf"))
         }
 
         // Git menu
@@ -1064,17 +1065,17 @@ struct ImprintApp: App {
             Button("Commit...") {
                 NotificationCenter.default.post(name: .gitCommit, object: nil)
             }
-            .keyboardShortcut("G", modifiers: [.command, .option])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.git.commit"))
 
             Button("Push") {
                 NotificationCenter.default.post(name: .gitPush, object: nil)
             }
-            .keyboardShortcut("P", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.git.push"))
 
             Button("Pull") {
                 NotificationCenter.default.post(name: .gitPull, object: nil)
             }
-            .keyboardShortcut("U", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.git.pull"))
 
             Divider()
 
@@ -1100,7 +1101,7 @@ struct ImprintApp: App {
 
         // ⌘F focuses the frontmost list's filter (shared chassis command);
         // ⌘⇧F (Search Across Manuscripts) is bound in the Edit additions above.
-        ImpressFindCommands()
+        ImpressFindCommands(appID: "imprint")
     }
 }
 
@@ -1116,7 +1117,7 @@ struct ManuscriptDocumentCommands: Commands {
                     ManuscriptExportActions.exportPDF(manuscriptID: id)
                 }
             }
-            .keyboardShortcut("E", modifiers: [.command, .shift])
+            .keyboardShortcut(KeymapRegistry.shared.shortcut(for: "imprint.document.export_pdf"))
             .disabled(focusedManuscriptID == nil)
 
             Button("Export as .imprint Bundle…") {
