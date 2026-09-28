@@ -72,7 +72,7 @@ pub struct Requires {
 }
 
 /// One row to insert into the scratch store before a Tier A run.
-/// `as` names it for later `{{captures.<as>.…}}` reference — a seed record
+/// `as` names it for later `{{state.<as>.…}}` reference — a seed record
 /// is captured under its own name the moment it is written, before any
 /// step runs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,8 +84,8 @@ pub struct SeedRecord {
     pub r#as: Option<String>,
 }
 
-/// One step. The wire shape is one of four mutually exclusive keys
-/// (`call`/`event`/`gesture`/`wait`) — modeled as a flattened enum so a step
+/// One step. The wire shape uses mutually exclusive keys
+/// (`call`/`event`/`gesture`/`wait`/`store`/`best_effort`) — modeled as a flattened enum so a step
 /// document reads exactly as the plan's example shows it, not wrapped in a
 /// `{"kind": "call", …}` envelope.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,6 +96,8 @@ pub enum Step {
     Event(EventStep),
     Gesture(GestureStep),
     Wait(WaitStep),
+    Store(StoreStep),
+    BestEffort(BestEffortStep),
 }
 
 /// A verb call — the common case, and the only step kind a Tier A run can
@@ -115,9 +117,58 @@ pub struct CallStep {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Expect>,
     /// Named JSON-path captures out of this step's result, e.g.
-    /// `{"name": "$.name"}` — later steps reference `{{captures.name}}`.
+    /// `{"name": "$.name"}` — later steps reference `{{state.name}}`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub capture: std::collections::BTreeMap<String, String>,
+}
+
+/// Select the first stored item satisfying every predicate. Reads use the
+/// existing list-items/get-item verbs through the caller; the interpreter
+/// gains no store dependency. Captures see `{item: envelope, payload: object}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct StoreStep {
+    pub store: StorePredicate,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub capture: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct StorePredicate {
+    pub schema_ref: String,
+    #[serde(default, rename = "where")]
+    pub predicates: Vec<FieldExpect>,
+    /// Bound work even if the store changes during paging. 1..=10,000.
+    #[serde(default = "default_max_rows")]
+    pub max_rows: usize,
+}
+
+fn default_max_rows() -> usize {
+    100
+}
+
+/// An optional operation. Operational failures are reported in the scenario's
+/// detail and execution continues. No assertions or captures are accepted;
+/// missing template captures remain authoring errors and fail the scenario.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct BestEffortStep {
+    pub best_effort: BestEffortCall,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct BestEffortCall {
+    pub call: String,
+    #[serde(default)]
+    pub args: serde_json::Value,
+    #[serde(default = "default_as", rename = "as")]
+    pub r#as: String,
 }
 
 fn default_as() -> String {

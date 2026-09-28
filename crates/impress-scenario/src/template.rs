@@ -16,16 +16,89 @@ use serde_json::Value;
 /// Resolve every `{{…}}` in `value` against `captures` (exposed as the
 /// `state` root), substituting a fresh `{{uuid}}` per occurrence first.
 pub fn resolve(value: &Value, captures: &Value) -> Result<Value, String> {
-    let with_uuids = substitute_uuids(value);
+    let nonce = loop {
+        let candidate = format!("scenario-literal-{}-", uuid::Uuid::new_v4());
+        if !value.to_string().contains(&candidate) && !captures.to_string().contains(&candidate) {
+            break candidate;
+        }
+    };
+    let mut literals = Vec::new();
+    let protected = protect_literals(value, &nonce, &mut literals)?;
+    let with_uuids = substitute_uuids(&protected);
     let empty = Value::Null;
     let ctx = Context::new(captures, &empty, &empty, &empty);
-    resolve_value(&with_uuids, &ctx).map_err(|e| e.to_string())
+    let resolved = resolve_value(&with_uuids, &ctx).map_err(|e| e.to_string())?;
+    Ok(restore_literals(resolved, &literals))
+}
+
+/// `{{!state.x}}` passes the literal `{{state.x}}` to a nested surface.
+/// The escape also works inside serialized JSON and with `{{!uuid}}`.
+fn protect_literals(
+    value: &Value,
+    nonce: &str,
+    literals: &mut Vec<(String, String)>,
+) -> Result<Value, String> {
+    Ok(match value {
+        Value::String(text) => {
+            let mut rest = text.as_str();
+            let mut out = String::new();
+            while let Some(start) = rest.find("{{!") {
+                out.push_str(&rest[..start]);
+                let token = &rest[start + 3..];
+                let end = token
+                    .find("}}")
+                    .ok_or("unterminated scenario literal escape")?;
+                let placeholder = format!("{nonce}{}-end", literals.len());
+                out.push_str(&placeholder);
+                literals.push((placeholder, format!("{{{{{}}}}}", &token[..end])));
+                rest = &token[end + 2..];
+            }
+            out.push_str(rest);
+            Value::String(out)
+        }
+        Value::Array(values) => Value::Array(
+            values
+                .iter()
+                .map(|v| protect_literals(v, nonce, literals))
+                .collect::<Result<_, _>>()?,
+        ),
+        Value::Object(values) => Value::Object(
+            values
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), protect_literals(v, nonce, literals)?)))
+                .collect::<Result<_, String>>()?,
+        ),
+        value => value.clone(),
+    })
+}
+fn restore_literals(value: Value, literals: &[(String, String)]) -> Value {
+    match value {
+        Value::String(mut text) => {
+            for (placeholder, literal) in literals {
+                text = text.replace(placeholder, literal);
+            }
+            Value::String(text)
+        }
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(|v| restore_literals(v, literals))
+                .collect(),
+        ),
+        Value::Object(values) => Value::Object(
+            values
+                .into_iter()
+                .map(|(k, v)| (k, restore_literals(v, literals)))
+                .collect(),
+        ),
+        value => value,
+    }
 }
 
 /// Walk `value`, replacing every literal occurrence of `{{uuid}}` inside a
 /// string with a freshly minted v4 UUID. Two occurrences in the same string
 /// get two different values — a scenario that wants the same generated
-/// value twice captures it once and references `{{captures.<name>}}`
+/// value twice captures it once and references `{{state.<name>}}`
 /// instead.
 fn substitute_uuids(value: &Value) -> Value {
     match value {

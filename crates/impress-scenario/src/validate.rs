@@ -36,36 +36,36 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
         .filter_map(|s| s.r#as.clone())
         .collect();
 
-    for (index, step) in scenario.steps.iter().enumerate() {
-        if let Step::Call(call_step) = step {
-            for reference in referenced_captures(&call_step.args) {
-                if !known.contains(&reference) {
+    for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
+        let args = match step {
+            Step::Call(call) => call.args.clone(),
+            Step::BestEffort(step) => step.best_effort.args.clone(),
+            Step::Store(step) => {
+                if step.store.schema_ref.trim().is_empty()
+                    || !(1..=10_000).contains(&step.store.max_rows)
+                {
                     problems.push(Problem {
                         step: Some(index),
-                        message: format!(
-                            "`{{{{state.{reference}}}}}` is referenced before `{reference}` is captured or seeded"
-                        ),
+                        message: "store requires a schema_ref and max_rows in 1..=10000".into(),
                     });
                 }
+                serde_json::to_value(&step.store).expect("store spec serializes")
             }
-            for name in call_step.capture.keys() {
-                known.insert(name.clone());
+            Step::Event(step) => serde_json::to_value(&step.event).expect("event serializes"),
+            Step::Gesture(step) => step.gesture.clone(),
+            Step::Wait(step) => serde_json::to_value(&step.wait).expect("wait serializes"),
+        };
+        for reference in referenced_captures(&args) {
+            if !known.contains(&reference) {
+                problems.push(Problem { step: Some(index), message: format!(
+                    "`{{{{state.{reference}}}}}` is referenced before `{reference}` is captured or seeded"
+                ) });
             }
         }
-    }
-
-    for (index, step) in scenario.teardown.iter().enumerate() {
-        if let Step::Call(call_step) = step {
-            for reference in referenced_captures(&call_step.args) {
-                if !known.contains(&reference) {
-                    problems.push(Problem {
-                        step: Some(scenario.steps.len() + index),
-                        message: format!(
-                            "teardown: `{{{{state.{reference}}}}}` is referenced before `{reference}` is captured or seeded"
-                        ),
-                    });
-                }
-            }
+        match step {
+            Step::Call(call) => known.extend(call.capture.keys().cloned()),
+            Step::Store(step) => known.extend(step.capture.keys().cloned()),
+            _ => {}
         }
     }
 

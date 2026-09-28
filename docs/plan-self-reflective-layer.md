@@ -2742,3 +2742,22 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `/tmp/impress-audit-flush-final-tests-v2.log`. Workspace formatting and focused native
   all-targets clippy for the changed crates and both CLIs passed. No app or real store was run.
   A full native workspace rerun after integration remains for the main branch.
+
+- 2026-09-28 — **S2b interpreter gaps, implementation checkpoint** on
+  `claude/reflective-s2b-gaps`. Added bounded `store` predicate selection using
+  the existing `store-query-service_list-items` and `get-item` verbs through
+  the same Caller in either tier. Predicates reuse the closed field checks;
+  captures expose the selected envelope and parsed payload. Truncated payloads,
+  missing captures, exhausted bounds and no matches fail explicitly. No kit
+  dependency, verb argument, schema reference or record kind was added.
+  `best_effort` accepts only a call and its arguments/identity, without an
+  assertion or capture; operational refusals appear in report detail while
+  later steps continue. Authoring errors still fail before execution. The
+  `{{!state.field}}` escape preserves `{{state.field}}` for a nested surface,
+  including a surface serialized inside a string; `{{!uuid}}` stays literal.
+  A checked-in Tier A scenario selects a seeded manuscript, tolerates an
+  optional lookup refusal and validates an escaped surface. Initial tests:
+  39 passed, zero failures, covering paging, bounds, truncation, templates,
+  operational failures and existing scenarios. Full gates and native proof
+  remain pending. Existing native catalogue entries retain their current route
+  assertions; this change supplies the missing interpreter mechanisms.

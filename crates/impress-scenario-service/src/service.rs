@@ -145,12 +145,17 @@ impl DefaultImpressScenarioService {
             );
         };
         let mut problems = impress_scenario::validate(&scenario);
-        for (index, step) in scenario.steps.iter().enumerate() {
-            if let impress_scenario::Step::Call(call) = step {
-                match impress_service_core::call::find(&call.call) {
+        for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
+            let called = match step {
+                impress_scenario::Step::Call(call) => Some(call.call.as_str()),
+                impress_scenario::Step::BestEffort(step) => Some(step.best_effort.call.as_str()),
+                _ => None,
+            };
+            if let Some(name) = called {
+                match impress_service_core::call::find(name) {
                     None => problems.push(impress_scenario::Problem {
                         step: Some(index),
-                        message: format!("no such verb: {}", call.call),
+                        message: format!("no such verb: {name}"),
                     }),
                     Some(descriptor)
                         if scenario.tier == impress_scenario::Tier::A
@@ -161,7 +166,7 @@ impl DefaultImpressScenarioService {
                     {
                         problems.push(impress_scenario::Problem {
                             step: Some(index),
-                            message: format!("provider verb {} requires Tier B", call.call),
+                            message: format!("provider verb {name} requires Tier B"),
                         });
                     }
                     Some(_) => {}
