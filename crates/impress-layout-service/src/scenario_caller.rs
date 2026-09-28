@@ -142,6 +142,7 @@ async fn read(path: &str, response: reqwest::Response) -> Result<(u16, Value), S
 }
 
 pub struct TierBCaller {
+    surface_routes: bool,
     http: LoopbackClient,
     /// A very small effects proxy: every kind this caller wrote via a
     /// layout/surface call it recognized, by name.
@@ -153,8 +154,17 @@ pub struct TierBCaller {
 impl TierBCaller {
     pub fn new(base_url: &str) -> Self {
         Self {
+            surface_routes: false,
             http: LoopbackClient::new(base_url),
             wrote: std::collections::BTreeSet::new(),
+        }
+    }
+    /// The surface catalogue also proves its REST projection. Stored documents
+    /// retain canonical verb names so they validate and run through other callers.
+    pub fn for_surface_routes(base_url: &str) -> Self {
+        Self {
+            surface_routes: true,
+            ..Self::new(base_url)
         }
     }
 }
@@ -234,152 +244,11 @@ impl Caller for TierBCaller {
                 }
                 self.verb(body).await?
             }
-            "surface-service_surface-dispatch" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-dispatch` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self
-                    .http
-                    .post(&format!("/api/surface/{id}/dispatch"), &args)
-                    .await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-list" => {
-                let (status, value) = self.http.get("/api/surface").await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-create" => {
-                let (status, value) = self.http.post("/api/surface", &args).await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-validate" => {
-                let (status, value) = self.http.post("/api/surface/validate", &args).await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-schema" => {
-                let (status, value) = self.http.get("/api/surface/schema").await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-examples" => {
-                let (status, value) = self.http.get("/api/surface/examples").await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-show" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-show` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self.http.get(&format!("/api/surface/{id}")).await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-render" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-render` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self.http.get(&format!("/api/surface/{id}/render")).await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-get-state" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-get-state` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self.http.get(&format!("/api/surface/{id}/state")).await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-set-state" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-set-state` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self
-                    .http
-                    .put(&format!("/api/surface/{id}/state"), &args)
-                    .await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-events" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-events` needs `id`".to_string())?
-                    .to_string();
-                let after_seq = args.get("after_seq").and_then(Value::as_u64).unwrap_or(0);
-                let (status, value) = self
-                    .http
-                    .get(&format!("/api/surface/{id}/events?after_seq={after_seq}"))
-                    .await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-delete" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-delete` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self.http.delete(&format!("/api/surface/{id}")).await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
-            }
-            "surface-service_surface-show-target" => {
-                // The retired `{"ref": "id", "tile": N}` strict-args probe
-                // (`layout.wire_contract`'s surface sibling): the id names
-                // which surface to post to, everything else IS the body.
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "`surface-show-target` needs `id`".to_string())?
-                    .to_string();
-                let (status, value) = self
-                    .http
-                    .post(&format!("/api/surface/{id}/show"), &args)
-                    .await?;
-                CallOutcome {
-                    result: value,
-                    status: Some(status),
-                }
+            other
+                if other.starts_with("surface-service_")
+                    || (self.surface_routes && other.starts_with("impress-surface-service_")) =>
+            {
+                self.surface_route(other, args).await?
             }
             other => {
                 // P5a's generic route accepts the verb's own argument object
@@ -482,6 +351,90 @@ impl Caller for TierBCaller {
 }
 
 impl TierBCaller {
+    /// Preserve the REST route contract, including unknown query arguments:
+    /// the server must see and refuse them, rather than this client dropping them.
+    /// Canonical `impress-surface-service_*` calls still use `/api/verb` above.
+    async fn surface_route(&self, verb: &str, args: Value) -> Result<CallOutcome, String> {
+        let (method, suffix, needs_id) = match verb
+            .trim_start_matches("impress-")
+            .trim_start_matches("surface-service_")
+        {
+            "surface-list" => ("GET", "", false),
+            "surface-create" => ("POST", "", false),
+            "surface-schema" => ("GET", "schema", false),
+            "surface-examples" => ("GET", "examples", false),
+            "surface-validate" => ("POST", "validate", false),
+            "surface-get" => ("GET", "", true),
+            "surface-update" => ("PUT", "", true),
+            "surface-delete" => ("DELETE", "", true),
+            "surface-show" | "surface-show-target" => ("POST", "show", true),
+            "surface-render" => ("GET", "render", true),
+            "surface-dispatch" => ("POST", "dispatch", true),
+            "surface-state-get" | "surface-get-state" => ("GET", "state", true),
+            "surface-state-set" | "surface-set-state" => ("PUT", "state", true),
+            "surface-events" => ("GET", "events", true),
+            "surface-wait" => ("GET", "wait", true),
+            _ => return Err(format!("no surface REST route for `{verb}`")),
+        };
+        let mut body = args
+            .as_object()
+            .cloned()
+            .ok_or("surface args must be an object")?;
+        let mut url = reqwest::Url::parse("http://localhost/api/surface").expect("static URL");
+        if needs_id {
+            let id = body.remove("id").ok_or("surface route needs id")?;
+            let id = id.as_str().ok_or("surface id must be a string")?;
+            // A capture is one path component, never an additional route/query.
+            if id.is_empty() || id.contains(['/', '?', '#']) || matches!(id, "." | "..") {
+                return Err("invalid surface id for REST route".into());
+            }
+            url.path_segments_mut().expect("static URL").push(id);
+        }
+        if !suffix.is_empty() {
+            url.path_segments_mut().expect("static URL").push(suffix);
+        }
+        let mut query = serde_json::Map::new();
+        if method == "GET" || method == "DELETE" {
+            query = std::mem::take(&mut body);
+        } else if method == "PUT" && suffix.is_empty() {
+            if let Some(revision) = body.remove("expected_revision") {
+                query.insert("expected_revision".into(), revision);
+            }
+        }
+        for (key, value) in query {
+            if value.is_null()
+                && matches!(
+                    key.as_str(),
+                    "host" | "after_seq" | "expected_revision" | "params"
+                )
+            {
+                continue;
+            }
+            let text = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            url.query_pairs_mut().append_pair(&key, &text);
+        }
+        let path = format!(
+            "{}{}",
+            url.path(),
+            url.query().map(|q| format!("?{q}")).unwrap_or_default()
+        );
+        let body = Value::Object(body);
+        let (status, result) = match method {
+            "GET" => self.http.get(&path).await?,
+            "POST" => self.http.post(&path, &body).await?,
+            "PUT" => self.http.put(&path, &body).await?,
+            "DELETE" => self.http.delete(&path).await?,
+            _ => unreachable!("closed route table"),
+        };
+        Ok(CallOutcome {
+            result,
+            status: Some(status),
+        })
+    }
+
     async fn op(&mut self, body: Value) -> Result<CallOutcome, String> {
         let (status, value) = self.http.post("/api/layout/op", &body).await?;
         Ok(CallOutcome {
@@ -574,15 +527,18 @@ mod tests {
                             .then(|| value.trim().parse().unwrap())
                     })
                 })
-                .expect("JSON content length");
+                .unwrap_or(0);
             while bytes.len() - header_end < content_len {
                 let mut chunk = [0u8; 1024];
                 let n = stream.read(&mut chunk).expect("request body");
                 assert!(n > 0, "request ended before body");
                 bytes.extend_from_slice(&chunk[..n]);
             }
-            let body =
-                serde_json::from_slice(&bytes[header_end..header_end + content_len]).unwrap();
+            let body = if content_len == 0 {
+                Value::Null
+            } else {
+                serde_json::from_slice(&bytes[header_end..header_end + content_len]).unwrap()
+            };
             let wire = response.to_string();
             write!(
                 stream,
@@ -593,6 +549,96 @@ mod tests {
             (headers.lines().next().unwrap().to_string(), body)
         });
         (base, thread)
+    }
+
+    #[tokio::test]
+    async fn surface_routes_preserve_method_query_refusals_and_body() {
+        for (verb, args, request, body) in [
+            (
+                "surface-show",
+                json!({"id":"owned", "target":{"role":"detail"}}),
+                "POST /api/surface/owned/show HTTP/1.1",
+                json!({"target":{"role":"detail"}}),
+            ),
+            (
+                "surface-get",
+                json!({"id":"owned"}),
+                "GET /api/surface/owned HTTP/1.1",
+                Value::Null,
+            ),
+            (
+                "surface-events",
+                json!({"id":"owned", "after":0}),
+                "GET /api/surface/owned/events?after=0 HTTP/1.1",
+                Value::Null,
+            ),
+            (
+                "surface-render",
+                json!({"id":"owned", "pane":3}),
+                "GET /api/surface/owned/render?pane=3 HTTP/1.1",
+                Value::Null,
+            ),
+            (
+                "surface-wait",
+                json!({"id":"owned", "after_seq":0, "timeout_ms":10}),
+                "GET /api/surface/owned/wait?after_seq=0&timeout_ms=10 HTTP/1.1",
+                Value::Null,
+            ),
+            (
+                "surface-update",
+                json!({"id":"owned", "expected_revision":1, "spec":{"surface":"1.0"}}),
+                "PUT /api/surface/owned?expected_revision=1 HTTP/1.1",
+                json!({"spec":{"surface":"1.0"}}),
+            ),
+            (
+                "surface-render",
+                json!({"id":"owned", "host":"a&b c"}),
+                "GET /api/surface/owned/render?host=a%26b+c HTTP/1.1",
+                Value::Null,
+            ),
+        ] {
+            let refusal = json!({"ok":false,"code":"invalid-argument","wire_version":1});
+            let (base, mock) = mock_once(400, refusal.clone());
+            let outcome = TierBCaller::new(&base)
+                .call(&format!("surface-service_{verb}"), args, "person")
+                .await
+                .unwrap();
+            assert_eq!(outcome.status, Some(400));
+            assert_eq!(outcome.result, refusal);
+            assert_eq!(mock.join().unwrap(), (request.into(), body));
+        }
+    }
+
+    #[tokio::test]
+    async fn surface_id_cannot_change_the_route() {
+        for id in ["..", "bad?pane=3", "other/events", "bad#fragment", ""] {
+            let error = TierBCaller::new("http://127.0.0.1:1")
+                .call("surface-service_surface-get", json!({"id":id}), "person")
+                .await
+                .unwrap_err();
+            assert!(error.contains("invalid surface id"), "{error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn catalogue_mode_projects_a_canonical_verb_to_the_rest_route() {
+        let (base, mock) = mock_once(200, json!({"ok":true,"events":[]}));
+        let mut caller = TierBCaller::for_surface_routes(&base);
+        caller
+            .call(
+                "impress-surface-service_surface-events",
+                json!({"id":"owned","host":null,"after_seq":0}),
+                "person",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            mock.join().unwrap(),
+            (
+                "GET /api/surface/owned/events?after_seq=0 HTTP/1.1".into(),
+                Value::Null
+            )
+        );
     }
 
     #[tokio::test]

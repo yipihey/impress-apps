@@ -2,7 +2,22 @@
 
 Scenarios retain `wire_version: 1` and the `impress/scenario@1.0.0` record kind.
 The interpreter uses the same `Caller` for Tier A scratch stores and Tier B
-isolated native hosts. Existing call, event, gesture and wait steps are unchanged.
+isolated native hosts. Call, event, gesture and wait steps keep their wire shapes.
+
+## Comparing captured results and checking cleanup
+
+An expectation can compare a later response with captured JSON. For example,
+capture `{"before": "$.surfaces"}` from `surface-list`, attempt an invalid
+create, then check `{"path": "surfaces", "equals": "{{state.before}}"}`.
+The whole-string reference preserves the array/object type. Captured content is
+not interpreted again, so surface templates inside that content remain literal.
+References must name an earlier capture; use the literal escape below when the
+expectation itself contains a surface template.
+
+Every teardown step is attempted even after an earlier failure. A failed
+teardown call or assertion fails the scenario; use `best_effort` explicitly
+when that operation may fail. A teardown refusal needs an `expect` assertion
+just as an ordinary call does.
 
 ## Selecting a stored record
 
