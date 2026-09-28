@@ -2809,6 +2809,15 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   1.136 s). All 33 focused PMC settings/keymap contract tests pass, as does the
   arm64 imprint iOS simulator build. Normal pre-push and hosted CI remain.
 
+- 2026-09-28 — **R3 hosted smoke check**: the normal push passed, but hosted
+  run 36488811160 built and launched impart-iOS (PID 84886) then reported it
+  missing. The `launchctl list | grep -q` check under `pipefail` can report a
+  false failure when the producer gets a closed pipe; a large process-list
+  fixture reproduced that behavior. Read the complete list into a file before
+  matching, and print it on a real absence. This fixes the check without
+  relaxing it; the original run did not preserve enough diagnostics to prove
+  whether that defect or an actual process exit caused its failure.
+
 - 2026-09-28 — **R3 normal push and review checkpoint**: ready PR
   [#130](https://github.com/yipihey/impress-apps/pull/130) follows P8 #129. The
   installed pre-push symlink originally selected main's older script even from
