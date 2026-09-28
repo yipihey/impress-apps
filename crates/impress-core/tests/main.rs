@@ -10,5 +10,9 @@ mod prop_collab_convergence;
 mod prop_memory_ops;
 mod prop_schema_validation;
 mod prop_store_graph;
+mod schema_ref_construction;
 mod schema_ref_manifest;
 mod sync_convergence;
+
+#[path = "support/schema_fixture.rs"]
+mod schema_fixture;

@@ -353,7 +353,7 @@ fn manuscript_row(store: &SqliteItemStore, manuscript: ItemId) -> Result<Item, S
     let item = store
         .get(manuscript)?
         .ok_or(StoreError::NotFound(manuscript))?;
-    if item.schema != "manuscript" {
+    if item.schema != crate::schema::refs::MANUSCRIPT {
         return Err(StoreError::Validation(format!(
             "expected a manuscript, got '{}'",
             item.schema
@@ -473,7 +473,7 @@ pub fn put_file(
             let now = Utc::now();
             let item = Item {
                 id,
-                schema: MANUSCRIPT_FILE_SCHEMA_REF.into(),
+                schema: MANUSCRIPT_FILE_SCHEMA_REF,
                 payload,
                 created: now,
                 modified: now,
@@ -530,7 +530,7 @@ pub fn list_files(
     manuscript: ItemId,
 ) -> Result<Vec<ManuscriptFileRow>, StoreError> {
     let q = ItemQuery {
-        schema: Some(MANUSCRIPT_FILE_SCHEMA_REF.into()),
+        schema: Some(MANUSCRIPT_FILE_SCHEMA_REF),
         predicates: vec![Predicate::HasParent(manuscript)],
         include_tags: false,
         include_references: false,
@@ -610,7 +610,7 @@ pub fn move_file(
     let now = Utc::now();
     let item = Item {
         id: new_id,
-        schema: MANUSCRIPT_FILE_SCHEMA_REF.into(),
+        schema: MANUSCRIPT_FILE_SCHEMA_REF,
         payload,
         created: old.created,
         modified: now,
@@ -1070,7 +1070,7 @@ pub fn record_build(
     let now = Utc::now();
     let item = Item {
         id: Uuid::new_v4(),
-        schema: MANUSCRIPT_BUILD_SCHEMA_REF.into(),
+        schema: MANUSCRIPT_BUILD_SCHEMA_REF,
         payload: build_payload(record),
         created: now,
         modified: now,
@@ -1131,7 +1131,7 @@ pub fn list_builds(
     limit: Option<usize>,
 ) -> Result<Vec<ManuscriptBuildRow>, StoreError> {
     let q = ItemQuery {
-        schema: Some(MANUSCRIPT_BUILD_SCHEMA_REF.into()),
+        schema: Some(MANUSCRIPT_BUILD_SCHEMA_REF),
         predicates: vec![Predicate::HasParent(manuscript)],
         sort: vec![SortDescriptor {
             field: "created".into(),
@@ -1181,7 +1181,7 @@ pub fn compact_builds(
 /// newest `keep` builds; builds whose manuscript is gone are swept.
 pub fn compact_all_builds(store: &SqliteItemStore, keep: usize) -> Result<usize, StoreError> {
     let q = ItemQuery {
-        schema: Some(MANUSCRIPT_BUILD_SCHEMA_REF.into()),
+        schema: Some(MANUSCRIPT_BUILD_SCHEMA_REF),
         include_tags: false,
         include_references: false,
         ..ItemQuery::default()
@@ -1335,7 +1335,7 @@ pub fn create_manuscript(
     }
     let item = Item {
         id,
-        schema: "manuscript".into(),
+        schema: crate::schema::refs::MANUSCRIPT,
         payload,
         created: now,
         modified: now,
@@ -1477,7 +1477,7 @@ pub fn create_project_revision(
     let now = Utc::now();
     let revision = Item {
         id: Uuid::new_v4(),
-        schema: "manuscript-revision".into(),
+        schema: crate::schema::refs::MANUSCRIPT_REVISION,
         payload,
         created: now,
         modified: now,

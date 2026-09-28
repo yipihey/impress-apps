@@ -24,7 +24,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 use uuid::Uuid;
 
 /// The schema ref, versioned like `manuscript-change@1.0.0`.
-pub const MANUSCRIPT_FILE_SCHEMA_REF: &str = "manuscript-file@1.0.0";
+pub const MANUSCRIPT_FILE_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::MANUSCRIPT_FILE;
 
 /// Namespace for the deterministic row id. Frozen: changing it orphans every
 /// existing file row (the store matches by id, so nothing errors — the tree
@@ -65,7 +65,7 @@ pub fn manuscript_file_id(manuscript: Uuid, path: &str) -> Uuid {
 
 pub fn manuscript_file_schema() -> Schema {
     Schema {
-        id: MANUSCRIPT_FILE_SCHEMA_REF.into(),
+        id: MANUSCRIPT_FILE_SCHEMA_REF,
         name: "Manuscript File".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -218,7 +218,7 @@ mod tests {
     fn registers_versioned() {
         let mut reg = SchemaRegistry::new();
         register_manuscript_file_schema(&mut reg);
-        let s = reg.get(MANUSCRIPT_FILE_SCHEMA_REF).expect("registered");
+        let s = reg.get(&MANUSCRIPT_FILE_SCHEMA_REF).expect("registered");
         assert_eq!(s.version, "1.0.0");
         for name in ["path", "role", "kind", "content_hash", "size"] {
             let f = s.fields.iter().find(|f| f.name == name).unwrap();

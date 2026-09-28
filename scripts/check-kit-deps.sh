@@ -22,7 +22,9 @@
 # impress-workspace-hack, the cargo-hakari crate every member depends on, is
 # in the table as a pure crate (it reaches nothing in the workspace), which is
 # what lets every kit crate reach it. check-kit-standalone.sh copies it as a
-# stub; here it needs no special case.
+# stub; here it needs no special case. The strict standalone command invokes
+# this classifier before its scratch build; this fast command remains useful
+# when only the dependency and feature boundary needs checking.
 #
 # Trees are taken with `--target all`, so the answer is the same on a Linux
 # runner as on a Mac: a platform-gated dependency counts everywhere.

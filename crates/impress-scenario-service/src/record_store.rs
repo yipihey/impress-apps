@@ -95,7 +95,7 @@ impl Selection {
             .map_err(|error| Refusal::store(format!("drain recording audit: {error}")))?;
         let rows = store
             .query(&ItemQuery {
-                schema: Some(VERB_CALL_SCHEMA.into()),
+                schema: Some(VERB_CALL_SCHEMA),
                 predicates: self.predicates,
                 sort: vec![SortDescriptor {
                     field: "payload.started_at".into(),

@@ -4,10 +4,10 @@ use crate::reference::EdgeType;
 use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
-pub const SOURCE_CITATION_SCHEMA: &str = "source-citation@1.0.0";
-pub const EXTRACTION_RUN_SCHEMA: &str = "extraction-run@1.0.0";
-pub const CONTENT_CHUNK_SCHEMA: &str = "content-chunk@1.0.0";
-pub const FIGURE_REGION_SCHEMA: &str = "figure-region@1.0.0";
+pub const SOURCE_CITATION_SCHEMA: crate::SchemaRef = crate::schema::refs::SOURCE_CITATION;
+pub const EXTRACTION_RUN_SCHEMA: crate::SchemaRef = crate::schema::refs::EXTRACTION_RUN;
+pub const CONTENT_CHUNK_SCHEMA: crate::SchemaRef = crate::schema::refs::CONTENT_CHUNK;
+pub const FIGURE_REGION_SCHEMA: crate::SchemaRef = crate::schema::refs::FIGURE_REGION;
 
 fn field(name: &str, field_type: FieldType, required: bool, description: &str) -> FieldDef {
     FieldDef {
@@ -20,7 +20,7 @@ fn field(name: &str, field_type: FieldType, required: bool, description: &str) -
 
 pub fn source_citation_schema() -> Schema {
     Schema {
-        id: SOURCE_CITATION_SCHEMA.into(),
+        id: SOURCE_CITATION_SCHEMA,
         name: "Source Citation".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -74,7 +74,7 @@ pub fn source_citation_schema() -> Schema {
 
 pub fn extraction_run_schema() -> Schema {
     Schema {
-        id: EXTRACTION_RUN_SCHEMA.into(),
+        id: EXTRACTION_RUN_SCHEMA,
         name: "Extraction Run".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -146,7 +146,7 @@ pub fn extraction_run_schema() -> Schema {
 
 pub fn content_chunk_schema() -> Schema {
     Schema {
-        id: CONTENT_CHUNK_SCHEMA.into(),
+        id: CONTENT_CHUNK_SCHEMA,
         name: "Content Chunk".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -201,7 +201,7 @@ pub fn content_chunk_schema() -> Schema {
 
 pub fn figure_region_schema() -> Schema {
     Schema {
-        id: FIGURE_REGION_SCHEMA.into(),
+        id: FIGURE_REGION_SCHEMA,
         name: "Figure Region Evidence".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -310,7 +310,7 @@ mod tests {
             CONTENT_CHUNK_SCHEMA,
             FIGURE_REGION_SCHEMA,
         ] {
-            assert!(registry.get(id).is_some(), "missing {id}");
+            assert!(registry.get(&id).is_some(), "missing {id}");
         }
     }
 

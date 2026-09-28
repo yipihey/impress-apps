@@ -18,10 +18,10 @@ use crate::*;
 
 const HUMAN: &str = "human:test";
 
-fn bare_item(id: Uuid, schema: &str, payload: BTreeMap<String, Value>) -> Item {
+fn bare_item(id: Uuid, schema: impress_core::SchemaRef, payload: BTreeMap<String, Value>) -> Item {
     Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -103,7 +103,7 @@ fn seed_throughline(store: &SqliteItemStore, doc: Uuid, section_key: &str, secti
     store
         .create_item(bare_item(
             ThroughlineStore::item_id(doc),
-            "throughline",
+            impress_core::schema::refs::THROUGHLINE,
             payload,
         ))
         .unwrap();
@@ -429,7 +429,7 @@ async fn manuscript_ahead_apply_preserves_following_paragraphs() {
     store
         .create_item(bare_item(
             ThroughlineStore::item_id(doc),
-            "throughline",
+            impress_core::schema::refs::THROUGHLINE,
             payload,
         ))
         .unwrap();
@@ -498,7 +498,7 @@ async fn rejected_anchor_does_not_starve_later_stale_anchors() {
     store
         .create_item(bare_item(
             ThroughlineStore::item_id(doc),
-            "throughline",
+            impress_core::schema::refs::THROUGHLINE,
             payload,
         ))
         .unwrap();

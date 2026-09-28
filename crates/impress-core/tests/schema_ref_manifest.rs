@@ -23,7 +23,7 @@ fn impress_core_registry_matches_manifest() {
     let mut registry = impress_core::registry::SchemaRegistry::new();
     impress_core::schemas::register_core_schemas(&mut registry);
 
-    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.clone()).collect();
+    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.to_string()).collect();
     let declared = manifest::registry_ids("impress-core");
 
     manifest::assert_same_set("impress-core", &registered, &declared);

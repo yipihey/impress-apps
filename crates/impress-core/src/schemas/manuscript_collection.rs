@@ -14,7 +14,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// collections. A workspace is just a top-level collection with no parent.
 pub fn manuscript_collection_schema() -> Schema {
     Schema {
-        id: "manuscript-collection".into(),
+        id: crate::schema::refs::MANUSCRIPT_COLLECTION,
         name: "Manuscript Collection".into(),
         version: "1.0.0".into(),
         fields: vec![

@@ -72,7 +72,7 @@ fn facade_writes_enqueue_and_deletes_tombstone() {
         tombs
             .iter()
             .any(|(id, schema, _)| id.to_lowercase() == pub_id
-                && schema == "imbib/bibliography-entry"),
+                && schema == impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str()),
         "façade delete must record a tombstone (got {tombs:?})"
     );
 }

@@ -25,7 +25,7 @@ pub(crate) fn compile_query(q: &ItemQuery) -> CompiledQuery {
         } else {
             conditions.push("schema_ref = ?".to_string());
         }
-        params.push(SqlValue::Text(schema.clone()));
+        params.push(SqlValue::Text(schema.to_string()));
     }
     for pred in &q.predicates {
         let (sql, pred_params) = compile_predicate(pred);
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn compile_schema_filter() {
         let q = ItemQuery {
-            schema: Some("bibliography-entry".into()),
+            schema: Some(crate::schema::refs::BIBLIOGRAPHY_ENTRY),
             ..Default::default()
         };
         let compiled = compile_query(&q);

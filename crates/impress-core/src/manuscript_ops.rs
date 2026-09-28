@@ -93,7 +93,7 @@ pub fn create_revision(
     let manuscript = store
         .get(manuscript_id)?
         .ok_or(StoreError::NotFound(manuscript_id))?;
-    if manuscript.schema != "manuscript" {
+    if manuscript.schema != crate::schema::refs::MANUSCRIPT {
         return Err(StoreError::Validation(format!(
             "create_revision requires schema 'manuscript', got '{}'",
             manuscript.schema
@@ -166,7 +166,7 @@ pub fn create_revision(
     let now = Utc::now();
     let revision = Item {
         id: Uuid::new_v4(),
-        schema: "manuscript-revision".into(),
+        schema: crate::schema::refs::MANUSCRIPT_REVISION,
         payload,
         created: now,
         modified: now,
@@ -215,7 +215,7 @@ pub fn list_revisions(
     manuscript_id: ItemId,
 ) -> Result<Vec<Item>, StoreError> {
     let q = ItemQuery {
-        schema: Some("manuscript-revision".into()),
+        schema: Some(crate::schema::refs::MANUSCRIPT_REVISION),
         predicates: vec![Predicate::Eq(
             "parent_manuscript_ref".into(),
             Value::String(manuscript_id.to_string()),
@@ -242,7 +242,7 @@ pub(crate) fn current_head(
         if let Ok(head_id) = head.parse::<ItemId>() {
             if head_id != manuscript_id {
                 if let Some(item) = store.get(head_id)? {
-                    if item.schema == "manuscript-revision" {
+                    if item.schema == crate::schema::refs::MANUSCRIPT_REVISION {
                         return Ok(Some(head_id));
                     }
                 }
@@ -278,7 +278,7 @@ mod tests {
         let now = Utc::now();
         let item = Item {
             id,
-            schema: "manuscript".into(),
+            schema: crate::schema::refs::MANUSCRIPT,
             payload,
             created: now,
             modified: now,
@@ -312,7 +312,7 @@ mod tests {
         let rev = create_revision(&store, ms, "v1", "manual", "user:tom", ActorKind::Human)
             .expect("create revision");
 
-        assert_eq!(rev.schema, "manuscript-revision");
+        assert_eq!(rev.schema, crate::schema::refs::MANUSCRIPT_REVISION);
         assert_eq!(
             rev.payload.get("parent_manuscript_ref"),
             Some(&Value::String(ms.to_string()))

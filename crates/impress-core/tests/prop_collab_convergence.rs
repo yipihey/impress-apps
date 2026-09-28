@@ -31,7 +31,7 @@ fn manuscript_row(id: ItemId, body: &str) -> Item {
     let now = Utc::now();
     Item {
         id,
-        schema: "manuscript".into(),
+        schema: impress_core::schema::refs::MANUSCRIPT,
         payload,
         created: now,
         modified: now,
@@ -65,7 +65,7 @@ fn body_of(store: &SqliteItemStore, id: ItemId) -> String {
 fn chunks_of(store: &SqliteItemStore, id: ItemId) -> Vec<Item> {
     store
         .query(&ItemQuery {
-            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF.into()),
+            schema: Some(MANUSCRIPT_CHANGE_SCHEMA_REF),
             predicates: vec![Predicate::HasParent(id)],
             ..Default::default()
         })

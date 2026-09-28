@@ -41,7 +41,7 @@ fn manuscript(store: &SqliteItemStore, format: &str, body: &str, external: bool)
     store
         .insert(Item {
             id,
-            schema: "manuscript".into(),
+            schema: impress_core::schema::refs::MANUSCRIPT,
             payload,
             created: now,
             modified: now,
@@ -78,7 +78,7 @@ fn insert_item(
     store
         .insert(Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema: schema.parse().expect("declared test schema"),
             payload: fields
                 .iter()
                 .map(|(k, v)| ((*k).to_string(), v.clone()))
@@ -619,7 +619,7 @@ async fn compile_renders_a_multi_file_typst_project_with_a_projected_bibliograph
         w.store
             .insert(Item {
                 id: Uuid::new_v4(),
-                schema: "imbib/bibliography-entry".into(),
+                schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
                 payload,
                 created: now,
                 modified: now,
@@ -984,7 +984,10 @@ async fn export_materialize_and_snapshot_round_trip_the_tree() {
         .get(snap.revision_id.parse().unwrap())
         .unwrap()
         .expect("revision row");
-    assert_eq!(revision.schema, "manuscript-revision");
+    assert_eq!(
+        revision.schema,
+        impress_core::schema::refs::MANUSCRIPT_REVISION
+    );
     assert_eq!(
         revision.payload.get("source_archive_ref"),
         Some(&Value::String(snap.archive_ref.clone()))

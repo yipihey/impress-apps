@@ -43,6 +43,10 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: ./build-xcframework.sh
 
+      - name: Build ImprintVerbsFfi xcframework
+        working-directory: crates/imprint-verbs-ffi
+        run: ./build-xcframework.sh
+
       - name: Generate Xcode project
         working-directory: apps/imprint
         run: xcodegen generate

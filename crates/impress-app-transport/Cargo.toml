@@ -29,3 +29,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 # without needing a running app or a Swift build.
 axum = { workspace = true }
 implore-verbs-ffi = { workspace = true }
+
+[lints]
+workspace = true

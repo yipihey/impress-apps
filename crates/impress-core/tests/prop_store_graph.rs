@@ -36,10 +36,12 @@ use uuid::Uuid;
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_item(schema: &str, payload: BTreeMap<String, Value>) -> Item {
+use crate::schema_fixture;
+
+fn make_item(schema: impl AsRef<str>, payload: BTreeMap<String, Value>) -> Item {
     Item {
         id: Uuid::new_v4(),
-        schema: schema.into(),
+        schema: schema_fixture::decode(schema),
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -635,7 +637,7 @@ proptest! {
 
         // Store walk: query pending task items, then check dependency states.
         let pending_q = ItemQuery {
-            schema: Some(TASK_SCHEMA.to_string()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![Predicate::Eq("state".to_string(), Value::String("pending".to_string()))],
             ..Default::default()
         };

@@ -11,7 +11,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// state of a project.
 pub fn git_project_schema() -> Schema {
     Schema {
-        id: "git-project".into(),
+        id: crate::schema::refs::GIT_PROJECT,
         name: "Git Project".into(),
         version: "1.0.0".into(),
         fields: vec![

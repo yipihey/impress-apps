@@ -154,3 +154,6 @@ harness = false
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[lints]
+workspace = true

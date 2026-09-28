@@ -303,7 +303,7 @@ fn insert_paper(store: &SqliteItemStore, title: &str) -> ItemId {
     store
         .insert(Item {
             id,
-            schema: "imbib/bibliography-entry".into(),
+            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,
@@ -461,7 +461,7 @@ async fn params_come_from_the_pane_and_effects_land_in_the_panes_app() {
     // impress's layout was never touched: it has no row at all.
     let impress_rows = store
         .query(&impress_core::query::ItemQuery {
-            schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF.into()),
+            schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF),
             predicates: vec![impress_core::query::Predicate::Eq(
                 "app_id".into(),
                 ItemValue::String("impress".into()),

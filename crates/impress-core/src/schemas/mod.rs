@@ -191,9 +191,9 @@ mod tests {
         );
         // VERSIONED (WP C4): the ids are the refs the kernel writes and
         // `ready_tasks` selects. `registry.get("task")` is now correctly None.
-        assert!(registry.get(TASK_SCHEMA).is_some(), "task not registered");
+        assert!(registry.get(&TASK_SCHEMA).is_some(), "task not registered");
         assert!(
-            registry.get(AGENT_RUN_SCHEMA).is_some(),
+            registry.get(&AGENT_RUN_SCHEMA).is_some(),
             "agent-run not registered"
         );
         assert!(
@@ -235,6 +235,6 @@ mod tests {
         let email = registry
             .get("email-message")
             .expect("email-message not found");
-        assert_eq!(email.inherits, Some("chat-message".into()));
+        assert_eq!(email.inherits, Some(crate::schema::refs::CHAT_MESSAGE));
     }
 }

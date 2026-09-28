@@ -1422,7 +1422,7 @@ impl PresetStore {
     /// kind of silently-empty comparison this repo has a lint about.
     fn items(&self, app_id: &str) -> Result<Vec<Item>> {
         let query = ItemQuery {
-            schema: Some(PRESET_SCHEMA_REF.into()),
+            schema: Some(PRESET_SCHEMA_REF),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -1668,7 +1668,7 @@ fn build_item(
     let now = Utc::now();
     Ok(Item {
         id,
-        schema: PRESET_SCHEMA_REF.into(),
+        schema: PRESET_SCHEMA_REF,
         payload,
         created: now,
         modified: now,
@@ -2425,7 +2425,7 @@ mod tests {
     /// A library row, so a paper's `parent_id` has something to reference.
     fn library(id: ItemId) -> Item {
         Item {
-            schema: "imbib/library".into(),
+            schema: impress_core::schema::refs::IMBIB_LIBRARY,
             parent: None,
             ..paper(id, id, false)
         }
@@ -2438,7 +2438,7 @@ mod tests {
         payload.insert("title".to_string(), Value::String(format!("paper {id}")));
         Item {
             id,
-            schema: "imbib/bibliography-entry".into(),
+            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: now,
             modified: now,

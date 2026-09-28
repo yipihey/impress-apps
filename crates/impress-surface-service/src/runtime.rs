@@ -342,7 +342,7 @@ impl DefaultExecutor {
         use impress_core::item::Value as ItemValue;
         use impress_core::query::{ItemQuery, Predicate};
         let query = ItemQuery {
-            schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF.into()),
+            schema: Some(impress_core::schemas::LAYOUT_SCHEMA_REF),
             predicates: vec![
                 Predicate::Eq(
                     impress_layout_service::store::field::DEVICE.into(),

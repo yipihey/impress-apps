@@ -205,7 +205,7 @@ const RESPAWN_COOLOFF_MS: i64 = 24 * 3_600_000;
 ///   spawned", so one transient store error duplicated whole DAGs.
 fn should_spawn_enrichment(store: &SqliteItemStore, entry_id: uuid::Uuid) -> bool {
     let q = ItemQuery {
-        schema: Some(TASK_SCHEMA.into()),
+        schema: Some(TASK_SCHEMA),
         predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, entry_id)],
         sort: vec![impress_core::query::SortDescriptor {
             field: "modified".into(),
@@ -253,7 +253,7 @@ fn should_spawn_enrichment(store: &SqliteItemStore, entry_id: uuid::Uuid) -> boo
 fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bool {
     use impress_core::item::Value;
     let q = ItemQuery {
-        schema: Some(TASK_SCHEMA.into()),
+        schema: Some(TASK_SCHEMA),
         predicates: vec![
             Predicate::HasReference(EdgeType::OperatesOn, throughline_id),
             Predicate::In(
@@ -287,14 +287,14 @@ fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bo
 /// the same question regardless of which side of the sync changed.
 fn scan_modified(
     store: &SqliteItemStore,
-    schema: &str,
+    schema: impress_core::SchemaRef,
     after_modified_ms: i64,
     after_id: &str,
 ) -> Vec<impress_core::item::Item> {
     use impress_core::item::Value;
     use impress_core::query::SortDescriptor;
     let q = ItemQuery {
-        schema: Some(schema.into()),
+        schema: Some(schema.clone()),
         predicates: vec![Predicate::Or(vec![
             Predicate::Gt("modified".into(), Value::Int(after_modified_ms)),
             Predicate::And(vec![
@@ -421,7 +421,7 @@ fn expire_stale_reviews(store: &SqliteItemStore, expiry_days: i64, cap: usize) -
     let mut offset = 0;
     while expired < cap {
         let q = ItemQuery {
-            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA),
             predicates: vec![Predicate::Lt("created".into(), Value::Int(cutoff))],
             sort: vec![impress_core::query::SortDescriptor {
                 field: "created".into(),
@@ -500,7 +500,7 @@ fn withdraw_orphaned_reviews(store: &SqliteItemStore, cap: usize) -> usize {
     let mut offset = 0;
     while withdrawn < cap {
         let q = ItemQuery {
-            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA),
             sort: vec![impress_core::query::SortDescriptor {
                 field: "created".into(),
                 ascending: true,
@@ -605,7 +605,7 @@ fn cancel_stranded_dependents(store: &SqliteItemStore) -> usize {
     use impress_core::item::Value;
     use impress_core::task::TaskState;
     let q = ItemQuery {
-        schema: Some(TASK_SCHEMA.into()),
+        schema: Some(TASK_SCHEMA),
         predicates: vec![Predicate::Eq(
             "payload.state".into(),
             Value::String("pending".into()),
@@ -966,7 +966,7 @@ async fn main() {
     let events = ItemStore::subscribe(
         store.as_ref(),
         ItemQuery {
-            schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA.into()),
+            schema: Some(BIBLIOGRAPHY_ENTRY_SCHEMA),
             ..Default::default()
         },
     )
@@ -1023,7 +1023,7 @@ async fn main() {
                 let cutoff = chrono::Utc::now().timestamp_millis()
                     - (args.backfill_hours as i64) * 3_600_000;
                 store
-                    .rowid_before_created(BIBLIOGRAPHY_ENTRY_SCHEMA, cutoff)
+                    .rowid_before_created(BIBLIOGRAPHY_ENTRY_SCHEMA.as_str(), cutoff)
                     .unwrap_or(0)
             } else {
                 store.max_rowid().unwrap_or(0)
@@ -1099,7 +1099,11 @@ async fn main() {
 
         if store_changed || !trigger_items.is_empty() {
             // ── Cross-process entry scan (rowid keyset) ────────────────
-            match store.items_arrived_after(BIBLIOGRAPHY_ENTRY_SCHEMA, cursors.entries_rowid, 64) {
+            match store.items_arrived_after(
+                BIBLIOGRAPHY_ENTRY_SCHEMA.as_str(),
+                cursors.entries_rowid,
+                64,
+            ) {
                 Ok(page) => {
                     for (rowid, item) in page {
                         cursors.entries_rowid = cursors.entries_rowid.max(rowid);
@@ -1414,7 +1418,7 @@ mod tests {
         payload.insert("title".to_string(), Value::String(title.into()));
         Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema: schema.parse().expect("declared taskd fixture schema"),
             payload,
             created: now,
             modified: now,
@@ -1441,8 +1445,9 @@ mod tests {
     /// A paper, a task operating on it, and an open checkpoint on that task —
     /// the exact shape the live store is full of.
     fn suspended_task_on_a_paper(store: &SqliteItemStore) -> (ItemId, ItemId, ItemId) {
-        let paper = TaskStoreApi::create_item(store, bare(BIBLIOGRAPHY_ENTRY_SCHEMA, "A paper"))
-            .expect("paper");
+        let paper =
+            TaskStoreApi::create_item(store, bare(BIBLIOGRAPHY_ENTRY_SCHEMA.as_str(), "A paper"))
+                .expect("paper");
         let specs = vec![impel_core::TaskSpec {
             kind: "keyword-tag".into(),
             description: Some("Propose classification tags".into()),

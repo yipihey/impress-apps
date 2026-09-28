@@ -25,13 +25,13 @@ on:
       # directories between them (their --all-features path closure, the same
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
-      # Over-triggering is cheap: a crate outside every closure leaves all
-      # five keys unchanged, so the run is cache hits plus the Swift build, on
-      # a hosted runner.
+      # Over-triggering is cheap: a crate outside every closure leaves the
+      # keys unchanged, so only the Swift build runs on the hosted runner.
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
+      - 'schema-refs.json'
       - '.cargo/**'
       - '.github/actions/xcframework/**'
       - '.github/workflows/impart-apps.yml'
@@ -54,13 +54,13 @@ on:
       # directories between them (their --all-features path closure, the same
       # set the xcframework action hashes into each cache key), and an
       # enumeration here would drift the first time one gains a dependency.
-      # Over-triggering is cheap: a crate outside every closure leaves all
-      # five keys unchanged, so the run is cache hits plus the Swift build, on
-      # a hosted runner.
+      # Over-triggering is cheap: a crate outside every closure leaves the
+      # keys unchanged, so only the Swift build runs on the hosted runner.
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
+      - 'schema-refs.json'
       - '.cargo/**'
       - '.github/actions/xcframework/**'
       - '.github/workflows/impart-apps.yml'
@@ -158,6 +158,13 @@ jobs:
         with:
           crate: imbib-verbs-ffi
           env-extra: IMPRESS_SKIP_X86=1 MACOSX_DEPLOYMENT_TARGET=14.0
+
+      # MessageManagerCore imports ImpartVerbsFFI on both platforms.
+      - name: ImpartVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impart-verbs-ffi
+          env-extra: IMPRESS_SKIP_X86=1
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework

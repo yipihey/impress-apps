@@ -12,3 +12,6 @@ serde_json = { workspace = true }
 impress-workspace-hack.workspace = true
 
 [dev-dependencies]
+
+[lints]
+workspace = true

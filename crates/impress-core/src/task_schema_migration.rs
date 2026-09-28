@@ -129,19 +129,19 @@ pub struct SpellingMove {
 pub const CONVERGED_SPELLINGS: [SpellingMove; 4] = [
     SpellingMove {
         legacy_ref: "impel/task",
-        canonical_ref: TASK_SCHEMA,
+        canonical_ref: crate::schema::names::TASK,
     },
     SpellingMove {
         legacy_ref: "task",
-        canonical_ref: TASK_SCHEMA,
+        canonical_ref: crate::schema::names::TASK,
     },
     SpellingMove {
         legacy_ref: "impel/agent-run",
-        canonical_ref: AGENT_RUN_SCHEMA,
+        canonical_ref: crate::schema::names::AGENT_RUN,
     },
     SpellingMove {
         legacy_ref: "agent-run",
-        canonical_ref: AGENT_RUN_SCHEMA,
+        canonical_ref: crate::schema::names::AGENT_RUN,
     },
 ];
 
@@ -322,8 +322,8 @@ pub fn migration_status(store: &SqliteItemStore) -> Result<MigrationStatus, Stor
     Ok(MigrationStatus {
         migrated,
         legacy,
-        canonical_tasks: count_of_schema(store, TASK_SCHEMA)?,
-        canonical_runs: count_of_schema(store, AGENT_RUN_SCHEMA)?,
+        canonical_tasks: count_of_schema(store, &TASK_SCHEMA)?,
+        canonical_runs: count_of_schema(store, &AGENT_RUN_SCHEMA)?,
         ledger_rows,
     })
 }
@@ -525,7 +525,7 @@ fn plan_migration(
     let mut plans = Vec::with_capacity(CONVERGED_SPELLINGS.len());
     for spelling in CONVERGED_SPELLINGS {
         let ids = ids_of_schema(conn, spelling.legacy_ref)?;
-        let newly_schedulable = if spelling.canonical_ref == TASK_SCHEMA {
+        let newly_schedulable = if spelling.canonical_ref == TASK_SCHEMA.as_str() {
             schedulable_count(conn, spelling.legacy_ref)?
         } else {
             0
@@ -601,7 +601,7 @@ mod tests {
     /// test.
     fn seed(
         store: &SqliteItemStore,
-        schema: &str,
+        schema: impl AsRef<str>,
         fields: &[(&str, Value)],
         references: Vec<TypedReference>,
     ) -> Uuid {
@@ -612,7 +612,8 @@ mod tests {
             .collect();
         let item = Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            // Legacy spellings are intentionally opaque stored-row fixtures.
+            schema: crate::SchemaRef::from_stored(schema.as_ref().to_owned()),
             payload,
             created: now,
             modified: now,
@@ -681,7 +682,11 @@ mod tests {
 
     /// A kernel-shaped task (`create_task_dag`'s payload) that ended up under
     /// a losing spelling: this one SHOULD become schedulable.
-    fn seed_kernel_shaped_task(store: &SqliteItemStore, schema: &str, kind: &str) -> Uuid {
+    fn seed_kernel_shaped_task(
+        store: &SqliteItemStore,
+        schema: impl AsRef<str>,
+        kind: &str,
+    ) -> Uuid {
         seed(
             store,
             schema,
@@ -860,7 +865,7 @@ mod tests {
         assert_eq!(store.get(native).unwrap().unwrap().schema, TASK_SCHEMA);
         assert_eq!(
             store.get(paper).unwrap().unwrap().schema,
-            "imbib/bibliography-entry"
+            crate::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY
         );
 
         // ── and forward again: a fixed point ──
@@ -1012,7 +1017,10 @@ mod tests {
         let rollback = rollback_task_spellings(&store).unwrap();
         assert_eq!(rollback.restored(), 2);
         for id in [first_batch, late] {
-            assert_eq!(store.get(id).unwrap().unwrap().schema, "impel/task");
+            assert_eq!(
+                store.get(id).unwrap().unwrap().schema.as_str(),
+                "impel/task"
+            );
         }
     }
 
@@ -1033,7 +1041,10 @@ mod tests {
             1,
             "the deleted row is counted, not guessed"
         );
-        assert_eq!(store.get(kept).unwrap().unwrap().schema, "impel/task");
+        assert_eq!(
+            store.get(kept).unwrap().unwrap().schema.as_str(),
+            "impel/task"
+        );
         assert!(store.get(deleted).unwrap().is_none());
     }
 
@@ -1101,6 +1112,9 @@ mod tests {
 
         rollback_task_spellings(&store).unwrap();
         assert_eq!(edges(&store), before, "neither does the rollback");
-        assert_eq!(store.get(run).unwrap().unwrap().schema, "impel/agent-run");
+        assert_eq!(
+            store.get(run).unwrap().unwrap().schema.as_str(),
+            "impel/agent-run"
+        );
     }
 }

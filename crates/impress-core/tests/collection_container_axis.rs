@@ -34,6 +34,8 @@ use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 
+use crate::schema_fixture;
+
 fn temp_store() -> (tempfile::TempDir, SqliteItemStore) {
     let dir = tempfile::tempdir().expect("tempdir");
     let store =
@@ -47,13 +49,13 @@ fn make_library(store: &SqliteItemStore, name: &str) -> String {
     make_item(store, "imbib/library", name)
 }
 
-fn make_item(store: &SqliteItemStore, schema: &str, name: &str) -> String {
+fn make_item(store: &SqliteItemStore, schema: impl AsRef<str>, name: &str) -> String {
     let now = chrono::Utc::now();
     let mut payload = std::collections::BTreeMap::new();
     payload.insert("name".to_string(), Value::String(name.to_string()));
     let item = Item {
         id: uuid::Uuid::new_v4(),
-        schema: schema.into(),
+        schema: schema_fixture::decode(schema),
         payload,
         created: now,
         modified: now,

@@ -270,7 +270,7 @@ fn has_open_task(store: &SqliteItemStore, kind: &str) -> Result<bool, TaskStoreE
     let open = ItemStore::query(
         store,
         &ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![
                 Predicate::Eq("payload.task_kind".into(), Value::String(kind.into())),
                 Predicate::In(
@@ -336,7 +336,7 @@ fn newest_task(
     let items = ItemStore::query(
         store,
         &ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates,
             sort: vec![SortDescriptor {
                 field: "modified".into(),
@@ -393,7 +393,7 @@ fn task_item(payload: BTreeMap<String, Value>) -> Item {
     let now = chrono::Utc::now();
     Item {
         id: Uuid::new_v4(),
-        schema: TASK_SCHEMA.into(),
+        schema: TASK_SCHEMA,
         payload,
         created: now,
         modified: now,

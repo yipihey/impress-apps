@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Canonical schema identifier. Embedded in every manifest so future
 /// versions can be detected and migrated.
+// schema-ref-lint:allow — a bundle payload format version, never items.schema_ref.
 pub const BUNDLE_MANIFEST_SCHEMA: &str = "manuscript-bundle-manifest@1.0.0";
 
 /// Per-entry role classification. Advisory — UI/exporters use this to

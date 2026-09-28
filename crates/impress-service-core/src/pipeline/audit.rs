@@ -27,7 +27,7 @@ use super::identity::CallerIdentity;
 use crate::descriptor::VerbDescriptor;
 
 /// The canonical spelling of the call record's kind.
-pub const VERB_CALL_SCHEMA: &str = "core/verb-call@1.0.0";
+pub const VERB_CALL_SCHEMA: &str = crate::schema_names::CORE_VERB_CALL;
 
 /// Scalars longer than this are stored as a length and a hash.
 pub const SCALAR_MAX: usize = 64;

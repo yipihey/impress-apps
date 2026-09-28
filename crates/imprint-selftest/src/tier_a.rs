@@ -56,6 +56,10 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_document_citations().await);
     out.push(cap_search_in_text().await);
     out.push(cap_section_roundtrip().await);
+    out.push(cap_manuscript_document_access().await);
+    out.push(cap_export_document_headless_refusal().await);
+    out.push(cap_manuscript_presentation().await);
+    out.push(cap_compile_typst_headless_contract().await);
     out.push(cap_replace_in_section().await);
     out.push(cap_compile_latex().await);
     out.push(cap_compile_typst_preview_package().await);
@@ -66,12 +70,16 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_throughline_anchor_states().await);
     out.push(cap_throughline_coverage().await);
     out.push(cap_throughline_broken_anchor().await);
+    out.push(cap_throughline_remove_and_delete().await);
     out.push(cap_project_tree_roundtrip().await);
     out.push(cap_project_graph_diagnostics().await);
     out.push(cap_project_import_export_snapshot().await);
     out.push(cap_project_build_records().await);
     out.push(cap_project_figures_and_working_copy().await);
     out.push(cap_papers_sync_reading_collection().await);
+    out.push(cap_project_metadata_and_export().await);
+    out.push(cap_project_collection_roundtrip().await);
+    out.push(cap_project_compile_and_output().await);
 
     out
 }
@@ -113,7 +121,7 @@ impl ProjectWorld {
         store
             .insert(Item {
                 id,
-                schema: "manuscript".into(),
+                schema: impress_core::schema::refs::MANUSCRIPT,
                 payload,
                 created: now,
                 modified: now,
@@ -146,6 +154,22 @@ impl ProjectWorld {
             manuscript_id: id.to_string(),
             store,
         })
+    }
+
+    /// The manuscript verbs see exactly the same private item store as the
+    /// project verbs, including this fixture's real manuscript row.
+    fn manuscript_service(&self) -> Result<DefaultImprintManuscriptService, String> {
+        let sections = Arc::new(imprint_service::SectionStore::new(
+            self.store.clone(),
+            self._dir.path().join("section-blobs"),
+        ));
+        let search = Arc::new(
+            imprint_service::ManuscriptSearchIndex::in_memory()
+                .map_err(|e| format!("search index: {e}"))?,
+        );
+        Ok(DefaultImprintManuscriptService::new(Arc::new(
+            imprint_service::DefaultImprintHttpHandlers::new(sections, search),
+        )))
     }
 
     /// `project_build` is a job (ADR-0034 D6): start it and wait for the
@@ -192,7 +216,9 @@ impl ProjectWorld {
         self.store
             .insert(Item {
                 id,
-                schema: schema.into(),
+                schema: schema
+                    .parse::<impress_core::SchemaRef>()
+                    .map_err(|e| e.to_string())?,
                 payload,
                 created: now,
                 modified: now,
@@ -554,7 +580,7 @@ async fn cap_manuscript_formats() -> CapabilityResult {
             })
             .to_string();
             store
-                .upsert_payload(id, "manuscript".into(), serde_json::from_str(&payload).map_err(|e| e.to_string())?)
+                .upsert_payload(id, impress_core::schema::refs::MANUSCRIPT, serde_json::from_str(&payload).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
             let row = store
                 .get(id)
@@ -604,7 +630,7 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
             store
                 .upsert_payload(
                     id,
-                    "manuscript".into(),
+                    impress_core::schema::refs::MANUSCRIPT,
                     serde_json::from_str(&payload).map_err(|e| e.to_string())?,
                 )
                 .map_err(|e| e.to_string())?;
@@ -657,7 +683,7 @@ async fn cap_manuscript_collab_convergence() -> CapabilityResult {
             for s in [&store, &store2] {
                 s.upsert_payload(
                     id2,
-                    "manuscript".into(),
+                    impress_core::schema::refs::MANUSCRIPT,
                     serde_json::from_value(
                         serde_json::json!({"title": "G", "status": "draft", "format": "typst",
                         "current_revision_ref": id2, "body_content": "same seed"}),
@@ -714,7 +740,7 @@ async fn cap_status_lifecycle() -> CapabilityResult {
             store
                 .upsert_payload(
                     id,
-                    "manuscript".into(),
+                    impress_core::schema::refs::MANUSCRIPT,
                     serde_json::from_str(&payload).map_err(|e| e.to_string())?,
                 )
                 .map_err(|e| e.to_string())?;
@@ -722,7 +748,7 @@ async fn cap_status_lifecycle() -> CapabilityResult {
             let count_status = |status: &str| -> Result<usize, String> {
                 store
                     .count(&impress_core::query::ItemQuery {
-                        schema: Some("manuscript".into()),
+                        schema: Some(impress_core::schema::refs::MANUSCRIPT),
                         predicates: vec![impress_core::query::Predicate::Eq(
                             "payload.status".into(),
                             impress_core::item::Value::String(status.into()),
@@ -735,7 +761,7 @@ async fn cap_status_lifecycle() -> CapabilityResult {
                 store
                     .upsert_payload(
                         id,
-                        "manuscript".into(),
+                        impress_core::schema::refs::MANUSCRIPT,
                         [(
                             "status".into(),
                             impress_core::item::Value::String(status.into()),
@@ -1004,6 +1030,56 @@ async fn cap_throughline_broken_anchor() -> CapabilityResult {
     .await
 }
 
+async fn cap_throughline_remove_and_delete() -> CapabilityResult {
+    check(
+        "throughline.remove_and_delete",
+        "Removing an anchor and deleting an opted-in throughline clear persisted state",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let doc = uuid::Uuid::new_v4().to_string();
+            svc.manuscript
+                .put_section(
+                    doc.clone(),
+                    "intro".into(),
+                    "= Intro\nEvidence".into(),
+                    SectionMetadata::default(),
+                )
+                .await
+                .ok_or("put section failed")?;
+            svc.throughline
+                .create_throughline(doc.clone(), "Story".into())
+                .await
+                .ok_or("create failed")?;
+            svc.throughline
+                .set_anchor(doc.clone(), "tl-overview".into(), vec!["intro".into()])
+                .await
+                .ok_or("set anchor failed")?;
+            svc.throughline
+                .remove_anchor(doc.clone(), "tl-overview".into())
+                .await
+                .ok_or("remove anchor failed")?;
+            if svc
+                .throughline
+                .get_anchor_states(doc.clone())
+                .await
+                .iter()
+                .any(|a| a.label == "tl-overview")
+            {
+                return Err("anchor remains after removal".into());
+            }
+            if !svc.throughline.delete_throughline(doc.clone()).await {
+                return Err("delete throughline returned false".into());
+            }
+            if svc.throughline.get_throughline(doc).await.is_some() {
+                return Err("deleted throughline remains readable".into());
+            }
+            Ok("anchor removed and throughline deleted".into())
+        },
+    )
+    .await
+}
+
 async fn cap_compile_latex() -> CapabilityResult {
     check(
         "manuscript.compile_latex",
@@ -1241,6 +1317,158 @@ async fn cap_search_in_text() -> CapabilityResult {
                 return Err(format!("case-sensitive expected 1 match, got {}", cs.len()));
             }
             Ok("2 case-insensitive, 1 case-sensitive".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_manuscript_document_access() -> CapabilityResult {
+    check(
+        "manuscript.document_access",
+        "Get a seeded manuscript and find an indexed section by its text",
+        Tier::A,
+        || async {
+            let w = ProjectWorld::open("typst", "= Seeded paper")?;
+            let svc = w.manuscript_service()?;
+            let doc = svc
+                .get_document(w.manuscript_id.clone())
+                .await
+                .ok_or("seeded manuscript was not returned")?;
+            if doc.id.to_string() != w.manuscript_id || doc.title != "Selftest paper" {
+                return Err(format!("wrong document summary: {doc:?}"));
+            }
+            svc.put_section(
+                w.manuscript_id.clone(),
+                "intro".into(),
+                "A distinctive quasar observation.".into(),
+                SectionMetadata::default(),
+            )
+            .await
+            .ok_or("section indexing failed")?;
+            let hits = svc.search("distinctive quasar".into(), 10).await;
+            if hits.len() != 1
+                || hits[0].document_id != w.manuscript_id
+                || hits[0].section_key != "intro"
+            {
+                return Err(format!("search missed the indexed section: {hits:?}"));
+            }
+            Ok("document summary and indexed section round-tripped".into())
+        },
+    )
+    .await
+}
+
+async fn cap_export_document_headless_refusal() -> CapabilityResult {
+    check(
+        "manuscript.export_document_headless_refusal",
+        "Headless export refuses a valid manuscript because bytes require the native imprint host",
+        Tier::A,
+        || async {
+            let w = ProjectWorld::open("typst", "= Seeded paper")?;
+            let svc = w.manuscript_service()?;
+            if svc.get_document(w.manuscript_id.clone()).await.is_none() {
+                return Err("seeded manuscript missing before export".into());
+            }
+            let bytes = svc.export_document(w.manuscript_id, "typst".into()).await;
+            if !bytes.is_empty() {
+                return Err("headless export unexpectedly returned native bytes".into());
+            }
+            Ok("valid document refused without native host".into())
+        },
+    )
+    .await
+}
+
+async fn cap_manuscript_presentation() -> CapabilityResult {
+    check(
+        "manuscript.presentation",
+        "Presentation outline, reorder, and beat edit preserve two stable slide IDs",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let source = "#slide(id: \"first\")[First]\n#slide(id: \"second\")[Second]\n";
+            let outline = svc.manuscript.presentation_outline(source.into()).await;
+            if outline.error.is_some()
+                || outline
+                    .slides
+                    .iter()
+                    .map(|s| s.id.as_str())
+                    .collect::<Vec<_>>()
+                    != ["first", "second"]
+            {
+                return Err(format!("unexpected presentation outline: {outline:?}"));
+            }
+            let reordered = svc
+                .manuscript
+                .reorder_presentation_slide(source.into(), "second".into(), "first".into())
+                .await;
+            if reordered.error.is_some() {
+                return Err(format!("reorder failed: {reordered:?}"));
+            }
+            let order = svc
+                .manuscript
+                .presentation_outline(reordered.source.clone())
+                .await;
+            if order
+                .slides
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>()
+                != ["second", "first"]
+            {
+                return Err(format!("reorder did not persist in source: {order:?}"));
+            }
+            let beat = svc
+                .manuscript
+                .set_presentation_slide_beat(reordered.source, "first".into(), "tl-claim".into())
+                .await;
+            if beat.error.is_some() {
+                return Err(format!("beat edit failed: {beat:?}"));
+            }
+            let final_outline = svc.manuscript.presentation_outline(beat.source).await;
+            if final_outline
+                .slides
+                .iter()
+                .find(|s| s.id == "first")
+                .and_then(|s| s.beat.as_deref())
+                != Some("tl-claim")
+            {
+                return Err(format!("beat not reflected in outline: {final_outline:?}"));
+            }
+            Ok("two slides reordered and beat updated".into())
+        },
+    )
+    .await
+}
+
+async fn cap_compile_typst_headless_contract() -> CapabilityResult {
+    check(
+        "manuscript.compile_typst_headless_contract",
+        "A simple Typst source compiles when enabled, or explicitly reports the disabled engine",
+        Tier::A,
+        || async {
+            let svc = TempService::open()?;
+            let result = svc
+                .manuscript
+                .compile_typst(
+                    "= Selftest\nHello".into(),
+                    imprint_service::CompileOptions::default(),
+                )
+                .await;
+            if let Some(error) = result.error {
+                if error.contains("not enabled") || error.contains("typst-render") {
+                    return Ok(format!("headless engine explicitly unavailable: {error}"));
+                }
+                return Err(format!("unexpected Typst failure: {error}"));
+            }
+            let path = result
+                .pdf_path
+                .ok_or("compile succeeded without PDF path")?;
+            let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+            if size < 500 {
+                return Err(format!("compiled PDF suspiciously small: {size}"));
+            }
+            Ok(format!("compiled {size}-byte PDF"))
         },
     )
     .await
@@ -1585,6 +1813,165 @@ async fn cap_project_figures_and_working_copy() -> CapabilityResult {
         },
     )
     .await
+}
+
+async fn cap_project_metadata_and_export() -> CapabilityResult {
+    check(
+        "project.metadata_and_export",
+        "Entry, bibliography, outline, citations and exported file agree on a real project",
+        Tier::A,
+        || async {
+            use imprint_service::ImprintProjectService;
+            let w = ProjectWorld::open("typst", "= Paper\nSee @alpha2020.\n")?;
+            let id = w.manuscript_id.clone();
+            let entry = w
+                .svc
+                .project_set_entry(id.clone(), "main.typ".into(), None)
+                .await;
+            if !entry.ok {
+                return Err(format!("set entry: {}", entry.message));
+            }
+            let bib = w
+                .svc
+                .project_put_file(
+                    id.clone(),
+                    "refs.bib".into(),
+                    Some("@article{alpha2020, title={Alpha}}".into()),
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+            if !bib.ok {
+                return Err(format!("put bibliography: {}", bib.message));
+            }
+            let bibliography = w
+                .svc
+                .project_set_bibliography(id.clone(), "refs.bib".into(), None)
+                .await;
+            if !bibliography.ok
+                || bibliography.file.as_ref().map(|f| f.role.as_str()) != Some("bibliography")
+            {
+                return Err(format!("set bibliography: {bibliography:?}"));
+            }
+            let outline = w.svc.project_outline(id.clone(), None).await;
+            if !outline.ok
+                || !outline.reading_order.iter().any(|path| path == "main.typ")
+                || outline.sections.is_empty()
+            {
+                return Err(format!("outline: {outline:?}"));
+            }
+            let citations = w.svc.project_citations(id.clone(), None).await;
+            if !citations.ok || citations.keys != ["alpha2020"] {
+                return Err(format!("citations: {citations:?}"));
+            }
+            let directory = w._dir.path().join("export");
+            let exported = w
+                .svc
+                .project_export(id, directory.display().to_string(), None, None)
+                .await;
+            if !exported.ok || !std::path::Path::new(&exported.entry).is_file() {
+                return Err(format!("export: {exported:?}"));
+            }
+            Ok("metadata and citation survived a real bundle export".into())
+        },
+    )
+    .await
+}
+
+async fn cap_project_collection_roundtrip() -> CapabilityResult {
+    check(
+        "project.collection_roundtrip",
+        "A valid paper joins and leaves this manuscript's reading collection",
+        Tier::A,
+        || async {
+            use impress_core::item::Value;
+            use imprint_service::ImprintProjectService;
+            let w = ProjectWorld::open("typst", "= Paper\n")?;
+            let library = w.insert_row(
+                impress_core::schema::refs::IMBIB_LIBRARY.as_str(),
+                &[("name", Value::String("Selftest library".into()))],
+                None,
+            )?;
+            let paper = w.insert_row(
+                impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str(),
+                &[
+                    ("cite_key", Value::String("alpha2020".into())),
+                    ("title", Value::String("Alpha".into())),
+                ],
+                Some(library),
+            )?;
+            let id = w.manuscript_id.clone();
+            let added = w
+                .svc
+                .project_collect(id.clone(), vec![paper.to_string()], None)
+                .await;
+            if !added.ok || added.changed != [paper.to_string()] || added.collection_id.is_none() {
+                return Err(format!("collect: {added:?}"));
+            }
+            let collection_id = uuid::Uuid::parse_str(added.collection_id.as_deref().unwrap())
+                .map_err(|e| e.to_string())?;
+            let contains_paper = |row: &impress_core::item::Item| {
+                row.references.iter().any(|r| {
+                    r.target == paper && r.edge_type == impress_core::reference::EdgeType::Contains
+                })
+            };
+            let after_add = w
+                .store
+                .get(collection_id)
+                .map_err(|e| e.to_string())?
+                .ok_or("collection missing after collect")?;
+            if !contains_paper(&after_add) {
+                return Err("collection did not persist paper membership".into());
+            }
+            let removed = w
+                .svc
+                .project_uncollect(id.clone(), vec![paper.to_string()])
+                .await;
+            if !removed.ok || removed.changed != [paper.to_string()] {
+                return Err(format!("uncollect: {removed:?}"));
+            }
+            let after_remove = w
+                .store
+                .get(collection_id)
+                .map_err(|e| e.to_string())?
+                .ok_or("collection missing after uncollect")?;
+            if contains_paper(&after_remove) {
+                return Err("paper remains collected after uncollect".into());
+            }
+            Ok("publication membership added then removed".into())
+        },
+    )
+    .await
+}
+
+async fn cap_project_compile_and_output() -> CapabilityResult {
+    check(
+        "project.compile_and_output",
+        "A valid project compile reports PDF or explicit engine refusal; an output request reports missing kind on a real build",
+        Tier::A,
+        || async {
+            use imprint_service::ImprintProjectService;
+            let w = ProjectWorld::open("typst", "= Selftest\nHello")?;
+            let id = w.manuscript_id.clone();
+            let compile = w.svc.project_compile(id.clone(), None, None).await;
+            if compile.ok {
+                let path = compile.pdf_path.as_deref().ok_or("successful compile has no PDF path")?;
+                if !std::path::Path::new(path).is_file() { return Err(format!("compiled PDF missing: {path}")); }
+            } else if !compile.message.contains("not enabled") && !compile.message.contains("typst-render") {
+                return Err(format!("unexpected compile refusal: {}", compile.message));
+            }
+            let targets = w.svc.project_set_targets(id.clone(), Some(r#"[{"id":"source","engine":"none"}]"#.into()), None).await;
+            if !targets.ok { return Err(format!("set source-only target: {}", targets.message)); }
+            let build = w.build(id.clone(), Some("source".into()), None, None, None).await;
+            if !build.ok { return Err(format!("source-only build: {}", build.message)); }
+            let output = w.svc.project_build_output(id, None, Some("source".into()), Some("pdf".into())).await;
+            if output.ok || !output.message.contains("no pdf output") {
+                return Err(format!("missing PDF output not explained: {output:?}"));
+            }
+            Ok("compile contract and source-only build output refusal verified".into())
+        },
+    ).await
 }
 
 #[cfg(test)]

@@ -20,10 +20,30 @@
 //  the vocabulary is.
 //
 
+import ImpressRustCore
 import XCTest
 @testable import PublicationManagerCore
 
 final class SchemaRefManifestParityTests: XCTestCase {
+
+    /// P7 changes Rust query parameters without changing the Swift string API.
+    /// Exercise the generated enum and converter against the native archive,
+    /// including an opaque name from a hypothetical newer writer.
+    func testGeneratedSchemaNamesAndLegacyStringsRoundTripThroughNativeQueries() throws {
+        let store = try SharedStore.openInMemory()
+        let canonical = schemaRefName(schema: .imbibLibrary)
+        XCTAssertEqual(canonical, "imbib/library")
+        for spelling in [canonical, "fixture/future-schema@9.0.0"] {
+            let id = UUID().uuidString.lowercased()
+            try store.upsertItem(id: id, schemaRef: spelling, payloadJson: "{}")
+            let rows = try store.queryBySchema(schemaRef: spelling, limit: 10, offset: 0)
+            XCTAssertEqual(rows.map(\.id), [id])
+            XCTAssertEqual(rows.first?.schemaRef, spelling)
+            XCTAssertEqual(try store.countBySchema(schemaRef: spelling), 1)
+        }
+        // schema-ref-lint:allow — unknown wire name deliberately matches no rows.
+        XCTAssertEqual(try store.countBySchema(schemaRef: "fixture/absent"), 0)
+    }
 
     // MARK: - Descriptors vs the manifest
 

@@ -51,3 +51,6 @@ tempfile = "3.10"
 # Without it the vector tier reports "unavailable" and the FTS tier carries
 # every verb, exactly as when the model is absent at runtime.
 vector-embedder = ["impress-embeddings/embedder"]
+
+[lints]
+workspace = true

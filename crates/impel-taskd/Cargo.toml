@@ -45,3 +45,6 @@ required-features = ["examples"]
 [[example]]
 name = "review_cli"
 required-features = ["examples"]
+
+[lints]
+workspace = true

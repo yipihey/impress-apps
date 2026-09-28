@@ -15,7 +15,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// See `docs/ADR-0011-impress-journal.md` D1 for full field semantics.
 pub fn manuscript_schema() -> Schema {
     Schema {
-        id: "manuscript".into(),
+        id: crate::schema::refs::MANUSCRIPT,
         name: "Manuscript".into(),
         version: "1.0.0".into(),
         fields: vec![

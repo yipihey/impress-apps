@@ -726,7 +726,7 @@ impl SharedSurface {
         // Both cursors start HERE, before the thread does: a write or a
         // delete made after `subscribe` returns is one the feed reports.
         let store = &self.core.store;
-        let external = ExternalPoll::baseline(store).track_deletes(store, SURFACE_SCHEMA_REF);
+        let external = ExternalPoll::baseline(store).track_deletes(store, &SURFACE_SCHEMA_REF);
         let domain = DomainPoll::baseline(store, &self.core.registry.watched_refs());
         let worker = SurfaceFeed {
             running: running.clone(),
@@ -1369,8 +1369,8 @@ impl DomainPoll {
             let Ok(items) = store.items_modified_since(schema, self.high_water_mark) else {
                 return BTreeSet::new();
             };
-            for item in items.iter().filter(|i| &i.schema == schema) {
-                written.insert(item.schema.clone());
+            for item in items.iter().filter(|i| i.schema.as_str() == schema) {
+                written.insert(item.schema.to_string());
                 mark = mark.max(item.modified.timestamp_millis());
             }
             let Ok(now) = ui_feed::count_of(store, schema) else {
@@ -1422,7 +1422,7 @@ impl SurfaceFeed {
     /// `state_revision`).
     fn change_of(&self, mutation: &StoreMutation) -> Option<SharedSurfaceChange> {
         match mutation.schema_ref.as_deref() {
-            Some(s) if s == SURFACE_SCHEMA_REF => {
+            Some(s) if s == SURFACE_SCHEMA_REF.as_str() => {
                 let row = self.surfaces.get(mutation.item_id).ok()?;
                 Some(SharedSurfaceChange {
                     id: mutation.item_id.to_string(),
@@ -1432,7 +1432,7 @@ impl SurfaceFeed {
                     deleted: row.is_none(),
                 })
             }
-            Some(s) if s == SURFACE_STATE_SCHEMA_REF => {
+            Some(s) if s == SURFACE_STATE_SCHEMA_REF.as_str() => {
                 let item = self.store.get(mutation.item_id).ok().flatten()?;
                 let field = |name: &str| match item.payload.get(name) {
                     Some(ItemValue::String(raw)) => Some(raw.clone()),
@@ -1920,7 +1920,7 @@ mod tests {
         store
             .insert(impress_core::item::Item {
                 id: uuid::Uuid::new_v4(),
-                schema: "imbib/bibliography-entry".into(),
+                schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
                 payload,
                 created: now,
                 modified: now,
@@ -1996,7 +1996,7 @@ mod tests {
         store
             .core()
             .insert(impress_core::item::Item {
-                schema: "manuscript".into(),
+                schema: impress_core::schema::refs::MANUSCRIPT,
                 payload: unrelated,
                 id: uuid::Uuid::new_v4(),
                 ..placeholder_item()
@@ -2088,7 +2088,7 @@ mod tests {
         let now = chrono::Utc::now();
         impress_core::item::Item {
             id: uuid::Uuid::nil(),
-            schema: String::new(),
+            schema: crate::decode_wire_schema(String::new()).unwrap(),
             payload: Default::default(),
             created: now,
             modified: now,
@@ -2300,7 +2300,7 @@ mod tests {
         let rows = store
             .core()
             .query(&ItemQuery {
-                schema: Some(impress_core::schemas::VERB_CALL_SCHEMA.into()),
+                schema: Some(impress_core::schemas::VERB_CALL_SCHEMA),
                 ..Default::default()
             })
             .unwrap();

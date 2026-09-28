@@ -135,7 +135,7 @@ pub fn document_kind(doc: &RemarkableDocument) -> &'static str {
 /// superseded.
 fn known_remote_ids(store: &ImbibStore) -> Result<HashSet<String>, StoreApiError> {
     let q = ItemQuery {
-        schema: Some(SCHEMA_MIRROR.into()),
+        schema: Some(SCHEMA_MIRROR),
         include_tags: false,
         include_references: false,
         ..Default::default()
@@ -537,7 +537,7 @@ fn find_file_by_sha(
     sha: &str,
 ) -> Result<Option<(String, String, String)>, StoreApiError> {
     let q = ItemQuery {
-        schema: Some("imbib/linked-file".into()),
+        schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
         predicates: vec![Predicate::Eq("sha256".into(), Value::String(sha.into()))],
         include_tags: false,
         include_references: false,

@@ -531,3 +531,9 @@ mod backend_slot_tests {
         assert_eq!(held.id(), "a");
     }
 }
+
+// Manifest metadata without a runtime dependency back on the store.
+#[allow(dead_code)]
+mod schema_names {
+    include!(concat!(env!("OUT_DIR"), "/schema_ref_names.rs"));
+}

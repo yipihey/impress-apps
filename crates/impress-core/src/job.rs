@@ -159,7 +159,7 @@ pub fn create_job(
     let now = Utc::now();
     let item = Item {
         id: Uuid::new_v4(),
-        schema: TASK_SCHEMA.into(),
+        schema: TASK_SCHEMA,
         payload,
         created: now,
         modified: now,
@@ -187,7 +187,7 @@ pub fn create_job(
 /// The job's row, or `NotFound` / `NotATask`.
 pub fn get_job(store: &SqliteItemStore, id: ItemId) -> Result<JobRow> {
     let item = store.get(id)?.ok_or(JobError::NotFound(id))?;
-    if item.schema.as_str() != TASK_SCHEMA {
+    if item.schema != TASK_SCHEMA {
         return Err(JobError::NotATask(id, item.schema.to_string()));
     }
     Ok(job_row_of(&item))
@@ -220,7 +220,7 @@ pub fn job_row_of(item: &Item) -> JobRow {
 /// by the transition table. Returns the state the row is in afterwards.
 pub fn request_cancel(store: &SqliteItemStore, id: ItemId, actor: &str) -> Result<TaskState> {
     let item = store.get(id)?.ok_or(JobError::NotFound(id))?;
-    if item.schema.as_str() != TASK_SCHEMA {
+    if item.schema != TASK_SCHEMA {
         return Err(JobError::NotATask(id, item.schema.to_string()));
     }
     let row = job_row_of(&item);
@@ -329,7 +329,7 @@ pub fn append_event(
         let now = Utc::now();
         let item = Item {
             id: event_row_id(task, seq),
-            schema: TASK_EVENT_SCHEMA.into(),
+            schema: TASK_EVENT_SCHEMA,
             payload: fields,
             created: now,
             modified: now,
@@ -456,7 +456,7 @@ pub fn event_row_id(task: ItemId, seq: u64) -> ItemId {
 
 fn ring_rows(task: ItemId) -> ItemQuery {
     ItemQuery {
-        schema: Some(TASK_EVENT_SCHEMA.into()),
+        schema: Some(TASK_EVENT_SCHEMA),
         predicates: vec![Predicate::Eq(
             field::event::TASK.into(),
             Value::String(task.to_string()),
@@ -631,7 +631,7 @@ mod tests {
         append_event(&s, id, "x", &json!({}), "t").unwrap();
         let event = event_row_id(id, 1);
         assert!(
-            matches!(get_job(&s, event), Err(JobError::NotATask(_, k)) if k == TASK_EVENT_SCHEMA)
+            matches!(get_job(&s, event), Err(JobError::NotATask(_, k)) if k == TASK_EVENT_SCHEMA.as_str())
         );
         assert!(matches!(
             get_job(&s, Uuid::new_v4()),

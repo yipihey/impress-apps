@@ -26,7 +26,7 @@ use crate::{Error, Result};
 
 pub const INFERENCE_TASK_KIND: &str = "impress.ai.respond";
 pub const TITLE_SUGGESTION_TASK_KIND: &str = "impress.ai.suggest-title";
-const CHAT_MESSAGE_SCHEMA: &str = "chat-message";
+const CHAT_MESSAGE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CHAT_MESSAGE;
 
 #[derive(Debug, Clone)]
 pub struct ConversationDraft {
@@ -218,7 +218,7 @@ impl AiStore {
             ));
         }
         Ok(self.store.query(&ItemQuery {
-            schema: Some(CONVERSATION_SCHEMA.into()),
+            schema: Some(CONVERSATION_SCHEMA),
             predicates,
             sort: vec![SortDescriptor {
                 field: "payload.last_activity_at".into(),
@@ -232,7 +232,7 @@ impl AiStore {
         let conversation = self.require_item(conversation_id, CONVERSATION_SCHEMA)?;
         let messages = self.messages(conversation_id)?;
         let pending_tasks = self.store.query(&ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![
                 Predicate::HasParent(conversation_id),
                 Predicate::In(
@@ -259,7 +259,7 @@ impl AiStore {
     pub fn task_progress(&self, task_id: ItemId) -> Result<TaskProgress> {
         let task = self.require_item(task_id, TASK_SCHEMA)?;
         let mut runs = self.store.query(&ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.into()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, task_id)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -272,7 +272,7 @@ impl AiStore {
         let response_message_id = if let Some(run) = &run {
             self.store
                 .query(&ItemQuery {
-                    schema: Some(CHAT_MESSAGE_SCHEMA.into()),
+                    schema: Some(CHAT_MESSAGE_SCHEMA),
                     predicates: vec![Predicate::Eq(
                         "produced_by".into(),
                         Value::String(run.id.to_string()),
@@ -310,7 +310,7 @@ impl AiStore {
         let run = self
             .store
             .query(&ItemQuery {
-                schema: Some(AGENT_RUN_SCHEMA.into()),
+                schema: Some(AGENT_RUN_SCHEMA),
                 predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, task_id)],
                 sort: vec![SortDescriptor {
                     field: "created".into(),
@@ -460,7 +460,7 @@ impl AiStore {
         if let Some(task) = self
             .store
             .query(&ItemQuery {
-                schema: Some(TASK_SCHEMA.into()),
+                schema: Some(TASK_SCHEMA),
                 predicates: vec![
                     Predicate::HasParent(conversation_id),
                     Predicate::Eq(
@@ -695,7 +695,7 @@ impl AiStore {
                 )),
             );
             let artifact = self.item(
-                "impress/artifact/webpage",
+                impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE,
                 payload,
                 Some(prepared.conversation_id),
                 vec![
@@ -1022,7 +1022,7 @@ impl AiStore {
     /// re-executing the still-running task would create a duplicate response.
     pub fn has_completed_run(&self, task_id: ItemId) -> Result<bool> {
         Ok(self.store.count(&ItemQuery {
-            schema: Some(AGENT_RUN_SCHEMA.into()),
+            schema: Some(AGENT_RUN_SCHEMA),
             predicates: vec![
                 Predicate::HasReference(EdgeType::OperatesOn, task_id),
                 Predicate::Eq("payload.status".into(), Value::String("completed".into())),
@@ -1326,7 +1326,7 @@ impl AiStore {
 
     fn messages(&self, conversation_id: ItemId) -> Result<Vec<Item>> {
         Ok(self.store.query(&ItemQuery {
-            schema: Some(CHAT_MESSAGE_SCHEMA.into()),
+            schema: Some(CHAT_MESSAGE_SCHEMA),
             predicates: vec![Predicate::HasParent(conversation_id)],
             sort: vec![SortDescriptor {
                 field: "payload.sequence".into(),
@@ -1358,7 +1358,7 @@ impl AiStore {
         Ok(self
             .store
             .query(&ItemQuery {
-                schema: Some(AGENT_RUN_SCHEMA.into()),
+                schema: Some(AGENT_RUN_SCHEMA),
                 predicates: vec![
                     Predicate::HasReference(EdgeType::OperatesOn, task_id),
                     Predicate::Eq("payload.status".into(), Value::String("running".into())),
@@ -1383,7 +1383,7 @@ impl AiStore {
         source_hash: &str,
     ) -> Result<Option<ItemId>> {
         let candidates = self.store.query(&ItemQuery {
-            schema: Some("impress/artifact/webpage".into()),
+            schema: Some(impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE),
             predicates: vec![
                 Predicate::HasParent(conversation_id),
                 Predicate::Eq(
@@ -1417,7 +1417,7 @@ impl AiStore {
         Ok(None)
     }
 
-    fn require_item(&self, id: ItemId, schema: &str) -> Result<Item> {
+    fn require_item(&self, id: ItemId, schema: impress_core::SchemaRef) -> Result<Item> {
         let item = self
             .store
             .get(id)?
@@ -1433,7 +1433,7 @@ impl AiStore {
 
     fn item(
         &self,
-        schema: &str,
+        schema: impress_core::SchemaRef,
         payload: BTreeMap<String, Value>,
         parent: Option<ItemId>,
         references: Vec<TypedReference>,
@@ -1442,7 +1442,7 @@ impl AiStore {
         let now = Utc::now();
         Item {
             id: Uuid::new_v4(),
-            schema: schema.into(),
+            schema,
             payload,
             created: now,
             modified: now,
@@ -1935,7 +1935,7 @@ mod tests {
             store
                 .shared_store()
                 .count(&ItemQuery {
-                    schema: Some("impress/artifact/webpage".into()),
+                    schema: Some(impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE),
                     predicates: vec![Predicate::HasParent(conversation)],
                     ..Default::default()
                 })

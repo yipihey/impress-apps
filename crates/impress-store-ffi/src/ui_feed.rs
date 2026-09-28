@@ -148,7 +148,9 @@ impl ExternalPoll {
         let mut mutations: Vec<StoreMutation> = batch
             .rows
             .into_iter()
-            .map(|item| StoreMutation::new(item.id, Some(item.schema), MutationKind::Updated))
+            .map(|item| {
+                StoreMutation::new(item.id, Some(item.schema.into()), MutationKind::Updated)
+            })
             .collect();
         let tracked = self.tracked.as_ref().map(|(schema, _)| schema.clone());
         mutations.extend(
@@ -270,7 +272,7 @@ mod tests {
     fn row(modified: chrono::DateTime<chrono::Utc>) -> Item {
         Item {
             id: uuid::Uuid::new_v4(),
-            schema: SURFACE.into(),
+            schema: impress_core::schema::refs::IMPRESS_UI_SURFACE,
             payload: [("title".to_string(), Value::String("x".into()))]
                 .into_iter()
                 .collect(),

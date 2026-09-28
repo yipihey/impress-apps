@@ -1551,8 +1551,8 @@ public protocol ImbibStoreProtocol : AnyObject {
      * side effect of a marker fix.
      *
      * The fix is therefore only to stop asking the wrong question —
-     * `item.schema == "imbib/collection"` is false for every migrated row, and
-     * the guard runs BEFORE the write, which is why this export failed loudly
+     * comparing `item.schema` with the old collection schema is false for every
+     * migrated row. The guard runs BEFORE the write, so this export failed loudly
      * (`NotFound`) rather than quietly where the reads returned empty.
      *
      * Live callers are iOS-only on today's tree: the shared record-sidebar
@@ -3996,8 +3996,8 @@ open func removeTag(ids: [String], tagPath: String)throws  -> UndoInfo {
      * side effect of a marker fix.
      *
      * The fix is therefore only to stop asking the wrong question —
-     * `item.schema == "imbib/collection"` is false for every migrated row, and
-     * the guard runs BEFORE the write, which is why this export failed loudly
+     * comparing `item.schema` with the old collection schema is false for every
+     * migrated row. The guard runs BEFORE the write, so this export failed loudly
      * (`NotFound`) rather than quietly where the reads returned empty.
      *
      * Live callers are iOS-only on today's tree: the shared record-sidebar
@@ -36102,7 +36102,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_tag() != 29440) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_rename_collection() != 8082) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_rename_collection() != 52061) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_rename_tag() != 556) {

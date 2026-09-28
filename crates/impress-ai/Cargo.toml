@@ -46,3 +46,6 @@ schema = ["dep:schemars"]
 [dev-dependencies]
 mockito.workspace = true
 tempfile = "3"
+
+[lints]
+workspace = true

@@ -408,7 +408,7 @@ async fn agent_runs_are_recorded_with_provenance_edges() {
     let run = TaskStoreApi::get_item(s.as_ref(), run_edges[0].target)
         .unwrap()
         .unwrap();
-    assert_eq!(run.schema, "agent-run@1.0.0");
+    assert_eq!(run.schema, impress_core::schema::refs::AGENT_RUN);
     assert!(matches!(run.payload.get("prompt_hash"), Some(Value::String(h)) if h == "deadbeef"));
 }
 
@@ -642,7 +642,7 @@ async fn spawned_tasks_record_their_rule_and_trigger() {
     let trigger = TaskStoreApi::create_item(s.as_ref(), {
         let mut item = impress_core::item::Item {
             id: uuid::Uuid::new_v4(),
-            schema: "manuscript-section".into(),
+            schema: impress_core::schema::refs::MANUSCRIPT_SECTION,
             payload: std::collections::BTreeMap::new(),
             created: chrono::Utc::now(),
             modified: chrono::Utc::now(),
@@ -672,7 +672,7 @@ async fn spawned_tasks_record_their_rule_and_trigger() {
     let subject = TaskStoreApi::create_item(s.as_ref(), {
         let mut item = impress_core::item::Item {
             id: uuid::Uuid::new_v4(),
-            schema: "throughline".into(),
+            schema: impress_core::schema::refs::THROUGHLINE,
             payload: std::collections::BTreeMap::new(),
             created: chrono::Utc::now(),
             modified: chrono::Utc::now(),

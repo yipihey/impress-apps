@@ -39,7 +39,8 @@
 #
 # Crates under the manifest's `kit-open-findings` block are left out and
 # named. --strict keeps them in, so they fail the way they would if the kit
-# really left.
+# really left. Strict mode also runs the fast dependency-tree classifier first:
+# the scratch build alone cannot detect a forbidden impress-core feature.
 #
 # It never writes to the repository. The build goes to $CARGO_TARGET_DIR when
 # set (CI points it at a persistent directory), otherwise to this checkout's
@@ -62,6 +63,11 @@ for arg in "$@"; do
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
 done
+
+if [[ "$KIT_STRICT" == 1 ]]; then
+    echo "+ scripts/check-kit-deps.sh --strict (kit dependency and feature boundary)"
+    "$ROOT/scripts/check-kit-deps.sh" --strict
+fi
 
 exec python3 -u - <<'PY'
 import os, re, shutil, subprocess, sys, tempfile, time, tomllib
@@ -303,7 +309,10 @@ def mentions(path, lib):
 try:
     for c in members:
         copy_tracked(Path("crates") / c)
-    for f in ("rust-toolchain.toml", ".cargo/config.toml", "Cargo.lock"):
+    # P7's vocabulary is a build input shared by core and the pure metadata
+    # crates. Carry the manifest itself, never a generated copy from target/.
+    for f in ("rust-toolchain.toml", ".cargo/config.toml", "Cargo.lock",
+              "schema-refs.json", "clippy.toml"):
         if (ROOT / f).exists():
             (scratch / f).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, scratch / f)

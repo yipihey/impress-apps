@@ -50,3 +50,6 @@ proptest = "1.4"              # Property-based testing
 name = "im-bibtex"
 path = "src/bin/im_bibtex.rs"
 required-features = ["cli"]
+
+[lints]
+workspace = true

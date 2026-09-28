@@ -20,3 +20,6 @@ description = "The UniFFI binding generator, as ONE binary for the whole workspa
 # this crate switches `cli` back on for everyone.
 [dependencies]
 uniffi = { version = "0.28", features = ["cli"] }
+
+[lints]
+workspace = true

@@ -122,7 +122,7 @@ fn retention_workflow_runs_once_after_start_delay_and_the_call_lands_in_the_log(
     impress_store_service::audit::flush().expect("audit flush");
     let rows = engine_store
         .query(&ItemQuery {
-            schema: Some("core/verb-call@1.0.0".into()),
+            schema: Some(impress_core::schema::refs::CORE_VERB_CALL),
             ..Default::default()
         })
         .expect("query call log");

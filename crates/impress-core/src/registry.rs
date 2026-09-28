@@ -199,9 +199,15 @@ mod tests {
     use std::collections::BTreeMap;
     use uuid::Uuid;
 
+    // These deliberately unregistered names exercise the registry's unknown
+    // schema and inheritance behavior through compatibility decoding.
+    fn fixture_schema(name: &str) -> crate::SchemaRef {
+        crate::SchemaRef::from_stored(name.to_owned())
+    }
+
     fn bib_schema() -> Schema {
         Schema {
-            id: "bibliography-entry".into(),
+            id: crate::schema::refs::BIBLIOGRAPHY_ENTRY,
             name: "Bibliography Entry".into(),
             version: "1.0.0".into(),
             fields: vec![
@@ -249,7 +255,7 @@ mod tests {
         payload.insert("year".into(), Value::Int(2024));
         Item {
             id: Uuid::new_v4(),
-            schema: "bibliography-entry".into(),
+            schema: crate::schema::refs::BIBLIOGRAPHY_ENTRY,
             payload,
             created: Utc::now(),
             modified: Utc::now(),
@@ -358,7 +364,7 @@ mod tests {
         let mut reg = SchemaRegistry::new();
 
         let base = Schema {
-            id: "research-item".into(),
+            id: fixture_schema("research-item"),
             name: "Research Item".into(),
             version: "1.0.0".into(),
             fields: vec![FieldDef {
@@ -372,7 +378,7 @@ mod tests {
         };
 
         let child = Schema {
-            id: "preprint".into(),
+            id: fixture_schema("preprint"),
             name: "Preprint".into(),
             version: "1.0.0".into(),
             fields: vec![FieldDef {
@@ -382,7 +388,7 @@ mod tests {
                 description: None,
             }],
             expected_edges: vec![],
-            inherits: Some("research-item".into()),
+            inherits: Some(fixture_schema("research-item")),
         };
 
         reg.register(base).unwrap();
@@ -391,7 +397,7 @@ mod tests {
         // Item missing both abstract_text and arxiv_id
         let mut item = Item {
             id: Uuid::new_v4(),
-            schema: "preprint".into(),
+            schema: fixture_schema("preprint"),
             payload: BTreeMap::new(),
             created: Utc::now(),
             modified: Utc::now(),
@@ -436,7 +442,7 @@ mod tests {
     fn duplicate_field_in_schema() {
         let mut reg = SchemaRegistry::new();
         let schema = Schema {
-            id: "bad".into(),
+            id: fixture_schema("bad"),
             name: "Bad".into(),
             version: "1.0.0".into(),
             fields: vec![

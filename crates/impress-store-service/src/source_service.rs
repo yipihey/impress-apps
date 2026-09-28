@@ -243,7 +243,7 @@ fn page_mappings(store: &SqliteItemStore, source_id: Uuid) -> Result<Vec<(u32, S
     ] {
         let items = store
             .query(&ItemQuery {
-                schema: Some(schema.into()),
+                schema: Some(schema.clone()),
                 predicates: vec![Predicate::HasParent(source_id)],
                 include_tags: false,
                 include_references: false,
@@ -285,7 +285,7 @@ fn figure_regions(
 ) -> Result<Vec<FigureRegionEvidence>, String> {
     store
         .query(&ItemQuery {
-            schema: Some(FIGURE_REGION_SCHEMA.into()),
+            schema: Some(FIGURE_REGION_SCHEMA),
             predicates: vec![Predicate::HasParent(source_id)],
             include_tags: false,
             include_references: false,
@@ -424,7 +424,7 @@ fn image_block(bytes: Vec<u8>) -> McpImageBlock {
 fn load_record<T: serde::de::DeserializeOwned>(
     store: &SqliteItemStore,
     id: Uuid,
-    schema: &str,
+    schema: impress_core::SchemaRef,
 ) -> Result<T, String> {
     let item = store
         .get(id)
@@ -457,7 +457,7 @@ fn page_extraction_metadata(
 ) -> (Option<Uuid>, Option<String>) {
     let mut run = store
         .query(&ItemQuery {
-            schema: Some(CONTENT_CHUNK_SCHEMA.into()),
+            schema: Some(CONTENT_CHUNK_SCHEMA),
             predicates: vec![Predicate::HasParent(source)],
             include_tags: false,
             include_references: false,
@@ -479,7 +479,7 @@ fn page_extraction_metadata(
     if run.is_none() {
         run = store
             .query(&ItemQuery {
-                schema: Some(SOURCE_CITATION_SCHEMA.into()),
+                schema: Some(SOURCE_CITATION_SCHEMA),
                 predicates: vec![Predicate::HasParent(source)],
                 include_tags: false,
                 include_references: false,
@@ -904,7 +904,7 @@ impl DefaultSourceService {
     fn put<T: Serialize>(
         &self,
         id: Uuid,
-        schema: &str,
+        schema: impress_core::SchemaRef,
         value: &T,
         options: PutOptions<'_>,
     ) -> SourceRecordResult {
@@ -989,7 +989,7 @@ impl DefaultSourceService {
             references.push(reference);
         }
         let mut payload = BTreeMap::from([
-            ("title".into(), Value::String(schema.into())),
+            ("title".into(), Value::String(schema.to_string())),
             ("data".into(), data),
         ]);
         if let Some(text) = options.indexed_text {
@@ -998,7 +998,7 @@ impl DefaultSourceService {
         let now = chrono::Utc::now();
         let item = Item {
             id,
-            schema: schema.into(),
+            schema,
             payload,
             created: now,
             modified: now,
@@ -1259,7 +1259,7 @@ impl SourceService for DefaultSourceService {
         let mut hits = Vec::with_capacity(requested);
         for candidate in candidates
             .into_iter()
-            .filter(|candidate| candidate.schema_ref == CONTENT_CHUNK_SCHEMA)
+            .filter(|candidate| candidate.schema_ref == CONTENT_CHUNK_SCHEMA.as_str())
         {
             let id = match Uuid::parse_str(&candidate.id) {
                 Ok(id) => id,
@@ -1526,7 +1526,7 @@ fn source_search_candidates(
 ) -> Result<Vec<impress_core::search_ops::SearchHit>, impress_core::store::StoreError> {
     let mut candidates = impress_core::search_ops::search_all(store, query, 200)?
         .into_iter()
-        .filter(|candidate| candidate.schema_ref == CONTENT_CHUNK_SCHEMA)
+        .filter(|candidate| candidate.schema_ref == CONTENT_CHUNK_SCHEMA.as_str())
         .collect::<Vec<_>>();
     let mut seen = candidates
         .iter()
@@ -1547,7 +1547,7 @@ fn source_search_candidates(
     for term in source_query_terms(query) {
         for hit in impress_core::search_ops::search_all(store, &term, 200)?
             .into_iter()
-            .filter(|candidate| candidate.schema_ref == CONTENT_CHUNK_SCHEMA)
+            .filter(|candidate| candidate.schema_ref == CONTENT_CHUNK_SCHEMA.as_str())
         {
             if seen.contains(&hit.id) {
                 continue;
@@ -1848,7 +1848,7 @@ mod tests {
         store
             .insert(Item {
                 id,
-                schema: "impress/artifact/general".into(),
+                schema: impress_core::schema::refs::IMPRESS_ARTIFACT_GENERAL,
                 payload: BTreeMap::from([
                     ("title".into(), Value::String(title.into())),
                     ("file_hash".into(), Value::String(hash.into())),
@@ -2259,7 +2259,7 @@ mod tests {
         let citation = service
             .store()
             .query(&ItemQuery {
-                schema: Some(SOURCE_CITATION_SCHEMA.into()),
+                schema: Some(SOURCE_CITATION_SCHEMA),
                 predicates: vec![Predicate::HasParent(source)],
                 include_tags: false,
                 include_references: false,

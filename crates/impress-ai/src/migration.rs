@@ -27,8 +27,9 @@ use uuid::Uuid;
 
 use crate::{BlobStore, Error, Result};
 
-const CHAT_MESSAGE_SCHEMA: &str = "chat-message";
-const WEBPAGE_SCHEMA: &str = "impress/artifact/webpage";
+const CHAT_MESSAGE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CHAT_MESSAGE;
+const WEBPAGE_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::IMPRESS_ARTIFACT_WEBPAGE;
 const IMPORT_NAMESPACE: Uuid = Uuid::from_u128(0x674f_e0b3_399c_4b77_a114_4824_88c9_a5d1);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -185,7 +186,7 @@ fn import_one(
         .as_bytes(),
     );
     let existing = store.query(&ItemQuery {
-        schema: Some(AI_IMPORT_LEDGER_SCHEMA.into()),
+        schema: Some(AI_IMPORT_LEDGER_SCHEMA),
         predicates: vec![
             Predicate::Eq(
                 "payload.source_database_id".into(),
@@ -717,7 +718,7 @@ fn ledger_item(
 
 fn item(
     id: ItemId,
-    schema: &str,
+    schema: impress_core::SchemaRef,
     payload: BTreeMap<String, Value>,
     parent: Option<ItemId>,
     references: Vec<TypedReference>,
@@ -726,7 +727,7 @@ fn item(
 ) -> Item {
     Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created,
         modified: created,
@@ -848,7 +849,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(CONVERSATION_SCHEMA.into()),
+                    schema: Some(CONVERSATION_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -857,7 +858,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(AGENT_RUN_SCHEMA.into()),
+                    schema: Some(AGENT_RUN_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -866,7 +867,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(AI_IMPORT_LEDGER_SCHEMA.into()),
+                    schema: Some(AI_IMPORT_LEDGER_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -878,7 +879,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(CONVERSATION_SCHEMA.into()),
+                    schema: Some(CONVERSATION_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -900,7 +901,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(CONVERSATION_SCHEMA.into()),
+                    schema: Some(CONVERSATION_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -909,7 +910,7 @@ mod tests {
         assert_eq!(
             store
                 .count(&ItemQuery {
-                    schema: Some(AI_IMPORT_LEDGER_SCHEMA.into()),
+                    schema: Some(AI_IMPORT_LEDGER_SCHEMA),
                     ..Default::default()
                 })
                 .unwrap(),

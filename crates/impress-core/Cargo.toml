@@ -53,9 +53,16 @@ impress-workspace-hack.workspace = true
 proptest = "1.4"
 tempfile = "3.10"
 
+[build-dependencies]
+# P7: generate both language vocabularies from the existing schema manifest.
+serde_json.workspace = true
+
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/
 # (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
 # make each of those files a binary of its own again.
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[lints]
+workspace = true

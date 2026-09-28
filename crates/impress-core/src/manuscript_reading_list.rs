@@ -38,14 +38,14 @@ use crate::sqlite_store::SqliteItemStore;
 use crate::store::{ItemStore, StoreError};
 
 /// imbib's publication record. Spelling copied from `schema-refs.json`.
-pub const ENTRY_SCHEMA: &str = "imbib/bibliography-entry";
+pub const ENTRY_SCHEMA: crate::SchemaRef = crate::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY;
 /// imbib's attachment record; its payload `is_pdf` marks a PDF.
-pub const LINKED_FILE_SCHEMA: &str = "imbib/linked-file";
+pub const LINKED_FILE_SCHEMA: crate::SchemaRef = crate::schema::refs::IMBIB_LINKED_FILE;
 /// Payload field on a reading-list collection naming its manuscript.
 pub const MANUSCRIPT_REF_FIELD: &str = "manuscript_ref";
 /// imbib's library record — the fallback home for a reading list whose
 /// manuscript cites nothing yet, so the collection can always be made.
-pub const LIBRARY_SCHEMA: &str = "imbib/library";
+pub const LIBRARY_SCHEMA: crate::SchemaRef = crate::schema::refs::IMBIB_LIBRARY;
 
 /// One row of a manuscript's reading list.
 #[derive(Debug, Clone, PartialEq)]
@@ -131,7 +131,12 @@ pub fn reading_collection(
     let manuscript = parse_id(manuscript_id)?;
     let binding = collection_ops::resolve(store, &IMBIB_COLLECTION)?;
     let q = ItemQuery {
-        schema: Some(binding.schema_ref.into()),
+        schema: Some(
+            binding
+                .schema_ref
+                .parse()
+                .expect("manifest collection binding"),
+        ),
         predicates: vec![Predicate::Eq(
             MANUSCRIPT_REF_FIELD.into(),
             Value::String(manuscript.to_string()),
@@ -200,7 +205,7 @@ fn entries_for_keys(
         return Ok(HashMap::new());
     }
     let q = ItemQuery {
-        schema: Some(ENTRY_SCHEMA.into()),
+        schema: Some(ENTRY_SCHEMA),
         predicates: vec![Predicate::In(
             "cite_key".into(),
             keys.iter().map(|k| Value::String(k.clone())).collect(),
@@ -227,7 +232,7 @@ fn entries_for_keys(
 
 fn has_pdf(store: &SqliteItemStore, entry: ItemId) -> Result<bool, StoreError> {
     let q = ItemQuery {
-        schema: Some(LINKED_FILE_SCHEMA.into()),
+        schema: Some(LINKED_FILE_SCHEMA),
         predicates: vec![
             Predicate::HasParent(entry),
             Predicate::Eq("is_pdf".into(), Value::Bool(true)),
@@ -395,7 +400,7 @@ fn default_collection_name(
 /// imbib's sidebar at all.
 fn oldest_library(store: &SqliteItemStore) -> Result<Option<ItemId>, StoreError> {
     let q = ItemQuery {
-        schema: Some(LIBRARY_SCHEMA.into()),
+        schema: Some(LIBRARY_SCHEMA),
         limit: None,
         include_tags: false,
         include_references: false,
@@ -550,7 +555,7 @@ mod tests {
 
     fn insert(
         store: &SqliteItemStore,
-        schema: &str,
+        schema: impl AsRef<str>,
         fields: &[(&str, Value)],
         parent: Option<ItemId>,
     ) -> ItemId {
@@ -558,7 +563,11 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_string(), v.clone()))
             .collect();
-        let mut item = new_item(store, schema, payload);
+        let mut item = new_item(
+            store,
+            &crate::SchemaRef::from_stored(schema.as_ref().to_owned()),
+            payload,
+        );
         item.parent = parent;
         store.insert(item).expect("insert")
     }

@@ -151,13 +151,13 @@ impl RenamePass {
     /// own turn.
     fn rewrite_kind(
         &self,
-        schema_ref: &str,
+        schema_ref: impress_core::SchemaRef,
         table: &RenameTable,
     ) -> crate::store::Result<(usize, usize)> {
         let items = self
             .store
             .query(&ItemQuery {
-                schema: Some(schema_ref.into()),
+                schema: Some(schema_ref.clone()),
                 include_tags: false,
                 include_references: false,
                 ..Default::default()

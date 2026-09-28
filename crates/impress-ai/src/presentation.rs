@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AiStore, Error, Result, INFERENCE_TASK_KIND};
 
-const CHAT_MESSAGE_SCHEMA: &str = "chat-message";
+const CHAT_MESSAGE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CHAT_MESSAGE;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AiToolOption {
@@ -120,7 +120,7 @@ impl AiStore {
         let store = self.shared_store();
         let mut message_counts = BTreeMap::<ItemId, u32>::new();
         for message in store.query(&ItemQuery {
-            schema: Some(CHAT_MESSAGE_SCHEMA.into()),
+            schema: Some(CHAT_MESSAGE_SCHEMA),
             ..Default::default()
         })? {
             if let Some(parent) = message.parent {
@@ -129,7 +129,7 @@ impl AiStore {
         }
         let mut pending_task_counts = BTreeMap::<ItemId, u32>::new();
         for task in store.query(&ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![
                 Predicate::Eq(
                     "payload.task_kind".into(),
@@ -167,7 +167,7 @@ impl AiStore {
         let snapshot = self.snapshot(conversation_id)?;
         let store = self.shared_store();
         let task_items = store.query(&ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![
                 Predicate::HasParent(conversation_id),
                 Predicate::Eq(
@@ -360,7 +360,7 @@ fn run_facets(
 
     let tool_invocations = store
         .query(&ItemQuery {
-            schema: Some(TOOL_INVOCATION_SCHEMA.into()),
+            schema: Some(TOOL_INVOCATION_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "produced_by".into(),
                 Value::String(run_id.to_string()),

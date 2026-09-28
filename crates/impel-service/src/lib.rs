@@ -497,7 +497,7 @@ impl DefaultImpelService {
             .iter()
             .map(|state| {
                 let q = ItemQuery {
-                    schema: Some(TASK_SCHEMA.into()),
+                    schema: Some(TASK_SCHEMA),
                     predicates: vec![Predicate::Eq(
                         "payload.state".into(),
                         Value::String((*state).into()),
@@ -532,7 +532,7 @@ impl DefaultImpelService {
     /// Unresolved reviews, oldest first.
     fn unresolved_reviews(store: &SqliteItemStore) -> Vec<Item> {
         let q = ItemQuery {
-            schema: Some(REVIEW_REQUEST_SCHEMA.into()),
+            schema: Some(REVIEW_REQUEST_SCHEMA),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: true,
@@ -571,7 +571,7 @@ impl ImpelService for DefaultImpelService {
         let all = ItemStore::query(
             &*store,
             &ItemQuery {
-                schema: Some(TASK_SCHEMA.into()),
+                schema: Some(TASK_SCHEMA),
                 include_tags: false,
                 include_references: false,
                 ..Default::default()
@@ -649,7 +649,7 @@ impl ImpelService for DefaultImpelService {
         let store = self.store();
         let cap = if limit <= 0 { 50 } else { limit as usize };
         let q = ItemQuery {
-            schema: Some(TASK_SCHEMA.into()),
+            schema: Some(TASK_SCHEMA),
             predicates: vec![Predicate::Eq(
                 "payload.state".into(),
                 Value::String("failed".into()),
@@ -740,7 +740,7 @@ impl ImpelService for DefaultImpelService {
                 message: format!("no item {review_id}"),
             };
         };
-        if review.schema.as_str() != REVIEW_REQUEST_SCHEMA {
+        if review.schema != REVIEW_REQUEST_SCHEMA {
             return ActionReport {
                 ok: false,
                 message: format!("{review_id} is a {}, not a review", review.schema.as_str()),
@@ -795,7 +795,7 @@ impl ImpelService for DefaultImpelService {
                 message: format!("no item {task_id}"),
             };
         };
-        if task.schema.as_str() != TASK_SCHEMA {
+        if task.schema != TASK_SCHEMA {
             return ActionReport {
                 ok: false,
                 message: format!("{task_id} is a {}, not a task", task.schema.as_str()),

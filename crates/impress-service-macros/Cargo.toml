@@ -21,3 +21,6 @@ impress-workspace-hack.workspace = true
 # misspelt ref in an `effects` declaration is a compile error (ADR-0036 D1).
 [build-dependencies]
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

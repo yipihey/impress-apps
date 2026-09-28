@@ -11,14 +11,14 @@ use impress_core::item::Item;
 
 use impel_core::{SpawnError, SpawnRule, TaskSpec, TaskStoreApi};
 
-use crate::{BIBLIOGRAPHY_ENTRY_SCHEMA, KIND_KEYWORD_TAG, KIND_METADATA_RESOLVE};
+use crate::{KIND_KEYWORD_TAG, KIND_METADATA_RESOLVE};
 
 pub struct EnrichmentSpawnRule;
 
 #[async_trait]
 impl SpawnRule for EnrichmentSpawnRule {
     fn trigger_schema(&self) -> &str {
-        BIBLIOGRAPHY_ENTRY_SCHEMA
+        impress_core::schema::names::IMBIB_BIBLIOGRAPHY_ENTRY
     }
 
     fn rule_id(&self) -> &str {

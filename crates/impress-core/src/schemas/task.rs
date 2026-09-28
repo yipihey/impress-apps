@@ -41,23 +41,23 @@ use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The canonical task ref. Written by `impel_core::task_spawn::create_task_dag`
 /// and impel's `SharedTaskBridge`; selected by `ready_tasks`.
-pub const TASK_SCHEMA: &str = "task@1.0.0";
+pub const TASK_SCHEMA: crate::SchemaRef = crate::schema::refs::TASK;
 
 /// The canonical agent-run ref. Written by
 /// `impel_core::TaskStoreApi::record_agent_run` and impel's `SharedTaskBridge`.
-pub const AGENT_RUN_SCHEMA: &str = "agent-run@1.0.0";
+pub const AGENT_RUN_SCHEMA: crate::SchemaRef = crate::schema::refs::AGENT_RUN;
 
 /// The canonical task-event ref (ADR-0034 D6). **VERSIONED**, like the two
 /// kinds above it. One row per progress event a job emitted, pruned to the
 /// last [`crate::job::EVENT_RING_CAPACITY`] per task — the surface event
 /// ring's shape (`seq`, gap-free, bounded) applied to a `task@1.0.0` row.
 /// Written and read ONLY by `impress_core::job`.
-pub const TASK_EVENT_SCHEMA: &str = "task-event@1.0.0";
+pub const TASK_EVENT_SCHEMA: crate::SchemaRef = crate::schema::refs::TASK_EVENT;
 
 /// Schema for task items — units of work assigned to humans or agents.
 pub fn task_schema() -> Schema {
     Schema {
-        id: TASK_SCHEMA.into(),
+        id: TASK_SCHEMA,
         name: "Task".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -147,7 +147,7 @@ pub fn task_schema() -> Schema {
 /// Schema for agent-run items — records of a single AI agent execution.
 pub fn agent_run_schema() -> Schema {
     Schema {
-        id: AGENT_RUN_SCHEMA.into(),
+        id: AGENT_RUN_SCHEMA,
         name: "Agent Run".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -240,7 +240,7 @@ pub fn agent_run_schema() -> Schema {
 /// on the surface ring.
 pub fn task_event_schema() -> Schema {
     Schema {
-        id: TASK_EVENT_SCHEMA.into(),
+        id: TASK_EVENT_SCHEMA,
         name: "Task Event".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -295,7 +295,7 @@ fn register_task_pair(registry: &mut SchemaRegistry) {
 /// without the duplicate-id error. Two entry points registering ONE definition
 /// is fine; the thing C4 removed was two definitions.
 pub fn register_task_schemas_if_absent(registry: &mut SchemaRegistry) {
-    if registry.get(TASK_SCHEMA).is_none() && registry.get(AGENT_RUN_SCHEMA).is_none() {
+    if registry.get(&TASK_SCHEMA).is_none() && registry.get(&AGENT_RUN_SCHEMA).is_none() {
         register_task_pair(registry);
     }
 }
@@ -340,10 +340,10 @@ mod tests {
     fn task_schemas_register() {
         let mut reg = SchemaRegistry::new();
         register_task_schemas(&mut reg);
-        assert!(reg.get(TASK_SCHEMA).is_some());
-        assert!(reg.get(AGENT_RUN_SCHEMA).is_some());
-        assert!(reg.get(TASK_EVENT_SCHEMA).is_some());
-        assert_eq!(task_event_schema().id, "task-event@1.0.0");
+        assert!(reg.get(&TASK_SCHEMA).is_some());
+        assert!(reg.get(&AGENT_RUN_SCHEMA).is_some());
+        assert!(reg.get(&TASK_EVENT_SCHEMA).is_some());
+        assert_eq!(task_event_schema().id, TASK_EVENT_SCHEMA);
     }
 
     /// impel's entry point registers the pair impel writes and nothing
@@ -353,14 +353,14 @@ mod tests {
     fn the_if_absent_entry_point_registers_only_the_pair() {
         let mut reg = SchemaRegistry::new();
         register_task_schemas_if_absent(&mut reg);
-        assert!(reg.get(TASK_SCHEMA).is_some());
-        assert!(reg.get(TASK_EVENT_SCHEMA).is_none());
+        assert!(reg.get(&TASK_SCHEMA).is_some());
+        assert!(reg.get(&TASK_EVENT_SCHEMA).is_none());
         // And it composes with the full registration in either order.
         register_task_schemas_if_absent(&mut reg);
         let mut full = SchemaRegistry::new();
         register_task_schemas(&mut full);
         register_task_schemas_if_absent(&mut full);
-        assert!(full.get(TASK_EVENT_SCHEMA).is_some());
+        assert!(full.get(&TASK_EVENT_SCHEMA).is_some());
     }
 
     /// The job fields a `task@1.0.0` row carries (ADR-0034 D6) are
@@ -381,8 +381,8 @@ mod tests {
     /// caught right here.
     #[test]
     fn ids_are_the_canonical_versioned_refs() {
-        assert_eq!(task_schema().id, "task@1.0.0");
-        assert_eq!(agent_run_schema().id, "agent-run@1.0.0");
+        assert_eq!(task_schema().id, TASK_SCHEMA);
+        assert_eq!(agent_run_schema().id, AGENT_RUN_SCHEMA);
         assert_eq!(TASK_SCHEMA, task_schema().id);
         assert_eq!(AGENT_RUN_SCHEMA, agent_run_schema().id);
     }

@@ -19,7 +19,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// points (HTTP / MCP / CLI) and the persona contract for Scout.
 pub fn manuscript_submission_schema() -> Schema {
     Schema {
-        id: "manuscript-submission".into(),
+        id: crate::schema::refs::MANUSCRIPT_SUBMISSION,
         name: "Manuscript Submission".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -145,7 +145,7 @@ pub fn manuscript_submission_schema() -> Schema {
         // `task` from the day it was written — an inherits link to an id that
         // register_core_schemas did not produce would resolve to nothing.
         // Corrected in WP C4 when the bare spelling was retired.
-        inherits: Some(crate::schemas::task::TASK_SCHEMA.into()),
+        inherits: Some(crate::schemas::task::TASK_SCHEMA),
     }
 }
 
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn manuscript_submission_inherits_task() {
         let s = manuscript_submission_schema();
-        assert_eq!(s.inherits, Some("task@1.0.0".into()));
+        assert_eq!(s.inherits, Some(crate::schema::refs::TASK));
         // …and the parent really is registered under that id, so the link
         // resolves. A bare `task` inherits target resolved to nothing.
         let mut reg = SchemaRegistry::new();

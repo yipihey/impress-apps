@@ -5,7 +5,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// Schema id of the generic collection. Items are stored with this bare
 /// `schema_ref` (the registry is keyed by id; the version lives on the
 /// `Schema` — same convention as `manuscript-collection`).
-pub const COLLECTION_SCHEMA: &str = "collection";
+pub const COLLECTION_SCHEMA: crate::SchemaRef = crate::schema::refs::COLLECTION;
 
 /// `kind_scope` value for a collection that accepts every record kind.
 pub const KIND_SCOPE_ANY: &str = "any";
@@ -26,7 +26,7 @@ pub const KIND_SCOPE_ANY: &str = "any";
 /// collections is deferred to a future ADR.
 pub fn collection_schema() -> Schema {
     Schema {
-        id: COLLECTION_SCHEMA.into(),
+        id: COLLECTION_SCHEMA,
         name: "Collection".into(),
         version: "1.0.0".into(),
         fields: vec![

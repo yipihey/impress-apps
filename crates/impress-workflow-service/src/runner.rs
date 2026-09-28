@@ -26,7 +26,7 @@ use crate::store::{self, WorkflowRow};
 /// `core/verb-call@1.0.0` (`impress_service_core::pipeline::audit`) — the
 /// `call` trigger's own feed. Named again here rather than depending on the
 /// audit module's private constant path from a different crate family.
-const VERB_CALL_SCHEMA: &str = "core/verb-call@1.0.0";
+const VERB_CALL_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::CORE_VERB_CALL;
 
 /// One workflow run's outcome, for a host's own logging.
 #[derive(Debug, Clone)]
@@ -213,9 +213,9 @@ impl WorkflowEngine {
                     self.arrivals.advance(kind, max_rowid);
                 }
                 Trigger::Job { verb, state } => {
-                    let after = self.arrivals.get(TASK_SCHEMA);
+                    let after = self.arrivals.get(TASK_SCHEMA.as_str());
                     let page = store
-                        .items_arrived_after(TASK_SCHEMA, after, 64)
+                        .items_arrived_after(TASK_SCHEMA.as_str(), after, 64)
                         .unwrap_or_default();
                     let mut max_rowid = after;
                     for (rowid, item) in page {
@@ -248,12 +248,12 @@ impl WorkflowEngine {
                             });
                         }
                     }
-                    self.arrivals.advance(TASK_SCHEMA, max_rowid);
+                    self.arrivals.advance(TASK_SCHEMA.as_str(), max_rowid);
                 }
                 Trigger::Call { verb } => {
-                    let after = self.arrivals.get(VERB_CALL_SCHEMA);
+                    let after = self.arrivals.get(VERB_CALL_SCHEMA.as_str());
                     let page = store
-                        .items_arrived_after(VERB_CALL_SCHEMA, after, 64)
+                        .items_arrived_after(VERB_CALL_SCHEMA.as_str(), after, 64)
                         .unwrap_or_default();
                     let mut max_rowid = after;
                     for (rowid, item) in page {
@@ -281,7 +281,7 @@ impl WorkflowEngine {
                             });
                         }
                     }
-                    self.arrivals.advance(VERB_CALL_SCHEMA, max_rowid);
+                    self.arrivals.advance(VERB_CALL_SCHEMA.as_str(), max_rowid);
                 }
                 Trigger::Schedule { .. } | Trigger::Manual {} => {}
             }
@@ -427,7 +427,7 @@ mod tests {
         );
         let _ = store.insert(impress_core::item::Item {
             id: uuid::Uuid::new_v4(),
-            schema: "imbib/bibliography-entry".into(),
+            schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
             payload,
             created: chrono::Utc::now(),
             modified: chrono::Utc::now(),
@@ -503,7 +503,7 @@ mod tests {
             store
                 .insert(impress_core::item::Item {
                     id,
-                    schema: "test".into(),
+                    schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
                     payload,
                     created: chrono::Utc::now(),
                     modified: chrono::Utc::now(),

@@ -468,7 +468,7 @@ mod tests {
         }
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: schema.into(),
+            schema: crate::SchemaRef::from_stored(schema.to_owned()),
             payload,
             created: now,
             modified: now,

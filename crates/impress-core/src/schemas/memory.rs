@@ -55,16 +55,16 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// The canonical memory-claim ref. VERSIONED and namespaced under `memory/`:
 /// copy this spelling, never a sibling call site (root CLAUDE.md, "Definition
 /// of done — schema refs"). The store matches `schema_ref` by exact equality.
-pub const MEMORY_CLAIM_SCHEMA: &str = "memory/claim@1.0.0";
+pub const MEMORY_CLAIM_SCHEMA: crate::SchemaRef = crate::schema::refs::MEMORY_CLAIM;
 
 /// The canonical memory-episode ref. Versioned for the same reason its
 /// siblings are: the payload shape is the contract the recall kernel and every
 /// downstream memory surface read, and a v2 must be able to coexist with v1
 /// rows in a live store.
-pub const MEMORY_EPISODE_SCHEMA: &str = "memory/episode@1.0.0";
+pub const MEMORY_EPISODE_SCHEMA: crate::SchemaRef = crate::schema::refs::MEMORY_EPISODE;
 
 /// The canonical memory-instruction ref.
-pub const MEMORY_INSTRUCTION_SCHEMA: &str = "memory/instruction@1.0.0";
+pub const MEMORY_INSTRUCTION_SCHEMA: crate::SchemaRef = crate::schema::refs::MEMORY_INSTRUCTION;
 
 // ── Vocabularies ─────────────────────────────────────────────────────────────
 //
@@ -202,7 +202,7 @@ pub fn memory_claim_schema() -> Schema {
          true\" are different memories however similar their prose.",
     ));
     Schema {
-        id: MEMORY_CLAIM_SCHEMA.into(),
+        id: MEMORY_CLAIM_SCHEMA,
         name: "Memory Claim".into(),
         version: "1.0.0".into(),
         fields,
@@ -244,7 +244,7 @@ pub fn memory_episode_schema() -> Schema {
         ),
     ]);
     Schema {
-        id: MEMORY_EPISODE_SCHEMA.into(),
+        id: MEMORY_EPISODE_SCHEMA,
         name: "Memory Episode".into(),
         version: "1.0.0".into(),
         fields,
@@ -274,7 +274,7 @@ pub fn memory_instruction_schema() -> Schema {
         ),
     ]);
     Schema {
-        id: MEMORY_INSTRUCTION_SCHEMA.into(),
+        id: MEMORY_INSTRUCTION_SCHEMA,
         name: "Memory Instruction".into(),
         version: "1.0.0".into(),
         fields,
@@ -363,9 +363,9 @@ mod tests {
     fn all_three_schemas_register() {
         let mut reg = SchemaRegistry::new();
         register_memory_schemas(&mut reg);
-        assert!(reg.get(MEMORY_CLAIM_SCHEMA).is_some());
-        assert!(reg.get(MEMORY_EPISODE_SCHEMA).is_some());
-        assert!(reg.get(MEMORY_INSTRUCTION_SCHEMA).is_some());
+        assert!(reg.get(&MEMORY_CLAIM_SCHEMA).is_some());
+        assert!(reg.get(&MEMORY_EPISODE_SCHEMA).is_some());
+        assert!(reg.get(&MEMORY_INSTRUCTION_SCHEMA).is_some());
     }
 
     /// The ids ARE the refs writers emit. A rename here without a
@@ -373,9 +373,9 @@ mod tests {
     /// rename that forgets the constants is caught right here.
     #[test]
     fn ids_are_the_canonical_versioned_refs() {
-        assert_eq!(memory_claim_schema().id, "memory/claim@1.0.0");
-        assert_eq!(memory_episode_schema().id, "memory/episode@1.0.0");
-        assert_eq!(memory_instruction_schema().id, "memory/instruction@1.0.0");
+        assert_eq!(memory_claim_schema().id, MEMORY_CLAIM_SCHEMA);
+        assert_eq!(memory_episode_schema().id, MEMORY_EPISODE_SCHEMA);
+        assert_eq!(memory_instruction_schema().id, MEMORY_INSTRUCTION_SCHEMA);
         assert_eq!(MEMORY_CLAIM_SCHEMA, memory_claim_schema().id);
         assert_eq!(MEMORY_EPISODE_SCHEMA, memory_episode_schema().id);
         assert_eq!(MEMORY_INSTRUCTION_SCHEMA, memory_instruction_schema().id);

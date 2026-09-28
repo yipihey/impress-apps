@@ -65,7 +65,7 @@ fn draft(title: &str, body: &str) -> MemoryDraft {
 fn claim_count(store: &SqliteItemStore) -> usize {
     store
         .query(&impress_core::query::ItemQuery {
-            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            schema: Some(MemoryKind::Claim.schema_ref()),
             ..Default::default()
         })
         .expect("query claims")

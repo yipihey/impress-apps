@@ -171,7 +171,13 @@ for path in candidate_files():
             continue
         for pattern in patterns:
             for match in pattern.finditer(line):
-                findings.append((path, lineno, match.group(1)))
+                ref = match.group(1)
+                # A Rust format capture is an expression, not another spelling
+                # of a schema name. SQL constants now capture generated refs;
+                # ordinary query fields are checked by the SchemaRef type.
+                if not swift and re.fullmatch(r'\{[A-Za-z_][A-Za-z0-9_]*\}', ref):
+                    continue
+                findings.append((path, lineno, ref))
         if swift:
             for match in SWIFT_REFS_ARRAY.finditer(line):
                 for ref in QUOTED.findall(match.group(1)):
@@ -236,6 +242,15 @@ if len(divergences) > budget:
 
 unknown = [f for f in findings if f[2] not in permitted]
 
+# P7: Rust declarations and queries take manifest-generated references. Keep
+# this cheap backstop for raw SQL/wire boundaries where Rust cannot check the
+# meaning of an arbitrary string. Even a correctly spelt duplicate is drift.
+rust_literals = [f for f in findings if f[0].endswith('.rs')]
+for path, lineno, ref in sorted(rust_literals):
+    errors.append("%s:%d  Rust schema literal %r duplicates schema-refs.json; "
+                  "use impress_core::schema::refs (or names at a string boundary)"
+                  % (os.path.relpath(path, ROOT), lineno, ref))
+
 for path, lineno, ref in sorted(unknown):
     rel = os.path.relpath(path, ROOT)
     if ref in unwritten:
@@ -277,6 +292,6 @@ if divergences:
         print("  %-22s %s" % ("", d["why"]))
     print()
 
-print("schema refs OK (%d call sites, %d canonical refs, %d known divergences)"
-      % (len(findings), len(canonical), len(divergences)))
+print("schema refs OK (%d Swift literal sites, %d Rust literal sites, %d canonical refs, %d known divergences)"
+      % (len(findings) - len(rust_literals), len(rust_literals), len(canonical), len(divergences)))
 PYTHON

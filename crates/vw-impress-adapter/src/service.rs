@@ -603,7 +603,7 @@ mod tests {
             .repository
             .store()
             .query(&ItemQuery {
-                schema: Some(crate::VW_OBSERVATION_SCHEMA.into()),
+                schema: Some(crate::VW_OBSERVATION_SCHEMA),
                 ..Default::default()
             })
             .unwrap();

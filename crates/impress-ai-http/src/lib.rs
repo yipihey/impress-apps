@@ -442,7 +442,7 @@ async fn health(
                 // ADR-0027 D3: chunk volume is a measured number. Inserts mint
                 // no ops, so it needs its own line here.
                 store
-                    .count_items_of_schema(impress_core::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF)
+                    .count_items_of_schema(&impress_core::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF)
                     .unwrap_or(0),
             )
         })

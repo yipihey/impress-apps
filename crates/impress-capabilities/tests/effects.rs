@@ -130,6 +130,229 @@ const CATALOGUES: &[(&str, &[&str], &[&str])] = &[
     ),
 ];
 
+/// Reviewed, exact Tier A attribution. A passing catalogue does not prove
+/// every verb in its service: only a passing, non-skipped capability listed
+/// here may credit the methods it actually calls and checks. The catalogue's
+/// effects-spy union check remains a separate service-wide safety check.
+const CATALOGUE_VERB_EVIDENCE: &[(&str, &str, &[&str])] = &[
+    (
+        "layout",
+        "save-and-apply-layout",
+        &["apply-layout", "save-layout"],
+    ),
+    ("layout", "apply-preset", &["apply-preset"]),
+    ("layout", "bind-param", &["bind-param"]),
+    ("layout", "close", &["close"]),
+    ("layout", "commit", &["commit"]),
+    ("layout", "delete-layout", &["delete-layout"]),
+    ("layout", "detach", &["detach"]),
+    ("layout", "focus", &["focus"]),
+    ("layout", "focus-direction", &["focus-direction"]),
+    ("layout", "get-channel", &["get-channel"]),
+    (
+        "layout",
+        "get-pane-compiles-the-detail-query",
+        &["get-pane"],
+    ),
+    ("layout", "maximize-restore", &["maximize", "restore"]),
+    ("layout", "move-tile", &["move-tile"]),
+    ("layout", "undo-redo-arrangement", &["redo", "undo"]),
+    (
+        "layout",
+        "save-and-reset-preset",
+        &["reset-preset", "save-preset"],
+    ),
+    ("layout", "resize", &["resize"]),
+    ("layout", "resolve-reference", &["resolve-reference"]),
+    ("layout", "select", &["select"]),
+    ("layout", "set-channel", &["set-channel"]),
+    ("layout", "set-collapsed", &["set-collapsed"]),
+    ("layout", "set-container-kind", &["set-container-kind"]),
+    ("layout", "set-default-channel", &["set-default-channel"]),
+    ("layout", "set-pane", &["set-pane"]),
+    ("layout", "set-query", &["set-query"]),
+    ("layout", "set-role", &["set-role"]),
+    ("layout", "set-view-kind", &["set-view-kind"]),
+    ("layout", "set-window-geometry", &["set-window-geometry"]),
+    ("layout", "split", &["split"]),
+    ("layout", "swap", &["swap"]),
+    (
+        "surface",
+        "create-get-list-delete",
+        &["surface-create", "surface-delete", "surface-get"],
+    ),
+    ("surface", "dispatch-change", &["surface-dispatch"]),
+    ("surface", "events-after-cursor", &["surface-events"]),
+    ("surface", "render", &["surface-render"]),
+    ("surface", "show", &["surface-show"]),
+    (
+        "surface",
+        "state-get-set",
+        &["surface-state-get", "surface-state-set"],
+    ),
+    ("surface", "update", &["surface-update"]),
+    ("surface", "validate-clean", &["surface-validate"]),
+    ("surface", "wait-immediate", &["surface-wait"]),
+    (
+        "imprint",
+        "manuscript.section_roundtrip",
+        &[
+            "imprint-manuscript-service_delete-section",
+            "imprint-manuscript-service_get-section",
+            "imprint-manuscript-service_list-sections",
+            "imprint-manuscript-service_put-section",
+        ],
+    ),
+    (
+        "imprint",
+        "manuscript.replace_in_section",
+        &["imprint-manuscript-service_replace-in-section"],
+    ),
+    (
+        "imprint",
+        "manuscript.compile_typst_headless_contract",
+        &["imprint-manuscript-service_compile-typst"],
+    ),
+    // The default headless backend explicitly requires the native host for
+    // export bytes. P5b's hosted proof covers the positive native operation.
+    (
+        "imprint",
+        "manuscript.export_document_headless_refusal",
+        &["imprint-manuscript-service_export-document"],
+    ),
+    (
+        "imprint",
+        "manuscript.document_access",
+        &[
+            "imprint-manuscript-service_get-document",
+            "imprint-manuscript-service_search",
+        ],
+    ),
+    (
+        "imprint",
+        "manuscript.presentation",
+        &[
+            "imprint-manuscript-service_presentation-outline",
+            "imprint-manuscript-service_reorder-presentation-slide",
+            "imprint-manuscript-service_set-presentation-slide-beat",
+        ],
+    ),
+    (
+        "imprint",
+        "project.tree_roundtrip",
+        &[
+            "imprint-project-service_project-delete-file",
+            "imprint-project-service_project-file",
+            "imprint-project-service_project-move-file",
+            "imprint-project-service_project-put-file",
+            "imprint-project-service_project-tree",
+        ],
+    ),
+    (
+        "imprint",
+        "project.graph_diagnostics",
+        &[
+            "imprint-project-service_project-graph",
+            "imprint-project-service_project-set-figure-build",
+        ],
+    ),
+    (
+        "imprint",
+        "project.import_export_snapshot",
+        &[
+            "imprint-project-service_project-import-directory",
+            "imprint-project-service_project-materialize",
+            "imprint-project-service_project-snapshot",
+        ],
+    ),
+    (
+        "imprint",
+        "project.build_records",
+        &[
+            "imprint-project-service_project-builds",
+            "imprint-project-service_project-set-targets",
+        ],
+    ),
+    (
+        "imprint",
+        "project.figures_and_working_copy",
+        &[
+            "imprint-project-service_project-checkin",
+            "imprint-project-service_project-checkout",
+            "imprint-project-service_project-new-figure",
+            "imprint-project-service_project-status",
+        ],
+    ),
+    (
+        "imprint",
+        "papers.sync_reading_collection",
+        &[
+            "imprint-project-service_project-reading-list",
+            "imprint-project-service_project-sync-reading-collection",
+        ],
+    ),
+    (
+        "imprint",
+        "project.metadata_and_export",
+        &[
+            "imprint-project-service_project-set-entry",
+            "imprint-project-service_project-set-bibliography",
+            "imprint-project-service_project-outline",
+            "imprint-project-service_project-export",
+            "imprint-project-service_project-citations",
+        ],
+    ),
+    (
+        "imprint",
+        "project.collection_roundtrip",
+        &[
+            "imprint-project-service_project-collect",
+            "imprint-project-service_project-uncollect",
+        ],
+    ),
+    (
+        "imprint",
+        "project.compile_and_output",
+        &[
+            "imprint-project-service_project-compile",
+            "imprint-project-service_project-build-output",
+        ],
+    ),
+    (
+        "imprint",
+        "throughline.create",
+        &[
+            "imprint-throughline-service_create-throughline",
+            "imprint-throughline-service_get-throughline",
+        ],
+    ),
+    (
+        "imprint",
+        "throughline.anchor_states",
+        &[
+            "imprint-throughline-service_get-anchor-states",
+            "imprint-throughline-service_set-anchor",
+            "imprint-throughline-service_update-throughline-source",
+        ],
+    ),
+    (
+        "imprint",
+        "throughline.coverage",
+        &[
+            "imprint-throughline-service_get-coverage",
+            "imprint-throughline-service_mark-supporting",
+        ],
+    ),
+    (
+        "imprint",
+        "throughline.remove_and_delete",
+        &[
+            "imprint-throughline-service_remove-anchor",
+            "imprint-throughline-service_delete-throughline",
+        ],
+    ),
+];
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -263,8 +486,11 @@ enum Verified {
     /// `n` examples ran, every observed kind declared, and at least one
     /// declared read or write was actually seen (or the verb declares none).
     Example(usize),
-    /// Its service is exercised by a Tier A catalogue whose union check held.
-    Catalogue(&'static str),
+    /// The named Tier A capability passed and asserted this exact method.
+    Catalogue {
+        name: &'static str,
+        capability: &'static str,
+    },
     /// On the exception table, with the reason the test computed. Covers both
     /// "could not run" (no example, needs a running app, leaves the process)
     /// and "ran but proved nothing": a verb that declares a read or a write
@@ -286,7 +512,7 @@ impl Verified {
     fn cell(&self) -> String {
         match self {
             Verified::Example(n) => format!("example ×{n}"),
-            Verified::Catalogue(c) => format!("catalogue:{c}"),
+            Verified::Catalogue { name, .. } => format!("catalogue:{name}"),
             Verified::Exception(_) => "—".to_string(),
         }
     }
@@ -329,10 +555,10 @@ fn resolve(kind: &Kind, args: &Value, store: &SqliteItemStore) -> Option<Vec<Str
                 ..Default::default()
             };
             if let Ok(rows) = store.query(&q) {
-                kinds.extend(rows.into_iter().map(|r| r.schema));
+                kinds.extend(rows.into_iter().map(|r| r.schema.to_string()));
             }
         } else if let Ok(Some(row)) = store.get(id) {
-            kinds.push(row.schema);
+            kinds.push(row.schema.to_string());
         }
     }
     if kinds.is_empty() {
@@ -436,7 +662,7 @@ fn scratch_store() -> Arc<SqliteItemStore> {
 fn seed_item(id: ItemId, schema: &str, parent: Option<ItemId>) -> Item {
     Item {
         id,
-        schema: schema.into(),
+        schema: schema.parse().expect("declared effects fixture schema"),
         payload: BTreeMap::new(),
         created: std::time::SystemTime::UNIX_EPOCH.into(),
         modified: std::time::SystemTime::UNIX_EPOCH.into(),
@@ -488,7 +714,7 @@ fn verify_bibtex_collection_example(
         .as_str()
         .ok_or("example omitted library_id")?;
     let library_id = ItemId::parse_str(library_id_text).map_err(|e| e.to_string())?;
-    if paper.schema != "imbib/bibliography-entry"
+    if paper.schema != impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY
         || paper.parent != Some(library_id)
         || paper.payload.get("title") != Some(&ItemValue::String("P5b Effects Paper".into()))
     {
@@ -662,6 +888,11 @@ async fn run_catalogue(
             "catalogue `{name}` has failing capabilities: {failed:?}"
         ));
     }
+    if !results.iter().any(|(_, pass, skipped)| *pass && !*skipped) {
+        out.catalogue_failures.push(format!(
+            "catalogue `{name}` passed no capability; it cannot verify its services"
+        ));
+    }
     let members: Vec<_> = verbs
         .iter()
         .filter(|v| services.contains(&v.service))
@@ -698,10 +929,42 @@ async fn run_catalogue(
             ));
         }
     }
-    for v in members {
-        out.verified
-            .entry(v.name)
-            .or_insert(Verified::Catalogue(name));
+    let passed: BTreeSet<_> = results
+        .iter()
+        .filter(|(_, pass, skipped)| *pass && !*skipped)
+        .map(|(id, _, _)| id.as_str())
+        .collect();
+    for &(catalogue, capability, methods) in CATALOGUE_VERB_EVIDENCE {
+        if catalogue != name {
+            continue;
+        }
+        if !results.iter().any(|(id, _, _)| id == capability) {
+            out.catalogue_failures.push(format!(
+                "catalogue `{name}` has no capability `{capability}` named by its evidence map"
+            ));
+            continue;
+        }
+        for method in methods {
+            let verb_name = if name == "layout" {
+                format!("layout-service_{method}")
+            } else if name == "surface" {
+                format!("impress-surface-service_{method}")
+            } else {
+                (*method).to_string()
+            };
+            if !members.iter().any(|v| v.name == verb_name) {
+                out.catalogue_failures.push(format!(
+                    "catalogue `{name}` maps `{capability}` to unknown verb `{verb_name}`"
+                ));
+            } else if passed.contains(capability) {
+                // Static descriptor names outlive this local string; find the
+                // canonical inventory key rather than leaking a generated one.
+                let verb = members.iter().find(|v| v.name == verb_name).unwrap();
+                out.verified
+                    .entry(verb.name)
+                    .or_insert(Verified::Catalogue { name, capability });
+            }
+        }
     }
 }
 
@@ -767,6 +1030,107 @@ fn verification() -> &'static Verification {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/// P7's feature self-test golden: the linked verb inventory is the set to
+/// account for. An exception is an explicit coverage gap, not a passing test.
+/// The existing ceiling and the reviewed reason table make those gaps visible
+/// until an example or Tier A catalogue can replace them.
+#[test]
+fn every_linked_verb_has_selftest_evidence_or_a_reviewed_exception() {
+    let inventory = verbs();
+    let done = verification();
+    let (_, exceptions) = table();
+    let linked: BTreeSet<_> = inventory.iter().map(|v| v.name).collect();
+    let accounted: BTreeSet<_> = done.verified.keys().copied().collect();
+    let missing: Vec<_> = linked.difference(&accounted).copied().collect();
+    let unexpected: Vec<_> = accounted.difference(&linked).copied().collect();
+    assert!(
+        linked.len() == inventory.len() && missing.is_empty() && unexpected.is_empty(),
+        "self-test inventory mismatch: {} descriptors, {} unique names, missing {missing:?}, unexpected {unexpected:?}",
+        inventory.len(), linked.len()
+    );
+
+    let mut problems = done.failures.clone();
+    problems.extend(done.catalogue_failures.iter().cloned());
+    let mut exception_count = 0;
+    for v in inventory {
+        match &done.verified[v.name] {
+            Verified::Example(0) => problems.push(format!(
+                "`{}` claims example coverage, but no example ran",
+                v.name
+            )),
+            Verified::Example(n) => {
+                if *n > v.examples.len() {
+                    problems.push(format!(
+                        "`{}` claims {n} examples, but declares only {}",
+                        v.name,
+                        v.examples.len()
+                    ));
+                }
+                if exceptions.contains_key(v.name) {
+                    problems.push(format!(
+                        "`{}` has example coverage but remains on the exception table",
+                        v.name
+                    ));
+                }
+            }
+            Verified::Catalogue { name, capability } => {
+                if !CATALOGUES.iter().any(|(candidate, services, _)| {
+                    candidate == name && services.contains(&v.service)
+                }) || !CATALOGUE_VERB_EVIDENCE
+                    .iter()
+                    .any(|(candidate, id, methods)| {
+                        candidate == name
+                            && id == capability
+                            && methods.iter().any(|method| {
+                                let expected = match *name {
+                                    "layout" => format!("layout-service_{method}"),
+                                    "surface" => format!("impress-surface-service_{method}"),
+                                    _ => (*method).to_string(),
+                                };
+                                expected == v.name
+                            })
+                    })
+                {
+                    problems.push(format!(
+                        "`{}` claims catalogue `{name}` capability `{capability}` without exact attribution",
+                        v.name,
+                    ));
+                }
+                if exceptions.contains_key(v.name) {
+                    problems.push(format!(
+                        "`{}` has catalogue coverage but remains on the exception table",
+                        v.name
+                    ));
+                }
+            }
+            Verified::Exception(reason) => {
+                exception_count += 1;
+                if exceptions.get(v.name).map(String::as_str) != Some(reason.as_str()) {
+                    problems.push(format!(
+                        "`{}` has an unreviewed exception `{reason}`",
+                        v.name
+                    ));
+                }
+            }
+        }
+    }
+    for name in exceptions.keys() {
+        if !linked.contains(name.as_str()) && !is_optional_feature_verb(name) {
+            problems.push(format!("exception table names unlinked verb `{name}`"));
+        }
+    }
+    assert!(
+        exceptions.len() <= EXCEPTION_CEILING,
+        "{} documented exceptions ({exception_count} linked) exceed the reviewed ceiling {EXCEPTION_CEILING}",
+        exceptions.len()
+    );
+    assert!(
+        problems.is_empty(),
+        "self-test evidence gaps:\n- {}",
+        problems.join("\n- ")
+    );
+}
 
 #[test]
 fn every_declared_ref_is_canonical() {
@@ -889,7 +1253,7 @@ fn every_verb_declares_what_the_table_records() {
                 "`{}` could not be verified ({reason}) but is not on the exception table; add:\n  | `{}` | {reason} |",
                 v.name, v.name
             )),
-            (Verified::Example(_) | Verified::Catalogue(_), Some(_)) => problems.push(format!(
+            (Verified::Example(_) | Verified::Catalogue { .. }, Some(_)) => problems.push(format!(
                 "`{}` is verified by the test but still on the exception table; delete the row",
                 v.name
             )),
@@ -947,7 +1311,7 @@ fn dump() {
         let verified = &done.verified[v.name];
         match verified {
             Verified::Example(_) => by_example += 1,
-            Verified::Catalogue(_) => by_catalogue += 1,
+            Verified::Catalogue { .. } => by_catalogue += 1,
             Verified::Exception(reason) => exceptions.push((v.name, reason)),
         }
         println!("{}", row_text(v, &verified.cell()));

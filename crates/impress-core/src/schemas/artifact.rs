@@ -5,7 +5,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// Schema for research presentations (talks, slides, lecture recordings).
 pub fn presentation_schema() -> Schema {
     Schema {
-        id: "impress/artifact/presentation".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_PRESENTATION,
         name: "Presentation".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -17,7 +17,7 @@ pub fn presentation_schema() -> Schema {
 /// Schema for conference posters.
 pub fn poster_schema() -> Schema {
     Schema {
-        id: "impress/artifact/poster".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_POSTER,
         name: "Poster".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -29,7 +29,7 @@ pub fn poster_schema() -> Schema {
 /// Schema for dataset documentation (READMEs, codebooks).
 pub fn dataset_schema() -> Schema {
     Schema {
-        id: "impress/artifact/dataset".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_DATASET,
         name: "Dataset".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -41,7 +41,7 @@ pub fn dataset_schema() -> Schema {
 /// Schema for web pages (blog posts, tutorials, documentation).
 pub fn webpage_schema() -> Schema {
     Schema {
-        id: "impress/artifact/webpage".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_WEBPAGE,
         name: "Web Page".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -53,7 +53,7 @@ pub fn webpage_schema() -> Schema {
 /// Schema for quick research notes and ideas.
 pub fn note_schema() -> Schema {
     Schema {
-        id: "impress/artifact/note".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_NOTE,
         name: "Note".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -65,7 +65,7 @@ pub fn note_schema() -> Schema {
 /// Schema for media (whiteboard photos, experiment images, videos).
 pub fn media_schema() -> Schema {
     Schema {
-        id: "impress/artifact/media".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_MEDIA,
         name: "Media".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -77,7 +77,7 @@ pub fn media_schema() -> Schema {
 /// Schema for code snippets, gists, algorithms.
 pub fn code_schema() -> Schema {
     Schema {
-        id: "impress/artifact/code".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_CODE,
         name: "Code".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),
@@ -89,7 +89,7 @@ pub fn code_schema() -> Schema {
 /// Schema for general research artifacts (catch-all).
 pub fn general_schema() -> Schema {
     Schema {
-        id: "impress/artifact/general".into(),
+        id: crate::schema::refs::IMPRESS_ARTIFACT_GENERAL,
         name: "General Artifact".into(),
         version: "1.1.0".into(),
         fields: artifact_fields(),

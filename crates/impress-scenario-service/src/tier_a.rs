@@ -107,6 +107,9 @@ impl Caller for TierACaller {
 
     async fn seed(&mut self, kind: &str, payload: &Value) -> Result<Value, String> {
         use impress_core::item::{ActorKind, Item, Priority, Visibility};
+        let schema = kind
+            .parse::<impress_core::SchemaRef>()
+            .map_err(|error| format!("seed `{kind}`: {error}"))?;
         let payload_map = payload
             .as_object()
             .ok_or_else(|| format!("seed `{kind}`: payload must be a JSON object"))?;
@@ -117,7 +120,7 @@ impl Caller for TierACaller {
         let now = chrono::Utc::now();
         let item = Item {
             id: uuid::Uuid::new_v4(),
-            schema: kind.to_string(),
+            schema,
             payload: fields,
             created: now,
             modified: now,
@@ -147,8 +150,11 @@ impl Caller for TierACaller {
     }
 
     fn wrote(&self, kind: &str) -> bool {
+        let Ok(schema) = kind.parse::<impress_core::SchemaRef>() else {
+            return false;
+        };
         let query = ItemQuery {
-            schema: Some(kind.to_string()),
+            schema: Some(schema),
             ..Default::default()
         };
         self.store

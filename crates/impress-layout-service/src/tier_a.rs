@@ -42,6 +42,7 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_swap().await,
         cap_resize().await,
         cap_set_container_kind().await,
+        cap_set_collapsed().await,
         cap_maximize_restore().await,
         cap_detach().await,
         cap_set_pane().await,
@@ -427,6 +428,59 @@ async fn cap_set_container_kind() -> CapabilityResult {
                 "retyping must keep the children in order",
             )?;
             Ok("root is now Tabs".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_set_collapsed() -> CapabilityResult {
+    check(
+        "set-collapsed",
+        "A split pane hides and restores its exact share in the persisted layout",
+        Tier::A,
+        || async {
+            let w = World::open()?;
+            let tile = w.tile_with_role("detail").await?;
+            let before = w.persisted()?;
+            let original = before.pane(tile).ok_or("detail pane absent")?.clone();
+            let hidden = w
+                .service
+                .set_collapsed(
+                    APP.into(),
+                    w.device(),
+                    role_ref("detail"),
+                    Some(true),
+                    None,
+                    None,
+                )
+                .await;
+            want(hidden.ok, hidden.message)?;
+            let collapsed = w.persisted()?;
+            want(
+                collapsed
+                    .pane(tile)
+                    .and_then(|p| p.collapsed_share)
+                    .is_some(),
+                "collapsed pane did not remember its share",
+            )?;
+            let shown = w
+                .service
+                .set_collapsed(
+                    APP.into(),
+                    w.device(),
+                    role_ref("detail"),
+                    Some(false),
+                    None,
+                    None,
+                )
+                .await;
+            want(shown.ok, shown.message)?;
+            let restored = w.persisted()?;
+            want(
+                restored.pane(tile) == Some(&original),
+                "restored pane spec differs from its original",
+            )?;
+            Ok("collapsed and restored the persisted detail pane".into())
         },
     )
     .await

@@ -13,7 +13,7 @@ use crate::registry::SchemaRegistry;
 use crate::schema::{FieldDef, FieldType, Schema};
 
 /// The canonical spelling (schema-refs.json).
-pub const SCENARIO_SCHEMA_REF: &str = "impress/scenario@1.0.0";
+pub const SCENARIO_SCHEMA_REF: crate::SchemaRef = crate::schema::refs::IMPRESS_SCENARIO;
 
 pub mod field {
     /// The scenario's stable id (`layout.saved_round_trip`) — distinct
@@ -31,7 +31,7 @@ pub mod field {
 
 pub fn scenario_schema() -> Schema {
     Schema {
-        id: SCENARIO_SCHEMA_REF.into(),
+        id: SCENARIO_SCHEMA_REF,
         name: "Scenario".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -102,7 +102,7 @@ mod tests {
     fn the_record_kind_registers_under_its_canonical_ref() {
         let mut reg = SchemaRegistry::new();
         register_scenario_schema(&mut reg);
-        assert!(reg.get(SCENARIO_SCHEMA_REF).is_some());
-        assert_eq!(scenario_schema().id, "impress/scenario@1.0.0");
+        assert!(reg.get(&SCENARIO_SCHEMA_REF).is_some());
+        assert_eq!(scenario_schema().id, SCENARIO_SCHEMA_REF);
     }
 }

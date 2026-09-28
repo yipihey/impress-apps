@@ -46,3 +46,6 @@ impress-workspace-hack.workspace = true
 name = "im-identifiers"
 path = "src/bin/im_identifiers.rs"
 required-features = ["cli"]
+
+[lints]
+workspace = true

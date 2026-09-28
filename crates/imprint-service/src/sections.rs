@@ -29,7 +29,8 @@ use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::{ItemStore, StoreError};
 
 /// Schema reference stored on each section item. Matches the Swift adapter.
-pub const SECTION_SCHEMA_REF: &str = "manuscript-section";
+pub const SECTION_SCHEMA_REF: impress_core::SchemaRef =
+    impress_core::schema::refs::MANUSCRIPT_SECTION;
 
 /// Namespace for the deterministic UUID-v5 we derive from
 /// `(document_id, section_key)`. Picked once and frozen so the ids are stable
@@ -206,7 +207,7 @@ impl SectionStore {
         let payload = serde_json::from_value(serde_json::to_value(payload)?)?;
 
         self.store
-            .upsert_payload(item_id, SECTION_SCHEMA_REF.into(), payload)?;
+            .upsert_payload(item_id, SECTION_SCHEMA_REF, payload)?;
 
         // Re-read to learn the canonical created_ms timestamp.
         let row = self.store.get(item_id)?.ok_or_else(|| {
@@ -320,7 +321,7 @@ impl SectionStore {
 
     fn query_sections(&self, limit: u32, offset: u32) -> Result<Vec<Item>, ServiceError> {
         Ok(self.store.query(&ItemQuery {
-            schema: Some(SECTION_SCHEMA_REF.into()),
+            schema: Some(SECTION_SCHEMA_REF),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: false,

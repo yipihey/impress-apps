@@ -48,6 +48,10 @@ on:
       # through PMC. Enumerated rather than 'crates/**' so a change to, say,
       # implore-core does not queue a 40-minute mac job for nothing.
       - 'crates/impart-core/**'
+      - 'crates/impart-verbs-ffi/**'
+      - 'crates/impart-service/**'
+      - 'crates/impress-service-core/**'
+      - 'crates/impress-service-macros/**'
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
       - 'crates/impress-ai/**'
@@ -143,6 +147,12 @@ jobs:
         with:
           crate: impress-store-ffi
 
+      - name: ImpartVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impart-verbs-ffi
+          env-extra: IMPRESS_SKIP_IOS=1
+
       - name: Build and Test MessageManagerCore
         working-directory: apps/impart/MessageManagerCore
         run: |
@@ -220,6 +230,11 @@ jobs:
         with:
           crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImpartVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impart-verbs-ffi
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework
@@ -332,6 +347,11 @@ jobs:
         with:
           crate: imbib-verbs-ffi
           env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ImpartVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impart-verbs-ffi
 
       - name: ScixClientCore.xcframework
         uses: ./.github/actions/xcframework

@@ -15,6 +15,10 @@ on:
     paths:
       - 'apps/imprint/**'
       - 'crates/imprint-core/**'
+      - 'crates/imprint-verbs-ffi/**'
+      - 'crates/imprint-service/**'
+      - 'crates/impress-service-core/**'
+      - 'crates/impress-service-macros/**'
       # Sibling cores whose xcframeworks this workflow builds and links.
       - 'crates/impress-helix/**'
       - 'crates/impress-store-ffi/**'
@@ -22,6 +26,7 @@ on:
       - 'crates/imbib-core/**'
       - 'crates/imbib-verbs-ffi/**'
       - 'apps/imbib/ImbibVerbsFFI/**'
+      - 'schema-refs.json'
       - 'packages/**'
       - '.github/workflows/imprint-apps.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
@@ -80,6 +85,11 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: imprint-core
+
+      - name: ImprintVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-verbs-ffi
 
       # imprint also links these sibling Rust cores (shared store, Helix
       # editor, imbib bridge); their xcframeworks are gitignored build

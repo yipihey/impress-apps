@@ -2133,92 +2133,17 @@ final class ImbibSidebarViewModel {
     // MARK: - Capabilities
 
     private func capabilities(of node: ImbibSidebarNode) -> TreeNodeCapabilities {
-        switch node.nodeType {
-        case .section(.inbox):
-            return [.draggable, .droppable]
-        case .section:
-            return .draggable
-        case .library:
-            return [.draggable, .droppable, .renamable, .deletable]
-        case .libraryCollection:
-            // ADR-0022 C2: deliberately NOT `allowsOrganize`. The frozen macOS
-            // behaviour gives a SMART collection the same tree capabilities as
-            // a manual one — `capabilities(of:)` has never consulted `isSmart`;
-            // only the MENU and the publication drop do. Gating this on the
-            // per-row predicate would newly make smart collections
-            // undraggable and undeletable, which is a behaviour change, not a
-            // convergence. Same set the `.recordFolder` arm below produces for
-            // a `canOrganize` binding, so the rows agree anyway.
-            return [.draggable, .droppable, .renamable, .deletable]
-        case .inboxFeed:
-            return [.renamable, .deletable]
-        case .libraryFeed:
-            return [.renamable, .deletable]
-        case .inboxCollection:
-            return [.renamable, .deletable]
-        case .searchForm:
-            return .draggable
-        case .flagColor:
-            return .draggable
-        case .tag:
-            // EXPLICIT rather than left to `default`, because "read-only" is a
-            // decision here and not an omission (the matrix row records both
-            // halves as ❌-planned rather than ➖):
-            //  * rename / delete — a tag path is vocabulary shared by every
-            //    kind that carries it. Renaming the ROW would fork the
-            //    vocabulary for everything this shell cannot see; the honest
-            //    verb is a store-wide rewrite that has no Rust seam yet.
-            //  * drag — tag rows are alphabetical. There is no user order to
-            //    persist, which is exactly what `.flagColor` above has.
-            //  * drop — SHOULD apply the tag, and does not yet:
-            //    `handlePublicationDrop` has no `.tag` arm, and claiming
-            //    `.droppable` before it does would give the row a drop
-            //    highlight and then swallow the papers.
-            return .readOnly
-        case .scixLibrary:
-            return [.draggable, .droppable]
-        case .explorationSearch:
-            return .draggable
-        case .explorationCollection:
-            return [.draggable, .deletable]
-        case .allArtifacts, .artifactType:
-            return .droppable
-        case .recordFolder:
-            // ADR-0022 D3: the folder verbs are the kind's capability, not a
-            // per-kind literal. `canOrganize == false` = read-only rows.
+        switch node.nodeType.kind.outlineCapabilityPolicy {
+        case .fixed(let capabilities):
+            return capabilities
+        case .recordBinding:
+            // ADR-0022 D3: only recordFolder varies with its collection binding.
+            // Unknown and non-organisable bindings stay read-only. Library
+            // collections deliberately keep their fixed legacy flags even for
+            // smart rows; their menu and drop handler own that restriction.
             return folderNode(node)?.capability.canOrganize == true
                 ? [.draggable, .droppable, .renamable, .deletable]
                 : .readOnly
-        case .figuresUnfiled:
-            // Drop target only: dropping figures here clears their folder.
-            return .droppable
-        case .mailAllInboxes, .mailAccount, .mailFolder:
-            // Stage 2-A: IMAP owns account/folder lifecycle — mail nodes are
-            // read-only (no rename/delete/drag/drop; matrix ➖ with note).
-            return .readOnly
-        case .agentTasksAll, .agentRunsAll, .agentTaskState:
-            // Stage 2-C: the kernel owns task lifecycle — agent nodes are
-            // read-only fixed rows (no rename/delete/drag/drop; matrix ➖).
-            return .readOnly
-        case .watchedFileFolder:
-            // ADR-0023 W4, for the same four reasons as the row below — with
-            // drop even less meaningful: for a file-unit kind there is no
-            // record to drop ONTO a folder, only files the user puts there.
-            return .readOnly
-        case .watchedFolder:
-            // ADR-0023 W2. Deliberately read-only in the OUTLINE's sense:
-            //  * rename — the display name is the provenance tag's leaf and
-            //    therefore the identity of "papers this folder produced";
-            //    renaming it in place would orphan every tag already written.
-            //  * delete — ⌫ on a row that owns imported papers reads as
-            //    "delete the papers". The verb is "Stop Watching", in the menu,
-            //    where its consequences can be named.
-            //  * drop — D4's rule is one-way: the watcher never writes a user's
-            //    files, so dropping a paper onto a folder can mean nothing.
-            //  * drag — a folder is not a container to reorder into.
-            return .readOnly
-        default:
-            return .readOnly
         }
     }
 

@@ -32,7 +32,7 @@ fn main() {
         "list" => {
             let reviews = store
                 .query(&ItemQuery {
-                    schema: Some("review-request@1.0.0".into()),
+                    schema: Some(impress_core::schema::refs::REVIEW_REQUEST),
                     ..Default::default()
                 })
                 .expect("query");
@@ -98,7 +98,7 @@ fn main() {
             payload.insert("context_proposed_tags".into(), Value::Array(tags));
             let item = Item {
                 id: uuid::Uuid::new_v4(),
-                schema: "review-request@1.0.0".into(),
+                schema: impress_core::schema::refs::REVIEW_REQUEST,
                 payload,
                 created: Utc::now(),
                 modified: Utc::now(),

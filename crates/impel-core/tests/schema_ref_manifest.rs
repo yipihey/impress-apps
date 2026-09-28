@@ -20,7 +20,7 @@ fn impel_core_registry_matches_manifest() {
     let mut registry = impress_core::registry::SchemaRegistry::new();
     impel_core::schemas::register_impel_schemas(&mut registry);
 
-    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.clone()).collect();
+    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.to_string()).collect();
     let declared = manifest::registry_ids("impel-core");
 
     manifest::assert_same_set("impel-core", &registered, &declared);
@@ -56,7 +56,7 @@ fn task_store_constants_are_declared_refs() {
         impel_core::REVIEW_REQUEST_SCHEMA,
     ] {
         assert!(
-            known.contains(constant),
+            known.contains(constant.as_str()),
             "impel-core writes rows with schema_ref {constant:?}, which \
              schema-refs.json does not declare. Every ref a writer emits must \
              be declared, or readers have nothing authoritative to copy."
@@ -72,7 +72,7 @@ fn task_store_constants_are_declared_refs() {
 fn the_registry_and_the_writers_agree() {
     let mut registry = impress_core::registry::SchemaRegistry::new();
     impel_core::schemas::register_impel_schemas(&mut registry);
-    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.clone()).collect();
+    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.to_string()).collect();
 
     let written: BTreeSet<String> = [impel_core::TASK_SCHEMA, impel_core::AGENT_RUN_SCHEMA]
         .iter()
@@ -111,7 +111,7 @@ fn the_retired_spellings_are_not_registered_again() {
 fn review_request_is_written_but_unregistered() {
     let declared = manifest::registry_ids("impel-core");
     assert!(
-        !declared.contains(impel_core::REVIEW_REQUEST_SCHEMA),
+        !declared.contains(impel_core::REVIEW_REQUEST_SCHEMA.as_str()),
         "review-request gained a registration — good; update this test and \
          schema-refs.json's note for `review-request@1.0.0`"
     );

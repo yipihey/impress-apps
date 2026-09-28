@@ -17,7 +17,7 @@ fn imbib_core_registry_matches_manifest() {
     let mut registry = impress_core::registry::SchemaRegistry::new();
     imbib_core::unified::schemas::register_all(&mut registry);
 
-    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.clone()).collect();
+    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.to_string()).collect();
     let declared = manifest::registry_ids("imbib-core");
 
     manifest::assert_same_set("imbib-core", &registered, &declared);

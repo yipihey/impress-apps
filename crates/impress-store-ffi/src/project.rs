@@ -456,7 +456,7 @@ mod tests {
             .inner
             .insert(Item {
                 id,
-                schema: "manuscript".into(),
+                schema: impress_core::schema::refs::MANUSCRIPT,
                 payload,
                 created: now,
                 modified: now,

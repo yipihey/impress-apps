@@ -72,7 +72,7 @@ fn a_mutating_verb_from_an_agent_is_queued_and_from_the_person_runs() {
     );
     let collections = store
         .count(&ItemQuery {
-            schema: Some("collection".into()),
+            schema: Some(impress_core::schema::refs::COLLECTION),
             ..Default::default()
         })
         .expect("count");

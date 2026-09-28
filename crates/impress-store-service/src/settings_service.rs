@@ -161,7 +161,7 @@ impl SyncedBackend for StoreSyncedBackend {
                 let now = Utc::now();
                 let item = Item {
                     id,
-                    schema: SETTINGS_SCHEMA_REF.into(),
+                    schema: SETTINGS_SCHEMA_REF,
                     payload,
                     created: now,
                     modified: now,
@@ -726,7 +726,10 @@ mod tests {
         assert_eq!(loaded["a.b.c"], Value::from(1));
         let row = store.get(StoreSyncedBackend::row_id()).unwrap().unwrap();
         assert_eq!(row.schema, SETTINGS_SCHEMA_REF);
-        assert_eq!(SETTINGS_SCHEMA_REF, impress_settings::SYNCED_SCHEMA_REF);
+        assert_eq!(
+            SETTINGS_SCHEMA_REF.as_str(),
+            impress_settings::SYNCED_SCHEMA_REF
+        );
     }
 
     #[test]

@@ -16,11 +16,16 @@ on:
       - 'apps/imbib/ImbibVerbsFFI/**'
       - 'packages/**'
       - 'crates/implore-core/**'
+      - 'crates/implore-verbs-ffi/**'
+      - 'crates/implore-service/**'
+      - 'crates/impress-service-core/**'
+      - 'crates/impress-service-macros/**'
       - 'crates/impress-core/**'
       - 'crates/impress-helix/**'
       - 'crates/impress-store-ffi/**'
       - 'crates/imbib-verbs-ffi/**'
       - 'crates/impress-ai/**'
+      - 'schema-refs.json'
       - '.github/workflows/implore-swift.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -126,6 +131,12 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: implore-core
+
+      - name: ImploreVerbsFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: implore-verbs-ffi
+          env-extra: IMPRESS_SKIP_IOS=1
 
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework

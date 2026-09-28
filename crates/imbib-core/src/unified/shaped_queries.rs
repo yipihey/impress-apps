@@ -960,7 +960,7 @@ pub fn item_to_artifact_row(item: &Item, tag_defs: &[TagDisplayRow]) -> Artifact
 
     ArtifactRow {
         id: item.id.to_string(),
-        schema: item.schema.clone(),
+        schema: item.schema.to_string(),
         title: get_str(payload, "title").unwrap_or_default(),
         source_url: get_str(payload, "source_url"),
         notes: get_str(payload, "notes"),

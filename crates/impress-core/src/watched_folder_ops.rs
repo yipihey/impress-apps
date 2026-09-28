@@ -438,14 +438,14 @@ fn file_dto(item: &Item) -> WatchedFileDto {
 /// is in `docs_import_service::new_manuscript`.
 fn new_item(
     id: Uuid,
-    schema: &str,
+    schema: crate::SchemaRef,
     payload: BTreeMap<String, Value>,
     parent: Option<ItemId>,
 ) -> Item {
     let now = chrono::Utc::now();
     Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created: now,
         modified: now,
@@ -582,7 +582,7 @@ pub fn list_folders(
         ));
     }
     let q = ItemQuery {
-        schema: Some(WATCHED_FOLDER_SCHEMA.into()),
+        schema: Some(WATCHED_FOLDER_SCHEMA),
         predicates,
         include_tags: false,
         include_references: false,
@@ -713,7 +713,7 @@ fn query_files(
         ));
     }
     let q = ItemQuery {
-        schema: Some(WATCHED_FILE_SCHEMA.into()),
+        schema: Some(WATCHED_FILE_SCHEMA),
         predicates,
         include_tags: false,
         include_references: false,

@@ -33,7 +33,7 @@ use impress_core::store::ItemStore;
 
 /// Schema reference stored on the throughline mirror item. Matches
 /// `impress-core::schemas::throughline`.
-pub const THROUGHLINE_SCHEMA_REF: &str = "throughline";
+pub const THROUGHLINE_SCHEMA_REF: impress_core::SchemaRef = impress_core::schema::refs::THROUGHLINE;
 
 /// Sidecar file names inside the `.imprint` package (ADR-0016 D2).
 pub const THROUGHLINE_SOURCE_FILENAME: &str = "throughline.typ";
@@ -504,7 +504,7 @@ impl ThroughlineStore {
         let id = Self::item_id(document_id);
         self.store().upsert_payload(
             id,
-            THROUGHLINE_SCHEMA_REF.into(),
+            THROUGHLINE_SCHEMA_REF,
             serde_json::from_value(serde_json::to_value(payload)?)?,
         )?;
         Ok(ThroughlineRecord {

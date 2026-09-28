@@ -16,6 +16,60 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 `handleExternalDrop`) and the list wrappers (`UnifiedPublicationListWrapper`,
 `ManuscriptListWrapper`).
 
+### Outline capability census (golden)
+
+The table below is checked against `ImbibSidebarNodeKind.allCases` and the
+capability policy used by `ImbibSidebarViewModel`. `yes`/`no` describe only the
+outline's drag, drop, inline-rename and Delete-key flags; the detailed table
+below records menus, counts, and why an absent flag may be intentional or
+planned. `binding` means `recordFolder` delegates to its record kind's
+`CollectionCapability.canOrganize` at runtime. `sectionInbox` is the sole
+specialisation of the enum's `section` case.
+
+<!-- sidebar-node-capabilities:begin -->
+| Node kind | Drag | Drop | Rename | Delete |
+|---|---|---|---|---|
+| `appGroup` | no | no | no | no |
+| `sectionInbox` | yes | yes | no | no |
+| `section` | yes | no | no | no |
+| `allInbox` | no | no | no | no |
+| `inboxFeed` | no | no | yes | yes |
+| `inboxCollection` | no | no | yes | yes |
+| `library` | yes | yes | yes | yes |
+| `libraryCollection` | yes | yes | yes | yes |
+| `libraryFeed` | no | no | yes | yes |
+| `sharedLibrary` | no | no | no | no |
+| `scixLibrary` | yes | yes | no | no |
+| `searchForm` | yes | no | no | no |
+| `explorationSearch` | yes | no | no | no |
+| `explorationCollection` | yes | no | no | yes |
+| `anyFlag` | no | no | no | no |
+| `flagColor` | yes | no | no | no |
+| `tag` | no | no | no | no |
+| `allArtifacts` | no | yes | no | no |
+| `artifactType` | no | yes | no | no |
+| `dismissed` | no | no | no | no |
+| `citedInManuscripts` | no | no | no | no |
+| `recent` | no | no | no | no |
+| `reviewQueue` | no | no | no | no |
+| `recordFolder` | binding | binding | binding | binding |
+| `journalAll` | no | no | no | no |
+| `journalByStatus` | no | no | no | no |
+| `journalSubmissions` | no | no | no | no |
+| `manuscript` | no | no | no | no |
+| `figuresAll` | no | no | no | no |
+| `figuresUnfiled` | no | yes | no | no |
+| `mailAllInboxes` | no | no | no | no |
+| `mailAccount` | no | no | no | no |
+| `mailFolder` | no | no | no | no |
+| `agentTasksAll` | no | no | no | no |
+| `agentRunsAll` | no | no | no | no |
+| `agentTaskState` | no | no | no | no |
+| `watchedFolder` | no | no | no | no |
+| `watchedFileFolder` | no | no | no | no |
+| `customSurface` | no | no | no | no |
+<!-- sidebar-node-capabilities:end -->
+
 ## Sidebar node kinds
 
 | Node kind | Context menu | Rename | Delete | Drag | Drop target | Counts | Notes |

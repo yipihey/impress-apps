@@ -81,7 +81,7 @@ pub fn insert(
     };
     let inserted = store.insert(Item {
         id,
-        schema: WORKFLOW_SCHEMA.into(),
+        schema: WORKFLOW_SCHEMA,
         payload,
         created: now,
         modified: now,
@@ -122,7 +122,7 @@ pub fn get(store: &Arc<SqliteItemStore>, id: ItemId) -> Result<Option<WorkflowRo
 pub fn list(store: &Arc<SqliteItemStore>) -> Result<Vec<WorkflowRow>, String> {
     let items = store
         .query(&ItemQuery {
-            schema: Some(WORKFLOW_SCHEMA.into()),
+            schema: Some(WORKFLOW_SCHEMA),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: true,

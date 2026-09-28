@@ -376,7 +376,7 @@ fn payload_status(payload: &BTreeMap<String, Value>) -> Option<String> {
 fn envelope_of(item: &Item) -> ItemEnvelopeDto {
     ItemEnvelopeDto {
         id: item.id.to_string(),
-        schema_ref: item.schema.clone(),
+        schema_ref: item.schema.to_string(),
         title: display_title(&item.payload),
         status: payload_status(&item.payload),
         flag: item.flag.as_ref().map(|f| f.color.clone()),

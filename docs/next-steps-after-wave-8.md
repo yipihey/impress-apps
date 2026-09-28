@@ -123,13 +123,14 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   were regenerated from semantic-search-enabled dumps; their data stayed unchanged.
   Evidence: `/tmp/impress-p7-native-schema-swift.log`,
   `/tmp/impress-p7-final-cohort-<crate>.log`, `/tmp/impress-p7-push-final.log`.
-  **Pending before merge:** Tom's answer on private `Cow<'static, str>` rather than
-  the table RC sketch's static-only representation. Canonical constants still
-  borrow static strings; `FromStr` rejects unknown names. Explicit persistence and
-  Swift wire decoding preserve opaque historical/newer-writer names without
-  interning/leaking them. No new schema names or verb arguments were introduced.
-  After resolving that choice, refresh main, verify ancestry and gates, mark ready
-  and merge; then run the next full native workspace batch on main.
+  **Representation accepted by Tom on 2026-09-28:** private `Cow<'static, str>`.
+  Canonical constants borrow static strings; `FromStr` rejects unknown names.
+  Explicit persistence and Swift wire decoding preserve opaque historical/newer-writer
+  names without interning/leaking them. No new schema names or verb arguments were
+  introduced. **Pending before merge:** verify the repair of the hosted impart workflow's missing
+  `ImpartVerbsFfi` build step (run `36444031435`) and the resulting gates and
+  fresh main ancestry, mark ready and merge. Then run the next full native workspace
+  batch on main.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
 - **R3**: imprint's settings and chords through the registries.
 - **G3 remainder**: about 170 verbs still lack an `#[impress_example]`, and about 900 arguments lack `///` docs.
@@ -137,6 +138,8 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
 - **Swift gap from R1**: the generated Retention pane is macOS-only; iOS shows a placeholder.
 
 ## Known issues to watch
+
+- **Older release workflows**: the P7 CI audit found that implore-release names the missing `apps/implore/build-rust.sh`; imprint/implore release lanes also lack their full older sibling framework graph. P7 repairs the new verbs framework omissions, not that older release setup.
 
 - **Flaky under load**: tests that time a wall clock or share process-global state. Examples are impress-store-ffi `surface::…a_paper_written_anywhere…`, `layout::…a_mutation_wakes_only…`, impress-core `collab::large_body_commit_stays_fast`, impel-tools `store_generic_tools_are_available_without_app_backends` and impress-store-ffi `workflow` tick tests. All pass alone.
 - **`cargo hakari verify`** reports `flate2` and `cc` feature-set notes caused by the deliberate exclusions. CI uses `generate --diff`, which passes.

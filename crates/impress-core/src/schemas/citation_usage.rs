@@ -28,7 +28,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// - `cite_key` — the literal cite key as it appears in the source
 pub fn citation_usage_schema() -> Schema {
     Schema {
-        id: "citation-usage".into(),
+        id: crate::schema::refs::CITATION_USAGE,
         name: "Citation Usage".into(),
         version: "1.0.0".into(),
         fields: vec![

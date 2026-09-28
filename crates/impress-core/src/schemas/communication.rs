@@ -5,7 +5,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// Schema for chat messages — the base conversational type.
 pub fn chat_message_schema() -> Schema {
     Schema {
-        id: "chat-message".into(),
+        id: crate::schema::refs::CHAT_MESSAGE,
         name: "Chat Message".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -36,7 +36,7 @@ pub fn chat_message_schema() -> Schema {
 /// Schema for email messages — extends chat-message with email envelope fields.
 pub fn email_message_schema() -> Schema {
     Schema {
-        id: "email-message".into(),
+        id: crate::schema::refs::EMAIL_MESSAGE,
         name: "Email Message".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -49,7 +49,7 @@ pub fn email_message_schema() -> Schema {
             optional_string("thread_id"),
         ],
         expected_edges: vec![EdgeType::InResponseTo, EdgeType::Discusses],
-        inherits: Some("chat-message".into()),
+        inherits: Some(crate::schema::refs::CHAT_MESSAGE),
     }
 }
 
@@ -58,7 +58,7 @@ pub fn email_message_schema() -> Schema {
 /// chain: message.parent = folder, folder.parent = account).
 pub fn mail_account_schema() -> Schema {
     Schema {
-        id: "mail-account".into(),
+        id: crate::schema::refs::MAIL_ACCOUNT,
         name: "Mail Account".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -77,7 +77,7 @@ pub fn mail_account_schema() -> Schema {
 /// well-known folders (inbox | sent | drafts | trash | archive | spam).
 pub fn mail_folder_schema() -> Schema {
     Schema {
-        id: "mail-folder".into(),
+        id: crate::schema::refs::MAIL_FOLDER,
         name: "Mail Folder".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn email_message_inherits_chat_message() {
         let schema = email_message_schema();
-        assert_eq!(schema.inherits, Some("chat-message".into()));
+        assert_eq!(schema.inherits, Some(crate::schema::refs::CHAT_MESSAGE));
     }
 
     #[test]

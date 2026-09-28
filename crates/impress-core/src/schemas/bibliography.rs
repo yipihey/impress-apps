@@ -7,7 +7,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 /// 1.1.0 (ADR-0014 D54): additive — five FAIR attribution fields.
 pub fn bibliography_entry_schema() -> Schema {
     Schema {
-        id: "bibliography-entry".into(),
+        id: crate::schema::refs::BIBLIOGRAPHY_ENTRY,
         name: "Bibliography Entry".into(),
         version: "1.1.0".into(),
         fields: vec![
