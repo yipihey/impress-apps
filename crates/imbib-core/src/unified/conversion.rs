@@ -110,7 +110,7 @@ pub fn publication_to_item(pub_data: &Publication, library_id: Option<ItemId>) -
 
     Item {
         id,
-        schema: "imbib/bibliography-entry".into(),
+        schema: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
         payload,
         created,
         modified: Utc::now(),
@@ -256,7 +256,7 @@ pub fn library_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/library".into(),
+        schema: impress_core::schema::refs::IMBIB_LIBRARY,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -308,7 +308,7 @@ pub fn collection_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/collection".into(),
+        schema: impress_core::schema::refs::IMBIB_COLLECTION,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -335,10 +335,14 @@ pub fn collection_to_item(
 /// Build a minimal user-authored Item with an explicit ID, schema, and
 /// payload — for suite-schema items (manuscript, manuscript-collection)
 /// whose payload the caller assembles directly.
-pub fn bare_item(id: Uuid, schema: &str, payload: BTreeMap<String, Value>) -> Item {
+pub fn bare_item(
+    id: Uuid,
+    schema: impress_core::SchemaRef,
+    payload: BTreeMap<String, Value>,
+) -> Item {
     Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -382,7 +386,7 @@ pub fn tag_definition_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/tag-definition".into(),
+        schema: impress_core::schema::refs::IMBIB_TAG_DEFINITION,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -435,7 +439,7 @@ pub fn linked_file_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/linked-file".into(),
+        schema: impress_core::schema::refs::IMBIB_LINKED_FILE,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -498,7 +502,7 @@ pub fn smart_search_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/smart-search".into(),
+        schema: impress_core::schema::refs::IMBIB_SMART_SEARCH,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -530,7 +534,7 @@ pub fn muted_item_to_item(mute_type: &str, value: &str) -> Item {
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/muted-item".into(),
+        schema: impress_core::schema::refs::IMBIB_MUTED_ITEM,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -569,7 +573,7 @@ pub fn dismissed_paper_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/dismissed-paper".into(),
+        schema: impress_core::schema::refs::IMBIB_DISMISSED_PAPER,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -618,7 +622,7 @@ pub fn scix_library_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/scix-library".into(),
+        schema: impress_core::schema::refs::IMBIB_SCIX_LIBRARY,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -807,7 +811,7 @@ pub fn annotation_to_item_with_provenance(
 
     Item {
         id,
-        schema: "imbib/annotation".into(),
+        schema: impress_core::schema::refs::IMBIB_ANNOTATION,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -860,7 +864,7 @@ pub fn comment_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/comment".into(),
+        schema: impress_core::schema::refs::IMBIB_COMMENT,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -935,7 +939,7 @@ pub fn assignment_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/assignment".into(),
+        schema: impress_core::schema::refs::IMBIB_ASSIGNMENT,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -986,7 +990,7 @@ pub fn activity_record_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/activity-record".into(),
+        schema: impress_core::schema::refs::IMBIB_ACTIVITY_RECORD,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -1043,7 +1047,7 @@ pub fn recommendation_profile_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: "imbib/recommendation-profile".into(),
+        schema: impress_core::schema::refs::IMBIB_RECOMMENDATION_PROFILE,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -1071,7 +1075,7 @@ pub fn recommendation_profile_to_item(
 /// The `schema` must be one of the `impress/artifact/*` schemas.
 #[allow(clippy::too_many_arguments)]
 pub fn artifact_to_item(
-    schema: &str,
+    schema: impress_core::SchemaRef,
     title: &str,
     source_url: Option<&str>,
     notes: Option<&str>,
@@ -1120,7 +1124,7 @@ pub fn artifact_to_item(
 
     Item {
         id: Uuid::new_v4(),
-        schema: schema.into(),
+        schema,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
@@ -1271,7 +1275,10 @@ mod tests {
         let pub_data = make_publication();
         let item = publication_to_item(&pub_data, None);
 
-        assert_eq!(item.schema, "imbib/bibliography-entry");
+        assert_eq!(
+            item.schema,
+            impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY
+        );
         assert_eq!(
             get_string(&item.payload, "cite_key"),
             Some("smith2024".into())
@@ -1336,7 +1343,7 @@ mod tests {
             false,
             false,
         );
-        assert_eq!(item.schema, "imbib/library");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_LIBRARY);
         assert_eq!(get_string(&item.payload, "name"), Some("My Library".into()));
         assert_eq!(item.payload.get("is_default"), Some(&Value::Bool(true)));
     }
@@ -1345,7 +1352,7 @@ mod tests {
     fn collection_to_item_fields() {
         let parent = Uuid::new_v4();
         let item = collection_to_item("Favorites", Some(parent), false, None, Some(5));
-        assert_eq!(item.schema, "imbib/collection");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_COLLECTION);
         assert_eq!(item.parent, Some(parent));
         assert_eq!(get_string(&item.payload, "name"), Some("Favorites".into()));
         assert_eq!(get_int(&item.payload, "sort_order"), Some(5));
@@ -1361,7 +1368,10 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(item.schema, "imbib/tag-definition");
+        assert_eq!(
+            item.schema,
+            impress_core::schema::refs::IMBIB_TAG_DEFINITION
+        );
         assert_eq!(
             get_string(&item.payload, "canonical_path"),
             Some("methods/sims".into())
@@ -1400,7 +1410,7 @@ mod tests {
             Some("abc123"),
             true,
         );
-        assert_eq!(item.schema, "imbib/linked-file");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_LINKED_FILE);
         assert_eq!(item.parent, Some(pub_id));
         assert_eq!(
             get_string(&item.payload, "filename"),
@@ -1424,7 +1434,7 @@ mod tests {
             3600,
             Some(1),
         );
-        assert_eq!(item.schema, "imbib/smart-search");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_SMART_SEARCH);
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(get_string(&item.payload, "name"), Some("My Search".into()));
         assert_eq!(
@@ -1438,7 +1448,7 @@ mod tests {
     #[test]
     fn muted_item_to_item_fields() {
         let item = muted_item_to_item("author", "Smith, John");
-        assert_eq!(item.schema, "imbib/muted-item");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_MUTED_ITEM);
         assert_eq!(
             get_string(&item.payload, "mute_type"),
             Some("author".into())
@@ -1453,7 +1463,10 @@ mod tests {
     #[test]
     fn dismissed_paper_to_item_fields() {
         let item = dismissed_paper_to_item(Some("10.1234/test"), Some("2401.00001"), None, None);
-        assert_eq!(item.schema, "imbib/dismissed-paper");
+        assert_eq!(
+            item.schema,
+            impress_core::schema::refs::IMBIB_DISMISSED_PAPER
+        );
         assert_eq!(
             get_string(&item.payload, "doi"),
             Some("10.1234/test".into())
@@ -1477,7 +1490,7 @@ mod tests {
             Some("test@example.com"),
             None,
         );
-        assert_eq!(item.schema, "imbib/scix-library");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_SCIX_LIBRARY);
         assert_eq!(
             get_string(&item.payload, "remote_id"),
             Some("remote-123".into())
@@ -1499,7 +1512,7 @@ mod tests {
             Some("dark matter"),
             Some("Tom"),
         );
-        assert_eq!(item.schema, "imbib/annotation");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_ANNOTATION);
         assert_eq!(item.parent, Some(file_id));
         assert_eq!(
             get_string(&item.payload, "annotation_type"),
@@ -1522,7 +1535,7 @@ mod tests {
             Some("Jane Doe"),
             None,
         );
-        assert_eq!(item.schema, "imbib/comment");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_COMMENT);
         assert_eq!(item.parent, Some(pub_id));
         assert_eq!(
             get_string(&item.payload, "text"),
@@ -1544,7 +1557,7 @@ mod tests {
             Some("Read by Friday"),
             Some(1700000000000),
         );
-        assert_eq!(item.schema, "imbib/assignment");
+        assert_eq!(item.schema, impress_core::schema::refs::IMBIB_ASSIGNMENT);
         assert_eq!(item.parent, Some(pub_id));
         assert_eq!(
             get_string(&item.payload, "assignee_name"),
@@ -1567,7 +1580,10 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(item.schema, "imbib/activity-record");
+        assert_eq!(
+            item.schema,
+            impress_core::schema::refs::IMBIB_ACTIVITY_RECORD
+        );
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(
             get_string(&item.payload, "activity_type"),
@@ -1580,7 +1596,10 @@ mod tests {
         let lib_id = Uuid::new_v4();
         let item =
             recommendation_profile_to_item(lib_id, Some("{\"cosmo\":0.8}"), None, None, None);
-        assert_eq!(item.schema, "imbib/recommendation-profile");
+        assert_eq!(
+            item.schema,
+            impress_core::schema::refs::IMBIB_RECOMMENDATION_PROFILE
+        );
         assert_eq!(item.parent, Some(lib_id));
         assert_eq!(
             get_string(&item.payload, "topic_affinities_json"),

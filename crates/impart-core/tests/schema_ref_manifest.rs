@@ -17,7 +17,7 @@ fn impart_core_registry_matches_manifest() {
     let mut registry = impress_core::registry::SchemaRegistry::new();
     impart_core::schemas::register_impart_schemas(&mut registry);
 
-    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.clone()).collect();
+    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.to_string()).collect();
     let declared = manifest::registry_ids("impart-core");
 
     manifest::assert_same_set("impart-core", &registered, &declared);

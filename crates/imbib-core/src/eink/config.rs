@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use impress_core::item::{Item, Value};
 
 /// Exact store spellings; the store matches `schema_ref` by equality.
-pub const SCHEMA_DEVICE: &str = "imbib/eink-device";
-pub const SCHEMA_MIRROR: &str = "imbib/eink-mirror";
+pub const SCHEMA_DEVICE: impress_core::SchemaRef = impress_core::schema::refs::IMBIB_EINK_DEVICE;
+pub const SCHEMA_MIRROR: impress_core::SchemaRef = impress_core::schema::refs::IMBIB_EINK_MIRROR;
 /// The transport every device this engine ships uses today.
 pub const TRANSPORT_USB_WEB: &str = "usb-web";
 /// The folder at the top of the tablet that holds everything imbib sends.

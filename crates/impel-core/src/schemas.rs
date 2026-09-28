@@ -58,8 +58,8 @@ mod tests {
     fn register_all_impel_schemas() {
         let mut reg = SchemaRegistry::new();
         register_impel_schemas(&mut reg);
-        assert!(reg.get(TASK_SCHEMA).is_some());
-        assert!(reg.get(AGENT_RUN_SCHEMA).is_some());
+        assert!(reg.get(&TASK_SCHEMA).is_some());
+        assert!(reg.get(&AGENT_RUN_SCHEMA).is_some());
     }
 
     /// The registry ids ARE the refs the kernel writes. This equality is the
@@ -86,7 +86,7 @@ mod tests {
         let mut reg = SchemaRegistry::new();
         impress_core::schemas::register_core_schemas(&mut reg);
         register_impel_schemas(&mut reg);
-        assert!(reg.get(TASK_SCHEMA).is_some());
+        assert!(reg.get(&TASK_SCHEMA).is_some());
     }
 
     #[test]

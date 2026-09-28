@@ -762,7 +762,11 @@ fn create_collection_writes_a_row_a_migration_would_have_produced() {
             .get(uuid::Uuid::parse_str(id).unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(item.schema, "collection", "both on the generic schema");
+        assert_eq!(
+            item.schema,
+            impress_core::schema::refs::COLLECTION,
+            "both on the generic schema"
+        );
         assert_eq!(
             item.parent.map(|p| p.to_string()),
             Some(library.clone()),
@@ -979,7 +983,7 @@ fn the_imprint_re_migration_probe_is_marker_aware() {
     // re-run the whole Core Data import.
     let legacy = kernel
         .query(&impress_core::query::ItemQuery {
-            schema: Some("manuscript-collection".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT_COLLECTION),
             ..Default::default()
         })
         .unwrap();

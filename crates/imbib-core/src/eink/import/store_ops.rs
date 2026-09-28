@@ -58,7 +58,7 @@ impl ImbibStore {
             Some(id) => self.eink_annotations_for_publication(id.clone())?,
             None => {
                 let q = ItemQuery {
-                    schema: Some("imbib/annotation".into()),
+                    schema: Some(impress_core::schema::refs::IMBIB_ANNOTATION),
                     predicates: vec![
                         Predicate::Eq("source".into(), Value::String(SOURCE_REMARKABLE.into())),
                         Predicate::Eq("annotation_type".into(), Value::String("ink".into())),
@@ -125,7 +125,7 @@ impl ImbibStore {
             return Ok(Vec::new());
         }
         let q = ItemQuery {
-            schema: Some("imbib/annotation".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_ANNOTATION),
             predicates: vec![Predicate::Eq(
                 "source".into(),
                 Value::String(SOURCE_REMARKABLE.into()),

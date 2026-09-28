@@ -24,7 +24,7 @@ use vw_service::{
 
 use crate::schemas::{VW_DIAGNOSTIC_SESSION_SCHEMA, VW_PHOTO_EVIDENCE_SCHEMA};
 
-const MEDIA_SCHEMA: &str = "impress/artifact/media";
+const MEDIA_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::IMPRESS_ARTIFACT_MEDIA;
 const MAX_PHOTO_BYTES: usize = 12 * 1024 * 1024;
 const MAX_PHOTO_PIXELS: u64 = 50_000_000;
 const MAX_SEARCH_RESULTS: u32 = 50;

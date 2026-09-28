@@ -39,7 +39,10 @@ mod tests {
     #[test]
     fn email_inherits_the_same_chat_definition() {
         let email = email_message_schema();
-        assert_eq!(email.inherits, Some("chat-message".into()));
+        assert_eq!(
+            email.inherits,
+            Some(impress_core::schema::refs::CHAT_MESSAGE)
+        );
         assert!(email.expected_edges.contains(&EdgeType::Discusses));
     }
 

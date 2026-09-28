@@ -2,15 +2,23 @@ use impress_core::reference::EdgeType;
 use impress_core::registry::SchemaRegistry;
 use impress_core::schema::{FieldDef, FieldType, Schema};
 
-pub const VW_CONFIGURATION_SCHEMA: &str = "vw/configuration@1.0.0";
-pub const VW_VEHICLE_SCHEMA: &str = "vw/vehicle@1.0.0";
-pub const VW_DIAGNOSTIC_SESSION_SCHEMA: &str = "vw/diagnostic-session@1.0.0";
-pub const VW_OBSERVATION_SCHEMA: &str = "vw/observation@1.0.0";
-pub const VW_MEASUREMENT_SCHEMA: &str = "vw/measurement@1.0.0";
-pub const VW_PROCEDURE_RUN_SCHEMA: &str = "vw/procedure-run@1.0.0";
-pub const VW_COMMAND_RECEIPT_SCHEMA: &str = "vw/command-receipt@1.0.0";
-pub const VW_KNOWLEDGE_PACK_SCHEMA: &str = "vw/knowledge-pack@1.0.0";
-pub const VW_PHOTO_EVIDENCE_SCHEMA: &str = "vw/photo-evidence@1.0.0";
+pub const VW_CONFIGURATION_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_CONFIGURATION;
+pub const VW_VEHICLE_SCHEMA: impress_core::SchemaRef = impress_core::schema::refs::VW_VEHICLE;
+pub const VW_DIAGNOSTIC_SESSION_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_DIAGNOSTIC_SESSION;
+pub const VW_OBSERVATION_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_OBSERVATION;
+pub const VW_MEASUREMENT_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_MEASUREMENT;
+pub const VW_PROCEDURE_RUN_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_PROCEDURE_RUN;
+pub const VW_COMMAND_RECEIPT_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_COMMAND_RECEIPT;
+pub const VW_KNOWLEDGE_PACK_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_KNOWLEDGE_PACK;
+pub const VW_PHOTO_EVIDENCE_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::VW_PHOTO_EVIDENCE;
 
 fn field(name: &str, field_type: FieldType, required: bool, description: &str) -> FieldDef {
     FieldDef {
@@ -21,7 +29,12 @@ fn field(name: &str, field_type: FieldType, required: bool, description: &str) -
     }
 }
 
-fn aggregate_schema(id: &str, name: &str, extra: Vec<FieldDef>, edges: Vec<EdgeType>) -> Schema {
+fn aggregate_schema(
+    id: impress_core::SchemaRef,
+    name: &str,
+    extra: Vec<FieldDef>,
+    edges: Vec<EdgeType>,
+) -> Schema {
     let mut fields = vec![
         field(
             "title",
@@ -38,7 +51,7 @@ fn aggregate_schema(id: &str, name: &str, extra: Vec<FieldDef>, edges: Vec<EdgeT
     ];
     fields.extend(extra);
     Schema {
-        id: id.into(),
+        id,
         name: name.into(),
         version: "1.0.0".into(),
         fields,
@@ -297,8 +310,8 @@ mod tests {
         let mut registry = SchemaRegistry::new();
         register_vw_schemas(&mut registry);
         assert_eq!(registry.list().len(), 9);
-        assert!(registry.get(VW_DIAGNOSTIC_SESSION_SCHEMA).is_some());
-        assert!(registry.get(VW_COMMAND_RECEIPT_SCHEMA).is_some());
-        assert!(registry.get(VW_PHOTO_EVIDENCE_SCHEMA).is_some());
+        assert!(registry.get(&VW_DIAGNOSTIC_SESSION_SCHEMA).is_some());
+        assert!(registry.get(&VW_COMMAND_RECEIPT_SCHEMA).is_some());
+        assert!(registry.get(&VW_PHOTO_EVIDENCE_SCHEMA).is_some());
     }
 }

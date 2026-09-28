@@ -35,7 +35,7 @@ impl From<impress_core::StoreError> for StoreApiError {
             impress_core::StoreError::AlreadyExists(id) => {
                 StoreApiError::AlreadyExists(id.to_string())
             }
-            impress_core::StoreError::SchemaNotFound(s) => StoreApiError::NotFound(s),
+            impress_core::StoreError::SchemaNotFound(s) => StoreApiError::NotFound(s.to_string()),
             impress_core::StoreError::Validation(msg) => StoreApiError::InvalidInput(msg),
             impress_core::StoreError::Storage(msg) => StoreApiError::Storage(msg),
         }
@@ -583,13 +583,16 @@ impl ImbibStore {
 
     pub fn list_libraries(&self) -> Result<Vec<LibraryRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/library".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LIBRARY),
             ..Default::default()
         };
         let items = self.store.query(&q)?;
         let mut rows = Vec::new();
         for item in &items {
-            let pub_count = self.count_children(item.id, "imbib/bibliography-entry")?;
+            let pub_count = self.count_children(
+                item.id,
+                impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            )?;
             rows.push(item_to_library_row(item, pub_count as i32));
         }
         Ok(rows)
@@ -811,8 +814,8 @@ impl ImbibStore {
     /// side effect of a marker fix.
     ///
     /// The fix is therefore only to stop asking the wrong question —
-    /// `item.schema == "imbib/collection"` is false for every migrated row, and
-    /// the guard runs BEFORE the write, which is why this export failed loudly
+    /// comparing `item.schema` with the old collection schema is false for every
+    /// migrated row. The guard runs BEFORE the write, so this export failed loudly
     /// (`NotFound`) rather than quietly where the reads returned empty.
     ///
     /// Live callers are iOS-only on today's tree: the shared record-sidebar
@@ -972,7 +975,7 @@ impl ImbibStore {
 
         // 1. Query all bibliography-entry members of this collection
         let members = self.store.query(&ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
             ..Default::default()
         })?;
@@ -1056,7 +1059,7 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let parent_uuid = parse_uuid(&parent_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             // Membership query: include both parent-children and Contains-linked papers.
             predicates: vec![in_library_predicate(parent_uuid)],
             sort: build_sort_descriptors(&sort_field, ascending),
@@ -1076,7 +1079,7 @@ impl ImbibStore {
         offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![],
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
@@ -1091,7 +1094,7 @@ impl ImbibStore {
     pub fn query_publication_ids(&self, parent_id: String) -> Result<Vec<String>, StoreApiError> {
         let parent_uuid = parse_uuid(&parent_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![in_library_predicate(parent_uuid)],
             ..Default::default()
         };
@@ -1121,7 +1124,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parent_uuid));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -1185,7 +1188,7 @@ impl ImbibStore {
     pub fn query_recent_activity(&self, limit: u32) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let ids = self
             .store
-            .recent_item_ids("imbib/bibliography-entry", limit)?;
+            .recent_item_ids(&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY, limit)?;
         let mut items = Vec::with_capacity(ids.len());
         for id in &ids {
             let Ok(uuid) = Uuid::parse_str(id) else {
@@ -1207,7 +1210,7 @@ impl ImbibStore {
     ) -> Result<Vec<RecentActivityRow>, StoreApiError> {
         Ok(self
             .store
-            .recent_entries("imbib/bibliography-entry", limit)?
+            .recent_entries(&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY, limit)?
             .into_iter()
             .map(|(id, kind, occurred_at)| RecentActivityRow {
                 id,
@@ -1226,7 +1229,7 @@ impl ImbibStore {
         offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasFlag(color)],
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -1632,7 +1635,7 @@ impl ImbibStore {
     pub fn export_all_bibtex(&self, library_id: String) -> Result<String, StoreApiError> {
         let parent_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![in_library_predicate(parent_uuid)],
             ..Default::default()
         };
@@ -1661,7 +1664,7 @@ impl ImbibStore {
 
                 // Fetch child linked files (no tags/refs needed for linked file items)
                 let lf_q = ItemQuery {
-                    schema: Some("imbib/linked-file".into()),
+                    schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
                     predicates: vec![Predicate::HasParent(uuid)],
                     include_tags: false,
                     include_references: false,
@@ -1774,7 +1777,7 @@ impl ImbibStore {
             .store
             .get(uuid)?
             .ok_or_else(|| StoreApiError::NotFound(format!("comment {id}")))?;
-        if item.schema != "imbib/comment" {
+        if item.schema != impress_core::schema::refs::IMBIB_COMMENT {
             return Err(StoreApiError::InvalidInput(format!(
                 "{id} is a record of kind {}, not a comment; nothing was deleted",
                 item.schema
@@ -1824,7 +1827,7 @@ impl ImbibStore {
 
         // Record child publication IDs (they'll become orphaned on delete due to ON DELETE SET NULL)
         let pub_q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasParent(uuid)],
             ..Default::default()
         };
@@ -1885,7 +1888,7 @@ impl ImbibStore {
     pub fn delete_tag_undoable(&self, path: String) -> Result<TagDeleteSnapshot, StoreApiError> {
         // 1. Snapshot the tag definition item
         let q = ItemQuery {
-            schema: Some("imbib/tag-definition".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_TAG_DEFINITION),
             predicates: vec![Predicate::Eq(
                 "canonical_path".into(),
                 Value::String(path.clone()),
@@ -1900,7 +1903,7 @@ impl ImbibStore {
 
         // 2. Find all publications with this tag
         let pub_q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasTag(path.clone())],
             ..Default::default()
         };
@@ -2004,8 +2007,11 @@ impl ImbibStore {
     pub fn get_library(&self, id: String) -> Result<Option<LibraryRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "imbib/library" => {
-                let pub_count = self.count_children(item.id, "imbib/bibliography-entry")?;
+            Some(item) if item.schema == impress_core::schema::refs::IMBIB_LIBRARY => {
+                let pub_count = self.count_children(
+                    item.id,
+                    impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+                )?;
                 Ok(Some(item_to_library_row(&item, pub_count as i32)))
             }
             _ => Ok(None),
@@ -2016,7 +2022,7 @@ impl ImbibStore {
         let uuid = parse_uuid(&id)?;
         // Unset current default(s)
         let q = ItemQuery {
-            schema: Some("imbib/library".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LIBRARY),
             predicates: vec![Predicate::Eq("is_default".into(), Value::Bool(true))],
             ..Default::default()
         };
@@ -2042,13 +2048,16 @@ impl ImbibStore {
 
     pub fn get_default_library(&self) -> Result<Option<LibraryRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/library".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LIBRARY),
             predicates: vec![Predicate::Eq("is_default".into(), Value::Bool(true))],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
         if let Some(item) = items.first() {
-            let pub_count = self.count_children(item.id, "imbib/bibliography-entry")?;
+            let pub_count = self.count_children(
+                item.id,
+                impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            )?;
             Ok(Some(item_to_library_row(item, pub_count as i32)))
         } else {
             Ok(None)
@@ -2070,7 +2079,7 @@ impl ImbibStore {
         // Collections store membership via AddReference(Contains) from collection→publication,
         // so ReferencedBy(Contains, coll_uuid) finds publications targeted by the collection.
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -2115,7 +2124,7 @@ impl ImbibStore {
     ) -> Result<Vec<LinkedFileRow>, StoreApiError> {
         let pub_uuid = parse_uuid(&publication_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/linked-file".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
             predicates: vec![Predicate::HasParent(pub_uuid)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -2130,7 +2139,7 @@ impl ImbibStore {
     pub fn get_linked_file(&self, id: String) -> Result<Option<LinkedFileRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "imbib/linked-file" => {
+            Some(item) if item.schema == impress_core::schema::refs::IMBIB_LINKED_FILE => {
                 Ok(Some(item_to_linked_file_row(&item)))
             }
             _ => Ok(None),
@@ -2172,7 +2181,7 @@ impl ImbibStore {
     pub fn count_pdfs(&self, publication_id: String) -> Result<u32, StoreApiError> {
         let pub_uuid = parse_uuid(&publication_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/linked-file".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
             predicates: vec![
                 Predicate::HasParent(pub_uuid),
                 Predicate::Eq("is_pdf".into(), Value::Bool(true)),
@@ -2190,7 +2199,7 @@ impl ImbibStore {
     /// as broken.
     pub fn count_publications_with_local_pdf(&self) -> Result<u32, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/linked-file".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
             predicates: vec![
                 Predicate::Eq("is_pdf".into(), Value::Bool(true)),
                 Predicate::Eq("is_locally_materialized".into(), Value::Bool(true)),
@@ -2247,7 +2256,7 @@ impl ImbibStore {
             predicates.push(Predicate::HasParent(lib_uuid));
         }
         let q = ItemQuery {
-            schema: Some("imbib/smart-search".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_SMART_SEARCH),
             predicates,
             sort: vec![SortDescriptor {
                 field: "payload.sort_order".into(),
@@ -2262,7 +2271,7 @@ impl ImbibStore {
     pub fn get_smart_search(&self, id: String) -> Result<Option<SmartSearchRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "imbib/smart-search" => {
+            Some(item) if item.schema == impress_core::schema::refs::IMBIB_SMART_SEARCH => {
                 Ok(Some(item_to_smart_search_row(&item)))
             }
             _ => Ok(None),
@@ -2284,13 +2293,16 @@ impl ImbibStore {
 
     pub fn get_inbox_library(&self) -> Result<Option<LibraryRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/library".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LIBRARY),
             predicates: vec![Predicate::Eq("is_inbox".into(), Value::Bool(true))],
             ..Default::default()
         };
         let items = self.store.query(&q)?;
         if let Some(item) = items.first() {
-            let pub_count = self.count_children(item.id, "imbib/bibliography-entry")?;
+            let pub_count = self.count_children(
+                item.id,
+                impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+            )?;
             Ok(Some(item_to_library_row(item, pub_count as i32)))
         } else {
             Ok(None)
@@ -2322,7 +2334,7 @@ impl ImbibStore {
             predicates.push(Predicate::Eq("mute_type".into(), Value::String(mt)));
         }
         let q = ItemQuery {
-            schema: Some("imbib/muted-item".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_MUTED_ITEM),
             predicates,
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -2385,7 +2397,7 @@ impl ImbibStore {
             return Ok(false);
         }
         let q = ItemQuery {
-            schema: Some("imbib/dismissed-paper".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_DISMISSED_PAPER),
             predicates: vec![Predicate::Or(or_preds)],
             limit: Some(1),
             ..Default::default()
@@ -2399,7 +2411,7 @@ impl ImbibStore {
         offset: Option<u32>,
     ) -> Result<Vec<DismissedPaperRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/dismissed-paper".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_DISMISSED_PAPER),
             sort: vec![SortDescriptor {
                 field: "created".into(),
                 ascending: false,
@@ -2416,7 +2428,7 @@ impl ImbibStore {
 
     pub fn find_by_doi(&self, doi: String) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Eq("doi".into(), Value::String(doi))],
             ..Default::default()
         };
@@ -2427,7 +2439,7 @@ impl ImbibStore {
 
     pub fn find_by_arxiv(&self, arxiv_id: String) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Eq("arxiv_id".into(), Value::String(arxiv_id))],
             ..Default::default()
         };
@@ -2438,7 +2450,7 @@ impl ImbibStore {
 
     pub fn find_by_bibcode(&self, bibcode: String) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Eq("bibcode".into(), Value::String(bibcode))],
             ..Default::default()
         };
@@ -2471,7 +2483,7 @@ impl ImbibStore {
             return Ok(vec![]);
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Or(or_preds)],
             ..Default::default()
         };
@@ -2512,7 +2524,7 @@ impl ImbibStore {
             return Ok(vec![]);
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Or(or_preds)],
             ..Default::default()
         };
@@ -2527,7 +2539,7 @@ impl ImbibStore {
     pub fn deduplicate_library(&self, library_id: String) -> Result<u32, StoreApiError> {
         let parent_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasParent(parent_uuid)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -2599,7 +2611,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -2617,7 +2629,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             ..Default::default()
         };
@@ -2632,7 +2644,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             ..Default::default()
         };
@@ -2657,7 +2669,7 @@ impl ImbibStore {
     pub fn count_collections(&self) -> Result<u32, StoreApiError> {
         let binding = collection_ops::resolve(&self.store, &IMBIB_COLLECTION)?;
         let q = ItemQuery {
-            schema: Some(binding.schema_ref.into()),
+            schema: Some((*binding.schema_ref).clone()),
             predicates: binding.scope_predicates(),
             ..Default::default()
         };
@@ -2671,7 +2683,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             ..Default::default()
         };
@@ -2689,7 +2701,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             ..Default::default()
         };
@@ -2699,7 +2711,7 @@ impl ImbibStore {
     /// Count flagged publications. Uses SELECT COUNT(*).
     pub fn count_flagged(&self, color: Option<String>) -> Result<u32, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasFlag(color)],
             ..Default::default()
         };
@@ -2723,7 +2735,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             ..Default::default()
         };
@@ -2737,7 +2749,7 @@ impl ImbibStore {
     ) -> Result<u32, StoreApiError> {
         let coll_uuid = parse_uuid(&collection_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, coll_uuid)],
             ..Default::default()
         };
@@ -2748,7 +2760,7 @@ impl ImbibStore {
     pub fn count_unread_in_collection(&self, collection_id: String) -> Result<u32, StoreApiError> {
         let coll_uuid = parse_uuid(&collection_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![
                 Predicate::ReferencedBy(EdgeType::Contains, coll_uuid),
                 Predicate::IsRead(false),
@@ -2774,15 +2786,15 @@ impl ImbibStore {
         let unread_by_container = self.store.query_raw(
             "SELECT lib_id, COUNT(*) FROM (
                  SELECT parent_id AS lib_id, id FROM items
-                  WHERE schema_ref = 'imbib/bibliography-entry' AND is_read = 0
+                  WHERE schema_ref = ?2 AND is_read = 0
                     AND parent_id IS NOT NULL
                  UNION
                  SELECT r.source_id AS lib_id, i.id
                    FROM items i JOIN item_references r
                      ON r.target_id = i.id AND r.edge_type = ?1
-                  WHERE i.schema_ref = 'imbib/bibliography-entry' AND i.is_read = 0
+                  WHERE i.schema_ref = ?2 AND i.is_read = 0
              ) GROUP BY lib_id",
-            &[&edge],
+            &[&edge, &impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY],
             |row| {
                 Ok(SidebarCountEntry {
                     id: row.get(0)?,
@@ -2792,9 +2804,9 @@ impl ImbibStore {
         )?;
         let flag_counts = self.store.query_raw(
             "SELECT flag_color, COUNT(*) FROM items
-              WHERE schema_ref = 'imbib/bibliography-entry' AND flag_color IS NOT NULL
+              WHERE schema_ref = ?1 AND flag_color IS NOT NULL
               GROUP BY flag_color",
-            &[],
+            &[&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY],
             |row| {
                 Ok(SidebarCountEntry {
                     id: row.get(0)?,
@@ -2855,7 +2867,7 @@ impl ImbibStore {
     ) -> Result<u32, StoreApiError> {
         let scix_uuid = parse_uuid(&scix_library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, scix_uuid)],
             ..Default::default()
         };
@@ -2875,7 +2887,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -2901,7 +2913,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -2923,7 +2935,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             sort: build_sort_descriptors("created", false),
             limit: Some(limit as usize),
@@ -2952,7 +2964,7 @@ impl ImbibStore {
             predicates.push(in_library_predicate(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             limit: limit.map(|l| l as usize),
             offset: offset.map(|o| o as usize),
@@ -2973,7 +2985,7 @@ impl ImbibStore {
             predicates.push(Predicate::HasParent(parse_uuid(&lid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             limit: Some(1),
             ..Default::default()
@@ -3014,7 +3026,7 @@ impl ImbibStore {
 
     pub fn list_scix_libraries(&self) -> Result<Vec<SciXLibraryRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/scix-library".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_SCIX_LIBRARY),
             sort: vec![SortDescriptor {
                 field: "payload.sort_order".into(),
                 ascending: true,
@@ -3039,7 +3051,7 @@ impl ImbibStore {
     pub fn get_scix_library(&self, id: String) -> Result<Option<SciXLibraryRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "imbib/scix-library" => {
+            Some(item) if item.schema == impress_core::schema::refs::IMBIB_SCIX_LIBRARY => {
                 // Count publications via Contains references (not parent), since
                 // add_to_scix_library uses AddReference(Contains).
                 let pub_count = item
@@ -3122,7 +3134,7 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let scix_uuid = parse_uuid(&scix_library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, scix_uuid)],
             sort: build_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -3183,7 +3195,7 @@ impl ImbibStore {
             predicates.push(Predicate::Eq("page_number".into(), Value::Int(page as i64)));
         }
         let q = ItemQuery {
-            schema: Some("imbib/annotation".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_ANNOTATION),
             predicates,
             sort: vec![SortDescriptor {
                 field: "payload.page_number".into(),
@@ -3198,7 +3210,7 @@ impl ImbibStore {
     pub fn count_annotations(&self, linked_file_id: String) -> Result<u32, StoreApiError> {
         let file_uuid = parse_uuid(&linked_file_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/annotation".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_ANNOTATION),
             predicates: vec![Predicate::HasParent(file_uuid)],
             ..Default::default()
         };
@@ -3258,7 +3270,7 @@ impl ImbibStore {
     ) -> Result<Vec<CommentRow>, StoreApiError> {
         let parent_uuid = parse_uuid(&item_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/comment".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_COMMENT),
             predicates: vec![Predicate::HasParent(parent_uuid)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -3399,7 +3411,7 @@ impl ImbibStore {
     ) -> Result<Vec<CommentRow>, StoreApiError> {
         let parent_uuid = parse_uuid(&item_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/comment".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_COMMENT),
             predicates: vec![
                 Predicate::HasParent(parent_uuid),
                 Predicate::Gt("logical_clock".into(), Value::Int(since_clock as i64)),
@@ -3594,7 +3606,7 @@ impl ImbibStore {
             predicates.push(Predicate::HasParent(parse_uuid(&pid)?));
         }
         let q = ItemQuery {
-            schema: Some("imbib/assignment".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_ASSIGNMENT),
             predicates,
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -3638,7 +3650,7 @@ impl ImbibStore {
     ) -> Result<Vec<ActivityRecordRow>, StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/activity-record".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_ACTIVITY_RECORD),
             predicates: vec![Predicate::HasParent(lib_uuid)],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -3655,7 +3667,7 @@ impl ImbibStore {
     pub fn clear_activity_records(&self, library_id: String) -> Result<(), StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/activity-record".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_ACTIVITY_RECORD),
             predicates: vec![Predicate::HasParent(lib_uuid)],
             ..Default::default()
         };
@@ -3674,7 +3686,7 @@ impl ImbibStore {
     ) -> Result<Option<String>, StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/recommendation-profile".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_RECOMMENDATION_PROFILE),
             predicates: vec![Predicate::HasParent(lib_uuid)],
             limit: Some(1),
             ..Default::default()
@@ -3698,7 +3710,7 @@ impl ImbibStore {
     ) -> Result<(), StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/recommendation-profile".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_RECOMMENDATION_PROFILE),
             predicates: vec![Predicate::HasParent(lib_uuid)],
             limit: Some(1),
             ..Default::default()
@@ -3749,7 +3761,7 @@ impl ImbibStore {
     pub fn delete_recommendation_profile(&self, library_id: String) -> Result<(), StoreApiError> {
         let lib_uuid = parse_uuid(&library_id)?;
         let q = ItemQuery {
-            schema: Some("imbib/recommendation-profile".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_RECOMMENDATION_PROFILE),
             predicates: vec![Predicate::HasParent(lib_uuid)],
             ..Default::default()
         };
@@ -3765,7 +3777,7 @@ impl ImbibStore {
     /// Delete a tag definition and remove the tag from all publications.
     pub fn delete_tag(&self, path: String) -> Result<(), StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/tag-definition".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_TAG_DEFINITION),
             predicates: vec![Predicate::Eq(
                 "canonical_path".into(),
                 Value::String(path.clone()),
@@ -3778,7 +3790,7 @@ impl ImbibStore {
         }
         // Remove the tag from all publications that have it
         let pub_q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasTag(path.clone())],
             ..Default::default()
         };
@@ -3799,7 +3811,7 @@ impl ImbibStore {
         color_dark: Option<String>,
     ) -> Result<(), StoreApiError> {
         let q = ItemQuery {
-            schema: Some("imbib/tag-definition".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_TAG_DEFINITION),
             predicates: vec![Predicate::Eq("canonical_path".into(), Value::String(path))],
             ..Default::default()
         };
@@ -3831,7 +3843,7 @@ impl ImbibStore {
         let new_leaf = new_path.rsplit('/').next().unwrap_or(&new_path);
         // Update tag definition
         let q = ItemQuery {
-            schema: Some("imbib/tag-definition".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_TAG_DEFINITION),
             predicates: vec![Predicate::Eq(
                 "canonical_path".into(),
                 Value::String(old_path.clone()),
@@ -3853,7 +3865,7 @@ impl ImbibStore {
         }
         // Update all publications with this tag
         let pub_q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::HasTag(old_path.clone())],
             ..Default::default()
         };
@@ -3893,8 +3905,8 @@ impl ImbibStore {
             "SELECT t.tag_path, t.item_id FROM item_tags t
               WHERE EXISTS (SELECT 1 FROM items i
                              WHERE i.id = t.item_id
-                               AND i.schema_ref = 'imbib/bibliography-entry')",
-            &[],
+                               AND i.schema_ref = ?1)",
+            &[&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         let mut items_by_path: std::collections::HashMap<&str, Vec<&str>> =
@@ -3992,8 +4004,9 @@ impl ImbibStore {
                 schema
             )));
         }
+        let schema_ref = parse_schema_ref(&schema)?;
         let item = conversion::artifact_to_item(
-            &schema,
+            schema_ref,
             &title,
             source_url.as_deref(),
             notes.as_deref(),
@@ -4017,7 +4030,7 @@ impl ImbibStore {
     pub fn get_artifact(&self, id: String) -> Result<Option<ArtifactRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema.starts_with("impress/artifact/") => {
+            Some(item) if item.schema.as_str().starts_with("impress/artifact/") => {
                 let tag_defs = self.load_tag_definitions()?;
                 Ok(Some(item_to_artifact_row(&item, &tag_defs)))
             }
@@ -4044,7 +4057,7 @@ impl ImbibStore {
         match schema_filter {
             Some(schema) => {
                 let q = ItemQuery {
-                    schema: Some(schema),
+                    schema: Some(parse_schema_ref(&schema)?),
                     sort,
                     limit: limit.map(|l| l as usize),
                     offset: offset.map(|o| o as usize),
@@ -4071,7 +4084,7 @@ impl ImbibStore {
                 let mut all_items = Vec::new();
                 for schema in &schemas {
                     let q = ItemQuery {
-                        schema: Some((*schema).into()),
+                        schema: Some(parse_schema_ref(schema)?),
                         ..Default::default()
                     };
                     all_items.extend(self.store.query(&q)?);
@@ -4121,7 +4134,7 @@ impl ImbibStore {
         ]);
         // Query all items, then filter by artifact schema prefix
         let q = ItemQuery {
-            schema: schema_filter,
+            schema: schema_filter.as_deref().map(parse_schema_ref).transpose()?,
             predicates: vec![search_pred],
             sort: vec![SortDescriptor {
                 field: "created".into(),
@@ -4133,7 +4146,7 @@ impl ImbibStore {
         let tag_defs = self.load_tag_definitions()?;
         Ok(items
             .iter()
-            .filter(|item| item.schema.starts_with("impress/artifact/"))
+            .filter(|item| item.schema.as_str().starts_with("impress/artifact/"))
             .map(|item| item_to_artifact_row(item, &tag_defs))
             .collect())
     }
@@ -4258,7 +4271,7 @@ impl ImbibStore {
                             _ => None,
                         }),
                     };
-                    (Some(ti.schema.clone()), title)
+                    (Some(ti.schema.to_string()), title)
                 }
                 None => (None, None),
             };
@@ -4277,7 +4290,7 @@ impl ImbibStore {
         match schema_filter {
             Some(schema) => {
                 let q = ItemQuery {
-                    schema: Some(schema),
+                    schema: Some(parse_schema_ref(&schema)?),
                     ..Default::default()
                 };
                 Ok(self.store.count(&q)? as u32)
@@ -4297,7 +4310,7 @@ impl ImbibStore {
                 let mut total = 0u32;
                 for schema in &schemas {
                     let q = ItemQuery {
-                        schema: Some((*schema).into()),
+                        schema: Some(parse_schema_ref(schema)?),
                         ..Default::default()
                     };
                     total += self.store.count(&q)? as u32;
@@ -4336,7 +4349,7 @@ impl ImbibStore {
             predicates.push(Predicate::Eq("status".into(), Value::String(st)));
         }
         let q = ItemQuery {
-            schema: Some("manuscript".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT),
             predicates,
             sort: manuscript_sort_descriptors(&sort_field, ascending),
             limit: limit.map(|l| l as usize),
@@ -4369,7 +4382,7 @@ impl ImbibStore {
             predicates.push(Predicate::Eq("status".into(), Value::String(st)));
         }
         let q = ItemQuery {
-            schema: Some("manuscript".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT),
             predicates,
             ..Default::default()
         };
@@ -4393,7 +4406,7 @@ impl ImbibStore {
         color: Option<String>,
     ) -> Result<Vec<ManuscriptRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("manuscript".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT),
             predicates: vec![Predicate::HasFlag(color)],
             sort: manuscript_sort_descriptors("modified", false),
             ..Default::default()
@@ -4413,7 +4426,7 @@ impl ImbibStore {
     pub fn get_manuscript_row(&self, id: String) -> Result<Option<ManuscriptRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "manuscript" => {
+            Some(item) if item.schema == impress_core::schema::refs::MANUSCRIPT => {
                 let tag_defs = self.load_tag_definitions()?;
                 let rev_count = self.count_revisions(item.id)?;
                 Ok(Some(item_to_manuscript_row(&item, &tag_defs, rev_count)))
@@ -4429,7 +4442,7 @@ impl ImbibStore {
     ) -> Result<Option<ManuscriptDetail>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "manuscript" => {
+            Some(item) if item.schema == impress_core::schema::refs::MANUSCRIPT => {
                 let tag_defs = self.load_tag_definitions()?;
                 // Collections containing this manuscript. The SAME kernel verb
                 // `get_publication_detail` uses, with the manuscript binding —
@@ -4489,7 +4502,7 @@ impl ImbibStore {
         // Mirrors imprint's current DocumentSchemaVersion (v1.4).
         payload.insert("format_schema_version".into(), Value::Int(140));
 
-        let item = conversion::bare_item(id, "manuscript", payload);
+        let item = conversion::bare_item(id, impress_core::schema::refs::MANUSCRIPT, payload);
         self.store.insert(item.clone())?;
         let tag_defs = self.load_tag_definitions()?;
         Ok(item_to_manuscript_row(&item, &tag_defs, 0))
@@ -4498,7 +4511,7 @@ impl ImbibStore {
     /// List saved plot specs, newest-modified first.
     pub fn list_plot_specs(&self, limit: u32) -> Result<Vec<PlotSpecRow>, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("plot-spec".into()),
+            schema: Some(impress_core::schema::refs::PLOT_SPEC),
             sort: vec![SortDescriptor {
                 field: "modified".into(),
                 ascending: false,
@@ -4538,7 +4551,7 @@ impl ImbibStore {
         if let Some(ds) = data_source {
             payload.insert("data_source".into(), Value::String(ds));
         }
-        let item = conversion::bare_item(id, "plot-spec", payload);
+        let item = conversion::bare_item(id, impress_core::schema::refs::PLOT_SPEC, payload);
         self.store.insert(item.clone())?;
         Ok(item_to_plot_spec_row(&item))
     }
@@ -4547,7 +4560,9 @@ impl ImbibStore {
     pub fn get_plot_spec(&self, id: String) -> Result<Option<PlotSpecRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "plot-spec" => Ok(Some(item_to_plot_spec_row(&item))),
+            Some(item) if item.schema == impress_core::schema::refs::PLOT_SPEC => {
+                Ok(Some(item_to_plot_spec_row(&item)))
+            }
             _ => Ok(None),
         }
     }
@@ -4578,7 +4593,7 @@ impl ImbibStore {
             .store
             .get(uuid)?
             .ok_or_else(|| StoreApiError::NotFound(id.clone()))?;
-        if item.schema != "manuscript" {
+        if item.schema != impress_core::schema::refs::MANUSCRIPT {
             return Err(StoreApiError::InvalidInput(format!(
                 "set_manuscript_body requires schema 'manuscript', got '{}'",
                 item.schema
@@ -4688,7 +4703,7 @@ impl ImbibStore {
             Predicate::Contains("notes".into(), query),
         ]);
         let q = ItemQuery {
-            schema: Some("manuscript".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT),
             predicates: vec![search_pred],
             sort: manuscript_sort_descriptors("modified", false),
             limit: limit.map(|l| l as usize),
@@ -4856,7 +4871,7 @@ impl ImbibStore {
     /// Count revision snapshots of a manuscript.
     fn count_revisions(&self, manuscript_id: Uuid) -> Result<i32, StoreApiError> {
         let q = ItemQuery {
-            schema: Some("manuscript-revision".into()),
+            schema: Some(impress_core::schema::refs::MANUSCRIPT_REVISION),
             predicates: vec![Predicate::Eq(
                 "parent_manuscript_ref".into(),
                 Value::String(manuscript_id.to_string()),
@@ -4918,7 +4933,7 @@ impl ImbibStore {
             return Ok(false);
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Or(or_preds)],
             ..Default::default()
         };
@@ -5005,7 +5020,7 @@ impl ImbibStore {
             predicates.push(Predicate::Or(or_preds));
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates,
             limit: Some(1),
             ..Default::default()
@@ -5013,9 +5028,13 @@ impl ImbibStore {
         Ok(self.store.query(&q)?.first().map(|item| item.id))
     }
 
-    fn count_children(&self, parent_id: Uuid, schema: &str) -> Result<usize, StoreApiError> {
+    fn count_children(
+        &self,
+        parent_id: Uuid,
+        schema: impress_core::SchemaRef,
+    ) -> Result<usize, StoreApiError> {
         let q = ItemQuery {
-            schema: Some(schema.into()),
+            schema: Some(schema),
             predicates: vec![Predicate::HasParent(parent_id)],
             ..Default::default()
         };
@@ -5040,7 +5059,7 @@ impl ImbibStore {
 
         let binding = collection_ops::resolve(&self.store, &MANUSCRIPT_COLLECTION)?;
         let q = ItemQuery {
-            schema: Some(binding.schema_ref.into()),
+            schema: Some((*binding.schema_ref).clone()),
             predicates: binding.scope_predicates(),
             ..Default::default()
         };
@@ -5092,7 +5111,7 @@ impl ImbibStore {
         // Single-pub: targeted query instead of full table scan
         if pub_ids.len() == 1 {
             let q = ItemQuery {
-                schema: Some("imbib/linked-file".into()),
+                schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
                 predicates: vec![Predicate::HasParent(pub_ids[0])],
                 include_tags: false,
                 include_references: false,
@@ -5107,7 +5126,7 @@ impl ImbibStore {
 
         // Batch: query all linked-file items — cheaper than per-publication queries for large batches
         let q = ItemQuery {
-            schema: Some("imbib/linked-file".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_LINKED_FILE),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -5161,7 +5180,7 @@ impl ImbibStore {
         }
 
         for chunk in pub_ids.chunks(900) {
-            let placeholders = (1..=chunk.len())
+            let placeholders = (2..=chunk.len() + 1)
                 .map(|i| format!("?{}", i))
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -5174,11 +5193,13 @@ impl ImbibStore {
                                   OR json_extract(payload, '$.is_pdf') IS NULL \
                              THEN 1 ELSE 0 END) \
                  FROM items \
-                 WHERE schema_ref = 'imbib/linked-file' AND parent_id IN ({}) \
+                 WHERE schema_ref = ?1 AND parent_id IN ({}) \
                  GROUP BY parent_id",
                 placeholders
             );
-            let params: Vec<String> = chunk.iter().map(|id| id.to_string()).collect();
+            let mut params: Vec<String> = Vec::with_capacity(chunk.len() + 1);
+            params.push(impress_core::schema::refs::IMBIB_LINKED_FILE.to_string());
+            params.extend(chunk.iter().map(|id| id.to_string()));
             let params_ref: Vec<&dyn rusqlite::types::ToSql> = params
                 .iter()
                 .map(|p| p as &dyn rusqlite::types::ToSql)
@@ -5207,7 +5228,7 @@ impl ImbibStore {
         }
 
         let q = ItemQuery {
-            schema: Some("imbib/tag-definition".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_TAG_DEFINITION),
             include_tags: false,
             include_references: false,
             ..Default::default()
@@ -5278,7 +5299,7 @@ impl ImbibStore {
             return Ok(vec![]);
         }
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![Predicate::Or(or_preds)],
             ..Default::default()
         };
@@ -5324,7 +5345,7 @@ impl ImbibStore {
             return Ok(std::collections::HashSet::new());
         }
         let q = ItemQuery {
-            schema: Some("imbib/dismissed-paper".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_DISMISSED_PAPER),
             predicates: vec![Predicate::Or(or_preds)],
             ..Default::default()
         };
@@ -5362,6 +5383,14 @@ fn is_input_dismissed(
             .bibcode
             .as_ref()
             .is_some_and(|b| dismissed.contains(&b.to_lowercase()))
+}
+
+fn parse_schema_ref(value: &str) -> Result<impress_core::SchemaRef, StoreApiError> {
+    value
+        .parse()
+        .map_err(|error: impress_core::schema::UnknownSchemaRef| {
+            StoreApiError::InvalidInput(error.to_string())
+        })
 }
 
 pub(crate) fn parse_uuid(s: &str) -> Result<Uuid, StoreApiError> {
@@ -7422,7 +7451,7 @@ mod tests {
     fn artifact_invalid_schema_rejected() {
         let store = make_store();
         let result = store.create_artifact(
-            "imbib/bibliography-entry".into(),
+            impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY.to_string(),
             "Should Fail".into(),
             None,
             None,
@@ -7438,6 +7467,24 @@ mod tests {
             vec![],
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn artifact_queries_reject_unknown_schema_refs() {
+        let store = make_store();
+        let unknown = Some("impress/artifact/not-in-manifest".to_string());
+        assert!(matches!(
+            store.list_artifacts(unknown.clone(), "created".into(), false, None, None),
+            Err(StoreApiError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            store.search_artifacts("paper".into(), unknown.clone()),
+            Err(StoreApiError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            store.count_artifacts(unknown),
+            Err(StoreApiError::InvalidInput(_))
+        ));
     }
 
     #[test]
@@ -8144,7 +8191,7 @@ mod tests {
         // Query for items in `extra` using the new predicate
         let extra_uuid = parse_uuid(&extra.id).unwrap();
         let q = ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![in_library_predicate(extra_uuid)],
             ..Default::default()
         };
@@ -8197,7 +8244,7 @@ mod tests {
         for library in [&inbox, &save] {
             let id = parse_uuid(&library.id).unwrap();
             let legacy = ItemQuery {
-                schema: Some("imbib/bibliography-entry".into()),
+                schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
                 predicates: vec![in_library_predicate(id)],
                 ..Default::default()
             };
@@ -8217,7 +8264,7 @@ mod tests {
             assert_eq!(ids(&pane.item_query), ids(&legacy), "{}", library.name);
         }
         let inbox_rows = ids(&ItemQuery {
-            schema: Some("imbib/bibliography-entry".into()),
+            schema: Some(impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY),
             predicates: vec![in_library_predicate(parse_uuid(&inbox.id).unwrap())],
             ..Default::default()
         });

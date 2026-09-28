@@ -510,10 +510,9 @@ impl ImbibStore {
                 outcome.unchanged.push(publication_id);
                 continue;
             };
-            let exists = self
-                .store
-                .get(pub_uuid)?
-                .is_some_and(|item| item.schema == "imbib/bibliography-entry");
+            let exists = self.store.get(pub_uuid)?.is_some_and(|item| {
+                item.schema == impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY
+            });
             if !exists {
                 outcome.unchanged.push(publication_id);
                 continue;
@@ -838,8 +837,8 @@ impl ImbibStore {
     /// nulled when a paper is deleted); returns how many.
     pub fn eink_gc_orphans(&self) -> Result<u32, StoreApiError> {
         let ids = self.store.query_raw(
-            "SELECT id FROM items WHERE schema_ref = 'imbib/eink-mirror' AND parent_id IS NULL",
-            &[],
+            "SELECT id FROM items WHERE schema_ref = ?1 AND parent_id IS NULL",
+            &[&SCHEMA_MIRROR],
             |row| row.get::<_, String>(0),
         )?;
         let mut count = 0;
@@ -857,10 +856,10 @@ impl ImbibStore {
     /// worked end to end).
     pub fn eink_legacy_marker_rows(&self) -> Result<u32, StoreApiError> {
         let counts = self.store.query_raw(
-            "SELECT COUNT(*) FROM items WHERE schema_ref = 'imbib/bibliography-entry' \
+            "SELECT COUNT(*) FROM items WHERE schema_ref = ?1 \
              AND (json_extract(payload, '$._remarkable_doc_id') IS NOT NULL \
                   OR json_extract(payload, '$.extra_fields._remarkable_doc_id') IS NOT NULL)",
-            &[],
+            &[&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY],
             |row| row.get::<_, i64>(0),
         )?;
         Ok(counts.first().copied().unwrap_or(0) as u32)
@@ -877,7 +876,7 @@ impl ImbibStore {
         let Some(file) = self
             .store
             .get(file_uuid)?
-            .filter(|item| item.schema == "imbib/linked-file")
+            .filter(|item| item.schema == impress_core::schema::refs::IMBIB_LINKED_FILE)
         else {
             return Ok(None);
         };
@@ -962,8 +961,8 @@ impl ImbibStore {
             .store
             .query_raw(
                 "SELECT COUNT(*), COALESCE(MAX(modified), 0) FROM items \
-                 WHERE schema_ref = 'imbib/eink-device'",
-                &[],
+                 WHERE schema_ref = ?1",
+                &[&SCHEMA_DEVICE],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
             )?
             .first()
@@ -1005,17 +1004,18 @@ impl ImbibStore {
             return Ok(result);
         };
         for chunk in pub_ids.chunks(900) {
-            let placeholders = (2..=chunk.len() + 1)
+            let placeholders = (3..=chunk.len() + 2)
                 .map(|i| format!("?{i}"))
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
                 "SELECT parent_id, json_extract(payload, '$.state') FROM items \
-                 WHERE schema_ref = 'imbib/eink-mirror' \
-                   AND json_extract(payload, '$.device_id') = ?1 \
+                 WHERE schema_ref = ?1 \
+                   AND json_extract(payload, '$.device_id') = ?2 \
                    AND parent_id IN ({placeholders})"
             );
-            let mut params: Vec<String> = Vec::with_capacity(chunk.len() + 1);
+            let mut params: Vec<String> = Vec::with_capacity(chunk.len() + 2);
+            params.push(SCHEMA_MIRROR.to_string());
             params.push(device.clone());
             params.extend(chunk.iter().map(|id| id.to_string()));
             let params_ref: Vec<&dyn rusqlite::types::ToSql> = params

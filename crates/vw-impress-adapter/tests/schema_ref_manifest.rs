@@ -11,7 +11,7 @@ fn vw_registry_matches_manifest() {
     let registered: BTreeSet<String> = registry
         .list()
         .iter()
-        .map(|schema| schema.id.clone())
+        .map(|schema| schema.id.to_string())
         .collect();
     let declared = manifest::registry_ids("vw-impress-adapter");
     manifest::assert_same_set("vw-impress-adapter", &registered, &declared);

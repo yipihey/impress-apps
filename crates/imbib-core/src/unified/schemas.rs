@@ -4,7 +4,7 @@ use impress_core::schema::{FieldDef, FieldType, Schema};
 /// Schema for bibliography entries (maps to CDPublication / Publication).
 pub fn bibliography_entry_schema() -> Schema {
     Schema {
-        id: "imbib/bibliography-entry".into(),
+        id: impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY,
         name: "Bibliography Entry".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -66,7 +66,7 @@ pub fn bibliography_entry_schema() -> Schema {
 /// Schema for libraries (maps to CDLibrary).
 pub fn library_schema() -> Schema {
     Schema {
-        id: "imbib/library".into(),
+        id: impress_core::schema::refs::IMBIB_LIBRARY,
         name: "Library".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -85,7 +85,7 @@ pub fn library_schema() -> Schema {
 /// Schema for collections (maps to CDCollection).
 pub fn collection_schema() -> Schema {
     Schema {
-        id: "imbib/collection".into(),
+        id: impress_core::schema::refs::IMBIB_COLLECTION,
         name: "Collection".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -102,7 +102,7 @@ pub fn collection_schema() -> Schema {
 /// Schema for tag definitions (maps to CDTag).
 pub fn tag_definition_schema() -> Schema {
     Schema {
-        id: "imbib/tag-definition".into(),
+        id: impress_core::schema::refs::IMBIB_TAG_DEFINITION,
         name: "Tag Definition".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -121,7 +121,7 @@ pub fn tag_definition_schema() -> Schema {
 /// Parent: bibliography-entry item.
 pub fn linked_file_schema() -> Schema {
     Schema {
-        id: "imbib/linked-file".into(),
+        id: impress_core::schema::refs::IMBIB_LINKED_FILE,
         name: "Linked File".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -152,7 +152,7 @@ pub fn linked_file_schema() -> Schema {
 /// Parent: library item.
 pub fn smart_search_schema() -> Schema {
     Schema {
-        id: "imbib/smart-search".into(),
+        id: impress_core::schema::refs::IMBIB_SMART_SEARCH,
         name: "Smart Search".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -180,7 +180,7 @@ pub fn smart_search_schema() -> Schema {
 /// Schema for muted items — authors/venues/categories to hide from inbox (maps to CDMutedItem).
 pub fn muted_item_schema() -> Schema {
     Schema {
-        id: "imbib/muted-item".into(),
+        id: impress_core::schema::refs::IMBIB_MUTED_ITEM,
         name: "Muted Item".into(),
         version: "1.0.0".into(),
         fields: vec![required_string("mute_type"), required_string("value")],
@@ -192,7 +192,7 @@ pub fn muted_item_schema() -> Schema {
 /// Schema for dismissed papers — papers explicitly dismissed from inbox (maps to CDDismissedPaper).
 pub fn dismissed_paper_schema() -> Schema {
     Schema {
-        id: "imbib/dismissed-paper".into(),
+        id: impress_core::schema::refs::IMBIB_DISMISSED_PAPER,
         name: "Dismissed Paper".into(),
         version: "1.0.1".into(),
         fields: vec![
@@ -209,7 +209,7 @@ pub fn dismissed_paper_schema() -> Schema {
 /// Schema for SciX (ADS) remote libraries (maps to CDSciXLibrary).
 pub fn scix_library_schema() -> Schema {
     Schema {
-        id: "imbib/scix-library".into(),
+        id: impress_core::schema::refs::IMBIB_SCIX_LIBRARY,
         name: "SciX Library".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -234,7 +234,7 @@ pub fn scix_library_schema() -> Schema {
 /// Parent: linked-file item.
 pub fn annotation_schema() -> Schema {
     Schema {
-        id: "imbib/annotation".into(),
+        id: impress_core::schema::refs::IMBIB_ANNOTATION,
         name: "Annotation".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -271,7 +271,7 @@ pub fn annotation_schema() -> Schema {
 /// mirror engine's per-sync stamps (`crates/imbib-core/src/eink/store.rs`).
 pub fn eink_device_schema() -> Schema {
     Schema {
-        id: "imbib/eink-device".into(),
+        id: impress_core::schema::refs::IMBIB_EINK_DEVICE,
         name: "E-ink Device".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -311,7 +311,7 @@ pub fn eink_device_schema() -> Schema {
 /// mirror engine (`crates/imbib-core/src/eink/store.rs`).
 pub fn eink_mirror_schema() -> Schema {
     Schema {
-        id: "imbib/eink-mirror".into(),
+        id: impress_core::schema::refs::IMBIB_EINK_MIRROR,
         name: "E-ink Mirror".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -349,7 +349,7 @@ pub fn eink_mirror_schema() -> Schema {
 /// Parent: bibliography-entry item.
 pub fn comment_schema() -> Schema {
     Schema {
-        id: "imbib/comment".into(),
+        id: impress_core::schema::refs::IMBIB_COMMENT,
         name: "Comment".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -376,7 +376,7 @@ pub fn comment_schema() -> Schema {
 /// Parent: bibliography-entry item.
 pub fn assignment_schema() -> Schema {
     Schema {
-        id: "imbib/assignment".into(),
+        id: impress_core::schema::refs::IMBIB_ASSIGNMENT,
         name: "Assignment".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -394,7 +394,7 @@ pub fn assignment_schema() -> Schema {
 /// Parent: library item.
 pub fn activity_record_schema() -> Schema {
     Schema {
-        id: "imbib/activity-record".into(),
+        id: impress_core::schema::refs::IMBIB_ACTIVITY_RECORD,
         name: "Activity Record".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -413,7 +413,7 @@ pub fn activity_record_schema() -> Schema {
 /// Parent: library item.
 pub fn recommendation_profile_schema() -> Schema {
     Schema {
-        id: "imbib/recommendation-profile".into(),
+        id: impress_core::schema::refs::IMBIB_RECOMMENDATION_PROFILE,
         name: "Recommendation Profile".into(),
         version: "1.0.0".into(),
         fields: vec![
@@ -430,7 +430,7 @@ pub fn recommendation_profile_schema() -> Schema {
 /// Schema for operations — records of mutations applied to items.
 pub fn core_operation_schema() -> Schema {
     Schema {
-        id: "core/operation".into(),
+        id: impress_core::schema::refs::CORE_OPERATION,
         name: "Operation".into(),
         version: "1.0.0".into(),
         fields: vec![

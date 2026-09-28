@@ -233,7 +233,7 @@ impl ImpressDiagnosticRepository {
     fn upsert_child(
         &self,
         id: Uuid,
-        schema: &str,
+        schema: impress_core::SchemaRef,
         payload: BTreeMap<String, Value>,
         references: Vec<TypedReference>,
         parent: Uuid,
@@ -405,7 +405,7 @@ impl DiagnosticRepository for ImpressDiagnosticRepository {
 
 fn item(
     id: Uuid,
-    schema: &str,
+    schema: impress_core::SchemaRef,
     payload: BTreeMap<String, Value>,
     references: Vec<TypedReference>,
     parent: Option<Uuid>,
@@ -413,7 +413,7 @@ fn item(
     let now = chrono::Utc::now();
     Item {
         id,
-        schema: schema.into(),
+        schema,
         payload,
         created: now,
         modified: now,

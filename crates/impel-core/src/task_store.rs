@@ -27,7 +27,8 @@ pub use impress_core::schemas::task::{AGENT_RUN_SCHEMA, TASK_SCHEMA};
 
 /// Still local: `review-request@1.0.0` is written and read only by impel and
 /// is registered nowhere (see `tests/schema_ref_manifest.rs`).
-pub const REVIEW_REQUEST_SCHEMA: &str = "review-request@1.0.0";
+pub const REVIEW_REQUEST_SCHEMA: impress_core::SchemaRef =
+    impress_core::schema::refs::REVIEW_REQUEST;
 
 /// Errors crossing the store boundary.
 #[derive(Debug, thiserror::Error)]
@@ -156,14 +157,14 @@ pub trait TaskStoreApi: Send + Sync {
 
 /// Build a bare item envelope for kernel-created items.
 fn kernel_item(
-    schema: &str,
+    schema: impress_core::SchemaRef,
     payload: BTreeMap<String, Value>,
     author: &str,
     references: Vec<TypedReference>,
 ) -> Item {
     Item {
         id: Uuid::new_v4(),
-        schema: schema.into(),
+        schema,
         payload,
         created: Utc::now(),
         modified: Utc::now(),
