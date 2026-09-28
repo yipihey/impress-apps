@@ -72,7 +72,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   flushing with a FIFO writer acknowledgement and explicit timeout/disconnection errors.
   It also waits for the final job event before checking its cursor. The original failure
   was not conclusively attributed to either race; the fresh full main run above is green.
-- **P5b (verified locally; push/PR/merge pending)**: `p5b-transport` /
+- **P5b ([PR #126](https://github.com/yipihey/impress-apps/pull/126) ready; merge pending)**: `p5b-transport` /
   `claude/pipeline-p5b-transport`, based on main `7d28f88c`. Native domain
   dispatch, exact GUI store binding, the shared transport in Rust clients,
   and one feature-gated inventory are implemented. The four `*-service-http`
@@ -96,7 +96,9 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   Final tests across 27 touched crates, including capabilities, passed 3,052
   with 19 ignored in 82 groups; log `/tmp/impress-p5b-final-touched-tests.log`,
   scratch `/tmp/impress-cargo-tests.TlWc60/workspace`. Both clippy shards and all
-  requested quick gates passed. The normal pre-push hook, PR and merge remain.
+  requested quick gates passed. The normal pre-push hook passed, including both
+  macOS and arm64 iOS simulator builds. Only merge remains for this native
+  transport slice; richer REST retirement remains the separate contract decision.
   No user's running app, launcher or real store was used.
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).

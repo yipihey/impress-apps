@@ -1474,5 +1474,8 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   the narrower verb signatures. `docs/p5b-retained-http-endpoints.md` records
   retained data, arguments and active callers; further retirement requires the
   caller/contract decision already requested from Tom. No verb arguments,
-  schemas or record kinds were changed to invent that equivalence. The normal
-  push hook, PR and merge are next; no P5b merge is claimed by this entry.
+  schemas or record kinds were changed to invent that equivalence. [PR #126](https://github.com/yipihey/impress-apps/pull/126) is ready. The normal
+  pre-push hook passed macOS and arm64 iOS simulator builds after its chassis
+  allowlist caught PMC's now-explicit edge to ImprintRustCore (already transitive
+  through ImprintCore; no new archive). Push log: `/tmp/impress-p5b-push-r2.log`.
+  No P5b merge is claimed by this entry.
