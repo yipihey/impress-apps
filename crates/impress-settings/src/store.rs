@@ -5,8 +5,9 @@
 //! precedent the plan measured (`preferences.rs:161-246`): re-parse only when
 //! the file's mtime or length moved, write temp + `fsync` + rename, and hold
 //! an advisory `flock` (`impress-fs-lock`) around every read-modify-write.
-//! One difference: there is one file per [`Scope`], so an app's file and the
-//! device file can be written by different processes without contention.
+//! One difference: there is one file per [`Scope`]. Writers retain each
+//! scope's flock and share a short cursor lock so cross-file timestamps are
+//! monotonic for polling across processes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};

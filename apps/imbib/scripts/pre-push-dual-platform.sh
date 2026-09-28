@@ -160,22 +160,13 @@ if [ "${SKIP_INTERLOCK_TESTS:-0}" != "1" ] && \
         "impress:impressTests/ImpressShellTests"; do
         app="${spec%%:*}"
         only="${spec##*:}"
-        app_dir="$REPO_ROOT/apps/$app"
         log="$LOG_DIR/interlock-$app.log"
         echo "pre-push:   $only"
-        if ! (cd "$app_dir" && xcodebuild \
-            -derivedDataPath "$app_dir/.ci-derived" \
-            test \
-            -project "$app.xcodeproj" \
-            -scheme "$app" \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            -only-testing:"$only" \
-            IMPRESS_SKIP_INSTALL=1 \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            > "$log" 2>&1); then
+        if ! python3 "$REPO_ROOT/scripts/test-native-interlock.py" \
+            --repo-root "$REPO_ROOT" \
+            --app "$app" \
+            --only-testing "$only" \
+            --log "$log"; then
             echo ""
             echo "ERROR: $only failed. See $log"
             grep -E "Test Case.*failed|error:" "$log" | head -10
