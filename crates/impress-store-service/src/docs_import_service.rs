@@ -451,7 +451,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// `collection` scopes the scan to one manuscript collection by name;
     /// null scans every manuscript in the store.
-    #[impress_method(safety = destructive, effects(reads = ["manuscript"], writes = ["manuscript"]))]
+    #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-collection"], writes = ["manuscript"]))]
     #[impress_example(
         name = "preview-empty-shell",
         args = r#"{"collection":"G3 empty shells","max_body_chars":0,"apply":false}"#,
@@ -653,7 +653,7 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// mean — a product decision, and therefore not one this crate makes. Pass
     /// `replace: false` to union instead, which is what an incremental append
     /// wants.
-    #[impress_method(effects(reads = ["watched-file@1.0.0"], writes = ["watched-file@1.0.0"]))]
+    #[impress_method(effects(reads = ["watched-file@1.0.0", target(produced_ids)], writes = ["watched-file@1.0.0"]))]
     #[impress_example(
         name = "attribute-produced-row",
         args = r#"{"file_id":"59000000-0000-4000-8000-000000000036","produced_ids":["59000000-0000-4000-8000-000000000038"],"replace":true}"#,

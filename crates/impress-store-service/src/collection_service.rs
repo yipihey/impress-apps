@@ -223,7 +223,7 @@ pub trait CollectionService: Send + Sync + 'static {
     /// `binding` is `imbib` | `manuscript` | `figure` | `generic`. Build the
     /// tree from each row's `parent_id` (null = root). Start here: every other
     /// method takes ids this returns.
-    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection", any("envelope membership counts can query children of any record kind")]))]
     #[impress_example(name = "default", args = r#"{"binding": "generic"}"#)]
     #[impress_example(
         name = "figure-folder",
