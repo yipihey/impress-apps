@@ -16,8 +16,9 @@
 #   6. dual-platform imbib build        (PMC/iOS/packages; Rule 1, ADR-023)
 #
 # Install:
-#   ln -sf ../../apps/imbib/scripts/pre-push-dual-platform.sh \
-#          .git/hooks/pre-push
+#   python3 scripts/install-pre-push-hook.py
+# The installed dispatcher resolves the CURRENT worktree at invocation time;
+# a symlink into main runs main's older gate when pushing another worktree.
 #
 # The hook runs quickly in the common case — a push that touches none of
 # the trigger paths runs only the fmt gate.
