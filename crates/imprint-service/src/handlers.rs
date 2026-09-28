@@ -141,8 +141,8 @@ pub struct CompileResult {
     ///
     /// The HEADLESS path never fills this in: a PDF as a JSON byte array is
     /// unusable in an MCP tool result. It writes the file and reports
-    /// `pdf_path` instead. Only the app-backed HTTP path (imprint running,
-    /// `impress-app-client`) still returns bytes.
+    /// `pdf_path` instead. An app-backed renderer may return bytes when it
+    /// compiles in process.
     #[serde(default)]
     pub pdf_data: Option<Vec<u8>>,
     /// Absolute path to the PDF written by the headless compiler. Feed this
@@ -710,9 +710,8 @@ pub fn compile_artifact_dir() -> std::path::PathBuf {
 
 /// Write compiled PDF bytes into the artifact cache and return the path.
 ///
-/// Used by the app-backed path too (`imprint-service-http`): imprint streams
-/// PDF *bytes* over HTTP, and a multi-megabyte JSON byte array is not a usable
-/// tool result. Parking the bytes turns them back into something
+/// When a caller receives PDF bytes, a multi-megabyte JSON byte array is not a
+/// usable tool result. Parking the bytes turns them back into something
 /// `render_pdf_page` can open. Named by content hash, so recompiling the same
 /// document reuses one file.
 pub fn park_pdf_bytes(bytes: &[u8]) -> std::io::Result<std::path::PathBuf> {

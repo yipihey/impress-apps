@@ -191,7 +191,7 @@ fn app_backend(name: &str, backends: &ToolBackends) -> Option<Backend> {
 /// Whether a tool should be advertised as available under `backends`.
 ///
 /// A namespace no app owns runs against the shared store directly and is
-/// always available; a namespace an app owns needs that app's HTTP backend up.
+/// always available; a namespace an app owns needs its app transport up.
 fn is_available(name: &str, backends: &ToolBackends) -> bool {
     matches!(app_backend(name, backends), Some(Backend::Http) | None)
 }

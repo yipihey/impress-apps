@@ -1,26 +1,25 @@
 //! The P5 transport's client side (plan-verb-pipeline-and-transport.md § P5,
 //! ADR-0034 D2, finding TR-1..3).
 //!
-//! One function — [`call`] — replaces what the four hand-written
-//! `*-service-http` adapters and `impress-app-client` each did their own
+//! One function — [`call`] — replaces what the retired per-app adapters
+//! and app client each did their own
 //! way: find the app's port, probe it, attach the loopback token, POST the
 //! verb's own JSON body, decode the wire envelope. Every adapter carried its
 //! own copy of the probe loop (TR-3); this crate is the one copy. Every
-//! adapter swallowed a transport error into an empty/default result
-//! (`imbib-service-http lib.rs:36-47`); this crate answers a real
+//! adapter swallowed a transport error into an empty/default result;
+//! this crate answers a real
 //! [`Refusal`] instead, so a dead route reads as `host-unavailable` or
 //! `not-found`, never as "no data".
 //!
 //! The server side is `POST /api/verb/<name>` on `ImpressAutomation`
 //! (`packages/ImpressAutomation/Sources/ImpressAutomation/VerbAutomation.swift`),
-//! which hands the body to `impress_store_ffi::dispatch_verb` — the same
+//! which hands the body to the owning app's `*-verbs-ffi` dispatch — the same
 //! pipeline this crate's caller would have gone through had the verb been
 //! linked in-process.
 //!
-//! P5a scope: this crate exists and is proven against a stub server (see
-//! `tests/`); P5b wires it into the actual entry paths that today call the
-//! four adapters (impress-mcp, impress-cli, impel-tools, impress-ai-tools)
-//! and deletes them (ADR-0034 D7).
+//! Entry paths such as impress-mcp, impress-cli, impel-tools and
+//! impress-ai-tools install this client transport; app-owned FFI entry points
+//! dispatch their own native backends (ADR-0034 D7).
 
 pub mod ports;
 
@@ -167,11 +166,8 @@ fn states() -> &'static Mutex<HashMap<(String, String), AppState>> {
 /// A loopback-safe client, built once. `no_proxy()` because every request
 /// this crate makes is to `127.0.0.1`, and a panicking `.build()` (asking
 /// macOS for the system proxy from inside a sandboxed process) would take a
-/// whole caller down over a transport detail — see
-/// `impress-app-client::loopback_http_client`'s doc comment, which found
-/// this failure first; this crate does not depend on that one (it is one of
-/// the adapters ADR-0034 D7 deletes) so the same safety is repeated here in
-/// one place rather than none.
+/// whole caller down over a transport detail. Keep this safety in the one
+/// shared transport client.
 fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT

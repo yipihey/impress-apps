@@ -2,10 +2,9 @@
 //! service traits). Mirrors `imbib-service::backend`.
 //!
 //! Default backend opens the shared workspace SQLite directly (works in
-//! standalone / test contexts). The `imprint-service-http` crate registers
-//! an HTTP backend that routes calls to the running imprint macOS app
-//! instead — that's what `impress-mcp` uses at runtime since the SQLite
-//! path is sandbox-protected.
+//! standalone / test contexts). In the running app, `imprint-verbs-ffi`
+//! registers native callbacks for editor-owned capabilities. Headless callers
+//! reach those verbs through `impress-app-transport` and the pipeline.
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -19,8 +18,8 @@ use crate::text_service::{DefaultImprintTextService, ImprintTextService};
 use crate::throughline::ThroughlineStore;
 use crate::throughline_service::{DefaultImprintThroughlineService, ImprintThroughlineService};
 
-/// Implemented by alternate backends (e.g. `imprint-service-http`'s
-/// `HttpBackend`). Each method returns an `Arc<dyn TraitName>` for the
+/// Implemented by alternate backends, including the app-owned native backend.
+/// Each method returns an `Arc<dyn TraitName>` for the
 /// generated dispatch.
 pub trait ImprintBackend: Send + Sync + 'static {
     fn manuscript(&self) -> Arc<dyn ImprintManuscriptService>;
@@ -30,16 +29,15 @@ pub trait ImprintBackend: Send + Sync + 'static {
         Arc::new(DefaultImprintProjectService::new())
     }
     /// App-level capabilities (comments, content edits, PDF, logs).
-    /// Defaulted to the refusing implementation so existing backends keep
-    /// compiling; the HTTP backend overrides it.
+    /// Defaulted to the refusing implementation; the native app backend
+    /// overrides it.
     fn app(&self) -> Arc<dyn crate::app_service::ImprintAppService> {
         Arc::new(crate::app_service::DefaultImprintAppService::new())
     }
     fn text(&self) -> Arc<dyn ImprintTextService>;
     /// Throughline service (ADR-0016). Default body falls back to the
-    /// store-backed implementation so existing backends (HTTP) keep
-    /// compiling; the HTTP backend can override once the Swift router
-    /// exposes throughline routes.
+    /// store-backed implementation; the native backend can override it
+    /// when the editor owns throughline state.
     fn throughline(&self) -> Arc<dyn ImprintThroughlineService> {
         default_throughline_service()
     }
@@ -48,9 +46,8 @@ pub trait ImprintBackend: Send + Sync + 'static {
 static BACKEND: BackendSlot<dyn ImprintBackend> = BackendSlot::new();
 static DEFAULT_HANDLERS: OnceLock<Arc<DefaultImprintHttpHandlers>> = OnceLock::new();
 
-/// Install (or replace) a non-default backend, typically HTTP. Called on
-/// every reachability probe, not only at startup — see
-/// [`impress_service_core::BackendSlot`].
+/// Install (or replace) a non-default backend, as `imprint-verbs-ffi` does
+/// when its native callbacks are ready.
 pub fn register_backend(backend: Box<dyn ImprintBackend>) {
     BACKEND.install(Arc::from(backend));
 }

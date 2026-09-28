@@ -1,10 +1,9 @@
 //! Pluggable backend for the seven imbib service traits.
 //!
 //! The default backend is the existing SQLite-via-`ImbibStore` path (used
-//! when running standalone or in tests). A separate `imbib-service-http`
-//! crate provides an alternate backend that routes calls over HTTP to a
-//! running imbib macOS app — install it at process startup via
-//! [`register_backend`].
+//! when running standalone or in tests). The app-owned `imbib-verbs-ffi`
+//! installs native callbacks for app and manuscript capabilities while
+//! store-backed namespaces keep using the same database.
 //!
 //! All seven `#[impress_service]` `instance = ||` closures call into this
 //! module to obtain an `Arc<dyn TraitName>`. The backend is resolved on
@@ -28,8 +27,7 @@ use crate::store_singleton::store_instance;
 use crate::tags_service::{DefaultImbibTagsService, ImbibTagsService};
 use crate::undo_service::{DefaultImbibUndoService, ImbibUndoService};
 
-/// Implemented by alternate backends (e.g. `imbib-service-http`'s
-/// `HttpBackend`). Each method returns an `Arc<dyn TraitName>` that the
+/// Implemented by alternate backends. Each method returns an `Arc<dyn TraitName>` that the
 /// macro's generated handler will dispatch through.
 pub trait ImbibBackend: Send + Sync + 'static {
     fn library(&self) -> Arc<dyn ImbibLibraryService>;
@@ -60,8 +58,8 @@ pub trait ImbibBackend: Send + Sync + 'static {
     /// restore (which needs the running app — see `backup_service`).
     /// E-ink mirroring. Defaulted to the store-direct implementation: every
     /// verb works with imbib closed (the tablet is on the USB network, the
-    /// files are in the library folders), so an HTTP backend never needs
-    /// to override it.
+    /// files are in the library folders), so the app backend need not
+    /// override it.
     fn eink(&self) -> Arc<dyn ImbibEinkService> {
         Arc::new(DefaultImbibEinkService::new(store_instance()))
     }
@@ -85,16 +83,12 @@ pub fn register_manuscripts_backend(backend: Box<dyn ImbibManuscriptsService>) {
     MANUSCRIPTS_BACKEND.install(Arc::from(backend));
 }
 
-/// Install (or replace) a non-default backend, typically HTTP. Called by
-/// `imbib_service_http::maybe_install_http_backend` on every reachability
-/// probe, not only at startup.
+/// Install (or replace) a non-default backend for an embedding host.
 pub fn register_backend(backend: Box<dyn ImbibBackend>) {
     BACKEND.install(Arc::from(backend));
 }
 
 /// Uninstall the current backend: dispatch returns to the SQLite defaults.
-/// What a probe calls when imbib is no longer answering — a backend pointed
-/// at a port nothing is listening on is worse than reading the shared store.
 pub fn clear_backend() {
     BACKEND.clear();
 }

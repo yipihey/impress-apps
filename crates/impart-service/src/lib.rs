@@ -1,7 +1,8 @@
 //! `ImpartService` — impart's research-conversation surface.
 //!
 //! Same shape as `implore-service`: conversations live in the running app, so
-//! the default implementation refuses and `impart-service-http` does the work.
+//! the default implementation refuses and `impart-verbs-ffi` installs the
+//! native backend that does the work.
 //!
 //! What impart models is worth stating, because the tool names alone do not
 //! convey it: a *research conversation* is a durable thread of thinking —
@@ -265,8 +266,7 @@ pub fn register_backend(backend: Box<dyn ImpartBackend>) {
 }
 
 /// Uninstall the current backend: dispatch returns to the default
-/// implementation. Called by the reachability probe when the app stops
-/// answering — see [`impress_service_core::BackendSlot`].
+/// implementation — see [`impress_service_core::BackendSlot`].
 pub fn clear_backend() {
     BACKEND.clear();
 }

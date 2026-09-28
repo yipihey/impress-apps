@@ -18,8 +18,8 @@
 //!    this; a direct store write cannot.
 //!
 //! So the default backend refuses `restore_backup` and says to use the running
-//! app. The HTTP backend (`imbib-service-http`) forwards to
-//! `POST /api/backups/restore`, where both guarantees hold. A destructive
+//! app. Its separate `POST /api/backups/restore` handler enforces both
+//! guarantees; this service verb has no native restore backend yet. A destructive
 //! operation that is *usually* correct is not good enough for the one tool
 //! whose whole job is recovering from data loss.
 

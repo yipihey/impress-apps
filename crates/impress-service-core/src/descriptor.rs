@@ -24,7 +24,7 @@ use crate::ServiceFuture;
 ///
 /// The class is the *worst* thing the verb can do: a verb that deletes rows
 /// is `Destructive` even when it usually only reads; a verb whose default
-/// implementation refuses and whose HTTP backend reaches a running app, the
+/// implementation refuses and whose native backend reaches a running app, the
 /// network, a device or a subprocess is `External`, whatever it does there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SafetyClass {

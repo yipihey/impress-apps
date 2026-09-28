@@ -4,9 +4,8 @@
 //! Unlike `imbib-service` and `imprint-service`, there is no store-backed
 //! default worth writing: implore's datasets and figures live in the running
 //! app's memory, not in the shared SQLite store. So the default implementation
-//! refuses and explains, and `implore-service-http` does the real work against
-//! the app on port 23123 (`SiblingApp.descriptors` in packages/ImpressKit is
-//! the authority; this was 23124 until the 2026-07-30 collision fix).
+//! refuses and explains. `implore-verbs-ffi` installs a native backend in the
+//! running app; headless callers reach it through `impress-app-transport`.
 //!
 //! # The `rg_*` family
 //!
@@ -533,7 +532,7 @@ impl ImploreService for DefaultImploreService {
 // Pluggable backend
 // ---------------------------------------------------------------------------
 
-/// Implemented by `implore-service-http`. One service, so this is a single
+/// Implemented by `implore-verbs-ffi`'s native backend. One service, so this is a single
 /// method rather than the per-trait registry imbib needs.
 pub trait ImploreBackend: Send + Sync + 'static {
     fn service(&self) -> Arc<dyn ImploreService>;
@@ -542,14 +541,13 @@ pub trait ImploreBackend: Send + Sync + 'static {
 static BACKEND: impress_service_core::BackendSlot<dyn ImploreBackend> =
     impress_service_core::BackendSlot::new();
 
-/// Install a backend at process startup. First call wins.
+/// Install or replace the running app's backend.
 pub fn register_backend(backend: Box<dyn ImploreBackend>) {
     BACKEND.install(std::sync::Arc::from(backend));
 }
 
 /// Uninstall the current backend: dispatch returns to the default
-/// implementation. Called by the reachability probe when the app stops
-/// answering — see [`impress_service_core::BackendSlot`].
+/// implementation — see [`impress_service_core::BackendSlot`].
 pub fn clear_backend() {
     BACKEND.clear();
 }

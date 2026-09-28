@@ -19,10 +19,9 @@
 //! * a namespace no app owns runs against the shared store and is always
 //!   reachable.
 //!
-//! The *probe* stays with the process that owns the HTTP clients (the
-//! `*-service-http` crates cannot be reached from this pure crate): each
-//! entry process installs one [`Probe`] that answers "is this app up?" — at
-//! startup, re-probing, or on a cadence, as it did before. With nothing
+//! The *probe* stays with the process that owns the shared app transport:
+//! each entry process installs one [`Probe`] that answers "is this app up?" — at
+//! startup, re-probing, or on a cadence. With nothing
 //! installed nothing is gated, which is what the CLI, the FFI and the surface
 //! runtime did before P2 (their verbs' default implementations refuse by
 //! themselves).

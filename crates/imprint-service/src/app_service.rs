@@ -15,8 +15,8 @@
 //!   resolved against the imbib library — it exists only as a compile input.
 //! * **Logs and status** describe a running process.
 //!
-//! The default backend refuses and says so; `imprint-service-http` does the
-//! real work.
+//! The default backend refuses and says so; native callbacks installed by
+//! `imprint-verbs-ffi` do the real work in the running app.
 
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};

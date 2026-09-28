@@ -216,12 +216,10 @@ const CATALOGUE: [(&str, &str); 13] = [
 
 // ─── the tiny HTTP client ────────────────────────────────────────────────
 //
-// `reqwest` directly rather than `impress-app-client`: that crate's typed
-// clients are built on `imbib-service` and `imprint-service`, i.e. two whole
-// domain stacks, and this crate is kit-adjacent (ADR-0033 D7). Taking them on
-// to make seven loopback requests is the exact trade `report.rs`'s header
-// refuses for forty lines of structs. `imprint-selftest` makes its own raw
-// `reqwest` calls for the same reason.
+// `reqwest` directly rather than the shared app transport: this kit-adjacent
+// crate (ADR-0033 D7) needs only a handful of loopback test requests and must
+// not take on the full domain transport stack. `imprint-selftest` makes its
+// own raw `reqwest` calls for the same reason.
 
 /// A loopback JSON client over one app's automation surface.
 struct Http {
@@ -233,8 +231,7 @@ impl Http {
     fn new(base: &str) -> Self {
         // `no_proxy`: every request here goes to 127.0.0.1, where a proxy is
         // never the right route — and asking macOS for the proxy config from
-        // a sandboxed process can abort (see `impress-app-client`'s
-        // `loopback_http_client`, which exists because of that crash).
+        // a sandboxed process can abort.
         //
         // The app bearer (P0, SEC-2): every `POST`/`DELETE` here mutates the
         // running app's tree, which now needs the per-launch loopback token —

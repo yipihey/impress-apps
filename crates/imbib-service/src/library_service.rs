@@ -150,10 +150,9 @@ pub struct RetentionCleanupReport {
 pub struct LibraryRecord {
     pub id: String,
     pub name: String,
-    // imbib's existing HTTP API returns camelCase (`isDefault`, `isInbox`,
-    // `paperCount`); the SQLite-backed default impl emits snake_case. Accept
-    // both on the decode side so the HTTP backend "just works" against the
-    // live app without requiring the Swift router to change response shape.
+    // The older HTTP records used camelCase (`isDefault`, `isInbox`,
+    // `paperCount`); the SQLite-backed implementation emits snake_case.
+    // Accept both for existing serialized records and fixtures.
     #[serde(alias = "isDefault", default)]
     pub is_default: bool,
     // create-library response omits isInbox — default to false.

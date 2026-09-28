@@ -12,9 +12,9 @@
 //!
 //! **This module is the contract.** Both halves of the suite map onto it:
 //! Swift (`ImpressAutomation`) calls it through the UniFFI export in
-//! `impress-store-ffi` to decide where to write and what to write; every Rust
-//! HTTP client (`impress-app-client`, the four `*-service-http` crates, the
-//! Tier B runners) calls [`client_token`] to find what to send. Neither side
+//! `impress-store-ffi` to decide where to write and what to write; the shared
+//! `impress-app-transport` client and Tier B runners call [`client_token`]
+//! to find what to send. Neither side
 //! spells the path, the file name or the format on its own.
 //!
 //! ## The convention

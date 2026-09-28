@@ -8,9 +8,8 @@
 //! * an [`McpToolDescriptor`] registered via [`inventory`] (MCP server pickup),
 //! * a [`CliSubcommand`] registered via [`inventory`] (CLI binary pickup).
 //!
-//! The Swift bindings are hand-written `#[uniffi::export]` items in the FFI
-//! crates and Python is one generic binding (plan-verb-pipeline P6); neither
-//! is generated here.
+//! The Swift bindings are exported explicitly by the FFI crates, and Python
+//! uses one generic binding (plan-verb-pipeline P6); neither is generated here.
 
 #![forbid(unsafe_code)]
 
@@ -415,17 +414,14 @@ mod tests {
 
 /// The process-wide, swappable backend a `*-service` crate dispatches through.
 ///
-/// Every service crate has the same shape: a default implementation reading the
-/// shared store, and an optional HTTP backend that routes calls to the running
-/// app instead. Which one is in force is decided by a reachability probe — and
-/// for as long as that slot was a `OnceLock`, the FIRST probe decided it
-/// forever. A daemon that started while imbib was open kept talking to a port
-/// nothing was listening on after imbib quit; one that started while imbib was
-/// closed never noticed it come back. Both look like an app with no data.
+/// A service crate can use a store-backed default and install an app-owned
+/// native backend for capabilities that require the running process. The
+/// previous `OnceLock` could not replace a backend after initialization;
+/// `BackendSlot` can.
 ///
 /// So the slot is a lock, not a latch: [`install`](Self::install) replaces, and
-/// [`clear`](Self::clear) hands dispatch back to the default. Re-probing is the
-/// caller's job (see each `*-service-http` crate's `maybe_install_http_backend`).
+/// [`clear`](Self::clear) hands dispatch back to the default. Reachability of
+/// remote apps is handled separately by `impress-app-transport`.
 ///
 /// Reads take an uncontended read lock and clone an `Arc` — the same cost the
 /// `OnceLock` version paid to hand out its `Arc`.
