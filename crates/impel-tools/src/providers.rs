@@ -23,6 +23,14 @@ pub struct ProviderPrimitiveReply {
 
 static HEALTH_REFRESH: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
+/// Read-only epoch of this native image's hydrated provider metadata. The
+/// store image polls it to invalidate catalogue sources after this image's
+/// independent refresh catches up; this call never probes a provider.
+#[uniffi::export]
+pub fn provider_inventory_revision() -> u64 {
+    impress_service_core::registry_runtime::current().revision()
+}
+
 /// Initialize this image's provider inventory from the same database the GUI
 /// opened. A fallback or different already-selected store is a hard refusal.
 #[uniffi::export]

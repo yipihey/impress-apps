@@ -26,6 +26,10 @@ import ImpressRustCore
 /// link (see `crates/impress-surface-service/src/runtime.rs`'s `VerbHost`).
 final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
 
+    func inventoryRevision() -> UInt64 {
+        providerInventoryRevision()
+    }
+
     /// The sibling apps whose last call was refused as unavailable. Purely a
     /// log-keeping aid: the refusal and the re-probe both happen in
     /// `impel-tools`, and this host never decides anything from it. It exists

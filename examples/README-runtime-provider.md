@@ -50,3 +50,34 @@ IMPRESS_WORKSPACE="$OWNED_ROOT/workspace" \
 ```
 
 The page is `provider-docs/python-reference-service.md`. This export reads the local registration and writes documentation; it does not start the provider.
+
+## Isolated native proof
+
+After rebuilding this checkout's native frameworks with the supported arm64
+slices, build a separate test app and the two host binaries:
+
+```sh
+cargo build -p impress-mcp -p impress-cli
+xcodegen generate --spec apps/impress/project.yml
+OWNED_DERIVED=$(mktemp -d /tmp/impress-p8-native.XXXXXX)
+IMPRESS_SKIP_INSTALL=1 xcodebuild \
+  -project apps/impress/impress.xcodeproj -scheme impress \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath "$OWNED_DERIVED" CODE_SIGNING_ALLOWED=NO \
+  PRODUCT_BUNDLE_IDENTIFIER=com.impress.impress.codex.p8 build-for-testing
+python3 scripts/test-runtime-provider-native.py \
+  --derived-data "$OWNED_DERIVED" \
+  --mcp "${CARGO_TARGET_DIR:-target}/debug/impress-mcp" \
+  --cli "${CARGO_TARGET_DIR:-target}/debug/impress"
+```
+
+The runner chooses its own app and provider-host ports, device ID, and scratch
+store. It refuses a build with the normal app bundle identifier and disables
+sibling app backends. The hosted XCTest drives `SurfacePaneModel` dispatch:
+agent trust is refused, the generated Person form grants trust, a separate CLI
+reads that grant, and the generated provider form returns the real Python result.
+After terminating only its own provider process, the same subscribed catalogue
+pane shows the verb unavailable and a surface source reports its name. This is
+a native model/bridge proof, not an assertion about a physical mouse click.
+The printed scratch directory retains `proof.json`, logs, and the XCTest result
+bundle. The test terminates and reaps only the child processes it starts.

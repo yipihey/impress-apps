@@ -17575,6 +17575,12 @@ extension FfiConverterCallbackInterfaceSharedSurfaceListener : FfiConverter {
 public protocol SharedVerbHost : AnyObject {
     
     /**
+     * Revision of the host image's provider metadata inventory. This is a
+     * memory read only; the host's separate refresh loop performs probes.
+     */
+    func inventoryRevision()  -> UInt64
+    
+    /**
      * Whether the host can answer this verb at all — checked before
      * `call_verb` runs it, so `surface_validate` can say "no such verb"
      * without a round trip through the host.
@@ -17598,6 +17604,28 @@ fileprivate struct UniffiCallbackInterfaceSharedVerbHost {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     static var vtable: UniffiVTableCallbackInterfaceSharedVerbHost = UniffiVTableCallbackInterfaceSharedVerbHost(
+        inventoryRevision: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UInt64>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> UInt64 in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedVerbHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.inventoryRevision(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt64.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
         hasVerb: { (
             uniffiHandle: UInt64,
             name: RustBuffer,
@@ -20478,10 +20506,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 53629) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_has_verb() != 43567) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_inventory_revision() != 55649) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 5742) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_has_verb() != 27085) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 54359) {
         return InitializationResult.apiChecksumMismatch
     }
 

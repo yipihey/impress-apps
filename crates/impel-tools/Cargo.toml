@@ -25,7 +25,7 @@ name = "impel_tools"
 
 [dependencies]
 impress-app-transport.workspace = true
-impress-capabilities = { workspace = true, features = ["imbib", "imprint", "memory", "kit"] }
+impress-capabilities = { workspace = true, features = ["imbib", "imprint", "memory", "kit", "impact"] }
 # Linking the service crates is what populates the inventory: each
 # #[impress_method] submits an McpToolDescriptor at link time. Nothing in this
 # crate references their types directly — the dependency IS the mechanism.

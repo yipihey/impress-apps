@@ -296,6 +296,11 @@ pub enum SharedVerbHostError {
 
 #[cfg_attr(feature = "native", uniffi::export(callback_interface))]
 pub trait SharedVerbHost: Send + Sync {
+    /// Revision of the host image's provider metadata inventory. This is a
+    /// memory read only; the host's separate refresh loop performs probes.
+    fn inventory_revision(&self) -> u64 {
+        0
+    }
     /// Whether the host can answer this verb at all — checked before
     /// `call_verb` runs it, so `surface_validate` can say "no such verb"
     /// without a round trip through the host.
@@ -497,6 +502,7 @@ struct SurfaceCore {
     executor: DefaultExecutor,
     service: DefaultImpressSurfaceService,
     registry: Arc<SessionRegistry>,
+    verb_host_slot: Arc<Mutex<Option<Arc<dyn SharedVerbHost>>>>,
     host: String,
     /// The app this handle serves (its panes' layout); empty for a handle
     /// that serves none — see the module docs.
@@ -563,6 +569,7 @@ impl SharedSurface {
                 .with_executor(executor.clone()),
                 executor,
                 registry,
+                verb_host_slot: store.verb_host_slot(),
                 store: core,
                 host,
                 app_id,
@@ -737,6 +744,7 @@ impl SharedSurface {
             surfaces: self.core.surfaces.clone(),
             host: self.core.host.clone(),
             registry: self.core.registry.clone(),
+            verb_host_slot: self.core.verb_host_slot.clone(),
             own: self.core.own.clone(),
             debounce: Duration::from_millis(self.debounce_ms.load(Ordering::SeqCst)),
             grace: Duration::from_secs(self.startup_grace_secs.load(Ordering::SeqCst)),
@@ -1172,6 +1180,8 @@ struct SurfaceFeed {
     /// query sources read a kind that was written (RS-S2) and reports those
     /// surfaces as changed.
     registry: Arc<SessionRegistry>,
+    /// Metadata is served by a different native image than this store.
+    verb_host_slot: Arc<Mutex<Option<Arc<dyn SharedVerbHost>>>>,
     /// This handle's own dispatches: what its feed holds and drops.
     own: Arc<OwnWrites>,
     debounce: Duration,
@@ -1196,7 +1206,7 @@ impl SurfaceFeed {
         let mut grace_over = self.grace.is_zero();
 
         let mut last_external_poll = Instant::now();
-        let mut provider_revision = impress_service_core::registry_runtime::current().revision();
+        let mut provider_revisions = self.provider_revisions();
 
         while self.running.load(Ordering::SeqCst) {
             let mut touched = false;
@@ -1218,9 +1228,9 @@ impl SurfaceFeed {
 
             if last_external_poll.elapsed() >= self.external_poll {
                 last_external_poll = Instant::now();
-                let revision = impress_service_core::registry_runtime::current().revision();
-                if revision != provider_revision {
-                    provider_revision = revision;
+                let revisions = self.provider_revisions();
+                if revisions != provider_revisions {
+                    provider_revisions = revisions;
                     // This feed already runs off the UI thread. Report dropped
                     // provider references without rewriting user surfaces or
                     // waiting for a shipped rename-table version to change.
@@ -1436,6 +1446,17 @@ fn is_surface_mutation(mutation: &StoreMutation) -> bool {
 }
 
 impl SurfaceFeed {
+    fn provider_revisions(&self) -> (u64, u64) {
+        let store = impress_service_core::registry_runtime::current().revision();
+        // Never hold the mutex while crossing the Swift callback boundary.
+        let host = self
+            .verb_host_slot
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone();
+        (store, host.map_or(0, |host| host.inventory_revision()))
+    }
+
     /// What a surface mutation changed, for this handle — `None` for one
     /// that changes nothing a render here shows: an event row (the ring is
     /// read by `surface_wait`, never drawn), another host's state row, or a
@@ -1525,6 +1546,7 @@ pub fn surface_example_json() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc;
 
     use impress_surface::{example_signal_explorer, SurfaceSpec};
@@ -1636,6 +1658,144 @@ mod tests {
             .create(&fixture_host_spec(), None, &[], ActorKind::Agent)
             .expect("create fixture surface");
         row.id.to_string()
+    }
+
+    const METADATA_VERB: &str = "capabilities-service_list-verbs";
+
+    struct RevisionedMetadataHost {
+        revision: Arc<AtomicU64>,
+        metadata_calls: Arc<AtomicUsize>,
+        other_calls: Arc<AtomicUsize>,
+    }
+
+    impl SharedVerbHost for RevisionedMetadataHost {
+        fn inventory_revision(&self) -> u64 {
+            self.revision.load(Ordering::SeqCst)
+        }
+
+        fn has_verb(&self, name: String) -> bool {
+            matches!(name.as_str(), METADATA_VERB | FAKE_VERB)
+        }
+
+        fn call_verb(
+            &self,
+            name: String,
+            _args_json: String,
+        ) -> std::result::Result<String, SharedVerbHostError> {
+            match name.as_str() {
+                METADATA_VERB => {
+                    self.metadata_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(serde_json::json!({
+                        "verbs": self.revision.load(Ordering::SeqCst)
+                    })
+                    .to_string())
+                }
+                FAKE_VERB => {
+                    self.other_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(r#"{"echoed":"unchanged"}"#.into())
+                }
+                _ => Err(SharedVerbHostError::Failed {
+                    message: format!("unknown fixture verb {name}"),
+                }),
+            }
+        }
+    }
+
+    fn metadata_spec() -> SurfaceSpec {
+        serde_json::from_value(serde_json::json!({
+            "surface": "1.0",
+            "name": "Two native inventories",
+            "state": {},
+            "sources": {
+                "verbs": { "verb": METADATA_VERB, "args": {} },
+                "other": { "verb": FAKE_VERB, "args": {} }
+            },
+            "root": { "column": [
+                { "text": "{{source.verbs.verbs}}", "id": "metadata" },
+                { "text": "{{source.other.echoed}}", "id": "other" }
+            ] }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn host_metadata_revision_invalidates_only_inventory_source() {
+        let (store, surface) = open();
+        // A workspace test can unify the full capabilities feature into this
+        // kit crate. Linked verbs correctly win over the host then; the
+        // standalone FFI run exercises and counts the external metadata path.
+        let host_owns_metadata =
+            usize::from(impress_service_core::call::find(METADATA_VERB).is_none());
+        let revision = Arc::new(AtomicU64::new(1));
+        let metadata_calls = Arc::new(AtomicUsize::new(0));
+        let other_calls = Arc::new(AtomicUsize::new(0));
+        let host = || RevisionedMetadataHost {
+            revision: revision.clone(),
+            metadata_calls: metadata_calls.clone(),
+            other_calls: other_calls.clone(),
+        };
+        let id = create(&store, &metadata_spec());
+        store.set_verb_host(Box::new(host()));
+        let first = surface.render_now(id.clone(), None).unwrap();
+        assert!(first.contains("unchanged"), "{first}");
+        assert_eq!(metadata_calls.load(Ordering::SeqCst), host_owns_metadata);
+        assert_eq!(other_calls.load(Ordering::SeqCst), 1);
+
+        surface.set_external_poll_ms(20);
+        let (tx, rx) = mpsc::channel();
+        struct Recorder(mpsc::Sender<Vec<SharedSurfaceChange>>);
+        impl SharedSurfaceListener for Recorder {
+            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+                let _ = self.0.send(changes);
+            }
+        }
+        surface.subscribe(Box::new(Recorder(tx))).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let store_revision = impress_service_core::registry_runtime::current().revision();
+        revision.store(2, Ordering::SeqCst);
+        let changes = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(changes
+            .iter()
+            .any(|change| change.id == id && change.sources_changed));
+        assert_eq!(
+            impress_service_core::registry_runtime::current().revision(),
+            store_revision
+        );
+        let second = surface.render_now(id, None).unwrap();
+        assert!(second.contains("unchanged"), "{second}");
+        assert_eq!(
+            metadata_calls.load(Ordering::SeqCst),
+            2 * host_owns_metadata
+        );
+        assert_eq!(other_calls.load(Ordering::SeqCst), 1);
+        surface.unsubscribe();
+    }
+
+    #[test]
+    fn installing_metadata_host_changes_zero_revision_and_notifies_feed() {
+        let (store, surface) = open();
+        let id = create(&store, &metadata_spec());
+        let _ = surface.render_now(id.clone(), None).unwrap();
+        surface.set_external_poll_ms(20);
+        let (tx, rx) = mpsc::channel();
+        struct Recorder(mpsc::Sender<Vec<SharedSurfaceChange>>);
+        impl SharedSurfaceListener for Recorder {
+            fn surfaces_changed(&self, changes: Vec<SharedSurfaceChange>) {
+                let _ = self.0.send(changes);
+            }
+        }
+        surface.subscribe(Box::new(Recorder(tx))).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        store.set_verb_host(Box::new(RevisionedMetadataHost {
+            revision: Arc::new(AtomicU64::new(1)),
+            metadata_calls: Arc::new(AtomicUsize::new(0)),
+            other_calls: Arc::new(AtomicUsize::new(0)),
+        }));
+        let changes = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(changes
+            .iter()
+            .any(|change| change.id == id && change.sources_changed));
+        surface.unsubscribe();
     }
 
     /// Late install: a handle opened BEFORE `set_verb_host` runs still picks

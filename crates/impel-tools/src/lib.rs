@@ -18,8 +18,9 @@ use impress_service_core::{call, ProviderStatus, VerbHandle};
 
 mod providers;
 pub use providers::{
-    configure_provider_store, provider_call, provider_health, provider_validate_endpoint,
-    provider_validate_instance, provider_validate_schema, ProviderPrimitiveReply,
+    configure_provider_store, provider_call, provider_health, provider_inventory_revision,
+    provider_validate_endpoint, provider_validate_instance, provider_validate_schema,
+    ProviderPrimitiveReply,
 };
 
 uniffi::setup_scaffolding!();
@@ -342,6 +343,9 @@ mod tests {
             "imbib-text-service_decode-latex",
             "imbib-library-service_create-collection",
             "imprint-manuscript-service_list-sections",
+            "capabilities-service_list-verbs",
+            "capabilities-service_verb-surface",
+            "capabilities-service_catalogue-surface",
         ] {
             assert!(
                 tools.iter().any(|t| t.name == expected),
