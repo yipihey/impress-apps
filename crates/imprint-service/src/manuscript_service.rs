@@ -5,8 +5,8 @@
 //! as MCP tools, CLI subcommands, and future Python bindings.
 //!
 //! Method signatures are simplified for the macro: each method returns its
-//! "happy path" value directly and logs errors to stderr (matching the
-//! pattern in `imbib-service`'s services). Methods that take complex DTOs
+//! "happy path" value directly; failures are recorded in the pipeline's
+//! refusal channel as well as stderr. Methods that take complex DTOs
 //! (`SectionMetadata`, `CompileOptions`) accept them directly — both DTOs
 //! derive `JsonSchema` so the macro can synthesize the args struct.
 
@@ -16,6 +16,7 @@ use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
 use uuid::Uuid;
 
+use crate::error::ServiceError;
 use crate::handlers::{
     compile_latex_dispatch, CitationUsage, CompileOptions, CompileResult,
     DefaultImprintHttpHandlers, DocumentSummary, ExportFormat, ImprintHttpHandlers,
@@ -269,7 +270,8 @@ impl From<&SearchHit> for SearchHitDto {
 // ---------------------------------------------------------------------------
 
 /// Wraps a `DefaultImprintHttpHandlers` and adapts its `Result`-returning
-/// methods to the macro-friendly "return T, log errors" shape.
+/// methods to the macro-friendly return type, retaining failures through
+/// the pipeline refusal channel.
 #[derive(Clone)]
 pub struct DefaultImprintManuscriptService {
     handlers: Arc<DefaultImprintHttpHandlers>,
@@ -281,7 +283,14 @@ impl DefaultImprintManuscriptService {
     }
 }
 
-fn log_err(method: &str, e: impl std::fmt::Display) {
+fn log_err(method: &str, e: ServiceError) {
+    use impress_service_core::refusal::codes;
+    let code = match &e {
+        ServiceError::InvalidArgument(_) => codes::INVALID_ARGUMENT,
+        ServiceError::NotFound(_) => codes::NOT_FOUND,
+        _ => codes::VERB_FAILED,
+    };
+    impress_service_core::pipeline::context::report_refusal(code, format!("{method}: {e}"));
     eprintln!("[imprint-manuscript-service] {method}: {e}");
 }
 
@@ -306,7 +315,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("get_document", format!("bad uuid: {e}"));
+                log_err("get_document", ServiceError::from(e));
                 return None;
             }
         };
@@ -321,7 +330,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("export_document", format!("bad uuid: {e}"));
+                log_err("export_document", ServiceError::from(e));
                 return vec![];
             }
         };
@@ -338,7 +347,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&doc_id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("list_sections", format!("bad uuid: {e}"));
+                log_err("list_sections", ServiceError::from(e));
                 return vec![];
             }
         };
@@ -352,7 +361,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&doc_id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("get_section", format!("bad uuid: {e}"));
+                log_err("get_section", ServiceError::from(e));
                 return None;
             }
         };
@@ -375,7 +384,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&doc_id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("put_section", format!("bad uuid: {e}"));
+                log_err("put_section", ServiceError::from(e));
                 return None;
             }
         };
@@ -390,7 +399,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&doc_id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("delete_section", format!("bad uuid: {e}"));
+                log_err("delete_section", ServiceError::from(e));
                 return false;
             }
         };
@@ -465,7 +474,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
             Ok(r) => r,
             Err(e) => {
                 let msg = format!("{e}");
-                log_err("compile_typst", &msg);
+                log_err("compile_typst", e);
                 CompileResult {
                     pdf_data: None,
                     pdf_path: None,
@@ -495,7 +504,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         })
         .await
         .unwrap_or_else(|e| {
-            log_err("compile_latex", &e);
+            log_err("compile_latex", ServiceError::Internal(e.to_string()));
             LatexCompileResultDto {
                 pdf_len: 0,
                 diagnostics: vec![],
@@ -529,7 +538,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
         let uuid = match Uuid::parse_str(&doc_id) {
             Ok(u) => u,
             Err(e) => {
-                log_err("replace_in_section", format!("bad uuid: {e}"));
+                log_err("replace_in_section", ServiceError::from(e));
                 return ReplaceResult {
                     replacements: 0,
                     new_body: String::new(),

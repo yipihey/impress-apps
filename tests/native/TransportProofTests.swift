@@ -153,8 +153,35 @@ final class TransportProofTests: XCTestCase {
             "imprint-manuscript-service_list-documents", [:]), "document readback")
         try require(documents.contains { item in
             guard let row = item as? [String: Any] else { return false }
-            return row["id"] as? String == created && row["title"] as? String == renamed
+            return (row["id"] as? String).flatMap(UUID.init(uuidString:)) == UUID(uuidString: created)
+                && row["title"] as? String == renamed
         }, "renamed manuscript reads back through the native store service")
+        let document = try object(try await verb(base, bearer,
+            "imprint-manuscript-service_get-document", ["id": created]), "document metadata")
+        try require(document["title"] as? String == renamed && document["format"] as? String == "typst",
+                    "single manuscript reads back from the exact native store")
+        for format in ["typst", "latex", "text"] {
+            let bytes = try array(try await verb(base, bearer,
+                "imprint-manuscript-service_export-document", ["id": created, "format": format]),
+                "export \(format)")
+            let octets = try bytes.map { value in
+                try XCTUnwrap((value as? Int).flatMap(UInt8.init(exactly:)))
+            }
+            let data = Data(octets)
+            if format == "typst" {
+                let exported = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+                try require(exported["source"] as? String == source, "Typst export retains source envelope")
+            } else {
+                let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+                try require(text.contains("Persisted text."), "export contains the persisted body")
+            }
+        }
+        let invalid = try await request(base, bearer,
+            "/api/verb/imprint-manuscript-service_get-document", ["id": "not-a-uuid"])
+        try require(invalid.status == 400, "invalid manuscript ID is a refusal")
+        let missing = try await request(base, bearer,
+            "/api/verb/imprint-manuscript-service_get-document", ["id": UUID().uuidString])
+        try require(missing.status == 404, "missing manuscript is a refusal")
     }
 
     private func proveImpart(_ base: String, _ bearer: String) async throws {

@@ -170,8 +170,9 @@ pub trait ImprintAppService: Send + Sync + 'static {
         anchor: Option<String>,
     ) -> Option<CommentRecord>;
 
-    /// Edit a comment's body, or set its status (`open`, `accepted`,
-    /// `rejected`).
+    /// Edit a comment's body, or set its status to `open` or `resolved`.
+    /// The native app refuses `accepted` and `rejected` until an immediate
+    /// suggestion action can preserve their distinct review semantics.
     #[impress_method]
     async fn update_comment(
         &self,

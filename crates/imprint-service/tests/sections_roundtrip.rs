@@ -190,8 +190,8 @@ fn sections_are_written_under_the_bare_ref_the_swift_readers_query() {
     // assertion that would have failed loudly instead of the feature failing
     // quietly.
     let dead = shared
-        // schema-ref-lint:allow — naming the dead spelling is the point.
         .query(&impress_core::query::ItemQuery {
+            // schema-ref-lint:allow — naming the dead spelling is the point.
             schema: Some("manuscript-section@1.0.0".into()),
             ..Default::default()
         })

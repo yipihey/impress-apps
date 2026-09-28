@@ -28,16 +28,15 @@
 //! - `handleBundleCompile` / SyncTeX / LaTeX diagnostics: depend on Phase 2B/C
 //!   modules (`imprint_core::synctex`, `imprint_core::latex::{diagnostics,
 //!   formatter}`) which have not landed in this worktree yet.
-//! - `handleListDocuments` / `handleGetDocument` / `handleGetDocumentContent`:
-//!   imprint documents (as opposed to sections) live in
-//!   `ManuscriptStoreAdapter`. There is no Rust mirror for that adapter yet —
-//!   it is on the Phase 3 cutover list. The handler trait carries the
-//!   signatures so the Swift bridge can be named, but the default impl
-//!   returns `ServiceError::Internal("not implemented in Rust yet")` for the
-//!   document-level methods.
+//! - Native document export retains the live Swift export handlers so its
+//!   byte format and bibliography response remain compatible. Document list
+//!   and metadata reads use the section store's exact shared database.
 
 use std::sync::Arc;
 
+use impress_core::item::{Item, Value};
+use impress_core::query::{ItemQuery, SortDescriptor};
+use impress_core::store::ItemStore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -362,17 +361,41 @@ impl DefaultImprintHttpHandlers {
     }
 }
 
+fn document_summary(item: &Item) -> DocumentSummary {
+    let text = |key: &str, fallback: &str| match item.payload.get(key) {
+        Some(Value::String(value)) => value.clone(),
+        _ => fallback.to_owned(),
+    };
+    DocumentSummary {
+        id: item.id,
+        title: text("title", "Untitled"),
+        format: text("format", "typst"),
+    }
+}
+
 impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
     async fn list_documents(&self) -> Result<Vec<DocumentSummary>, ServiceError> {
-        Err(ServiceError::Internal(
-            "list_documents not implemented in Rust (Phase 3 cutover)".into(),
-        ))
+        let rows = self.sections.shared_store().query(&ItemQuery {
+            schema: Some("manuscript".into()),
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        })?;
+        Ok(rows.iter().map(document_summary).collect())
     }
 
-    async fn get_document(&self, _id: Uuid) -> Result<DocumentSummary, ServiceError> {
-        Err(ServiceError::Internal(
-            "get_document not implemented in Rust (Phase 3 cutover)".into(),
-        ))
+    async fn get_document(&self, id: Uuid) -> Result<DocumentSummary, ServiceError> {
+        let item = self
+            .sections
+            .shared_store()
+            .get(id)?
+            .filter(|item| item.schema == "manuscript")
+            .ok_or_else(|| ServiceError::NotFound(format!("manuscript {id}")))?;
+        Ok(document_summary(&item))
     }
 
     async fn export_document(
@@ -380,8 +403,8 @@ impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
         _id: Uuid,
         _format: ExportFormat,
     ) -> Result<Vec<u8>, ServiceError> {
-        Err(ServiceError::Internal(
-            "export_document not implemented in Rust (Phase 3 cutover)".into(),
+        Err(ServiceError::InvalidArgument(
+            "document export requires the native imprint host".into(),
         ))
     }
 
@@ -981,14 +1004,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn document_stubs_return_internal_error() {
+    async fn documents_read_the_exact_store_and_refuse_non_manuscripts() {
+        use impress_core::manuscript_project::{create_manuscript, Author, NewManuscript};
         let (h, _dir) = handlers();
-        let r = h.list_documents().await;
-        assert!(matches!(r, Err(ServiceError::Internal(_))));
-        let r = h.get_document(Uuid::nil()).await;
-        assert!(matches!(r, Err(ServiceError::Internal(_))));
-        let r = h.export_document(Uuid::nil(), ExportFormat::Typst).await;
-        assert!(matches!(r, Err(ServiceError::Internal(_))));
+        let store = h.sections().shared_store();
+        let author = Author::system();
+        let manuscript = create_manuscript(
+            store,
+            NewManuscript {
+                title: "Native document",
+                format: "typst",
+                body: "= Persisted body",
+                entry_path: None,
+                collection_ref: None,
+            },
+            &author,
+        )
+        .unwrap();
+        let list = h.list_documents().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, manuscript.id);
+        assert_eq!(list[0].title, "Native document");
+        assert_eq!(h.get_document(manuscript.id).await.unwrap().format, "typst");
+        assert!(matches!(
+            h.get_document(Uuid::nil()).await,
+            Err(ServiceError::NotFound(_))
+        ));
+        let section = h
+            .put_section(manuscript.id, "intro", "Body", SectionMetadata::default())
+            .await
+            .unwrap();
+        assert!(matches!(
+            h.get_document(section.item_id).await,
+            Err(ServiceError::NotFound(_))
+        ));
+        assert_eq!(h.list_documents().await.unwrap().len(), 1);
+        assert!(matches!(
+            h.export_document(manuscript.id, ExportFormat::Typst).await,
+            Err(ServiceError::InvalidArgument(_))
+        ));
     }
 
     /// Without `typst-render` the method still answers — with a reason.
