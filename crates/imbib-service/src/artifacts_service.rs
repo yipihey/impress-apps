@@ -96,6 +96,10 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     /// List available artifacts across all impress apps. Returns a summary
     /// of papers, documents, and conversations.
     #[impress_method]
+    #[impress_example(
+        name = "list_scratch_notes",
+        args = r#"{"schema_filter":"impress/artifact/note","sort_field":"title","ascending":true,"limit":50,"offset":0}"#
+    )]
     async fn list_artifacts(
         &self,
         schema_filter: Option<String>,
@@ -106,7 +110,12 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     ) -> Vec<ArtifactRecord>;
     /// Search research artifacts by title, notes, or other metadata.
     /// Returns matching artifacts.
-    #[impress_method]
+    #[impress_method(effects(reads = [any("searches every indexed kind before filtering artifact schemas"), "imbib/tag-definition"]))]
+    #[impress_example(
+        name = "find_scratch_dataset",
+        args = r#"{"query":"G3-artifact-needle","schema_filter":"impress/artifact/dataset"}"#,
+        expect = r#"[{"id":"60000000-0000-4000-8000-000000000003","title":"G3-artifact-needle dataset"}]"#
+    )]
     async fn search_artifacts(
         &self,
         query: String,
@@ -114,15 +123,28 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     ) -> Vec<ArtifactRecord>;
     /// Get detailed information about a specific research artifact by ID.
     #[impress_method]
+    #[impress_example(
+        name = "get_scratch_note",
+        args = r#"{"id":"60000000-0000-4000-8000-000000000001"}"#,
+        expect = r#"{"id":"60000000-0000-4000-8000-000000000001","title":"G3 artifact note","schema":"impress/artifact/note"}"#
+    )]
     async fn get_artifact(&self, id: String) -> Option<ArtifactRecord>;
     /// Count research artifacts, optionally only those of one schema.
     #[impress_method(effects(reads = [prefix("impress/artifact/")]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "count_scratch_datasets",
+        args = r#"{"schema_filter":"impress/artifact/dataset"}"#
+    )]
     async fn count_artifacts(&self, schema_filter: Option<String>) -> u32;
     /// Create a research artifact in imbib. Artifacts are non-paper items:
     /// notes, webpages, datasets, presentations, posters, media, code, or
     /// general files.
     #[impress_method(safety = mutating, effects(reads = ["imbib/tag-definition"], writes = [prefix("impress/artifact/"), "imbib/tag-definition"]))]
+    #[impress_example(
+        name = "create_research_note",
+        args = r#"{"schema":"impress/artifact/note","title":"G3 newly created research note","notes":"An owned scratch observation.","tags":[]}"#,
+        expect = r#"{"title":"G3 newly created research note","schema":"impress/artifact/note"}"#
+    )]
     async fn create_artifact(
         &self,
         schema: String,
@@ -143,6 +165,11 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     /// Update an artifact's metadata fields; a field left null keeps its
     /// current value.
     #[impress_method(safety = mutating, effects(reads = [target(id)], writes = [target(id)]))]
+    #[impress_example(
+        name = "rename_scratch_note",
+        args = r#"{"id":"60000000-0000-4000-8000-000000000002","title":"G3 revised artifact note"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn update_artifact(
         &self,
         id: String,
@@ -157,17 +184,32 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
     ) -> MutationResult;
     /// Delete a research artifact. This permanently removes it.
     #[impress_method(safety = destructive, effects(reads = [target(id)], writes = [target(id)]))]
+    #[impress_example(
+        name = "delete_disposable_note",
+        args = r#"{"id":"60000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn delete_artifact(&self, id: String) -> MutationResult;
     /// Link a research artifact to a paper in the bibliography. Creates a
     /// bidirectional relationship.
     #[impress_method(safety = mutating, effects(reads = [target(artifact_id), "imbib/bibliography-entry"], writes = [target(artifact_id)]))]
+    #[impress_example(
+        name = "link_dataset_to_paper",
+        args = r#"{"artifact_id":"60000000-0000-4000-8000-000000000005","publication_id":"60000000-0000-4000-8000-000000000020"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn link_artifact_to_publication(
         &self,
         artifact_id: String,
         publication_id: String,
     ) -> MutationResult;
     /// List the relationships an artifact has to papers and other items.
-    #[impress_method(effects(reads = [target(id)]))]
+    #[impress_method(effects(reads = [target(id), any("resolves the target of each artifact relation, of any kind")]))]
+    #[impress_example(
+        name = "get_scratch_relations",
+        args = r#"{"id":"60000000-0000-4000-8000-000000000006"}"#,
+        expect = r#"[{"target_id":"60000000-0000-4000-8000-000000000020","edge_type":"RelatesTo","target_title":"G3 paper for artifacts"}]"#
+    )]
     async fn get_artifact_relations(&self, id: String) -> Vec<ArtifactRelationRecord>;
 }
 
@@ -366,14 +408,95 @@ impress_service_impl! {
     impl = DefaultImbibArtifactsService,
     instance = || crate::backend::artifacts_service_instance(),
     methods = [
-        list_artifacts(schema_filter: Option<String>, sort_field: String, ascending: bool, limit: u32, offset: u32) -> Vec<ArtifactRecord>,
-        search_artifacts(query: String, schema_filter: Option<String>) -> Vec<ArtifactRecord>,
-        get_artifact(id: String) -> Option<ArtifactRecord>,
-        count_artifacts(schema_filter: Option<String>) -> u32,
-        create_artifact(schema: String, title: String, source_url: Option<String>, notes: Option<String>, artifact_subtype: Option<String>, file_name: Option<String>, file_hash: Option<String>, file_size: Option<i64>, file_mime_type: Option<String>, capture_context: Option<String>, original_author: Option<String>, event_name: Option<String>, event_date: Option<String>, tags: Vec<String>) -> Option<ArtifactRecord>,
-        update_artifact(id: String, title: Option<String>, source_url: Option<String>, notes: Option<String>, artifact_subtype: Option<String>, capture_context: Option<String>, original_author: Option<String>, event_name: Option<String>, event_date: Option<String>) -> MutationResult,
-        delete_artifact(id: String) -> MutationResult,
-        link_artifact_to_publication(artifact_id: String, publication_id: String) -> MutationResult,
-        get_artifact_relations(id: String) -> Vec<ArtifactRelationRecord>,
+        list_artifacts(
+            /// Canonical artifact schema to restrict the list, or null for all artifact kinds.
+            schema_filter: Option<String>,
+            /// Sort field such as `title` or `date_added`; blank selects date added.
+            sort_field: String,
+            /// True for ascending order, false for newest/highest first.
+            ascending: bool,
+            /// Maximum rows; zero selects the service default of fifty.
+            limit: u32,
+            /// Number of sorted rows to skip before returning results.
+            offset: u32
+        ) -> Vec<ArtifactRecord>,
+        search_artifacts(
+            /// Text to find in title, notes, source URL, or original author.
+            query: String,
+            /// Canonical artifact schema to restrict matches, or null for all artifact kinds.
+            schema_filter: Option<String>
+        ) -> Vec<ArtifactRecord>,
+        get_artifact(
+            /// UUID of the stored artifact to read.
+            id: String
+        ) -> Option<ArtifactRecord>,
+        count_artifacts(
+            /// Canonical artifact schema to count, or null for all artifact kinds.
+            schema_filter: Option<String>
+        ) -> u32,
+        create_artifact(
+            /// Canonical `impress/artifact/*` schema describing the artifact kind.
+            schema: String,
+            /// Human-readable artifact title.
+            title: String,
+            /// Original web URL, if this artifact came from a page.
+            source_url: Option<String>,
+            /// Research notes stored alongside the artifact.
+            notes: Option<String>,
+            /// More specific kind within the chosen schema, if known.
+            artifact_subtype: Option<String>,
+            /// Name of an associated file, if present.
+            file_name: Option<String>,
+            /// Content hash of an associated file, if present.
+            file_hash: Option<String>,
+            /// Associated file size in bytes, if present.
+            file_size: Option<i64>,
+            /// MIME type of an associated file, if present.
+            file_mime_type: Option<String>,
+            /// Context in which the artifact was captured.
+            capture_context: Option<String>,
+            /// Attribution of the source creator, if known.
+            original_author: Option<String>,
+            /// Event associated with a poster or presentation.
+            event_name: Option<String>,
+            /// Date associated with that event, if known.
+            event_date: Option<String>,
+            /// Existing or new tag paths to attach to the artifact.
+            tags: Vec<String>
+        ) -> Option<ArtifactRecord>,
+        update_artifact(
+            /// UUID of the artifact whose metadata should change.
+            id: String,
+            /// Replacement title, or null to retain the current title.
+            title: Option<String>,
+            /// Replacement source URL, or null to retain it.
+            source_url: Option<String>,
+            /// Replacement notes, or null to retain them.
+            notes: Option<String>,
+            /// Replacement subtype, or null to retain it.
+            artifact_subtype: Option<String>,
+            /// Replacement capture context, or null to retain it.
+            capture_context: Option<String>,
+            /// Replacement creator attribution, or null to retain it.
+            original_author: Option<String>,
+            /// Replacement event name, or null to retain it.
+            event_name: Option<String>,
+            /// Replacement event date, or null to retain it.
+            event_date: Option<String>
+        ) -> MutationResult,
+        delete_artifact(
+            /// UUID of the artifact to remove permanently.
+            id: String
+        ) -> MutationResult,
+        link_artifact_to_publication(
+            /// UUID of the stored artifact receiving the relation.
+            artifact_id: String,
+            /// UUID of the existing bibliography entry to link.
+            publication_id: String
+        ) -> MutationResult,
+        get_artifact_relations(
+            /// UUID of the artifact whose outgoing typed links are needed.
+            id: String
+        ) -> Vec<ArtifactRelationRecord>,
     ],
 }

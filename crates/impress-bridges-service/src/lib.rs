@@ -119,7 +119,7 @@ pub trait ImpressBridgesService: Send + Sync + 'static {
     /// if that body no longer matches, it reports failure instead of claiming
     /// the citation landed. Empty sections cannot be appended by the current
     /// section replacement API.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "manuscript", "manuscript-section"], writes = ["manuscript-section", "citation-usage"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/tag-definition", "manuscript", "manuscript-section"], writes = ["manuscript-section", "citation-usage"]))]
     #[impress_example(
         name = "cite_scratch_methods",
         args = r#"{"cite_key":"G3Bridge2026","document_id":"5f000000-0000-4000-8000-000000000010","section_key":"methods"}"#,
