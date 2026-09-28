@@ -292,6 +292,11 @@ async fn run_store(
     )?;
     let query: crate::spec::StorePredicate =
         serde_json::from_value(raw).map_err(|e| e.to_string())?;
+    if query.schema_ref.trim().is_empty() || !(1..=10_000).contains(&query.max_rows) {
+        return Err(format!(
+            "step {index} (store): resolved schema_ref or max_rows is invalid"
+        ));
+    }
     let mut offset = 0;
     while offset < query.max_rows {
         let limit = (query.max_rows - offset).min(100);
