@@ -1,5 +1,7 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
+**Superseded by [the wave-9 handoff](next-steps-after-wave-9.md).**
+
 The last code merge on main, `9d7ee7a4`, includes W3, G7c, W4, S3, G5, the audit-flush barrier (#125),
 the P5b native transport slice (#126), and P7 construction checks (#127).
 The next full main workspace run is due after the P7/P8 merge batch. The preceding isolated
