@@ -456,23 +456,42 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// for papers, separate from collections. Use this when asked to create
     /// a new library for a topic or project.
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/library"]))]
-    #[impress_example(name = "default", args = r#"{"name": "Effects example"}"#)]
+    #[impress_example(
+        name = "new-project-library",
+        args = r#"{"name":"G3 reading project"}"#,
+        expect = r#"{"name":"G3 reading project","is_default":false}"#
+    )]
     async fn create_library(&self, name: String) -> Option<LibraryRecord>;
     /// Delete a library with its collections and memberships. The store hands
     /// back an undo snapshot that this verb drops (plan-auto-gui finding S-2),
     /// so on this path the deletion is not undoable: take a backup first.
     #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
+    #[impress_example(
+        name = "remove-empty-library",
+        args = r#"{"id":"5c000000-0000-4000-8000-00000000000a"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn delete_library_undoable(&self, id: String) -> MutationResult;
     /// Get the library new papers are filed into by default, if one is set.
-    #[impress_method(effects(reads = ["imbib/library"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "project-default",
+        args = r#"{}"#,
+        expect = r#"{"id":"5c000000-0000-4000-8000-00000000000b","name":"G3 default library","is_default":true}"#
+    )]
     async fn get_default_library(&self) -> Option<LibraryRecord>;
     /// Make a library the default target for new papers.
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/library"]))]
     async fn set_library_default(&self, id: String) -> MutationResult;
     /// Get the Inbox library, where incoming papers land before filing.
-    #[impress_method(effects(reads = ["imbib/library"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "inbox-library",
+        args = r#"{}"#,
+        expect = r#"{"id":"5c000000-0000-4000-8000-00000000000c","name":"G3 Inbox","is_inbox":true}"#
+    )]
     async fn get_inbox_library(&self) -> Option<LibraryRecord>;
 
     // ---- Collection lifecycle ----
@@ -483,6 +502,11 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// Create a new collection to organize papers. Collections can be
     /// regular (manual) or smart (auto-populated by predicate).
     #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "manual-collection",
+        args = r#"{"name":"G3 methods","library_id":"5c000000-0000-4000-8000-000000000010","is_smart":false,"query":null}"#,
+        expect = r#"{"name":"G3 methods","is_smart":false}"#
+    )]
     async fn create_collection(
         &self,
         name: String,
@@ -492,6 +516,11 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> Option<CollectionRecord>;
     /// Add papers to an existing collection.
     #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "imbib/bibliography-entry"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "file-paper",
+        args = r#"{"publication_ids":["5c000000-0000-4000-8000-000000000012"],"collection_id":"5c000000-0000-4000-8000-000000000011"}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn add_to_collection(
         &self,
         publication_ids: Vec<String>,
@@ -575,10 +604,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary>;
     /// Get one paper's summary by id; null when there is no such paper.
     #[impress_method]
+    #[impress_example(
+        name = "paper-summary",
+        args = r#"{"id":"5c000000-0000-4000-8000-000000000020"}"#,
+        expect = r#"{"id":"5c000000-0000-4000-8000-000000000020","title":"G3 stellar spectra","cite_key":"G3Spectra2026"}"#
+    )]
     async fn get_publication(&self, id: String) -> Option<PublicationSummary>;
-    /// Get detailed information about a specific paper by its cite key.
-    /// Returns full metadata and BibTeX entry.
-    #[impress_method]
+    /// Get detailed metadata, collection membership, and linked files for a
+    /// paper by its UUID.
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection"]))]
+    #[impress_example(
+        name = "paper-metadata",
+        args = r#"{"id":"5c000000-0000-4000-8000-000000000021"}"#,
+        expect = r#"{"id":"5c000000-0000-4000-8000-000000000021","cite_key":"G3Detail2026","entry_type":"article"}"#
+    )]
     async fn get_publication_detail(&self, id: String) -> Option<PublicationDetailRecord>;
     /// Get a single count — unread, starred, flagged, or by-tag — without
     /// fetching any paper rows. Use whenever the user asks 'how many …'; it
@@ -586,18 +625,34 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// `imbib-tags-service_list-tags` it does not walk the whole tag vocabulary.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(name = "count-scratch-paper", args = r#"{}"#)]
     async fn count_publications(&self) -> u32;
     /// Count unread papers, optionally within one library or collection.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "count-unread-in-library",
+        args = r#"{"parent_id":"5c000000-0000-4000-8000-000000000050"}"#,
+        expect = r#"1"#
+    )]
     async fn count_unread(&self, parent_id: Option<String>) -> u32;
     /// Count starred papers, optionally within one library or collection.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "count-starred-in-library",
+        args = r#"{"parent_id":"5c000000-0000-4000-8000-000000000051"}"#,
+        expect = r#"1"#
+    )]
     async fn count_starred(&self, parent_id: Option<String>) -> u32;
     /// Count flagged papers, optionally only those carrying one flag color.
     #[impress_method(effects(reads = ["imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "count-blue-flags",
+        args = r#"{"color":"g3-blue"}"#,
+        expect = r#"1"#
+    )]
     async fn count_flagged(&self, color: Option<String>) -> u32;
 
     // ---- Paper mutations ----
@@ -620,7 +675,12 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// with the user first. To take papers out of the user's way without
     /// destroying them, prefer `imbib-library-service_remove-from-collection`, or move them
     /// to the Dismissed library (imbib's trash) with imbib_add_to_library.
-    #[impress_method(safety = destructive, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_method(safety = destructive, effects(reads = ["imbib/bibliography-entry", any("undo snapshots query all children of each publication, regardless of kind")], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "delete-scratch-paper",
+        args = r#"{"ids":["5c000000-0000-4000-8000-000000000022"]}"#,
+        expect = r#"{"ok":true,"affected_count":1}"#
+    )]
     async fn delete_publications_undoable(&self, ids: Vec<String>) -> MutationResult;
     /// Move papers into another library.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library"], writes = ["imbib/bibliography-entry"]))]
@@ -631,10 +691,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> MutationResult;
     /// Copy papers into another library; returns the ids of the new copies.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/linked-file"], reach = [fs]))]
+    #[impress_example(
+        name = "copy-paper-to-project",
+        tier = "b",
+        args = r#"{"ids":["5c000000-0000-4000-8000-000000000023"],"to_library_id":"5c000000-0000-4000-8000-000000000024"}"#
+    )]
     async fn duplicate_publications(&self, ids: Vec<String>, to_library_id: String) -> Vec<String>;
     /// Merge duplicate papers within a library and hard-delete the duplicate
     /// rows (not undoable); returns how many were removed.
     #[impress_method(safety = destructive, effects(reads = ["imbib/bibliography-entry", "imbib/library"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "merge-same-doi",
+        args = r#"{"library_id":"5c000000-0000-4000-8000-000000000025"}"#,
+        expect = r#"1"#
+    )]
     async fn deduplicate_library(&self, library_id: String) -> u32;
 
     // ---- Dismissed/muted ----
@@ -642,6 +712,11 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// feeds skip it. Writes a tombstone only: nothing is moved or deleted,
     /// and there is no un-dismiss verb.
     #[impress_method(safety = mutating, effects(reads = ["imbib/dismissed-paper"], writes = ["imbib/dismissed-paper"]))]
+    #[impress_example(
+        name = "dismiss-known-doi",
+        args = r#"{"doi":"10.5555/g3-dismiss","arxiv_id":null,"bibcode":null,"cite_key":null}"#,
+        expect = r#"{"doi":"10.5555/g3-dismiss"}"#
+    )]
     async fn dismiss_paper(
         &self,
         doi: Option<String>,
@@ -670,6 +745,11 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// Add a mute rule: `mute_type` names what is matched (for example
     /// `author`), `value` is the text to match.
     #[impress_method(safety = mutating, effects(reads = ["imbib/muted-item"], writes = ["imbib/muted-item"]))]
+    #[impress_example(
+        name = "mute-keyword",
+        args = r#"{"mute_type":"keyword","value":"G3 irrelevant topic"}"#,
+        expect = r#"{"mute_type":"keyword","value":"G3 irrelevant topic"}"#
+    )]
     async fn create_muted_item(&self, mute_type: String, value: String) -> Option<MutedItemRecord>;
 
     // ---- BibTeX import/export ----
@@ -682,6 +762,10 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// Parse BibTeX and add each entry to a library as a paper; returns the
     /// ids of the papers created.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "import-one-entry",
+        args = r#"{"bibtex":"@article{G3Imported2026, title={G3 imported result}, author={Doe, Jane}, year={2026}}","library_id":"5c000000-0000-4000-8000-000000000030"}"#
+    )]
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String>;
     /// Import BibTeX and file every resulting paper into a collection. Papers
     /// that already exist — including ones filed in a different library — are
@@ -702,10 +786,15 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> BibtexImportOutcome;
     /// Export BibTeX entries for one or more papers. Useful for creating
     /// bibliography files or inserting citations.
-    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file"]))]
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
+    #[impress_example(name = "export-cite-key", args = r#"{"ids":["G3Export2026"]}"#)]
     async fn export_bibtex(&self, ids: Vec<String>) -> String;
     /// Export every paper in a library as one BibTeX string.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/library"]))]
+    #[impress_example(
+        name = "export-project-library",
+        args = r#"{"library_id":"5c000000-0000-4000-8000-000000000031"}"#
+    )]
     async fn export_all_bibtex(&self, library_id: String) -> String;
 
     // ---- Linked files / PDFs ----
@@ -714,10 +803,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn list_linked_files(&self, publication_id: String) -> Vec<LinkedFileRecord>;
     /// Count the PDFs linked to a paper.
     #[impress_method(effects(reads = ["imbib/linked-file"]))]
+    #[impress_example(
+        name = "one-pdf",
+        args = r#"{"publication_id":"5c000000-0000-4000-8000-000000000040"}"#,
+        expect = r#"1"#
+    )]
     async fn count_pdfs(&self, publication_id: String) -> u32;
     /// Record a file already on disk as linked to a paper; nothing is copied
     /// or fetched.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry"], writes = ["imbib/linked-file"]))]
+    #[impress_example(
+        name = "link-local-pdf",
+        args = r#"{"publication_id":"5c000000-0000-4000-8000-000000000041","filename":"paper.pdf","relative_path":"library/paper.pdf","file_type":"application/pdf","file_size":15,"sha256":null,"is_pdf":true}"#,
+        expect = r#"{"filename":"paper.pdf","relative_path":"library/paper.pdf","file_size":15,"is_pdf":true}"#
+    )]
     async fn add_linked_file(
         &self,
         publication_id: String,
@@ -1603,15 +1702,35 @@ impress_service_impl! {
         // Library lifecycle
         list_libraries() -> Vec<LibraryRecord>,
         sidebar_view() -> SidebarView,
-        create_library(name: String) -> Option<LibraryRecord>,
-        delete_library_undoable(id: String) -> MutationResult,
+        create_library(
+            /// Visible name of the new top-level library.
+            name: String
+        ) -> Option<LibraryRecord>,
+        delete_library_undoable(
+            /// UUID of the library to delete with its collections.
+            id: String
+        ) -> MutationResult,
         get_default_library() -> Option<LibraryRecord>,
         set_library_default(id: String) -> MutationResult,
         get_inbox_library() -> Option<LibraryRecord>,
         // Collection lifecycle
         list_collections(library_id: String) -> Vec<CollectionRecord>,
-        create_collection(name: String, library_id: String, is_smart: bool, query: Option<String>) -> Option<CollectionRecord>,
-        add_to_collection(publication_ids: Vec<String>, collection_id: String) -> MutationResult,
+        create_collection(
+            /// Visible collection name.
+            name: String,
+            /// UUID of the owning library.
+            library_id: String,
+            /// Whether the collection is populated by a saved query.
+            is_smart: bool,
+            /// Smart collection predicate, or null for a manual collection.
+            query: Option<String>
+        ) -> Option<CollectionRecord>,
+        add_to_collection(
+            /// UUIDs of existing publications to file.
+            publication_ids: Vec<String>,
+            /// UUID of the collection receiving the papers.
+            collection_id: String
+        ) -> MutationResult,
         remove_from_collection(publication_ids: Vec<String>, collection_id: String) -> MutationResult,
         list_collection_members(collection_id: String, sort_field: String, ascending: bool, limit: u32, offset: u32) -> Vec<PublicationSummary>,
         purge_dismissed_from_collection(collection_id: String) -> MutationResult,
@@ -1622,36 +1741,112 @@ impress_service_impl! {
         query_starred(parent_id: Option<String>, sort_field: String, ascending: bool, limit: u32) -> Vec<PublicationSummary>,
         query_recent(limit: u32, parent_id: Option<String>) -> Vec<PublicationSummary>,
         search_publications(query: String, limit: u32) -> Vec<PublicationSummary>,
-        get_publication(id: String) -> Option<PublicationSummary>,
-        get_publication_detail(id: String) -> Option<PublicationDetailRecord>,
+        get_publication(
+            /// UUID of the publication to summarize.
+            id: String
+        ) -> Option<PublicationSummary>,
+        get_publication_detail(
+            /// UUID of the publication whose full metadata is needed.
+            id: String
+        ) -> Option<PublicationDetailRecord>,
         count_publications() -> u32,
-        count_unread(parent_id: Option<String>) -> u32,
-        count_starred(parent_id: Option<String>) -> u32,
-        count_flagged(color: Option<String>) -> u32,
+        count_unread(
+            /// Library or collection UUID to scope the count, or null for all papers.
+            parent_id: Option<String>
+        ) -> u32,
+        count_starred(
+            /// Library or collection UUID to scope the count, or null for all papers.
+            parent_id: Option<String>
+        ) -> u32,
+        count_flagged(
+            /// Flag color to count, or null for every flagged paper.
+            color: Option<String>
+        ) -> u32,
         // Paper mutations
         set_read(ids: Vec<String>, read: bool) -> MutationResult,
         set_starred(ids: Vec<String>, starred: bool) -> MutationResult,
         set_flag(ids: Vec<String>, color: Option<String>) -> MutationResult,
-        delete_publications_undoable(ids: Vec<String>) -> MutationResult,
+        delete_publications_undoable(
+            /// UUIDs of the publications to permanently remove.
+            ids: Vec<String>
+        ) -> MutationResult,
         move_publications(publication_ids: Vec<String>, to_library_id: String) -> MutationResult,
-        duplicate_publications(ids: Vec<String>, to_library_id: String) -> Vec<String>,
-        deduplicate_library(library_id: String) -> u32,
+        duplicate_publications(
+            /// UUIDs of publications to copy.
+            ids: Vec<String>,
+            /// UUID of the library that receives the copies.
+            to_library_id: String
+        ) -> Vec<String>,
+        deduplicate_library(
+            /// UUID of the library whose duplicate papers should be merged.
+            library_id: String
+        ) -> u32,
         // Dismissed/muted
-        dismiss_paper(doi: Option<String>, arxiv_id: Option<String>, bibcode: Option<String>, cite_key: Option<String>) -> Option<DismissedPaperRecord>,
+        dismiss_paper(
+            /// DOI to suppress on future imports, if known.
+            doi: Option<String>,
+            /// arXiv identifier to suppress, if known.
+            arxiv_id: Option<String>,
+            /// ADS bibcode to suppress, if known.
+            bibcode: Option<String>,
+            /// Citation key to suppress, if known.
+            cite_key: Option<String>
+        ) -> Option<DismissedPaperRecord>,
         is_paper_dismissed(doi: Option<String>, arxiv_id: Option<String>, bibcode: Option<String>, cite_key: Option<String>) -> bool,
         list_dismissed_papers(limit: u32, offset: u32) -> Vec<DismissedPaperRecord>,
         list_muted_items() -> Vec<MutedItemRecord>,
-        create_muted_item(mute_type: String, value: String) -> Option<MutedItemRecord>,
+        create_muted_item(
+            /// Rule category, such as `author` or `keyword`.
+            mute_type: String,
+            /// Text to match within that category.
+            value: String
+        ) -> Option<MutedItemRecord>,
         // BibTeX I/O
         import_papers(papers: Vec<PaperImport>, library_id: String) -> ImportSummary,
-        import_bibtex(bibtex: String, library_id: String) -> Vec<String>,
-        import_bibtex_into_collection(bibtex: String, library_id: String, collection_id: String) -> BibtexImportOutcome,
-        export_bibtex(ids: Vec<String>) -> String,
-        export_all_bibtex(library_id: String) -> String,
+        import_bibtex(
+            /// BibTeX source containing one or more entries.
+            bibtex: String,
+            /// UUID of the target library.
+            library_id: String
+        ) -> Vec<String>,
+        import_bibtex_into_collection(
+            /// BibTeX source containing one or more entries.
+            bibtex: String,
+            /// UUID of the target library.
+            library_id: String,
+            /// UUID of the collection receiving the imported papers.
+            collection_id: String
+        ) -> BibtexImportOutcome,
+        export_bibtex(
+            /// Publication UUIDs or cite keys to export, in requested order.
+            ids: Vec<String>
+        ) -> String,
+        export_all_bibtex(
+            /// UUID of the library whose papers should be exported.
+            library_id: String
+        ) -> String,
         // Linked files
         list_linked_files(publication_id: String) -> Vec<LinkedFileRecord>,
-        count_pdfs(publication_id: String) -> u32,
-        add_linked_file(publication_id: String, filename: String, relative_path: Option<String>, file_type: Option<String>, file_size: i64, sha256: Option<String>, is_pdf: bool) -> Option<LinkedFileRecord>,
+        count_pdfs(
+            /// UUID of the publication whose linked PDFs are counted.
+            publication_id: String
+        ) -> u32,
+        add_linked_file(
+            /// UUID of the publication receiving the file link.
+            publication_id: String,
+            /// File name shown in the paper's attachments.
+            filename: String,
+            /// Optional path relative to the library's file root.
+            relative_path: Option<String>,
+            /// Optional MIME type or file extension description.
+            file_type: Option<String>,
+            /// File size in bytes.
+            file_size: i64,
+            /// Optional SHA-256 content hash.
+            sha256: Option<String>,
+            /// Whether this linked file is a PDF.
+            is_pdf: bool
+        ) -> Option<LinkedFileRecord>,
         // Retention
         retention_cleanup(exploration_library_id: Option<String>) -> RetentionCleanupReport,
     ],
