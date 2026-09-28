@@ -138,6 +138,19 @@ fn main() {
 
     let (args, wait) = take_wait(take_store_path(std::env::args().collect()));
 
+    impress_app_transport::install(true);
+    match impress_store_service::providers::install_if_registered(std::sync::Arc::new(
+        impress_app_transport::provider::JsonSchemaValidator,
+    )) {
+        Ok(true) => impress_service_core::runtime::block_on(
+            impress_service_core::registry_runtime::refresh_health()),
+        Ok(false) => {},
+        Err(error) => {
+            eprintln!("error: cannot restore runtime providers: {error}");
+            std::process::exit(2);
+        }
+    }
+
     let app = cli::build_cli_from_inventory("impress")
         .about(
             "impress store CLI — auto-generated from the #[impress_service] traits in \
@@ -159,7 +172,6 @@ fn main() {
              `job-events`, `job-wait`, `job-result`; stop it with `job-cancel`.",
         );
     let matches = app.get_matches_from(args);
-    impress_app_transport::install(true);
 
     match cli::dispatch_matches(&matches) {
         Ok(value) => {

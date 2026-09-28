@@ -27,6 +27,7 @@ pub mod lifecycle;
 pub mod pipeline;
 pub mod provider;
 pub mod refusal;
+pub mod registry_runtime;
 pub mod report;
 pub mod runtime;
 pub mod strict;

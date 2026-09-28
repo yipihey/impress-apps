@@ -6,7 +6,12 @@
 //! persistence, credential storage, and an authenticated registration route.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{atomic::{AtomicU64, Ordering}, Arc, RwLock};
+
+// Replacing a registry must not make an old handle current again. Generations
+// are unique across registries in this Rust image, not just within a provider.
+static GENERATION: AtomicU64 = AtomicU64::new(1);
+fn next_generation() -> u64 { GENERATION.fetch_add(1, Ordering::Relaxed) }
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -280,14 +285,15 @@ impl Registry {
                 .load_token(&row.id)
                 .map_err(RegistrationError::Persistence)?;
             let token = token.filter(|token| token_matches(&row.token_hash, token));
-            let verbs = build_verbs(&row, false, 1);
+            let generation = next_generation();
+            let verbs = build_verbs(&row, false, generation);
             state.providers.insert(
                 row.id.clone(),
                 ProviderEntry {
                     row,
                     token,
                     healthy: false,
-                    generation: 1,
+                    generation,
                     verbs,
                 },
             );
@@ -295,6 +301,49 @@ impl Registry {
         self.state = RwLock::new(state);
         self.persistence = Some(persistence);
         Ok(self)
+    }
+
+    /// Incorporate another local host's registration or trust change. Unchanged
+    /// rows retain their live handles; changed rows must pass health again.
+    /// Holding our state lock across the load prevents an older snapshot from
+    /// overwriting a registration this same host just committed.
+    pub fn refresh_persisted(&self) -> Result<(), RegistrationError> {
+        let Some(persistence) = &self.persistence else { return Ok(()) };
+        let validator = self.validator.as_ref().ok_or(RegistrationError::ValidatorUnavailable)?;
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let loaded = Registry::new().with_validator(validator.clone()).with_persistence(persistence.clone());
+        let loaded = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                // A failed trust read cannot leave a stale trusted handle live.
+                for entry in state.providers.values_mut() {
+                    entry.healthy = false;
+                    entry.generation = next_generation();
+                    entry.verbs = build_verbs(&entry.row, false, entry.generation);
+                }
+                return Err(error);
+            }
+        };
+        let mut fresh = loaded.state.into_inner().unwrap_or_else(|e| e.into_inner());
+        for (id, mut old) in std::mem::take(&mut state.providers) {
+            match fresh.providers.get(&id) {
+                Some(new) if serde_json::to_value(&old.row).ok() == serde_json::to_value(&new.row).ok()
+                    && old.token == new.token => { fresh.providers.insert(id, old); }
+                Some(_) => {},
+                None => {
+                    // A deleted row is retained for named diagnostics, with its
+                    // credential revoked. Health cannot revive that entry.
+                    old.token = None;
+                    old.healthy = false;
+                    old.row.trusted = false;
+                    old.generation = next_generation();
+                    old.verbs = build_verbs(&old.row, false, old.generation);
+                    fresh.providers.insert(id, old);
+                }
+            }
+        }
+        *state = fresh;
+        Ok(())
     }
 
     pub fn register(
@@ -403,7 +452,7 @@ impl Registry {
                 .save_registration(&row, &token)
                 .map_err(RegistrationError::Persistence)?;
         }
-        let generation = previous.map_or(1, |p| p.generation + 1);
+        let generation = next_generation();
         let built = build_verbs(&row, true, generation);
         let collisions = built
             .keys()
@@ -454,7 +503,7 @@ impl Registry {
                 .save_trust(&row)
                 .map_err(RegistrationError::Persistence)?;
         }
-        entry.generation += 1;
+        entry.generation = next_generation();
         entry.verbs = build_verbs(&row, entry.healthy, entry.generation);
         entry.row = row;
         Ok(())
@@ -537,7 +586,7 @@ impl Registry {
         }
         entry.row = row;
         entry.healthy = false;
-        entry.generation += 1;
+        entry.generation = next_generation();
         entry.verbs = build_verbs(&entry.row, false, entry.generation);
         Ok(())
     }
@@ -1015,6 +1064,27 @@ mod tests {
                 }],
             }],
         }
+    }
+
+    #[test]
+    fn persisted_refresh_preserves_live_handles_but_revokes_changed_trust() {
+        let storage = Arc::new(MemoryPersistence::default());
+        let first = Registry::new().with_validator(Arc::new(AcceptSchema)).with_persistence(storage.clone()).unwrap();
+        first.register(request("fixture")).unwrap();
+        first.set_trusted("fixture", true).unwrap();
+        let other = Registry::new().with_validator(Arc::new(AcceptSchema)).with_persistence(storage).unwrap();
+        other.set_health("fixture", true).unwrap();
+        let VerbHandle::Provider(handle) = other.find("fixture-service_echo").unwrap() else { panic!("provider") };
+        other.refresh_persisted().unwrap();
+        assert!(other.current_connection(&handle).is_some());
+        // Another registry's similarly named entry never accepts our handle.
+        assert!(first.current_connection(&handle).is_none());
+        first.set_trusted("fixture", false).unwrap();
+        other.refresh_persisted().unwrap();
+        assert!(other.current_connection(&handle).is_none());
+        let refreshed = other.find("fixture-service_echo").unwrap();
+        assert_eq!(refreshed.safety().class, SafetyClass::External);
+        assert_eq!(refreshed.provider_status(), Some(ProviderStatus::Unavailable));
     }
 
     #[test]

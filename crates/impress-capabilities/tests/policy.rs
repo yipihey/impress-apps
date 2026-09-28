@@ -24,14 +24,14 @@ impl ReviewQueue for Queue {
     fn enqueue(
         &self,
         caller: &CallerIdentity,
-        verb: &VerbDescriptor,
+        verb: &dyn impress_service_core::pipeline::policy::VerbFacts,
         _args: &Value,
     ) -> Result<String, Refusal> {
         let id = format!("review-{}", self.0.lock().unwrap().len() + 1);
         self.0
             .lock()
             .unwrap()
-            .push((caller.to_string(), verb.name.to_string()));
+            .push((caller.to_string(), verb.name().to_string()));
         Ok(id)
     }
 }

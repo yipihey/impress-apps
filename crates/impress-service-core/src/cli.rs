@@ -69,7 +69,9 @@ use std::collections::{HashMap, HashSet};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::{Map, Value};
 
-use crate::{BoxError, CliSubcommand};
+#[cfg(test)]
+use crate::CliSubcommand;
+use crate::{descriptor_handle::VerbHandle, BoxError};
 
 /// Build a `clap::Command` for the binary named `app_name`, with one
 /// subcommand per registered [`CliSubcommand`].
@@ -99,29 +101,32 @@ pub fn build_cli_from_inventory(app_name: &str) -> Command {
 /// The choice is per BINARY, not per crate: a binary that links only one of
 /// the two keeps the short name. That is deliberate — the short name is the
 /// documented one and the prefix is the exception a collision earns.
-pub fn effective_names() -> Vec<(String, &'static CliSubcommand)> {
-    let mut counts: HashMap<&'static str, usize> = HashMap::new();
-    for sub in CliSubcommand::iter() {
-        *counts.entry(sub.name).or_insert(0) += 1;
+pub fn effective_names() -> Vec<(String, VerbHandle)> {
+    let verbs: Vec<_> = crate::call::descriptors().collect();
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for verb in &verbs {
+        *counts.entry(verb.method().to_owned()).or_default() += 1;
     }
-    CliSubcommand::iter()
-        .map(|sub| {
-            let name = if counts[sub.name] > 1 {
-                sub.qualified_name.to_string()
+    verbs
+        .into_iter()
+        .map(|verb| {
+            let name = if counts[verb.method()] > 1 {
+                verb.name()
             } else {
-                sub.name.to_string()
-            };
-            (name, sub)
+                verb.method()
+            }
+            .to_owned();
+            (name, verb)
         })
         .collect()
 }
 
 /// Build one `clap::Command` from a single [`CliSubcommand`] descriptor,
 /// under the name [`effective_names`] chose for it.
-fn build_subcommand(name: String, sub: &'static CliSubcommand) -> Command {
-    let schema = (sub.input_schema)();
+fn build_subcommand(name: String, sub: VerbHandle) -> Command {
+    let schema = sub.input_schema();
 
-    let mut cmd = Command::new(name).about(sub.description.to_string());
+    let mut cmd = Command::new(name).about(sub.description().to_string());
 
     let required: HashSet<String> = schema
         .get("required")
@@ -272,15 +277,15 @@ pub fn dispatch_matches(matches: &ArgMatches) -> Result<Value, BoxError> {
         .map(|(_, sub)| sub)
         .ok_or_else(|| -> BoxError { format!("unknown subcommand `{sub_name}`").into() })?;
 
-    let schema = (descriptor.input_schema)();
+    let schema = descriptor.input_schema();
     let json_args = matches_to_json(sub_matches, &schema)?;
 
     // The CLI is an agent (ADR-0034 D3): whoever runs it, its verbs go
     // through the pipeline as `Agent("cli")`, never as the person.
-    match crate::pipeline::invoke_blocking(
-        descriptor.verb,
+    match crate::runtime::block_on(crate::pipeline::invoke_handle(
+        descriptor,
         crate::pipeline::Call::agent("cli", json_args),
-    ) {
+    )) {
         Ok(value) => Ok(value),
         Err(crate::pipeline::PipelineError::Handler(e)) => Err(e),
         Err(unavailable) => Err(unavailable.to_string().into()),
@@ -689,8 +694,11 @@ mod collision_tests {
     // inventory the real services use, so this pins the rule on the real
     // path rather than a model of it.
     inventory::submit! { CliSubcommand::of(&ALPHA_COLLIDE) }
+    inventory::submit! { crate::McpToolDescriptor::of(&ALPHA_COLLIDE) }
     inventory::submit! { CliSubcommand::of(&BETA_COLLIDE) }
+    inventory::submit! { crate::McpToolDescriptor::of(&BETA_COLLIDE) }
     inventory::submit! { CliSubcommand::of(&ALPHA_UNIQUE) }
+    inventory::submit! { crate::McpToolDescriptor::of(&ALPHA_UNIQUE) }
 
     /// A unique method keeps its short name; every party to a collision is
     /// exposed qualified, and the bare colliding name is exposed by nobody.

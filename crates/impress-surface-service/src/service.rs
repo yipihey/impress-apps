@@ -34,7 +34,7 @@ use impress_service_core::async_trait;
 use impress_service_core::pipeline::{self, Call};
 use impress_service_core::refusal::codes;
 use impress_service_core::wire::WIRE_VERSION;
-use impress_service_core::{McpToolDescriptor, Refusal, VerbDescriptor};
+use impress_service_core::{Refusal, VerbDescriptor};
 use impress_service_macros::{impress_service, impress_service_impl};
 
 #[allow(unused_imports)]
@@ -504,10 +504,10 @@ fn json_type_matches(expected: &str, value: &Value) -> bool {
 /// holding a `{{…}}` reference only has to be present: its value is known at
 /// run time. A verb only the host answers has no schema here and is skipped.
 fn check_verb_args(verb: &str, args: &Value, at: &str, problems: &mut Vec<Problem>) {
-    let Some(descriptor) = McpToolDescriptor::iter().find(|d| d.name == verb) else {
+    let Some(descriptor) = impress_service_core::call::find(verb) else {
         return;
     };
-    let schema = (descriptor.input_schema)();
+    let schema = descriptor.input_schema();
     let empty = serde_json::Map::new();
     let properties = schema
         .get("properties")

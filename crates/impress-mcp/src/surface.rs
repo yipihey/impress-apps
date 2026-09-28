@@ -23,7 +23,9 @@
 //! Anything this module cannot classify stays flat. Losing a capability is the
 //! one failure mode that matters, so the fallback is always "expose it".
 
+#[cfg(test)]
 use impress_service_core::McpToolDescriptor;
+use impress_service_core::{call, VerbHandle};
 use serde_json::{json, Map, Value};
 
 /// The root tool: what the suite can do, and when it is the wrong instrument.
@@ -191,8 +193,8 @@ pub fn action_of(tool_name: &str, domain: &str) -> Option<String> {
 }
 
 /// Descriptors a client may currently reach, after reachability gating.
-fn available() -> impl Iterator<Item = &'static McpToolDescriptor> {
-    McpToolDescriptor::iter().filter(|d| crate::reachability::is_available(d.name))
+fn available() -> impl Iterator<Item = VerbHandle> {
+    call::descriptors().filter(|d| d.provider_id().is_some() || crate::reachability::is_available(d.name()))
 }
 
 fn is_primary(name: &str) -> bool {
@@ -203,19 +205,19 @@ fn is_primary(name: &str) -> bool {
 ///
 /// Computed from the same [`action_of`] the listing uses, over the same gated
 /// iterator, so a resolvable action is exactly an advertised one.
-pub fn resolve(domain: &str, action: &str) -> Option<&'static str> {
+pub fn resolve(domain: &str, action: &str) -> Option<String> {
     available()
-        .filter(|d| domain_of(d.name) == Some(domain))
-        .find(|d| action_of(d.name, domain).as_deref() == Some(action))
-        .map(|d| d.name)
+        .filter(|d| domain_of(d.name()) == Some(domain))
+        .find(|d| action_of(d.name(), domain).as_deref() == Some(action))
+        .map(|d| d.name().to_owned())
 }
 
-fn definition_of(d: &McpToolDescriptor) -> Value {
+fn definition_of(d: VerbHandle) -> Value {
     json!({
-        "name": d.name,
-        "description": d.description,
-        "inputSchema": (d.input_schema)(),
-        "annotations": d.verb.mcp_annotations(),
+        "name": d.name(),
+        "description": d.description(),
+        "inputSchema": d.input_schema(),
+        "annotations": d.mcp_annotations(),
     })
 }
 
@@ -229,21 +231,21 @@ pub fn grouped_definitions(legacy: Vec<Value>) -> Vec<Value> {
     tools.extend(legacy);
     tools.extend(
         available()
-            .filter(|d| is_primary(d.name))
+            .filter(|d| is_primary(d.name()))
             .map(definition_of),
     );
 
     // Unclassifiable tools stay flat — never dropped.
     tools.extend(
         available()
-            .filter(|d| !is_primary(d.name) && domain_of(d.name).is_none())
+            .filter(|d| !is_primary(d.name()) && domain_of(d.name()).is_none())
             .map(definition_of),
     );
 
     for (domain, doc) in DOMAIN_DOC {
         let mut actions: Vec<String> = available()
-            .filter(|d| !is_primary(d.name) && domain_of(d.name) == Some(domain))
-            .filter_map(|d| action_of(d.name, domain))
+            .filter(|d| !is_primary(d.name()) && domain_of(d.name()) == Some(domain))
+            .filter_map(|d| action_of(d.name(), domain))
             .collect();
         if actions.is_empty() {
             continue;
@@ -308,14 +310,14 @@ fn capabilities_definition() -> Value {
 pub fn capabilities_payload(domain: Option<&str>) -> Value {
     if let Some(domain) = domain {
         let mut actions: Vec<Value> = available()
-            .filter(|d| domain_of(d.name) == Some(domain))
+            .filter(|d| domain_of(d.name()) == Some(domain))
             .filter_map(|d| {
-                action_of(d.name, domain).map(|a| {
+                action_of(d.name(), domain).map(|a| {
                     json!({
                         "action": a,
-                        "description": d.description,
-                        "primary": is_primary(d.name),
-                        "tool": d.name,
+                        "description": d.description(),
+                        "primary": is_primary(d.name()),
+                        "tool": d.name(),
                     })
                 })
             })
@@ -327,7 +329,9 @@ pub fn capabilities_payload(domain: Option<&str>) -> Value {
     let domains: Vec<Value> = DOMAIN_DOC
         .iter()
         .filter_map(|(d, doc)| {
-            let count = available().filter(|t| domain_of(t.name) == Some(d)).count();
+            let count = available()
+                .filter(|t| domain_of(t.name()) == Some(d))
+                .count();
             if count == 0 {
                 return None;
             }
@@ -379,10 +383,10 @@ pub fn dispatch(name: &str, args: &Value) -> Option<Result<Value, String>> {
         // exist at all. Only an action the full inventory has never heard of
         // is genuinely unknown. This covers `describe: true` too: describing
         // a gated action refuses the same way calling it does.
-        if let Some(reason) = McpToolDescriptor::iter()
-            .filter(|d| domain_of(d.name) == Some(domain))
-            .find(|d| action_of(d.name, domain).as_deref() == Some(action))
-            .and_then(|d| crate::reachability::unavailable_reason(d.name))
+        if let Some(reason) = call::descriptors()
+            .filter(|d| domain_of(d.name()) == Some(domain))
+            .find(|d| action_of(d.name(), domain).as_deref() == Some(action))
+            .and_then(|d| crate::reachability::unavailable_reason(d.name()))
         {
             return Some(Err(reason));
         }
@@ -393,12 +397,12 @@ pub fn dispatch(name: &str, args: &Value) -> Option<Result<Value, String>> {
     };
 
     if args.get("describe").and_then(|v| v.as_bool()) == Some(true) {
-        let descriptor = McpToolDescriptor::iter().find(|d| d.name == tool)?;
+        let descriptor = call::descriptors().find(|d| d.name() == tool)?;
         return Some(Ok(json!({
             "tool": tool,
             "action": action,
-            "description": descriptor.description,
-            "inputSchema": (descriptor.input_schema)(),
+            "description": descriptor.description(),
+            "inputSchema": descriptor.input_schema(),
         })));
     }
 
@@ -419,7 +423,7 @@ pub fn dispatch(name: &str, args: &Value) -> Option<Result<Value, String>> {
         }
     };
 
-    Some(crate::inventory_bridge::call_inventory_tool(tool, inner))
+    Some(crate::inventory_bridge::call_inventory_tool(&tool, inner))
 }
 
 #[cfg(test)]

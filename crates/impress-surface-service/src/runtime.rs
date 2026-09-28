@@ -1566,9 +1566,9 @@ fn refs_read_by(query: &PaneQuery, manifest: &KindManifest) -> Vec<String> {
 /// queries — a source over an unknown verb is not this function's problem to
 /// solve.
 fn verb_declared_read_refs(verb: &str) -> Vec<String> {
-    match impress_service_core::VerbDescriptor::find(verb) {
+    match impress_service_core::call::find(verb) {
         Some(descriptor) => descriptor
-            .effects
+            .effects()
             .reads
             .iter()
             .filter_map(|kind| match kind {

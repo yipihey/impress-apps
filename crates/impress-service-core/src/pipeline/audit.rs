@@ -42,8 +42,8 @@ pub struct VerbCallRecord {
     /// The row id: the call id, which is also every written operation's
     /// `batch_id`.
     pub call_id: String,
-    pub verb: &'static str,
-    pub since: &'static str,
+    pub verb: std::borrow::Cow<'static, str>,
+    pub since: std::borrow::Cow<'static, str>,
     pub caller: CallerIdentity,
     pub trace_id: String,
     pub parent_call: Option<String>,
@@ -154,7 +154,7 @@ pub fn record(record: VerbCallRecord) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
             tracing::debug!(
                 target: "verb",
-                verb = record.verb,
+                verb = %record.verb,
                 call_id = %record.call_id,
                 "no audit sink installed; call record dropped"
             );
@@ -955,8 +955,8 @@ mod tests {
         let before = dropped();
         record(VerbCallRecord {
             call_id: "c".into(),
-            verb: "t-service_x",
-            since: "0.1.0",
+            verb: "t-service_x".into(),
+            since: "0.1.0".into(),
             caller: CallerIdentity::Person,
             trace_id: "t".into(),
             parent_call: None,

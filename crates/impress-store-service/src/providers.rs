@@ -270,6 +270,48 @@ pub fn install_for_store(
     Ok(registry)
 }
 
+/// Workspace attached to the selected store. An explicit workspace override is
+/// shared with the job and settings hosts; otherwise credentials live beside
+/// that store, never beside an unrelated default database.
+pub fn selected_workspace() -> PathBuf {
+    std::env::var_os("IMPRESS_WORKSPACE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            crate::store_path()
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf()
+        })
+}
+
+/// Explicit host startup, after selecting its store. A fallback database must
+/// never accept a registration or silently replace durable trust decisions.
+pub fn install_for_selected_store(
+    validator: Arc<dyn SchemaValidator>,
+) -> Result<Arc<Registry>, RegistrationError> {
+    let store = crate::store_instance();
+    if crate::is_fallback_store(&store) {
+        return Err(RegistrationError::Persistence(
+            "the selected provider store is unavailable".into(),
+        ));
+    }
+    install_for_store(store, &selected_workspace(), validator)
+}
+
+/// Read-only consumers need no database startup cost in workspaces that have
+/// never registered a provider. HTTP registration hosts use the explicit
+/// installer above so the first registration has durable persistence too.
+pub fn install_if_registered(
+    validator: Arc<dyn SchemaValidator>,
+) -> Result<bool, RegistrationError> {
+    if !selected_workspace().join("providers/credentials").exists() {
+        return Ok(false);
+    }
+    install_for_selected_store(validator)?;
+    Ok(true)
+}
+
 fn row_id(id: &str) -> Result<ItemId, String> {
     validate_id(id)?;
     Ok(uuid::Uuid::new_v5(
@@ -396,6 +438,17 @@ mod tests {
             } else {
                 Err("schema must be an object".into())
             }
+        }
+
+        fn validate_instance(&self, schema: &Value, value: &Value) -> Result<(), String> {
+            let args = value.as_object().ok_or("arguments must be an object")?;
+            for required in schema["required"].as_array().into_iter().flatten() {
+                let name = required.as_str().ok_or("invalid required field")?;
+                if !args.get(name).is_some_and(Value::is_string) {
+                    return Err(format!("missing or invalid argument {name}"));
+                }
+            }
+            Ok(())
         }
     }
 

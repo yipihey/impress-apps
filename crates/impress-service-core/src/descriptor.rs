@@ -551,13 +551,7 @@ impl VerbDescriptor {
     /// - `idempotentHint`: `safety.idempotent`;
     /// - `openWorldHint`: the class is `external`.
     pub fn mcp_annotations(&self) -> Value {
-        let class = self.safety.class;
-        json!({
-            "readOnlyHint": class == SafetyClass::ReadOnly,
-            "destructiveHint": matches!(class, SafetyClass::Destructive | SafetyClass::External),
-            "idempotentHint": self.safety.idempotent,
-            "openWorldHint": class == SafetyClass::External,
-        })
+        self.safety.mcp_annotations()
     }
 }
 
@@ -899,5 +893,17 @@ mod tests {
             verb.mcp_annotations(),
             json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false})
         );
+    }
+}
+
+impl Safety {
+    pub fn mcp_annotations(&self) -> Value {
+        let class = self.class;
+        json!({
+            "readOnlyHint": class == SafetyClass::ReadOnly,
+            "destructiveHint": matches!(class, SafetyClass::Destructive | SafetyClass::External),
+            "idempotentHint": self.idempotent,
+            "openWorldHint": class == SafetyClass::External,
+        })
     }
 }

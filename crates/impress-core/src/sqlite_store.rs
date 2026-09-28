@@ -6781,7 +6781,7 @@ mod tests {
             trace_id: Uuid::new_v4().to_string(),
             parent_call: None,
             caller: CallerIdentity::Person,
-            verb: "test-service_mutate",
+            verb: "test-service_mutate".into(),
             store_override: None,
             mutation_ids: MutationIds::default(),
         });
