@@ -5,6 +5,7 @@ import CoreData
 import CoreSpotlight
 import UniformTypeIdentifiers
 import ImpressGit
+import ImpressAutomation
 import ImpressLogging
 import ImprintCore
 import ImpressKit
@@ -33,7 +34,26 @@ extension NSNotification.Name {
 // one is un-gated, so that copy is gone too.
 
 /// App delegate to handle app lifecycle events
+@MainActor
 final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
+    private var automationSettingsObserver: NSObjectProtocol?
+    private var automationTask: Task<Void, Never>?
+
+    private func applyAutomationSettings() {
+        enqueueAutomationSettings(ImprintAutomationSettings.snapshot())
+    }
+
+    private func enqueueAutomationSettings(_ settings: AutomationServerSettings) {
+        let previous = automationTask
+        // Only this snapshot crosses the actor boundary. Keep the listener
+        // startup detached. Serialize snapshots so a later CLI change cannot
+        // be overtaken by the initial listener bind.
+        automationTask = Task.detached(priority: .userInitiated) {
+            await previous?.value
+            await ImprintHTTPServer.shared.apply(settings: settings)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         logInfo("imprint launched", category: "app")
         // Route ImpressSyntaxHighlight logs into imprint's log capture
@@ -64,15 +84,15 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
 
-        let port = UserDefaults.standard.integer(forKey: "httpAutomationPort")
-        logInfo("HTTP server starting on port \(port)", category: "http-server")
-        // Start HTTP automation server for AI/MCP integration on a DETACHED task.
-        // ImprintHTTPServer is an actor (not @MainActor), so this runs off the
-        // main thread — the server still binds even if the main thread is blocked
-        // during launch (e.g. the shared-store open awaiting a TCC prompt).
-        Task.detached(priority: .userInitiated) {
-            await ImprintHTTPServer.shared.start()
+        let initialAutomationSettings = ImprintAutomationSettings.snapshot()
+        logInfo("HTTP server configured on port \(initialAutomationSettings.port)", category: "http-server")
+        automationSettingsObserver = NotificationCenter.default.addObserver(
+            forName: ImpressSettings.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applyAutomationSettings() }
         }
+        // The snapshot was read on the main actor; binding remains detached.
+        enqueueAutomationSettings(initialAutomationSettings)
 
         // Warm the shared store OFF the main thread up front, so its open (and
         // any "access data from other apps" TCC prompt) never blocks launch.
@@ -370,13 +390,6 @@ struct ImprintApp: App {
     nonisolated(unsafe) static var pendingNewDocumentFormat: DocumentFormat?
 
     init() {
-        // Register default settings (HTTP automation enabled by default for MCP)
-        UserDefaults.standard.register(defaults: [
-            "httpAutomationEnabled": true,
-            // THE sibling-app table (ImpressKit) — never a second literal.
-            "httpAutomationPort": Int(ImprintHTTPServer.defaultPort)
-        ])
-
         // Configure app for testing if needed
         if Self.isUITesting {
             configureForUITesting()
