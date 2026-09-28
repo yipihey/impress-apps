@@ -129,6 +129,104 @@ enum ImbibSidebarNodeType: Hashable {
     case customSurface(String)  // CustomSurfaceDescriptor.id
 }
 
+/// The payload-free inventory of macOS sidebar node capabilities. The
+/// exhaustive `ImbibSidebarNodeType.kind` switch below ties this CaseIterable
+/// inventory to the actual node enum, including its associated-value cases.
+/// `.section(.inbox)` is separate because it alone accepts drops.
+enum ImbibSidebarCapabilityPolicy {
+    case fixed(TreeNodeCapabilities)
+    case recordBinding
+}
+
+enum ImbibSidebarNodeKind: String, CaseIterable {
+    case appGroup, sectionInbox, section, allInbox
+    case inboxFeed, inboxCollection, library, libraryCollection, libraryFeed
+    case sharedLibrary, scixLibrary, searchForm, explorationSearch
+    case explorationCollection, anyFlag, flagColor, tag, allArtifacts
+    case artifactType, dismissed, citedInManuscripts, recent, reviewQueue
+    case recordFolder, journalAll, journalByStatus, journalSubmissions
+    case manuscript, figuresAll, figuresUnfiled, mailAllInboxes, mailAccount
+    case mailFolder, agentTasksAll, agentRunsAll, agentTaskState
+    case watchedFolder, watchedFileFolder, customSurface
+
+    /// The outline's four action flags. A record folder delegates to its
+    /// collection binding; every other row has a fixed decision.
+    var outlineCapabilityPolicy: ImbibSidebarCapabilityPolicy {
+        switch self {
+        case .sectionInbox:
+            return .fixed([.draggable, .droppable])
+        case .section, .searchForm, .flagColor, .explorationSearch:
+            return .fixed(.draggable)
+        case .library, .libraryCollection:
+            return .fixed([.draggable, .droppable, .renamable, .deletable])
+        case .inboxFeed, .libraryFeed, .inboxCollection:
+            return .fixed([.renamable, .deletable])
+        case .scixLibrary:
+            return .fixed([.draggable, .droppable])
+        case .explorationCollection:
+            return .fixed([.draggable, .deletable])
+        case .allArtifacts, .artifactType, .figuresUnfiled:
+            return .fixed(.droppable)
+        case .recordFolder:
+            return .recordBinding
+        case .appGroup, .allInbox, .sharedLibrary, .anyFlag, .tag,
+             .dismissed, .citedInManuscripts, .recent, .reviewQueue,
+             .journalAll, .journalByStatus, .journalSubmissions, .manuscript,
+             .figuresAll, .mailAllInboxes, .mailAccount, .mailFolder,
+             .agentTasksAll, .agentRunsAll, .agentTaskState, .watchedFolder,
+             .watchedFileFolder, .customSurface:
+            return .fixed(.readOnly)
+        }
+    }
+}
+
+extension ImbibSidebarNodeType {
+    /// No default: adding a node case requires an explicit capability row.
+    var kind: ImbibSidebarNodeKind {
+        switch self {
+        case .appGroup: return .appGroup
+        case .section(.inbox): return .sectionInbox
+        case .section: return .section
+        case .allInbox: return .allInbox
+        case .inboxFeed: return .inboxFeed
+        case .inboxCollection: return .inboxCollection
+        case .library: return .library
+        case .libraryCollection: return .libraryCollection
+        case .libraryFeed: return .libraryFeed
+        case .sharedLibrary: return .sharedLibrary
+        case .scixLibrary: return .scixLibrary
+        case .searchForm: return .searchForm
+        case .explorationSearch: return .explorationSearch
+        case .explorationCollection: return .explorationCollection
+        case .anyFlag: return .anyFlag
+        case .flagColor: return .flagColor
+        case .tag: return .tag
+        case .allArtifacts: return .allArtifacts
+        case .artifactType: return .artifactType
+        case .dismissed: return .dismissed
+        case .citedInManuscripts: return .citedInManuscripts
+        case .recent: return .recent
+        case .reviewQueue: return .reviewQueue
+        case .recordFolder: return .recordFolder
+        case .journalAll: return .journalAll
+        case .journalByStatus: return .journalByStatus
+        case .journalSubmissions: return .journalSubmissions
+        case .manuscript: return .manuscript
+        case .figuresAll: return .figuresAll
+        case .figuresUnfiled: return .figuresUnfiled
+        case .mailAllInboxes: return .mailAllInboxes
+        case .mailAccount: return .mailAccount
+        case .mailFolder: return .mailFolder
+        case .agentTasksAll: return .agentTasksAll
+        case .agentRunsAll: return .agentRunsAll
+        case .agentTaskState: return .agentTaskState
+        case .watchedFolder: return .watchedFolder
+        case .watchedFileFolder: return .watchedFileFolder
+        case .customSurface: return .customSurface
+        }
+    }
+}
+
 // MARK: - Sidebar Node
 
 /// Unified node for the imbib sidebar NSOutlineView.
