@@ -99,6 +99,11 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
     /// first commit. Migrates a never-touched manuscript (deterministic
     /// genesis from its current body).
     #[impress_method]
+    #[impress_example(
+        name = "fixture_heads",
+        args = r#"{"id":"57000000-0000-4000-8000-000000000021"}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000021"}"#
+    )]
     async fn manuscript_heads(&self, id: String) -> CollabHeadsResult;
 
     /// Commit `body` to the manuscript's document. `base_heads` are the heads
@@ -109,6 +114,11 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
     /// overlapping regions, no loss elsewhere). `author` labels the change in
     /// history (e.g. your agent id). Refused for watched-folder manuscripts.
     #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"]))]
+    #[impress_example(
+        name = "commit_fixture_body",
+        args = r#"{"id":"57000000-0000-4000-8000-000000000022","base_heads":[],"body":"A short fixture manuscript, revised.","author":"system:g3-example"}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000022","body":"A short fixture manuscript, revised.","merged_external":false}"#
+    )]
     async fn commit_manuscript_body(
         &self,
         id: String,
@@ -119,11 +129,21 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
 
     /// The body's per-change history, oldest first, plus the current heads.
     #[impress_method]
+    #[impress_example(
+        name = "fixture_genesis",
+        args = r#"{"id":"57000000-0000-4000-8000-000000000023"}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000023","changes":[{"message":"genesis"}]}"#
+    )]
     async fn manuscript_change_history(&self, id: String) -> CollabHistoryResult;
 
     /// The body as it read at `heads` (any hashes from the history) — time
     /// travel without changing anything.
     #[impress_method]
+    #[impress_example(
+        name = "fixture_before_first_change",
+        args = r#"{"id":"57000000-0000-4000-8000-000000000024","heads":[]}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000024","body":""}"#
+    )]
     async fn manuscript_text_at(&self, id: String, heads: Vec<String>) -> CollabTextAtResult;
 }
 
@@ -302,10 +322,30 @@ impress_service_impl! {
     impl = DefaultManuscriptCollabService,
     instance = DefaultManuscriptCollabService::new,
     methods = [
-        manuscript_heads(id: String) -> CollabHeadsResult,
-        commit_manuscript_body(id: String, base_heads: Vec<String>, #[impress_private] body: String, author: String) -> CollabCommitResult,
-        manuscript_change_history(id: String) -> CollabHistoryResult,
-        manuscript_text_at(id: String, heads: Vec<String>) -> CollabTextAtResult,
+        manuscript_heads(
+            /// Lowercase UUID of the stored manuscript whose current heads are needed.
+            id: String
+        ) -> CollabHeadsResult,
+        commit_manuscript_body(
+            /// Lowercase UUID of a store-owned manuscript; watched-folder manuscripts refuse commits.
+            id: String,
+            /// Heads last read by this writer; empty means diff against the current body.
+            base_heads: Vec<String>,
+            /// The writer's complete proposed body; kept private in call logs.
+            #[impress_private] body: String,
+            /// Change attribution, such as an agent id; blank becomes `agent`.
+            author: String
+        ) -> CollabCommitResult,
+        manuscript_change_history(
+            /// Lowercase UUID of the manuscript whose changes are requested.
+            id: String
+        ) -> CollabHistoryResult,
+        manuscript_text_at(
+            /// Lowercase UUID of the manuscript to read without mutation.
+            id: String,
+            /// Change hashes from `manuscript-change-history`; empty selects before the first change.
+            heads: Vec<String>
+        ) -> CollabTextAtResult,
     ],
 }
 

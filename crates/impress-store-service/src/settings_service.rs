@@ -377,15 +377,30 @@ pub trait SettingsService: Send + Sync + 'static {
     /// scope, section, legacy `UserDefaults` keys, doc, choices) and the
     /// sections, without values. What a settings UI or an agent reads first.
     #[impress_method(safety = read_only, effects(reads = [], reach = []))]
+    #[impress_example(
+        name = "declared_registry",
+        args = r#"{}"#,
+        expect = r#"{"ok":true,"wire_version":1}"#
+    )]
     async fn schema(&self) -> SettingsSchemaResult;
 
     /// Every setting with its current value — stored, else the registry
     /// default — optionally narrowed to one section (`imbib.retention`).
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "retention_settings",
+        args = r#"{"section":"imbib.retention"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn list(&self, section: Option<String>) -> SettingListResult;
 
     /// One setting's current value and where it came from.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "inbox_days",
+        args = r#"{"key":"imbib.retention.inbox_days"}"#,
+        expect = r#"{"ok":true,"setting":{"key":"imbib.retention.inbox_days"}}"#
+    )]
     async fn get(&self, key: String) -> SettingResult;
 
     /// Store a value. The value must have the declared type; a choice's
@@ -397,6 +412,11 @@ pub trait SettingsService: Send + Sync + 'static {
         idempotent = true,
         effects(reads = [], writes = ["impress/settings@1.0.0"], reach = [fs])
     )]
+    #[impress_example(
+        name = "set_inbox_days",
+        args = r#"{"key":"imbib.retention.inbox_days","value":31}"#,
+        expect = r#"{"ok":true,"setting":{"key":"imbib.retention.inbox_days","value":31,"source":"stored"}}"#
+    )]
     async fn set(&self, key: String, value: Value) -> SettingResult;
 
     /// Forget the stored value so the key answers its registry default.
@@ -405,6 +425,11 @@ pub trait SettingsService: Send + Sync + 'static {
         idempotent = true,
         effects(reads = [], writes = ["impress/settings@1.0.0"], reach = [fs])
     )]
+    #[impress_example(
+        name = "reset_inbox_days",
+        args = r#"{"key":"imbib.retention.inbox_days"}"#,
+        expect = r#"{"ok":true,"setting":{"key":"imbib.retention.inbox_days","value":30,"source":"default"}}"#
+    )]
     async fn reset(&self, key: String) -> SettingResult;
 
     /// The generated settings pane for one section: a `SurfaceSpec` with one
@@ -412,6 +437,11 @@ pub trait SettingsService: Send + Sync + 'static {
     /// `on_change` calls `settings-service_set`. Store it with
     /// `impress-surface-service_surface-create` to show it in a pane.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "retention_pane",
+        args = r#"{"section":"imbib.retention"}"#,
+        expect = r#"{"ok":true,"section":"imbib.retention"}"#
+    )]
     async fn surface(&self, section: String) -> SettingsSurfaceResult;
 }
 

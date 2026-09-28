@@ -786,38 +786,72 @@ pub trait SourceService: Send + Sync + 'static {
     /// page/range/region coordinates, and referenced source/extraction items.
     /// Repeating identical content is a no-op; conflicting content is refused.
     #[impress_method(effects(reads = ["source-citation@1.0.0"], writes = ["source-citation@1.0.0"]))]
+    #[impress_example(
+        name = "cite_fixture_page",
+        args = r#"{"citation":{"id":"57000000-0000-4000-8000-000000000012","source_item_id":"57000000-0000-4000-8000-000000000001","source_content_hash":"6e6c26340ee8dce53e3eb28fb2e3aad19d15c6573f69efef4bb0804becc9aae5","locator":{"page_index":0,"page_label":"1"},"title":"G3 fixture source"}}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000012","record":{"source_item_id":"57000000-0000-4000-8000-000000000001"}}"#
+    )]
     async fn put_citation(&self, citation: SourceCitationInput) -> SourceRecordResult;
 
     /// Resolve one structured citation by UUID, including exact locator and
     /// immutable source hash.
     #[impress_method(safety = read_only, effects(reads = ["source-citation@1.0.0"]))]
+    #[impress_example(
+        name = "resolve_fixture_citation",
+        args = r#"{"citation_id":"57000000-0000-4000-8000-000000000002"}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000002","record":{"source_item_id":"57000000-0000-4000-8000-000000000001"}}"#
+    )]
     async fn get_citation(&self, citation_id: String) -> SourceRecordResult;
 
     /// Store immutable extractor/OCR identity, input hash, output hash,
     /// warnings, and products for one derivation.
     #[impress_method(effects(reads = ["extraction-run@1.0.0"], writes = ["extraction-run@1.0.0"]))]
+    #[impress_example(
+        name = "record_fixture_extraction",
+        args = r#"{"run":{"id":"57000000-0000-4000-8000-000000000013","source_item_id":"57000000-0000-4000-8000-000000000001","source_content_hash":"6e6c26340ee8dce53e3eb28fb2e3aad19d15c6573f69efef4bb0804becc9aae5","extractor":"g3-fixture","extractor_version":"1","profile":"text","started_at":"2026-09-28T00:00:00Z"}}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000013","record":{"extractor":"g3-fixture"}}"#
+    )]
     async fn put_extraction_run(&self, run: ExtractionRunInput) -> SourceRecordResult;
 
     /// Store one immutable domain-neutral text chunk with source locator and
     /// extraction lineage.
     #[impress_method(effects(reads = ["content-chunk@1.0.0"], writes = ["content-chunk@1.0.0"]))]
+    #[impress_example(
+        name = "record_fixture_chunk",
+        args = r#"{"chunk":{"id":"57000000-0000-4000-8000-000000000014","source_item_id":"57000000-0000-4000-8000-000000000001","extraction_run_id":"57000000-0000-4000-8000-000000000003","ordinal":1,"text":"G3 source evidence","content_hash":"8e14e93baa883df6f78cf214aa54713a7c3ac52920227f310833696b0adc116e","locator":{"page_index":0,"page_label":"1"}}}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000014","record":{"text":"G3 source evidence"}}"#
+    )]
     async fn put_content_chunk(&self, chunk: ContentChunkInput) -> SourceRecordResult;
 
     /// Store immutable automatic layout evidence or a provenance-preserving
     /// manual figure-boundary correction. Available only in curation profiles.
     #[impress_method(effects(reads = ["figure-region@1.0.0"], writes = ["figure-region@1.0.0"]))]
+    #[impress_example(
+        name = "record_uncertain_figure",
+        args = r#"{"figure":{"id":"57000000-0000-4000-8000-000000000015","source_item_id":"57000000-0000-4000-8000-000000000001","source_content_hash":"6e6c26340ee8dce53e3eb28fb2e3aad19d15c6573f69efef4bb0804becc9aae5","extraction_run_id":"57000000-0000-4000-8000-000000000003","page_index":0,"page_label":"1","figure_label":"Fig. 1","caption_text":"Fixture region is uncertain.","status":"ambiguous","provenance":{"kind":"automatic","extractor":"g3-fixture","extractor_version":"1"}}}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000015","record":{"figure_label":"Fig. 1","status":"ambiguous"}}"#
+    )]
     async fn put_figure_region(&self, figure: FigureRegionInput) -> SourceRecordResult;
 
     /// Resolve one selected search hit. Search stays compact; this operation
     /// returns the complete extracted chunk and its citation link on demand.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "resolve_fixture_chunk",
+        args = r#"{"chunk_id":"57000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"id":"57000000-0000-4000-8000-000000000004","record":{"text":"effects source evidence"}}"#
+    )]
     async fn get_content_chunk(&self, chunk_id: String) -> SourceRecordResult;
 
     /// Search extracted source text while preserving page/figure/table
     /// locators and extraction lineage. An optional source UUID confines the
     /// results to one asset; pass null to search all ingested sources.
     #[impress_method(safety = read_only)]
-    #[impress_example(name = "default", args = r#"{"query": "effects", "limit": 5}"#)]
+    #[impress_example(
+        name = "find_fixture_chunk",
+        args = r#"{"query":"effects","source_item_id":"57000000-0000-4000-8000-000000000001","limit":5}"#,
+        expect = r#"{"ok":true,"hits":[{"chunk_id":"57000000-0000-4000-8000-000000000004"}]}"#
+    )]
     async fn search_content_chunks(
         &self,
         query: String,
@@ -828,6 +862,12 @@ pub trait SourceService: Send + Sync + 'static {
     /// Render one complete cited PDF page as MCP image content. Identify the
     /// page by zero-based physical index or displayed label, never by a path.
     #[impress_method(safety = external, effects(reads = [target(source_item_id), "imbib/linked-file"], reach = [subprocess, fs]))]
+    #[impress_example(
+        name = "render_fixture_page_tier_b",
+        tier = "b",
+        args = r#"{"source_item_id":"57000000-0000-4000-8000-000000000001","page_index":0,"resolution_dpi":150,"format":"png"}"#,
+        expect = r#"{"ok":true,"status":"resolved","metadata":{"page_index":0,"mime_type":"image/png"}}"#
+    )]
     async fn get_page_image(
         &self,
         source_item_id: String,
@@ -841,6 +881,12 @@ pub trait SourceService: Send + Sync + 'static {
     /// content. Use this for a cited figure; use get-page-image for context.
     /// Uncertain boundaries return the complete page as an explicit fallback.
     #[impress_method(safety = external, effects(reads = [target(source_item_id), "figure-region@1.0.0", "source-citation@1.0.0", "imbib/linked-file"], reach = [subprocess, fs]))]
+    #[impress_example(
+        name = "render_fixture_figure_tier_b",
+        tier = "b",
+        args = r#"{"source_item_id":"57000000-0000-4000-8000-000000000001","figure_label":"Fig. 1","resolution_dpi":150,"format":"png"}"#,
+        expect = r#"{"ok":true,"status":"resolved","metadata":{"figure_label":"Fig. 1","mime_type":"image/png"}}"#
+    )]
     async fn get_figure_image(
         &self,
         citation_id: Option<String>,
@@ -1631,15 +1677,66 @@ impress_service_impl! {
     impl = DefaultSourceService,
     instance = DefaultSourceService::new,
     methods = [
-        put_citation(citation: SourceCitationInput) -> SourceRecordResult,
-        get_citation(citation_id: String) -> SourceRecordResult,
-        put_extraction_run(run: ExtractionRunInput) -> SourceRecordResult,
-        put_content_chunk(chunk: ContentChunkInput) -> SourceRecordResult,
-        put_figure_region(figure: FigureRegionInput) -> SourceRecordResult,
-        get_content_chunk(chunk_id: String) -> SourceRecordResult,
-        search_content_chunks(query: String, source_item_id: Option<String>, limit: u32) -> ContentChunkSearchResult,
-        get_page_image(source_item_id: String, page_index: Option<u32>, page_label: Option<String>, resolution_dpi: Option<u32>, format: Option<String>) -> PageImageResult,
-        get_figure_image(citation_id: Option<String>, source_item_id: Option<String>, figure_label: String, padding: Option<u32>, resolution_dpi: Option<u32>, include_caption: Option<bool>, format: Option<String>) -> FigureImageResult,
+        put_citation(
+            /// Immutable citation including its UUID, source hash, locator, and optional quote.
+            citation: SourceCitationInput
+        ) -> SourceRecordResult,
+        get_citation(
+            /// UUID of a previously stored source citation.
+            citation_id: String
+        ) -> SourceRecordResult,
+        put_extraction_run(
+            /// Immutable extractor identity, source hash, start time, and output lineage.
+            run: ExtractionRunInput
+        ) -> SourceRecordResult,
+        put_content_chunk(
+            /// Extracted text, matching content hash, source locator, and extraction-run UUID.
+            chunk: ContentChunkInput
+        ) -> SourceRecordResult,
+        put_figure_region(
+            /// Extracted or curated figure geometry and provenance for one source page.
+            figure: FigureRegionInput
+        ) -> SourceRecordResult,
+        get_content_chunk(
+            /// UUID of the full extracted chunk selected from source search.
+            chunk_id: String
+        ) -> SourceRecordResult,
+        search_content_chunks(
+            /// Text to match against indexed source chunks.
+            query: String,
+            /// Restrict results to this source asset UUID; omit to search all ingested sources.
+            source_item_id: Option<String>,
+            /// Maximum hits, capped at 50; zero uses the default of 10.
+            limit: u32
+        ) -> ContentChunkSearchResult,
+        get_page_image(
+            /// UUID of a source asset with an installed, hash-verified PDF.
+            source_item_id: String,
+            /// Zero-based physical page index; supply this or `page_label`, not both.
+            page_index: Option<u32>,
+            /// Displayed page label; supply this or `page_index`, not both.
+            page_label: Option<String>,
+            /// Render resolution in dots per inch; omit for the 150 DPI default.
+            resolution_dpi: Option<u32>,
+            /// Image format; currently `png`.
+            format: Option<String>
+        ) -> PageImageResult,
+        get_figure_image(
+            /// UUID of a stored citation; supply this or `source_item_id`, not both.
+            citation_id: Option<String>,
+            /// UUID of the source PDF; supply this or `citation_id`, not both.
+            source_item_id: Option<String>,
+            /// Figure label as recorded in its source region, such as `Fig. 1`.
+            figure_label: String,
+            /// Extra crop padding in pixels, capped at 256.
+            padding: Option<u32>,
+            /// Render resolution in dots per inch; omit for the 200 DPI default.
+            resolution_dpi: Option<u32>,
+            /// Include caption geometry in the crop; defaults to true.
+            include_caption: Option<bool>,
+            /// Image format; currently `png`.
+            format: Option<String>
+        ) -> FigureImageResult,
     ],
 }
 
