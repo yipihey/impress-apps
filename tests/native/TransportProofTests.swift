@@ -10,6 +10,7 @@ import XCTest
 @MainActor
 final class TransportProofTests: XCTestCase {
     private var calls: [[String: Any]] = []
+    private var callEvidenceURL: URL?
 
     func testNativeTransportPersistsAndReadsBack() async throws {
         let env = ProcessInfo.processInfo.environment
@@ -50,6 +51,7 @@ final class TransportProofTests: XCTestCase {
                     "owned proof root")
         try require(output.path.hasPrefix(proofRoot.path + "/"), "owned output")
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        callEvidenceURL = output.appendingPathComponent("calls.json")
 
         var token: String?
         for _ in 0..<100 {
@@ -225,13 +227,18 @@ final class TransportProofTests: XCTestCase {
         let status = try XCTUnwrap(response as? HTTPURLResponse).statusCode
         let value = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         calls.append(["path": path, "status": status, "args": body ?? [:], "result": value])
+        if let callEvidenceURL {
+            try JSONSerialization.data(withJSONObject: calls, options: [.prettyPrinted, .sortedKeys])
+                .write(to: callEvidenceURL, options: .atomic)
+        }
         return Reply(status: status, value: value)
     }
 
     private func object(_ reply: Reply, _ label: String) throws -> [String: Any] {
         try require(reply.status == 200, "\(label) HTTP \(reply.status): \(reply.value)")
         let value = try XCTUnwrap(reply.value as? [String: Any], "\(label) did not return an object")
-        try require(value["ok"] as? Bool != false, "\(label) refused: \(value)")
+        try require(value["ok"] as? Bool != false && value["status"] as? String != "error",
+                    "\(label) refused: \(value)")
         return value
     }
     private func array(_ reply: Reply, _ label: String) throws -> [Any] {

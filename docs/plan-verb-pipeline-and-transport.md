@@ -1409,3 +1409,25 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   in progress; no P5b native app has launched and no adapter deletion is yet accepted.
   Impart decisions retain the existing process-local ProvenanceService semantics; no new schema
   or invented message record is being introduced to imply durable decision storage.
+
+- 2026-09-28 — **P5b verification in progress.** Shared native dispatch and
+  exact store selection are implemented in `claude/pipeline-p5b-transport`.
+  Initial touched-crate tests passed 2,293 (5 ignored), and both clippy shards
+  passed. The 185 actual adapter methods pass mock forwarding/refusal parity;
+  this is wire coverage, not a claim of native semantic parity.
+  A hosted imprint startup crash exposed four separately bundled SQLite
+  implementations in its Mach-O images. All twelve native framework scripts now
+  select the platform library, leaving headless Cargo's bundled feature alone;
+  wrapper packages link sqlite3. All full arm64 builds passed, and 672 core
+  tests passed using the platform library. Both hosted proof runners reject a
+  bundle with any `_sqlite3_open_v2` definition before launching it.
+  Rebuilt imbib, impart, implore and impel proofs passed on their own device IDs,
+  ephemeral ports, distinct bundles and PID-owned stores. Evidence roots:
+  `/tmp/impress-p5b-transport-k050kncx`, `ewotapuq`, `78o6z3xd`, and `nxuwp68r`
+  (all use the same `/tmp/impress-p5b-transport-` prefix). Imprint's owned proof
+  `qpw7yjve` passed the 78-image SQLite check, then exposed the missing Tokio
+  reactor at async FFI and placeholder manuscript handlers; fixes are pending.
+  No user's app or store was used. Remaining distinct REST contracts are
+  documented in `docs/p5b-retained-http-endpoints.md`; their retirement needs
+  the caller/contract decision already requested from Tom. Final native proofs,
+  adapter retirement and gates are still required; no P5b PR is open yet.

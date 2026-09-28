@@ -72,15 +72,27 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   flushing with a FIFO writer acknowledgement and explicit timeout/disconnection errors.
   It also waits for the final job event before checking its cursor. The original failure
   was not conclusively attributed to either race; the fresh full main run above is green.
-- **P5b (in progress)**: `p5b-transport` / `claude/pipeline-p5b-transport` from `85cf0520`.
-  Shared async native dispatch and refusal propagation are committed as `05e14e9c` (91 core
-  tests and 7 Swift route tests passed). All four native state bridges now have full three-slice
-  arm64 xcframework builds; imprint final hosted-test compilation is pending. The four Rust
-  entry points use the shared router; all 185 actual old adapter trait methods pass forwarding
-  and refusal parity against a mock server. This is transport coverage, not native semantic
-  coverage. Swift cross-app callers still require migration before mirrored route removal.
-  No P5b proof app has launched. Acceptance still requires the whole transport migration:
-  package `implore-verbs-ffi` as an xcframework and wire it into implore. Add per-app FFI targets for imprint and impart (imbib's is in W3 / #121). Move impress-mcp, impress-cli, impel-tools and impress-ai-tools onto `impress-app-transport`. Then delete the four `*-service-http` crates, `impress-app-client` and the mirrored Swift route arms (D-P7).
+- **P5b (in progress)**: `p5b-transport` / `claude/pipeline-p5b-transport`, now
+  based on main `7d28f88c`. Four per-app native verb bridges, shared transport in
+  the Rust clients, and the single feature-gated inventory are implemented.
+  Initial touched-crate tests passed 2,293 (5 ignored), both clippy shards passed,
+  and all 185 actual legacy adapter trait methods passed mock forwarding/refusal
+  parity. These checks do not substitute for native semantic proofs.
+  The twelve native framework builds now use platform SQLite through
+  `scripts/native-sqlite.sh`; Xcode had linked four independent bundled SQLite
+  copies into imprint, which crashed opening its owned scratch store. The
+  prelaunch checker rejects any built app image defining `_sqlite3_open_v2`.
+  All twelve full arm64 builds passed, and 672 core tests passed against the
+  platform library. Rebuilt isolated imbib, impart, implore and impel hosted proofs
+  passed. Imprint now starts safely but exposed a missing Tokio reactor at the
+  Swift async boundary and placeholder manuscript list/get/export handlers;
+  these are being fixed before another full native cohort/proof run. No user's running app or real store was used.
+  Nineteen exact Swift aliases have been removed or are ready for removal;
+  distinct rich endpoint contracts and remaining callers are listed in
+  `docs/p5b-retained-http-endpoints.md`, pending Tom's scope clarification.
+  The four legacy `*-service-http` crates and `impress-app-client` are still
+  present until native proofs pass. Final gates, adapter deletion, generated
+  docs, strict-args proofs, the PR and merge remain.
 - **P7**: schema refs as generated constants (D-P9), plus `[workspace.lints]`.
 - **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
 - **R3**: imprint's settings and chords through the registries.
