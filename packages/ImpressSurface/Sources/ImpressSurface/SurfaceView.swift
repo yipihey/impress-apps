@@ -441,6 +441,7 @@ private struct SurfaceTabsView: View {
 private struct SurfaceTableRow: Identifiable, Hashable {
     let id: String
     let cells: [String: String]
+    let unavailableProvider: Bool
 }
 
 private struct SurfaceTableView: View {
@@ -469,12 +470,16 @@ private struct SurfaceTableView: View {
         #if os(macOS)
         Table(tableRows, selection: $selection) {
             TableColumnForEach(columns, id: \.self) { column in
-                TableColumn(column) { row in Text(row.cells[column] ?? "") }
+                TableColumn(column) { row in
+                    Text(row.cells[column] ?? "")
+                        .foregroundStyle(row.unavailableProvider ? .secondary : .primary)
+                }
             }
         }
         #else
         List(tableRows, selection: $selection) { row in
             Text(columns.map { row.cells[$0] ?? "" }.joined(separator: "   "))
+                .foregroundStyle(row.unavailableProvider ? .secondary : .primary)
         }
         #endif
     }
@@ -486,7 +491,12 @@ private struct SurfaceTableView: View {
             var cells: [String: String] = [:]
             for column in columns { cells[column] = object[column]?.displayText ?? "" }
             let rowID = object["id"]?.stringValue ?? String(index)
-            return SurfaceTableRow(id: rowID, cells: cells)
+            // Catalogue metadata is additive; ordinary domain tables retain their
+            // existing appearance. Unavailable verbs stay selectable for details.
+            let unavailableProvider = object["source"]?.stringValue == "provider"
+                && object["available"]?.boolValue == false
+            return SurfaceTableRow(
+                id: rowID, cells: cells, unavailableProvider: unavailableProvider)
         }
     }
 }

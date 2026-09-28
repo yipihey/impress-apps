@@ -10,7 +10,7 @@ use impress_core::schemas::VERB_CALL_SCHEMA;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_service_core::descriptor::Reach;
-use impress_service_core::{Refusal, VerbDescriptor};
+use impress_service_core::Refusal;
 use serde_json::Value;
 
 use crate::record::RecordedCall;
@@ -167,10 +167,10 @@ fn read_call(item: &Item) -> Result<(String, DateTime<Utc>, RecordedCall), Refus
         )));
     }
     let verb = payload["verb"].as_str().unwrap_or_default().to_string();
-    let app_reach = VerbDescriptor::find(&verb)
+    let app_reach = impress_service_core::call::find(&verb)
         .map(|descriptor| {
             descriptor
-                .effects
+                .effects()
                 .reach
                 .iter()
                 .filter_map(|reach| match reach {

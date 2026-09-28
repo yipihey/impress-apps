@@ -17,7 +17,7 @@
 
 use crate::pipeline::{self, Call, CallerIdentity};
 use crate::wire::WIRE_VERSION;
-use crate::{descriptor::VerbDescriptor, refusal, runtime};
+use crate::{descriptor_handle::VerbHandle, refusal, runtime};
 use serde_json::{json, Value};
 
 /// An HTTP status and the wire-convention JSON body — `{"ok": true, …}` or
@@ -91,7 +91,7 @@ pub fn dispatch(name: &str, args_json: &str, caller_json: &str) -> DispatchResul
         Ok(prepared) => prepared,
         Err(refused) => return refused,
     };
-    finish(pipeline::invoke_blocking(verb, call))
+    finish(runtime::block_on(pipeline::invoke_handle(verb, call)))
 }
 
 /// The same dispatch for native backends with async Swift callbacks. Awaiting
@@ -101,7 +101,7 @@ pub async fn dispatch_async(name: &str, args_json: &str, caller_json: &str) -> D
         Ok(prepared) => prepared,
         Err(refused) => return refused,
     };
-    finish(pipeline::invoke(verb, call).await)
+    finish(pipeline::invoke_handle(verb, call).await)
 }
 
 /// Dispatch from a foreign async executor, such as UniFFI's Swift future
@@ -118,7 +118,7 @@ pub async fn dispatch_foreign_async(
         Ok(prepared) => prepared,
         Err(refused) => return refused,
     };
-    let task = AbortOnDrop(runtime::spawn(pipeline::invoke(verb, call)));
+    let task = AbortOnDrop(runtime::spawn(pipeline::invoke_handle(verb, call)));
     match task.join().await {
         Ok(result) => finish(result),
         Err(error) => refused(
@@ -149,8 +149,8 @@ fn prepare(
     name: &str,
     args_json: &str,
     caller_json: &str,
-) -> Result<(&'static VerbDescriptor, Call), DispatchResult> {
-    let Some(verb) = VerbDescriptor::find(name) else {
+) -> Result<(VerbHandle, Call), DispatchResult> {
+    let Some(verb) = crate::call::find(name) else {
         return Err(refused(
             404,
             refusal::codes::NOT_FOUND,
@@ -220,7 +220,7 @@ fn finish(result: Result<Value, pipeline::PipelineError>) -> DispatchResult {
 mod tests {
     use super::*;
     use crate::descriptor::{Safety, SafetyClass, Source};
-    use crate::{Effects, McpToolDescriptor, ServiceFuture};
+    use crate::{Effects, McpToolDescriptor, ServiceFuture, VerbDescriptor};
     use std::future::Future;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;

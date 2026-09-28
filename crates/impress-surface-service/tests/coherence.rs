@@ -306,6 +306,43 @@ fn papers_spec() -> SurfaceSpec {
     }))
 }
 
+#[tokio::test]
+async fn provider_inventory_changes_refresh_catalogue_without_repeating_other_sources() {
+    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let surfaces = SurfaceStore::new(store.clone());
+    let registry = SessionRegistry::new();
+    let executor = Arc::new(Counting {
+        inner: DefaultExecutor::with_store(store),
+        queries: AtomicUsize::new(0),
+        verbs: AtomicUsize::new(0),
+        fail_verbs: false,
+    });
+    let row = surfaces.create(&spec(json!({
+        "surface":"1.0", "name":"Provider catalogue", "state":{},
+        "sources":{
+            "catalogue":{"verb":"capabilities-service_list-verbs","args":{}},
+            "other":{"verb":"anything-service_answer","args":{}}
+        },
+        "root":{"column":[{"text":"{{source.catalogue.answer}}"},{"text":"{{source.other.answer}}"}]}
+    })), None, &[], ActorKind::Agent).unwrap();
+    for iteration in 0..3 {
+        if iteration == 2 {
+            assert_eq!(registry.invalidate_provider_inventory(), vec![row.id]);
+        }
+        let executor_for_render = executor.clone();
+        registry
+            .with(&surfaces, row.id, HOST, move |runtime| {
+                Box::pin(async move { Ok(runtime.render(executor_for_render.as_ref()).await) })
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            executor.verbs.load(Ordering::SeqCst),
+            if iteration == 2 { 3 } else { 2 }
+        );
+    }
+}
+
 fn insert_paper(store: &SqliteItemStore, title: &str) -> ItemId {
     let mut payload = BTreeMap::new();
     payload.insert("title".to_string(), ItemValue::String(title.to_string()));

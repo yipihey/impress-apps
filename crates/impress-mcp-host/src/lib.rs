@@ -3,16 +3,25 @@
 //! Product binaries choose which service crates to link and which tool-name
 //! prefixes to expose. The host owns JSON-RPC/MCP mechanics only.
 
+mod providers;
+
 use std::io::{BufRead, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+#[cfg(test)]
+use axum::http::HeaderValue;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+#[cfg(test)]
 use impress_service_core::McpToolDescriptor;
+use impress_service_core::{
+    call,
+    pipeline::{Call, CallerIdentity},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -108,6 +117,22 @@ pub fn run_stdio(config: HostConfig) -> Result<(), Box<dyn std::error::Error>> {
 /// client waiting forever; refuse it loudly instead, with the null id
 /// JSON-RPC prescribes when no single request id can be extracted.
 fn dispatch_message(config: &HostConfig, request: &Value) -> Option<Value> {
+    dispatch_message_as(
+        config,
+        request,
+        &CallerIdentity::agent(format!("mcp-host:{}", config.server_name)),
+        None,
+        None,
+    )
+}
+
+fn dispatch_message_as(
+    config: &HostConfig,
+    request: &Value,
+    caller: &CallerIdentity,
+    trace: Option<String>,
+    parent: Option<String>,
+) -> Option<Value> {
     if request.is_array() {
         return Some(json_rpc_error(
             Value::Null,
@@ -116,7 +141,7 @@ fn dispatch_message(config: &HostConfig, request: &Value) -> Option<Value> {
         ));
     }
     request.get("id")?;
-    Some(handle_request(config, request))
+    Some(handle_request_as(config, request, caller, trace, parent))
 }
 
 /// Run the same focused MCP surface as a stateless Streamable HTTP endpoint.
@@ -144,10 +169,22 @@ pub fn run_http(
             .route("/", post(http_mcp))
             .route("/mcp", post(http_mcp))
             .route("/healthz", get(http_health))
+            .route("/api/providers/register", post(providers::register))
+            .route("/api/providers/deregister", post(providers::deregister))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind(address).await?;
         eprintln!("impress-mcp-host: listening on http://{address}/mcp");
-        axum::serve(listener, app).await?;
+        // Read-only probes begin immediately: they do not mutate user records or
+        // emit store notifications. The task belongs to this server runtime.
+        let health = tokio::spawn(async {
+            loop {
+                impress_service_core::registry_runtime::refresh_health().await;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        });
+        let outcome = axum::serve(listener, app).await;
+        health.abort();
+        outcome?;
         Ok::<(), Box<dyn std::error::Error>>(())
     })
 }
@@ -167,19 +204,26 @@ async fn http_mcp(
     headers: HeaderMap,
     Json(request): Json<Value>,
 ) -> Response {
-    if !has_bearer_token(&headers, &state.bearer_token) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            [(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"))],
-            Json(json!({ "error": "unauthorized" })),
-        )
-            .into_response();
-    }
+    let Some(caller) = providers::identity(&state, &headers).await else {
+        return providers::unauthorized();
+    };
+    let trace = headers
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let parent = headers
+        .get("x-impress-parent-call")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
     let config = state.config.clone();
     // Same triage as stdio (`dispatch_message`): a batch gets its one error
     // response, a notification gets the bodiless 202 Streamable HTTP
     // prescribes, everything else is handled.
-    match tokio::task::spawn_blocking(move || dispatch_message(&config, &request)).await {
+    match tokio::task::spawn_blocking(move || {
+        dispatch_message_as(&config, &request, &caller, trace, parent)
+    })
+    .await
+    {
         Ok(Some(response)) => (StatusCode::OK, Json(response)).into_response(),
         Ok(None) => StatusCode::ACCEPTED.into_response(),
         Err(error) => (
@@ -199,6 +243,22 @@ fn has_bearer_token(headers: &HeaderMap, expected: &str) -> bool {
 }
 
 pub fn handle_request(config: &HostConfig, request: &Value) -> Value {
+    handle_request_as(
+        config,
+        request,
+        &CallerIdentity::agent(format!("mcp-host:{}", config.server_name)),
+        None,
+        None,
+    )
+}
+
+fn handle_request_as(
+    config: &HostConfig,
+    request: &Value,
+    caller: &CallerIdentity,
+    trace: Option<String>,
+    parent: Option<String>,
+) -> Value {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     match request.get("method").and_then(Value::as_str).unwrap_or("") {
         "initialize" => json!({
@@ -220,7 +280,7 @@ pub fn handle_request(config: &HostConfig, request: &Value) -> Value {
         }),
         "ping" => success(id, json!({})),
         "tools/list" => success(id, json!({ "tools": tool_definitions(config) })),
-        "tools/call" => handle_tool_call(config, id, request),
+        "tools/call" => handle_tool_call(config, id, request, caller, trace, parent),
         "resources/list" => success(
             id,
             json!({
@@ -244,23 +304,23 @@ pub fn handle_request(config: &HostConfig, request: &Value) -> Value {
 }
 
 pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
-    let mut descriptors: Vec<_> = McpToolDescriptor::iter()
-        .filter(|descriptor| config.allows(descriptor.name))
+    let mut descriptors: Vec<_> = call::descriptors()
+        .filter(|descriptor| config.allows(descriptor.name()))
         .collect();
-    descriptors.sort_by_key(|descriptor| descriptor.name);
+    descriptors.sort_by(|a, b| a.name().cmp(b.name()));
     descriptors
         .into_iter()
         .map(|descriptor| {
             let mut definition = json!({
-                "name": descriptor.name,
-                "description": descriptor.description,
-                "inputSchema": (descriptor.input_schema)(),
-                "annotations": descriptor.verb.mcp_annotations(),
+                "name": descriptor.name(),
+                "description": descriptor.description(),
+                "inputSchema": descriptor.input_schema(),
+                "annotations": descriptor.mcp_annotations(),
             });
             if let Some(ui) = config
                 .tool_ui
                 .iter()
-                .find(|ui| ui.tool_name == descriptor.name)
+                .find(|ui| ui.tool_name == descriptor.name())
             {
                 definition["_meta"] = json!({
                     "ui": {
@@ -277,7 +337,7 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
             if let Some(file_params) = config
                 .tool_file_params
                 .iter()
-                .find(|entry| entry.tool_name == descriptor.name)
+                .find(|entry| entry.tool_name == descriptor.name())
             {
                 let meta = definition
                     .as_object_mut()
@@ -296,7 +356,14 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
         .collect()
 }
 
-fn handle_tool_call(config: &HostConfig, id: Value, request: &Value) -> Value {
+fn handle_tool_call(
+    config: &HostConfig,
+    id: Value,
+    request: &Value,
+    caller: &CallerIdentity,
+    trace: Option<String>,
+    parent: Option<String>,
+) -> Value {
     let Some(name) = request
         .pointer("/params/name")
         .and_then(serde_json::Value::as_str)
@@ -309,8 +376,7 @@ fn handle_tool_call(config: &HostConfig, id: Value, request: &Value) -> Value {
             Err(format!("Tool is not exposed by this profile: {name}")),
         );
     }
-    let Some(descriptor) = McpToolDescriptor::iter().find(|descriptor| descriptor.name == name)
-    else {
+    let Some(descriptor) = call::find(name) else {
         return tool_result(id, Err(format!("Unknown tool: {name}")));
     };
     // MCP clients may omit `arguments` entirely or send an explicit null;
@@ -322,12 +388,11 @@ fn handle_tool_call(config: &HostConfig, id: Value, request: &Value) -> Value {
         _ => json!({}),
     };
     // A hosted MCP client is an agent named by its profile (ADR-0034 D3).
-    let result = impress_service_core::pipeline::invoke_blocking(
-        descriptor.verb,
-        impress_service_core::pipeline::Call::agent(
-            format!("mcp-host:{}", config.server_name),
-            arguments,
-        ),
+    let mut call = Call::new(caller.clone(), arguments);
+    call.trace_id = trace;
+    call.parent_call = parent;
+    let result = impress_service_core::runtime::block_on(
+        impress_service_core::pipeline::invoke_handle(descriptor, call),
     )
     .map_err(|error| match error {
         impress_service_core::pipeline::PipelineError::Handler(e) => e.to_string(),

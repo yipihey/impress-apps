@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 impress-app-transport.workspace = true
+impress-mcp-host = { path = "../impress-mcp-host" }
+tokio.workspace = true
 # G7b: installs the perf aggregator (no store-ffi log sink here — stdio
 # transport has no Console to forward to) so `perf-service_summary` has
 # bucket history in this process too.
@@ -76,7 +78,6 @@ impress-workspace-hack.workspace = true
 
 [dev-dependencies]
 mockito.workspace = true
-tokio.workspace = true
 # Isolated EmbeddingStore fixtures for the rebuild_chunk_index model-gating
 # tests. Same version pin as impress-embeddings' own dev-dependency.
 tempfile = "3.10"

@@ -34,7 +34,9 @@ use impress_layout::{
 };
 use impress_layout_service::dto::PaneRefDto as LayoutPaneRefDto;
 use impress_layout_service::{DefaultLayoutService, LayoutService};
-use impress_service_core::call::{self, CallError};
+use impress_service_core::call;
+use impress_service_core::descriptor_handle::VerbHandle;
+use impress_service_core::pipeline::{self, Call, PipelineError};
 use impress_surface::{
     plan, reduce, resolve_with_source_errors, state_path, CachedSource, Effect, Event, PaneQuery,
     ParamDecl, RenderTree, Source, SourceCache, SourceRequestKind, SurfaceSpec,
@@ -59,22 +61,46 @@ fn layout_refused(code: Option<String>, message: String) -> Refusal {
 // The linked inventory
 // ---------------------------------------------------------------------------
 
-/// Run one linked verb by its MCP tool name, through
-/// `impress_service_core::call` (see the module docs). The message is
-/// [`CallError`]'s own text: `Unknown tool: {name}` or `{tool}: {error}`.
+/// Run one verb by its MCP tool name through the pipeline. Retain the exact
+/// resolved handle across the call so a runtime provider's structured
+/// refusal can be distinguished from a linked verb's ordinary result.
 pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
     // A surface's sources and effects run inside the surface verb's own call
     // when one encloses them, and the pipeline then inherits its caller and
     // trace (H-P2-1); with nothing enclosing, the surface runtime is itself
     // the agent.
     let caller = impress_service_core::pipeline::CallerIdentity::agent("surface");
-    call::call_async_as(name, caller, args)
+    let handle = call::find(name)
+        .ok_or_else(|| Refusal::new("unknown-verb", format!("Unknown tool: {name}")))?;
+    let call = Call::new(caller, args);
+    let call = if handle.name() == name {
+        call
+    } else {
+        call.with_requested_name(name)
+    };
+    let value = pipeline::invoke_handle(handle.clone(), call)
         .await
         .map_err(|e| match e {
-            CallError::UnknownTool(_) => Refusal::new("unknown-verb", e.to_string()),
-            CallError::Unavailable(_) => Refusal::new(codes::HOST_UNAVAILABLE, e.to_string()),
-            CallError::Handler(_) => Refusal::new(codes::VERB_FAILED, e.to_string()),
-        })
+            PipelineError::Unavailable { .. } => {
+                Refusal::new(codes::HOST_UNAVAILABLE, e.to_string())
+            }
+            PipelineError::Handler(_) => {
+                Refusal::new(codes::VERB_FAILED, format!("{}: {e}", handle.name()))
+            }
+        })?;
+    provider_result(handle, value)
+}
+
+fn provider_result(handle: VerbHandle, value: Value) -> Result<Value> {
+    if matches!(handle, VerbHandle::Provider(_)) && value.get("ok") == Some(&Value::Bool(false)) {
+        if let (Some(code), Some(message)) = (
+            value.get("code").and_then(Value::as_str),
+            value.get("message").and_then(Value::as_str),
+        ) {
+            return Err(Refusal::new(code, message));
+        }
+    }
+    Ok(value)
 }
 
 /// Whether a verb name is in the linked inventory — what `surface_validate`
@@ -1011,6 +1037,37 @@ impl SurfaceRuntime {
         names
     }
 
+    /// Runtime inventory and liveness are memory state, not store mutations.
+    /// Invalidate just sources that observe that inventory or call a provider.
+    fn inventory_sources(&self) -> Vec<String> {
+        self.spec
+            .sources
+            .iter()
+            .filter_map(|(name, source)| {
+                let Source::Verb { verb, .. } = source else {
+                    return None;
+                };
+                let observes_inventory = matches!(
+                    verb.as_str(),
+                    "capabilities-service_list-verbs"
+                        | "capabilities-service_verb-surface"
+                        | "capabilities-service_catalogue-surface"
+                        | "provider-service_list"
+                );
+                let calls_provider = impress_service_core::call::find(verb)
+                    .is_some_and(|descriptor| descriptor.provider_id().is_some());
+                (observes_inventory || calls_provider).then(|| name.clone())
+            })
+            .collect()
+    }
+
+    fn invalidate_inventory_sources(&mut self) {
+        for name in self.inventory_sources() {
+            self.cache.remove(&name);
+            self.failed.remove(&name);
+        }
+    }
+
     /// Fetch every stale/unfetched source (bounded rounds: a chain of N
     /// dependent sources settles in at most N rounds, and a round that
     /// fetches nothing new stops immediately rather than spinning on a
@@ -1566,9 +1623,9 @@ fn refs_read_by(query: &PaneQuery, manifest: &KindManifest) -> Vec<String> {
 /// queries — a source over an unknown verb is not this function's problem to
 /// solve.
 fn verb_declared_read_refs(verb: &str) -> Vec<String> {
-    match impress_service_core::VerbDescriptor::find(verb) {
+    match impress_service_core::call::find(verb) {
         Some(descriptor) => descriptor
-            .effects
+            .effects()
             .reads
             .iter()
             .filter_map(|kind| match kind {
@@ -1630,6 +1687,8 @@ struct Slot {
     /// Set by [`SessionRegistry::retry_failed_sources`]: forget every
     /// remembered failure on the next call.
     retry_failed: std::sync::atomic::AtomicBool,
+    reads_inventory: std::sync::atomic::AtomicBool,
+    inventory_dirty: std::sync::atomic::AtomicBool,
 }
 
 type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
@@ -1711,6 +1770,16 @@ impl SessionRegistry {
             )),
         };
         *lock_set(&slot.reads) = runtime.query_refs();
+        slot.reads_inventory.store(
+            !runtime.inventory_sources().is_empty(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        if slot
+            .inventory_dirty
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            runtime.invalidate_inventory_sources();
+        }
         let dirty = std::mem::take(&mut *lock_set(&slot.dirty));
         if !dirty.is_empty() {
             runtime.invalidate_sources(&dirty);
@@ -1756,6 +1825,24 @@ impl SessionRegistry {
             slot.retry_failed
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    /// A host observed a provider registry revision change. Mark affected
+    /// cached sources and return the surfaces the native feed must re-render.
+    /// No store write and no network call happen here.
+    pub fn invalidate_provider_inventory(&self) -> Vec<ItemId> {
+        let mut surfaces = BTreeSet::new();
+        for ((surface, _), slot) in self.lock().iter() {
+            if slot
+                .reads_inventory
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                slot.inventory_dirty
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                surfaces.insert(*surface);
+            }
+        }
+        surfaces.into_iter().collect()
     }
 
     /// Every schema ref some live runtime's query sources read — what a feed
@@ -1867,10 +1954,21 @@ mod publish_kind_tests {
 
 #[cfg(test)]
 mod call_verb_tests {
-    use super::call_verb;
+    use super::{call_verb, provider_result, Executor, SurfaceRuntime};
+    use impress_core::item::ActorKind;
+    use impress_core::pane_query::Bindings;
+    use impress_core::sqlite_store::SqliteItemStore;
+    use impress_layout::Verb;
+    use impress_service_core::descriptor::{Safety, SafetyClass};
+    use impress_service_core::descriptor_handle::VerbHandle;
+    use impress_service_core::provider::{ProviderStatus, ProviderVerb};
     use impress_service_core::refusal::codes;
     use impress_service_core::{McpToolDescriptor, ServiceFuture};
+    use impress_surface::{Event, PaneQuery, ParamDecl, SurfaceSpec};
     use serde_json::{json, Value};
+    use std::sync::Arc;
+
+    use crate::store::SurfaceStore;
 
     const FAILING: &str = "call-verb-test_always-fails";
 
@@ -1882,6 +1980,112 @@ mod call_verb_tests {
     // false` envelope, so none of them reaches the `Handler` arm.
     fn object_schema() -> Value {
         json!({"type": "object"})
+    }
+
+    fn provider_handle() -> VerbHandle {
+        let safety = Safety {
+            class: SafetyClass::ReadOnly,
+            idempotent: true,
+        };
+        VerbHandle::Provider(Arc::new(ProviderVerb {
+            name: "fixture-provider-service_echo".into(),
+            service: "fixture-provider-service".into(),
+            method: "echo".into(),
+            description: "fixture provider response".into(),
+            input_schema: object_schema(),
+            output_schema: object_schema(),
+            declared_safety: safety,
+            effective_safety: safety,
+            since: "0.1.0".into(),
+            examples: vec![],
+            provider_id: "fixture-provider".into(),
+            status: ProviderStatus::Unavailable,
+            deprecated_since: None,
+            generation: 1,
+        }))
+    }
+
+    struct ProviderReplyExecutor(Value);
+
+    #[async_trait::async_trait]
+    impl Executor for ProviderReplyExecutor {
+        async fn call_verb(&self, name: &str, _args: Value) -> super::Result<Value> {
+            assert_eq!(name, "fixture-provider-service_echo");
+            provider_result(provider_handle(), self.0.clone())
+        }
+
+        async fn run_query(
+            &self,
+            _query: &PaneQuery,
+            _decls: &[ParamDecl],
+            _bindings: &Bindings,
+        ) -> super::Result<Value> {
+            unreachable!("fixture has no query")
+        }
+
+        async fn apply_layout(
+            &self,
+            _pane: &super::PaneHandle,
+            _verbs: Vec<Verb>,
+            _actor: ActorKind,
+        ) -> super::Result<()> {
+            unreachable!("fixture has no layout effect")
+        }
+
+        async fn emit(
+            &self,
+            _surface: impress_core::item::ItemId,
+            _host: &str,
+            _name: &str,
+            _payload: Value,
+            _actor: ActorKind,
+        ) -> super::Result<u64> {
+            unreachable!("fixture has no emit effect")
+        }
+    }
+
+    fn provider_surface() -> SurfaceSpec {
+        serde_json::from_value(json!({
+            "surface": "1.0",
+            "name": "Provider refusal fixture",
+            "state": { "answer": null },
+            "sources": {
+                "remote": { "verb": "fixture-provider-service_echo", "args": {} }
+            },
+            "root": { "column": [
+                { "text": "{{source.remote.value}}", "id": "remote-value" },
+                { "button": { "label": "Run", "on_click": [
+                    { "call": {
+                        "verb": "fixture-provider-service_echo",
+                        "args": {},
+                        "into": "state.answer"
+                    } }
+                ] }, "id": "run" }
+            ] }
+        }))
+        .unwrap()
+    }
+
+    async fn surface_with_reply(
+        reply: Value,
+    ) -> (SurfaceRuntime, Vec<crate::dto::EffectOutcomeDto>) {
+        let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+        let surfaces = SurfaceStore::new(store);
+        let row = surfaces
+            .create(&provider_surface(), None, &[], ActorKind::Agent)
+            .unwrap();
+        let mut runtime = SurfaceRuntime::load(row.id, "fixture-host".into(), row, None);
+        let executor = ProviderReplyExecutor(reply);
+        runtime.render(&executor).await;
+        let event: Event = serde_json::from_value(json!({
+            "widget": "run", "kind": "click", "value": null
+        }))
+        .unwrap();
+        let (_, effects) = runtime
+            .dispatch(&executor, &surfaces, &event, ActorKind::Agent)
+            .await
+            .unwrap();
+        (runtime, effects)
     }
 
     static FAILING_VERB: impress_service_core::VerbDescriptor =
@@ -1921,5 +2125,45 @@ mod call_verb_tests {
         let failed = call_verb(FAILING, json!({})).await.unwrap_err();
         assert_eq!(failed.code, codes::VERB_FAILED);
         assert_eq!(failed.message, format!("{FAILING}: boom"));
+    }
+
+    #[tokio::test]
+    async fn provider_refusals_fail_sources_and_effects_without_caching_data() {
+        for code in [codes::HOST_UNAVAILABLE, "review-pending"] {
+            let (runtime, effects) = surface_with_reply(json!({
+                "ok": false,
+                "code": code,
+                "message": format!("fixture-provider-service_echo refused: {code}"),
+                "wire_version": 1
+            }))
+            .await;
+            assert!(!runtime.cache.contains_key("remote"), "{code}");
+            assert!(runtime.source_errors["remote"].contains(code), "{code}");
+            assert_eq!(effects.len(), 1);
+            assert!(!effects[0].ok);
+            assert_eq!(effects[0].code.as_deref(), Some(code));
+            assert!(runtime.state["answer"].is_null());
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_provider_data_and_linked_results_stay_unchanged() {
+        let data = json!({"value": 42});
+        let (runtime, effects) = surface_with_reply(data.clone()).await;
+        assert!(runtime.source_errors.is_empty());
+        assert_eq!(runtime.cache["remote"].value, data);
+        assert!(effects[0].ok);
+        assert_eq!(runtime.state["answer"], data);
+
+        let linked_result = json!({
+            "ok": false,
+            "code": "domain-status",
+            "message": "linked result owns its contract",
+            "wire_version": 1
+        });
+        assert_eq!(
+            provider_result(VerbHandle::Linked(&FAILING_VERB), linked_result.clone()).unwrap(),
+            linked_result
+        );
     }
 }

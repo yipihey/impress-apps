@@ -19,6 +19,7 @@ pub mod manuscript_section;
 pub mod manuscript_submission;
 pub mod memory;
 pub mod plot_spec;
+pub mod provider;
 pub mod scenario;
 pub mod settings;
 pub mod source;
@@ -64,6 +65,7 @@ pub use memory::{
     MEMORY_INSTRUCTION_SCHEMA,
 };
 pub use plot_spec::register_plot_spec_schema;
+pub use provider::{register_provider_schema, PROVIDER_SCHEMA};
 pub use scenario::{register_scenario_schema, SCENARIO_SCHEMA_REF};
 pub use settings::{register_settings_schema, settings_schema, SETTINGS_SCHEMA_REF};
 pub use source::{
@@ -128,6 +130,9 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_collection_schema(registry);
     register_veusz_plot_schema(registry);
     register_plot_spec_schema(registry);
+    // Runtime provider descriptors and trust are private to this workspace;
+    // the credential itself stays in a separate 0600 file, never in a row.
+    register_provider_schema(registry);
     register_source_schemas(registry);
     register_knowledge_object_schemas(registry);
     // Throughline (ADR-0016): narrative companion documents. Depends on

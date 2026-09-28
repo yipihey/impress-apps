@@ -512,6 +512,8 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `perf-service_export-folded-stacks` | read_only | name/doc |
 | `perf-service_summary` | read_only | name/doc |
 | `perf-service_trace` | read_only | name/doc |
+| `provider-service_list` | read_only | name/doc |
+| `provider-service_set-trusted` | mutating | name/doc |
 | `settings-service_get` | read_only | name/doc |
 | `settings-service_list` | read_only | name/doc |
 | `settings-service_reset` | mutating | `settings_service.rs` — forgets a stored value in a scope file; the default stands and the file is rewritten atomically |

@@ -73,12 +73,12 @@ const ENTRY_PATHS: &[(&str, &str, &str)] = &[
     (
         "(c) CLI",
         "crates/impress-service-core/src/cli.rs",
-        "crate::pipeline::invoke_blocking(",
+        "crate::pipeline::invoke_handle(",
     ),
     (
-        "(d1) surface runtime, linked verb",
+        "(d1) surface runtime, linked or provider verb",
         "crates/impress-surface-service/src/runtime.rs",
-        "call::call_async_as(",
+        "pipeline::invoke_handle(handle.clone(), call)",
     ),
     (
         "(d2) surface HTTP mirror (was a bypass)",
@@ -93,22 +93,22 @@ const ENTRY_PATHS: &[(&str, &str, &str)] = &[
     (
         "(f) impel-tools (the FFI verb host's (e1) route)",
         "crates/impel-tools/src/lib.rs",
-        "impress_service_core::pipeline::invoke_blocking(",
+        "impress_service_core::pipeline::invoke_handle(",
     ),
     (
         "(h1) impress-mcp-host",
         "crates/impress-mcp-host/src/lib.rs",
-        "impress_service_core::pipeline::invoke_blocking(",
+        "impress_service_core::pipeline::invoke_handle(",
     ),
     (
         "(h2) impress-ai-tools",
         "crates/impress-ai-tools/src/lib.rs",
-        "impress_service_core::pipeline::invoke(",
+        "impress_service_core::pipeline::invoke_handle(",
     ),
     (
         "call.rs (the shared seat)",
         "crates/impress-service-core/src/call.rs",
-        "pipeline::invoke(descriptor.verb,",
+        "pipeline::invoke_handle(descriptor.clone(), call)",
     ),
 ];
 

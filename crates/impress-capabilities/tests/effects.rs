@@ -114,6 +114,7 @@ const REACH_ALLOWLIST: &[(&str, &str)] = &[
 /// The third element names the kinds the catalogue seeds by hand (rows it
 /// inserts as fixtures, not through a verb), which the union check ignores.
 const CATALOGUES: &[(&str, &[&str], &[&str])] = &[
+    ("provider", &["provider-service"], &[]),
     ("layout", &["layout-service"], &[]),
     ("surface", &["impress-surface-service"], &[]),
     (
@@ -135,6 +136,11 @@ const CATALOGUES: &[(&str, &[&str], &[&str])] = &[
 /// here may credit the methods it actually calls and checks. The catalogue's
 /// effects-spy union check remains a separate service-wide safety check.
 const CATALOGUE_VERB_EVIDENCE: &[(&str, &str, &[&str])] = &[
+    (
+        "provider",
+        "person-trust-persists",
+        &["provider-service_set-trusted"],
+    ),
     (
         "layout",
         "save-and-apply-layout",
@@ -860,6 +866,11 @@ async fn run_catalogue(
     // imprint's report type predates the shared one; each catalogue's
     // results reduce to (id, pass, skipped) before the arms join.
     let results: Vec<(String, bool, bool)> = match name {
+        "provider" => vec![(
+            "person-trust-persists".into(),
+            provider_effects::verify().await,
+            false,
+        )],
         "layout" => impress_layout_service::tier_a::run()
             .await
             .into_iter()
@@ -960,13 +971,19 @@ async fn run_catalogue(
                 // Static descriptor names outlive this local string; find the
                 // canonical inventory key rather than leaking a generated one.
                 let verb = members.iter().find(|v| v.name == verb_name).unwrap();
-                out.verified
-                    .entry(verb.name)
-                    .or_insert(Verified::Catalogue { name, capability });
+                // A passing, exact catalogue proof can fill the successful
+                // mutation path that a refusal-only example cannot observe.
+                if !matches!(out.verified.get(verb.name), Some(Verified::Example(_))) {
+                    out.verified
+                        .insert(verb.name, Verified::Catalogue { name, capability });
+                }
             }
         }
     }
 }
+
+#[path = "support/provider_effects.rs"]
+mod provider_effects;
 
 fn verification() -> &'static Verification {
     static DONE: OnceLock<Verification> = OnceLock::new();
