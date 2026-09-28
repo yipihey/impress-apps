@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use impress_service_core::VerbDescriptor;
+use impress_service_core::{call, VerbHandle};
 use serde_json::Value;
 
 fn repo_root() -> PathBuf {
@@ -39,7 +39,7 @@ fn cell(s: &str) -> String {
     s.replace('|', "\\|").replace('\n', " ")
 }
 
-fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
+fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
     let mut out = String::new();
     out.push_str(&format!("# {service}\n\n"));
     out.push_str(
@@ -48,46 +48,70 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
          and fails CI on a diff.\n\n",
     );
     for v in verbs {
-        out.push_str(&format!("## `{}`\n\n", v.name));
-        out.push_str(v.description.trim());
+        out.push_str(&format!("## `{}`\n\n", v.name()));
+        out.push_str(v.description().trim());
         out.push_str("\n\n");
+        if let VerbHandle::Provider(provider) = v {
+            out.push_str(&format!(
+                "- **source**: provider `{}` ({})\n",
+                provider.provider_id,
+                if provider.status == impress_service_core::ProviderStatus::Available {
+                    "available"
+                } else {
+                    "unavailable"
+                }
+            ));
+            out.push_str(&format!(
+                "- **declared safety**: `{}`\n",
+                provider.declared_safety.class.as_str()
+            ));
+            if let Some(since) = &provider.deprecated_since {
+                out.push_str(&format!(
+                    "- **deprecated** since `{since}`: provider no longer advertises this verb\n"
+                ));
+            }
+        }
+        let safety = v.safety();
+        let effects = v.effects();
         out.push_str(&format!(
             "- **safety**: `{}`{}\n",
-            v.safety.class.as_str(),
-            if v.safety.idempotent {
+            safety.class.as_str(),
+            if safety.idempotent {
                 ", idempotent"
             } else {
                 ""
             }
         ));
-        if let Some(budget_ms) = v.budget_ms {
+        if let Some(budget_ms) = v.budget_ms() {
             out.push_str(&format!(
                 "- **budget**: `{budget_ms}ms` — a Tier A example that exceeds it \
                  (with CI slack) fails the run\n"
             ));
         }
-        if let Some(dep) = v.deprecated {
-            if v.aliases.is_empty() {
+        if let Some(linked) = v.linked() {
+            if let Some(dep) = linked.deprecated {
+                if linked.aliases.is_empty() {
+                    out.push_str(&format!(
+                        "- **deprecated** since `{}`: {}\n",
+                        dep.since, dep.note
+                    ));
+                }
+            }
+            if !linked.aliases.is_empty() {
+                let names: Vec<String> = linked.aliases.iter().map(|a| format!("`{a}`")).collect();
                 out.push_str(&format!(
-                    "- **deprecated** since `{}`: {}\n",
-                    dep.since, dep.note
+                    "- **aliases** (deprecated since `{}`; still callable, never listed): {}\n",
+                    linked.deprecated.map(|d| d.since).unwrap_or("—"),
+                    names.join(", ")
                 ));
             }
         }
-        if !v.aliases.is_empty() {
-            let names: Vec<String> = v.aliases.iter().map(|a| format!("`{a}`")).collect();
-            out.push_str(&format!(
-                "- **aliases** (deprecated since `{}`; still callable, never listed): {}\n",
-                v.deprecated.map(|d| d.since).unwrap_or("—"),
-                names.join(", ")
-            ));
-        }
         out.push_str(&format!(
             "- **reads**: {}\n",
-            if v.effects.reads.is_empty() {
+            if effects.reads.is_empty() {
                 "—".to_string()
             } else {
-                v.effects
+                effects
                     .reads
                     .iter()
                     .map(|k| k.describe())
@@ -97,10 +121,10 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
         ));
         out.push_str(&format!(
             "- **writes**: {}\n",
-            if v.effects.writes.is_empty() {
+            if effects.writes.is_empty() {
                 "—".to_string()
             } else {
-                v.effects
+                effects
                     .writes
                     .iter()
                     .map(|k| k.describe())
@@ -110,10 +134,10 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
         ));
         out.push_str(&format!(
             "- **reach**: {}\n",
-            if v.effects.reach.is_empty() {
+            if effects.reach.is_empty() {
                 "—".to_string()
             } else {
-                v.effects
+                effects
                     .reach
                     .iter()
                     .map(|r| r.describe())
@@ -123,7 +147,7 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
         ));
         out.push('\n');
 
-        let schema = (v.input_schema)();
+        let schema = v.input_schema();
         let props = schema
             .get("properties")
             .and_then(Value::as_object)
@@ -165,11 +189,12 @@ fn render_service(service: &str, verbs: &[&'static VerbDescriptor]) -> String {
             out.push('\n');
         }
 
-        if v.examples.is_empty() {
+        let examples = v.examples();
+        if examples.is_empty() {
             out.push_str("_No examples yet._\n\n");
         } else {
             out.push_str("**Examples**\n\n");
-            for ex in v.examples {
+            for ex in examples {
                 out.push_str(&format!("- `{}`:\n\n", ex.name));
                 out.push_str("  ```json\n");
                 out.push_str(&format!("  {}\n", ex.args));
@@ -193,26 +218,56 @@ fn main() {
     // module docs, "Why a linker workaround at all").
     impress_capabilities::force_link();
 
-    let mut by_service: BTreeMap<&'static str, Vec<&'static VerbDescriptor>> = BTreeMap::new();
-    for v in VerbDescriptor::iter() {
-        by_service.entry(v.service).or_default().push(v);
+    let mut include_providers = false;
+    let mut custom_out_dir: Option<PathBuf> = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--include-providers" => include_providers = true,
+            "--out-dir" => {
+                let Some(path) = args.next() else {
+                    panic!("--out-dir requires a path");
+                };
+                custom_out_dir = Some(PathBuf::from(path));
+            }
+            other => panic!("unknown argument {other}"),
+        }
+    }
+    if include_providers && custom_out_dir.is_none() {
+        panic!(
+            "--include-providers requires --out-dir so runtime pages do not alter checked-in docs"
+        );
+    }
+    let mut by_service: BTreeMap<String, Vec<VerbHandle>> = BTreeMap::new();
+    for v in call::descriptors() {
+        if !include_providers && matches!(v, VerbHandle::Provider(_)) {
+            continue;
+        }
+        by_service
+            .entry(v.service().to_string())
+            .or_default()
+            .push(v);
     }
     for verbs in by_service.values_mut() {
-        verbs.sort_by_key(|v| v.name);
+        verbs.sort_by(|a, b| a.name().cmp(b.name()));
     }
 
-    let out_dir = repo_root().join("docs/verbs");
+    let out_dir = custom_out_dir
+        .clone()
+        .unwrap_or_else(|| repo_root().join("docs/verbs"));
     fs::create_dir_all(&out_dir).expect("create docs/verbs");
 
     // Remove pages for services no longer linked, so a retired service's
     // page does not linger and pass the diff check by accident.
     let wanted: std::collections::BTreeSet<String> =
         by_service.keys().map(|s| format!("{s}.md")).collect();
-    if let Ok(entries) = fs::read_dir(&out_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(".md") && name != "README.md" && !wanted.contains(&name) {
-                let _ = fs::remove_file(entry.path());
+    if custom_out_dir.is_none() {
+        if let Ok(entries) = fs::read_dir(&out_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".md") && name != "README.md" && !wanted.contains(&name) {
+                    let _ = fs::remove_file(entry.path());
+                }
             }
         }
     }
