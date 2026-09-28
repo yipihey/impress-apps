@@ -14,6 +14,12 @@ let package = Package(
             dependencies: ["impart_verbs_ffiFFI"],
             path: "Sources/ImpartVerbsFFI",
             linkerSettings: [
+                // Each Mach-O image owns its Rust globals (audit, refusals, stores).
+                // Export only the public FFI, not Rust implementation symbols.
+                .unsafeFlags([
+                    "-Xlinker", "-unexported_symbol", "-Xlinker", "__R*",
+                    "-Xlinker", "-unexported_symbol", "-Xlinker", "__ZN*17h*E"
+                ]),
                 .linkedLibrary("sqlite3"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("Security"),

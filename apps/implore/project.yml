@@ -5,6 +5,7 @@ name: implore
 # once for the whole suite; see the header of that file.
 include:
   - path: ../chassis-utis.yml
+  - path: ../native-rust-linkage.yml
 options:
   bundleIdPrefix: com.impress.implore
   deploymentTarget:

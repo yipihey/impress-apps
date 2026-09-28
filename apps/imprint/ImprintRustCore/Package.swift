@@ -18,7 +18,15 @@ let package = Package(
             name: "ImprintRustCore",
             dependencies: ["imprint_coreFFI"],
             path: "Sources/ImprintRustCore",
-            linkerSettings: [.linkedLibrary("sqlite3")]
+            linkerSettings: [
+                // Each Mach-O image owns its Rust globals (audit, refusals, stores).
+                // Export only the public FFI, not Rust implementation symbols.
+                .unsafeFlags([
+                    "-Xlinker", "-unexported_symbol", "-Xlinker", "__R*",
+                    "-Xlinker", "-unexported_symbol", "-Xlinker", "__ZN*17h*E"
+                ]),
+                .linkedLibrary("sqlite3")
+            ]
         ),
         .binaryTarget(
             name: "imprint_coreFFI",

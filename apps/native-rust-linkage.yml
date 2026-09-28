@@ -1,0 +1,17 @@
+# Rust archives can be linked into the app and several SwiftPM frameworks.
+# Keep each image's implementation symbols private: dyld interposition must
+# not split an audit sink, refusal scope, or store between copies of Rust globals.
+# The public UniFFI C symbols and Swift symbols remain exported. Native wrapper
+# Package.swift targets carry the same policy for their own final links.
+settings:
+  base:
+    OTHER_LDFLAGS:
+      - "$(inherited)"
+      - "-Xlinker"
+      - "-unexported_symbol"
+      - "-Xlinker"
+      - "__R*"
+      - "-Xlinker"
+      - "-unexported_symbol"
+      - "-Xlinker"
+      - "__ZN*17h*E"

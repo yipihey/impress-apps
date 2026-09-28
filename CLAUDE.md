@@ -310,6 +310,16 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   It must find no Mach-O image defining `_sqlite3_open_v2`, including nested
   frameworks and test plugins. Rebuild every native archive when changing this
   linkage, and never use an old copied xcframework beside the new cohort.
+- **Rust globals belong to one native image**: `apps/native-rust-linkage.yml`
+  and each native Swift wrapper's linker settings hide Rust implementation
+  symbols (`__R*` and legacy `__ZN*17h*E`) while preserving the public UniFFI
+  C exports. Do not remove either setting: SwiftPM framework links and app
+  links are separate. Without this, dyld can pair one image's refusal writer
+  with another image's reader, returning success for failed verbs. The same
+  hazard applies to audit sinks and store handles. Each app-owned verb FFI
+  must bind its own audit store to the exact GUI database; another framework's
+  initialization does not initialize it. The native bundle checker rejects
+  exported Rust implementation symbols before hosted proofs launch.
 - **Fast local framework rebuilds**: every `crates/*/build-xcframework.sh` honors
   `IMPRESS_SKIP_X86=1` (no x86_64 anywhere — macOS *and* the iOS simulator
   slice) and `IMPRESS_SKIP_IOS=1` (skip the iOS device+sim slices).
