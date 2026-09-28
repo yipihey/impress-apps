@@ -20,6 +20,7 @@ python = ["dep:pyo3", "dep:pythonize"]
 [dependencies]
 impress-service-core = { workspace = true }
 impress-app-transport = { workspace = true }
+impress-store-service = { workspace = true }
 # The one linked inventory (ADR-0033 D4). `default-features = false` +
 # explicit `full` mirrors impress-cli/impress-mcp: this module wants every
 # service's verbs, not just the kit slice.

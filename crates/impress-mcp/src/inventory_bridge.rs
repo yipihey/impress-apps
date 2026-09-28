@@ -29,10 +29,10 @@ pub fn inventory_tool_definitions() -> Vec<Value> {
     impress_capabilities::descriptors()
         .map(|d| {
             json!({
-                "name": d.name,
-                "description": d.description,
-                "inputSchema": (d.input_schema)(),
-                "annotations": d.verb.mcp_annotations(),
+                "name": d.name(),
+                "description": d.description(),
+                "inputSchema": d.input_schema(),
+                "annotations": d.mcp_annotations(),
             })
         })
         .collect()
@@ -41,9 +41,9 @@ pub fn inventory_tool_definitions() -> Vec<Value> {
 /// Names of all inventory-registered tools, mostly useful for testing /
 /// diagnostics.
 #[allow(dead_code)]
-pub fn inventory_tool_names() -> Vec<&'static str> {
+pub fn inventory_tool_names() -> Vec<String> {
     impress_capabilities::descriptors()
-        .map(|d| d.name)
+        .map(|d| d.name().to_owned())
         .collect()
 }
 
@@ -92,7 +92,7 @@ mod tests {
             "imbib-text-service_normalize-tag-path",
         ] {
             assert!(
-                names.contains(&expected),
+                names.iter().any(|name| name == expected),
                 "expected {expected} in inventory; have: {names:?}",
             );
         }

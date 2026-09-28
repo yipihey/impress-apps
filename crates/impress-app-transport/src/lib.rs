@@ -22,6 +22,7 @@
 //! dispatch their own native backends (ADR-0034 D7).
 
 pub mod ports;
+pub mod provider;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -35,6 +36,7 @@ use impress_service_core::pipeline::{self, context, reachability, transport};
 /// Install the one app transport for a client process. App-owned FFI entry
 /// points use their native backend; they do not install this client router.
 pub fn install(store_fallback: bool) {
+    provider::install();
     transport::install(Arc::new(AppRouter { store_fallback }));
     reachability::install(reachability::Config {
         probe: Arc::new(|app: &str| cached_reachability(app).unwrap_or(true)),

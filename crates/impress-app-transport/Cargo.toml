@@ -9,6 +9,9 @@ description = "The P5 transport's client side: call(app, verb, args) over POST /
 [dependencies]
 impress-core = { workspace = true }
 impress-service-core = { workspace = true }
+# Host-only P8 descriptor validation. This transport crate is not a pure kit;
+# no jsonschema runtime edge is added to impress-surface or another kit crate.
+jsonschema = { version = "0.33", default-features = false }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

@@ -1,38 +1,7 @@
-//
-//  ImprintSettingsPersistenceTests.swift
-//  PublicationManagerCoreTests
-//
-//  Stage 6 phase 1: the guard on the ONLY thing a settings reframe can break
-//  invisibly — the persistence keys.
-//
-//  imprint's settings panes moved file in Stage 6, and four of them moved
-//  across a TARGET boundary (into `apps/imprint/Shared/Settings/`, so
-//  imprint-iOS compiles them); every pane's `Form { … }.formStyle(.grouped)
-//  .padding()` became the chassis's `SettingsForm { … }`. None of that can
-//  change behaviour.
-//
-//  RENAMING AN `@AppStorage` KEY CAN, and it does so silently and
-//  irreversibly: the app reads a key nothing has ever written, gets the code
-//  default, and the user's real preference sits on disk under the old name
-//  where nothing will read it again. It looks exactly like "my settings were
-//  reset" — no error, no log line. This is the same failure shape as the
-//  schema-ref mismatch the root CLAUDE.md says has shipped five times, and it
-//  deserves the same kind of referee.
-//
-//  WHY A SOURCE SCAN, and why HERE:
-//
-//  * `@AppStorage` keys are not reachable by reflection, and the panes are
-//    `View` structs whose property wrappers cannot be enumerated. The string
-//    literal is the artifact; reading it is the honest instrument. (Same
-//    instrument `ChassisCrossPlatformContractTests` uses for its structural
-//    half.)
-//  * It lives in PMC's test target, walking up to the repo root, because that
-//    is the one Swift test suite in this repo that CI actually runs
-//    (`swift test`) — imprint's own `imprintTests` bundle is not in any
-//    workflow, and running it locally would launch imprint.app. The pattern is
-//    established: `ChassisUTIDeclarationTests` and `SchemaRefManifestParityTests`
-//    both read app-level files from here for the same reason.
-//
+// R3 migrates imprint's portable preferences into the shared registry.
+// Pin the GUI's canonical keys here; ImpressKit's ImprintSettingsMigrationTests
+// exercise their old UserDefaults values through the native bridge, including
+// readback after reopen and preservation of the original values.
 
 import XCTest
 
@@ -40,28 +9,20 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
 
     // MARK: - The frozen key inventory
 
-    /// Keys the four PORTABLE panes read, exactly as they appeared in
-    /// `apps/imprint/macOS/Views/SettingsView.swift` before the move.
     private static let portablePaneKeys: Set<String> = [
-        // GeneralSettingsView
-        "defaultEditMode",
-        "autoSaveInterval",
-        "createBackups",
-        "imprint.autoCompile",
-        "imprint.compileDebounceMs",
-        "imprint.previewFormat",
-        // EditorSettingsView. The `modalEditing.*` keys are NOT here: they
-        // belong to ImpressHelixCore's `ModalEditingSettings`, which the pane
-        // reads through rather than declaring.
-        "editorFontSize",
-        "editorFontFamily",
-        "showLineNumbers",
-        "highlightCurrentLine",
-        "wrapLines",
-        // DocumentHealthSettingsView
-        "validateCRDTOnOpen",
-        "autoBackupBeforeMigration",
-        // AccountSettingsView declares none (iCloud token only).
+        "imprint.general.default_edit_mode",
+        "imprint.general.auto_save_interval",
+        "imprint.general.create_backups",
+        "imprint.general.auto_compile",
+        "imprint.general.compile_debounce_ms",
+        "imprint.general.preview_format",
+        "imprint.editor.font_size",
+        "imprint.editor.font_family",
+        "imprint.editor.show_line_numbers",
+        "imprint.editor.highlight_current_line",
+        "imprint.editor.wrap_lines",
+        "imprint.documents.validate_crdt_on_open",
+        "imprint.documents.auto_backup_before_migration",
     ]
 
     /// Keys the panes that stayed in `macOS/Views/SettingsView.swift` read.
@@ -70,9 +31,6 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
         "defaultExportFormat",
         "defaultJournalTemplate",
         "includeBibliography",
-        // AutomationSettingsView
-        "httpAutomationEnabled",
-        "httpAutomationPort",
     ]
 
     /// The appearance key. Its pane is now the CHASSIS builtin
@@ -85,17 +43,11 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
 
     // MARK: - Assertions
 
-    func testPortableImprintPanesReadExactlyTheShippedKeys() throws {
-        let found = try Self.appStorageKeys(
-            in: "apps/imprint/Shared/Settings/ImprintSettingsPanes.swift")
-        XCTAssertEqual(
-            found, Self.portablePaneKeys,
-            """
-            The @AppStorage keys in imprint's portable settings panes changed. \
-            A renamed key silently resets every existing user's preference — it \
-            reads as "settings were lost", not as a bug. If a key MUST change, \
-            migrate the stored value in the same commit, then update this list.
-            """)
+    func testPortableImprintPanesReadCanonicalRegistryKeys() throws {
+        let path = "apps/imprint/Shared/Settings/ImprintSettingsPanes.swift"
+        XCTAssertEqual(try Self.impressSettingKeys(in: path), Self.portablePaneKeys)
+        XCTAssertTrue(try Self.appStorageKeys(in: path).isEmpty,
+                      "migrated controls must not keep a second UserDefaults reader")
     }
 
     func testMacOSOnlyImprintPanesReadExactlyTheShippedKeys() throws {
@@ -213,7 +165,7 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
     /// never reads would be a silent fork of the preference.
     func testEveryKeyReachableFromTheIOSScreenLivesInASharedFile() throws {
         // The iOS screen renders appearance (chassis) + the four portable panes.
-        let portable = try Self.appStorageKeys(
+        let portable = try Self.impressSettingKeys(
             in: "apps/imprint/Shared/Settings/ImprintSettingsPanes.swift")
         let macOnly = try Self.appStorageKeys(
             in: "apps/imprint/macOS/Views/SettingsView.swift")
@@ -228,6 +180,13 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
     private static func source(of repoRelativePath: String) throws -> String {
         try String(
             contentsOf: repoRoot.appendingPathComponent(repoRelativePath), encoding: .utf8)
+    }
+
+    private static func impressSettingKeys(in repoRelativePath: String) throws -> Set<String> {
+        let text = try source(of: repoRelativePath)
+        let regex = try NSRegularExpression(pattern: #"@ImpressSetting\("([^"]+)"\)"#)
+        return Set(regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            .compactMap { Range($0.range(at: 1), in: text).map { String(text[$0]) } })
     }
 
     /// Every `@AppStorage("key")` literal in a file.

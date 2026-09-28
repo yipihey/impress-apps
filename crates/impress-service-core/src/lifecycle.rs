@@ -42,6 +42,57 @@
 //! seam a future workflow/scenario pass implements without this module or
 //! the table above changing shape.
 
+use std::collections::BTreeSet;
+
+use crate::descriptor_handle::VerbHandle;
+
+/// A stored reference to a provider verb that its owner dropped without an
+/// alias. Reports name the document and exact JSON pointer; they never edit
+/// a stored document or synthesize a replacement verb.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeprecatedReference {
+    pub document_kind: &'static str,
+    pub document_id: String,
+    pub pointer: String,
+    pub verb: String,
+}
+
+/// An explicit inventory snapshot for read-only lifecycle reporting.
+/// Linked deprecations and merely unavailable provider verbs are excluded.
+#[derive(Debug, Clone, Default)]
+pub struct DeprecatedProviderNames(BTreeSet<String>);
+
+impl DeprecatedProviderNames {
+    pub fn from_handles(handles: impl IntoIterator<Item = VerbHandle>) -> Self {
+        Self(
+            handles
+                .into_iter()
+                .filter_map(|handle| match handle {
+                    VerbHandle::Provider(provider) if provider.deprecated_since.is_some() => {
+                        Some(provider.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    /// Explicit names for offline analysis and isolated rename-pass tests.
+    /// Production callers should use [`Self::from_handles`] with the current
+    /// validated registry inventory.
+    pub fn from_names(names: impl IntoIterator<Item = String>) -> Self {
+        Self(names.into_iter().collect())
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.0.contains(name)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// One renamed identifier: `(old, new)`.
 pub type Rename = (&'static str, &'static str);
 
@@ -131,6 +182,9 @@ pub trait RenameVisitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::descriptor::{Safety, SafetyClass};
+    use crate::provider::{ProviderStatus, ProviderVerb};
+    use std::sync::Arc;
 
     #[test]
     fn the_shipped_table_starts_empty() {
@@ -151,5 +205,37 @@ mod tests {
         assert_eq!(table.rename_view_kind("legacy-kind"), Some("outline"));
         assert_eq!(table.rename_view_kind("outline"), None);
         assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn snapshot_includes_dropped_provider_but_not_merely_unavailable_one() {
+        fn provider(name: &str, deprecated: Option<&str>) -> VerbHandle {
+            let safety = Safety {
+                class: SafetyClass::External,
+                idempotent: false,
+            };
+            VerbHandle::Provider(Arc::new(ProviderVerb {
+                name: name.into(),
+                service: "julia-service".into(),
+                method: "echo".into(),
+                description: "fixture".into(),
+                input_schema: serde_json::json!({"type":"object"}),
+                output_schema: serde_json::json!({"type":"object"}),
+                declared_safety: safety,
+                effective_safety: safety,
+                since: "1.0".into(),
+                examples: Vec::new(),
+                provider_id: "julia".into(),
+                status: ProviderStatus::Unavailable,
+                deprecated_since: deprecated.map(str::to_owned),
+                generation: 1,
+            }))
+        }
+        let names = DeprecatedProviderNames::from_handles([
+            provider("julia-service_dropped", Some("1.1")),
+            provider("julia-service_offline", None),
+        ]);
+        assert!(names.contains("julia-service_dropped"));
+        assert!(!names.contains("julia-service_offline"));
     }
 }

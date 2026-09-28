@@ -42,6 +42,8 @@ pub mod figure_detection;
 pub mod history_service;
 pub mod job;
 pub mod manuscript_collab_service;
+pub mod provider_service;
+pub mod providers;
 pub mod query_service;
 pub mod settings_service;
 pub mod source_assets;
@@ -195,11 +197,12 @@ mod inventory_tests {
     /// a bare `{"type": "object"}` with no `properties` key. Kept as an
     /// explicit list rather than a relaxed assertion: a tool losing its
     /// arguments to a refactor should still fail this test loudly.
-    const NO_ARGUMENT_TOOLS: [&str; 4] = [
+    const NO_ARGUMENT_TOOLS: [&str; 5] = [
         "collection-service_migration-status",
         "collection-service_rollback",
         "history-service_health",
         "settings-service_schema",
+        "provider-service_list",
     ];
 
     /// Descriptions come from the trait's doc comments. A tool that ships

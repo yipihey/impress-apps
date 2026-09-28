@@ -221,6 +221,13 @@ public final class ImpressSettings {
     private func migrateLegacy(_ record: SharedSettingValue, through rust: SharedSettings) -> Bool {
         for legacyKey in record.legacy {
             for store in legacyStores {
+                // `UserDefaults.object` includes NSArgumentDomain. An isolated
+                // `-httpAutomationPort`/`-httpAutomationEnabled` launch must
+                // affect this process only, never become an app-scope file.
+                // The legacy persistent value stays untouched and can migrate
+                // on a subsequent launch without the argument override.
+                guard store.volatileDomain(forName: UserDefaults.argumentDomain)[legacyKey] == nil
+                else { continue }
                 guard let raw = store.object(forKey: legacyKey),
                       let json = Self.legacyJSON(raw, as: record.ty)
                 else { continue }

@@ -5,4 +5,5 @@
 
 mod inventory_smoke;
 mod mcp_surface_parity;
+mod runtime_provider;
 mod transport_parity;

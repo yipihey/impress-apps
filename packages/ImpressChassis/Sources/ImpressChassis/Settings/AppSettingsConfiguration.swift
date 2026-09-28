@@ -244,21 +244,10 @@ public struct AppSettingsConfiguration: Sendable {
 
     // MARK: Presets
 
-    /// imprint: the 13 macOS tabs, in the order the `TabView` shipped them.
-    ///
-    /// This is a REFRAME, not a redesign. Every title, every SF Symbol, every
-    /// accessibility identifier and the order are the ones
-    /// `apps/imprint/macOS/Views/SettingsView.swift` had before Stage 6; the
-    /// macOS Settings scene must remain visually equivalent, and
-    /// `AppSettingsConfigurationTests.testImprintPresetIsTheFrozenThirteenTabInventory`
-    /// is the oracle that says so.
-    ///
-    /// Five of the thirteen reach iOS, which is five more than before. The
-    /// eight that do not each name WHY in `availability` — a capability the
-    /// platform lacks, or (for `ai`/`aiTasks`/`export`) an implementation that
-    /// lives in imprint's macOS target and has no iOS counterpart yet. Neither
-    /// is a permanent verdict: an iOS pane appears the day someone registers a
-    /// factory and widens the descriptor's `platforms`, with no renderer edit.
+    /// imprint's original thirteen sections retain their titles and order.
+    /// R3 adds the registry-backed Keyboard reference beside Editor. Five
+    /// portable sections are available on iOS; the keyboard inventory describes
+    /// macOS menu bindings, so that reference remains macOS-only.
     public static let imprint = AppSettingsConfiguration(
         appID: "imprint",
         sections: [
@@ -283,6 +272,13 @@ public struct AppSettingsConfiguration: Sendable {
                 subtitle: "Font, display, modal editing",
                 availability: .everywhere,
                 order: 30),
+            SettingsSectionDescriptor(
+                id: .keyboard,
+                title: "Keyboard",
+                systemImage: "keyboard",
+                subtitle: "Menu shortcuts from the keymap registry",
+                availability: .macOSOnly(),
+                order: 35),
             // AI: `AIAssistantService` + the keychain API-key editor live in
             // imprint's macOS target. No iOS provider surface exists yet.
             SettingsSectionDescriptor(

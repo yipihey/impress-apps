@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import ImpressRustCore
 @testable import ImpressKit
 
 /// The registry as Swift sees it (ADR-0036 D5, plan R1): a value comes from
@@ -114,5 +115,49 @@ final class SettingsRegistryTests: XCTestCase {
             let record = ImpressSettings.shared.record("imbib.automation.\(suffix)")
             XCTAssertEqual(record?.legacy, [legacy], suffix)
         }
+    }
+
+    func testLaunchArgumentOverridesDoNotMigrateIntoTheRegistry() throws {
+        let portKey = "httpAutomationPort"
+        let enabledKey = "httpAutomationEnabled"
+        suite.set(23199, forKey: portKey)
+        suite.set(false, forKey: enabledKey)
+        suite.setVolatileDomain([
+            portKey: "23331",
+            enabledKey: "YES",
+        ], forName: UserDefaults.argumentDomain)
+        defer { suite.setVolatileDomain([:], forName: UserDefaults.argumentDomain) }
+
+        XCTAssertEqual(ImpressSettings.shared.value("imprint.automation.http_port", as: Int.self),
+                       Int(SiblingApp.imprint.httpPort))
+        XCTAssertTrue(ImpressSettings.shared.value("imprint.automation.http_enabled", as: Bool.self))
+        XCTAssertNil(try? String(contentsOf: scratch.appendingPathComponent("settings/app-imprint.json"),
+                                 encoding: .utf8))
+        XCTAssertEqual(suite.integer(forKey: portKey), 23331)
+
+        suite.setVolatileDomain([:], forName: UserDefaults.argumentDomain)
+        ImpressSettings.shared._resetForTesting()
+        XCTAssertEqual(ImpressSettings.shared.value("imprint.automation.http_port", as: Int.self), 23199)
+        XCTAssertFalse(ImpressSettings.shared.value("imprint.automation.http_enabled", as: Bool.self))
+        XCTAssertEqual(suite.integer(forKey: portKey), 23199,
+                       "the old persistent value must remain for older builds")
+    }
+
+    func testExternalSettingWriteNotifiesOpenRegistry() async throws {
+        XCTAssertEqual(ImpressSettings.shared.value("imprint.automation.http_port", as: Int.self),
+                       Int(SiblingApp.imprint.httpPort))
+        let changed = expectation(description: "external settings file reached the open pane/runtime feed")
+        let observer = NotificationCenter.default.addObserver(
+            forName: ImpressSettings.didChange, object: nil, queue: .main
+        ) { _ in changed.fulfill() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        // The Rust file cursor uses millisecond timestamps; establish a
+        // distinct tick before simulating the CLI's separate handle.
+        try await Task.sleep(for: .milliseconds(2))
+        let external = try SharedSettings.open(workspacePath: scratch.path)
+        _ = try external.setJson(key: "imprint.automation.http_port", valueJson: "23456")
+        await fulfillment(of: [changed], timeout: 3)
+        XCTAssertEqual(ImpressSettings.shared.value("imprint.automation.http_port", as: Int.self), 23456)
     }
 }

@@ -18,10 +18,15 @@ Add a tag to an item. Tag paths are hierarchical and slash-separated ("reading/q
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `triage-service_remove-tag`
@@ -40,10 +45,15 @@ Remove a tag from an item. A tag the item does not carry is a no-op.
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "tag": "reading/queue"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `triage-service_set-flag`
@@ -62,10 +72,15 @@ Set an item's flag colour ("red", "orange", "blue", … — free-form), or clear
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "color": "red"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `triage-service_set-starred`
@@ -84,10 +99,15 @@ Star or unstar an item.
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "starred": true}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 
 ## `triage-service_set-status`
@@ -110,9 +130,14 @@ This only works for kinds that use status-change semantics. **Publications do NO
 
 **Examples**
 
-- `default`:
+- `missing-item`:
 
   ```json
   {"id": "00000000-0000-0000-0000-000000000000", "status": "archived"}
+  ```
+  expects:
+
+  ```json
+  {"ok":false}
   ```
 

@@ -51,17 +51,22 @@ final class PaneLayoutCommandsTests: XCTestCase {
         XCTAssertEqual(chords[2].modifiers, [.control, .command])
     }
 
-    /// The `listTitle` seam exists for imprint and for nothing else. If a second
-    /// caller ever passes it, that is the moment to make the label a decision
-    /// instead of a parameter.
-    func testOnlyTheListTitleIsHostConfigurable() {
-        let imprint = ImpressPaneLayoutButtons.chords(listTitle: "Toggle Manuscript List")
+    /// Imprint supplies its own registry command ids and retains its existing
+    /// list title. The seeded entries must exist; universal fallback chords
+    /// alone would otherwise hide an omitted imprint registration.
+    func testImprintPaneChordsUseItsSeededAppContext() {
+        for id in ["imprint.pane.toggle_detail", "imprint.pane.toggle_list", "imprint.pane.toggle_sidebar"] {
+            XCTAssertNotNil(KeymapRegistry.shared.entry(for: id), "missing \(id)")
+        }
+        let imprint = ImpressPaneLayoutButtons.chords(
+            listTitle: "Toggle Manuscript List", appID: "imprint")
         XCTAssertEqual(imprint[1].title, "Toggle Manuscript List")
-        // Everything else is identical to the default set.
+        // The pane roles and keys retain the universal grammar.
         XCTAssertEqual(imprint[0], ImpressPaneLayoutButtons.chords()[0])
         XCTAssertEqual(imprint[2], ImpressPaneLayoutButtons.chords()[2])
         XCTAssertEqual(imprint[1].key, "0")
         XCTAssertEqual(imprint[1].modifiers, [.command, .option])
+        XCTAssertEqual(imprint.map(\.role), ["detail", "list", "navigator"])
     }
 
     /// No two chords may collide — grammar rule 5 ("per-app chords must not
@@ -182,7 +187,10 @@ final class PaneLayoutCommandsTests: XCTestCase {
     func testEveryChassisAppMountsTheLayoutOrdinals() throws {
         for path in Self.ordinalButtonFiles {
             XCTAssertTrue(
-                try Self.source(of: path).contains("ImpressLayoutOrdinalButtons()"),
+                try Self.source(of: path).contains(
+                    path == "apps/imprint/Shared/Layout/PaneLayout.swift"
+                        ? "ImpressLayoutOrdinalButtons(appID: \"imprint\")"
+                        : "ImpressLayoutOrdinalButtons()"),
                 "\(path) must mount the chassis's ⌃⌘1–9 (ImpressLayoutOrdinalButtons)")
         }
         XCTAssertFalse(

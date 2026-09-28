@@ -2742,3 +2742,69 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `/tmp/impress-audit-flush-final-tests-v2.log`. Workspace formatting and focused native
   all-targets clippy for the changed crates and both CLIs passed. No app or real store was run.
   A full native workspace rerun after integration remains for the main branch.
+
+- 2026-09-28 — **R3 (imprint registries), implementation and local gate checkpoint**,
+  branch `claude/reflective-r3-imprint`, worktree `r3-imprint`, created from main
+  `9d7ee7a4`. The submitted P8 head `d1ee36de` is merged locally for native
+  compatibility; P8 must land on main before this package is merged.
+  Thirteen General/Editor/Documents controls now read `@ImpressSetting`, with
+  exact original defaults and legacy keys. First reads copy old values; they
+  never delete or overwrite the old UserDefaults values. Five already-declared
+  automation settings drive the generated imprint pane and the server's
+  serialized startup/change-feed snapshots. The existing network bearer stays
+  outside agent-readable settings. Launch overrides remain process-only.
+  Cross-process settings writes now take a shared cursor lock and advance the
+  global cursor even when writes share a clock tick or affect different scope
+  files; Unix cache fingerprints also include the atomic replacement's inode.
+  The pane reseeds only on changes to its own section's values.
+
+  Sixty imprint menu/layout bindings are seeded in `impress-keymap`: 42 static
+  commands and 18 context-dependent layout ordinals. The chassis/editor focus
+  choice stays intact, shared menus take an explicit app ID, and other hosts
+  keep their previous defaults. Menus, the new Keyboard settings section and
+  the existing shortcut-help window read one registry. The old help's bare Tab
+  was wrong: SwiftUI's `.keyboardShortcut(.tab)` uses Command-Tab. Its Veusz and
+  version-history chords had no live handlers. Editor-local AI-task chords are
+  still owned by the shared `InlineAITaskCatalog`, outside this app-menu seed;
+  dialog default/cancel keys and local Template Editor shortcuts are likewise
+  outside this package. Command-palette overrides remain D-R13's later work.
+  App-specific LaTeX/export/AI/integration preferences and shared appearance/modal
+  editing settings remain owned by those subsystems; this does not claim every
+  imprint preference has migrated.
+
+  Local validation: 315 Rust tests passed, 0 failed, 3 ignored, across 22 test
+  groups (`/tmp/impress-r3-touched-tests.log`, scratch
+  `/tmp/impress-cargo-tests.ZhNEPe/workspace`). Both clippy
+  shards, fmt, verb coverage/docs, strict kit dependencies, Swift kit boundary,
+  standalone builds of 21 kit crates, bindings, schema references and hakari
+  `generate --diff` pass. Six Swift keymap tests and eight settings tests pass
+  against the rebuilt native store; the latter exercise all thirteen actual
+  legacy migrations, reopening, external writes and launch-override exclusion.
+  Twelve supported arm64 framework builds pass, including iOS slices where
+  supported, with `IMPRESS_SKIP_X86=1`, swiftformat off PATH and no `--fast`.
+  Logs are `/tmp/impress-r3-{native-*,swift-keyboard,swift-settings}.log`.
+  The newly exercised pre-push interlock stage now builds and verifies unique
+  test bundles, then injects owned ports, device IDs and scratch paths into a
+  copied xctestrun before launching its unchanged three suites. Three no-launch
+  Python fixture tests pass. Hosted imprint proof, PMC checks, normal pre-push,
+  PR and merge are still pending at this checkpoint.
+
+- 2026-09-28 — **R3 native verification**: the mounted imprint Automation pane
+  installed surface `cbe41e0b-6740-4703-a246-6d8e97dd1039`, then the independent
+  CLI changed `imprint.automation.log_requests` to false. The same surface row
+  and a native pane model showed false; the settings feed restarted the listener
+  on the same isolated port (56754) and rotated its loopback token. Native menu
+  equivalents and all 60 registry bindings were checked; a legacy saved value
+  was copied without deletion and read back by the CLI. `/api/logs` returned 200.
+  Proof evidence is
+  `/private/tmp/impress-r3-proof-kkc8spwk/output/host-56007/proof.json`; the app
+  process exited. This is a mounted SwiftUI pane and its shared rendered model,
+  not a claim of physical clicks or private SwiftUI-state introspection.
+  `scripts/test-imprint-registry-native.py --derived-data <owned-build> --cli
+  <built-impress>` reproduces it; the runner requires the exact isolated bundle
+  ID `com.impress.imprint.codex.r3`. The build needs the existing ImpressLayout
+  and ImpressSurface products linked explicitly into the test target.
+  The initial proof invocation used qualified CLI names for unique methods;
+  the final proof uses the generated `get`/`set` names and passes (1 test,
+  1.136 s). All 33 focused PMC settings/keymap contract tests pass, as does the
+  arm64 imprint iOS simulator build. Normal pre-push and hosted CI remain.

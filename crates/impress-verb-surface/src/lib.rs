@@ -51,7 +51,7 @@
 //! rather than adding a "render this spec inline" node kind).
 
 use impress_service_core::descriptor::SafetyClass;
-use impress_service_core::VerbDescriptor;
+use impress_service_core::{ProviderStatus, VerbDescriptor, VerbHandle};
 use impress_surface::spec::{
     Action, Button, FieldKind, Node, NodeKind, SurfaceSpec, When, SURFACE_VERSION,
 };
@@ -66,9 +66,50 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         .first()
         .map(|e| e.args_value())
         .unwrap_or(Value::Null);
+    render_surface(
+        desc.name,
+        desc.description,
+        desc.safety.class,
+        &input_schema,
+        &output_schema,
+        &example_args,
+        true,
+    )
+}
 
+/// Build a generated form from a linked or runtime-owned descriptor.
+pub fn verb_surface_handle(desc: &VerbHandle) -> SurfaceSpec {
+    let input_schema = desc.input_schema();
+    let output_schema = desc.output_schema();
+    let example_args = desc
+        .examples()
+        .first()
+        .map(|e| e.args_value())
+        .unwrap_or(Value::Null);
+    render_surface(
+        desc.name(),
+        desc.description(),
+        desc.safety().class,
+        &input_schema,
+        &output_schema,
+        &example_args,
+        !matches!(desc, VerbHandle::Provider(_))
+            || (desc.provider_status() == Some(ProviderStatus::Available)
+                && desc.deprecation_notice().is_none()),
+    )
+}
+
+fn render_surface(
+    name: &str,
+    description: &str,
+    safety: SafetyClass,
+    input_schema: &Value,
+    output_schema: &Value,
+    example_args: &Value,
+    available: bool,
+) -> SurfaceSpec {
     let mut form_fields: Vec<Node> = Vec::new();
-    let required = required_names(&input_schema);
+    let required = required_names(input_schema);
     if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
         for (name, prop) in props {
             let prefill = example_args.get(name).cloned();
@@ -76,17 +117,23 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         }
     }
 
-    let review =
-        desc.safety.class == SafetyClass::Destructive || desc.safety.class == SafetyClass::External;
+    let review = available && matches!(safety, SafetyClass::Destructive | SafetyClass::External);
 
     let mut column: Vec<Node> = Vec::new();
     column.push(
-        Node::leaf(NodeKind::Text(format!(
-            "**{}**\n\n{}",
-            desc.name, desc.description
-        )))
-        .with_id("description"),
+        Node::leaf(NodeKind::Text(format!("**{}**\n\n{}", name, description)))
+            .with_id("description"),
     );
+
+    if !available {
+        column.push(
+            Node::leaf(NodeKind::Status(impress_surface::spec::Status {
+                level: "warning".to_string(),
+                message: json!("Provider unavailable. This verb cannot run until it reconnects."),
+            }))
+            .with_id("provider-unavailable"),
+        );
+    }
 
     if review {
         column.push(
@@ -94,8 +141,8 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
                 level: "warning".to_string(),
                 message: json!(format!(
                     "This is a {} action ({}). Confirm before running.",
-                    desc.safety.class.as_str(),
-                    if desc.safety.class == SafetyClass::External {
+                    safety.as_str(),
+                    if safety == SafetyClass::External {
                         "it leaves this process"
                     } else {
                         "it cannot be undone by this surface"
@@ -125,7 +172,7 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         let button = Node::leaf(NodeKind::Button(Button {
             label: "Run".to_string(),
             on_click: vec![Action::Call {
-                verb: desc.name.to_string(),
+                verb: name.to_string(),
                 args: Value::Object(run_args),
                 into: Some("state.result".to_string()),
                 each: None,
@@ -141,9 +188,11 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
             button
         }
     };
-    column.push(run_button);
+    if available {
+        column.push(run_button);
+    }
 
-    column.push(result_node(&output_schema));
+    column.push(result_node(output_schema));
 
     let mut state = Map::new();
     if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
@@ -162,7 +211,7 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
 
     SurfaceSpec {
         surface: SURFACE_VERSION.to_string(),
-        name: format!("Run {}", desc.name),
+        name: format!("Run {name}"),
         params: Vec::new(),
         state: Value::Object(state),
         sources: Default::default(),
@@ -376,6 +425,8 @@ fn table_columns(schema: &Value) -> Vec<String> {
 /// opens the selected verb's generated form through the vocabulary's own
 /// create/show loop.
 pub fn catalogue() -> SurfaceSpec {
+    let includes_providers = impress_service_core::call::descriptors()
+        .any(|verb| matches!(verb, VerbHandle::Provider(_)));
     let mut sources = std::collections::BTreeMap::new();
     sources.insert(
         "verbs".to_string(),
@@ -395,15 +446,19 @@ pub fn catalogue() -> SurfaceSpec {
         .with_help("Filter to one service's verbs; empty shows every group.")
         .with_bind("state.group");
 
+    let mut columns = vec![
+        "name".to_string(),
+        "service".to_string(),
+        "description".to_string(),
+        "safety".to_string(),
+        "since".to_string(),
+    ];
+    if includes_providers {
+        columns.push("availability".to_string());
+    }
     let table = Node::leaf(NodeKind::Table(impress_surface::spec::Table {
         rows: json!("{{source.verbs}}"),
-        columns: vec![
-            "name".to_string(),
-            "service".to_string(),
-            "description".to_string(),
-            "safety".to_string(),
-            "since".to_string(),
-        ],
+        columns,
         on_select: vec![Action::Set {
             path: "state.selected".to_string(),
             value: json!("{{event.value}}"),
@@ -445,9 +500,12 @@ pub fn catalogue() -> SurfaceSpec {
     });
 
     let root = Node::leaf(NodeKind::Column(vec![
-        Node::leaf(NodeKind::Text(
-            "**Verb catalogue** — every capability the linked inventory exposes.".to_string(),
-        ))
+        Node::leaf(NodeKind::Text(if includes_providers {
+            "**Verb catalogue** — linked and runtime provider capabilities. Unavailable provider verbs cannot run."
+                .to_string()
+        } else {
+            "**Verb catalogue** — every capability the linked inventory exposes.".to_string()
+        }))
         .with_id("catalogue-heading"),
         search,
         group_filter,
@@ -479,8 +537,10 @@ pub fn catalogue() -> SurfaceSpec {
 mod tests {
     use super::*;
     use impress_service_core::descriptor::{Effects, Safety, Source, VerbDescriptor};
+    use impress_service_core::{ProviderVerb, VerbHandle};
     use impress_surface::validate;
     use serde_json::json;
+    use std::sync::Arc;
 
     fn schema_input() -> Value {
         json!({
@@ -564,5 +624,46 @@ mod tests {
         let spec = catalogue();
         let problems = validate::validate(&spec);
         assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+    }
+
+    #[test]
+    fn unavailable_provider_form_warns_and_has_no_run_action() {
+        let handle = VerbHandle::Provider(Arc::new(ProviderVerb {
+            name: "fixture-service_echo".into(),
+            service: "fixture-service".into(),
+            method: "echo".into(),
+            description: "Echo text".into(),
+            input_schema: json!({"type":"object","properties":{"text":{"type":"string","description":"Text"}},"additionalProperties":false}),
+            output_schema: json!({"type":"object","properties":{"echo":{"type":"string"}}}),
+            declared_safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effective_safety: Safety {
+                class: SafetyClass::External,
+                idempotent: false,
+            },
+            since: "0.1.0".into(),
+            examples: vec![impress_service_core::ProviderExample {
+                name: "sample".into(),
+                args: r#"{"text":"hello"}"#.into(),
+                expect: Some(r#"{"echo":"hello"}"#.into()),
+            }],
+            provider_id: "fixture".into(),
+            status: ProviderStatus::Unavailable,
+            deprecated_since: None,
+            generation: 1,
+        }));
+        let spec = verb_surface_handle(&handle);
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        let wire = serde_json::to_value(&spec).unwrap();
+        let text = wire.to_string();
+        assert!(text.contains("provider-unavailable"));
+        assert!(
+            !text.contains("\"on_click\""),
+            "unavailable form must not call provider"
+        );
+        assert_eq!(spec.state["text"], "hello");
     }
 }

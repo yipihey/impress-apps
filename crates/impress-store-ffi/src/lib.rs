@@ -27,6 +27,7 @@ mod keymap;
 mod layout;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
+mod providers;
 pub mod reading_list;
 mod schema_refs;
 /// The settings registry as Swift reads it (ADR-0036 D5, plan R1).
@@ -91,6 +92,7 @@ pub use layout::{
     SharedLayoutListener, SharedLayoutRow, SharedLayoutSnapshot, SharedPane, SharedPaneRows,
     SharedWindow,
 };
+pub use providers::{SharedProviderHost, SharedProviderReply};
 pub use settings::{SharedSettingValue, SharedSettings, SharedSettingsError};
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
@@ -774,9 +776,24 @@ pub struct SharedStore {
     /// a [`SharedSurface`](surface::SharedSurface) was already opened still
     /// serve that handle — see [`Self::set_verb_host`].
     verb_host: Arc<Mutex<Option<Arc<dyn SharedVerbHost>>>>,
+    /// Read-only provider liveness refresh for this native store host.
+    provider_refresh: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The workspace's content-addressed blob directory (`<workspace>/content`,
     /// next to the database) — `None` for an in-memory store (ADR-0030 D3).
     blob_root: Option<std::path::PathBuf>,
+}
+
+impl Drop for SharedStore {
+    fn drop(&mut self) {
+        if let Some(refresh) = self
+            .provider_refresh
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .take()
+        {
+            refresh.abort();
+        }
+    }
 }
 
 /// The surface registry for a new `SharedStore`: the process-shared one for
@@ -898,6 +915,7 @@ impl SharedStore {
             layout_sessions: layout_sessions_for(installed),
             surface_sessions: surface_sessions_for(installed),
             verb_host: Arc::new(Mutex::new(None)),
+            provider_refresh: Mutex::new(None),
             inner: store,
             blob_root,
         }))
@@ -927,6 +945,7 @@ impl SharedStore {
             layout_sessions: layout_sessions_for(installed),
             surface_sessions: surface_sessions_for(installed),
             verb_host: Arc::new(Mutex::new(None)),
+            provider_refresh: Mutex::new(None),
             inner: store,
             blob_root: None,
         }))
@@ -951,6 +970,42 @@ impl SharedStore {
         // A source that failed for want of a host is asked again now, not
         // after its backoff.
         self.surface_sessions.retry_failed_sources();
+    }
+
+    /// Install runtime providers against this exact GUI store and workspace.
+    /// The host supplies only schema validation and raw network transport;
+    /// descriptor ownership, policy, and audit remain in this Rust image.
+    pub fn set_provider_host(
+        &self,
+        host: Box<dyn SharedProviderHost>,
+    ) -> Result<(), SharedStoreError> {
+        providers::install(self, Arc::from(host))?;
+        let mut refresh = self
+            .provider_refresh
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(previous) = refresh.take() {
+            previous.abort();
+        }
+        *refresh = Some(impress_service_core::runtime::spawn(async {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                impress_service_core::registry_runtime::refresh_health().await;
+            }
+        }));
+        Ok(())
+    }
+
+    /// Exact file path selected by this store, for another native image that
+    /// needs to hydrate its own read-only provider inventory.
+    pub fn provider_store_path(&self) -> Result<String, SharedStoreError> {
+        self.inner
+            .database_path()
+            .map(|path| path.to_string_lossy().into_owned())
+            .ok_or_else(|| SharedStoreError::InvalidArgument {
+                message: "provider inventory requires a file-backed store".into(),
+            })
     }
 
     /// Commit text to a manuscript's Automerge document (ADR-0027 D6) — the

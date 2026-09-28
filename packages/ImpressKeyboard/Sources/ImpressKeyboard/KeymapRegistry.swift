@@ -81,6 +81,23 @@ public struct KeymapRegistry {
         byCommandID[commandID]
     }
 
+    /// Bindings belonging to one app's windows or panes, including its
+    /// explicitly named child contexts (for example `imprint.editor`).
+    /// Keep the dot boundary so `imprint` never also selects `imprint2`.
+    public func entries(forApp appID: String) -> [Entry] {
+        guard !appID.isEmpty else { return [] }
+        return entries.filter { entry in
+            for prefix in ["window:", "pane:"] {
+                guard entry.scope.hasPrefix(prefix) else { continue }
+                let context = entry.scope.dropFirst(prefix.count)
+                if context == appID || context.hasPrefix(appID + ".") {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     /// The chord registered for a palette command id, as a `KeyboardShortcut`
     /// SwiftUI can attach with `.keyboardShortcut(...)`. Returns nil when the
     /// registry has no entry for the id, or when the entry is deliberately
@@ -117,6 +134,7 @@ public struct KeymapRegistry {
             "\u{23ce}": .return,   // ⏎
             "\u{232b}": .delete,   // ⌫
             "\u{238b}": .escape,   // ⎋
+            "\u{21e5}": .tab,      // ⇥
             "\u{2191}": .upArrow,  // ↑
             "\u{2193}": .downArrow // ↓
         ]

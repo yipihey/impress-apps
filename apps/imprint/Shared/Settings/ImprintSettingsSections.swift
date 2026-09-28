@@ -32,6 +32,7 @@
 //
 
 import SwiftUI
+import ImpressKeyboard
 import PublicationManagerCore
 
 enum ImprintSettingsSections {
@@ -45,6 +46,7 @@ enum ImprintSettingsSections {
     static let portableFactories: [SettingsSectionFactory] = [
         SettingsSectionFactory(section: .general) { GeneralSettingsView() },
         SettingsSectionFactory(section: .editor) { EditorSettingsView() },
+        SettingsSectionFactory(section: .keyboard) { KeymapSettingsView(appID: "imprint") },
         SettingsSectionFactory(section: .documents) { DocumentHealthSettingsView() },
         SettingsSectionFactory(section: .account) { AccountSettingsView() },
     ]

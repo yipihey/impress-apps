@@ -1,8 +1,9 @@
 # Next steps after the pipeline, GUI and self-reflective waves (2026-09-27)
 
-The last code merge on main, `e7cf88a4`, includes W3, G7c, W4, S3, G5, the audit-flush barrier (#125),
-and the P5b native transport slice (#126). A fresh isolated
-`cargo test --workspace --features native` passed there: **4,341 passed, 0 failed,
+The last code merge on main, `9d7ee7a4`, includes W3, G7c, W4, S3, G5, the audit-flush barrier (#125),
+the P5b native transport slice (#126), and P7 construction checks (#127).
+The next full main workspace run is due after the P7/P8 merge batch. The preceding isolated
+`cargo test --workspace --features native` passed at `e7cf88a4`: **4,341 passed, 0 failed,
 23 ignored**, including doctests (217 result groups). Evidence is
 `/tmp/impress-after-p5b-main-workspace.log`; the first line records its owned
 workspace. The preceding main run at `7d28f88c` passed 4,330 tests in
@@ -17,7 +18,7 @@ Detail for each package is in the session logs of `docs/plan-verb-pipeline-and-t
 
 | Plan | Packages |
 |---|---|
-| Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P5b native transport ([PR #126](https://github.com/yipihey/impress-apps/pull/126), merge `e7cf88a4`; richer REST retirement remains), P6 Python, B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
+| Pipeline and transport (ADR-0034) | P0 loopback/CORS, P1 descriptor, P2 pipeline, P3a aliases, P3b rename pass, P3c semantic-search feature, P4 jobs, P5a generic `/api/verb`, P5b native transport ([PR #126](https://github.com/yipihey/impress-apps/pull/126), merge `e7cf88a4`; richer REST retirement remains), P6 Python, P7 construction checks ([PR #127](https://github.com/yipihey/impress-apps/pull/127), merge `9d7ee7a4`), B1 test binaries, B3 dependency graph, B4 hakari, B5 build budget |
 | GUI and docs (ADR-0035) | G0 census, G1 macro hygiene, G3 examples and reference pages (first slice), G4 generator and catalogue, G5 strict default ([PR #124](https://github.com/yipihey/impress-apps/pull/124), merge `85cf0520`), G6 coverage line, G7a tracing, G7b profiler, G7c trace export and budgets ([PR #118](https://github.com/yipihey/impress-apps/pull/118), merge `8d102646`) |
 | Self-reflective layer (ADR-0036) | E1–E3 effects, E2b spy fix, L1 call record, L2 history verbs, S1 scenarios, S2/S2b catalogue conversion (9 of 25 Tier B entries), S3 session recording ([PR #123](https://github.com/yipihey/impress-apps/pull/123), merge `10ee5acd`), W1 workflows, W2 planner, W3 retention migration ([PR #121](https://github.com/yipihey/impress-apps/pull/121), merge `35ea75fa`), W4 proposed workflows ([PR #119](https://github.com/yipihey/impress-apps/pull/119), merge `f7af1c37`), R1 settings, R2a/R2b keymap |
 
@@ -103,7 +104,7 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   merge; GitHub jobs were still queued. Richer REST retirement remains the separate
   contract decision.
   No user's running app, launcher or real store was used.
-- **P7 (draft [PR #127](https://github.com/yipihey/impress-apps/pull/127), implementation and local gates complete)**:
+- **P7 (merged [PR #127](https://github.com/yipihey/impress-apps/pull/127), `9d7ee7a4`)**:
   worktree `p7-construction`, branch `claude/pipeline-p7-construction`, based on
   `e7cf88a4`. One manifest reader generates 85 typed Rust constants, lower-kit
   metadata and the additive Swift enum. The schema lint reports zero Rust
@@ -127,12 +128,34 @@ effects delegated through the Swift ImpelTools callback still lose parent identi
   Canonical constants borrow static strings; `FromStr` rejects unknown names.
   Explicit persistence and Swift wire decoding preserve opaque historical/newer-writer
   names without interning/leaking them. No new schema names or verb arguments were
-  introduced. **Pending before merge:** verify the repair of the hosted impart workflow's missing
-  `ImpartVerbsFfi` build step (run `36444031435`) and the resulting gates and
-  fresh main ancestry, mark ready and merge. Then run the next full native workspace
-  batch on main.
-- **P8**: runtime providers (registry, `provider@1.0.0`, reference provider).
-- **R3**: imprint's settings and chords through the registries.
+  introduced. The hosted impart repair passed macOS and iOS simulator install smoke
+  in run `36460078624`; all eight PR checks were green. Fresh main ancestry passed
+  before the normal merge. The next full main workspace run belongs to the P7/P8 batch.
+- **P8 (ready [PR #129](https://github.com/yipihey/impress-apps/pull/129); final hosted check pending)**: worktree `p8-providers`, branch
+  `claude/pipeline-p8-providers`, contains main `9d7ee7a4`. Owned provider
+  descriptors, persisted registration/trust, private rotated credentials, bounded
+  loopback transport, all runtime readers and the Python reference provider are
+  implemented. Final isolated touched-crate/capabilities tests: **1,424 passed,
+  0 failed, 6 ignored**, 58 groups, `/tmp/impress-p8-verified-touched-tests-green.log`.
+  Both clippy shards and all quick gates pass; all twelve full supported arm64
+  framework builds pass. Real Python Tier B and the isolated native Person-form,
+  CLI, catalogue-liveness and named source-refusal proof pass. Evidence:
+  `/private/tmp/impress-p8-proof-9y64dfo5/output/host-60903/proof.json`.
+  `scripts/test-runtime-provider-native.py` reproduces the proof on an owned build.
+  Normal pre-push passed on macOS and iOS. Seven hosted checks pass; the impart
+  macOS/iOS build is still running. Merge and the full native workspace batch
+  on main are still required. See the pipeline plan's dated P8 entry for fixes/logs.
+- **R3 (implemented; normal push/PR next)**: `r3-imprint` / `claude/reflective-r3-imprint`
+  has 13 portable preferences, five automation settings, and 60 menu/layout
+  bindings through the registries. The reviewed P8 branch is integrated locally;
+  merge P8 on main first. All required quick gates, 315 Rust tests, six keymap
+  Swift tests, eight settings tests, and 33 PMC contract tests pass. All twelve
+  native framework builds and the imprint iOS build pass. The isolated mounted
+  settings-pane/CLI/listener proof passed; evidence:
+  `/private/tmp/impress-r3-proof-kkc8spwk/output/host-56007/proof.json`.
+  The pre-push interlock stage now isolates its app bundles, ports, stores and
+  device IDs without dropping any suite. Normal push, hosted checks and merge
+  remain. See the reflective plan's dated R3 log for scope and reproduction.
 - **G3 remainder**: about 170 verbs still lack an `#[impress_example]`, and about 900 arguments lack `///` docs.
 - **Scenario interpreter gaps** (S2b): a store-predicate step, a best-effort step, and an escape for surface `{{state…}}` templates. The remaining 16 Tier B entries are blocked on these.
 - **Swift gap from R1**: the generated Retention pane is macOS-only; iOS shows a placeholder.

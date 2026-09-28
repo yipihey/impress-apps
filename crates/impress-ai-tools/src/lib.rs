@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use impress_ai::{Error, Result, ToolAdapter, ToolDefinition};
-use impress_service_core::McpToolDescriptor;
+use impress_service_core::{call, ProviderStatus, VerbHandle};
 use serde_json::{json, Map, Value};
 
 // Keep inventory submissions linked into every consumer of this adapter:
@@ -123,10 +123,10 @@ impl ImpressToolAdapter {
             .unwrap_or_default()
     }
 
-    fn available(&self) -> impl Iterator<Item = &'static McpToolDescriptor> + '_ {
+    fn available(&self) -> impl Iterator<Item = VerbHandle> + '_ {
         let reachable = self.snapshot();
-        McpToolDescriptor::iter()
-            .filter(move |descriptor| Self::is_available_with(reachable, descriptor.name))
+        call::descriptors()
+            .filter(move |descriptor| Self::is_available_handle(reachable, descriptor))
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -145,13 +145,22 @@ impl ImpressToolAdapter {
         }
     }
 
+    fn is_available_handle(reachable: Reachability, handle: &VerbHandle) -> bool {
+        (matches!(handle, VerbHandle::Provider(_))
+            || Self::is_available_with(reachable, handle.name()))
+            && handle.provider_status() != Some(ProviderStatus::Unavailable)
+            && (!matches!(handle, VerbHandle::Provider(_)) || handle.deprecation_notice().is_none())
+    }
+
     fn definitions(&self) -> BTreeMap<String, Vec<ToolDefinition>> {
         let scix =
-            self.group_definition("scix", "NASA ADS/SciX search and library actions.", is_scix);
+            self.group_definition("scix", "NASA ADS/SciX search and library actions.", |h| {
+                is_scix(h.name())
+            });
         let mut impress = vec![self.capabilities_definition()];
         for (domain, description) in DOMAINS.iter().filter(|(domain, _)| *domain != "vw") {
-            if let Some(definition) = self.group_definition(domain, description, |name| {
-                !is_scix(name) && belongs_to_domain(name, domain)
+            if let Some(definition) = self.group_definition(domain, description, |handle| {
+                !is_scix(handle.name()) && belongs_to_domain_handle(handle, domain)
             }) {
                 impress.push(definition);
             }
@@ -164,7 +173,7 @@ impl ImpressToolAdapter {
         if let Some(vw) = self.group_definition(
             "vw",
             "Search cited VW source pages and use deterministic VW Type 2 diagnostic services.",
-            is_vw,
+            |handle| is_vw(handle.name()),
         ) {
             catalog.insert("vw".into(), vec![vw]);
         }
@@ -193,7 +202,7 @@ impl ImpressToolAdapter {
         &self,
         name: &str,
         description: &str,
-        include: impl Fn(&str) -> bool,
+        include: impl Fn(&VerbHandle) -> bool,
     ) -> Option<ToolDefinition> {
         let actions = self.actions(name, include);
         if actions.is_empty() {
@@ -216,23 +225,23 @@ impl ImpressToolAdapter {
         })
     }
 
-    fn actions(&self, group: &str, include: impl Fn(&str) -> bool) -> Vec<String> {
+    fn actions(&self, group: &str, include: impl Fn(&VerbHandle) -> bool) -> Vec<String> {
         self.available()
-            .filter(|descriptor| include(descriptor.name))
-            .filter_map(|descriptor| action_of(descriptor.name, group))
+            .filter(|descriptor| include(descriptor))
+            .filter_map(|descriptor| action_of(descriptor.name(), group))
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
     }
 
-    fn resolve(&self, group: &str, action: &str) -> Option<&'static McpToolDescriptor> {
+    fn resolve(&self, group: &str, action: &str) -> Option<VerbHandle> {
         self.available().find(|descriptor| {
             let belongs = if group == "scix" {
-                is_scix(descriptor.name)
+                is_scix(descriptor.name())
             } else {
-                !is_scix(descriptor.name) && belongs_to_domain(descriptor.name, group)
+                !is_scix(descriptor.name()) && belongs_to_domain_handle(descriptor, group)
             };
-            belongs && action_of(descriptor.name, group).as_deref() == Some(action)
+            belongs && action_of(descriptor.name(), group).as_deref() == Some(action)
         })
     }
 
@@ -240,13 +249,13 @@ impl ImpressToolAdapter {
         if let Some(domain) = requested_domain {
             let actions = self
                 .available()
-                .filter(|descriptor| belongs_to_domain(descriptor.name, domain))
+                .filter(|descriptor| belongs_to_domain_handle(descriptor, domain))
                 .filter_map(|descriptor| {
-                    action_of(descriptor.name, domain).map(|action| {
+                    action_of(descriptor.name(), domain).map(|action| {
                         json!({
                             "action": action,
-                            "description": descriptor.description,
-                            "tool": descriptor.name
+                            "description": descriptor.description(),
+                            "tool": descriptor.name()
                         })
                     })
                 })
@@ -258,7 +267,7 @@ impl ImpressToolAdapter {
             .filter_map(|(domain, owns)| {
                 let count = self
                     .available()
-                    .filter(|descriptor| belongs_to_domain(descriptor.name, domain))
+                    .filter(|descriptor| belongs_to_domain_handle(descriptor, domain))
                     .count();
                 (count > 0).then(|| json!({ "domain": domain, "owns": owns, "actions": count }))
             })
@@ -292,10 +301,10 @@ impl ToolAdapter for ImpressToolAdapter {
         })?;
         if arguments.get("describe").and_then(Value::as_bool) == Some(true) {
             return Ok(json!({
-                "tool": descriptor.name,
+                "tool": descriptor.name(),
                 "action": action,
-                "description": descriptor.description,
-                "inputSchema": (descriptor.input_schema)()
+                "description": descriptor.description(),
+                "inputSchema": descriptor.input_schema()
             }));
         }
         let inner = match arguments.get("args") {
@@ -309,14 +318,14 @@ impl ToolAdapter for ImpressToolAdapter {
         };
         // The local model is an agent (ADR-0034 D3); the pipeline records
         // it as `impress-ai`, whatever the arguments claim.
-        impress_service_core::pipeline::invoke(
-            descriptor.verb,
+        impress_service_core::pipeline::invoke_handle(
+            descriptor.clone(),
             impress_service_core::pipeline::Call::agent("impress-ai", inner),
         )
         .await
         .map_err(|error| match error {
             impress_service_core::pipeline::PipelineError::Handler(e) => {
-                Error::Invalid(format!("{} failed: {e}", descriptor.name))
+                Error::Invalid(format!("{} failed: {e}", descriptor.name()))
             }
             unavailable => Error::Invalid(unavailable.to_string()),
         })
@@ -348,6 +357,17 @@ fn belongs_to_domain(name: &str, domain: &str) -> bool {
         is_vw(name)
     } else {
         domain_of(name) == Some(domain)
+    }
+}
+
+fn belongs_to_domain_handle(handle: &VerbHandle, domain: &str) -> bool {
+    if matches!(handle, VerbHandle::Provider(_)) {
+        // The compact adapter has no provider namespace in its stable local
+        // model contract. Runtime verbs live in the shared Impress group,
+        // with their provider service prefix preserved in the action name.
+        domain == "impress"
+    } else {
+        belongs_to_domain(handle.name(), domain)
     }
 }
 
@@ -398,6 +418,33 @@ fn action_of(name: &str, group: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use impress_service_core::{ProviderVerb, Safety, SafetyClass};
+    use std::sync::Arc;
+
+    fn provider(status: ProviderStatus) -> VerbHandle {
+        VerbHandle::Provider(Arc::new(ProviderVerb {
+            name: "fixture-service_echo".into(),
+            service: "fixture-service".into(),
+            method: "echo".into(),
+            description: "Echo text".into(),
+            input_schema: json!({"type":"object"}),
+            output_schema: json!({"type":"object"}),
+            declared_safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effective_safety: Safety {
+                class: SafetyClass::External,
+                idempotent: false,
+            },
+            since: "0.1.0".into(),
+            examples: vec![],
+            provider_id: "fixture".into(),
+            status,
+            deprecated_since: None,
+            generation: 1,
+        }))
+    }
 
     #[test]
     fn local_projection_is_small_and_generated() {
@@ -411,7 +458,7 @@ mod tests {
             count < 16,
             "grouped local surface unexpectedly has {count} tools"
         );
-        assert!(McpToolDescriptor::iter().count() > 100);
+        assert!(call::descriptors().count() > 100);
     }
 
     #[tokio::test]
@@ -433,6 +480,26 @@ mod tests {
         assert!(!adapter.is_available("imbib-app-service_search-sources"));
         assert!(adapter.is_available("imbib-library-service_list-libraries"));
         assert!(adapter.resolve("impress", "ai.list-models").is_some());
+    }
+
+    #[test]
+    fn live_provider_projects_to_impress_group_and_unavailable_provider_is_withheld() {
+        let live = provider(ProviderStatus::Available);
+        assert!(belongs_to_domain_handle(&live, "impress"));
+        assert!(!belongs_to_domain_handle(&live, "imbib"));
+        assert_eq!(
+            action_of(live.name(), "impress").as_deref(),
+            Some("fixture.echo")
+        );
+        assert!(ImpressToolAdapter::is_available_handle(
+            Reachability::default(),
+            &live
+        ));
+        let down = provider(ProviderStatus::Unavailable);
+        assert!(!ImpressToolAdapter::is_available_handle(
+            Reachability::default(),
+            &down
+        ));
     }
 
     #[test]

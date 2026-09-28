@@ -27,7 +27,7 @@
 //! already use for their pyo3 modules — so a plain `cargo build`/`cargo
 //! test` of the workspace never needs the Python interpreter headers.
 
-use impress_service_core::descriptor::VerbDescriptor;
+use impress_service_core::descriptor_handle::VerbHandle;
 use serde_json::Value;
 
 /// One verb's public shape, as the catalogue and `docs/verbs/` show it —
@@ -41,13 +41,13 @@ pub struct VerbInfo {
     pub input_schema: Value,
 }
 
-fn verb_info(verb: &'static VerbDescriptor) -> VerbInfo {
+fn verb_info(verb: VerbHandle) -> VerbInfo {
     VerbInfo {
-        name: verb.name.to_string(),
-        service: verb.service.to_string(),
-        description: verb.description.to_string(),
-        safety: verb.safety.class.to_string(),
-        input_schema: (verb.input_schema)(),
+        name: verb.name().to_string(),
+        service: verb.service().to_string(),
+        description: verb.description().to_string(),
+        safety: verb.safety().class.to_string(),
+        input_schema: verb.input_schema().into_owned(),
     }
 }
 
@@ -58,7 +58,9 @@ fn verb_info(verb: &'static VerbDescriptor) -> VerbInfo {
 /// name, so the linker can otherwise strip them from a cdylib).
 pub fn list_verb_infos() -> Vec<VerbInfo> {
     impress_capabilities::force_link();
-    VerbDescriptor::iter().map(verb_info).collect()
+    impress_service_core::call::descriptors()
+        .map(verb_info)
+        .collect()
 }
 
 /// `call(verb, args)` with no `app`: in-process, through
@@ -88,6 +90,23 @@ pub fn call_local(verb: &str, args: Value) -> Result<Value, String> {
 pub fn call_remote(app: &str, verb: &str, args: Value) -> Result<Value, String> {
     impress_service_core::runtime::block_on(impress_app_transport::call(app, verb, args))
         .map_err(|refusal| refusal.to_string())
+}
+
+/// Explicitly refresh this embedding process's runtime providers from its
+/// selected workspace. An empty workspace leaves linked-only enumeration
+/// lazy. Python may call this again after another host registers a provider.
+pub fn reload_provider_registry() -> Result<(), String> {
+    impress_app_transport::provider::install();
+    if impress_store_service::providers::install_if_registered(std::sync::Arc::new(
+        impress_app_transport::provider::JsonSchemaValidator,
+    ))
+    .map_err(|error| error.to_string())?
+    {
+        impress_service_core::runtime::block_on(
+            impress_service_core::registry_runtime::refresh_health(),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(feature = "python")]
@@ -183,12 +202,21 @@ mod py {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Reload providers registered since this module was imported.
+    #[pyfunction]
+    fn reload_providers(py: Python<'_>) -> PyResult<()> {
+        py.allow_threads(super::reload_provider_registry)
+            .map_err(PyRuntimeError::new_err)
+    }
+
     /// Python module: `impress`.
     #[pymodule]
     fn impress(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        super::reload_provider_registry().map_err(PyRuntimeError::new_err)?;
         m.add_class::<PyVerbInfo>()?;
         m.add_function(wrap_pyfunction!(list_verbs, m)?)?;
         m.add_function(wrap_pyfunction!(call, m)?)?;
+        m.add_function(wrap_pyfunction!(reload_providers, m)?)?;
         Ok(())
     }
 }

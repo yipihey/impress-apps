@@ -482,6 +482,8 @@ catalogue, 300 on the exception table.
 | `perf-service_export-folded-stacks` | — | — | — | example ×1 |
 | `perf-service_summary` | — | — | — | example ×2 |
 | `perf-service_trace` | — | — | — | example ×1 |
+| `provider-service_list` | — | — | — | example ×1 |
+| `provider-service_set-trusted` | "provider@1.0.0" | "provider@1.0.0" | — | catalogue:provider |
 | `settings-service_get` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_list` | "impress/settings@1.0.0" | — | fs | — |
 | `settings-service_reset` | — | "impress/settings@1.0.0" | fs | — |

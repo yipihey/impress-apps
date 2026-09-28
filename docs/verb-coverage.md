@@ -69,6 +69,7 @@ read.
 | `memory-service` | impress-memory-service | 7 | 7 | 20 (20) | 0 | 7 |
 | `parsers-service` | impress-parsers-service | 6 | 6 | 9 (9) | 0 | 6 |
 | `perf-service` | perf-service | 4 | 4 | 4 (3) | 0 | 4 |
+| `provider-service` | impress-store-service | 2 | 2 | 2 (2) | 2 | 2 |
 | `settings-service` | impress-store-service | 6 | 6 | 6 (5) | 6 | 6 |
 | `smart-search-service` | impress-smart-search-service | 10 | 10 | 28 (28) | 0 | 10 |
 | `source-service` | impress-store-service | 9 | 9 | 21 (10) | 0 | 9 |
@@ -77,7 +78,7 @@ read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 15 |
-| **Total** | 21 crates, 45 services | **477** | **477** | **1066 (707)** | **126** | **477** |
+| **Total** | 21 crates, 46 services | **479** | **479** | **1068 (709)** | **128** | **479** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -101,7 +102,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 956 |
+| `scalar` | 958 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)

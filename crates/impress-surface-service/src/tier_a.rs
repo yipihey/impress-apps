@@ -998,7 +998,7 @@ mod paper_triage_loop {
             trace_id: uuid::Uuid::new_v4().to_string(),
             parent_call: None,
             caller: impress_service_core::pipeline::CallerIdentity::agent("surface-test"),
-            verb: "surface-test",
+            verb: "surface-test".into(),
             store_override: Some(world.store.clone()),
             mutation_ids: Default::default(),
         });

@@ -52,11 +52,14 @@ final class SettingsSurfaceContractTests: XCTestCase {
         ("spotlight", "Spotlight", "magnifyingglass"),
     ]
 
-    func testImprintPresetIsTheFrozenThirteenTabInventory() {
-        let rendered = AppSettingsConfiguration.imprint.sections(on: .macOS)
-        XCTAssertEqual(
-            rendered.count, 13,
-            "imprint's macOS Settings scene shipped 13 tabs; the reframe must not change the count")
+    func testImprintPresetPreservesOriginalTabsAndAddsRegistryKeyboard() {
+        let all = AppSettingsConfiguration.imprint.sections(on: .macOS)
+        XCTAssertEqual(all.count, 14)
+        XCTAssertEqual(all[3].id, .keyboard)
+        XCTAssertEqual(all[3].title, "Keyboard")
+        XCTAssertEqual(all[3].systemImage, "keyboard")
+        let rendered = all.filter { $0.id != .keyboard }
+        XCTAssertEqual(rendered.count, 13, "R3 preserves the original tabs' order and identity")
         for (index, expected) in Self.frozenImprintMacTabs.enumerated() {
             let actual = rendered[index]
             XCTAssertEqual(
@@ -81,7 +84,7 @@ final class SettingsSurfaceContractTests: XCTestCase {
         XCTAssertEqual(byID["imbib"], "settings.tabs.imbib")
         XCTAssertEqual(byID["spotlight"], "settings.tabs.spotlight")
         XCTAssertEqual(
-            byID.count, 13, "every section must carry an accessibility identifier")
+            byID.count, 14, "every section must carry an accessibility identifier")
     }
 
     // MARK: - Ordering: declaration order IS sort order
@@ -124,8 +127,8 @@ final class SettingsSurfaceContractTests: XCTestCase {
         let macOnly = AppSettingsConfiguration.imprint.sections.filter {
             !$0.availability.platforms.contains(.iOS)
         }
-        XCTAssertEqual(macOnly.count, 8)
-        // Five of the eight are absent because of a CAPABILITY iOS lacks; the
+        XCTAssertEqual(macOnly.count, 9)
+        // Five of the nine are absent because of a CAPABILITY iOS lacks; the
         // requirement is the machine-readable reason.
         let requirements = Dictionary(
             uniqueKeysWithValues: macOnly.map { ($0.id.rawValue, $0.availability.requirements) })
@@ -134,12 +137,14 @@ final class SettingsSurfaceContractTests: XCTestCase {
         XCTAssertEqual(requirements["automation"], [.httpAutomation])
         XCTAssertEqual(requirements["imbib"], [.siblingAppDiscovery])
         XCTAssertEqual(requirements["spotlight"], [.spotlightIndex])
-        // The other three (ai, aiTasks, export) are platform-only: their
+        // AI, AI Tasks and Export have macOS implementations; Keyboard names
+        // macOS menu bindings. These four are platform-only: their
         // implementation lives in imprint's macOS target. Stated as an empty
         // requirement set, not as a missing entry.
         XCTAssertEqual(requirements["ai"], [])
         XCTAssertEqual(requirements["aiTasks"], [])
         XCTAssertEqual(requirements["export"], [])
+        XCTAssertEqual(requirements["keyboard"], [])
     }
 
     /// Availability is DATA, so the filter can be driven from either platform —
@@ -152,7 +157,7 @@ final class SettingsSurfaceContractTests: XCTestCase {
             .map(\.id.rawValue)
         XCTAssertEqual(
             starved,
-            ["appearance", "general", "editor", "ai", "aiTasks", "documents", "export", "account"],
+            ["appearance", "general", "editor", "keyboard", "ai", "aiTasks", "documents", "export", "account"],
             "a macOS host with no capabilities keeps only the ungated sections")
         XCTAssertFalse(starved.contains("latex"))
         XCTAssertFalse(starved.contains("automation"))

@@ -16,6 +16,7 @@ use impress_core::job::field::task as task_field;
 use impress_core::schemas::task::TASK_SCHEMA;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_service_core::pipeline::{self, Call, CallerIdentity};
+#[cfg(test)]
 use impress_service_core::VerbDescriptor;
 use impress_workflow::{
     trigger, DueRun, EngineCursors, Signal, Trigger, WorkflowSpec, WorkflowState,
@@ -327,16 +328,14 @@ fn run_workflow(
     let mut error = None;
     for effect in effects {
         if let impress_workflow::Effect::Call { verb, args, .. } = effect {
-            let Some(descriptor) = VerbDescriptor::find(&verb) else {
+            let Some(descriptor) = impress_service_core::call::find(&verb) else {
                 error = Some(format!("workflow '{name}': unknown verb '{verb}'"));
                 break;
             };
-            let call = Call::new(caller.clone(), args);
-            let outcome = impress_service_core::runtime::block_on(pipeline::invoke_on(
-                store.clone(),
-                descriptor,
-                call,
-            ));
+            let mut call = Call::new(caller.clone(), args);
+            call.store = Some(store.clone());
+            let outcome =
+                impress_service_core::runtime::block_on(pipeline::invoke_handle(descriptor, call));
             calls += 1;
             if let Err(e) = outcome {
                 error = Some(format!("workflow '{name}': step '{verb}' failed: {e}"));
