@@ -238,6 +238,7 @@ pub struct Registry {
     state: RwLock<State>,
     validator: Option<Arc<dyn SchemaValidator>>,
     persistence: Option<Arc<dyn ProviderPersistence>>,
+    revision: AtomicU64,
 }
 
 impl Default for Registry {
@@ -252,7 +253,19 @@ impl Registry {
             state: RwLock::new(State::default()),
             validator: None,
             persistence: None,
+            revision: AtomicU64::new(next_generation()),
         }
+    }
+
+    /// Monotonic catalogue epoch for native UI caches. A repeated identical
+    /// health result leaves it stable; observable provider changes advance it.
+    pub fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn bump_revision(&self) {
+        self.revision
+            .fetch_max(next_generation(), Ordering::Release);
     }
 
     pub fn with_validator(mut self, validator: Arc<dyn SchemaValidator>) -> Self {
@@ -275,6 +288,30 @@ impl Registry {
         validator
             .validate_instance(&verb.input_schema, args)
             .map_err(|error| crate::refusal::Refusal::invalid_argument(error).context(&verb.name))
+    }
+
+    /// A provider owns its output bytes, so a successful HTTP response is
+    /// still untrusted until it matches the declared output contract. Never
+    /// echo the value or the validator's potentially value-bearing error.
+    pub fn validate_output(
+        &self,
+        verb: &ProviderVerb,
+        value: &Value,
+    ) -> Result<(), crate::refusal::Refusal> {
+        let validator = self.validator.as_ref().ok_or_else(|| {
+            crate::refusal::Refusal::internal("provider schema validator unavailable")
+        })?;
+        validator
+            .validate_instance(&verb.output_schema, value)
+            .map_err(|_| {
+                crate::refusal::Refusal::new(
+                    crate::refusal::codes::VERB_FAILED,
+                    format!(
+                        "{} returned a value outside its declared output schema",
+                        verb.name
+                    ),
+                )
+            })
     }
 
     /// Hydrated verbs start unavailable. A successful explicit health probe
@@ -327,6 +364,7 @@ impl Registry {
         }
         self.state = RwLock::new(state);
         self.persistence = Some(persistence);
+        self.bump_revision();
         Ok(self)
     }
 
@@ -350,15 +388,21 @@ impl Registry {
             Ok(loaded) => loaded,
             Err(error) => {
                 // A failed trust read cannot leave a stale trusted handle live.
+                let changed = state.providers.values().any(|entry| entry.healthy);
                 for entry in state.providers.values_mut() {
                     entry.healthy = false;
                     entry.generation = next_generation();
                     entry.verbs = build_verbs(&entry.row, false, entry.generation);
                 }
+                if changed {
+                    self.bump_revision();
+                }
                 return Err(error);
             }
         };
         let mut fresh = loaded.state.into_inner().unwrap_or_else(|e| e.into_inner());
+        let mut changed = state.providers.keys().collect::<Vec<_>>()
+            != fresh.providers.keys().collect::<Vec<_>>();
         for (id, mut old) in std::mem::take(&mut state.providers) {
             match fresh.providers.get(&id) {
                 Some(new)
@@ -368,8 +412,9 @@ impl Registry {
                 {
                     fresh.providers.insert(id, old);
                 }
-                Some(_) => {}
+                Some(_) => changed = true,
                 None => {
+                    changed = true;
                     // A deleted row is retained for named diagnostics, with its
                     // credential revoked. Health cannot revive that entry.
                     old.token = None;
@@ -382,6 +427,9 @@ impl Registry {
             }
         }
         *state = fresh;
+        if changed {
+            self.bump_revision();
+        }
         Ok(())
     }
 
@@ -512,6 +560,7 @@ impl Registry {
                 verbs: built,
             },
         );
+        self.bump_revision();
         Ok(RegistrationReceipt {
             provider_id: id.clone(),
             token,
@@ -545,6 +594,7 @@ impl Registry {
         entry.generation = next_generation();
         entry.verbs = build_verbs(&row, entry.healthy, entry.generation);
         entry.row = row;
+        self.bump_revision();
         Ok(())
     }
 
@@ -567,6 +617,9 @@ impl Registry {
             return Err(RegistrationError::Invalid(format!(
                 "provider {id} was deregistered and must re-register"
             )));
+        }
+        if entry.healthy != healthy {
+            self.bump_revision();
         }
         entry.healthy = healthy;
         entry.verbs = build_verbs(&entry.row, healthy, entry.generation);
@@ -596,6 +649,9 @@ impl Registry {
             return Err(RegistrationError::Credential(format!(
                 "provider {id} has no private credential"
             )));
+        }
+        if entry.healthy != healthy {
+            self.bump_revision();
         }
         entry.healthy = healthy;
         entry.verbs = build_verbs(&entry.row, healthy, entry.generation);
@@ -627,6 +683,7 @@ impl Registry {
         entry.healthy = false;
         entry.generation = next_generation();
         entry.verbs = build_verbs(&entry.row, false, entry.generation);
+        self.bump_revision();
         Ok(())
     }
 
@@ -1227,6 +1284,32 @@ mod tests {
         assert!(!json.to_string().contains("hash"));
         registry.set_health("alpha", false).unwrap();
         assert!(!registry.summaries()[0].available);
+    }
+
+    #[test]
+    fn revision_advances_only_for_observable_provider_changes() {
+        let registry = Registry::new().with_validator(Arc::new(AcceptSchema));
+        let initial = registry.revision();
+        registry.register(request("epoch-fixture")).unwrap();
+        let registered = registry.revision();
+        assert!(registered > initial);
+        registry.set_health("epoch-fixture", true).unwrap();
+        assert_eq!(registry.revision(), registered);
+        let generation = registry.health_connections()[0].1.generation();
+        registry
+            .set_health_if_current("epoch-fixture", generation, true)
+            .unwrap();
+        assert_eq!(registry.revision(), registered);
+        registry.set_health("epoch-fixture", false).unwrap();
+        let offline = registry.revision();
+        assert!(offline > registered);
+        registry.set_health("epoch-fixture", false).unwrap();
+        assert_eq!(registry.revision(), offline);
+        registry.set_trusted("epoch-fixture", true).unwrap();
+        let trusted = registry.revision();
+        assert!(trusted > offline);
+        registry.set_trusted("epoch-fixture", true).unwrap();
+        assert_eq!(registry.revision(), trusted);
     }
 
     #[test]

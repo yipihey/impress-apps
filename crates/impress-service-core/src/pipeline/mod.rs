@@ -222,6 +222,17 @@ struct Prepared {
 /// policy, the span. `Ok(Err(value))` is a refusal envelope to answer
 /// without running the handler.
 fn prepare(verb: &VerbHandle, call: Call) -> Result<Result<Prepared, Value>, PipelineError> {
+    prepare_inner(verb, call, false)
+}
+
+// A provider refresh can fail before policy. Keep that refusal on the normal
+// span/audit path, while deliberately skipping checks that would short-circuit
+// before `finish` and obscure the original host-unavailable diagnosis.
+fn prepare_inner(
+    verb: &VerbHandle,
+    call: Call,
+    preflight_refusal: bool,
+) -> Result<Result<Prepared, Value>, PipelineError> {
     run_installers();
     let Call {
         args,
@@ -252,7 +263,7 @@ fn prepare(verb: &VerbHandle, call: Call) -> Result<Result<Prepared, Value>, Pip
     let trace_id = trace_id.unwrap_or_else(|| call_id.clone());
 
     // 2. strict args.
-    if verb.strict() {
+    if !preflight_refusal && verb.strict() {
         let schema = handle_schema(verb, false);
         if let Err(refusal) = crate::strict::check_args(verb.name(), &args, &schema) {
             return Ok(Err(crate::strict::refusal_value(&refusal)));
@@ -260,35 +271,37 @@ fn prepare(verb: &VerbHandle, call: Call) -> Result<Result<Prepared, Value>, Pip
     }
 
     // 3. reachability.
-    if let Some((linked, app)) = verb
-        .linked()
-        .and_then(|linked| reachability::unavailable_app(linked.name).map(|app| (linked, app)))
-    {
-        // A native request is already executing inside its owning app. A
-        // client router co-linked in that process must not gate it on a
-        // second probe (or send it back over HTTP to itself).
-        // A scenario with an explicit store also runs locally, independent
-        // of the client's process-wide app availability configuration.
-        if store.is_none() && !matches!(&caller, CallerIdentity::App(owner) if owner == app) {
-            return Err(PipelineError::Unavailable {
-                app,
-                verb: linked.name,
-            });
+    if !preflight_refusal {
+        if let Some((linked, app)) = verb
+            .linked()
+            .and_then(|linked| reachability::unavailable_app(linked.name).map(|app| (linked, app)))
+        {
+            // A native request is already executing inside its owning app. A
+            // client router co-linked in that process must not gate it on a
+            // second probe (or send it back over HTTP to itself).
+            // A scenario with an explicit store also runs locally, independent
+            // of the client's process-wide app availability configuration.
+            if store.is_none() && !matches!(&caller, CallerIdentity::App(owner) if owner == app) {
+                return Err(PipelineError::Unavailable {
+                    app,
+                    verb: linked.name,
+                });
+            }
         }
-    }
 
-    if let Err(refusal) = crate::registry_runtime::check_available(verb, &args) {
-        return Ok(Err(crate::strict::refusal_value(&refusal)));
-    }
+        if let Err(refusal) = crate::registry_runtime::check_available(verb, &args) {
+            return Ok(Err(crate::strict::refusal_value(&refusal)));
+        }
 
-    // 4. policy.
-    match policy::decide(&caller, verb) {
-        policy::Decision::Run => {}
-        policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
-        policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
-        // D-R11: a destructive verb whose declared writes overlap another
-        // call's still in flight on the same kind.
-        policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
+        // 4. policy.
+        match policy::decide(&caller, verb) {
+            policy::Decision::Run => {}
+            policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
+            policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
+            // D-R11: a destructive verb whose declared writes overlap another
+            // call's still in flight on the same kind.
+            policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
+        }
     }
 
     // 5. span.
@@ -386,10 +399,23 @@ fn apply_deprecation_notice(
 
 /// The layers after the handler: envelope and audit.
 fn finish(verb: &VerbHandle, prepared: Prepared, result: &Result<Value, BoxError>) {
+    finish_inner(verb, prepared, result, false);
+}
+
+fn finish_inner(
+    verb: &VerbHandle,
+    prepared: Prepared,
+    result: &Result<Value, BoxError>,
+    force_audit: bool,
+) {
     // D-R11: give back the write lease `prepare`'s policy step took for this
     // call (a no-op if it took none — read-only, no literal declared
     // writes, or refused before reaching here).
-    policy::release(verb);
+    // The forced provider preflight refusal never entered policy or acquired
+    // a write lease. Releasing here could steal an overlapping call's lease.
+    if !force_audit {
+        policy::release(verb);
+    }
     let Prepared {
         context,
         span,
@@ -427,7 +453,7 @@ fn finish(verb: &VerbHandle, prepared: Prepared, result: &Result<Value, BoxError
         }
     }
 
-    if verb.safety().class != SafetyClass::ReadOnly || audit::log_all() {
+    if force_audit || verb.safety().class != SafetyClass::ReadOnly || audit::log_all() {
         let (recorded_args, args_replayable) = audit::recorded_args(
             &prepared.args,
             &handle_schema(verb, false),
@@ -471,6 +497,16 @@ pub async fn invoke(verb: &'static VerbDescriptor, call: Call) -> Result<Value, 
 
 /// Run a linked or registered runtime verb through the same eight layers.
 pub async fn invoke_handle(verb: VerbHandle, call: Call) -> Result<Value, PipelineError> {
+    let verb = match crate::registry_runtime::current_for_call(verb.clone()).await {
+        Ok(verb) => verb,
+        Err(refusal) => {
+            let prepared = prepare_inner(&verb, call, true)?
+                .expect("provider preflight refusal bypasses early checks");
+            let result: Result<Value, BoxError> = Ok(crate::strict::refusal_value(&refusal));
+            finish_inner(&verb, prepared, &result, true);
+            return result.map_err(PipelineError::Handler);
+        }
+    };
     let work_verb = verb.clone();
     invoke_handle_with(&verb, call, move |args| async move {
         match work_verb {
