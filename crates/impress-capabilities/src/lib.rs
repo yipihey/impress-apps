@@ -129,11 +129,17 @@ pub fn force_link() {
     {
         // Real relocations retain kit registrations even when no caller
         // otherwise names their constructors (the S6 surface-demo regression).
-        let anchors: [*const (); 4] = [
+        let anchors: [*const (); 5] = [
             impress_store_service::DefaultStoreQueryService::new as *const (),
             impress_layout_service::DefaultLayoutService::new as *const (),
             impress_surface_service::DefaultImpressSurfaceService::new as *const (),
-            surface_demo_service::DefaultSurfaceDemoService::new as *const (),
+            // A zero-sized constructor can fold into another crate's no-op
+            // under release LTO. Retain the actual descriptors and handlers,
+            // which also keeps their inventory registration object files.
+            std::ptr::addr_of!(surface_demo_service::__IMPRESS_VERB_SurfaceDemoService_series)
+                .cast(),
+            std::ptr::addr_of!(surface_demo_service::__IMPRESS_VERB_SurfaceDemoService_histogram)
+                .cast(),
         ];
         std::hint::black_box(anchors);
     }

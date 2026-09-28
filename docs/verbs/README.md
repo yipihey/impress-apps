@@ -2,6 +2,10 @@
 
 One page per service, generated from the linked `VerbDescriptor` inventory. Regenerate with `cargo run -p impress-capabilities --bin gen-verb-docs`; `scripts/check-verb-docs.sh` fails CI on a diff.
 
+Examples with scratch identifiers or `{{fixture...}}` placeholders require the owned fixtures in `crates/impress-capabilities/tests/support`; substitute your own identifiers and paths when calling a verb directly. `{{state...}}` values refer to captures or surface state, not literal identifiers.
+
+Tier A runs without an app or external service. Tier B requires an explicit isolated run with the native host, model, device, or credentials named by the verb's reach. A Tier B label describes the required environment; it does not mean the example ran in the headless suite.
+
 - [capabilities-service](capabilities-service.md) (4 verbs)
 - [collection-service](collection-service.md) (12 verbs)
 - [docs-import-service](docs-import-service.md) (10 verbs)

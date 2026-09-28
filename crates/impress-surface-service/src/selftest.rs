@@ -36,6 +36,12 @@ pub trait SurfaceSelftestService: Send + Sync + 'static {
     /// AC-F25). Tier A touches no store but its own; Tier B only its scratch
     /// surface.
     #[impress_method]
+    #[impress_example(
+        name = "owned-headless-catalogue",
+        tier = "b",
+        args = r#"{"tier":"a"}"#,
+        expect = r#"{"ok":true,"failed":0,"skipped":0}"#
+    )]
     async fn run_selftest(&self, tier: String) -> SelfTestReport;
 }
 
@@ -84,6 +90,9 @@ impress_service_impl! {
     instance = || selftest_instance(),
     methods = [
         /// Run the surface capability self-tests (`tier` = a | b | all).
-        run_selftest(tier: String) -> SelfTestReport,
+        run_selftest(
+            /// Catalogue tier: a for owned headless checks, b for the configured live app, or all for both.
+            tier: String
+        ) -> SelfTestReport,
     ],
 }

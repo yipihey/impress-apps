@@ -13,12 +13,12 @@ An equal-width histogram of `values` over `bins` buckets, plus a `plot-spec@1.0.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `bins` | integer | yes | *(undocumented)* |
-| `values` | array | yes | *(undocumented)* |
+| `bins` | integer | yes | Number of buckets; must be between 1 and 1024. |
+| `values` | array | yes | Nonempty finite values to group into equally spaced buckets. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"values": [1, 2, 3], "bins": 3}
@@ -35,12 +35,12 @@ A noisy sine wave: `n` samples `x` on `[0, 1)` and `values = sin(2π·freq·x) +
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `freq` | number | yes | *(undocumented)* |
-| `n` | integer | yes | *(undocumented)* |
+| `freq` | number | yes | Positive finite number of sine-wave cycles over the unit interval. |
+| `n` | integer | yes | Number of evenly spaced samples; must be between 2 and 100000. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"n": 10, "freq": 1.0}

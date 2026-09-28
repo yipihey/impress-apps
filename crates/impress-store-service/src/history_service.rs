@@ -1278,6 +1278,7 @@ impress_service_impl! {
             /// Matches the caller's `name` exactly, or its `kind`
             /// ("human", "agent", "system").
             caller: Option<String>,
+            /// Optional exact trace identifier used to select related calls.
             trace_id: Option<String>,
             /// Page size; 0 for the default (50), clamped above 500.
             limit: i64,

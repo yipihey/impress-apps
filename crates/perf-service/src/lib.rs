@@ -198,16 +198,28 @@ impress_service_impl! {
         /// seam span exists), plus `budgetNanos`/`breachCount` once a verb
         /// declares one. Narrow with `prefix`; empty (default) returns
         /// every bucket.
-        summary(prefix: Option<String>) -> PerfSummaryResult,
+        summary(
+            /// Optional bucket-key prefix; omitted or empty returns every bucket.
+            prefix: Option<String>
+        ) -> PerfSummaryResult,
         /// The recorded span tree for one trace id, from the bounded span
         /// log. Empty for an unknown or evicted trace id, never an error.
-        trace(trace_id: String) -> PerfTraceResult,
+        trace(
+            /// Trace identifier from a verb call; unknown or evicted traces are empty.
+            trace_id: String
+        ) -> PerfTraceResult,
         /// One trace id's span tree as Chrome trace-event JSON, for
         /// Perfetto/`chrome://tracing`.
-        export_chrome_trace(trace_id: String) -> PerfChromeTraceResult,
+        export_chrome_trace(
+            /// Trace identifier from a verb call; unknown or evicted traces are empty.
+            trace_id: String
+        ) -> PerfChromeTraceResult,
         /// One trace id's span tree as folded stacks, for
         /// `inferno`/flamegraph.pl.
-        export_folded_stacks(trace_id: String) -> PerfFoldedStacksResult,
+        export_folded_stacks(
+            /// Trace identifier from a verb call; unknown or evicted traces are empty.
+            trace_id: String
+        ) -> PerfFoldedStacksResult,
     ],
 }
 

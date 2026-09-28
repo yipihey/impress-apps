@@ -176,7 +176,11 @@ fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
         } else {
             out.push_str("**Examples**\n\n");
             for ex in examples {
-                out.push_str(&format!("- `{}`:\n\n", ex.name));
+                let tier = match ex.tier {
+                    impress_service_core::ExampleTier::A => "A",
+                    impress_service_core::ExampleTier::B => "B (explicit isolated run)",
+                };
+                out.push_str(&format!("- `{}` — Tier {tier}:\n\n", ex.name));
                 out.push_str("  ```json\n");
                 out.push_str(&format!("  {}\n", ex.args));
                 out.push_str("  ```\n");
@@ -190,6 +194,40 @@ fn render_service(service: &str, verbs: &[VerbHandle]) -> String {
         }
     }
     out
+}
+
+/// Missing reference information, reported before the checked-in generator
+/// writes any pages. Runtime hosts may still preview an incomplete provider's
+/// metadata with `render`; publishing the linked reference requires completeness.
+pub fn documentation_problems<'a>(
+    handles: impl IntoIterator<Item = &'a VerbHandle>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for verb in handles {
+        if verb.examples().is_empty() {
+            problems.push(format!("{} has no example", verb.name()));
+        }
+        if let Some(properties) = verb
+            .input_schema()
+            .get("properties")
+            .and_then(Value::as_object)
+        {
+            for (name, property) in properties {
+                if property
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .is_none_or(|doc| doc.trim().is_empty())
+                {
+                    problems.push(format!(
+                        "{} argument {name} has no description",
+                        verb.name()
+                    ));
+                }
+            }
+        }
+    }
+    problems.sort();
+    problems
 }
 
 /// A complete set of pages, including the index, ready to write to an owned
@@ -258,6 +296,16 @@ pub fn render(handles: impl IntoIterator<Item = VerbHandle>) -> RenderedVerbDocs
              diff.\n\n",
         );
     }
+    index.push_str(
+        "Examples with scratch identifiers or `{{fixture...}}` placeholders require the \
+         owned fixtures in `crates/impress-capabilities/tests/support`; substitute your \
+         own identifiers and paths when calling a verb directly. `{{state...}}` values \
+         refer to captures or surface state, not literal identifiers.\n\n\
+         Tier A runs without an app or external service. Tier B requires an explicit \
+         isolated run with the native host, model, device, or credentials named by the \
+         verb's reach. A Tier B label describes the required environment; it does not \
+         mean the example ran in the headless suite.\n\n",
+    );
     for (service, verbs) in &by_service {
         pages.insert(service.clone(), render_service(service, verbs));
         index.push_str(&format!(

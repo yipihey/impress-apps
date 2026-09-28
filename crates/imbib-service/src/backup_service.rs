@@ -145,26 +145,50 @@ pub trait ImbibBackupService: Send + Sync + 'static {
     /// file. Safe to run while imbib, imprint and impel are all writing.
     /// Pass an empty directory to use the default backups folder.
     #[impress_method(safety = mutating)]
+    #[impress_example(
+        name = "snapshot-scratch-library",
+        args = r#"{"directory":"{{fixture.root}}/maintenance/create","label":"G3 backup"}"#
+    )]
     async fn create_backup(&self, directory: String, label: Option<String>) -> Vec<BackupRecord>;
 
     /// List backups in a directory, newest first. Pass an empty string for the
     /// default backups folder.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "list-scratch-backups",
+        args = r#"{"directory":"{{fixture.root}}/maintenance/list"}"#
+    )]
     async fn list_backups(&self, directory: String) -> Vec<BackupRecord>;
 
     /// Validate a backup file without touching the live store: integrity
     /// check, required tables, and a digest match against its manifest.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "inspect-scratch-backup",
+        args = r#"{"path":"{{fixture.root}}/maintenance/inspect/check.impressbackup"}"#,
+        expect = r#"{"valid":true}"#
+    )]
     async fn inspect_backup(&self, path: String) -> BackupInspection;
 
     /// Replace the whole library with a backup. **Requires the imbib app to be
     /// running**: it refuses while iCloud sync is on, and it must tell the UI
     /// that every cached row is gone. Both guarantees live in the app.
     #[impress_method(safety = external, effects(reach = [app("imbib"), fs]))]
+    #[impress_example(
+        name = "host-required",
+        tier = "b",
+        args = r#"{"path":"{{fixture.root}}/maintenance/restore/approved.impressbackup"}"#,
+        expect = r#"{"requires_relaunch":true}"#
+    )]
     async fn restore_backup(&self, path: String) -> RestoreReport;
 
     /// Delete one backup file and its manifest sidecar.
     #[impress_method]
+    #[impress_example(
+        name = "delete-scratch-backup",
+        args = r#"{"path":"{{fixture.root}}/maintenance/delete/remove.impressbackup"}"#,
+        expect = r#"true"#
+    )]
     async fn delete_backup(&self, path: String) -> bool;
 
     /// Retention sweep: keep the `keep` newest backups in a directory and
@@ -175,6 +199,10 @@ pub trait ImbibBackupService: Send + Sync + 'static {
     /// user; `keep: 0` deletes every backup. To remove one specific snapshot
     /// instead, use `delete_backup`.
     #[impress_method]
+    #[impress_example(
+        name = "prune-scratch-backups",
+        args = r#"{"directory":"{{fixture.root}}/maintenance/prune","keep":0}"#
+    )]
     async fn prune_backups(&self, directory: String, keep: u32) -> Vec<String>;
 }
 
@@ -317,27 +345,49 @@ impress_service_impl! {
         /// anywhere. Safe while imbib, imprint and impel are all writing: it is
         /// a consistent read, not a file copy. Empty `directory` = the default
         /// backups folder. Take one before anything large or irreversible.
-        create_backup(directory: String, label: Option<String>) -> Vec<BackupRecord>,
+        create_backup(
+            /// Backup directory; an empty string chooses the user's default folder.
+            directory: String,
+            /// Optional label recorded in the backup manifest.
+            label: Option<String>
+        ) -> Vec<BackupRecord>,
         /// List backups in a directory, newest first, with record counts and
         /// sizes. Empty `directory` = the default backups folder.
-        list_backups(directory: String) -> Vec<BackupRecord>,
+        list_backups(
+            /// Backup directory; an empty string chooses the user's default folder.
+            directory: String
+        ) -> Vec<BackupRecord>,
         /// Validate a backup file without touching the live store: integrity
         /// check, required tables, and a digest match against its manifest.
         /// Run this before restoring anything you did not just create.
-        inspect_backup(path: String) -> BackupInspection,
+        inspect_backup(
+            /// Path to one `.impressbackup` file to validate.
+            path: String
+        ) -> BackupInspection,
         /// Replace the ENTIRE library with a backup — including imprint
         /// manuscripts and impel data, since all three share one store.
         /// Requires the imbib app to be running: it refuses while iCloud sync
         /// is on (restored rows carry old clocks and a peer would overwrite
         /// them) and it must tell the UI every cached row is gone. With imbib
         /// closed this returns a refusal, not a partial restore.
-        restore_backup(path: String) -> RestoreReport,
+        restore_backup(
+            /// Path to the approved backup to restore through the running app.
+            path: String
+        ) -> RestoreReport,
         /// Delete one backup file and its manifest sidecar.
-        delete_backup(path: String) -> bool,
+        delete_backup(
+            /// Path to the owned `.impressbackup` file to delete.
+            path: String
+        ) -> bool,
         /// Retention sweep: keep the `keep` newest backups in a directory and
         /// delete the rest. DESTRUCTIVE and not recoverable by undo — undo
         /// covers store rows, never files on disk. List the directory first and
         /// confirm the number with the user; `keep: 0` deletes every backup.
-        prune_backups(directory: String, keep: u32) -> Vec<String>,
+        prune_backups(
+            /// Directory whose backups are subject to retention.
+            directory: String,
+            /// Number of newest backups to retain; zero removes all in that directory.
+            keep: u32
+        ) -> Vec<String>,
     ],
 }

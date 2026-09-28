@@ -15,9 +15,20 @@ Record that a memory was independently re-observed, WITHOUT writing a duplicate 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | Lowercase UUID of an existing memory to confirm. |
 
-_No examples yet._
+**Examples**
+
+- `confirm-observation` — Tier A:
+
+  ```json
+  {"id":"58000000-0000-4000-8000-000000000003"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"58000000-0000-4000-8000-000000000003"}
+  ```
 
 ## `memory-service_forget`
 
@@ -30,9 +41,20 @@ Withhold a memory from `recall` and `memory_brief` WITHOUT deleting it — for s
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | Lowercase UUID of an existing memory to withhold from recall. |
 
-_No examples yet._
+**Examples**
+
+- `withhold-private-note` — Tier A:
+
+  ```json
+  {"id":"58000000-0000-4000-8000-000000000005"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"58000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `memory-service_memory-brief`
 
@@ -49,11 +71,22 @@ The "start of session" digest: standing instructions, then claims (optionally sc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `max_entries` | integer | yes | *(undocumented)* |
-| `subject_ref` | string | yes | *(undocumented)* |
-| `topic` | string | yes | *(undocumented)* |
+| `max_entries` | integer | yes | Maximum entries per section; zero uses the default of eight. |
+| `subject_ref` | string | yes | Lowercase subject item UUID to filter every section, or empty. |
+| `topic` | string | yes | Search words applied to claims only; empty includes recent claims. |
 
-_No examples yet._
+**Examples**
+
+- `topic-brief` — Tier A:
+
+  ```json
+  {"topic":"aperture","subject_ref":"58000000-0000-4000-8000-00000000000a","max_entries":3}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"sections":[{"kind":"memory/instruction@1.0.0","entries":[]},{"kind":"memory/claim@1.0.0","entries":[{"id":"58000000-0000-4000-8000-000000000002","title":"G3 aperture correction"}]},{"kind":"memory/episode@1.0.0","entries":[]}]}
+  ```
 
 ## `memory-service_memory-status`
 
@@ -70,7 +103,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -91,17 +124,22 @@ When the vector tier is live, this page is RE-RANKED — never widened — by em
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `include_superseded` | boolean | yes | *(undocumented)* |
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
-| `subject_ref` | string | yes | *(undocumented)* |
+| `include_superseded` | boolean | yes | Include corrected memories that have been superseded. |
+| `limit` | integer | yes | Maximum entries; zero uses the default of 20, capped at 200. |
+| `query` | string | yes | Words to search; empty returns recent memory heads. |
+| `subject_ref` | string | yes | Lowercase subject item UUID to filter by, or empty for all subjects. |
 
 **Examples**
 
-- `default`:
+- `subject-scoped-aperture` — Tier A:
 
   ```json
-  {"query": "effects", "limit": 5, "include_superseded": false, "subject_ref": "effects-example"}
+  {"query":"aperture","subject_ref":"58000000-0000-4000-8000-000000000009","limit":5,"include_superseded":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"entries":[{"id":"58000000-0000-4000-8000-000000000001","title":"G3 aperture radius","body":"The G3 aperture radius is five pixels.","schema_ref":"memory/claim@1.0.0"}]}
   ```
 
 ## `memory-service_remember`
@@ -121,15 +159,26 @@ When the vector tier is live (`IMPRESS_MEMORY_VECTORS=1`) and the FTS gate above
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `body` | string | yes | *(undocumented)* |
-| `claim_type` | string | yes | *(undocumented)* |
-| `confidence` | number | yes | *(undocumented)* |
-| `evidence_refs` | array | yes | *(undocumented)* |
-| `kind` | string | yes | *(undocumented)* |
-| `subject_refs` | array | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `body` | string | yes | Prose to retain across sessions; treated as private in call logs. |
+| `claim_type` | string | yes | Claim classification, such as `fact` or `decision`; empty when unstated. |
+| `confidence` | number | yes | Confidence from 0 to 1; a negative value means unstated. |
+| `evidence_refs` | array | yes | Lowercase item UUIDs this memory was derived from; may be empty. |
+| `kind` | string | yes | Memory kind: `claim`, `episode`, or `instruction`. |
+| `subject_refs` | array | yes | Lowercase item UUIDs this memory is about; may be empty. |
+| `title` | string | yes | Short human-readable label for the memory. |
 
-_No examples yet._
+**Examples**
+
+- `new-claim` — Tier A:
+
+  ```json
+  {"kind":"claim","title":"G3 calibration units","body":"G3 calibration fluxes use millijanskys.","claim_type":"fact","confidence":0.9,"subject_refs":[],"evidence_refs":[]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"action":"inserted","matched_id":""}
+  ```
 
 ## `memory-service_supersede-claim`
 
@@ -144,10 +193,21 @@ Use this when a previously-remembered fact turns out to be wrong, or needs corre
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `body` | string | yes | *(undocumented)* |
-| `old_id` | string | yes | *(undocumented)* |
-| `reason` | string | yes | *(undocumented)* |
-| `title` | string | yes | *(undocumented)* |
+| `body` | string | yes | Corrected prose for the replacement memory. |
+| `old_id` | string | yes | Lowercase UUID of the existing memory being corrected. |
+| `reason` | string | yes | Why the correction was made; empty omits the reason. |
+| `title` | string | yes | Short label for the replacement memory. |
 
-_No examples yet._
+**Examples**
+
+- `correct-flux-unit` — Tier A:
+
+  ```json
+  {"old_id":"58000000-0000-4000-8000-000000000004","title":"G3 flux unit correction","body":"G3 fluxes are measured in millijanskys.","reason":"Checked the catalogue header."}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"old_id":"58000000-0000-4000-8000-000000000004"}
+  ```
 

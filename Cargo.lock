@@ -3983,11 +3983,13 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "impress-workspace-hack",
+ "jsonschema",
  "rusqlite",
  "schemars 0.8.22",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -4519,6 +4521,7 @@ dependencies = [
  "impress-workspace-hack",
  "imprint-selftest",
  "imprint-service",
+ "jsonschema",
  "perf-service",
  "serde_json",
  "surface-demo-service",

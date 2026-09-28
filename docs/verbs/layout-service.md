@@ -17,14 +17,25 @@ Window geometry is dropped on the way in: the logical tree is what ports between
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `name` | — | no | *(undocumented)* |
-| `ordinal` | — | no | *(undocumented)* |
+| `name` | — | no | The exact saved layout, preset, or parameter name for this operation. |
+| `ordinal` | — | no | One-based shortcut position: app presets first, then saved layouts. |
 
-_No examples yet._
+**Examples**
+
+- `g3-recall-saved` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-apply-layout","name":"G3 Apply"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_apply-preset`
 
@@ -39,13 +50,24 @@ Window geometry is dropped on the way in, exactly as `apply_layout` drops it: th
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `name` | string | yes | *(undocumented)* |
+| `name` | string | yes | The exact saved layout, preset, or parameter name for this operation. |
 
-_No examples yet._
+**Examples**
+
+- `g3-recall-preset` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-apply-preset","name":"G3 Apply Preset"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_bind-param`
 
@@ -58,15 +80,26 @@ Re-point one of a pane's declared parameters: follow a channel, pin it to one it
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `name` | string | yes | *(undocumented)* |
-| `source` | — | yes | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `name` | string | yes | The exact saved layout, preset, or parameter name for this operation. |
+| `source` | — | yes | Parameter source: follow a channel, pin a fixed item, or use the view default. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-pin-detail-item` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-bind-param","target":{"role":"detail"},"name":"item","source":{"source":"fixed","item":"5a000000-0000-4000-8000-000000000001"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_close`
 
@@ -79,13 +112,24 @@ Close a pane or a whole subtree. Never the last pane of the layout.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-close-navigator` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-close","target":{"role":"navigator"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_commit`
 
@@ -100,31 +144,53 @@ Materialize the current arrangement as a durable, attributed record — the comm
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `as_kind` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `purpose` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `as_kind` | string | yes | Materialization kind; only `layout` is supported today. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `name` | string | yes | The exact saved layout, preset, or parameter name for this operation. |
+| `purpose` | — | no | Optional human explanation retained on the saved layout. |
 
-_No examples yet._
+**Examples**
+
+- `g3-commit-layout` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-commit","as_kind":"layout","name":"G3 Commit","purpose":"G3 example arrangement"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_delete-layout`
 
 Remove a saved layout by name or id. Refuses the live arrangement (it is not a saved layout) and any preset (`reset-preset` is how a preset goes back to shipped); deleting a name that does not exist is `ok: false` with a message, never an error.
 
 - **safety**: `destructive`
-- **reads**: "impress/ui/layout@1.0.0"
+- **reads**: "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"
 - **writes**: "impress/ui/layout@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `name_or_id` | string | yes | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `name_or_id` | string | yes | Name or item ID of a saved layout; shipped presets cannot be deleted. |
 
-_No examples yet._
+**Examples**
+
+- `g3-delete-saved` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","name_or_id":"G3 Delete"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_detach`
 
@@ -137,13 +203,24 @@ Move a pane out into a new window whose root it becomes — the detached PDF. Re
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-detach-detail` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-detach","target":{"role":"detail"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_focus`
 
@@ -156,13 +233,24 @@ Focus a pane. Focus is a value in the layout, so it is legible to agents and tes
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-focus-navigator` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-focus","target":{"role":"navigator"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_focus-direction`
 
@@ -175,13 +263,24 @@ Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. This is the h / 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `direction` | string | yes | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `direction` | string | yes | Focus step: left, right, up, down, next, or prev. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
 
-_No examples yet._
+**Examples**
+
+- `g3-focus-next` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-focus-direction","direction":"next"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_get-channel`
 
@@ -194,12 +293,23 @@ What a channel currently carries, per record kind, and which panes it drives. `c
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app_id` | string | yes | *(undocumented)* |
-| `channel` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `kind` | — | no | *(undocumented)* |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `channel` | string | yes | Numbered selection channel 1–8, or `follow` for the window default. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `kind` | — | no | Optional record kind to select from the channel result. |
 
-_No examples yet._
+**Examples**
+
+- `g3-read-channel` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-get-channel","channel":"1"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"channel":1}
+  ```
 
 ## `layout-service_get-layout`
 
@@ -212,15 +322,26 @@ The whole live tree for this scope: windows, the tile arena, channel state. Crea
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `app_id` | string | yes | The owning app/facet whose live arrangement to read. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"app_id": "impress", "device": "effects-device"}
+  ```
+
+- `g3-read-owned-layout` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-get-layout"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
   ```
 
 ## `layout-service_get-pane`
@@ -236,11 +357,22 @@ The compiled `item_query` is literally what the store will be asked — which is
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-read-detail` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-get-pane","target":{"role":"detail"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_list-layouts`
 
@@ -255,14 +387,25 @@ Their ordinals are OFFSET by the app's presets, which come first in the union `a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app_id` | string | yes | *(undocumented)* |
+| `app_id` | string | yes | The app/facet whose durable named layouts to list. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"app_id": "impress"}
+  ```
+
+- `g3-list-owned-layout` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
   ```
 
 ## `layout-service_list-presets`
@@ -278,14 +421,25 @@ Seeds the shipped presets if this workspace has never seen them, so a caller nev
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app_id` | string | yes | *(undocumented)* |
+| `app_id` | string | yes | The app/facet whose shipped and user presets to list. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"app_id": "impress"}
+  ```
+
+- `g3-list-owned-preset` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
   ```
 
 ## `layout-service_maximize`
@@ -299,13 +453,24 @@ Show one pane alone in its window. Zoom is a view state, not a mutation of the t
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-zoom-detail` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-maximize","target":{"role":"detail"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_move-tile`
 
@@ -320,15 +485,26 @@ Move a pane (or a whole subtree) next to another, or into its tabs.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `placement` | string | yes | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
-| `tile` | — | yes | *(undocumented)* |
+| `placement` | string | yes | Where to move the tile relative to the target: left, right, above, below, or into-tabs. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
+| `tile` | — | yes | Pane or subtree to move, named by exactly one reference selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-move-navigator` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-move-tile","tile":{"role":"navigator"},"target":{"role":"detail"},"placement":"right"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_redo`
 
@@ -341,14 +517,25 @@ Redo on one ring. Same stacks as `undo`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `stack` | string | yes | *(undocumented)* |
-| `target` | — | no | *(undocumented)* |
+| `stack` | string | yes | Undo ring to redo: `arrangement` or one pane’s `exploration`. |
+| `target` | — | no | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-redo-arrangement` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-redo","stack":"arrangement"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_reset-preset`
 
@@ -363,11 +550,22 @@ Refused for a name the suite does not ship: there would be nothing to restore it
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `name` | string | yes | Saved layout or preset name in this app’s namespace. |
 
-_No examples yet._
+**Examples**
+
+- `g3-reset-shipped` — Tier A:
+
+  ```json
+  {"app_id":"imbib","name":"Triage"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_resize`
 
@@ -382,14 +580,25 @@ They are weights, not fractions: `1 2 3` means the three-column chassis, and the
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `container` | integer | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `container` | integer | yes | Tile ID of the containing split or other container to change. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `shares` | array | yes | *(undocumented)* |
+| `shares` | array | yes | Positive relative weights, one for each split child in tree order. |
 
-_No examples yet._
+**Examples**
+
+- `g3-resize-columns` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-resize","container":4,"shares":[3.0,2.0,1.0]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_resolve-reference`
 
@@ -402,11 +611,22 @@ What a pane reference resolves to right now — "which pane is `right`?" answere
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-resolve-detail` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-resolve-reference","target":{"role":"detail"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"role":"detail"}
+  ```
 
 ## `layout-service_restore`
 
@@ -419,12 +639,23 @@ Undo a maximize. A no-op when nothing is maximized.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
 
-_No examples yet._
+**Examples**
+
+- `g3-restore-zoom` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-restore"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_save-layout`
 
@@ -437,13 +668,24 @@ Save the current arrangement under a name, durably. Re-saving an existing name o
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `purpose` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `name` | string | yes | Saved layout or preset name in this app’s namespace. |
+| `purpose` | — | no | Optional human explanation stored with the named layout or preset. |
 
-_No examples yet._
+**Examples**
+
+- `g3-save-named` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-save-layout","name":"G3 Saved","purpose":"G3 saved arrangement"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_save-preset`
 
@@ -458,14 +700,25 @@ Save the live arrangement AS a preset, durably — a preset of the user's own, o
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `from_live` | boolean | yes | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `purpose` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `from_live` | boolean | yes | Must be true: this preset is captured from the current live arrangement. |
+| `name` | string | yes | Saved layout or preset name in this app’s namespace. |
+| `purpose` | — | no | Optional human explanation stored with the named layout or preset. |
 
-_No examples yet._
+**Examples**
+
+- `g3-save-owned-preset` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-save-preset","name":"G3 Saved Preset","purpose":"G3 reading arrangement","from_live":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_select`
 
@@ -480,15 +733,26 @@ A channel carries one current value PER RECORD KIND, so publishing a manuscript 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `ids` | array | yes | *(undocumented)* |
-| `kind` | string | yes | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `ids` | array | yes | Selected item IDs of that kind; an empty list explicitly clears selection. |
+| `kind` | string | yes | Record kind whose selection is published on the pane’s channel. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-publish-paper` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-select","target":{"role":"list"},"kind":"publication","ids":["5a000000-0000-4000-8000-000000000003"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-channel`
 
@@ -501,14 +765,25 @@ Change the channel a pane publishes its selection on: `1`–`8`, or `follow` for
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `channel` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `channel` | string | yes | Numbered selection channel 1–8, or `follow` where supported. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-publish-on-two` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-channel","target":{"role":"list"},"channel":"2"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-collapsed`
 
@@ -521,14 +796,25 @@ Collapse a pane to no width in its split, or show it again at exactly the share 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `collapsed` | — | no | `true` hides, `false` shows at the remembered share; omit to toggle. |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `collapsed` | — | no | `true` hides, `false` shows at the remembered share; omit to toggle. True hides the pane, false restores its remembered share, absent toggles. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-collapse-detail` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-collapsed","target":{"role":"detail"},"collapsed":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-container-kind`
 
@@ -541,14 +827,25 @@ Retype a container, keeping its children in order: `tabs` | `horizontal` | `vert
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `container` | integer | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `container` | integer | yes | Tile ID of the containing split or other container to change. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `kind` | string | yes | *(undocumented)* |
+| `kind` | string | yes | Record kind whose selection is published on the pane’s channel. |
 
-_No examples yet._
+**Examples**
+
+- `g3-tabs-root` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-container-kind","container":4,"kind":"tabs"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-default-channel`
 
@@ -561,14 +858,25 @@ Set what `follow` means in one window. `follow` itself is refused: a window defa
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `channel` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `channel` | string | yes | Numbered selection channel 1–8, or `follow` where supported. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `window` | — | no | *(undocumented)* |
+| `window` | — | no | Optional window tile ID; absent uses the currently focused window. |
 
-_No examples yet._
+**Examples**
+
+- `g3-follow-four` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-default-channel","channel":"4"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-pane`
 
@@ -581,14 +889,25 @@ Replace a pane's whole spec: query, view kind, parameters, channel, role and vie
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `spec` | — | yes | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `spec` | — | yes | Complete replacement pane spec, including query, view kind and bindings. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-replace-list` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-pane","target":{"role":"list"},"spec":{"query":{"kinds":["figure"]},"view_kind":"plot","role":"preview","channel":{"number":3}}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-query`
 
@@ -601,14 +920,25 @@ Point a pane at a different query. The query algebra is closed (ADR-0031 D2): ki
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `query` | — | yes | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `query` | — | yes | Closed pane query to display (kinds, scope, filters, sort and limit). |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-query-manuscripts` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-query","target":{"role":"list"},"query":{"kinds":["manuscript"],"text":"dark matter"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-role`
 
@@ -621,14 +951,25 @@ Give, move or clear a role — `navigator`, `list`, `detail`, `preview`, `consol
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `role` | — | no | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `role` | — | no | New role for this pane, or null to clear its role. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-reassign-navigator` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-role","target":{"role":"navigator"},"role":"console"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-view-kind`
 
@@ -641,14 +982,25 @@ Re-render a pane with a different view kind: `outline`, `list`, `info`, `pdf`, `
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `target` | — | yes | *(undocumented)* |
-| `view_kind` | string | yes | *(undocumented)* |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
+| `view_kind` | string | yes | Registered view kind to render this pane (for example `pdf`). |
 
-_No examples yet._
+**Examples**
+
+- `g3-render-pdf` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-view-kind","target":{"role":"detail"},"view_kind":"pdf"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_set-window-geometry`
 
@@ -661,14 +1013,25 @@ Replace (or clear, with null) a window's frame. Device-scoped: it persists local
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `geometry` | — | no | *(undocumented)* |
-| `window` | — | no | *(undocumented)* |
+| `geometry` | — | no | Optional window frame; null clears a stored device-local frame. |
+| `window` | — | no | Optional window tile ID; absent uses the currently focused window. |
 
-_No examples yet._
+**Examples**
+
+- `g3-set-frame` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-set-window-geometry","geometry":{"x":12.0,"y":34.0,"w":1440.0,"h":900.0}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_split`
 
@@ -683,16 +1046,27 @@ Split a pane, putting a new pane beside it. Focus follows the new pane.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `after` | boolean | yes | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
-| `direction` | string | yes | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `after` | boolean | yes | Place the newly split pane after the target when true. |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
+| `direction` | string | yes | Split direction: horizontal (side by side) or vertical (stacked). |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `new_pane` | — | no | *(undocumented)* |
-| `target` | — | yes | *(undocumented)* |
+| `new_pane` | — | no | Optional full spec for the new pane; omitted duplicates the target. |
+| `target` | — | yes | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-split-list` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-split","target":{"role":"list"},"direction":"horizontal","after":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_swap`
 
@@ -705,14 +1079,25 @@ Exchange two tiles' positions, each keeping the share of the position it lands i
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `a` | — | yes | *(undocumented)* |
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `b` | — | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `a` | — | yes | First pane reference to swap. |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `b` | — | yes | Second pane reference to swap. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
 
-_No examples yet._
+**Examples**
+
+- `g3-swap-list-detail` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-swap","a":{"role":"list"},"b":{"role":"detail"}}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `layout-service_undo`
 
@@ -727,12 +1112,23 @@ These are two of the three stacks of ADR-0031 D7. The third — the editor sessi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `actor` | — | no | *(undocumented)* |
-| `app_id` | string | yes | *(undocumented)* |
-| `device` | — | no | *(undocumented)* |
+| `actor` | — | no | Optional attribution for the layout or preset change (for example `human`). |
+| `app_id` | string | yes | The owning app/facet whose layouts and presets are scoped separately. |
+| `device` | — | no | Optional stable device identifier; omitted uses the host device. |
 | `expected_revision` | — | no | Refuse with `conflict`, changing nothing, unless the live layout is still at this revision (a result's `revision`). |
-| `stack` | string | yes | *(undocumented)* |
-| `target` | — | no | *(undocumented)* |
+| `stack` | string | yes | Undo ring: arrangement or the target pane’s exploration history. |
+| `target` | — | no | Pane reference by exactly one id, role, direction, or focused selector. |
 
-_No examples yet._
+**Examples**
+
+- `g3-undo-split` — Tier A:
+
+  ```json
+  {"app_id":"g3-layout","device":"g3-undo","stack":"arrangement"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 

@@ -133,6 +133,11 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// every configured source. Make ONE broad call rather than several narrow
     /// ones.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-search-sources",
+        args = r##"{"query":"spectral line formation","sources":"arxiv","limit":5}"##,
+        tier = "b"
+    )]
     async fn search_sources(
         &self,
         query: String,
@@ -149,12 +154,23 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// user's own trail. For newly ARRIVED papers regardless of who put them
     /// there, use the recent-papers query instead.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-recent-activity",
+        args = r##"{"limit":10,"parent_id":null}"##,
+        tier = "b"
+    )]
     async fn recent_activity(&self, limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry>;
 
     /// Download PDFs for the given papers, honouring the user's library-proxy
     /// and source-priority settings. Returns how many were fetched. Slow: it
     /// goes out to publishers and preprint servers.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-download-pdfs",
+        args = r##"{"publication_ids":["{{fixture.publication_id}}"]}"##,
+        expect = r##"1"##,
+        tier = "b"
+    )]
     async fn download_pdfs(&self, publication_ids: Vec<String>) -> u32;
 
     /// Show a manuscript's papers in imbib: a window on the manuscript's own
@@ -166,6 +182,12 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// This is the surface imprint uses for choosing references; imprint no
     /// longer has a paper panel of its own.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-open-manuscript-papers",
+        args = r##"{"manuscript_id":"{{fixture.manuscript_id}}"}"##,
+        expect = r##"{"opened":true}"##,
+        tier = "b"
+    )]
     async fn open_manuscript_papers(&self, manuscript_id: String) -> PapersWindowResult;
 
     /// Ask imbib's sync engine for an immediate push+pull instead of waiting
@@ -177,18 +199,31 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// it reports `accepted: false` with a reason (sync off, not entitled, no
     /// iCloud account, another app holds the lease).
     #[impress_method]
+    #[impress_example(name = "isolated-sync-nudge", args = r##"{}"##, tier = "b")]
     async fn sync_nudge(&self) -> SyncNudgeResult;
 
     /// The CloudKit sync engine's real state: whether it is on, when it last
     /// pushed and pulled, and the last error if any. Use this to diagnose a
     /// refused nudge.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-sync-status",
+        args = r##"{}"##,
+        expect = r##"{"running":true}"##,
+        tier = "b"
+    )]
     async fn sync_status(&self) -> AppStatus;
 
     /// Whether imbib is running, and its version, port and library counts.
     /// Cheap; a good first call when a tool has just reported the app
     /// unavailable.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-status",
+        args = r##"{}"##,
+        expect = r##"{"running":true}"##,
+        tier = "b"
+    )]
     async fn status(&self) -> AppStatus;
 
     /// Recent lines from imbib's in-memory log store — the same feed its
@@ -196,6 +231,11 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// `level` is a comma-separated filter (`info,warning,error`), `category`
     /// narrows to one subsystem (e.g. `backup`, `tags`, `sync`).
     #[impress_method]
+    #[impress_example(
+        name = "isolated-get-logs",
+        args = r##"{"limit":20,"level":"info,warning,error","category":null,"search":null}"##,
+        tier = "b"
+    )]
     async fn get_logs(
         &self,
         limit: u32,
@@ -208,32 +248,74 @@ pub trait ImbibAppService: Send + Sync + 'static {
 
     /// A paper's notes — the user's own prose about it, not the abstract.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-get-notes",
+        args = r##"{"cite_key":"G3Native2026"}"##,
+        expect = r##""Owned native note""##,
+        tier = "b"
+    )]
     async fn get_notes(&self, cite_key: String) -> Option<String>;
 
     /// Replace a paper's notes. Whole-field write: read them first if you mean
     /// to append rather than overwrite.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-update-notes",
+        args = r##"{"cite_key":"G3Native2026","notes":"Revised owned native note"}"##,
+        expect = r##"true"##,
+        tier = "b"
+    )]
     async fn update_notes(&self, cite_key: String, notes: String) -> bool;
 
     /// Delete one annotation from a PDF.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-delete-annotation",
+        args = r##"{"annotation_id":"{{fixture.annotation_id}}"}"##,
+        expect = r##"true"##,
+        tier = "b"
+    )]
     async fn delete_annotation(&self, annotation_id: String) -> bool;
 
     /// Delete one comment.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-delete-comment",
+        args = r##"{"comment_id":"{{fixture.comment_id}}"}"##,
+        expect = r##"true"##,
+        tier = "b"
+    )]
     async fn delete_comment(&self, comment_id: String) -> bool;
 
     /// Delete a collection. The papers survive — a collection is a grouping,
     /// not a container, so removing it never removes what it held.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-delete-collection",
+        args = r##"{"collection_id":"{{fixture.collection_id}}"}"##,
+        expect = r##"true"##,
+        tier = "b"
+    )]
     async fn delete_collection(&self, collection_id: String) -> bool;
 
     /// Delete saved searches by id. Returns how many went.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-delete-smart-searches",
+        args = r##"{"ids":["{{fixture.smart_search_id}}"]}"##,
+        expect = r##"1"##,
+        tier = "b"
+    )]
     async fn delete_smart_searches(&self, ids: Vec<String>) -> u32;
 
     /// Replace an artifact's tags. Whole-set write, like notes.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-tag-artifact",
+        args = r##"{"artifact_id":"{{fixture.artifact_id}}","tags":["g3/native"]}"##,
+        expect = r##"true"##,
+        tier = "b"
+    )]
     async fn tag_artifact(&self, artifact_id: String, tags: Vec<String>) -> bool;
 
     /// Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching
@@ -241,11 +323,22 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// yet. Unlike the find-by-* searches, which only look locally, this one
     /// can go and get it.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-resolve-identifier",
+        args = r##"{"identifier":"10.1038/nphys1170","download_pdfs":false}"##,
+        tier = "b"
+    )]
     async fn resolve_identifier(&self, identifier: String, download_pdfs: bool) -> Option<String>;
 
     /// Add existing papers to another library. Papers can sit in several
     /// libraries at once; this adds rather than moves.
     #[impress_method]
+    #[impress_example(
+        name = "isolated-add-to-library",
+        args = r##"{"publication_ids":["{{fixture.publication_id}}"],"library_id":"{{fixture.destination_library_id}}"}"##,
+        expect = r##"1"##,
+        tier = "b"
+    )]
     async fn add_to_library(&self, publication_ids: Vec<String>, library_id: String) -> u32;
 }
 
@@ -392,27 +485,84 @@ impress_service_impl! {
     impl = DefaultImbibAppService,
     instance = crate::backend::app_service_instance,
     methods = [
-        search_sources(query: String, sources: Option<String>, limit: u32) -> Vec<ExternalPaper>,
-        recent_activity(limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry>,
-        download_pdfs(publication_ids: Vec<String>) -> u32,
-        open_manuscript_papers(manuscript_id: String) -> PapersWindowResult,
+        search_sources(
+            /// Search text sent to the selected academic sources.
+            query: String,
+            /// Comma-separated source IDs; omit to use configured sources.
+            sources: Option<String>,
+            /// Maximum number of results to return.
+            limit: u32
+        ) -> Vec<ExternalPaper>,
+        recent_activity(
+            /// Maximum number of results to return.
+            limit: u32,
+            /// Library or collection UUID to scope activity; omit for all libraries.
+            parent_id: Option<String>
+        ) -> Vec<ActivityEntry>,
+        download_pdfs(
+            /// UUIDs of the saved bibliography entries to operate on.
+            publication_ids: Vec<String>
+        ) -> u32,
+        open_manuscript_papers(
+            /// UUID of the manuscript whose reading collection should open.
+            manuscript_id: String
+        ) -> PapersWindowResult,
         sync_nudge() -> SyncNudgeResult,
         sync_status() -> AppStatus,
         status() -> AppStatus,
         get_logs(
+            /// Maximum number of results to return.
             limit: u32,
+            /// Comma-separated log levels; omit to include every level.
             level: Option<String>,
+            /// Exact log category to filter, or omit for all categories.
             category: Option<String>,
+            /// Text to match in log messages, or omit for no text filter.
             search: Option<String>
         ) -> Vec<LogEntry>,
-        get_notes(cite_key: String) -> Option<String>,
-        update_notes(cite_key: String, #[impress_private] notes: String) -> bool,
-        delete_annotation(annotation_id: String) -> bool,
-        delete_comment(comment_id: String) -> bool,
-        delete_collection(collection_id: String) -> bool,
-        delete_smart_searches(ids: Vec<String>) -> u32,
-        tag_artifact(artifact_id: String, tags: Vec<String>) -> bool,
-        resolve_identifier(identifier: String, download_pdfs: bool) -> Option<String>,
-        add_to_library(publication_ids: Vec<String>, library_id: String) -> u32,
+        get_notes(
+            /// Unique bibliography citation key of the paper.
+            cite_key: String
+        ) -> Option<String>,
+        update_notes(
+            /// Unique bibliography citation key of the paper.
+            cite_key: String,
+            /// Complete replacement Markdown note text.
+            #[impress_private] notes: String
+        ) -> bool,
+        delete_annotation(
+            /// UUID of the annotation to delete.
+            annotation_id: String
+        ) -> bool,
+        delete_comment(
+            /// UUID of the comment to delete.
+            comment_id: String
+        ) -> bool,
+        delete_collection(
+            /// UUID of the collection to delete; papers remain saved.
+            collection_id: String
+        ) -> bool,
+        delete_smart_searches(
+            /// UUIDs of the smart searches to delete.
+            ids: Vec<String>
+        ) -> u32,
+        tag_artifact(
+            /// UUID of the artifact to tag.
+            artifact_id: String,
+            /// Hierarchical tag paths to add.
+            tags: Vec<String>
+        ) -> bool,
+        resolve_identifier(
+            /// DOI, arXiv identifier, or another supported source identifier.
+            identifier: String,
+            /// Whether to fetch the PDF after importing the identified paper.
+            download_pdfs: bool
+        ) -> Option<String>,
+        add_to_library(
+            /// UUIDs of the saved bibliography entries to operate on.
+            publication_ids: Vec<String>,
+            /// UUID of the destination library.
+            library_id: String
+        ) -> u32,
     ],
 }

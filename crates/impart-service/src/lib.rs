@@ -73,29 +73,61 @@ pub struct AppStatus {
 
 #[impress_service]
 pub trait ImpartService: Send + Sync + 'static {
+    // G3 Tier B examples require an isolated running impart host with a
+    // scratch Core Data conversation 5b...0011 titled "G3 research fixture".
+    // Reset it before each example; decision provenance is process-local.
     /// Whether impart is running, and its version and port.
     #[impress_method]
+    #[impress_example(
+        name = "isolated_app_status",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"{"running":true}"#
+    )]
     async fn status(&self) -> AppStatus;
 
     /// Recent lines from impart's in-memory log store.
     #[impress_method]
+    #[impress_example(
+        name = "recent_research_logs",
+        tier = "b",
+        args = r#"{"limit":10,"level":"info,warning,error"}"#
+    )]
     async fn get_logs(&self, limit: u32, level: Option<String>) -> Vec<LogEntry>;
 
     /// Research conversations, most recently updated first. START HERE: every
     /// other conversation tool takes an id from this list.
     #[impress_method]
+    #[impress_example(
+        name = "recent_research_threads",
+        tier = "b",
+        args = r#"{"limit":20,"include_archived":false}"#
+    )]
     async fn list_conversations(
         &self,
         limit: u32,
         include_archived: bool,
     ) -> Vec<ConversationRecord>;
 
-    /// One conversation with its messages.
+    /// One conversation's metadata and message count. Read message details
+    /// from the app's conversation view; this DTO does not embed messages.
     #[impress_method]
+    #[impress_example(
+        name = "read_fixture_thread",
+        tier = "b",
+        args = r#"{"conversation_id":"5b000000-0000-4000-8000-000000000011"}"#,
+        expect = r#"{"id":"5b000000-0000-4000-8000-000000000011","title":"G3 research fixture"}"#
+    )]
     async fn get_conversation(&self, conversation_id: String) -> Option<ConversationRecord>;
 
     /// Start a new research conversation.
     #[impress_method]
+    #[impress_example(
+        name = "start_research_thread",
+        tier = "b",
+        args = r#"{"title":"G3 alternative hypothesis","summary":"Compare two interpretations of the fixture evidence."}"#,
+        expect = r#"{"title":"G3 alternative hypothesis","summary":"Compare two interpretations of the fixture evidence."}"#
+    )]
     async fn create_conversation(
         &self,
         title: String,
@@ -104,6 +136,12 @@ pub trait ImpartService: Send + Sync + 'static {
 
     /// Edit a conversation's title or summary.
     #[impress_method]
+    #[impress_example(
+        name = "summarize_fixture_thread",
+        tier = "b",
+        args = r#"{"conversation_id":"5b000000-0000-4000-8000-000000000011","summary":"The fixture evidence supports a revision."}"#,
+        expect = "true"
+    )]
     async fn update_conversation(
         &self,
         conversation_id: String,
@@ -114,6 +152,12 @@ pub trait ImpartService: Send + Sync + 'static {
     /// Append a message to a conversation. `role` is the speaker
     /// (`user`, `assistant`, a collaborator's name).
     #[impress_method]
+    #[impress_example(
+        name = "append_fixture_observation",
+        tier = "b",
+        args = r#"{"conversation_id":"5b000000-0000-4000-8000-000000000011","content":"The fixture result needs a second check.","role":"user"}"#,
+        expect = r#"{"role":"user","content":"The fixture result needs a second check."}"#
+    )]
     async fn add_message(
         &self,
         conversation_id: String,
@@ -121,11 +165,16 @@ pub trait ImpartService: Send + Sync + 'static {
         role: Option<String>,
     ) -> Option<MessageRecord>;
 
-    /// Record a DECISION reached in a conversation, separately from the
-    /// messages that led to it. Do this whenever the discussion settles
-    /// something: a decision left inside a message is invisible to the tools
-    /// that later assemble an outline or a methods section from the thread.
+    /// Record a DECISION reached in a conversation in the running app's
+    /// process-local provenance. This is separate from the durable messages
+    /// and does not survive an app restart.
     #[impress_method]
+    #[impress_example(
+        name = "record_fixture_decision",
+        tier = "b",
+        args = r#"{"conversation_id":"5b000000-0000-4000-8000-000000000011","decision":"Retain the control group.","rationale":"It distinguishes the competing interpretations."}"#,
+        expect = "true"
+    )]
     async fn record_decision(
         &self,
         conversation_id: String,
@@ -136,6 +185,12 @@ pub trait ImpartService: Send + Sync + 'static {
     /// Record an artifact a conversation produced — a figure, a dataset, a
     /// draft. Links the thinking to the thing it made.
     #[impress_method]
+    #[impress_example(
+        name = "link_fixture_paper",
+        tier = "b",
+        args = r#"{"conversation_id":"5b000000-0000-4000-8000-000000000011","title":"Fixture paper","kind":"paper","reference":"impress://imbib/papers/g3-fixture"}"#,
+        expect = "true"
+    )]
     async fn record_artifact(
         &self,
         conversation_id: String,
@@ -144,9 +199,16 @@ pub trait ImpartService: Send + Sync + 'static {
         reference: Option<String>,
     ) -> bool;
 
-    /// Branch a conversation from a point, to explore an alternative without
-    /// losing the original thread.
+    /// Branch a conversation to explore an alternative without losing the
+    /// original thread. The current verb links the parent conversation, not
+    /// a particular message or branch point.
     #[impress_method]
+    #[impress_example(
+        name = "branch_fixture_thread",
+        tier = "b",
+        args = r#"{"conversation_id":"5b000000-0000-4000-8000-000000000011","title":"G3 counter-hypothesis"}"#,
+        expect = r#"{"title":"G3 counter-hypothesis"}"#
+    )]
     async fn branch_conversation(
         &self,
         conversation_id: String,
@@ -295,31 +357,67 @@ impress_service_impl! {
     instance = service_instance,
     methods = [
         status() -> AppStatus,
-        get_logs(limit: u32, level: Option<String>) -> Vec<LogEntry>,
-        list_conversations(limit: u32, include_archived: bool) -> Vec<ConversationRecord>,
-        get_conversation(conversation_id: String) -> Option<ConversationRecord>,
-        create_conversation(title: String, summary: Option<String>) -> Option<ConversationRecord>,
+        get_logs(
+            /// Maximum recent log entries to return.
+            limit: u32,
+            /// Comma-separated log levels; omit for every level.
+            level: Option<String>
+        ) -> Vec<LogEntry>,
+        list_conversations(
+            /// Maximum conversations to return, capped at 1,000.
+            limit: u32,
+            /// Include archived research conversations when true.
+            include_archived: bool
+        ) -> Vec<ConversationRecord>,
+        get_conversation(
+            /// UUID of the research conversation to read.
+            conversation_id: String
+        ) -> Option<ConversationRecord>,
+        create_conversation(
+            /// Title for the new research conversation.
+            title: String,
+            /// Optional opening summary of its research question.
+            summary: Option<String>
+        ) -> Option<ConversationRecord>,
         update_conversation(
+            /// UUID of the conversation to edit.
             conversation_id: String,
+            /// Replacement title; omit to retain the current title.
             title: Option<String>,
+            /// Replacement summary; omit to retain the current summary.
             summary: Option<String>
         ) -> bool,
         add_message(
+            /// UUID of the conversation receiving the message.
             conversation_id: String,
+            /// Message Markdown to append; kept private in call logs.
             #[impress_private] content: String,
+            /// Speaker role or collaborator name; omit for `user`.
             role: Option<String>
         ) -> Option<MessageRecord>,
         record_decision(
+            /// UUID of the conversation in which the decision was reached.
             conversation_id: String,
+            /// Decision statement retained as process-local provenance.
             decision: String,
+            /// Optional reasoning for this decision.
             rationale: Option<String>
         ) -> bool,
         record_artifact(
+            /// UUID of the conversation that produced or referenced the artifact.
             conversation_id: String,
+            /// Human-readable artifact title.
             title: String,
+            /// Artifact type matching the `impress://` URI, such as `paper`.
             kind: Option<String>,
+            /// `impress://` artifact URI to attach to the conversation.
             reference: Option<String>
         ) -> bool,
-        branch_conversation(conversation_id: String, title: String) -> Option<ConversationRecord>,
+        branch_conversation(
+            /// UUID of the parent conversation to branch.
+            conversation_id: String,
+            /// Title for the new alternative research thread.
+            title: String
+        ) -> Option<ConversationRecord>,
     ],
 }

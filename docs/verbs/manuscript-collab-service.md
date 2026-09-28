@@ -13,56 +13,100 @@ Commit `body` to the manuscript's document. `base_heads` are the heads you last 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `author` | string | yes | *(undocumented)* |
-| `base_heads` | array | yes | *(undocumented)* |
-| `body` | string | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `author` | string | yes | Change attribution, such as an agent id; blank becomes `agent`. |
+| `base_heads` | array | yes | Heads last read by this writer; empty means diff against the current body. |
+| `body` | string | yes | The writer's complete proposed body; kept private in call logs. |
+| `id` | string | yes | Lowercase UUID of a store-owned manuscript; watched-folder manuscripts refuse commits. |
 
-_No examples yet._
+**Examples**
+
+- `commit_fixture_body` — Tier A:
+
+  ```json
+  {"id":"57000000-0000-4000-8000-000000000022","base_heads":[],"body":"A short fixture manuscript, revised.","author":"system:g3-example"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"57000000-0000-4000-8000-000000000022","body":"A short fixture manuscript, revised.","merged_external":false}
+  ```
 
 ## `manuscript-collab-service_manuscript-change-history`
 
-The body's per-change history, oldest first, plus the current heads.
+The body's per-change history, oldest first, plus the current heads. A never-touched manuscript is first migrated to a persisted genesis.
 
-- **safety**: `read_only`, idempotent
+- **safety**: `mutating`
 - **reads**: "manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"
-- **writes**: —
+- **writes**: "manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | Lowercase UUID of the manuscript whose changes are requested. |
 
-_No examples yet._
+**Examples**
+
+- `fixture_genesis` — Tier A:
+
+  ```json
+  {"id":"57000000-0000-4000-8000-000000000023"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"57000000-0000-4000-8000-000000000023","changes":[{"message":"genesis"}]}
+  ```
 
 ## `manuscript-collab-service_manuscript-heads`
 
-The document's current heads — what to send as `base_heads` with your first commit. Migrates a never-touched manuscript (deterministic genesis from its current body).
+The document's current heads — what to send as `base_heads` with your first commit. Migrates a never-touched manuscript (deterministic genesis from its current body), so this can persist a change and materialize the manuscript even though it returns heads.
 
-- **safety**: `read_only`, idempotent
+- **safety**: `mutating`
 - **reads**: "manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"
-- **writes**: —
+- **writes**: "manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | *(undocumented)* |
+| `id` | string | yes | Lowercase UUID of the stored manuscript whose current heads are needed. |
 
-_No examples yet._
+**Examples**
+
+- `fixture_heads` — Tier A:
+
+  ```json
+  {"id":"57000000-0000-4000-8000-000000000021"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"57000000-0000-4000-8000-000000000021"}
+  ```
 
 ## `manuscript-collab-service_manuscript-text-at`
 
-The body as it read at `heads` (any hashes from the history) — time travel without changing anything.
+The body as it read at `heads` (any hashes from the history) — time travel. A never-touched manuscript is first migrated to a persisted genesis, so the initial read may change store state.
 
-- **safety**: `read_only`, idempotent
+- **safety**: `mutating`
 - **reads**: "manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"
-- **writes**: —
+- **writes**: "manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `heads` | array | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `heads` | array | yes | Change hashes from `manuscript-change-history`; empty selects before the first change. |
+| `id` | string | yes | Lowercase UUID of the manuscript to read; first access may persist its genesis. |
 
-_No examples yet._
+**Examples**
+
+- `fixture_before_first_change` — Tier A:
+
+  ```json
+  {"id":"57000000-0000-4000-8000-000000000024","heads":[]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"id":"57000000-0000-4000-8000-000000000024","body":""}
+  ```
 

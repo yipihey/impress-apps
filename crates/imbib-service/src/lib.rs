@@ -104,19 +104,33 @@ impress_service_impl! {
     instance = || DefaultImbibTextService,
     methods = [
         /// Decode LaTeX-encoded text into Unicode.
-        decode_latex(input: String) -> String,
+        decode_latex(
+            /// LaTeX-encoded text whose accents and escaped symbols should become Unicode.
+            input: String) -> String,
         /// Expand a BibTeX journal-name macro.
-        expand_journal_macro(value: String) -> String,
+        expand_journal_macro(
+            /// BibTeX journal macro, with or without its leading backslash.
+            value: String) -> String,
         /// Generate a BibTeX cite key.
         generate_cite_key(
+
+            /// Optional author text from which to derive the surname portion of the cite key.
             author: Option<String>,
+
+            /// Optional publication year for the cite key.
             year: Option<String>,
+
+            /// Optional publication title from which to choose a significant title word.
             title: Option<String>
         ) -> String,
         /// Normalize a single tag segment.
-        normalize_tag_segment(segment: String) -> String,
+        normalize_tag_segment(
+            /// One human-readable tag component to normalize to a slug.
+            segment: String) -> String,
         /// Normalize a hierarchical tag path.
-        normalize_tag_path(path: String) -> String,
+        normalize_tag_path(
+            /// Slash-separated tag path whose individual components should be normalized.
+            path: String) -> String,
     ],
 }
 

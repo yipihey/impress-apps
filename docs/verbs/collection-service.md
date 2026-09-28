@@ -13,13 +13,13 @@ File items into a collection. Idempotent per item; returns how many were applied
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `collection_id` | string | yes | *(undocumented)* |
-| `item_ids` | array | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing the target collection. |
+| `collection_id` | string | yes | UUID of the collection receiving members. |
+| `item_ids` | array | yes | UUIDs of existing items to file into the collection. |
 
 **Examples**
 
-- `missing-collection`:
+- `missing-collection` — Tier A:
 
   ```json
   {"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}
@@ -28,6 +28,17 @@ File items into a collection. Idempotent per item; returns how many were applied
 
   ```json
   {"ok":false}
+  ```
+
+- `file-manuscript` — Tier A:
+
+  ```json
+  {"binding":"generic","collection_id":"59000000-0000-4000-8000-000000000007","item_ids":["59000000-0000-4000-8000-000000000020"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"applied":1}
   ```
 
 ## `collection-service_create`
@@ -43,17 +54,22 @@ Create a collection under `parent_id` (null = a new root).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `kind_scope` | — | no | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
-| `parent_id` | — | no | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy to create within. |
+| `kind_scope` | — | no | Record kind for a generic collection; null defaults to `any`. |
+| `name` | string | yes | Visible name of the new collection. |
+| `parent_id` | — | no | Parent collection UUID, or null for a root collection. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
-  {"binding": "generic", "name": "effects example", "parent_id": null, "kind_scope": "any"}
+  {"binding": "generic", "name": "G3 research notes", "parent_id": null, "kind_scope": "any"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"collection":{"name":"G3 research notes","kind_scope":"any","parent_id":null}}
   ```
 
 ## `collection-service_delete`
@@ -67,12 +83,12 @@ Delete a collection. Members are NEVER deleted — only the membership goes away
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing the row. |
+| `id` | string | yes | UUID of the collection to delete; members survive. |
 
 **Examples**
 
-- `missing-collection`:
+- `missing-collection` — Tier A:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}
@@ -81,6 +97,17 @@ Delete a collection. Members are NEVER deleted — only the membership goes away
 
   ```json
   {"ok":false}
+  ```
+
+- `delete-empty-folder` — Tier A:
+
+  ```json
+  {"binding":"generic","id":"59000000-0000-4000-8000-000000000006"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"applied":0}
   ```
 
 ## `collection-service_member-counts`
@@ -94,15 +121,26 @@ Member count per collection, aligned index-for-index with `collection_ids`. Unkn
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `collection_ids` | array | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing the requested rows. |
+| `collection_ids` | array | yes | Collection UUIDs; counts return in the same order. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"binding": "generic", "collection_ids": []}
+  ```
+
+- `one-member` — Tier A:
+
+  ```json
+  {"binding":"generic","collection_ids":["59000000-0000-4000-8000-000000000009"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"counts":[1]}
   ```
 
 ## `collection-service_migrate`
@@ -122,9 +160,20 @@ This is a deliberate, human-invoked operation on data users live in.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `dry_run` | boolean | yes | *(undocumented)* |
+| `dry_run` | boolean | yes | True to report what would change without writing anything. |
 
-_No examples yet._
+**Examples**
+
+- `preview-convergence` — Tier A:
+
+  ```json
+  {"dry_run":true}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"dry_run":true,"membership_edges_untouched":true}
+  ```
 
 ## `collection-service_migration-status`
 
@@ -139,7 +188,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {}
@@ -156,13 +205,13 @@ Remove items from a collection. The items themselves are untouched; items filed 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `collection_id` | string | yes | *(undocumented)* |
-| `item_ids` | array | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing the target collection. |
+| `collection_id` | string | yes | UUID of the collection losing members. |
+| `item_ids` | array | yes | UUIDs of items to unfile; the items themselves survive. |
 
 **Examples**
 
-- `missing-collection`:
+- `missing-collection` — Tier A:
 
   ```json
   {"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}
@@ -171,6 +220,17 @@ Remove items from a collection. The items themselves are untouched; items filed 
 
   ```json
   {"ok":false}
+  ```
+
+- `unfile-manuscript` — Tier A:
+
+  ```json
+  {"binding":"generic","collection_id":"59000000-0000-4000-8000-000000000008","item_ids":["59000000-0000-4000-8000-000000000021"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"applied":1}
   ```
 
 ## `collection-service_rename`
@@ -184,13 +244,13 @@ Rename a collection.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `name` | string | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing the row. |
+| `id` | string | yes | UUID of the collection to rename. |
+| `name` | string | yes | New visible collection name. |
 
 **Examples**
 
-- `missing-collection`:
+- `missing-collection` — Tier A:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}
@@ -199,6 +259,17 @@ Rename a collection.
 
   ```json
   {"ok":false}
+  ```
+
+- `rename-folder` — Tier A:
+
+  ```json
+  {"binding":"generic","id":"59000000-0000-4000-8000-000000000002","name":"Renamed G3 notes"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000002","name":"Renamed G3 notes"}}
   ```
 
 ## `collection-service_reorder`
@@ -212,13 +283,13 @@ Set a collection's position among its siblings. Lower sorts first.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `sort_order` | integer | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing the row. |
+| `id` | string | yes | UUID of the collection to reposition. |
+| `sort_order` | integer | yes | Numeric sibling position; lower values sort first. |
 
 **Examples**
 
-- `missing-collection`:
+- `missing-collection` — Tier A:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}
@@ -227,6 +298,17 @@ Set a collection's position among its siblings. Lower sorts first.
 
   ```json
   {"ok":false}
+  ```
+
+- `position-folder` — Tier A:
+
+  ```json
+  {"binding":"generic","id":"59000000-0000-4000-8000-000000000005","sort_order":7}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000005","sort_order":7}}
   ```
 
 ## `collection-service_reparent`
@@ -242,13 +324,13 @@ Refuses self-parenting and any move under one of the collection's own descendant
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
-| `id` | string | yes | *(undocumented)* |
-| `new_parent_id` | — | no | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy containing both rows. |
+| `id` | string | yes | UUID of the collection to move. |
+| `new_parent_id` | — | no | New parent collection UUID, or null to make it a root. |
 
 **Examples**
 
-- `missing-collection`:
+- `missing-collection` — Tier A:
 
   ```json
   {"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}
@@ -257,6 +339,17 @@ Refuses self-parenting and any move under one of the collection's own descendant
 
   ```json
   {"ok":false}
+  ```
+
+- `nest-folder` — Tier A:
+
+  ```json
+  {"binding":"generic","id":"59000000-0000-4000-8000-000000000003","new_parent_id":"59000000-0000-4000-8000-000000000004"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000003","parent_id":"59000000-0000-4000-8000-000000000004"}}
   ```
 
 ## `collection-service_rollback`
@@ -272,7 +365,18 @@ A REWIND, not a merge. The payload restored is the one the migration froze, so r
 
 Takes no arguments.
 
-_No examples yet._
+**Examples**
+
+- `restore-legacy-folders` — Tier A:
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `collection-service_tree`
 
@@ -281,19 +385,30 @@ Every collection in one hierarchy, flat, ordered by `sort_order`.
 `binding` is `imbib` | `manuscript` | `figure` | `generic`. Build the tree from each row's `parent_id` (null = root). Start here: every other method takes ids this returns.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "collection", "imbib/collection", "manuscript-collection", "figure-collection"
+- **reads**: "collection", "imbib/collection", "manuscript-collection", "figure-collection", any("envelope membership counts can query children of any record kind")
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `binding` | string | yes | *(undocumented)* |
+| `binding` | string | yes | Collection hierarchy: `imbib`, `manuscript`, `figure`, or `generic`. |
 
 **Examples**
 
-- `default`:
+- `default` — Tier A:
 
   ```json
   {"binding": "generic"}
+  ```
+
+- `figure-folder` — Tier A:
+
+  ```json
+  {"binding":"figure"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"collections":[{"id":"59000000-0000-4000-8000-000000000001","name":"G3 figures","parent_id":null}]}
   ```
 

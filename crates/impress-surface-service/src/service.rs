@@ -87,6 +87,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// literal arguments fit that verb's input schema. `ok` is false (code
     /// `invalid-spec`) when any problem is an error; warnings leave it true.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-validate",
+        args = r#"{"spec":{"surface":"1.0","name":"G3 surface","state":{"message":"ready"},"root":{"column":[{"text":"{{state.message}}","id":"message"},{"button":{"label":"Set message","on_click":[{"set":{"path":"state.message","value":"done"}},{"emit":{"name":"changed","payload":{"message":"{{state.message}}"}}}]},"id":"set-message"}]}}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn surface_validate(&self, spec: SpecArg) -> SurfaceValidateResult;
 
     /// Store a spec as a new `impress/ui/surface@1.0.0` row, after
@@ -96,6 +101,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// the row's label (the spec's own `name` is untouched); `tags` are
     /// free-text labels shown by `surface_list`.
     #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0"]))]
+    #[impress_example(
+        name = "g3-create",
+        args = r#"{"spec":{"surface":"1.0","name":"G3 surface","state":{"message":"ready"},"root":{"column":[{"text":"{{state.message}}","id":"message"},{"button":{"label":"Set message","on_click":[{"set":{"path":"state.message","value":"done"}},{"emit":{"name":"changed","payload":{"message":"{{state.message}}"}}}]},"id":"set-message"}]}}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn surface_create(
         &self,
         spec: SpecArg,
@@ -108,6 +118,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// the `revision` you last read as `expected_revision` to be refused
     /// (`conflict`) instead of overwriting a change someone else made since.
     #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0"]))]
+    #[impress_example(
+        name = "g3-update",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000003","spec":{"surface":"1.0","name":"G3 revised surface","state":{"message":"ready"},"root":{"column":[{"text":"{{state.message}}","id":"message"},{"button":{"label":"Set message","on_click":[{"set":{"path":"state.message","value":"done"}},{"emit":{"name":"changed","payload":{"message":"{{state.message}}"}}}]},"id":"set-message"}]}},"name":"G3 revised surface","expected_revision":1}"#,
+        expect = r#"{"ok":true,"revision":2}"#
+    )]
     async fn surface_update(
         &self,
         id: String,
@@ -118,6 +133,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 
     /// One surface row, spec included.
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0"]))]
+    #[impress_example(
+        name = "g3-get",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"name":"G3 surface","revision":1}"#
+    )]
     async fn surface_get(&self, id: String) -> SurfaceResult;
 
     /// Every stored surface, oldest first, without their specs (see
@@ -127,7 +147,12 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     async fn surface_list(&self) -> SurfaceListResult;
 
     /// Delete a surface and every state/event row that belongs to it.
-    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0"]))]
+    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/surface-event@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface@1.0.0"], writes = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0"]))]
+    #[impress_example(
+        name = "g3-delete",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000005"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn surface_delete(&self, id: String) -> SurfaceDeleteResult;
 
     /// Put a surface in a pane of `app_id`'s window on `device` (this device
@@ -136,7 +161,12 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// new pane beside the focused one). Composes ordinary `layout-service`
     /// verbs — a surface pane is not a special case of the layout tree
     /// (ADR-0033 D1).
-    #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface-state@1.0.0", "impress/ui/surface@1.0.0", "impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "g3-show",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000006","target":{"role":"detail"},"app_id":"impress","device":"g3-surface-show"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn surface_show(
         &self,
         id: String,
@@ -151,6 +181,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// binds the surface's declared params for this call; without it they
     /// come from the pane that shows the surface.
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", any("evaluates the surface's verb sources")]))]
+    #[impress_example(
+        name = "g3-render",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000007","host":"g3-surface-examples"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn surface_render(
         &self,
         id: String,
@@ -161,12 +196,22 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// The working state of one `(surface, host)` instance — the spec's own
     /// initial `state` block if nothing has been dispatched to it yet.
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0"]))]
+    #[impress_example(
+        name = "g3-state-get",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000008","host":"g3-surface-examples"}"#,
+        expect = r#"{"ok":true,"state":{"message":"ready"}}"#
+    )]
     async fn surface_state_get(&self, id: String, host: Option<String>) -> SurfaceStateResult;
 
     /// Overwrite the working state of one `(surface, host)` instance
     /// directly (bypassing `reduce` — for seeding a surface's state, not
     /// for an ordinary field edit, which goes through `surface_dispatch`).
     #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0"], writes = ["impress/ui/surface-state@1.0.0"]))]
+    #[impress_example(
+        name = "g3-state-set",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000009","host":"g3-surface-examples","state":{"message":"revised"}}"#,
+        expect = r#"{"ok":true,"state":{"message":"revised"}}"#
+    )]
     async fn surface_state_set(
         &self,
         id: String,
@@ -179,6 +224,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// as the agent. `ok` only when every effect happened. `params` as for
     /// `surface_render`.
     #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0", any("evaluates the surface's verb sources")], writes = ["impress/ui/surface-state@1.0.0", "impress/ui/surface-event@1.0.0", any("runs the surface's actions")]))]
+    #[impress_example(
+        name = "g3-dispatch",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000010","host":"g3-surface-examples","event":{"widget":"set-message","kind":"click","value":null}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn surface_dispatch(
         &self,
         id: String,
@@ -190,6 +240,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// A page of `(surface, host)`'s emitted events with `seq > after_seq`
     /// (0, every event still in the ring, when absent).
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0"]))]
+    #[impress_example(
+        name = "g3-events",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000011","host":"g3-surface-examples","after_seq":0}"#,
+        expect = r#"{"ok":true,"events":[{"name":"changed","payload":{"message":"seeded"}}]}"#
+    )]
     async fn surface_events(
         &self,
         id: String,
@@ -202,6 +257,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// `timed_out: true` and no events — the primitive the five-verb loop
     /// calls "wait" (ADR-0033 D5/D6).
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0"]))]
+    #[impress_example(
+        name = "g3-wait",
+        args = r#"{"id":"66000000-0000-4000-8000-000000000012","host":"g3-surface-examples","after_seq":0,"timeout_ms":100}"#,
+        expect = r#"{"ok":true,"events":[{"name":"changed","payload":{"message":"seeded"}}],"timed_out":false}"#
+    )]
     async fn surface_wait(
         &self,
         id: String,
@@ -1184,18 +1244,27 @@ impress_service_impl! {
             tags: Option<Vec<String>>
         ) -> SurfaceResult,
         surface_update(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// The new spec, as JSON. Validated first.
             spec: SpecArg,
+            /// Replacement row label; omit to keep the existing label.
             name: Option<String>,
             /// The `revision` you last read; refused with `conflict` if the
             /// row moved since.
             expected_revision: Option<u64>
         ) -> SurfaceResult,
-        surface_get(id: String) -> SurfaceResult,
+        surface_get(
+            /// UUID of the stored surface row returned by surface-create or surface-list.
+            id: String
+        ) -> SurfaceResult,
         surface_list() -> SurfaceListResult,
-        surface_delete(id: String) -> SurfaceDeleteResult,
+        surface_delete(
+            /// UUID of the stored surface to delete together with its working state and events.
+            id: String
+        ) -> SurfaceDeleteResult,
         surface_show(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// Exactly one of {"tile": N}, {"role": "detail"}, or
             /// {"split": {"direction": "horizontal"|"vertical"}}.
@@ -1207,6 +1276,7 @@ impress_service_impl! {
             device: Option<String>
         ) -> SurfaceShowResult,
         surface_render(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// The state instance; this device's (the app's panes') when
             /// absent.
@@ -1215,33 +1285,47 @@ impress_service_impl! {
             /// id each); from the showing pane when absent.
             params: Option<ParamsArg>
         ) -> SurfaceRenderResult,
-        surface_state_get(id: String, host: Option<String>) -> SurfaceStateResult,
+        surface_state_get(
+            /// UUID of the stored surface whose working state to read.
+            id: String,
+            /// State instance identifier; defaults to this device.
+            host: Option<String>
+        ) -> SurfaceStateResult,
         surface_state_set(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// The whole new state, a JSON object.
             state: Value,
+            /// State instance identifier; defaults to this device.
             host: Option<String>
         ) -> SurfaceStateResult,
         surface_dispatch(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// {"widget": id, "kind": "change"|"click"|"select"|"submit",
             /// "value": json}.
             event: Event,
+            /// State instance identifier; defaults to this device.
             host: Option<String>,
+            /// Surface parameter bindings by name; defaults to those of the showing pane.
             params: Option<ParamsArg>
         ) -> SurfaceDispatchResult,
         surface_events(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// Return events with a larger `seq`; 0 (all) when absent.
             after_seq: Option<u64>,
+            /// State instance identifier; defaults to this device.
             host: Option<String>
         ) -> SurfaceEventsResult,
         surface_wait(
+            /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
             /// Wait for an event with a larger `seq`; 0 when absent.
             after_seq: Option<u64>,
             /// At most 55000.
             timeout_ms: u64,
+            /// State instance identifier; defaults to this device.
             host: Option<String>
         ) -> SurfaceWaitResult,
         surface_examples() -> SurfaceExamplesResult,

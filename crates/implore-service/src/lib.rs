@@ -268,32 +268,62 @@ pub struct AppStatus {
 }
 
 #[impress_service]
+/// Tier B examples that name datasets or figures require IDs from an isolated
+/// running implore host (`{{state.dataset_id}}`, `{{state.figure_id}}`). The
+/// default backend reports that the host is unavailable.
 pub trait ImploreService: Send + Sync + 'static {
     /// Whether implore is running, plus its version, port and how many
     /// datasets are open.
     #[impress_method]
+    #[impress_example(
+        name = "host-status",
+        tier = "b",
+        args = r#"{}"#,
+        expect = r#"{"running":true}"#
+    )]
     async fn status(&self) -> AppStatus;
 
     /// Recent lines from implore's in-memory log store.
     #[impress_method]
+    #[impress_example(
+        name = "host-log-tail",
+        tier = "b",
+        args = r#"{"limit":20,"level":"warning"}"#
+    )]
     async fn get_logs(&self, limit: u32, level: Option<String>) -> Vec<LogEntry>;
 
     /// Datasets currently open in implore, with row and column counts. START
     /// HERE for any plotting request: figures are created against a dataset id.
     #[impress_method]
+    #[impress_example(name = "host-datasets", tier = "b", args = r#"{}"#)]
     async fn list_datasets(&self) -> Vec<DatasetRecord>;
 
     /// One dataset in detail, including per-column statistics where implore has
     /// computed them. Use it to pick sensible axes before creating a figure.
     #[impress_method]
+    #[impress_example(
+        name = "host-dataset-detail",
+        tier = "b",
+        args = r#"{"dataset_id":"{{state.dataset_id}}"}"#
+    )]
     async fn get_dataset(&self, dataset_id: String) -> Option<DatasetRecord>;
 
     /// Figures in implore, optionally narrowed to one dataset.
     #[impress_method]
+    #[impress_example(
+        name = "host-dataset-figures",
+        tier = "b",
+        args = r#"{"dataset_id":"{{state.dataset_id}}"}"#
+    )]
     async fn list_figures(&self, dataset_id: Option<String>) -> Vec<FigureRecord>;
 
     /// One figure's definition.
     #[impress_method]
+    #[impress_example(
+        name = "host-figure-detail",
+        tier = "b",
+        args = r#"{"figure_id":"{{state.figure_id}}"}"#
+    )]
     async fn get_figure(&self, figure_id: String) -> Option<FigureRecord>;
 
     /// Create a figure in implore and store its rendered image (a PNG in the
@@ -329,6 +359,12 @@ pub trait ImploreService: Send + Sync + 'static {
     /// scatter --x 'time (s)' --y flux --name Decay --series
     /// '{"label":"run 1","x":[0,1,2,3],"y":[1.0,0.61,0.37,0.22]}'
     #[impress_method]
+    #[impress_example(
+        name = "host-inline-scatter",
+        tier = "b",
+        args = r#"{"dataset_id":"inline","plot_type":"scatter","x":"time (s)","y":"flux","name":"G3 decay","series":[{"label":"run 1","x":[0,1,2],"y":[1,0.6,0.36]}],"spec":null,"svg":null}"#,
+        expect = r#"{"ok":true,"drawn_from":"series"}"#
+    )]
     #[allow(clippy::too_many_arguments)]
     async fn create_figure(
         &self,
@@ -346,14 +382,29 @@ pub trait ImploreService: Send + Sync + 'static {
     /// or `svg`. The path is what an agent on the user's Mac can open, or embed
     /// into a manuscript.
     #[impress_method]
+    #[impress_example(
+        name = "host-png-export",
+        tier = "b",
+        args = r#"{"figure_id":"{{state.figure_id}}","format":"png"}"#
+    )]
     async fn export_figure(&self, figure_id: String, format: String) -> Option<String>;
 
     /// Plot one or more named series and return the rendered SVG.
     #[impress_method]
+    #[impress_example(
+        name = "host-series-svg",
+        tier = "b",
+        args = r#"{"series":["flux"],"title":"G3 flux"}"#
+    )]
     async fn plot_series(&self, series: Vec<String>, title: Option<String>) -> Option<String>;
 
     /// Plot a histogram of one quantity and return the rendered SVG.
     #[impress_method]
+    #[impress_example(
+        name = "host-histogram-svg",
+        tier = "b",
+        args = r#"{"quantity":"flux","bins":24}"#
+    )]
     async fn plot_histogram(&self, quantity: Option<String>, bins: Option<u32>) -> Option<String>;
 
     // ---- Ray-grid volume viewer -------------------------------------------
@@ -361,48 +412,78 @@ pub trait ImploreService: Send + Sync + 'static {
     /// Load a volume dataset into the ray-grid viewer from a path on disk.
     /// Everything else in the `rg_*` family operates on whatever is loaded.
     #[impress_method]
+    #[impress_example(
+        name = "host-owned-volume",
+        tier = "b",
+        args = r#"{"path":"{{fixture.root}}/ai-implore/volume.npz"}"#
+    )]
     async fn rg_load(&self, path: String) -> String;
 
     /// The viewer's current state — camera, slice position, colormap, loaded
     /// dataset. Returned as JSON; the shape is the viewer's own.
     #[impress_method]
+    #[impress_example(name = "host-viewer-state", tier = "b", args = r#"{}"#)]
     async fn rg_state(&self) -> String;
 
     /// Drive the viewer: pass a JSON object of controls (camera, slice axis and
     /// index, colormap, scaling). Read `rg_state` first to see what is settable.
     #[impress_method]
+    #[impress_example(
+        name = "host-slice-control",
+        tier = "b",
+        args = r#"{"params_json":"{\"axis\":\"z\",\"position\":2}"}"#
+    )]
     async fn rg_control(&self, params_json: String) -> String;
 
     /// Render the current slice as a PNG and return it (base64 or a path,
     /// depending on how the viewer answers).
     #[impress_method]
+    #[impress_example(name = "host-slice-png", tier = "b", args = r#"{"format":"base64"}"#)]
     async fn rg_slice_png(&self, format: Option<String>) -> String;
 
     /// Write the current slice to a file at `path`.
     #[impress_method]
+    #[impress_example(
+        name = "host-owned-slice",
+        tier = "b",
+        args = r#"{"path":"{{fixture.root}}/ai-implore/slice.png"}"#
+    )]
     async fn rg_slice_save(&self, path: String) -> String;
 
     /// The current slice as raw numeric data rather than an image — for
     /// analysis rather than display. Can be large.
     #[impress_method]
+    #[impress_example(name = "host-raw-slice", tier = "b", args = r#"{"params_json":"{}"}"#)]
     async fn rg_slice_raw(&self, params_json: Option<String>) -> String;
 
     /// Summary statistics over the loaded volume, or a sub-region when the
     /// parameters name one.
     #[impress_method]
+    #[impress_example(
+        name = "host-volume-statistics",
+        tier = "b",
+        args = r#"{"params_json":"{}"}"#
+    )]
     async fn rg_statistics(&self, params_json: Option<String>) -> String;
 
     /// Run a batch of viewer operations in one call, which is much cheaper than
     /// a round trip each when sweeping slices or angles.
     #[impress_method]
+    #[impress_example(
+        name = "host-viewer-batch",
+        tier = "b",
+        args = r#"{"params_json":"{\"positions\":[0,1,2],\"axis\":\"z\"}"}"#
+    )]
     async fn rg_batch(&self, params_json: String) -> String;
 
     /// Colormaps the viewer offers, for use with `rg_control`.
     #[impress_method]
+    #[impress_example(name = "host-colormaps", tier = "b", args = r#"{}"#)]
     async fn rg_colormaps(&self) -> String;
 
     /// Render a cascade plot over the loaded volume and return the SVG.
     #[impress_method]
+    #[impress_example(name = "host-cascade-svg", tier = "b", args = r#"{}"#)]
     async fn rg_cascade_plot(&self) -> String;
 }
 
@@ -576,11 +657,25 @@ impress_service_impl! {
     instance = service_instance,
     methods = [
         status() -> AppStatus,
-        get_logs(limit: u32, level: Option<String>) -> Vec<LogEntry>,
+        get_logs(
+            /// Maximum recent log entries to return.
+            limit: u32,
+            /// Optional log level filter, such as `warning`.
+            level: Option<String>
+        ) -> Vec<LogEntry>,
         list_datasets() -> Vec<DatasetRecord>,
-        get_dataset(dataset_id: String) -> Option<DatasetRecord>,
-        list_figures(dataset_id: Option<String>) -> Vec<FigureRecord>,
-        get_figure(figure_id: String) -> Option<FigureRecord>,
+        get_dataset(
+            /// Dataset ID from the running implore host.
+            dataset_id: String
+        ) -> Option<DatasetRecord>,
+        list_figures(
+            /// Dataset ID to filter by, or null for every figure.
+            dataset_id: Option<String>
+        ) -> Vec<FigureRecord>,
+        get_figure(
+            /// Figure ID from the running implore host.
+            figure_id: String
+        ) -> Option<FigureRecord>,
         create_figure(
             /// Recorded on the figure as its dataset. With inline data, any
             /// short label for the data's source (e.g. "inline").
@@ -629,17 +724,53 @@ impress_service_impl! {
             /// CLI: --svg "$(cat plot.svg)"
             svg: Option<String>
         ) -> CreateFigureOutcome,
-        export_figure(figure_id: String, format: String) -> Option<String>,
-        plot_series(series: Vec<String>, title: Option<String>) -> Option<String>,
-        plot_histogram(quantity: Option<String>, bins: Option<u32>) -> Option<String>,
-        rg_load(path: String) -> String,
+        export_figure(
+            /// Figure ID to export from the running host.
+            figure_id: String,
+            /// Output format: `png`, `pdf`, or `svg`.
+            format: String
+        ) -> Option<String>,
+        plot_series(
+            /// Names of the series to render from the current dataset.
+            series: Vec<String>,
+            /// Optional title for the plot.
+            title: Option<String>
+        ) -> Option<String>,
+        plot_histogram(
+            /// Quantity or column to bin, or null for the host selection.
+            quantity: Option<String>,
+            /// Number of bins, or null for the host default.
+            bins: Option<u32>
+        ) -> Option<String>,
+        rg_load(
+            /// Path to a volume file available to the running host.
+            path: String
+        ) -> String,
         rg_state() -> String,
-        rg_control(params_json: String) -> String,
-        rg_slice_png(format: Option<String>) -> String,
-        rg_slice_save(path: String) -> String,
-        rg_slice_raw(params_json: Option<String>) -> String,
-        rg_statistics(params_json: Option<String>) -> String,
-        rg_batch(params_json: String) -> String,
+        rg_control(
+            /// JSON object of camera, slice, colormap, or scaling controls.
+            params_json: String
+        ) -> String,
+        rg_slice_png(
+            /// Optional viewer encoding or output format.
+            format: Option<String>
+        ) -> String,
+        rg_slice_save(
+            /// Path for a slice image on the running host.
+            path: String
+        ) -> String,
+        rg_slice_raw(
+            /// Optional JSON parameters selecting the raw slice.
+            params_json: Option<String>
+        ) -> String,
+        rg_statistics(
+            /// Optional JSON parameters selecting a volume sub-region.
+            params_json: Option<String>
+        ) -> String,
+        rg_batch(
+            /// JSON array of viewer operations to execute together.
+            params_json: String
+        ) -> String,
         rg_colormaps() -> String,
         rg_cascade_plot() -> String,
     ],

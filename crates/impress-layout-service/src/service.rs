@@ -92,6 +92,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `new_pane` is a whole pane spec; omit it to duplicate the pane being
     /// split, which is what a bare "split this" gesture means.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-split-list",
+        args = r#"{"app_id":"g3-layout","device":"g3-split","target":{"role":"list"},"direction":"horizontal","after":true}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn split(
         &self,
         app_id: String,
@@ -108,6 +113,11 @@ pub trait LayoutService: Send + Sync + 'static {
     ///
     /// `placement` is `left` | `right` | `above` | `below` | `into-tabs`.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-move-navigator",
+        args = r#"{"app_id":"g3-layout","device":"g3-move-tile","tile":{"role":"navigator"},"target":{"role":"detail"},"placement":"right"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn move_tile(
         &self,
         app_id: String,
@@ -121,6 +131,11 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Close a pane or a whole subtree. Never the last pane of the layout.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-close-navigator",
+        args = r#"{"app_id":"g3-layout","device":"g3-close","target":{"role":"navigator"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn close(
         &self,
         app_id: String,
@@ -133,6 +148,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Exchange two tiles' positions, each keeping the share of the position
     /// it lands in.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-swap-list-detail",
+        args = r#"{"app_id":"g3-layout","device":"g3-swap","a":{"role":"list"},"b":{"role":"detail"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn swap(
         &self,
         app_id: String,
@@ -148,6 +168,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// They are weights, not fractions: `1 2 3` means the three-column
     /// chassis, and the renderer divides by their sum.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-resize-columns",
+        args = r#"{"app_id":"g3-layout","device":"g3-resize","container":4,"shares":[3.0,2.0,1.0]}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn resize(
         &self,
         app_id: String,
@@ -161,6 +186,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Retype a container, keeping its children in order: `tabs` |
     /// `horizontal` | `vertical` | `grid`.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-tabs-root",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-container-kind","container":4,"kind":"tabs"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_container_kind(
         &self,
         app_id: String,
@@ -177,6 +207,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// session; only its share moves. Refused (`not-in-a-split`) for a pane
     /// whose parent is not a split.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-collapse-detail",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-collapsed","target":{"role":"detail"},"collapsed":true}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_collapsed(
         &self,
         app_id: String,
@@ -190,6 +225,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Show one pane alone in its window. Zoom is a view state, not a mutation
     /// of the tree: every share and every session survives it.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-zoom-detail",
+        args = r#"{"app_id":"g3-layout","device":"g3-maximize","target":{"role":"detail"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn maximize(
         &self,
         app_id: String,
@@ -201,6 +241,11 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Undo a maximize. A no-op when nothing is maximized.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-restore-zoom",
+        args = r#"{"app_id":"g3-layout","device":"g3-restore"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn restore(
         &self,
         app_id: String,
@@ -212,6 +257,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Move a pane out into a new window whose root it becomes — the detached
     /// PDF. Refused when the pane is already the whole of its window.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-detach-detail",
+        args = r#"{"app_id":"g3-layout","device":"g3-detach","target":{"role":"detail"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn detach(
         &self,
         app_id: String,
@@ -226,6 +276,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Replace a pane's whole spec: query, view kind, parameters, channel,
     /// role and view state at once.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-replace-list",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-pane","target":{"role":"list"},"spec":{"query":{"kinds":["figure"]},"view_kind":"plot","role":"preview","channel":{"number":3}}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_pane(
         &self,
         app_id: String,
@@ -241,6 +296,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// sort and limit. Anything it cannot express is materialized in the store
     /// first and queried from there.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-query-manuscripts",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-query","target":{"role":"list"},"query":{"kinds":["manuscript"],"text":"dark matter"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_query(
         &self,
         app_id: String,
@@ -256,6 +316,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `surface`, `legacy`, `placeholder` — `impress_layout::ViewKindId::KNOWN`,
     /// the whole vocabulary. Anything else is refused (`unknown-view-kind`).
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-render-pdf",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-view-kind","target":{"role":"detail"},"view_kind":"pdf"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_view_kind(
         &self,
         app_id: String,
@@ -269,6 +334,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Re-point one of a pane's declared parameters: follow a channel, pin it
     /// to one item, or fall back to the view kind's default.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-pin-detail-item",
+        args = r#"{"app_id":"g3-layout","device":"g3-bind-param","target":{"role":"detail"},"name":"item","source":{"source":"fixed","item":"5a000000-0000-4000-8000-000000000001"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn bind_param(
         &self,
         app_id: String,
@@ -283,6 +353,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Change the channel a pane publishes its selection on: `1`–`8`, or
     /// `follow` for the window's default.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-publish-on-two",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-channel","target":{"role":"list"},"channel":"2"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_channel(
         &self,
         app_id: String,
@@ -296,6 +371,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Set what `follow` means in one window. `follow` itself is refused: a
     /// window default that follows itself is not a value.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-follow-four",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-default-channel","channel":"4"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_default_channel(
         &self,
         app_id: String,
@@ -310,6 +390,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `console`, or one of your own. The universal chords act on whichever
     /// pane holds the role, so this is how ⌃⌘S is re-aimed.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-reassign-navigator",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-role","target":{"role":"navigator"},"role":"console"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_role(
         &self,
         app_id: String,
@@ -325,6 +410,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Focus a pane. Focus is a value in the layout, so it is legible to
     /// agents and tests rather than living in a view.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-focus-navigator",
+        args = r#"{"app_id":"g3-layout","device":"g3-focus","target":{"role":"navigator"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn focus(
         &self,
         app_id: String,
@@ -337,6 +427,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. This is
     /// the h / l grammar, as a tree walk rather than a geometric one.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-focus-next",
+        args = r#"{"app_id":"g3-layout","device":"g3-focus-direction","direction":"next"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn focus_direction(
         &self,
         app_id: String,
@@ -355,6 +450,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// that kind is selected, which is what a detail pane renders its empty
     /// state from.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-publish-paper",
+        args = r#"{"app_id":"g3-layout","device":"g3-select","target":{"role":"list"},"kind":"publication","ids":["5a000000-0000-4000-8000-000000000003"]}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn select(
         &self,
         app_id: String,
@@ -370,6 +470,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// persists locally and is filtered out before a layout is applied
     /// somewhere else.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-set-frame",
+        args = r#"{"app_id":"g3-layout","device":"g3-set-window-geometry","geometry":{"x":12.0,"y":34.0,"w":1440.0,"h":900.0}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn set_window_geometry(
         &self,
         app_id: String,
@@ -391,6 +496,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// preset work (L7); asking for one now is refused rather than
     /// approximated.
     #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0", "impress/ui/surface@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_example(
+        name = "g3-commit-layout",
+        args = r#"{"app_id":"g3-layout","device":"g3-commit","as_kind":"layout","name":"G3 Commit","purpose":"G3 example arrangement"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn commit(
         &self,
         app_id: String,
@@ -404,6 +514,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Save the current arrangement under a name, durably. Re-saving an
     /// existing name overwrites it.
     #[impress_method(replay = full, safety = destructive)]
+    #[impress_example(
+        name = "g3-save-named",
+        args = r#"{"app_id":"g3-layout","device":"g3-save-layout","name":"G3 Saved","purpose":"G3 saved arrangement"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn save_layout(
         &self,
         app_id: String,
@@ -427,6 +542,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// ports between devices, and a 27" frame has no business landing on a
     /// laptop (ADR-0019 D2).
     #[impress_method(replay = full, safety = destructive)]
+    #[impress_example(
+        name = "g3-recall-saved",
+        args = r#"{"app_id":"g3-layout","device":"g3-apply-layout","name":"G3 Apply"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn apply_layout(
         &self,
         app_id: String,
@@ -441,7 +561,12 @@ pub trait LayoutService: Send + Sync + 'static {
     /// is not a saved layout) and any preset (`reset-preset` is how a preset
     /// goes back to shipped); deleting a name that does not exist is `ok:
     /// false` with a message, never an error.
-    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "g3-delete-saved",
+        args = r#"{"app_id":"g3-layout","name_or_id":"G3 Delete"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn delete_layout(
         &self,
         app_id: String,
@@ -456,6 +581,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// editor session's own undo manager — is never ours and is not reachable
     /// from here.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-undo-split",
+        args = r#"{"app_id":"g3-layout","device":"g3-undo","stack":"arrangement"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn undo(
         &self,
         app_id: String,
@@ -468,6 +598,11 @@ pub trait LayoutService: Send + Sync + 'static {
 
     /// Redo on one ring. Same stacks as `undo`.
     #[impress_method(replay = full)]
+    #[impress_example(
+        name = "g3-redo-arrangement",
+        args = r#"{"app_id":"g3-layout","device":"g3-redo","stack":"arrangement"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn redo(
         &self,
         app_id: String,
@@ -491,6 +626,11 @@ pub trait LayoutService: Send + Sync + 'static {
         name = "default",
         args = r#"{"app_id": "impress", "device": "effects-device"}"#
     )]
+    #[impress_example(
+        name = "g3-read-owned-layout",
+        args = r#"{"app_id":"g3-layout","device":"g3-get-layout"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn get_layout(&self, app_id: String, device: Option<String>) -> LayoutResult;
 
     /// One pane: its spec, its query COMPILED against the record-kind manifest
@@ -501,6 +641,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// which is how "why is this pane empty?" becomes a question with an
     /// answer instead of a debugging session.
     #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", any("compiles the pane's query over the kind it names")]))]
+    #[impress_example(
+        name = "g3-read-detail",
+        args = r#"{"app_id":"g3-layout","device":"g3-get-pane","target":{"role":"detail"}}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn get_pane(
         &self,
         app_id: String,
@@ -511,6 +656,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// What a channel currently carries, per record kind, and which panes it
     /// drives. `channel` is `1`–`8` or `follow`.
     #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "g3-read-channel",
+        args = r#"{"app_id":"g3-layout","device":"g3-get-channel","channel":"1"}"#,
+        expect = r#"{"ok":true,"channel":1}"#
+    )]
     async fn get_channel(
         &self,
         app_id: String,
@@ -522,6 +672,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// What a pane reference resolves to right now — "which pane is `right`?"
     /// answered without doing anything to it.
     #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "g3-resolve-detail",
+        args = r#"{"app_id":"g3-layout","device":"g3-resolve-reference","target":{"role":"detail"}}"#,
+        expect = r#"{"ok":true,"role":"detail"}"#
+    )]
     async fn resolve_reference(
         &self,
         app_id: String,
@@ -538,6 +693,11 @@ pub trait LayoutService: Send + Sync + 'static {
     // E1); idempotent thereafter.
     #[impress_method(replay = full, safety = mutating, idempotent = true, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0"]))]
     #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
+    #[impress_example(
+        name = "g3-list-owned-layout",
+        args = r#"{"app_id":"g3-layout"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn list_layouts(&self, app_id: String) -> LayoutListResult;
 
     // --------------------------------------------------------------- presets
@@ -553,6 +713,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// the reason (ADR-0031 D2).
     #[impress_method(replay = full, safety = read_only, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
     #[impress_example(name = "default", args = r#"{"app_id": "impress"}"#)]
+    #[impress_example(
+        name = "g3-list-owned-preset",
+        args = r#"{"app_id":"g3-layout"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn list_presets(&self, app_id: String) -> PresetListResult;
 
     /// Apply a preset: the live arrangement becomes its tree, and the live
@@ -564,6 +729,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// drops it: the logical tree is what ports between devices (ADR-0019
     /// D2).
     #[impress_method(replay = full, safety = destructive)]
+    #[impress_example(
+        name = "g3-recall-preset",
+        args = r#"{"app_id":"g3-layout","device":"g3-apply-preset","name":"G3 Apply Preset"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn apply_preset(
         &self,
         app_id: String,
@@ -582,6 +752,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// `version` alone, so "the user edited Triage" stays distinguishable
     /// from "we shipped a newer Triage" and `reset_preset` can undo it.
     #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/preset@1.0.0", "impress/ui/layout@1.0.0"]))]
+    #[impress_example(
+        name = "g3-save-owned-preset",
+        args = r#"{"app_id":"g3-layout","device":"g3-save-preset","name":"G3 Saved Preset","purpose":"G3 reading arrangement","from_live":true}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn save_preset(
         &self,
         app_id: String,
@@ -597,6 +772,11 @@ pub trait LayoutService: Send + Sync + 'static {
     /// Refused for a name the suite does not ship: there would be nothing to
     /// restore it to, and the refusal names what IS shipped.
     #[impress_method(replay = full, safety = destructive, effects(reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"], writes = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"]))]
+    #[impress_example(
+        name = "g3-reset-shipped",
+        args = r#"{"app_id":"imbib","name":"Triage"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn reset_preset(
         &self,
         app_id: String,
@@ -2750,304 +2930,470 @@ impress_service_impl! {
     strict_args = true,
     methods = [
         split(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Split direction: horizontal (side by side) or vertical (stacked).
             direction: String,
+            /// Place the newly split pane after the target when true.
             after: bool,
+            /// Optional full spec for the new pane; omitted duplicates the target.
             new_pane: Option<PaneSpec>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         move_tile(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane or subtree to move, named by exactly one reference selector.
             tile: PaneRefDto,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Where to move the tile relative to the target: left, right, above, below, or into-tabs.
             placement: String,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         close(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         swap(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// First pane reference to swap.
             a: PaneRefDto,
+            /// Second pane reference to swap.
             b: PaneRefDto,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         resize(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Tile ID of the containing split or other container to change.
             container: u64,
+            /// Positive relative weights, one for each split child in tree order.
             shares: Vec<f32>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_container_kind(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Tile ID of the containing split or other container to change.
             container: u64,
+            /// Record kind whose selection is published on the pane’s channel.
             kind: String,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_collapsed(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
             /// `true` hides, `false` shows at the remembered share; omit to
             /// toggle.
+            /// True hides the pane, false restores its remembered share, absent toggles.
             collapsed: Option<bool>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         maximize(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         restore(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         detach(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_pane(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Complete replacement pane spec, including query, view kind and bindings.
             spec: PaneSpec,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_query(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Closed pane query to display (kinds, scope, filters, sort and limit).
             query: PaneQuery,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_view_kind(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Registered view kind to render this pane (for example `pdf`).
             view_kind: String,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         bind_param(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// The exact saved layout, preset, or parameter name for this operation.
             name: String,
+            /// Parameter source: follow a channel, pin a fixed item, or use the view default.
             source: ParamSource,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_channel(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Numbered selection channel 1–8, or `follow` where supported.
             channel: String,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_default_channel(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Optional window tile ID; absent uses the currently focused window.
             window: Option<u64>,
+            /// Numbered selection channel 1–8, or `follow` where supported.
             channel: String,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_role(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// New role for this pane, or null to clear its role.
             role: Option<String>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         focus(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         focus_direction(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Focus step: left, right, up, down, next, or prev.
             direction: String,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         select(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto,
+            /// Record kind whose selection is published on the pane’s channel.
             kind: String,
+            /// Selected item IDs of that kind; an empty list explicitly clears selection.
             ids: Vec<String>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         set_window_geometry(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Optional window tile ID; absent uses the currently focused window.
             window: Option<u64>,
+            /// Optional window frame; null clears a stored device-local frame.
             geometry: Option<Geometry>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         commit(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Materialization kind; only `layout` is supported today.
             as_kind: String,
+            /// The exact saved layout, preset, or parameter name for this operation.
             name: String,
+            /// Optional human explanation retained on the saved layout.
             purpose: Option<String>,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>
         ) -> LayoutVerbResult,
         save_layout(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Saved layout or preset name in this app’s namespace.
             name: String,
+            /// Optional human explanation stored with the named layout or preset.
             purpose: Option<String>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>
         ) -> LayoutVerbResult,
         apply_layout(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// The exact saved layout, preset, or parameter name for this operation.
             name: Option<String>,
+            /// One-based shortcut position: app presets first, then saved layouts.
             ordinal: Option<u32>,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         delete_layout(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Name or item ID of a saved layout; shipped presets cannot be deleted.
             name_or_id: String,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>
         ) -> LayoutVerbResult,
         undo(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Undo ring: arrangement or the target pane’s exploration history.
             stack: String,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: Option<PaneRefDto>,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         redo(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Undo ring to redo: `arrangement` or one pane’s `exploration`.
             stack: String,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: Option<PaneRefDto>,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
-        get_layout(app_id: String, device: Option<String>) -> LayoutResult,
-        get_pane(
+        get_layout(
+            /// The owning app/facet whose live arrangement to read.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
+            device: Option<String>
+        ) -> LayoutResult,
+        get_pane(
+            /// The owning app/facet whose layouts and presets are scoped separately.
+            app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto
         ) -> PaneResult,
         get_channel(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Numbered selection channel 1–8, or `follow` for the window default.
             channel: String,
+            /// Optional record kind to select from the channel result.
             kind: Option<String>
         ) -> ChannelResult,
         resolve_reference(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Pane reference by exactly one id, role, direction, or focused selector.
             target: PaneRefDto
         ) -> ReferenceResult,
-        list_layouts(app_id: String) -> LayoutListResult,
-        list_presets(app_id: String) -> PresetListResult,
+        list_layouts(
+            /// The app/facet whose durable named layouts to list.
+            app_id: String
+        ) -> LayoutListResult,
+        list_presets(
+            /// The app/facet whose shipped and user presets to list.
+            app_id: String
+        ) -> PresetListResult,
         apply_preset(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// The exact saved layout, preset, or parameter name for this operation.
             name: String,
+            /// Optional attribution for the layout change (for example `human`).
             actor: Option<String>,
             /// Refuse with `conflict`, changing nothing, unless the live
             /// layout is still at this revision (a result's `revision`).
             expected_revision: Option<u64>
         ) -> LayoutVerbResult,
         save_preset(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
             device: Option<String>,
+            /// Saved layout or preset name in this app’s namespace.
             name: String,
+            /// Optional human explanation stored with the named layout or preset.
             purpose: Option<String>,
+            /// Must be true: this preset is captured from the current live arrangement.
             from_live: bool,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>
         ) -> PresetResult,
         reset_preset(
+            /// The owning app/facet whose layouts and presets are scoped separately.
             app_id: String,
+            /// Saved layout or preset name in this app’s namespace.
             name: String,
+            /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>
         ) -> PresetResult,
     ],

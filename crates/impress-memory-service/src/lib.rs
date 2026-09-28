@@ -344,6 +344,11 @@ pub trait MemoryService: Send + Sync + 'static {
     /// live item is kept in the record but silently skipped as a graph edge
     /// — it does not fail the write.
     #[impress_method(effects(reads = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"], writes = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"]))]
+    #[impress_example(
+        name = "new-claim",
+        args = r#"{"kind":"claim","title":"G3 calibration units","body":"G3 calibration fluxes use millijanskys.","claim_type":"fact","confidence":0.9,"subject_refs":[],"evidence_refs":[]}"#,
+        expect = r#"{"ok":true,"action":"inserted","matched_id":""}"#
+    )]
     #[allow(clippy::too_many_arguments)]
     async fn remember(
         &self,
@@ -377,8 +382,9 @@ pub trait MemoryService: Send + Sync + 'static {
     /// tier.
     #[impress_method(safety = read_only)]
     #[impress_example(
-        name = "default",
-        args = r#"{"query": "effects", "limit": 5, "include_superseded": false, "subject_ref": "effects-example"}"#
+        name = "subject-scoped-aperture",
+        args = r#"{"query":"aperture","subject_ref":"58000000-0000-4000-8000-000000000009","limit":5,"include_superseded":false}"#,
+        expect = r#"{"ok":true,"entries":[{"id":"58000000-0000-4000-8000-000000000001","title":"G3 aperture radius","body":"The G3 aperture radius is five pixels.","schema_ref":"memory/claim@1.0.0"}]}"#
     )]
     async fn recall(
         &self,
@@ -406,6 +412,11 @@ pub trait MemoryService: Send + Sync + 'static {
     /// read `sections` instead when the structured fields (id, confidence,
     /// confirmations) matter more than prose.
     #[impress_method(safety = read_only)]
+    #[impress_example(
+        name = "topic-brief",
+        args = r#"{"topic":"aperture","subject_ref":"58000000-0000-4000-8000-00000000000a","max_entries":3}"#,
+        expect = r#"{"ok":true,"sections":[{"kind":"memory/instruction@1.0.0","entries":[]},{"kind":"memory/claim@1.0.0","entries":[{"id":"58000000-0000-4000-8000-000000000002","title":"G3 aperture correction"}]},{"kind":"memory/episode@1.0.0","entries":[]}]}"#
+    )]
     async fn memory_brief(
         &self,
         topic: String,
@@ -421,6 +432,11 @@ pub trait MemoryService: Send + Sync + 'static {
     /// exact id (from a prior `recall` or `memory_brief`) and want to record
     /// that it still holds without restating the prose.
     #[impress_method(effects(reads = ["memory/claim@1.0.0"], writes = ["memory/claim@1.0.0"]))]
+    #[impress_example(
+        name = "confirm-observation",
+        args = r#"{"id":"58000000-0000-4000-8000-000000000003"}"#,
+        expect = r#"{"ok":true,"id":"58000000-0000-4000-8000-000000000003"}"#
+    )]
     async fn confirm_claim(&self, id: String) -> ActionResult;
 
     /// Retract a memory by REPLACING it: writes a new memory of the SAME
@@ -439,6 +455,11 @@ pub trait MemoryService: Send + Sync + 'static {
     /// survives. This is NOT how to retire a memory that was never wrong but
     /// is simply unwanted or private; use `forget` for that instead.
     #[impress_method(effects(reads = ["memory/claim@1.0.0"], writes = ["memory/claim@1.0.0"]))]
+    #[impress_example(
+        name = "correct-flux-unit",
+        args = r#"{"old_id":"58000000-0000-4000-8000-000000000004","title":"G3 flux unit correction","body":"G3 fluxes are measured in millijanskys.","reason":"Checked the catalogue header."}"#,
+        expect = r#"{"ok":true,"old_id":"58000000-0000-4000-8000-000000000004"}"#
+    )]
     async fn supersede_claim(
         &self,
         old_id: String,
@@ -455,6 +476,11 @@ pub trait MemoryService: Send + Sync + 'static {
     /// action is reversible by a direct store edit even though no verb here
     /// un-forgets it.
     #[impress_method(safety = destructive, effects(reads = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"], writes = ["memory/claim@1.0.0", "memory/episode@1.0.0", "memory/instruction@1.0.0"]))]
+    #[impress_example(
+        name = "withhold-private-note",
+        args = r#"{"id":"58000000-0000-4000-8000-000000000005"}"#,
+        expect = r#"{"ok":true,"id":"58000000-0000-4000-8000-000000000005"}"#
+    )]
     async fn forget(&self, id: String) -> ActionResult;
 
     /// Row counts per memory schema (heads and totals), plus which retrieval
@@ -1708,19 +1734,57 @@ impress_service_impl! {
     instance = DefaultMemoryService::new,
     methods = [
         remember(
+            /// Memory kind: `claim`, `episode`, or `instruction`.
             kind: String,
+            /// Short human-readable label for the memory.
             title: String,
+            /// Prose to retain across sessions; treated as private in call logs.
             #[impress_private] body: String,
+            /// Claim classification, such as `fact` or `decision`; empty when unstated.
             claim_type: String,
+            /// Confidence from 0 to 1; a negative value means unstated.
             confidence: f64,
+            /// Lowercase item UUIDs this memory is about; may be empty.
             subject_refs: Vec<String>,
+            /// Lowercase item UUIDs this memory was derived from; may be empty.
             evidence_refs: Vec<String>
         ) -> RememberResult,
-        recall(query: String, subject_ref: String, limit: i64, include_superseded: bool) -> RecallResult,
-        memory_brief(topic: String, subject_ref: String, max_entries: i64) -> BriefResult,
-        confirm_claim(id: String) -> ActionResult,
-        supersede_claim(old_id: String, title: String, body: String, reason: String) -> SupersedeResult,
-        forget(id: String) -> ActionResult,
+        recall(
+            /// Words to search; empty returns recent memory heads.
+            query: String,
+            /// Lowercase subject item UUID to filter by, or empty for all subjects.
+            subject_ref: String,
+            /// Maximum entries; zero uses the default of 20, capped at 200.
+            limit: i64,
+            /// Include corrected memories that have been superseded.
+            include_superseded: bool
+        ) -> RecallResult,
+        memory_brief(
+            /// Search words applied to claims only; empty includes recent claims.
+            topic: String,
+            /// Lowercase subject item UUID to filter every section, or empty.
+            subject_ref: String,
+            /// Maximum entries per section; zero uses the default of eight.
+            max_entries: i64
+        ) -> BriefResult,
+        confirm_claim(
+            /// Lowercase UUID of an existing memory to confirm.
+            id: String
+        ) -> ActionResult,
+        supersede_claim(
+            /// Lowercase UUID of the existing memory being corrected.
+            old_id: String,
+            /// Short label for the replacement memory.
+            title: String,
+            /// Corrected prose for the replacement memory.
+            body: String,
+            /// Why the correction was made; empty omits the reason.
+            reason: String
+        ) -> SupersedeResult,
+        forget(
+            /// Lowercase UUID of an existing memory to withhold from recall.
+            id: String
+        ) -> ActionResult,
         memory_status() -> StatusResult,
     ],
 }

@@ -13,30 +13,41 @@ Append the imported highlights and notes to the paper's Notes field as one dated
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `force` | boolean | yes | *(undocumented)* |
-| `publication_id` | string | yes | *(undocumented)* |
+| `force` | boolean | yes | Append again even if this imported snapshot was already added to Notes. |
+| `publication_id` | string | yes | UUID of the paper whose tablet annotations should be read or updated. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-append-notes` — Tier A:
+
+  ```json
+  {"publication_id":"6b000000-0000-4000-8000-000000000001","force":false}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"appended":true}
+  ```
 
 ## `imbib-eink-service_eink-awaiting-source`
 
 Marked papers that still need their PDF/ePUB fetched.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/eink-mirror", "imbib/eink-device"
+- **reads**: "imbib/bibliography-entry", "imbib/eink-mirror", "imbib/eink-device"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID, or null for every device. |
 
 **Examples**
 
-- `default`:
+- `paper-needs-source` — Tier A:
 
   ```json
-  {}
+  {"device_id":"63000000-0000-4000-8000-000000000005"}
   ```
 
 ## `imbib-eink-service_eink-complete-ocr`
@@ -50,11 +61,22 @@ Record an OCR result. `text` absent with a confidence still closes the job (noth
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `annotation_id` | string | yes | *(undocumented)* |
-| `confidence` | number | yes | *(undocumented)* |
-| `text` | — | no | *(undocumented)* |
+| `annotation_id` | string | yes | UUID of the imported ink annotation receiving OCR. |
+| `confidence` | number | yes | OCR confidence between zero and one. |
+| `text` | — | no | Recognized text; omit when no handwriting is legible. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-complete-ocr` — Tier A:
+
+  ```json
+  {"annotation_id":"6b000000-0000-4000-8000-000000000003","text":"Recognized owned ink","confidence":0.95}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-eink-service_eink-configure-device`
 
@@ -67,9 +89,20 @@ Create a device (no `id`) or change fields on one. Mode `individual` mirrors onl
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `input` | — | yes | *(undocumented)* |
+| `input` | — | yes | Device fields to create or update; an absent `id` creates a new device. |
 
-_No examples yet._
+**Examples**
+
+- `configure-owned-device` — Tier A:
+
+  ```json
+  {"input":{"id":"63000000-0000-4000-8000-000000000006","name":"G3 reading tablet","base_url":"http://127.0.0.1:65534","mirror_mode":"individual","enabled":true}}
+  ```
+  expects:
+
+  ```json
+  {"id":"63000000-0000-4000-8000-000000000006","name":"G3 reading tablet","mirror_mode":"individual"}
+  ```
 
 ## `imbib-eink-service_eink-devices`
 
@@ -84,7 +117,7 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `configured-devices` — Tier A:
 
   ```json
   {}
@@ -92,7 +125,7 @@ Takes no arguments.
 
 ## `imbib-eink-service_eink-folder-checklist`
 
-The folders to create on the tablet by hand, parents first (the USB interface cannot create folders).
+The folders to create on the tablet by hand, parents first (the USB interface cannot create folders). The Tier B fixture must supply an owned tablet folder listing.
 
 - **safety**: `external`
 - **reads**: "imbib/eink-device", "imbib/eink-mirror"
@@ -101,9 +134,15 @@ The folders to create on the tablet by hand, parents first (the USB interface ca
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID whose missing folders should be reported. |
 
-_No examples yet._
+**Examples**
+
+- `owned-tablet-folders` — Tier B (explicit isolated run):
+
+  ```json
+  {"device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `imbib-eink-service_eink-import`
 
@@ -116,10 +155,16 @@ Pull annotated copies back without sending anything up. With `publication_id`, i
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
-| `publication_id` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured tablet UUID; omit to use the default tablet. |
+| `publication_id` | — | no | UUID of the paper whose tablet annotations should be read or updated. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-import` — Tier B (explicit isolated run):
+
+  ```json
+  {"publication_id":"6b000000-0000-4000-8000-000000000001","device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `imbib-eink-service_eink-import-document`
 
@@ -132,13 +177,19 @@ Bring one such document into the store. `as_kind` `publication` (default: a note
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `as_kind` | — | no | *(undocumented)* |
-| `collection_id` | — | no | *(undocumented)* |
-| `device_id` | — | no | *(undocumented)* |
-| `library_id` | — | no | *(undocumented)* |
-| `remote_id` | string | yes | *(undocumented)* |
+| `as_kind` | — | no | Import as publication or note; defaults to publication. |
+| `collection_id` | — | no | Destination collection UUID; omit for no collection assignment. |
+| `device_id` | — | no | Configured tablet UUID; omit to use the default tablet. |
+| `library_id` | — | no | Destination library UUID; omit to infer it from the tablet folder. |
+| `remote_id` | string | yes | Document identifier reported by eink-list-unmatched on the selected tablet. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-import-document` — Tier B (explicit isolated run):
+
+  ```json
+  {"remote_id":"g3-owned-notebook","library_id":"63000000-0000-4000-8000-000000000001","collection_id":null,"as_kind":"note","device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `imbib-eink-service_eink-list-annotations`
 
@@ -151,9 +202,20 @@ Every row an e-ink import wrote for a publication (highlights with their text, t
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_id` | string | yes | *(undocumented)* |
+| `publication_id` | string | yes | UUID of the paper whose tablet annotations should be read or updated. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-list-annotations` — Tier A:
+
+  ```json
+  {"publication_id":"6b000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  [{"id":"6b000000-0000-4000-8000-000000000003","selected_text":"G3 tablet highlight"}]
+  ```
 
 ## `imbib-eink-service_eink-list-mirrored`
 
@@ -166,15 +228,15 @@ Mirror rows for a device, optionally filtered by state.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
-| `state` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID, or null for every device. |
+| `state` | — | no | Mirror state such as `awaiting_source`, or null for every state. |
 
 **Examples**
 
-- `default`:
+- `awaiting-source-mirror` — Tier A:
 
   ```json
-  {}
+  {"device_id":"63000000-0000-4000-8000-000000000005","state":"awaiting_source"}
   ```
 
 ## `imbib-eink-service_eink-list-unmatched`
@@ -188,9 +250,15 @@ Documents on the tablet that imbib did not put there — notebooks written on it
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured tablet UUID; omit to use the default tablet. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-list-unmatched` — Tier B (explicit isolated run):
+
+  ```json
+  {"device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `imbib-eink-service_eink-mark`
 
@@ -203,10 +271,21 @@ Mark papers to be mirrored (individual mode). Papers without a local PDF/ePUB ar
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID, or null to use the default device. |
+| `publication_ids` | array | yes | Bibliography-entry UUIDs to queue for this tablet. |
 
-_No examples yet._
+**Examples**
+
+- `mark-paper-awaiting-source` — Tier A:
+
+  ```json
+  {"publication_ids":["63000000-0000-4000-8000-000000000008"],"device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"device_id":"63000000-0000-4000-8000-000000000005","changed":["63000000-0000-4000-8000-000000000008"],"awaiting_source":["63000000-0000-4000-8000-000000000008"]}
+  ```
 
 ## `imbib-eink-service_eink-note-source-error`
 
@@ -219,36 +298,52 @@ Say how an attempt to get a paper's PDF went, so a row waiting for its source ca
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
-| `error` | — | no | *(undocumented)* |
-| `publication_id` | string | yes | *(undocumented)* |
+| `device_id` | — | no | Configured tablet UUID; omit to use the default tablet. |
+| `error` | — | no | Source download failure to record; omit to clear the previous failure. |
+| `publication_id` | string | yes | UUID of the paper whose tablet annotations should be read or updated. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-note-source-error` — Tier A:
+
+  ```json
+  {"publication_id":"63000000-0000-4000-8000-000000000002","device_id":"63000000-0000-4000-8000-000000000005","error":"Owned source is offline"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-eink-service_eink-pending-ocr`
 
 Ink rows whose handwriting has not been recognised yet, with the PNG to run OCR on. `publication_id` absent = everywhere.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/annotation", "imbib/linked-file"
+- **reads**: "imbib/bibliography-entry", "imbib/annotation", "imbib/linked-file"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `publication_id` | — | no | *(undocumented)* |
+| `publication_id` | — | no | UUID of the paper whose tablet annotations should be read or updated. |
 
 **Examples**
 
-- `default`:
+- `g3-pending-ink` — Tier A:
 
   ```json
-  {}
+  {"publication_id":"6b000000-0000-4000-8000-000000000001"}
+  ```
+  expects:
+
+  ```json
+  [{"annotation_id":"6b000000-0000-4000-8000-000000000003"}]
   ```
 
 ## `imbib-eink-service_eink-plan`
 
-Dry run: list the tablet and report what a sync would do, including the folders the user must create on the tablet. Writes nothing.
+Dry run: list the tablet and report what a sync would do, including the folders the user must create on the tablet. Writes nothing. Its Tier B fixture needs the owned tablet endpoint and scratch library.
 
 - **safety**: `external`
 - **reads**: "imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file"
@@ -257,13 +352,19 @@ Dry run: list the tablet and report what a sync would do, including the folders 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID to inspect, or null for the default device. |
 
-_No examples yet._
+**Examples**
+
+- `owned-tablet-dry-run` — Tier B (explicit isolated run):
+
+  ```json
+  {"device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `imbib-eink-service_eink-reachable`
 
-A two-second probe: is the tablet plugged in with its USB web interface on?
+A two-second probe: is the tablet plugged in with its USB web interface on? The Tier B example requires an isolated tablet fixture bound to the reserved device ID; the headless suite never dials USB.
 
 - **safety**: `external`
 - **reads**: "imbib/eink-device"
@@ -272,9 +373,15 @@ A two-second probe: is the tablet plugged in with its USB web interface on?
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID to probe, or null for the default device. |
 
-_No examples yet._
+**Examples**
+
+- `owned-tablet-probe` — Tier B (explicit isolated run):
+
+  ```json
+  {"device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
 
 ## `imbib-eink-service_eink-remove-device`
 
@@ -287,9 +394,20 @@ Remove a device and its mirror rows (the tablet is untouched).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | string | yes | *(undocumented)* |
+| `device_id` | string | yes | UUID of the locally configured tablet to remove. |
 
-_No examples yet._
+**Examples**
+
+- `remove-scratch-device` — Tier A:
+
+  ```json
+  {"device_id":"63000000-0000-4000-8000-000000000006"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-eink-service_eink-resend`
 
@@ -302,9 +420,20 @@ Ask for mirror rows to be sent again (a stale copy, one removed on the tablet). 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `mirror_ids` | array | yes | *(undocumented)* |
+| `mirror_ids` | array | yes | Local mirror-row UUIDs whose next sync should upload again. |
 
-_No examples yet._
+**Examples**
+
+- `queue-local-resend` — Tier A:
+
+  ```json
+  {"mirror_ids":["63000000-0000-4000-8000-000000000007"]}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"affected_count":1}
+  ```
 
 ## `imbib-eink-service_eink-search-annotations`
 
@@ -317,10 +446,21 @@ Highlight, typed and OCR text from the tablet containing `query` (case-insensiti
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `limit` | integer | yes | *(undocumented)* |
-| `query` | string | yes | *(undocumented)* |
+| `limit` | integer | yes | Maximum results; zero uses the default of 100. |
+| `query` | string | yes | Case-insensitive text to find in imported highlights, notes and OCR. |
 
-_No examples yet._
+**Examples**
+
+- `g3-eink-search-annotations` — Tier A:
+
+  ```json
+  {"query":"G3 tablet highlight","limit":10}
+  ```
+  expects:
+
+  ```json
+  [{"id":"6b000000-0000-4000-8000-000000000003"}]
+  ```
 
 ## `imbib-eink-service_eink-status`
 
@@ -335,15 +475,20 @@ Takes no arguments.
 
 **Examples**
 
-- `default`:
+- `configured-device-status` — Tier A:
 
   ```json
   {}
   ```
+  expects:
+
+  ```json
+  {"ok":true}
+  ```
 
 ## `imbib-eink-service_eink-sync`
 
-Sync now: upload queued papers into `imbib/<Library>/<Collection>` folders that exist on the tablet, record what changed there, and (with `import`) pull changed documents back. Needs the tablet plugged in; safe to repeat.
+Sync now: upload queued papers into `imbib/<Library>/<Collection>` folders that exist on the tablet, record what changed there, and (with `import`) pull changed documents back. Needs the tablet plugged in; safe to repeat. The Tier B fixture needs an owned tablet endpoint with a disposable document and the scratch device record; it is never run headlessly.
 
 - **safety**: `external`
 - **reads**: "imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file"
@@ -352,10 +497,16 @@ Sync now: upload queued papers into `imbib/<Library>/<Collection>` folders that 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
-| `import` | boolean | yes | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID to synchronize, or null for the default device. |
+| `import` | boolean | yes | Whether to pull changed tablet documents back after upload. |
 
-_No examples yet._
+**Examples**
+
+- `owned-tablet-sync` — Tier B (explicit isolated run):
+
+  ```json
+  {"device_id":"63000000-0000-4000-8000-000000000005","import":false}
+  ```
 
 ## `imbib-eink-service_eink-unmark`
 
@@ -368,8 +519,19 @@ Stop mirroring papers. A copy already on the tablet stays there (nothing can del
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `device_id` | — | no | *(undocumented)* |
-| `publication_ids` | array | yes | *(undocumented)* |
+| `device_id` | — | no | Configured device UUID, or null to use the default device. |
+| `publication_ids` | array | yes | Bibliography-entry UUIDs to stop mirroring. |
 
-_No examples yet._
+**Examples**
+
+- `unmark-local-mirror` — Tier A:
+
+  ```json
+  {"publication_ids":["63000000-0000-4000-8000-000000000002"],"device_id":"63000000-0000-4000-8000-000000000005"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true,"changed":["63000000-0000-4000-8000-000000000002"]}
+  ```
 

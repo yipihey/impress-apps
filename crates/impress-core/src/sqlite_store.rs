@@ -5752,10 +5752,15 @@ impl SqliteItemStore {
                     .map(|i| format!("?{}", i + 2))
                     .collect();
 
+                // An omitted filter means every edge type, including custom ones.
+                let edge_filter = if edge_strs.is_empty() {
+                    String::new()
+                } else {
+                    format!(" AND edge_type IN ({})", placeholders.join(", "))
+                };
                 // Outgoing
                 let sql = format!(
-                    "SELECT target_id FROM item_references WHERE source_id = ?1 AND edge_type IN ({})",
-                    placeholders.join(", ")
+                    "SELECT target_id FROM item_references WHERE source_id = ?1{edge_filter}"
                 );
                 let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
                 params_vec.push(Box::new(id_str.clone()));
@@ -5784,8 +5789,7 @@ impl SqliteItemStore {
 
                 // Incoming
                 let sql_in = format!(
-                    "SELECT source_id FROM item_references WHERE target_id = ?1 AND edge_type IN ({})",
-                    placeholders.join(", ")
+                    "SELECT source_id FROM item_references WHERE target_id = ?1{edge_filter}"
                 );
                 let mut params_vec_in: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
                 params_vec_in.push(Box::new(id_str));
@@ -7293,6 +7297,47 @@ mod tests {
 
         let n2 = store.neighbors(a_id, &[EdgeType::Cites], 2).unwrap();
         assert_eq!(n2.len(), 2);
+    }
+
+    #[test]
+    fn neighbors_without_filter_traverses_incoming_and_custom_edges() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let ids: Vec<_> = ["A", "B", "C", "D"]
+            .map(|title| store.insert(make_item("test", title)).unwrap())
+            .into();
+        for (source, target, edge_type) in [
+            (ids[0], ids[1], EdgeType::Cites),
+            (ids[2], ids[0], EdgeType::Custom("fixture-link".into())),
+            (ids[1], ids[3], EdgeType::Cites),
+        ] {
+            store
+                .update(
+                    source,
+                    vec![FieldMutation::AddReference(TypedReference {
+                        target,
+                        edge_type,
+                        metadata: None,
+                    })],
+                )
+                .unwrap();
+        }
+        let neighbors = |edges: &[EdgeType], depth| {
+            store
+                .neighbors(ids[0], edges, depth)
+                .unwrap()
+                .into_iter()
+                .map(|item| item.id)
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert!(neighbors(&[], 0).is_empty());
+        assert_eq!(neighbors(&[], 1), [ids[1], ids[2]].into());
+        assert_eq!(neighbors(&[], 2), [ids[1], ids[2], ids[3]].into());
+        assert_eq!(neighbors(&[EdgeType::Cites], 1), [ids[1]].into());
+        assert_eq!(
+            neighbors(&[EdgeType::Custom("fixture-link".into())], 1),
+            [ids[2]].into()
+        );
+        assert!(neighbors(&[EdgeType::Custom("absent".into())], 2).is_empty());
     }
 
     #[test]

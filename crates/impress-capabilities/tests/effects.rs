@@ -35,12 +35,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use impress_core::collection_ops::{self, IMBIB_COLLECTION};
 use impress_core::effects_spy;
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Value as ItemValue, Visibility};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
-use impress_service_core::{Effects, Kind, Reach, SafetyClass, VerbDescriptor};
+use impress_service_core::report::tier_a::{run_linked_example_with_args, Outcome};
+use impress_service_core::{Effects, ExampleTier, Kind, Reach, SafetyClass, VerbDescriptor};
+
+#[path = "support/example_fixtures.rs"]
+mod example_fixtures;
 use serde_json::Value;
 
 /// The plan expects the exception table to start near 180 rows and shrink
@@ -78,7 +80,8 @@ use serde_json::Value;
 /// against an empty call log (no store to seed with a recorded session), so
 /// the spy observes nothing — the same "exercised, unobserved" shape as
 /// `history-service_save-macro` beside it.
-const EXCEPTION_CEILING: usize = 300;
+// G3: seeded examples reduced the reviewed exception set from 300 to 145.
+const EXCEPTION_CEILING: usize = 145;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
@@ -574,10 +577,19 @@ fn resolve(kind: &Kind, args: &Value, store: &SqliteItemStore) -> Option<Vec<Str
     }
 }
 
-fn covered(declared: &[Kind], observed: &str, args: &Value, store: &SqliteItemStore) -> bool {
-    declared.iter().any(|k| {
-        let resolved = resolve(k, args, store);
-        k.covers(observed, resolved.as_deref())
+fn covered(
+    declared: &[Kind],
+    before: &[Option<Vec<String>>],
+    observed: &str,
+    args: &Value,
+    store: &SqliteItemStore,
+) -> bool {
+    declared.iter().enumerate().any(|(index, kind)| {
+        // A deletion removes the row needed to resolve target/children. A
+        // creation can introduce it. Check both snapshots, outside the spy;
+        // never broaden a target declaration to every observed kind.
+        kind.covers(observed, before[index].as_deref())
+            || kind.covers(observed, resolve(kind, args, store).as_deref())
     })
 }
 
@@ -589,156 +601,6 @@ fn exercised(kind: &Kind, observed: &BTreeSet<String>) -> bool {
         Kind::Prefix(p) => observed.iter().any(|o| o.starts_with(p)),
         Kind::Target(_) | Kind::Children(_) | Kind::Any(_) => !observed.is_empty(),
     }
-}
-
-fn scratch_store() -> Arc<SqliteItemStore> {
-    static STORE: OnceLock<Arc<SqliteItemStore>> = OnceLock::new();
-    STORE
-        .get_or_init(|| {
-            // One file every service singleton opens: the store services read
-            // IMPRESS_STORE_PATH, imbib reads IMBIB_STORE_PATH. Set before any
-            // of them initialises (this is the first store use in the process).
-            let dir = std::env::temp_dir().join(format!("impress-effects-{}", std::process::id()));
-            fs::create_dir_all(&dir).expect("scratch dir");
-            let path = dir.join("impress.sqlite");
-            std::env::set_var("IMPRESS_STORE_PATH", &path);
-            std::env::set_var("IMBIB_STORE_PATH", &path);
-            std::env::set_var("HOME", &dir);
-            let store = Arc::new(SqliteItemStore::open(&path).expect("open scratch store"));
-            impress_store_service::install_store(store.clone()).expect("install scratch store");
-            // The BibTeX-to-collection example must import into real parents.
-            // Seed deterministic IDs before the spy opens its window: these
-            // fixtures are not writes of the verb being measured.
-            let library_id = ItemId::parse_str("56000000-0000-4000-8000-000000000041")
-                .expect("effects library id");
-            let collection_id = ItemId::parse_str("56000000-0000-4000-8000-000000000042")
-                .expect("effects collection id");
-            let mut library = seed_item(library_id, "imbib/library", None);
-            library
-                .payload
-                .insert("name".into(), ItemValue::String("Effects library".into()));
-            library
-                .payload
-                .insert("is_default".into(), ItemValue::Bool(false));
-            library
-                .payload
-                .insert("is_inbox".into(), ItemValue::Bool(false));
-            library
-                .payload
-                .insert("is_system".into(), ItemValue::Bool(false));
-            store.insert(library).expect("seed effects library");
-            let mut collection = seed_item(collection_id, "imbib/collection", Some(library_id));
-            collection.payload.insert(
-                "name".into(),
-                ItemValue::String("Effects collection".into()),
-            );
-            collection
-                .payload
-                .insert("is_smart".into(), ItemValue::Bool(false));
-            collection
-                .payload
-                .insert("sort_order".into(), ItemValue::Int(0));
-            store.insert(collection).expect("seed effects collection");
-            // S3 needs a recorded session before it can write a scenario.
-            // Seed outside the spy window: this fixture is not an effect
-            // of the verb being measured. Record stores its harmless list
-            // step for review; it does not execute that step.
-            impress_core::call_context::record_verb_call(
-                store.as_ref(),
-                "56000000-0000-4000-8000-000000000003",
-                &impress_service_core::pipeline::CallerIdentity::Person,
-                serde_json::json!({
-                    "trace_id": "scenario-record-example",
-                    "started_at": "2026-09-27T00:00:00.000Z",
-                    "verb": "impress-scenario-service_scenario-list",
-                    "args": {}, "args_replayable": true,
-                    "result_ids": {}, "result_ids_truncated": false,
-                    "ok": true, "code": null,
-                })
-                .as_object()
-                .unwrap()
-                .clone(),
-            )
-            .expect("seed S3 recording example");
-            store
-        })
-        .clone()
-}
-
-fn seed_item(id: ItemId, schema: &str, parent: Option<ItemId>) -> Item {
-    Item {
-        id,
-        schema: schema.parse().expect("declared effects fixture schema"),
-        payload: BTreeMap::new(),
-        created: std::time::SystemTime::UNIX_EPOCH.into(),
-        modified: std::time::SystemTime::UNIX_EPOCH.into(),
-        author: "system:effects-fixture".into(),
-        author_kind: ActorKind::System,
-        logical_clock: 0,
-        origin: None,
-        canonical_id: None,
-        tags: vec![],
-        flag: None,
-        is_read: false,
-        is_starred: false,
-        priority: Priority::Normal,
-        visibility: Visibility::Private,
-        message_type: None,
-        produced_by: None,
-        version: None,
-        batch_id: None,
-        references: vec![],
-        parent,
-    }
-}
-
-fn verify_bibtex_collection_example(
-    result: &Value,
-    store: &SqliteItemStore,
-    args: &Value,
-) -> Result<(), String> {
-    let imported = result["imported"]
-        .as_array()
-        .ok_or("BibTeX import omitted imported IDs")?;
-    if imported.len() != 1
-        || result["existing"] != serde_json::json!([])
-        || result["added_to_collection"] != 1
-    {
-        return Err(format!(
-            "BibTeX import did not create and file one paper: {result}"
-        ));
-    }
-    let paper_id_text = imported[0]
-        .as_str()
-        .ok_or("BibTeX import ID is not a string")?;
-    let paper_id = ItemId::parse_str(paper_id_text).map_err(|e| e.to_string())?;
-    let paper = store
-        .get(paper_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("imported paper was not saved")?;
-    let library_id_text = args["library_id"]
-        .as_str()
-        .ok_or("example omitted library_id")?;
-    let library_id = ItemId::parse_str(library_id_text).map_err(|e| e.to_string())?;
-    if paper.schema != impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY
-        || paper.parent != Some(library_id)
-        || paper.payload.get("title") != Some(&ItemValue::String("P5b Effects Paper".into()))
-    {
-        return Err(format!(
-            "imported paper did not read back as expected: {paper:?}"
-        ));
-    }
-    let collection_id = args["collection_id"]
-        .as_str()
-        .ok_or("example omitted collection_id")?;
-    let members = collection_ops::list_members(store, &IMBIB_COLLECTION, collection_id)
-        .map_err(|e| e.to_string())?;
-    if members.len() != 1 || members[0].id != paper_id {
-        return Err(format!(
-            "imported paper is absent from the collection: {members:?}"
-        ));
-    }
-    Ok(())
 }
 
 /// The pipeline's own audit record (ADR-0034 D-P3 as amended by ADR-0036
@@ -755,53 +617,65 @@ fn verb_observed() -> effects_spy::Observed {
     observed
 }
 
-async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: &mut Verification) {
+async fn run_examples(
+    v: &'static VerbDescriptor,
+    store: &Arc<SqliteItemStore>,
+    out: &mut Verification,
+) {
     let mut seen_reads = BTreeSet::new();
     let mut seen_writes = BTreeSet::new();
     let mut ran = 0;
-    for ex in v.examples {
-        let args = ex.args_value();
+    for ex in v.examples.iter().filter(|ex| ex.tier == ExampleTier::A) {
+        let args = match example_fixtures::prepare(v, ex, store).await {
+            Ok(args) => args,
+            Err(error) => {
+                out.failures.push(format!(
+                    "`{}` example `{}` fixture: {error}",
+                    v.name, ex.name
+                ));
+                continue;
+            }
+        };
+        let reads_before: Vec<_> = v
+            .effects
+            .reads
+            .iter()
+            .map(|kind| resolve(kind, &args, store))
+            .collect();
+        let writes_before: Vec<_> = v
+            .effects
+            .writes
+            .iter()
+            .map(|kind| resolve(kind, &args, store))
+            .collect();
         effects_spy::start();
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            impress_service_core::pipeline::invoke(
-                v,
-                impress_service_core::pipeline::Call::new(
-                    impress_service_core::pipeline::CallerIdentity::system("effects-spy"),
-                    args.clone(),
-                ),
-            ),
+        let result = run_linked_example_with_args(
+            v,
+            ex,
+            args.clone(),
+            impress_service_core::pipeline::CallerIdentity::system("effects-spy"),
+            example_fixtures::validate_schema,
         )
         .await;
         let observed = verb_observed();
         match result {
-            Ok(Ok(value)) => {
-                if v.name == "imbib-library-service_import-bibtex-into-collection" {
-                    if let Err(error) = verify_bibtex_collection_example(&value, store, &args) {
-                        out.failures.push(format!(
-                            "`{}` example `{}` failed readback: {error}",
-                            v.name, ex.name
-                        ));
-                        continue;
-                    }
+            Outcome::Passed { result } => {
+                if let Err(error) = example_fixtures::verify(v, ex, store, &args, &result) {
+                    out.failures.push(format!(
+                        "`{}` example `{}` readback: {error}",
+                        v.name, ex.name
+                    ));
+                    continue;
                 }
             }
-            Ok(Err(e)) => {
-                out.failures
-                    .push(format!("`{}` example `{}` failed: {e}", v.name, ex.name));
-                continue;
-            }
-            Err(_) => {
-                out.failures.push(format!(
-                    "`{}` example `{}` did not finish in 30 s",
-                    v.name, ex.name
-                ));
+            Outcome::Failed(error) => {
+                out.failures.push(error);
                 continue;
             }
         }
         ran += 1;
         for kind in &observed.reads {
-            if !covered(v.effects.reads, kind, &args, store) {
+            if !covered(v.effects.reads, &reads_before, kind, &args, store) {
                 out.failures.push(format!(
                     "`{}` example `{}` read `{kind}`, which it does not declare (reads: {})",
                     v.name,
@@ -811,7 +685,7 @@ async fn run_examples(v: &'static VerbDescriptor, store: &SqliteItemStore, out: 
             }
         }
         for kind in &observed.writes {
-            if !covered(v.effects.writes, kind, &args, store) {
+            if !covered(v.effects.writes, &writes_before, kind, &args, store) {
                 out.failures.push(format!(
                     "`{}` example `{}` wrote `{kind}`, which it does not declare (writes: {})",
                     v.name,
@@ -989,7 +863,7 @@ fn verification() -> &'static Verification {
     static DONE: OnceLock<Verification> = OnceLock::new();
     DONE.get_or_init(|| {
         let verbs = verbs();
-        let store = scratch_store();
+        let store = example_fixtures::store();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

@@ -492,9 +492,9 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `layout-service_swap` | mutating | name/doc |
 | `layout-service_undo` | mutating | name/doc |
 | `manuscript-collab-service_commit-manuscript-body` | mutating | name/doc |
-| `manuscript-collab-service_manuscript-change-history` | read_only | name/doc |
-| `manuscript-collab-service_manuscript-heads` | read_only | name/doc |
-| `manuscript-collab-service_manuscript-text-at` | read_only | name/doc |
+| `manuscript-collab-service_manuscript-change-history` | mutating | name/doc |
+| `manuscript-collab-service_manuscript-heads` | mutating | name/doc |
+| `manuscript-collab-service_manuscript-text-at` | mutating | name/doc |
 | `memory-service_confirm-claim` | mutating | name/doc |
 | `memory-service_forget` | destructive | crates/impress-memory-service/src/lib.rs:1349-1406 store.apply_operation SetPayload(NO_RECALL_FIELD=true, Durable/Editorial) — a soft hide, the row and edges stay; but no verb un-forgets it (only a direct store edit),… |
 | `memory-service_memory-brief` | read_only | name/doc |
