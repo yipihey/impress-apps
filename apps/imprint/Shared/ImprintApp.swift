@@ -37,6 +37,7 @@ extension NSNotification.Name {
 @MainActor
 final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
     private var automationSettingsObserver: NSObjectProtocol?
+    private var automationCredentialObserver: NSObjectProtocol?
     private var automationTask: Task<Void, Never>?
 
     private func applyAutomationSettings() {
@@ -88,6 +89,11 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
         logInfo("HTTP server configured on port \(initialAutomationSettings.port)", category: "http-server")
         automationSettingsObserver = NotificationCenter.default.addObserver(
             forName: ImpressSettings.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applyAutomationSettings() }
+        }
+        automationCredentialObserver = NotificationCenter.default.addObserver(
+            forName: ImprintAutomationSettings.credentialDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.applyAutomationSettings() }
         }

@@ -165,6 +165,7 @@ private struct SettingsSurfacePaneMacOS: View {
         do {
             _ = try ImpressSettings.shared.installSectionSurface(surface: surface, section: section)
             renderedValues = values
+            failure = nil
         } catch {
             failure = String(describing: error)
             logError("settings pane \(section): refresh failed — \(error)", category: "settings")

@@ -34,6 +34,8 @@ import OSLog
 /// Sendable configuration to this actor so listener startup stays detached.
 @MainActor
 enum ImprintAutomationSettings {
+    static let credentialDidChange = Notification.Name("ImprintAutomationCredentialDidChange")
+
     static func snapshot(defaults: UserDefaults = .standard) -> AutomationServerSettings {
         let registry = ImpressSettings.shared
         let savedPort = registry.value("imprint.automation.http_port", as: Int.self)

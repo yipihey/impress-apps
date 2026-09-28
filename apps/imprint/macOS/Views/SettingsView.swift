@@ -125,7 +125,6 @@ struct ExportSettingsView: View {
 /// bearer remains in its existing private UserDefaults key; status and help
 /// remain app-owned. Server lifecycle follows the registry feed in AppDelegate.
 struct AutomationSettingsView: View {
-    @ImpressSetting("imprint.automation.http_enabled") private var httpAutomationEnabled: Bool
     @ImpressSetting("imprint.automation.allow_network_access") private var allowNetworkAccess: Bool
     @AppStorage(AutomationServerSettings.Keys.networkAuthToken) private var networkAuthToken = ""
     @State private var isServerRunning = false
@@ -136,8 +135,7 @@ struct AutomationSettingsView: View {
         {
           "mcpServers": {
             "impress": {
-              "command": "npx",
-              "args": ["impress-mcp"]
+              "command": "impress-mcp"
             }
           }
         }
@@ -153,7 +151,7 @@ struct AutomationSettingsView: View {
                     HStack {
                         Text("Status")
                         Spacer()
-                        if isServerRunning && httpAutomationEnabled {
+                        if isServerRunning {
                             Label("Running on port \(ImprintAutomationSettings.snapshot().port)", systemImage: "circle.fill")
                                 .foregroundStyle(.green)
                         } else {
@@ -202,7 +200,7 @@ struct AutomationSettingsView: View {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Terminal")!)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString("npx impress-mcp --check", forType: .string)
+                                NSPasteboard.general.setString("impress-mcp --help", forType: .string)
                             }
                         } label: {
                             HStack {
@@ -269,8 +267,8 @@ struct AutomationSettingsView: View {
     }
 
     private func applyNetworkCredential() {
-        let settings = ImprintAutomationSettings.snapshot()
-        Task { await ImprintHTTPServer.shared.apply(settings: settings) }
+        NotificationCenter.default.post(name: ImprintAutomationSettings.credentialDidChange,
+                                        object: nil)
     }
 }
 
