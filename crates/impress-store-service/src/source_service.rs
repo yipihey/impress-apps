@@ -785,7 +785,7 @@ pub trait SourceService: Send + Sync + 'static {
     /// Store an immutable structured citation after validating source hashes,
     /// page/range/region coordinates, and referenced source/extraction items.
     /// Repeating identical content is a no-op; conflicting content is refused.
-    #[impress_method(effects(reads = ["source-citation@1.0.0"], writes = ["source-citation@1.0.0"]))]
+    #[impress_method(effects(reads = ["source-citation@1.0.0", "impress/artifact/general"], writes = ["source-citation@1.0.0"]))]
     #[impress_example(
         name = "cite_fixture_page",
         args = r#"{"citation":{"id":"57000000-0000-4000-8000-000000000012","source_item_id":"57000000-0000-4000-8000-000000000001","source_content_hash":"6e6c26340ee8dce53e3eb28fb2e3aad19d15c6573f69efef4bb0804becc9aae5","locator":{"page_index":0,"page_label":"1"},"title":"G3 fixture source"}}"#,
@@ -795,7 +795,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Resolve one structured citation by UUID, including exact locator and
     /// immutable source hash.
-    #[impress_method(safety = read_only, effects(reads = ["source-citation@1.0.0"]))]
+    #[impress_method(safety = read_only, effects(reads = ["source-citation@1.0.0", "figure-region@1.0.0", "impress/artifact/general"]))]
     #[impress_example(
         name = "resolve_fixture_citation",
         args = r#"{"citation_id":"57000000-0000-4000-8000-000000000002"}"#,
@@ -805,7 +805,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Store immutable extractor/OCR identity, input hash, output hash,
     /// warnings, and products for one derivation.
-    #[impress_method(effects(reads = ["extraction-run@1.0.0"], writes = ["extraction-run@1.0.0"]))]
+    #[impress_method(effects(reads = ["extraction-run@1.0.0", "impress/artifact/general"], writes = ["extraction-run@1.0.0"]))]
     #[impress_example(
         name = "record_fixture_extraction",
         args = r#"{"run":{"id":"57000000-0000-4000-8000-000000000013","source_item_id":"57000000-0000-4000-8000-000000000001","source_content_hash":"6e6c26340ee8dce53e3eb28fb2e3aad19d15c6573f69efef4bb0804becc9aae5","extractor":"g3-fixture","extractor_version":"1","profile":"text","started_at":"2026-09-28T00:00:00Z"}}"#,
@@ -815,7 +815,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Store one immutable domain-neutral text chunk with source locator and
     /// extraction lineage.
-    #[impress_method(effects(reads = ["content-chunk@1.0.0"], writes = ["content-chunk@1.0.0"]))]
+    #[impress_method(effects(reads = ["content-chunk@1.0.0", "extraction-run@1.0.0", "impress/artifact/general", "source-citation@1.0.0"], writes = ["content-chunk@1.0.0"]))]
     #[impress_example(
         name = "record_fixture_chunk",
         args = r#"{"chunk":{"id":"57000000-0000-4000-8000-000000000014","source_item_id":"57000000-0000-4000-8000-000000000001","extraction_run_id":"57000000-0000-4000-8000-000000000003","ordinal":1,"text":"G3 source evidence","content_hash":"8e14e93baa883df6f78cf214aa54713a7c3ac52920227f310833696b0adc116e","locator":{"page_index":0,"page_label":"1"}}}"#,
@@ -825,7 +825,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Store immutable automatic layout evidence or a provenance-preserving
     /// manual figure-boundary correction. Available only in curation profiles.
-    #[impress_method(effects(reads = ["figure-region@1.0.0"], writes = ["figure-region@1.0.0"]))]
+    #[impress_method(effects(reads = ["figure-region@1.0.0", "extraction-run@1.0.0", "impress/artifact/general"], writes = ["figure-region@1.0.0"]))]
     #[impress_example(
         name = "record_uncertain_figure",
         args = r#"{"figure":{"id":"57000000-0000-4000-8000-000000000015","source_item_id":"57000000-0000-4000-8000-000000000001","source_content_hash":"6e6c26340ee8dce53e3eb28fb2e3aad19d15c6573f69efef4bb0804becc9aae5","extraction_run_id":"57000000-0000-4000-8000-000000000003","page_index":0,"page_label":"1","figure_label":"Fig. 1","caption_text":"Fixture region is uncertain.","status":"ambiguous","provenance":{"kind":"automatic","extractor":"g3-fixture","extractor_version":"1"}}}"#,
@@ -835,7 +835,7 @@ pub trait SourceService: Send + Sync + 'static {
 
     /// Resolve one selected search hit. Search stays compact; this operation
     /// returns the complete extracted chunk and its citation link on demand.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = ["content-chunk@1.0.0", "figure-region@1.0.0", "impress/artifact/general"]))]
     #[impress_example(
         name = "resolve_fixture_chunk",
         args = r#"{"chunk_id":"57000000-0000-4000-8000-000000000004"}"#,
@@ -846,7 +846,7 @@ pub trait SourceService: Send + Sync + 'static {
     /// Search extracted source text while preserving page/figure/table
     /// locators and extraction lineage. An optional source UUID confines the
     /// results to one asset; pass null to search all ingested sources.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, effects(reads = [any("full-text search inspects all indexed kinds before filtering to source chunks")]))]
     #[impress_example(
         name = "find_fixture_chunk",
         args = r#"{"query":"effects","source_item_id":"57000000-0000-4000-8000-000000000001","limit":5}"#,

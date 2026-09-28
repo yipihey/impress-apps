@@ -97,8 +97,9 @@ pub struct CollabTextAtResult {
 pub trait ManuscriptCollabService: Send + Sync + 'static {
     /// The document's current heads — what to send as `base_heads` with your
     /// first commit. Migrates a never-touched manuscript (deterministic
-    /// genesis from its current body).
-    #[impress_method]
+    /// genesis from its current body), so this can persist a change and
+    /// materialize the manuscript even though it returns heads.
+    #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"]))]
     #[impress_example(
         name = "fixture_heads",
         args = r#"{"id":"57000000-0000-4000-8000-000000000021"}"#,
@@ -128,7 +129,8 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
     ) -> CollabCommitResult;
 
     /// The body's per-change history, oldest first, plus the current heads.
-    #[impress_method]
+    /// A never-touched manuscript is first migrated to a persisted genesis.
+    #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"]))]
     #[impress_example(
         name = "fixture_genesis",
         args = r#"{"id":"57000000-0000-4000-8000-000000000023"}"#,
@@ -137,8 +139,9 @@ pub trait ManuscriptCollabService: Send + Sync + 'static {
     async fn manuscript_change_history(&self, id: String) -> CollabHistoryResult;
 
     /// The body as it read at `heads` (any hashes from the history) — time
-    /// travel without changing anything.
-    #[impress_method]
+    /// travel. A never-touched manuscript is first migrated to a persisted
+    /// genesis, so the initial read may change store state.
+    #[impress_method(safety = mutating, effects(reads = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"], writes = ["manuscript", "manuscript-change@1.0.0", "manuscript-file@1.0.0"]))]
     #[impress_example(
         name = "fixture_before_first_change",
         args = r#"{"id":"57000000-0000-4000-8000-000000000024","heads":[]}"#,
@@ -341,7 +344,7 @@ impress_service_impl! {
             id: String
         ) -> CollabHistoryResult,
         manuscript_text_at(
-            /// Lowercase UUID of the manuscript to read without mutation.
+            /// Lowercase UUID of the manuscript to read; first access may persist its genesis.
             id: String,
             /// Change hashes from `manuscript-change-history`; empty selects before the first change.
             heads: Vec<String>
