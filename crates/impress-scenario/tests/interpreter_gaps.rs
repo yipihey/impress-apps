@@ -131,3 +131,17 @@ fn store_scan_bound_and_truncated_payload_fail_instead_of_guessing() {
     assert!(!execute(&s, &mut f).pass);
     assert!(f.calls.is_empty());
 }
+
+#[test]
+fn resolved_empty_schema_is_rejected_before_a_store_read() {
+    let s = scenario(json!([
+        {"call":"echo","args":{"kind":""},"capture":{"kind":"$.kind"}},
+        {"store":{"schema_ref":"{{state.kind}}"}}
+    ]));
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(!report.pass);
+    assert!(report.detail.contains("resolved schema_ref"));
+    assert_eq!(f.calls.len(), 1);
+    assert_eq!(f.calls[0].0, "echo");
+}
