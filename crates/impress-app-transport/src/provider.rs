@@ -1,0 +1,363 @@
+//! Client transport for a runtime provider registered with the host.
+//!
+//! Unlike app routing, these calls receive an explicit endpoint and the
+//! host-issued token from the provider registry. They never consult the app
+//! port table or fall back to a local handler after a provider refusal.
+
+use std::net::IpAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use impress_service_core::pipeline::context;
+use impress_service_core::provider::ProviderConnection;
+use impress_service_core::refusal::{codes, Refusal};
+use impress_service_core::registry_runtime::{self, HealthFuture, ProviderInvoker};
+use impress_service_core::ServiceFuture;
+use serde_json::Value;
+use url::{Host, Url};
+
+use crate::{CALL_TIMEOUT, PROBE_TIMEOUT};
+
+struct HttpProviderInvoker;
+
+impl ProviderInvoker for HttpProviderInvoker {
+    fn validate_endpoint(&self, endpoint: &str) -> Result<(), String> {
+        self::validate_endpoint(endpoint).map_err(|refusal| refusal.message)
+    }
+
+    fn health(&self, connection: ProviderConnection) -> HealthFuture {
+        Box::pin(async move {
+            self::health(connection.endpoint(), connection.token())
+                .await
+                .is_ok()
+        })
+    }
+
+    fn invoke(&self, connection: ProviderConnection, name: String, args: Value) -> ServiceFuture {
+        Box::pin(async move {
+            Ok(
+                match self::call(connection.endpoint(), connection.token(), &name, args, None).await
+                {
+                    Ok(value) => value,
+                    Err(refusal) => impress_service_core::strict::refusal_value(&refusal),
+                },
+            )
+        })
+    }
+}
+
+/// Install the provider transport alongside the app transport router.
+pub fn install() {
+    registry_runtime::install_invoker(Arc::new(HttpProviderInvoker));
+}
+
+fn endpoint_url(endpoint: &str) -> Result<Url, Refusal> {
+    let url = Url::parse(endpoint)
+        .map_err(|_| Refusal::invalid_argument("provider endpoint must be a loopback HTTP URL"))?;
+    let local = match url.host() {
+        Some(Host::Domain("localhost")) => true,
+        Some(Host::Ipv4(ip)) => IpAddr::V4(ip).is_loopback(),
+        Some(Host::Ipv6(ip)) => IpAddr::V6(ip).is_loopback(),
+        _ => false,
+    };
+    let has_userinfo = endpoint
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split('/').next())
+        .is_some_and(|authority| authority.contains('@'));
+    if !matches!(url.scheme(), "http" | "https")
+        || !local
+        || has_userinfo
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(Refusal::invalid_argument(
+            "provider endpoint must be loopback HTTP(S) without credentials, query, or fragment",
+        ));
+    }
+    Ok(url)
+}
+
+/// Registration uses the same endpoint boundary as invocation. A URL that
+/// could move a host-issued credential off machine is rejected before one is
+/// issued; redirects are also disabled on requests below.
+pub fn validate_endpoint(endpoint: &str) -> Result<(), Refusal> {
+    endpoint_url(endpoint).map(|_| ())
+}
+
+fn provider_client(timeout: Duration) -> Result<reqwest::Client, Refusal> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .build()
+        .map_err(|_| Refusal::new(codes::HOST_UNAVAILABLE, "provider HTTP client unavailable"))
+}
+
+fn child_url(endpoint: &Url, parts: &[&str]) -> Url {
+    let mut url = endpoint.clone();
+    url.path_segments_mut()
+        .expect("validated HTTP endpoint has path segments")
+        .pop_if_empty()
+        .extend(parts.iter().copied());
+    url
+}
+
+fn unavailable(detail: &str) -> Refusal {
+    Refusal::new(
+        codes::HOST_UNAVAILABLE,
+        format!("provider host is unavailable: {detail}"),
+    )
+}
+
+/// Probe `GET <endpoint>/health` with the host-issued bearer credential.
+/// A failed probe is a named `host-unavailable` refusal. No app port default
+/// or store fallback applies to a runtime provider.
+pub async fn health(endpoint: &str, token: &str) -> Result<(), Refusal> {
+    let endpoint = endpoint_url(endpoint)?;
+    if token.is_empty() {
+        return Err(Refusal::invalid_argument("provider token is empty"));
+    }
+    let url = child_url(&endpoint, &["health"]);
+    let response = provider_client(PROBE_TIMEOUT)?
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| unavailable("health request failed or timed out"))?;
+    if !response.status().is_success() {
+        return Err(unavailable("health check refused"));
+    }
+    // A provider may return an empty 2xx health response. If it sends the
+    // standard JSON envelope, its explicit refusal still takes precedence.
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| unavailable("health response failed"))?;
+    if !bytes.is_empty()
+        && serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|body| body.get("ok").and_then(Value::as_bool))
+            == Some(false)
+    {
+        return Err(unavailable("health check reported unavailable"));
+    }
+    Ok(())
+}
+
+/// Probe and invoke a runtime provider's exact verb. `trace` takes precedence
+/// over the current pipeline trace when supplied; otherwise the current
+/// context is propagated, or a fresh trace is made for an outside caller.
+/// The current call id is sent as `x-impress-parent-call` when available.
+/// A provider refusal is returned unchanged as `Err`, with no local fallback.
+pub async fn call(
+    endpoint: &str,
+    token: &str,
+    name: &str,
+    args: Value,
+    trace: Option<&str>,
+) -> Result<Value, Refusal> {
+    let endpoint = endpoint_url(endpoint)?;
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(Refusal::invalid_argument("invalid provider verb name"));
+    }
+    health(endpoint.as_str(), token).await?;
+    let url = child_url(&endpoint, &["verb", name]);
+    let current = context::current();
+    let traceparent = trace
+        .or_else(|| current.as_ref().map(|call| call.trace_id.as_str()))
+        .map(str::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let mut request = provider_client(CALL_TIMEOUT)?
+        .post(url)
+        .bearer_auth(token)
+        .header("traceparent", traceparent)
+        .json(&args);
+    if let Some(call) = &current {
+        request = request.header("x-impress-parent-call", &call.call_id);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|_| unavailable(&format!("{name} request failed or timed out")))?;
+    let status = response.status();
+    let body: Value = response.json().await.map_err(|_| {
+        Refusal::new(
+            codes::VERB_FAILED,
+            format!("{name}: invalid provider JSON response"),
+        )
+    })?;
+    if !status.is_success() || body.get("ok").and_then(Value::as_bool) == Some(false) {
+        let code = body
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or(codes::VERB_FAILED);
+        let message = body
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("provider refused the verb");
+        return Err(Refusal::new(code, message));
+    }
+    Ok(body)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use impress_service_core::pipeline::{context, CallerIdentity};
+    use mockito::Matcher;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn only_credential_free_loopback_endpoints_are_accepted() {
+        for endpoint in [
+            "http://127.0.0.1:23001",
+            "http://[::1]:23001/provider",
+            "https://localhost:23001",
+        ] {
+            validate_endpoint(endpoint).unwrap_or_else(|e| panic!("{endpoint}: {e}"));
+        }
+        for endpoint in [
+            "http://example.com:23001",
+            "http://192.168.1.5:23001",
+            "file:///tmp/provider",
+            "http://user:pass@127.0.0.1:23001",
+            "http://@127.0.0.1:23001",
+            "http://127.0.0.1:23001?token=leak",
+            "http://127.0.0.1:23001/#fragment",
+        ] {
+            let error = validate_endpoint(endpoint).expect_err(endpoint);
+            assert_eq!(error.code, codes::INVALID_ARGUMENT);
+        }
+    }
+
+    #[tokio::test]
+    async fn call_propagates_bearer_trace_and_current_parent() {
+        let mut server = mockito::Server::new_async().await;
+        let health = server
+            .mock("GET", "/prefix/health")
+            .match_header("authorization", "Bearer rotated-secret")
+            .with_status(200)
+            .with_body(r#"{"ok":true}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let verb = server
+            .mock("POST", "/prefix/verb/example-service_echo")
+            .match_header("authorization", "Bearer rotated-secret")
+            .match_header("traceparent", "explicit-trace")
+            .match_header("x-impress-parent-call", "parent-call-1")
+            .match_body(Matcher::Json(json!({"text":"hello"})))
+            .with_status(200)
+            .with_body(r#"{"echo":"hello"}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let current = Arc::new(context::CallContext {
+            call_id: "parent-call-1".into(),
+            trace_id: "inherited-trace".into(),
+            parent_call: None,
+            caller: CallerIdentity::Person,
+            verb: "test-service_parent".into(),
+            store_override: None,
+            mutation_ids: context::MutationIds::default(),
+        });
+        let answer = context::scope(current, async {
+            call(
+                &format!("{}/prefix", server.url()),
+                "rotated-secret",
+                "example-service_echo",
+                json!({"text":"hello"}),
+                Some("explicit-trace"),
+            )
+            .await
+        })
+        .await
+        .expect("provider result");
+        assert_eq!(answer["echo"], "hello");
+        health.assert_async().await;
+        verb.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn provider_refusal_is_not_a_success_even_with_http_200() {
+        let mut server = mockito::Server::new_async().await;
+        let _health = server
+            .mock("GET", "/health")
+            .with_status(200)
+            .create_async()
+            .await;
+        let verb = server
+            .mock("POST", "/verb/example-service_echo")
+            .with_status(200)
+            .with_body(r#"{"ok":false,"code":"conflict","message":"stale revision"}"#)
+            .expect(1)
+            .create_async()
+            .await;
+        let error = call(
+            &server.url(),
+            "host-token",
+            "example-service_echo",
+            json!({}),
+            None,
+        )
+        .await
+        .expect_err("provider refusal");
+        assert_eq!(error.code, codes::CONFLICT);
+        assert_eq!(error.message, "stale revision");
+        verb.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn failed_health_stops_before_verb_and_never_exposes_token() {
+        let mut server = mockito::Server::new_async().await;
+        let _health = server
+            .mock("GET", "/health")
+            .with_status(503)
+            .create_async()
+            .await;
+        let verb = server
+            .mock("POST", "/verb/example-service_echo")
+            .expect(0)
+            .create_async()
+            .await;
+        let error = call(
+            &server.url(),
+            "secret-not-for-errors",
+            "example-service_echo",
+            json!({}),
+            None,
+        )
+        .await
+        .expect_err("health refusal");
+        assert_eq!(error.code, codes::HOST_UNAVAILABLE);
+        assert!(!error.message.contains("secret-not-for-errors"));
+        verb.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn health_redirect_is_unavailable_without_following_it() {
+        let mut server = mockito::Server::new_async().await;
+        let health = server
+            .mock("GET", "/health")
+            .with_status(302)
+            .with_header("location", "http://example.invalid/capture")
+            .expect(1)
+            .create_async()
+            .await;
+        let error = self::health(&server.url(), "private-token")
+            .await
+            .expect_err("redirect must refuse");
+        assert_eq!(error.code, codes::HOST_UNAVAILABLE);
+        assert!(!error.message.contains("private-token"));
+        health.assert_async().await;
+    }
+}
