@@ -423,6 +423,12 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// Pass `dry_run` first on anything you have not imported before: it
     /// writes nothing at all and reports exactly the counts the real run will.
     #[impress_method(safety = destructive, effects(reads = ["manuscript", "manuscript-file@1.0.0", "watched-file@1.0.0"], writes = ["manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "import-one-markdown",
+        tier = "b",
+        args = r#"{"source_dir":"{{fixture.root}}/documents/import","collection":"G3 imported notes","pattern":"*.md","recursive":false,"dry_run":false}"#,
+        expect = r#"{"ok":true,"dry_run":false,"created":1,"updated":0,"documents":[{"title":"G3 imported note","source_path":"note.md","action":"created"}]}"#
+    )]
     async fn import_directory(
         &self,
         source_dir: String,
@@ -446,6 +452,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// `collection` scopes the scan to one manuscript collection by name;
     /// null scans every manuscript in the store.
     #[impress_method(safety = destructive, effects(reads = ["manuscript"], writes = ["manuscript"]))]
+    #[impress_example(
+        name = "preview-empty-shell",
+        args = r#"{"collection":"G3 empty shells","max_body_chars":0,"apply":false}"#,
+        expect = r#"{"ok":true,"dry_run":true,"examined":1,"empty":1,"deleted":0,"manuscripts":[{"id":"59000000-0000-4000-8000-000000000040","deleted":false}]}"#
+    )]
     async fn prune_empty_manuscripts(
         &self,
         collection: Option<String>,
@@ -475,6 +486,12 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// Nothing is scanned by this call. Discovery is `import_discovered`.
     #[impress_method(effects(reads = ["watched-folder@1.0.0"], writes = ["watched-folder@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "watch-manuscripts",
+        tier = "b",
+        args = r#"{"path":"{{fixture.root}}/documents/watch","kind_scope":"manuscript","display_name":"G3 watch","bookmark_base64":null,"recursive":false}"#,
+        expect = r#"{"ok":true,"created":true,"folder":{"kind_scope":"manuscript","display_name":"G3 watch","enabled":true}}"#
+    )]
     async fn add_watched_folder(
         &self,
         path: String,
@@ -488,6 +505,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// order — with its last-scan stats and its declared volume state.
     #[impress_method(safety = read_only, effects(reads = ["watched-folder@1.0.0"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
+    #[impress_example(
+        name = "figure-watch",
+        args = r#"{"kind_scope":"figure"}"#,
+        expect = r#"{"ok":true,"folders":[{"id":"59000000-0000-4000-8000-000000000030","kind_scope":"figure","display_name":"G3 figure watch"}]}"#
+    )]
     async fn list_watched_folders(&self, kind_scope: Option<String>) -> WatchedFolderListResult;
 
     /// Change a watched folder's mutable facets. Every field is optional and a
@@ -499,6 +521,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// a folder on a Spotlight-less volume says so, instead of rendering as an
     /// honest-looking zero.
     #[impress_method(effects(reads = ["watched-folder@1.0.0"], writes = ["watched-folder@1.0.0"]))]
+    #[impress_example(
+        name = "pause-watch",
+        args = r#"{"id":"59000000-0000-4000-8000-000000000031","enabled":false,"recursive":null,"display_name":null,"bookmark_base64":null,"volume_state":null}"#,
+        expect = r#"{"ok":true,"folder":{"id":"59000000-0000-4000-8000-000000000031","enabled":false}}"#
+    )]
     async fn update_watched_folder(
         &self,
         id: String,
@@ -520,6 +547,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// `delete_file_rows` additionally removes the folder's `watched-file`
     /// index entries. Leave it false to keep the provenance readable.
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "unwatch-folder",
+        args = r#"{"id":"59000000-0000-4000-8000-000000000032","delete_file_rows":false}"#,
+        expect = r#"{"ok":true,"removed":true,"file_rows_deleted":0}"#
+    )]
     async fn remove_watched_folder(
         &self,
         id: String,
@@ -555,6 +587,12 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// Bounded per ADR-0023 D7: paths are sorted and written in batches of 500,
     /// and at most 5000 files may be sent in one call. A bigger tree is paged.
     #[impress_method(effects(reads = ["watched-folder@1.0.0", "watched-file@1.0.0", "manuscript"], writes = ["watched-file@1.0.0", "manuscript", "manuscript-file@1.0.0"], reach = [fs]))]
+    #[impress_example(
+        name = "discover-markdown",
+        tier = "b",
+        args = r#"{"watched_folder_id":"59000000-0000-4000-8000-000000000033","files":[{"path":"{{fixture.root}}/documents/watch/new.md","content_hash":null,"mtime":null,"size_bytes":null,"bookmark_base64":null}],"dry_run":false}"#,
+        expect = r#"{"ok":true,"dry_run":false,"kind_scope":"manuscript","created":1,"changed":0,"skipped":[]}"#
+    )]
     async fn import_discovered(
         &self,
         watched_folder_id: String,
@@ -582,6 +620,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// Pass `dry_run` to see what would be marked without marking it.
     #[impress_method]
+    #[impress_example(
+        name = "mark-vanished-file",
+        args = r#"{"watched_folder_id":"59000000-0000-4000-8000-000000000034","new_count":0,"changed_count":0,"duration_ms":1,"dry_run":false}"#,
+        expect = r#"{"ok":true,"dry_run":false,"examined":1,"present":0,"marked_missing":1}"#
+    )]
     async fn finish_watched_scan(
         &self,
         watched_folder_id: String,
@@ -611,6 +654,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     /// `replace: false` to union instead, which is what an incremental append
     /// wants.
     #[impress_method(effects(reads = ["watched-file@1.0.0"], writes = ["watched-file@1.0.0"]))]
+    #[impress_example(
+        name = "attribute-produced-row",
+        args = r#"{"file_id":"59000000-0000-4000-8000-000000000036","produced_ids":["59000000-0000-4000-8000-000000000038"],"replace":true}"#,
+        expect = r#"{"ok":true,"added":1,"removed_ids":[]}"#
+    )]
     async fn record_produced_rows(
         &self,
         file_id: String,
@@ -628,6 +676,11 @@ pub trait DocsImportService: Send + Sync + 'static {
     ///
     /// One of the two is required.
     #[impress_method(safety = read_only, effects(reads = ["watched-file@1.0.0", "manuscript-file@1.0.0"]))]
+    #[impress_example(
+        name = "one-watched-file",
+        args = r#"{"watched_folder_id":"59000000-0000-4000-8000-000000000039","file_id":null,"state":"present","limit":10,"offset":0}"#,
+        expect = r#"{"ok":true,"total":1,"files":[{"id":"59000000-0000-4000-8000-00000000003a","state":"present"}]}"#
+    )]
     async fn list_watched_files(
         &self,
         watched_folder_id: Option<String>,
@@ -1672,60 +1725,100 @@ impress_service_impl! {
     instance = DefaultDocsImportService::new,
     methods = [
         import_directory(
+            /// Directory containing markdown files; resolved on the local filesystem.
             source_dir: String,
+            /// Manuscript collection name to create or reuse.
             collection: String,
+            /// Optional filename glob using `*` and `?`; null includes all files.
             pattern: Option<String>,
+            /// Whether to walk subdirectories; false scans only the top level.
             recursive: bool,
+            /// True to preview counts without writing manuscripts or membership.
             dry_run: bool
         ) -> DocsImportResult,
         prune_empty_manuscripts(
+            /// Manuscript collection name to restrict the scan; null scans all.
             collection: Option<String>,
+            /// Maximum trimmed body character count considered empty.
             max_body_chars: i64,
+            /// True to delete reported shells; false only reports them.
             apply: bool
         ) -> PruneResult,
         // ADR-0023 watched folders.
         add_watched_folder(
+            /// Local directory to watch, without scanning it yet.
             path: String,
+            /// Record kind to discover, such as `publication` or `manuscript`.
             kind_scope: String,
+            /// Optional name shown in the UI; null derives it from the path.
             display_name: Option<String>,
+            /// Optional base64 security-scoped bookmark for future access.
             bookmark_base64: Option<String>,
+            /// Whether discovery includes subdirectories.
             recursive: bool
         ) -> WatchedFolderResult,
-        list_watched_folders(kind_scope: Option<String>) -> WatchedFolderListResult,
+        list_watched_folders(
+            /// Record kind to filter by, or null for every watched folder.
+            kind_scope: Option<String>
+        ) -> WatchedFolderListResult,
         update_watched_folder(
+            /// UUID of the watched folder to change.
             id: String,
+            /// Optional enabled state; null leaves it unchanged.
             enabled: Option<bool>,
+            /// Optional recursion setting; null leaves it unchanged.
             recursive: Option<bool>,
+            /// Optional visible name; null leaves it unchanged.
             display_name: Option<String>,
+            /// Optional base64 bookmark; null leaves it unchanged.
             bookmark_base64: Option<String>,
+            /// Optional `indexed`, `unindexed`, `scan-on-demand`, or `unavailable`.
             volume_state: Option<String>
         ) -> WatchedFolderResult,
         remove_watched_folder(
+            /// UUID of the watched folder to stop tracking.
             id: String,
+            /// True to remove its watched-file index rows too; source files survive.
             delete_file_rows: bool
         ) -> WatchedFolderRemovalResult,
         import_discovered(
+            /// UUID of the folder that owns these discovered paths.
             watched_folder_id: String,
+            /// Files found, with paths and optional hash, mtime, and size metadata.
             files: Vec<DiscoveredFileInput>,
+            /// True to preview the diff without writing index rows.
             dry_run: bool
         ) -> DiscoveredImportResult,
         finish_watched_scan(
+            /// UUID of the folder whose scan is ending.
             watched_folder_id: String,
+            /// Number of newly found files across this scan, or null for zero.
             new_count: Option<i64>,
+            /// Number of changed files across this scan, or null for zero.
             changed_count: Option<i64>,
+            /// Scan duration in milliseconds, or null for zero.
             duration_ms: Option<i64>,
+            /// True to preview missing-file marks without writing them.
             dry_run: bool
         ) -> WatchedScanResult,
         record_produced_rows(
+            /// UUID of an indexed watched file.
             file_id: String,
+            /// UUIDs of rows produced by importing that file.
             produced_ids: Vec<String>,
+            /// True to replace old attribution; false unions new IDs into it.
             replace: bool
         ) -> ProducedRowsResult,
         list_watched_files(
+            /// Folder UUID to list files under; null when selecting one file ID.
             watched_folder_id: Option<String>,
+            /// Exact watched-file UUID to read; null when listing a folder.
             file_id: Option<String>,
+            /// Optional `present` or `missing` filter.
             state: Option<String>,
+            /// Maximum page length; zero uses the service default.
             limit: i64,
+            /// Number of matching rows to skip before this page.
             offset: i64
         ) -> WatchedFileListResult,
     ],

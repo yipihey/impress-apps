@@ -225,6 +225,11 @@ pub trait CollectionService: Send + Sync + 'static {
     /// method takes ids this returns.
     #[impress_method(safety = read_only, effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"]))]
     #[impress_example(name = "default", args = r#"{"binding": "generic"}"#)]
+    #[impress_example(
+        name = "figure-folder",
+        args = r#"{"binding":"figure"}"#,
+        expect = r#"{"ok":true,"collections":[{"id":"59000000-0000-4000-8000-000000000001","name":"G3 figures","parent_id":null}]}"#
+    )]
     async fn tree(&self, binding: String) -> CollectionListResult;
 
     /// Create a collection under `parent_id` (null = a new root).
@@ -237,7 +242,8 @@ pub trait CollectionService: Send + Sync + 'static {
     #[impress_method]
     #[impress_example(
         name = "default",
-        args = r#"{"binding": "generic", "name": "effects example", "parent_id": null, "kind_scope": "any"}"#
+        args = r#"{"binding": "generic", "name": "G3 research notes", "parent_id": null, "kind_scope": "any"}"#,
+        expect = r#"{"ok":true,"collection":{"name":"G3 research notes","kind_scope":"any","parent_id":null}}"#
     )]
     async fn create(
         &self,
@@ -254,6 +260,11 @@ pub trait CollectionService: Send + Sync + 'static {
         args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "name": "renamed"}"#,
         expect = r#"{"ok":false}"#
     )]
+    #[impress_example(
+        name = "rename-folder",
+        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000002","name":"Renamed G3 notes"}"#,
+        expect = r#"{"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000002","name":"Renamed G3 notes"}}"#
+    )]
     async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult;
 
     /// Move a collection under `new_parent_id` (null = make it a root).
@@ -266,6 +277,11 @@ pub trait CollectionService: Send + Sync + 'static {
         name = "missing-collection",
         args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "new_parent_id": null}"#,
         expect = r#"{"ok":false}"#
+    )]
+    #[impress_example(
+        name = "nest-folder",
+        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000003","new_parent_id":"59000000-0000-4000-8000-000000000004"}"#,
+        expect = r#"{"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000003","parent_id":"59000000-0000-4000-8000-000000000004"}}"#
     )]
     async fn reparent(
         &self,
@@ -281,6 +297,11 @@ pub trait CollectionService: Send + Sync + 'static {
         args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000", "sort_order": 0}"#,
         expect = r#"{"ok":false}"#
     )]
+    #[impress_example(
+        name = "position-folder",
+        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000005","sort_order":7}"#,
+        expect = r#"{"ok":true,"collection":{"id":"59000000-0000-4000-8000-000000000005","sort_order":7}}"#
+    )]
     async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult;
 
     /// Delete a collection. Members are NEVER deleted — only the membership
@@ -292,6 +313,11 @@ pub trait CollectionService: Send + Sync + 'static {
         args = r#"{"binding": "generic", "id": "00000000-0000-0000-0000-000000000000"}"#,
         expect = r#"{"ok":false}"#
     )]
+    #[impress_example(
+        name = "delete-empty-folder",
+        args = r#"{"binding":"generic","id":"59000000-0000-4000-8000-000000000006"}"#,
+        expect = r#"{"ok":true,"applied":0}"#
+    )]
     async fn delete(&self, binding: String, id: String) -> CollectionMutationResult;
 
     /// File items into a collection. Idempotent per item; returns how many
@@ -302,6 +328,11 @@ pub trait CollectionService: Send + Sync + 'static {
         name = "missing-collection",
         args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#,
         expect = r#"{"ok":false}"#
+    )]
+    #[impress_example(
+        name = "file-manuscript",
+        args = r#"{"binding":"generic","collection_id":"59000000-0000-4000-8000-000000000007","item_ids":["59000000-0000-4000-8000-000000000020"]}"#,
+        expect = r#"{"ok":true,"applied":1}"#
     )]
     async fn add_members(
         &self,
@@ -319,6 +350,11 @@ pub trait CollectionService: Send + Sync + 'static {
         args = r#"{"binding": "generic", "collection_id": "00000000-0000-0000-0000-000000000000", "item_ids": []}"#,
         expect = r#"{"ok":false}"#
     )]
+    #[impress_example(
+        name = "unfile-manuscript",
+        args = r#"{"binding":"generic","collection_id":"59000000-0000-4000-8000-000000000008","item_ids":["59000000-0000-4000-8000-000000000021"]}"#,
+        expect = r#"{"ok":true,"applied":1}"#
+    )]
     async fn remove_members(
         &self,
         binding: String,
@@ -333,6 +369,11 @@ pub trait CollectionService: Send + Sync + 'static {
     #[impress_example(
         name = "default",
         args = r#"{"binding": "generic", "collection_ids": []}"#
+    )]
+    #[impress_example(
+        name = "one-member",
+        args = r#"{"binding":"generic","collection_ids":["59000000-0000-4000-8000-000000000009"]}"#,
+        expect = r#"{"ok":true,"counts":[1]}"#
     )]
     async fn member_counts(
         &self,
@@ -362,6 +403,11 @@ pub trait CollectionService: Send + Sync + 'static {
     ///
     /// This is a deliberate, human-invoked operation on data users live in.
     #[impress_method(effects(reads = ["collection", "imbib/collection", "manuscript-collection", "figure-collection"], writes = ["collection"]))]
+    #[impress_example(
+        name = "preview-convergence",
+        args = r#"{"dry_run":true}"#,
+        expect = r#"{"ok":true,"dry_run":true,"membership_edges_untouched":true}"#
+    )]
     async fn migrate(&self, dry_run: bool) -> MigrationReportResult;
 
     /// Undo `migrate`: restore every migrated collection's original schema and
@@ -374,6 +420,11 @@ pub trait CollectionService: Send + Sync + 'static {
     /// are reported separately — nothing is deleted, but post-migration edits
     /// to pre-migration rows do not survive. Check `migration_status` first.
     #[impress_method(safety = destructive)]
+    #[impress_example(
+        name = "restore-legacy-folders",
+        args = r#"{}"#,
+        expect = r#"{"ok":true}"#
+    )]
     async fn rollback(&self) -> RollbackReportResult;
 }
 
@@ -858,34 +909,77 @@ impress_service_impl! {
     impl = DefaultCollectionService,
     instance = DefaultCollectionService::new,
     methods = [
-        tree(binding: String) -> CollectionListResult,
+        tree(
+            /// Collection hierarchy: `imbib`, `manuscript`, `figure`, or `generic`.
+            binding: String
+        ) -> CollectionListResult,
         create(
+            /// Collection hierarchy to create within.
             binding: String,
+            /// Visible name of the new collection.
             name: String,
+            /// Parent collection UUID, or null for a root collection.
             parent_id: Option<String>,
+            /// Record kind for a generic collection; null defaults to `any`.
             kind_scope: Option<String>
         ) -> CollectionResult,
-        rename(binding: String, id: String, name: String) -> CollectionResult,
-        reparent(
+        rename(
+            /// Collection hierarchy containing the row.
             binding: String,
+            /// UUID of the collection to rename.
             id: String,
+            /// New visible collection name.
+            name: String
+        ) -> CollectionResult,
+        reparent(
+            /// Collection hierarchy containing both rows.
+            binding: String,
+            /// UUID of the collection to move.
+            id: String,
+            /// New parent collection UUID, or null to make it a root.
             new_parent_id: Option<String>
         ) -> CollectionResult,
-        reorder(binding: String, id: String, sort_order: i64) -> CollectionResult,
-        delete(binding: String, id: String) -> CollectionMutationResult,
-        add_members(
+        reorder(
+            /// Collection hierarchy containing the row.
             binding: String,
+            /// UUID of the collection to reposition.
+            id: String,
+            /// Numeric sibling position; lower values sort first.
+            sort_order: i64
+        ) -> CollectionResult,
+        delete(
+            /// Collection hierarchy containing the row.
+            binding: String,
+            /// UUID of the collection to delete; members survive.
+            id: String
+        ) -> CollectionMutationResult,
+        add_members(
+            /// Collection hierarchy containing the target collection.
+            binding: String,
+            /// UUID of the collection receiving members.
             collection_id: String,
+            /// UUIDs of existing items to file into the collection.
             item_ids: Vec<String>
         ) -> CollectionMutationResult,
         remove_members(
+            /// Collection hierarchy containing the target collection.
             binding: String,
+            /// UUID of the collection losing members.
             collection_id: String,
+            /// UUIDs of items to unfile; the items themselves survive.
             item_ids: Vec<String>
         ) -> CollectionMutationResult,
-        member_counts(binding: String, collection_ids: Vec<String>) -> MemberCountsResult,
+        member_counts(
+            /// Collection hierarchy containing the requested rows.
+            binding: String,
+            /// Collection UUIDs; counts return in the same order.
+            collection_ids: Vec<String>
+        ) -> MemberCountsResult,
         migration_status() -> MigrationStatusResult,
-        migrate(dry_run: bool) -> MigrationReportResult,
+        migrate(
+            /// True to report what would change without writing anything.
+            dry_run: bool
+        ) -> MigrationReportResult,
         rollback() -> RollbackReportResult,
     ],
 }
