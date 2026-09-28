@@ -209,6 +209,32 @@ fn unavailable(detail: &str) -> Refusal {
     )
 }
 
+// A provider is an untrusted local process even before the person reviews it.
+// Bound reads while streaming: Content-Length may be absent or dishonest.
+const MAX_HEALTH_BODY_BYTES: usize = 4 * 1024;
+const MAX_VERB_BODY_BYTES: usize = 2 * 1024 * 1024;
+
+async fn bounded_body(
+    mut response: reqwest::Response,
+    limit: usize,
+    failure: Refusal,
+) -> Result<Vec<u8>, Refusal> {
+    if response
+        .content_length()
+        .is_some_and(|size| size > limit as u64)
+    {
+        return Err(failure);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| failure.clone())? {
+        if chunk.len() > limit - body.len() {
+            return Err(failure);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 /// Probe `GET <endpoint>/health` with the host-issued bearer credential.
 /// A failed probe is a named `host-unavailable` refusal. No app port default
 /// or store fallback applies to a runtime provider.
@@ -229,10 +255,12 @@ pub async fn health(endpoint: &str, token: &str) -> Result<(), Refusal> {
     }
     // A provider may return an empty 2xx health response. If it sends the
     // standard JSON envelope, its explicit refusal still takes precedence.
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|_| unavailable("health response failed"))?;
+    let bytes = bounded_body(
+        response,
+        MAX_HEALTH_BODY_BYTES,
+        unavailable("health response failed or exceeded 4 KiB"),
+    )
+    .await?;
     if !bytes.is_empty()
         && serde_json::from_slice::<Value>(&bytes)
             .ok()
@@ -306,7 +334,16 @@ pub async fn call_with_parent(
         .await
         .map_err(|_| unavailable(&format!("{name} request failed or timed out")))?;
     let status = response.status();
-    let body: Value = response.json().await.map_err(|_| {
+    let bytes = bounded_body(
+        response,
+        MAX_VERB_BODY_BYTES,
+        Refusal::new(
+            codes::VERB_FAILED,
+            format!("{name}: provider JSON response failed or exceeded 2 MiB"),
+        ),
+    )
+    .await?;
+    let body: Value = serde_json::from_slice(&bytes).map_err(|_| {
         Refusal::new(
             codes::VERB_FAILED,
             format!("{name}: invalid provider JSON response"),
@@ -591,5 +628,60 @@ mod tests {
         assert_eq!(error.code, codes::HOST_UNAVAILABLE);
         assert!(!error.message.contains("private-token"));
         health.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn chunked_health_body_is_bounded_without_content_length() {
+        use std::io::Write;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let body = vec![b'x'; MAX_HEALTH_BODY_BYTES + 1];
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n",
+                body.len()
+            );
+            stream.write_all(headers.as_bytes()).unwrap();
+            stream.write_all(&body).unwrap();
+            stream.write_all(b"\r\n0\r\n\r\n").unwrap();
+        });
+        let error = health(&format!("http://{address}"), "private-token")
+            .await
+            .expect_err("oversized streamed health body must be refused");
+        assert_eq!(error.code, codes::HOST_UNAVAILABLE);
+        assert!(!error.message.contains("private-token"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_provider_result_is_refused_without_leaking_it() {
+        let mut server = mockito::Server::new_async().await;
+        let _health = server
+            .mock("GET", "/health")
+            .with_status(200)
+            .create_async()
+            .await;
+        let oversized = format!("{{\"echo\":\"{}\"}}", "x".repeat(MAX_VERB_BODY_BYTES));
+        let verb = server
+            .mock("POST", "/verb/example-service_echo")
+            .with_status(200)
+            .with_body(oversized)
+            .expect(1)
+            .create_async()
+            .await;
+        let error = call(
+            &server.url(),
+            "private-token",
+            "example-service_echo",
+            json!({}),
+            None,
+        )
+        .await
+        .expect_err("oversized provider result must be refused");
+        assert_eq!(error.code, codes::VERB_FAILED);
+        assert!(!error.message.contains("private-token"));
+        verb.assert_async().await;
     }
 }

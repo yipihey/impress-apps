@@ -204,7 +204,7 @@ async fn http_mcp(
     headers: HeaderMap,
     Json(request): Json<Value>,
 ) -> Response {
-    let Some(caller) = providers::identity(&state, &headers) else {
+    let Some(caller) = providers::identity(&state, &headers).await else {
         return providers::unauthorized();
     };
     let trace = headers

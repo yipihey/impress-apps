@@ -23,17 +23,32 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
         .strip_prefix("Bearer ")
 }
 
-pub(super) fn identity(state: &HttpState, headers: &HeaderMap) -> Option<CallerIdentity> {
+pub(super) async fn identity(state: &HttpState, headers: &HeaderMap) -> Option<CallerIdentity> {
     if has_bearer_token(headers, &state.bearer_token) {
         return Some(CallerIdentity::agent(format!(
             "mcp-host:{}",
             state.config.server_name
         )));
     }
-    let id = headers.get("x-impress-provider-id")?.to_str().ok()?;
-    registry_runtime::current()
-        .authenticate(id, bearer(headers)?)
-        .then(|| CallerIdentity::Provider(id.to_owned()))
+    let id = headers
+        .get("x-impress-provider-id")?
+        .to_str()
+        .ok()?
+        .to_owned();
+    let token = bearer(headers)?.to_owned();
+    let registry = registry_runtime::current();
+    // Another local host can rotate/deregister this credential at any time.
+    // Authenticate against the durable row, not the five-second health cache.
+    // Store I/O stays off Axum's reactor and any read failure fails closed.
+    tokio::task::spawn_blocking(move || {
+        registry.refresh_persisted().ok()?;
+        registry
+            .authenticate(&id, &token)
+            .then(|| CallerIdentity::Provider(id))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 pub(super) fn unauthorized() -> Response {
@@ -76,7 +91,7 @@ pub(super) async fn register(
     headers: HeaderMap,
     Json(request): Json<RegistrationRequest>,
 ) -> Response {
-    match identity(&state, &headers) {
+    match identity(&state, &headers).await {
         Some(CallerIdentity::Agent(_)) => {}
         Some(CallerIdentity::Provider(id)) if id == request.provider.id => {}
         _ => return unauthorized(),
@@ -103,7 +118,7 @@ pub(super) async fn deregister(
     headers: HeaderMap,
     Json(request): Json<Deregister>,
 ) -> Response {
-    if !matches!(identity(&state, &headers), Some(CallerIdentity::Provider(id)) if id == request.provider_id)
+    if !matches!(identity(&state, &headers).await, Some(CallerIdentity::Provider(id)) if id == request.provider_id)
     {
         return unauthorized();
     }
@@ -125,13 +140,15 @@ pub(super) async fn deregister(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::RwLock;
 
     use axum::body::to_bytes;
     use axum::http::HeaderValue;
     use impress_service_core::provider::{
-        ProviderConnection, ProviderExampleInput, ProviderIdentityInput, ProviderVerbInput,
-        Registry, SafetyClaim, SchemaValidator,
+        PersistedProvider, ProviderConnection, ProviderExampleInput, ProviderIdentityInput,
+        ProviderPersistence, ProviderVerbInput, Registry, SafetyClaim, SchemaValidator,
     };
     use impress_service_core::registry_runtime::{HealthFuture, ProviderInvoker};
     use impress_service_core::ServiceFuture;
@@ -141,6 +158,60 @@ mod tests {
     use crate::HostConfig;
 
     struct TestValidator;
+
+    #[derive(Default)]
+    struct MemoryPersistence {
+        row: RwLock<Option<PersistedProvider>>,
+        token: RwLock<Option<String>>,
+        fail_load: AtomicBool,
+    }
+
+    impl ProviderPersistence for MemoryPersistence {
+        fn load(&self) -> Result<Vec<PersistedProvider>, String> {
+            if self.fail_load.load(Ordering::Relaxed) {
+                return Err("fixture persistence unavailable".into());
+            }
+            Ok(self.row.read().unwrap().iter().cloned().collect())
+        }
+
+        fn save_registration(
+            &self,
+            row: &PersistedProvider,
+            token: &str,
+            previous: Option<&PersistedProvider>,
+        ) -> Result<(), String> {
+            let mut saved = self.row.write().unwrap();
+            let same = saved
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .unwrap()
+                == previous.map(serde_json::to_value).transpose().unwrap();
+            if !same {
+                return Err("fixture registration changed".into());
+            }
+            *saved = Some(row.clone());
+            *self.token.write().unwrap() = Some(token.into());
+            Ok(())
+        }
+
+        fn save_trust(&self, row: &PersistedProvider) -> Result<(), String> {
+            *self.row.write().unwrap() = Some(row.clone());
+            Ok(())
+        }
+
+        fn load_token(&self, provider_id: &str) -> Result<Option<String>, String> {
+            if self.row.read().unwrap().as_ref().map(|row| row.id.as_str()) != Some(provider_id) {
+                return Ok(None);
+            }
+            Ok(self.token.read().unwrap().clone())
+        }
+
+        fn save_status(&self, row: &PersistedProvider) -> Result<(), String> {
+            *self.row.write().unwrap() = Some(row.clone());
+            Ok(())
+        }
+    }
 
     impl SchemaValidator for TestValidator {
         fn validate(&self, schema: &Value) -> Result<(), String> {
@@ -262,8 +333,12 @@ mod tests {
 
     #[tokio::test]
     async fn routes_scope_host_and_provider_credentials_and_rotate_them() {
+        let persistence = Arc::new(MemoryPersistence::default());
         registry_runtime::install(Arc::new(
-            Registry::new().with_validator(Arc::new(TestValidator)),
+            Registry::new()
+                .with_validator(Arc::new(TestValidator))
+                .with_persistence(persistence.clone())
+                .unwrap(),
         ));
         registry_runtime::install_invoker(Arc::new(TestInvoker));
         let state = state();
@@ -311,7 +386,7 @@ mod tests {
         let mut claimed_person = headers("host-secret", Some("python-reference"));
         claimed_person.insert("x-impress-caller", HeaderValue::from_static("person"));
         assert!(matches!(
-            identity(&state, &claimed_person),
+            identity(&state, &claimed_person).await,
             Some(CallerIdentity::Agent(_))
         ));
         let (status, body) = response_json(
@@ -330,12 +405,12 @@ mod tests {
         let mut provider_headers = headers(&first, Some("python-reference"));
         provider_headers.insert("x-impress-caller", HeaderValue::from_static("person"));
         assert_eq!(
-            identity(&state, &provider_headers),
+            identity(&state, &provider_headers).await,
             Some(CallerIdentity::Provider("python-reference".into()))
         );
-        assert_eq!(identity(&state, &headers(&first, None)), None);
+        assert_eq!(identity(&state, &headers(&first, None)).await, None);
         assert_eq!(
-            identity(&state, &headers(&first, Some("other-provider"))),
+            identity(&state, &headers(&first, Some("other-provider"))).await,
             None
         );
         let mut different_id = request(Some(first.clone()), "1.1.0");
@@ -377,13 +452,40 @@ mod tests {
         let second = body["token"].as_str().unwrap().to_owned();
         assert_ne!(first, second);
         assert_eq!(
-            identity(&state, &headers(&first, Some("python-reference"))),
+            identity(&state, &headers(&first, Some("python-reference"))).await,
             None
         );
         assert_eq!(
-            identity(&state, &headers(&second, Some("python-reference"))),
+            identity(&state, &headers(&second, Some("python-reference"))).await,
             Some(CallerIdentity::Provider("python-reference".into()))
         );
+
+        // A second host rotates the credential in the same durable store.
+        // The HTTP host must reject its old local snapshot immediately,
+        // without waiting for the periodic health refresh.
+        let other = Registry::new()
+            .with_validator(Arc::new(TestValidator))
+            .with_persistence(persistence.clone())
+            .unwrap();
+        let third = other
+            .register(request(Some(second.clone()), "1.2.0"))
+            .unwrap()
+            .token;
+        assert_eq!(
+            identity(&state, &headers(&second, Some("python-reference"))).await,
+            None
+        );
+        assert_eq!(
+            identity(&state, &headers(&third, Some("python-reference"))).await,
+            Some(CallerIdentity::Provider("python-reference".into()))
+        );
+        persistence.fail_load.store(true, Ordering::Relaxed);
+        assert_eq!(
+            identity(&state, &headers(&third, Some("python-reference"))).await,
+            None,
+            "a failed durable read must never accept the cached credential"
+        );
+        persistence.fail_load.store(false, Ordering::Relaxed);
 
         let (status, _) = response_json(
             deregister(
@@ -412,7 +514,7 @@ mod tests {
         let (status, body) = response_json(
             deregister(
                 State(state.clone()),
-                headers(&second, Some("python-reference")),
+                headers(&third, Some("python-reference")),
                 Json(Deregister {
                     provider_id: "python-reference".into(),
                 }),
@@ -423,7 +525,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
         assert_eq!(
-            identity(&state, &headers(&second, Some("python-reference"))),
+            identity(&state, &headers(&third, Some("python-reference"))).await,
             None
         );
 
