@@ -18,7 +18,7 @@ use crate::reference::EdgeType;
 /// let schema: impress_core::SchemaRef = "manuscript-sectoin".into();
 /// ```
 /// ```compile_fail
-/// let schema = impress_core::SchemaRef("manuscript");
+/// let schema = impress_core::SchemaRef(std::borrow::Cow::Borrowed("manuscript"));
 /// ```
 #[repr(transparent)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
