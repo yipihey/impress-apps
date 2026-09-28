@@ -488,7 +488,7 @@ fn verify_bibtex_collection_example(
         .as_str()
         .ok_or("example omitted library_id")?;
     let library_id = ItemId::parse_str(library_id_text).map_err(|e| e.to_string())?;
-    if paper.schema != "imbib/bibliography-entry"
+    if paper.schema != impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY
         || paper.parent != Some(library_id)
         || paper.payload.get("title") != Some(&ItemValue::String("P5b Effects Paper".into()))
     {
@@ -662,6 +662,11 @@ async fn run_catalogue(
             "catalogue `{name}` has failing capabilities: {failed:?}"
         ));
     }
+    if !results.iter().any(|(_, pass, skipped)| *pass && !*skipped) {
+        out.catalogue_failures.push(format!(
+            "catalogue `{name}` passed no capability; it cannot verify its services"
+        ));
+    }
     let members: Vec<_> = verbs
         .iter()
         .filter(|v| services.contains(&v.service))
@@ -767,6 +772,93 @@ fn verification() -> &'static Verification {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/// P7's feature self-test golden: the linked verb inventory is the set to
+/// account for. An exception is an explicit coverage gap, not a passing test.
+/// The existing ceiling and the reviewed reason table make those gaps visible
+/// until an example or Tier A catalogue can replace them.
+#[test]
+fn every_linked_verb_has_selftest_evidence_or_a_reviewed_exception() {
+    let inventory = verbs();
+    let done = verification();
+    let (_, exceptions) = table();
+    let linked: BTreeSet<_> = inventory.iter().map(|v| v.name).collect();
+    let accounted: BTreeSet<_> = done.verified.keys().copied().collect();
+    let missing: Vec<_> = linked.difference(&accounted).copied().collect();
+    let unexpected: Vec<_> = accounted.difference(&linked).copied().collect();
+    assert!(
+        linked.len() == inventory.len() && missing.is_empty() && unexpected.is_empty(),
+        "self-test inventory mismatch: {} descriptors, {} unique names, missing {missing:?}, unexpected {unexpected:?}",
+        inventory.len(), linked.len()
+    );
+
+    let mut problems = done.failures.clone();
+    problems.extend(done.catalogue_failures.iter().cloned());
+    let mut exception_count = 0;
+    for v in inventory {
+        match &done.verified[v.name] {
+            Verified::Example(0) => problems.push(format!(
+                "`{}` claims example coverage, but no example ran",
+                v.name
+            )),
+            Verified::Example(n) => {
+                if *n > v.examples.len() {
+                    problems.push(format!(
+                        "`{}` claims {n} examples, but declares only {}",
+                        v.name,
+                        v.examples.len()
+                    ));
+                }
+                if exceptions.contains_key(v.name) {
+                    problems.push(format!(
+                        "`{}` has example coverage but remains on the exception table",
+                        v.name
+                    ));
+                }
+            }
+            Verified::Catalogue(name) => {
+                if !CATALOGUES.iter().any(|(candidate, services, _)| {
+                    candidate == name && services.contains(&v.service)
+                }) {
+                    problems.push(format!(
+                        "`{}` claims catalogue `{name}` outside its service",
+                        v.name
+                    ));
+                }
+                if exceptions.contains_key(v.name) {
+                    problems.push(format!(
+                        "`{}` has catalogue coverage but remains on the exception table",
+                        v.name
+                    ));
+                }
+            }
+            Verified::Exception(reason) => {
+                exception_count += 1;
+                if exceptions.get(v.name).map(String::as_str) != Some(reason.as_str()) {
+                    problems.push(format!(
+                        "`{}` has an unreviewed exception `{reason}`",
+                        v.name
+                    ));
+                }
+            }
+        }
+    }
+    for name in exceptions.keys() {
+        if !linked.contains(name.as_str()) && !is_optional_feature_verb(name) {
+            problems.push(format!("exception table names unlinked verb `{name}`"));
+        }
+    }
+    assert!(
+        exceptions.len() <= EXCEPTION_CEILING,
+        "{} documented exceptions ({exception_count} linked) exceed the reviewed ceiling {EXCEPTION_CEILING}",
+        exceptions.len()
+    );
+    assert!(
+        problems.is_empty(),
+        "self-test evidence gaps:\n- {}",
+        problems.join("\n- ")
+    );
+}
 
 #[test]
 fn every_declared_ref_is_canonical() {

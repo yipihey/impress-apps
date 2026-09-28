@@ -11,6 +11,11 @@ three Tier A catalogues, the store spy's observed kinds against the declared one
 row, a row with no verb, a row that disagrees with the declaration, or an exception whose reason is
 not the one the test computed fails the test and prints the row as it should read.
 `scripts/check-verb-coverage.sh` checks the source-only half without a build.
+The P7 self-test golden in that test compares the complete linked verb inventory
+with the evidence map: each verb must have a successful example, a passing Tier A
+catalogue for its service, or an exact reviewed exception reason below. It also
+rejects stale evidence and enforces the existing exception ceiling. An exception
+records a gap; it does not count as a tested feature.
 
 Every `#[impress_method]` carries an effect set on its descriptor
 (`impress_service_core::Effects { reads, writes, reach }`), declared once per service as
