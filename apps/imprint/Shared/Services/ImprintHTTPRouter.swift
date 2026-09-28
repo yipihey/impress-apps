@@ -60,7 +60,6 @@ import AppKit
 /// - `GET /api/store-timings` - StoreTimings snapshot (per-caller stats)
 /// - `POST /api/store-timings/reset` - Reset StoreTimings counters
 /// - `GET /api/manuscripts` - List every manuscript known to the store
-/// - `GET /api/manuscripts/{id}/sections` - List sections for a manuscript
 /// - `GET /api/sections/{id}` - Fetch a single section (id, body, metadata)
 /// - `GET /api/search?q=...` - Cross-document manuscript search
 /// - `GET /api/citation-usages` - List citation-usage records
@@ -222,10 +221,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
             if pathLower.hasPrefix("/api/manuscripts/") {
                 let remainder = String(path.dropFirst("/api/manuscripts/".count))
-                if remainder.hasSuffix("/sections") {
-                    let docId = String(remainder.dropLast("/sections".count))
-                    return handleManuscriptSections(id: docId)
-                }
                 if remainder.hasSuffix("/history") {
                     let docId = String(remainder.dropLast("/history".count))
                     return await handleManuscriptHistory(id: docId)
@@ -2334,28 +2329,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 "revisions": payload,
             ])
         }
-    }
-
-    /// GET /api/manuscripts/{id}/sections — list every stored section
-    /// for a document, sorted by `order_index`. Body is inline; large
-    /// content-addressed bodies are not rehydrated here — call
-    /// `/api/sections/{id}` for those.
-    private func handleManuscriptSections(id: String) -> HTTPResponse {
-        guard let uuid = UUID(uuidString: id) else {
-            return .badRequest("Invalid manuscript id: \(id)")
-        }
-        #if canImport(ImpressRustCore)
-        let sections = ImprintImpressStore.shared.listSectionsForDocument(documentID: uuid)
-        let payload: [[String: Any]] = sections.map { Self.sectionToJSON($0) }
-        return .json([
-            "status": "ok",
-            "manuscriptID": id,
-            "count": sections.count,
-            "sections": payload
-        ])
-        #else
-        return .json(["status": "ok", "manuscriptID": id, "count": 0, "sections": []])
-        #endif
     }
 
     /// GET /api/sections/{id} — fetch a single section with its body
