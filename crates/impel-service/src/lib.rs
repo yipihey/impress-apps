@@ -1704,7 +1704,26 @@ mod tests {
         assert_eq!(fresh.live_tasks, 1);
         assert!(fresh.summary.contains("Nothing older"), "{}", fresh.summary);
 
-        // A zero-day window makes everything already-written old enough.
+        // A zero-day window still uses a strict millisecond cutoff. The
+        // writes and query can otherwise land in the same clock tick.
+        let newest_write_ms = ids
+            .iter()
+            .map(|id| {
+                TaskStoreApi::get_item(store.as_ref(), *id)
+                    .unwrap()
+                    .unwrap()
+                    .modified
+                    .timestamp_millis()
+            })
+            .max()
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while chrono::Utc::now().timestamp_millis() <= newest_write_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("the retention fixture needs a cutoff after its last write");
         let all = svc.retention_status(-1).await;
         assert_eq!(
             all.window_days, DEFAULT_RETENTION_WINDOW_DAYS,

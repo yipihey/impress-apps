@@ -2866,3 +2866,15 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `/var/folders/nt/x289rxb53njg4qpvf0b6l8080000gn/T/impress-pre-push.aP2NSB/`.
   Hosted checks and fresh-main verification before merge remain. No user's app,
   launcher or store was used.
+
+- 2026-09-28 — **Post-batch retention fixture repair**: the full native
+  workspace run at `158502c2` failed in the impel-service retention preview
+  test (zero sweepable rows instead of two). The fixture queried a strict
+  millisecond cutoff in the same tick as its writes. It now waits, with a
+  five-second bound, until the cutoff is strictly after the newest fixture
+  timestamp. Production retention semantics and all row-count assertions
+  remain unchanged. The touched-crate/capabilities run passed 52 tests, zero
+  failures, three ignored; the regression passed 20 consecutive runs. Both
+  clippy shards passed. Logs: `/tmp/impress-retention-cutoff-tests2.log` and
+  `/tmp/impress-retention-cutoff-repeat.log`. The first test build exhausted
+  disk space before running; obsolete session caches were cleared before retry.
