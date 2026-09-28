@@ -12,6 +12,8 @@ import XCTest
 final class TransportProofTests: XCTestCase {
     private var calls: [[String: Any]] = []
     private var callEvidenceURL: URL?
+    private let traceID = UUID().uuidString
+    private let parentCallID = UUID().uuidString
 
     func testNativeTransportPersistsAndReadsBack() async throws {
         let env = ProcessInfo.processInfo.environment
@@ -91,6 +93,7 @@ final class TransportProofTests: XCTestCase {
         let evidence: [String: Any] = [
             "app": app, "pid": pid, "port": Int(port), "store": db.path,
             "calls": calls, "audit": audit, "logs": logs.value,
+            "traceparent": traceID, "parent_call": parentCallID,
         ]
         let data = try JSONSerialization.data(withJSONObject: evidence,
                                               options: [.prettyPrinted, .sortedKeys])
@@ -258,14 +261,17 @@ final class TransportProofTests: XCTestCase {
             let rows = try store.queryBySchema(schemaRef: "core/verb-call@1.0.0", limit: 200, offset: 0)
             for row in rows {
                 guard let payload = try? JSONSerialization.jsonObject(with: Data(row.payloadJson.utf8)) as? [String: Any],
-                      payload["verb"] as? String == expectedVerb else { continue }
-                let trace = try XCTUnwrap(payload["trace_id"] as? String)
-                try require(UUID(uuidString: row.id) != nil && UUID(uuidString: trace) != nil,
-                            "native audit has a call and trace UUID")
-                try require(payload["ok"] as? Bool == true && payload["caller"] is [String: Any],
-                            "native audit records successful caller identity")
-                return ["id": row.id, "verb": expectedVerb, "trace_id": trace,
-                        "caller": payload["caller"] ?? [:], "ok": true]
+                      payload["verb"] as? String == expectedVerb,
+                      payload["trace_id"] as? String == traceID else { continue }
+                let caller = try XCTUnwrap(payload["caller"] as? [String: Any])
+                try require(UUID(uuidString: row.id) != nil &&
+                            payload["parent_call"] as? String == parentCallID,
+                            "native audit preserves the supplied parent call")
+                try require(payload["ok"] as? Bool == true &&
+                            caller["kind"] as? String == "app" && caller["name"] as? String == app,
+                            "native audit preserves the expected app caller")
+                return ["id": row.id, "verb": expectedVerb, "trace_id": traceID,
+                        "parent_call": parentCallID, "caller": caller, "ok": true]
             }
             try await Task.sleep(for: .milliseconds(100))
         }
@@ -287,6 +293,8 @@ final class TransportProofTests: XCTestCase {
         var request = URLRequest(url: try XCTUnwrap(URL(string: base + path)))
         request.timeoutInterval = 30
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        request.setValue(traceID, forHTTPHeaderField: "traceparent")
+        request.setValue(parentCallID, forHTTPHeaderField: "x-impress-parent-call")
         if let body {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -295,7 +303,8 @@ final class TransportProofTests: XCTestCase {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = try XCTUnwrap(response as? HTTPURLResponse).statusCode
         let value = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        calls.append(["path": path, "status": status, "args": body ?? [:], "result": value])
+        calls.append(["path": path, "status": status, "args": body ?? [:], "result": value,
+                      "traceparent": traceID, "parent_call": parentCallID])
         if let callEvidenceURL {
             try JSONSerialization.data(withJSONObject: calls, options: [.prettyPrinted, .sortedKeys])
                 .write(to: callEvidenceURL, options: .atomic)
