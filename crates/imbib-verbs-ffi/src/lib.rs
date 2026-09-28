@@ -100,7 +100,7 @@ pub async fn dispatch_verb_async(
     if INITIALIZED_PATH.lock().map_or(true, |path| path.is_none()) {
         return store_unavailable();
     }
-    dispatch::dispatch_async(&name, &args_json, &caller_json)
+    dispatch::dispatch_foreign_async(&name, &args_json, &caller_json)
         .await
         .into()
 }

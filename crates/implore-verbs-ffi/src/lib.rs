@@ -90,7 +90,7 @@ pub async fn dispatch_verb_async(
     args_json: String,
     caller_json: String,
 ) -> SharedVerbDispatchResult {
-    dispatch::dispatch_async(&name, &args_json, &caller_json)
+    dispatch::dispatch_foreign_async(&name, &args_json, &caller_json)
         .await
         .into()
 }
