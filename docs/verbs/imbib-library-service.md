@@ -384,6 +384,29 @@ Parse BibTeX and add each entry to a library as a paper; returns the ids of the 
 
 _No examples yet._
 
+## `imbib-library-service_import-bibtex-into-collection`
+
+Import BibTeX and file every resulting paper into a collection. Papers that already exist — including ones filed in a different library — are added to the collection rather than skipped, so dropping a .bib on a collection reliably means "these papers belong here". Returns the papers created and the pre-existing ones linked, kept separate so undo can remove only what the import created.
+
+- **safety**: `mutating`
+- **reads**: "imbib/bibliography-entry", "imbib/library", "imbib/collection"
+- **writes**: "imbib/bibliography-entry", "imbib/collection"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `bibtex` | string | yes | *(undocumented)* |
+| `collection_id` | string | yes | *(undocumented)* |
+| `library_id` | string | yes | *(undocumented)* |
+
+**Examples**
+
+- `scratch-paper-into-collection`:
+
+  ```json
+  {"bibtex":"@article{P5bEffects2026, title={P5b Effects Paper}, author={Doe, Jane}, year={2026}}","library_id":"56000000-0000-4000-8000-000000000041","collection_id":"56000000-0000-4000-8000-000000000042"}
+  ```
+
 ## `imbib-library-service_import-papers`
 
 Add papers to the imbib library by identifier. Supports DOI, arXiv ID, bibcode, or other identifiers. Automatically fetches metadata from external sources. If papers already exist, they are still added to the target library/collection.

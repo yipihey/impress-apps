@@ -25,10 +25,10 @@ The vocabulary, from the plan's table 4:
   the external side does; the descriptor carries only `external`, and the MCP projection reads
   it conservatively (`destructiveHint: true`, `openWorldHint: true`).
 
-Counts today (semantic-search feature on): 200 read-only, 138 mutating,
-34 destructive, 104 external — 476 verbs. Without that feature,
+Counts today (semantic-search feature on): 200 read-only, 139 mutating,
+34 destructive, 104 external — 477 verbs. Without that feature,
 `imbib-semantic-service`'s three read-only verbs are unlinked and the totals
-are 3 fewer (197/138/34/104 — 473).
+are 3 fewer (197/139/34/104 — 474).
 *Evidence* is appendix A4's file:line where the plan recorded one (every destructive verb and
 every verb whose class is not obvious from its name or doc), else `name/doc`.
 
@@ -205,6 +205,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_get-publication` | read_only | name/doc |
 | `imbib-library-service_get-publication-detail` | read_only | name/doc |
 | `imbib-library-service_import-bibtex` | mutating | name/doc |
+| `imbib-library-service_import-bibtex-into-collection` | mutating | name/doc |
 | `imbib-library-service_import-papers` | mutating | crates/imbib-service/src/library_service.rs:1135 -> crates/imbib-core/src/unified/store_api.rs:1335-1499 batch_import_search_results: parses the BibTeX the CALLER supplies, dedups, insert_batch; NO network fetch in th… |
 | `imbib-library-service_is-paper-dismissed` | read_only | name/doc |
 | `imbib-library-service_list-collection-members` | read_only | name/doc |

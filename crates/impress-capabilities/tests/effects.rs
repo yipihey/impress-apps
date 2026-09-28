@@ -78,7 +78,7 @@ use serde_json::Value;
 /// against an empty call log (no store to seed with a recorded session), so
 /// the spy observes nothing — the same "exercised, unobserved" shape as
 /// `history-service_save-macro` beside it.
-const EXCEPTION_CEILING: usize = 301;
+const EXCEPTION_CEILING: usize = 300;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

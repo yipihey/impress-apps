@@ -680,4 +680,29 @@ fn dump() {
             println!("fallback description: {}", v.service);
         }
     }
+    // Keep curated verdicts, drop retired workspace members, and classify
+    // the app-owned dispatch bridges by their deliberately narrow role.
+    // Printing this table too lets callers regenerate every changed census
+    // block from the test dump instead of editing Markdown rows by hand.
+    let doc = coverage_doc();
+    let block = marker_block(&doc, "verb-coverage-crates");
+    let rows: BTreeMap<_, _> = block
+        .into_iter()
+        .filter(|line| line.starts_with("| `"))
+        .map(|line| {
+            let name = line.split('`').nth(1).expect("crate row name");
+            (name, line)
+        })
+        .collect();
+    println!("\n| Crate | Role | Verdict | Reason / uncovered capabilities |");
+    println!("|---|---|---|---|");
+    for name in workspace_members() {
+        if let Some(row) = rows.get(name.as_str()) {
+            println!("{row}");
+        } else if let Some(app) = name.strip_suffix("-verbs-ffi") {
+            println!("| `{name}` | ffi | internal | {app}'s native app dispatcher over its service inventory; no independent capability |");
+        } else {
+            panic!("classify new workspace crate {name} before regenerating its verdict");
+        }
+    }
 }

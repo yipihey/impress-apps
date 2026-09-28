@@ -270,7 +270,7 @@ runs:
         # rust-toolchain.toml because the compiler is an input too: without
         # it a pin bump restored frameworks the old rustc built.
         sha=$(git ls-files -s -- $dirs Cargo.toml Cargo.lock rust-toolchain.toml \
-                "crates/$CRATE/build-xcframework.sh" .github/actions/xcframework/action.yml \
+                "crates/$CRATE/build-xcframework.sh" scripts/native-sqlite.sh .github/actions/xcframework/action.yml \
               | shasum -a 256 | cut -d' ' -f1)
         echo "scope=crate" >> "$GITHUB_OUTPUT"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -287,7 +287,7 @@ runs:
       id: key
       shell: bash
       env:
-        KEY: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh') }}
+        KEY: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh', 'scripts/native-sqlite.sh') }}
       run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
     - name: Restore ${{ inputs.crate }} xcframework

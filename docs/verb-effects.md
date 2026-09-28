@@ -38,8 +38,8 @@ spawns the LaTeX toolchain, `parsers-service_resolve-publisher-pdf` fetches one 
 allow-listed in the test rather than reclassed; every other verb with a reach beyond `fs` is
 `external`, and every `external` verb names such a reach.
 
-Counts today: 476 verbs declared; 82 verified by example, 93 by a Tier A
-catalogue, 301 on the exception table.
+Counts today: 477 verbs declared; 84 verified by example, 93 by a Tier A
+catalogue, 300 on the exception table.
 
 ## Every verb
 
@@ -164,6 +164,7 @@ catalogue, 301 on the exception table.
 | `imbib-library-service_get-publication` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
 | `imbib-library-service_get-publication-detail` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
 | `imbib-library-service_import-bibtex` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | — |
+| `imbib-library-service_import-bibtex-into-collection` | "imbib/bibliography-entry", "imbib/library", "imbib/collection" | "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
 | `imbib-library-service_import-papers` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | — | — |
 | `imbib-library-service_is-paper-dismissed` | "imbib/dismissed-paper" | — | — | example ×1 |
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | — |
@@ -358,7 +359,7 @@ catalogue, 301 on the exception table.
 | `imprint-manuscript-service_export-document` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
 | `imprint-manuscript-service_get-document` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
 | `imprint-manuscript-service_get-section` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
-| `imprint-manuscript-service_list-documents` | "manuscript" | — | — | — |
+| `imprint-manuscript-service_list-documents` | "manuscript" | — | — | example ×1 |
 | `imprint-manuscript-service_list-sections` | "manuscript", "manuscript-section" | — | — | catalogue:imprint |
 | `imprint-manuscript-service_presentation-outline` | — | — | — | catalogue:imprint |
 | `imprint-manuscript-service_put-section` | "manuscript", "manuscript-section" | "manuscript-section", "manuscript" | — | catalogue:imprint |
@@ -773,7 +774,6 @@ when one lands).
 | `imprint-app-service_update-document` | needs a running app |
 | `imprint-app-service_update-metadata` | needs a running app |
 | `imprint-manuscript-service_compile-latex` | leaves the process (subprocess) |
-| `imprint-manuscript-service_list-documents` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imprint-project-service_project-build` | leaves the process (subprocess, fs) |
 | `imprint-project-service_project-figure-preview` | leaves the process (subprocess, fs) |
 | `imprint-project-service_project-render-figure` | leaves the process (subprocess, fs) |

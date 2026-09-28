@@ -41,7 +41,7 @@ read.
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 0 | 9 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 0 | 6 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 0 | 22 |
-| `imbib-library-service` | imbib-service | 45 | 45 | 82 (62) | 0 | 45 |
+| `imbib-library-service` | imbib-service | 46 | 46 | 85 (65) | 0 | 46 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 0 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 0 | 7 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 0 | 10 |
@@ -77,7 +77,7 @@ read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 0 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 0 | 15 |
-| **Total** | 21 crates, 45 services | **476** | **476** | **1063 (704)** | **126** | **476** |
+| **Total** | 21 crates, 45 services | **477** | **477** | **1066 (707)** | **126** | **477** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -101,7 +101,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 7 |
 | `ref-object` | 40 |
-| `scalar` | 953 |
+| `scalar` | 956 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
@@ -146,9 +146,11 @@ and the implore owner decides between verbs and deletion.
 | `imbib-semantic-service` | verb-crate | optional-feature | `semantic-search` — the three legacy semantic-search MCP tools; deliberately not in `full` (the fastembed/tokenizers stack is a cost only `impress-mcp` should pay); only `impress-mcp` enables it |
 | `imbib-service` | verb-crate | verb-crate | |
 | `imbib-service-http` | service-http | internal | the HTTP adapter of `imbib-service` for a running app; no capability of its own |
+| `imbib-verbs-ffi` | ffi | internal | imbib per-app dispatch and exact-store initialization (P5b prerequisite for W3); no independent capability |
 | `impart-core` | domain-core | should-be-verb | `provenance::queries::{trace_lineage, trace_effects, artifact_history, decision_history, …}` have no verb; `impart-service` calls nothing in it |
 | `impart-service` | verb-crate | verb-crate | |
 | `impart-service-http` | service-http | internal | the HTTP adapter of `impart-service`; no capability of its own |
+| `impart-verbs-ffi` | ffi | internal | impart's native app dispatcher over its service inventory; no independent capability |
 | `impel-core` | domain-core | should-be-verb | `escalation::{acknowledge, resolve, dismiss}` and `coordination::{available_threads, threads_by_state, open_escalations}` reach agents only over `impel-server`'s HTTP |
 | `impel-enrichment` | library | internal | task executors (`HeuristicClassifier`, `LlmClassifier`, `MetadataResolveExecutor`) that run only as scheduled impel tasks |
 | `impel-memory` | library | internal | `claim_distill` and `spawn::plan_memory_tasks` are internal to the daemon's consolidation |
@@ -163,9 +165,8 @@ and the implore owner decides between verbs and deletion.
 | `implore-selection` | library | internal | `parser::parse_selection` and `Evaluator::{evaluate, selected_indices}` have zero callers in the workspace (C-2); the implore owner decides between a verb and deletion |
 | `implore-service` | verb-crate | verb-crate | |
 | `implore-service-http` | service-http | internal | the HTTP adapter of `implore-service`; no capability of its own |
-| `imbib-verbs-ffi` | ffi | internal | imbib per-app dispatch and exact-store initialization (P5b prerequisite for W3); no independent capability |
-| `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `implore-stats` | library | should-be-verb | `Ecdf::{from_data, quantile, five_number_summary}`, `SummaryStats::{from_data, zscore, robust_zscore, winsorize}` have no verb and zero callers (C-2) |
+| `implore-verbs-ffi` | ffi | internal | implore's own per-app UniFFI target (P5); dispatches `implore-service`'s existing verbs by name, no capability of its own |
 | `impress-ai` | domain-core | should-be-verb | `registry::{complete, stream}` (direct completion), `set_model_enabled`, `set_task_category` have no verb; `queue_message` only enqueues a turn |
 | `impress-ai-http` | binary | internal | HTTP transport for impress-ai chat |
 | `impress-ai-service` | verb-crate | verb-crate | |
@@ -175,7 +176,6 @@ and the implore owner decides between verbs and deletion.
 | `impress-bibtex` | ffi | internal | Swift-only `*_ffi` shims over `im-bibtex` (the gap is `im-bibtex`'s row) |
 | `impress-bridges-service` | verb-crate | verb-crate | |
 | `impress-capabilities` | glue/inventory | internal | the one linked inventory |
-| `impress-capabilities-kit` | glue/inventory | internal | the kit's slice of the inventory |
 | `impress-cli` | binary | internal | the CLI binary over the inventory |
 | `impress-collab` | library | internal | `Permissions::{can_view, can_comment, can_edit, can_share}` and `PresenceInfo` are per-session state, not agent capability |
 | `impress-core` | library | covered-through | the store every service crate persists into; `sync` (CloudKit-style outbox) is Swift-only and correctly so; `maintenance` and `task_schema_migration` have no verb |
@@ -201,12 +201,12 @@ and the implore owner decides between verbs and deletion.
 | `impress-scenario-service` | verb-crate | verb-crate | |
 | `impress-service-core` | glue/inventory | internal | runtime types of the macro pipeline |
 | `impress-service-macros` | glue/inventory | internal | the proc macros |
+| `impress-settings` | library | covered-through | `settings-service` (in `impress-store-service`) exposes the registry, its files and the generated pane; the registry itself is data |
 | `impress-smart-search` | library | covered-through | `smart-search-service` exposes it; `url_extract::extract_title` only indirectly |
 | `impress-smart-search-service` | verb-crate | verb-crate | |
 | `impress-sources` | library | should-be-verb | `SourcePlugin::{search, fetch_by_doi}` for arXiv, Crossref, ADS, OpenAlex, PubMed, Semantic Scholar have no Rust verb; `search_sources` refuses when the app is down |
 | `impress-store-ffi` | ffi | internal | `SharedStore::{upsert_item, upsert_items, add_reference, set_parent, delete_item}` are Swift-only generic writes; `store-service` has the per-kind verbs |
 | `impress-store-service` | verb-crate | verb-crate | |
-| `impress-settings` | library | covered-through | `settings-service` (in `impress-store-service`) exposes the registry, its files and the generated pane; the registry itself is data |
 | `impress-surface` | library | covered-through | `impress-surface-service` exposes plan/resolve/reduce over it |
 | `impress-surface-service` | verb-crate | verb-crate | |
 | `impress-tags` | library | should-be-verb | `query::{parse_tag_query, TagQuery::matches}` and `TagHierarchy::{from_tags, children_of, descendants_of}` have no verb; nothing browses by tag expression |
@@ -220,6 +220,7 @@ and the implore owner decides between verbs and deletion.
 | `imprint-selftest` | verb-crate | verb-crate | |
 | `imprint-service` | verb-crate | verb-crate | |
 | `imprint-service-http` | service-http | internal | the HTTP adapter of `imprint-service`; no capability of its own |
+| `imprint-verbs-ffi` | ffi | internal | imprint's native app dispatcher over its service inventory; no independent capability |
 | `perf-service` | verb-crate | verb-crate | |
 | `scix-client-ffi` | ffi | should-be-verb | `scix_search`, `scix_count`, `scix_fetch_{references, citations, similar, coreads}` — the ADS citation graph, 19 exports, all Swift-only |
 | `surface-demo-service` | verb-crate | verb-crate | |
