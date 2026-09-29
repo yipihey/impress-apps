@@ -15,7 +15,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [imbib-artifacts-service](imbib-artifacts-service.md) (9 verbs)
 - [imbib-backup-service](imbib-backup-service.md) (6 verbs)
 - [imbib-eink-service](imbib-eink-service.md) (22 verbs)
-- [imbib-library-service](imbib-library-service.md) (47 verbs)
+- [imbib-library-service](imbib-library-service.md) (49 verbs)
 - [imbib-manuscripts-service](imbib-manuscripts-service.md) (7 verbs)
 - [imbib-scix-service](imbib-scix-service.md) (7 verbs)
 - [imbib-search-service](imbib-search-service.md) (10 verbs)

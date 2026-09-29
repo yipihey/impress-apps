@@ -178,6 +178,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_get-publication-detail` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | example ×1 |
 | `imbib-library-service_import-bibtex` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_import-bibtex-into-collection` | "imbib/bibliography-entry", "imbib/library", "imbib/collection" | "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
+| `imbib-library-service_import-identifiers` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), network, fs | — |
 | `imbib-library-service_import-papers` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_is-paper-dismissed` | "imbib/dismissed-paper" | — | — | example ×2 |
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -201,6 +202,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_set-read` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_set-starred` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_sidebar-view` | "imbib/library", "imbib/bibliography-entry", "imbib/smart-search", "imbib/collection", prefix("impress/artifact/") | — | — | example ×2 |
+| `imbib-library-service_update-collection-members` | "imbib/collection", "imbib/library", "imbib/bibliography-entry" | "imbib/collection" | — | example ×1 |
 | `imbib-manuscripts-service_compile-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript-from-template` | — | — | app("imbib") | — |
@@ -598,6 +600,7 @@ when one lands).
 | `imbib-eink-service_eink-reachable` | leaves the process (device) |
 | `imbib-eink-service_eink-sync` | leaves the process (device, fs) |
 | `imbib-library-service_duplicate-publications` | no example ran |
+| `imbib-library-service_import-identifiers` | needs a running app |
 | `imbib-manuscripts-service_compile-manuscript` | needs a running app |
 | `imbib-manuscripts-service_create-manuscript` | needs a running app |
 | `imbib-manuscripts-service_create-manuscript-from-template` | needs a running app |

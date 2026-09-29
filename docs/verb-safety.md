@@ -208,6 +208,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_get-publication-detail` | read_only | name/doc |
 | `imbib-library-service_import-bibtex` | mutating | name/doc |
 | `imbib-library-service_import-bibtex-into-collection` | mutating | name/doc |
+| `imbib-library-service_import-identifiers` | external | name/doc |
 | `imbib-library-service_import-papers` | mutating | crates/imbib-service/src/library_service.rs:1135 -> crates/imbib-core/src/unified/store_api.rs:1335-1499 batch_import_search_results: parses the BibTeX the CALLER supplies, dedups, insert_batch; NO network fetch in th… |
 | `imbib-library-service_is-paper-dismissed` | read_only | name/doc |
 | `imbib-library-service_list-collection-members` | read_only | name/doc |
@@ -231,6 +232,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_set-read` | mutating | name/doc |
 | `imbib-library-service_set-starred` | mutating | name/doc |
 | `imbib-library-service_sidebar-view` | read_only | name/doc |
+| `imbib-library-service_update-collection-members` | mutating | name/doc |
 | `imbib-manuscripts-service_compile-manuscript` | external | E/M: name/doc |
 | `imbib-manuscripts-service_create-manuscript` | external | E/M: crates/imbib-service/src/manuscripts_service.rs:238 default refuses; HTTP POST /api/manuscripts creates a row (crates/imbib-service-http/src/lib.rs:1507). Doc does not say it needs the app. |
 | `imbib-manuscripts-service_create-manuscript-from-template` | external | E/M: crates/imbib-service/src/manuscripts_service.rs:272 default refuses; HTTP creates a scaffolded row (crates/imbib-service-http/src/lib.rs:1560). Needs-app not stated. |
