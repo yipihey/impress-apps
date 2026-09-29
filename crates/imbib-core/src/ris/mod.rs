@@ -9,7 +9,7 @@ mod formatter;
 mod parser;
 
 #[cfg(feature = "native")]
-pub use converter::{from_bibtex, to_bibtex};
+pub use converter::{from_bibtex, from_bibtex_legacy_export, to_bibtex};
 pub use entry::{RISEntry, RISTag, RISType};
 pub use formatter::format_entry;
 pub use parser::parse;

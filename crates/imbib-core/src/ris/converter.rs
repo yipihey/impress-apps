@@ -170,6 +170,117 @@ pub fn from_bibtex(entry: BibTeXEntry) -> RISEntry {
     ris
 }
 
+/// Convert a BibTeX entry using imbib's legacy automation export mapping.
+///
+/// This deliberately preserves the tag names, tag order, and author strings
+/// emitted by `RISBibTeXConverter.toRIS` in PublicationManagerCore. The
+/// general-purpose `from_bibtex` converter remains unchanged for existing
+/// Rust/UniFFI callers; the generated `export-ris` service uses this adapter
+/// so `/api/export?format=ris` and the generated verb return the same bytes.
+pub fn from_bibtex_legacy_export(entry: BibTeXEntry) -> RISEntry {
+    let mut ris = RISEntry::new(legacy_ris_type(&entry.entry_type));
+
+    if let Some(authors) = entry.author() {
+        for author in authors.split(" and ") {
+            let author = author.trim();
+            if !author.is_empty() {
+                ris.add_tag("AU", author);
+            }
+        }
+    }
+    if let Some(editors) = entry.get_field("editor") {
+        for editor in editors.split(" and ") {
+            let editor = editor.trim();
+            if !editor.is_empty() {
+                ris.add_tag("A2", editor);
+            }
+        }
+    }
+    if let Some(title) = entry.title() {
+        ris.add_tag("TI", title);
+    }
+    if let Some(year) = entry.year() {
+        ris.add_tag("PY", year);
+    }
+    if let Some(journal) = entry.journal() {
+        ris.add_tag("JF", journal);
+        ris.add_tag("T2", journal);
+    } else if let Some(booktitle) = entry.get_field("booktitle") {
+        ris.add_tag("T2", booktitle);
+    }
+    if let Some(volume) = entry.get_field("volume") {
+        ris.add_tag("VL", volume);
+    }
+    if let Some(number) = entry.get_field("number") {
+        ris.add_tag("IS", number);
+    }
+    if let Some(pages) = entry.get_field("pages") {
+        let parts: Vec<&str> = pages.split(['-', '–', '—']).collect();
+        if parts.len() >= 2 {
+            ris.add_tag("SP", parts[0].trim());
+            ris.add_tag("EP", parts[1].trim());
+        } else if let Some(page) = parts.first() {
+            ris.add_tag("SP", page.trim());
+        }
+    }
+    if let Some(doi) = entry.doi() {
+        ris.add_tag("DO", doi);
+    }
+    if let Some(abstract_text) = entry.abstract_text() {
+        ris.add_tag("AB", abstract_text);
+    }
+    if let Some(keywords) = entry.get_field("keywords") {
+        for keyword in keywords
+            .split([',', ';'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            ris.add_tag("KW", keyword);
+        }
+    }
+    if let Some(url) = entry.get_field("url") {
+        ris.add_tag("UR", url);
+    }
+    if let Some(publisher) = entry.get_field("publisher") {
+        ris.add_tag("PB", publisher);
+    }
+    if let Some(address) = entry.get_field("address") {
+        ris.add_tag("CY", address);
+    }
+    if let Some(serial) = entry.get_field("issn").or_else(|| entry.get_field("isbn")) {
+        ris.add_tag("SN", serial);
+    }
+    if let Some(note) = entry.get_field("note") {
+        ris.add_tag("N1", note);
+    }
+    if let Some(series) = entry.get_field("series") {
+        ris.add_tag("T3", series);
+    }
+    if let Some(edition) = entry.get_field("edition") {
+        ris.add_tag("ET", edition);
+    }
+    if let Some(language) = entry.get_field("language") {
+        ris.add_tag("LA", language);
+    }
+    ris.add_tag("ID", entry.cite_key);
+    ris
+}
+
+fn legacy_ris_type(entry_type: &BibTeXEntryType) -> RISType {
+    match entry_type {
+        BibTeXEntryType::Article => RISType::JOUR,
+        BibTeXEntryType::Book => RISType::BOOK,
+        BibTeXEntryType::InBook | BibTeXEntryType::InCollection => RISType::CHAP,
+        BibTeXEntryType::InProceedings | BibTeXEntryType::Proceedings => RISType::CONF,
+        BibTeXEntryType::PhdThesis | BibTeXEntryType::MastersThesis => RISType::THES,
+        BibTeXEntryType::TechReport => RISType::RPRT,
+        BibTeXEntryType::Unpublished => RISType::UNPB,
+        BibTeXEntryType::Software => RISType::COMP,
+        BibTeXEntryType::Online => RISType::ELEC,
+        _ => RISType::GEN,
+    }
+}
+
 /// Convert RIS type to BibTeX entry type
 fn ris_to_bibtex_type(ris_type: &RISType) -> BibTeXEntryType {
     match ris_type {
@@ -267,6 +378,48 @@ mod tests {
         assert_eq!(ris.authors(), vec!["Smith, John", "Doe, Jane"]);
         assert_eq!(ris.year(), Some("2024"));
         assert_eq!(ris.journal(), Some("Nature"));
+    }
+
+    #[test]
+    fn legacy_export_mapping_matches_publication_manager_core_tag_order() {
+        let mut bibtex = BibTeXEntry::new("G3RIS2026".to_string(), BibTeXEntryType::Article);
+        for (key, value) in [
+            ("author", "Doe, Jane"),
+            ("editor", "Roe, John"),
+            ("title", "RIS parity paper"),
+            ("year", "2026"),
+            ("journal", "Research Journal"),
+            ("volume", "12"),
+            ("number", "3"),
+            ("pages", "100--110"),
+            ("doi", "10.5555/g3-ris"),
+            ("abstract", "Representative abstract"),
+            ("keywords", "alpha, beta"),
+            ("url", "https://example.org/g3-ris"),
+            ("publisher", "Example Press"),
+            ("address", "Boston"),
+            ("issn", "1234-5678"),
+            ("note", "G3 export note"),
+            ("series", "Research Series"),
+            ("edition", "2"),
+            ("language", "en"),
+        ] {
+            bibtex.add_field(key, value);
+        }
+
+        let ris = from_bibtex_legacy_export(bibtex);
+        assert_eq!(
+            crate::ris::format_entry(ris),
+            concat!(
+                "TY  - JOUR\nAU  - Doe, Jane\nA2  - Roe, John\nTI  - RIS parity paper\n",
+                "PY  - 2026\nJF  - Research Journal\nT2  - Research Journal\n",
+                "VL  - 12\nIS  - 3\nSP  - 100\nEP  - \nDO  - 10.5555/g3-ris\n",
+                "AB  - Representative abstract\nKW  - alpha\nKW  - beta\n",
+                "UR  - https://example.org/g3-ris\nPB  - Example Press\nCY  - Boston\n",
+                "SN  - 1234-5678\nN1  - G3 export note\nT3  - Research Series\n",
+                "ET  - 2\nLA  - en\nID  - G3RIS2026\nER  - "
+            )
+        );
     }
 
     #[test]

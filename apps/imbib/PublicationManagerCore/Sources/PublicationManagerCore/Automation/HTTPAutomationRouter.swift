@@ -1436,8 +1436,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let library: [UUID]? = request.queryParams["library"].flatMap { UUID(uuidString: $0) }.map { [$0] }
 
         let iso8601 = ISO8601DateFormatter()
-        let addedAfter = request.queryParams["addedAfter"].flatMap { iso8601.date(from: $0) }
-        let addedBefore = request.queryParams["addedBefore"].flatMap { iso8601.date(from: $0) }
+        let fractionalISO8601 = ISO8601DateFormatter()
+        fractionalISO8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func filterDate(_ value: String) -> Date? {
+            fractionalISO8601.date(from: value) ?? iso8601.date(from: value)
+        }
+        let addedAfter = request.queryParams["addedAfter"].flatMap(filterDate)
+        let addedBefore = request.queryParams["addedBefore"].flatMap(filterDate)
 
         do {
             let filters = SearchFilters(
@@ -5351,6 +5356,21 @@ extension HTTPAutomationRouter {
             response = await handleResolvePaper(request("POST", [
                 "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
             return Self.nativeResolveIdentifierResult(response)
+        case "resolve_citation":
+            var body: [String: Any] = ["download_pdfs": (args["download_pdfs"] as? Bool) ?? false]
+            if let query = string("query") { body["query"] = query }
+            if let bibtex = string("bibtex") { body["bibtex"] = bibtex }
+            if let library = string("library_id") { body["library"] = library }
+            if let citation = args["citation"] as? [String: Any] { body["citation"] = citation }
+            response = await handleResolvePaper(request("POST", body))
+            return nativeMapped(response) { body in
+                guard let via = body["via"] as? String else { return nil }
+                var result: [String: Any] = ["via": via]
+                for key in ["paper", "candidates", "reason"] {
+                    if let value = body[key] { result[key] = value }
+                }
+                return result
+            }
         case "add_to_library":
             guard let ids = strings("publication_ids"), let library = string("library_id") else {
                 return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")
