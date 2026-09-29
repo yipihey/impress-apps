@@ -1,7 +1,7 @@
 {
   "wire_version": 1,
   "id": "layout.source_pane_session",
-  "description": "A source pane keeps its session through split, swap and a preset; a new source pane gets its own",
+  "description": "A `source` pane keeps its session through split, swap and a preset; a new source pane gets its own",
   "tier": "b",
   "steps": [
     {
