@@ -160,7 +160,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(generatedDetail["authors"] as? [String], ["Human Author"])
         XCTAssertEqual(generatedDetail["format"] as? String, "typst")
         XCTAssertEqual(generatedDetail["status"] as? String, "in-review")
-        XCTAssertEqual(generatedDetail["linked_imbib_manuscript_id"] as? String, linkedManuscriptID.uuidString)
+        XCTAssertEqual(generatedDetail["linked_imbib_manuscript_id"] as? String,
+                       linkedManuscriptID.uuidString.lowercased())
         XCTAssertEqual(generatedDetail["linked_imbib_library_id"] as? String, "linked-library-proof")
         XCTAssertEqual(generatedDetail["word_count"] as? Int, 3)
 
