@@ -2000,9 +2000,42 @@ No route removal or caller migration is part of this package.
   snapshot if another handle writes during the read. A focused two-handle
   regression covers an initially empty reader followed by a tag written
   through a second store handle. This source change is not yet Rust-verified;
-  root is running the required fresh imbib-core-dependent archives. Failure
-  evidence: `/tmp/impress-p5b-transport-44jczzva/test.log` and
+  it requires fresh imbib-core-dependent native archives before the hosted
+  proof can be rerun. Failure evidence:
+  `/tmp/impress-p5b-transport-44jczzva/test.log` and
   `/tmp/impress-p5b-transport-44jczzva/output/calls.json`.
+
+- 2026-09-29 — **P5c14 effect declarations after cache coherence.** The
+  `data_version` check makes tag-definition reads visible in more Tier A
+  examples than before. Added the observed `imbib/tag-definition` reads to
+  `retention-cleanup` and `update-collection-members`; the existing
+  `list-tags-with-counts` example now observes its declared read, so its
+  reviewed exception is removed by root's effects-table regeneration. Root
+  owns the rebuilt archives and rerun; no tests or builds were run here.
+
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
+
+- 2026-09-29 — **P5c7 verified.** Root passed 132 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 builds of store-ffi,
+  impel-tools and imprint-verbs-ffi, alongside the final RIS archives.
+  The isolated native run passed both XCTest cases and 14 shared transport
+  calls, including threaded suggestion metadata/range parity and invalid-parent
+  and unsupported-status refusals. SQLite checks passed; owned PID 21487 exited.
+  Evidence: `/tmp/impress-p5b-transport-0kkhokqi/output/` and
+  `/tmp/impress-p5c7-{final-tests,gates,final-frameworks,native-proof-final}.log`.
+  The first native run caught an old snapshot taken before two successful
+  thread writes; the final test snapshots immediately before the refusal and
+  still requires equality of every stored comment afterward. Generated project
+  identifier/path churn was discarded. No real store or user app was touched.
 
 - 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
   uses the manuscript list/get and app get-content verbs, composing metadata
