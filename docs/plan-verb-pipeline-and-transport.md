@@ -2103,6 +2103,20 @@ verification.
   package. Added mocked generated-verb transport and DTO fixtures. Static
   review only; root verification pending.
 
+## P5c20 — imbib container consumers (2026-09-29)
+
+Caller inventory found `ImprintIntegrationService.listDestinations()` as the
+only cross-app consumer of library/collection listing and its existing
+`createLibrary` call already uses `imbib-library-service_create-library`.
+Migrated list-library reads to `list-libraries` and all-library collection
+reads to the generated per-library `list-collections`, composing results in
+the same library then collection order as the retained route and preserving
+the bridge's DTO shape and library names. No cross-app callers currently use
+collection creation/membership/member reads, tag read/create, or library and
+collection deletion; no unused bridge methods were added. Counsel's direct
+store and event paths are outside this caller inventory. Static diff review
+only; root owns build and test verification.
+
 - 2026-09-29 — **P5c8 verified.** Root passed 61 Rust tests (zero failures,
   three ignored), every quick gate and full supported arm64 store-ffi,
   impel-tools and implore-verbs-ffi builds. The isolated native run passed
@@ -2215,6 +2229,14 @@ verification.
   `/tmp/impress-p5c18-final-gates.log`, and the per-gate
   `/tmp/impress-p5c18-final-*.log` files. Native consumer proofs remain with
   root.
+- 2026-09-29 — **P5c20 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c20-final-verify.log`,
+  `/tmp/impress-p5c20-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c20-final-*.log` files. Native consumer proofs remain with
+  root.
+
 
 
 

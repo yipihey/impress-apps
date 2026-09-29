@@ -69,6 +69,57 @@ final class SiblingVerbBridgeTests: XCTestCase {
         XCTAssertEqual(answer, "@article{Key2026}")
     }
 
+    func testImbibContainerBridgePreservesLibraryRowsAndComposesAllCollections() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [VerbRequestProtocol.self]
+        let session = URLSession(configuration: config)
+        let librariesJSON = """
+        [{"id":"library-a","name":"A","is_default":true,"is_inbox":false,"publication_count":5,"collection_count":2,"can_edit":true},{"id":"library-b","name":"B","is_default":false,"is_inbox":true,"publication_count":3,"collection_count":1,"can_edit":true}]
+        """
+        VerbRequestProtocol.respond { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer scratch-token")
+            switch request.url?.path {
+            case "/api/verb/imbib-library-service_list-libraries":
+                return (200, Data(librariesJSON.utf8))
+            case "/api/verb/imbib-library-service_list-collections":
+                let arguments = try? JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any]
+                switch arguments?["library_id"] as? String {
+                case "library-a":
+                    return (200, Data("""
+                    [{"id":"collection-a1","name":"A one","library_id":"library-a","is_smart":false,"publication_count":4},{"id":"collection-a2","name":"A smart","library_id":"library-a","is_smart":true,"publication_count":2}]
+                    """.utf8))
+                case "library-b":
+                    return (200, Data("""
+                    [{"id":"collection-b1","name":"B one","library_id":"library-b","is_smart":false,"publication_count":1}]
+                    """.utf8))
+                default:
+                    XCTFail("Unexpected library scope: \(String(describing: arguments?["library_id"]))")
+                    return (400, Data())
+                }
+            default:
+                XCTFail("Unexpected request path: \(String(describing: request.url?.path))")
+                return (404, Data())
+            }
+        }
+        let bridge = ImbibContainerVerbBridge(
+            bridge: SiblingBridge(session: session, tokenProvider: { _ in "scratch-token" }))
+
+        let libraries = try await bridge.listLibraries()
+        XCTAssertEqual(libraries.map(\.name), ["A", "B"])
+        XCTAssertEqual(libraries.map(\.paperCount), [5, 3])
+        XCTAssertEqual(libraries.map(\.collectionCount), [2, 1])
+        XCTAssertEqual(libraries.first?.isDefault, true)
+        XCTAssertEqual(libraries.last?.isInbox, true)
+
+        let collections = try await bridge.listCollections()
+        XCTAssertEqual(collections.map(\.id), ["collection-a1", "collection-a2", "collection-b1"])
+        XCTAssertEqual(collections.map(\.libraryID), ["library-a", "library-a", "library-b"])
+        XCTAssertEqual(collections.map(\.libraryName), ["A", "A", "B"])
+        XCTAssertEqual(collections.map(\.isSmartCollection), [false, true, false])
+        XCTAssertEqual(collections.map(\.paperCount), [4, 2, 1])
+    }
+
     func testImbibSearchUsesGeneratedFiltersAndHydratesRichPaperShape() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [VerbRequestProtocol.self]
@@ -196,21 +247,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
     }
 
     private static func arguments(_ request: URLRequest) -> [String: Any] {
-        var data = request.httpBody
-        if data == nil, let stream = request.httpBodyStream {
-            stream.open()
-            defer { stream.close() }
-            var bytes = Data()
-            var buffer = [UInt8](repeating: 0, count: 1024)
-            while stream.hasBytesAvailable {
-                let count = stream.read(&buffer, maxLength: buffer.count)
-                if count <= 0 { break }
-                bytes.append(contentsOf: buffer.prefix(count))
-            }
-            data = bytes
-        }
-        guard let data,
-              let arguments = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let arguments = try? JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any] else {
             XCTFail("Generated verb request had no JSON argument object")
             return [:]
         }
