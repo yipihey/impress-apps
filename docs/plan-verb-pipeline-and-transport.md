@@ -2040,3 +2040,13 @@ native verification; no callers or routes are removed here.
   `/tmp/impress-p5b-transport-q7tt7qri/output/` and
   `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
   Root corrected a fixture helper's UUID/string argument before verification.
+
+## P5c19 — imprint comment consumers (2026-09-29)
+
+Audited the shared `ImprintBridge`, all Swift callers, and CounselEngine for
+comment list/create/update/delete or suggestion actions. No external comment
+consumer exists: Counsel persists journal review records directly, while
+remaining `/api/comments` references are imprint's router, native callback
+adapter, and hosted proofs. No bridge API was added because there is no caller
+to migrate. Audit originally committed as `8cdc35c4`; carried into the final
+handoff rather than opening an implementation PR without an implementation.

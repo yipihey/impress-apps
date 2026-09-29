@@ -1,56 +1,64 @@
 # Next steps after Wave 11 (2026-09-29)
 
-This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md), which remains historical evidence. Main is `c4330719` and contains P5c1–13 in PRs #148–160. Wave 10's full workspace result predates these changes and does not verify Wave 11. The P5c contract decisions were authorized on 2026-09-29; [the proposal](p5c-contract-proposal.md) defines the contract baseline and the platform routes retained for this phase.
+This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md). The original open packages and subsequent S2/S3/W3 follow-ups are recorded in the Wave 9/10 handoffs. Wave 11 completes the approved [P5c contracts](p5c-contract-proposal.md), consumer migrations and route retirements. Main is currently `208da72e`; P5c24 has passed final gates and awaits its normal push and merge.
 
 ## Package status
 
-| Package | Status at handoff |
+| Package | Status |
 | --- | --- |
-| P5c1–13 | Merged to main as PRs #148–160. Their package verification is recorded in the dated pipeline log. |
-| P5c14 tag reads | Final Rust run: 1,755 passed, 0 failed, 3 ignored; quick gates are green. Final native archive proof remains pending. |
-| P5c15 library deletion | Implemented on its branch. Final integrated verification and merge remain pending. |
-| P5c16–18, P5c20–21 consumers | Focused Swift bridge suites passed with 6, 9, 9, 10, and 14 tests respectively. Final cohort/native verification and merge remain pending. |
-| P5c19 comment consumers | Audit-only: no production callers were found, so no migration or PR is needed. |
-| P5c22–24 route retirement | Implemented on cumulative branches; final verification and merge remain pending. P5c22's isolated proof passed two XCTest cases and 14 transport calls after fixing canonical UUID casing. Rerun it with the final cohort. |
+| P5c1–13 | Merged #148–160; dated package evidence is in the pipeline plan log. |
+| P5c14 tag reads | Merged #161. 1,755 Rust tests passed, zero failed, three ignored; all quick gates, full archives and final native proof passed. Includes cross-handle cache invalidation and warm-cache effect observation. |
+| P5c15 library deletion | Merged #162. 95 Rust tests passed, zero failed, three ignored; all gates, full archives and native proof passed. Explicit file cleanup, deduplication and full preflight validation are covered. |
+| P5c16 shared read consumers | Merged #163. 44 capability tests, six focused Swift tests, all gates and final impel native proof passed; impart artifact consumer compiled. |
+| P5c17 publication consumers | Merged #164. 44 capability tests, nine focused Swift tests and all gates passed. |
+| P5c18 figure export consumers | Merged #165. 44 capability tests, nine focused Swift tests and all gates passed. |
+| P5c19 comment consumers | Audit-only: no external production caller exists. No unused bridge API was introduced. Audit `8cdc35c4` is carried into this handoff's plan-log update. |
+| P5c20 container consumers | Merged #166. 44 capability tests, ten focused Swift tests and all gates passed. |
+| P5c21 import consumers | Merged #167. 44 capability tests, fourteen focused Swift tests and all gates passed. |
+| P5c22 imprint retirement | Merged #168. 44 capability tests, all quick gates and final native proof passed. |
+| P5c23 figure/conversation retirement | Merged #169. 63 Rust tests, all quick gates, regenerated docs, full archives and both native proofs passed. |
+| P5c24 imbib retirement | 95 Rust tests, all quick gates, regenerated docs, full archives and final native proof passed. Normal push/merge pending. |
 
-No P5c14–24 package is merged to main at this checkpoint. P5c22's earlier proof is at `/tmp/impress-p5b-transport-pqdebcjr/`; it predates the final P5c21 Rust/store baseline merge. Build-only preflights (which did not launch apps) are at `/tmp/impress-p5b-transport-asbdasbp/build.log` (P5c22 imprint), `/tmp/impress-p5b-transport-fq17dfjw/build.log` (P5c23 implore), and `/tmp/impress-p5b-transport-lg_fijol/build.log` (P5c23 impart). The P5c23 builds also predate the final baseline merge and do not replace final native proofs.
+Each consumer capability run had zero failures and three ignored tests. Every merged package passed its normal pre-push hook. When the hook selected dual-platform compilation, both builds passed; imprint-only retirement correctly selected the hook’s documented scope-based skip after formatting/schema checks. Root reviewed the changes, fetched main freshly, verified main ancestry and matched the remote head before merging. Main-only merges changed session-log entries; existing code verification applied to unchanged source. Hosted CI may still run after a local-gate-verified merge; do not confuse local evidence with all hosted checks having completed.
 
-Focused Swift evidence is recorded in `/tmp/impress-p5c16-swift-tests-final.log`, `/tmp/impress-p5c17-swift-tests-final.log`, `/tmp/impress-p5c18-swift-tests-final.log`, `/tmp/impress-p5c20-swift-tests-final.log`, and `/tmp/impress-p5c21-swift-tests-final.log`. P5c14 evidence is in `/tmp/impress-p5c14-tests-final.log`, `/tmp/impress-p5c14-gates-final.log`, and `/tmp/impress-p5c14-frameworks-final.log`; P5c15's current verification record is `/tmp/impress-p5c15-final-verify.log`.
+## Final native evidence
 
-## Current branch checkpoint
-
-P5c21 contains the final P5c14 baseline; P5c22–24 are cumulative through that P5c21 tip. The heads below are local checkpoints, not claims of PR creation or merge:
-
-| Package | Branch head | Package | Branch head |
+| Package/app | Proof output | XCTest cases / shared calls | Owned PID, exited |
 | --- | --- | --- | --- |
-| P5c14 | `6832ede9` | P5c20 | `ee3bb1ac` |
-| P5c15 | `35cd3fbf` | P5c21 | `1a18b25f` |
-| P5c16 | `a6ba1405` | P5c22 | `fa09cac2` |
-| P5c17 | `02048838` | P5c23 | `687f2a4f` |
-| P5c18 | `47aa13ac` | P5c24 | `5e9ea9ea` |
-| P5c19 | `8cdc35c4` |  |  |
+| P5c14 imbib | `/tmp/impress-p5b-transport-xz36o8we/output/` | 3 / 37 | 51204 |
+| P5c15 imbib | `/tmp/impress-p5b-transport-xqt71k0m/output/` | 4 / 37 | 57922 |
+| P5c16 impel | `/tmp/impress-p5b-transport-lu8quz0f/output/` | 1 / 2 | 73083 |
+| P5c22 imprint | `/tmp/impress-p5b-transport-y9waq_71/output/` | 2 / 14 | 84629 |
+| P5c23 implore | `/tmp/impress-p5b-transport-z9kipzlz/output/` | 2 / 5 | 90865 |
+| P5c23 impart | `/tmp/impress-p5b-transport-au01yhmg/output/` | 1 / 8 | 90909 |
+| P5c24 imbib | `/tmp/impress-p5b-transport-zjp98zqt/output/` | 4 / 44 | 22731 |
 
-## Remaining verification and integration
+SQLite ownership/linkage checks passed. Retirement proofs pair old-route 404 responses with generated behavior, retained callback effects and refusal snapshots. The P5c24 initial proof exposed a private-callback reader call and incorrect raw citation field/UUID formatting expectations; those fixtures were corrected while preserving exact identity checks. A subsequent fixture compile error used `bodyJson` on `HTTPResponse`; `0407299f` corrected it to `body`. The final proof above passed. Earlier failures remain in `/tmp/impress-p5b-transport-z9589ulo/` and `/tmp/impress-p5b-transport-kqv_82rh/`.
 
-1. Complete P5c14–15 package gates, generated-table checks, supported native archive rebuilds, and isolated proofs. P5c14's Rust and quick-gate result does not close its archive proof.
-2. Recheck P5c16–18 and P5c20–21 against the final merged baseline, then run the P5c22–24 native route-retirement proofs. For each retired URL, retain both a 404 assertion and a successful generated-verb outcome. Preserve the scratch-store refusal snapshots and route/verb behavior checks.
-3. Regenerate generated verb pages/tables from the capability test dumps; never hand-edit generated `docs/verb-*.md` tables or `docs/verbs/*.md` pages. Run the quick gates, touched-crate tests, capabilities/effects checks, and supported macOS/iOS archive builds on the integrated cohort.
-4. Review and merge the completed P5c packages to main. Then run the full native workspace suite on that exact main commit with `cargo test --workspace --features native --no-fail-fast -- --test-threads=1`. Record the commit, exact pass/fail/ignored counts, archive/native evidence, environment, and log paths before updating this handoff.
+P5c14 final logs use `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-verified.log`. P5c15–24 Rust/gate logs use `/tmp/impress-p5cNN-final-{verify,gates}.log`; native/archive details are recorded in the dated pipeline log. Focused Swift logs are `/tmp/impress-p5cNN-swift-tests-final.log` for N = 16, 17, 18, 20, 21. All twenty framework bundles were copied with APFS clones; changed native consumers were rebuilt with supported arm64 macOS/iOS/simulator slices, swiftformat off PATH and no `--fast`.
 
-The Wave 10 full workspace result (`3c56dfbb`, 4,478 passed, 0 failed, 26 ignored across 223 result groups) is historical only. It is not the Wave 11 completion gate.
+## Remaining integration gate
 
-## Platform routes that remain intentional
+Finish the three retirement PRs, then run `cargo test --workspace --features native --no-fail-fast -- --test-threads=1` on exact merged main with an isolated scratch store. Record the commit, result totals and log here. The prior Wave 10 full workspace result (`3c56dfbb`, 4,478 passed, zero failed, 26 ignored across 223 groups) is historical and does not verify this batch.
 
-P5c retires only the registrations approved after their consumers moved. Preserve the exceptions in the proposal:
+## Intentional later scope
 
-- Imprint document operations that enqueue through `DocumentRegistry` and return operation acknowledgments, plus caret-sensitive citation insertion and other live-editor behavior.
-- Impart conversation writes that enqueue through `ConversationRegistry` and return accepted/queued responses with reserved IDs.
-- Implore ray-grid viewer routes and raw SVG/render endpoints tied to live viewer state or binary response semantics.
-- Imbib's nested tag-tree formatter, `POST /api/libraries/add-papers`, tag mutations, library sharing/activity/assignment routes, and other retained collaboration behavior.
-- App status/log diagnostics, accounts/mailboxes/messages, and app-only manuscript, revision, compile, e-ink, hardware, and viewer operations listed in the proposal.
+The P5c proposal retains platform contracts whose queue, live-editor or binary semantics differ from the generated store verbs:
 
-Earlier route-parity tests are evidence of behavior before retirement; do not describe those HTTP paths as currently available. The P5c22–24 tests should instead pair retired-route 404s with generated behavior. Do not add queue-only verbs that bypass the native registries or weaken queued acknowledgment/live-editor semantics.
+- Imprint queued document operations, caret-sensitive citation insertion and live-editor operations.
+- Impart queued conversation writes and reserved-ID acknowledgments.
+- Implore ray-grid viewer and raw SVG/render routes.
+- Imbib's nested tag tree, library add-papers, tag mutations, sharing/activity/assignment and collaboration routes.
+- App diagnostics and the remaining app-only account/mailbox/message, compile, e-ink, hardware and viewer operations listed in the proposal.
 
-## Integration environment
+Four scenario cases intentionally remain in code: manuscript history, WAL health, PDF-pane reading and the Reading preset. Reachability and restoration remain runner gate/finally logic. R3 command-palette overrides are D-R13's later work; appearance/modal editing and app-specific LaTeX/export/AI preferences retain their existing owners. This batch does not claim those migrations.
 
-Coordinate shared Cargo caches serially; use `CARGO_INCREMENTAL=0` and the owned test recipe `/tmp/impress-cargo-test-isolated.sh`. Wave 10's cache layout is `.claude/target-p7-consumer` for tests/CLI, `.claude/target-p7-schema` for clippy/generated docs/kit gates, and `.claude/target-p5b-native` for release native archives. Confirm current ownership before starting work; do not race another gate. Rebuild the supported arm64 archive cohort before using refreshed frameworks, and keep package proof derived data, ports, stores, and devices isolated. Use `IMPRESS_SKIP_INSTALL=1`; never touch the user's running apps, launchers, or real store. Preserve normal hooks and do not force-push or bypass them.
+## Known intermittent test and session setup
+
+The `imbib-library-service_import-papers` example `import-fetched-record` previously produced an all-zero import summary intermittently. No ordering/concurrency cause was established. Preserve the assertion and diagnostic; do not add an exception or mark the effect unverified to obtain a green gate. Wave 10 records the earlier reproductions and focused passes.
+
+Use one worktree per package and unset the initial upstream. Coordinate Cargo caches serially with `CARGO_INCREMENTAL=0`: `.claude/target-p7-consumer` for tests, `.claude/target-p7-schema` for gates/docs, `.claude/target-p5b-native` for archives. `/tmp/impress-cargo-test-isolated.sh` supplies owned scratch store/workspace/device/cache paths. Regenerate verb tables from capability dump tests and pages from `gen-verb-docs`; never hand-edit either.
+
+Use owned derived data, automation port, device ID and scratch store for native proofs. Set `IMPRESS_SKIP_INSTALL=1`; never touch Tom's running apps, launchers or real store. Quit only the process launched by the proof. Preserve normal hooks, never force-push or stash, and keep build artifacts ignored. Completed old build caches were pruned after checking active processes; proof logs and result bundles were retained.
+
+P5c22 capability tests ran directly rather than through the outer scratch wrapper. A read-only audit confirmed the persistence tests initialize unique temporary store/workspace/settings/cache roots internally before service singletons (`tests/support/example_fixtures.rs`), or use in-memory SQLite; census/descriptor/keymap tests do not invoke persistence. Remaining runs use the outer wrapper as an additional guard.
