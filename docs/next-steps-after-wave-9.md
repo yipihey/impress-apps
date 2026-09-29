@@ -1,5 +1,7 @@
 # Pipeline, GUI and reflective-layer handoff (2026-09-28)
 
+For the current status, continue with [the wave-10 handoff](next-steps-after-wave-10.md).
+
 This succeeds [the wave-8 handoff](next-steps-after-wave-8.md). Read `CLAUDE.md`
 in full first. The three approved plans and ADRs 0034–0036 still govern scope;
 their dated session logs contain implementation and proof details.
