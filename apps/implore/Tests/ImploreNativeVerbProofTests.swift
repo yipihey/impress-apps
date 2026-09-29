@@ -119,11 +119,113 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(figures.first?["dataset_id"] as? String, firstDataset)
         XCTAssertFalse(figures.contains { $0["id"] as? String == secondID })
 
+        // Compare the generated read against the actual legacy HTTP handler.
+        // The HTTP shape emits `type` and `modifiedAt`; it currently omits
+        // datasetName and viewState, which the optional DTO fields must retain
+        // as absent rather than fabricating values.
+        let legacyList = try await legacyGet(
+            "/api/figures?dataset=\(firstDataset)", port: port, bearer: bearer)
+        XCTAssertEqual(legacyList.status, 200)
+        let legacyListEnvelope = try XCTUnwrap(legacyList.value as? [String: Any])
+        let legacyFigures = try XCTUnwrap(legacyListEnvelope["figures"] as? [[String: Any]])
+        XCTAssertEqual(legacyFigures.count, 1)
+        let generatedListedFigure = try XCTUnwrap(figures.first)
+        let legacyListedFigure = try XCTUnwrap(legacyFigures.first)
+        XCTAssertEqual(generatedListedFigure["figure_type"] as? String,
+                       legacyListedFigure["type"] as? String)
+        XCTAssertEqual(generatedListedFigure["name"] as? String,
+                       legacyListedFigure["name"] as? String)
+        XCTAssertEqual(generatedListedFigure["created_at"] as? String,
+                       legacyListedFigure["createdAt"] as? String)
+        XCTAssertEqual(generatedListedFigure["modified_at"] as? String,
+                       legacyListedFigure["modifiedAt"] as? String)
+        XCTAssertEqual(generatedListedFigure["width"] as? Int,
+                       legacyListedFigure["width"] as? Int)
+        XCTAssertEqual(generatedListedFigure["height"] as? Int,
+                       legacyListedFigure["height"] as? Int)
+        XCTAssertEqual(generatedListedFigure["x_column"] as? String,
+                       legacyListedFigure["xColumn"] as? String)
+        XCTAssertEqual(generatedListedFigure["y_column"] as? String,
+                       legacyListedFigure["yColumn"] as? String)
+        XCTAssertNil(generatedListedFigure["dataset_name"])
+        XCTAssertNil(generatedListedFigure["view_state"])
+        XCTAssertNil(generatedListedFigure["color_column"])
+        XCTAssertNil(generatedListedFigure["title"])
+        XCTAssertNil(generatedListedFigure["tags"])
+        XCTAssertNil(generatedListedFigure["folder_id"])
+        XCTAssertNil(legacyListedFigure["datasetName"])
+        XCTAssertNil(legacyListedFigure["viewState"])
+        XCTAssertNil(legacyListedFigure["colorColumn"])
+        XCTAssertNil(legacyListedFigure["title"])
+        XCTAssertNil(legacyListedFigure["tags"])
+        XCTAssertNil(legacyListedFigure["folderId"])
+
         let readback = try await call("get-figure", ["figure_id": firstID], port: port, bearer: bearer)
         XCTAssertEqual(readback.status, 200)
         let figure = try XCTUnwrap(readback.value as? [String: Any])
         XCTAssertEqual(figure["id"] as? String, firstID)
         XCTAssertEqual(figure["dataset_id"] as? String, firstDataset)
+        let legacyReadback = try await legacyGet(
+            "/api/figures/\(firstID)", port: port, bearer: bearer)
+        XCTAssertEqual(legacyReadback.status, 200)
+        let legacyReadEnvelope = try XCTUnwrap(legacyReadback.value as? [String: Any])
+        let legacyFigure = try XCTUnwrap(legacyReadEnvelope["figure"] as? [String: Any])
+        XCTAssertEqual(figure["figure_type"] as? String, legacyFigure["type"] as? String)
+        XCTAssertEqual(figure["name"] as? String, legacyFigure["name"] as? String)
+        XCTAssertEqual(figure["created_at"] as? String, legacyFigure["createdAt"] as? String)
+        XCTAssertEqual(figure["modified_at"] as? String, legacyFigure["modifiedAt"] as? String)
+        XCTAssertEqual(figure["width"] as? Int, legacyFigure["width"] as? Int)
+        XCTAssertEqual(figure["height"] as? Int, legacyFigure["height"] as? Int)
+        XCTAssertEqual(figure["x_column"] as? String, legacyFigure["xColumn"] as? String)
+        XCTAssertEqual(figure["y_column"] as? String, legacyFigure["yColumn"] as? String)
+        XCTAssertNil(figure["dataset_name"])
+        XCTAssertNil(figure["view_state"])
+        XCTAssertNil(figure["color_column"])
+        XCTAssertNil(figure["title"])
+        XCTAssertNil(figure["tags"])
+        XCTAssertNil(figure["folder_id"])
+        XCTAssertNil(legacyFigure["datasetName"])
+        XCTAssertNil(legacyFigure["viewState"])
+        XCTAssertNil(legacyFigure["colorColumn"])
+        XCTAssertNil(legacyFigure["title"])
+        XCTAssertNil(legacyFigure["tags"])
+        XCTAssertNil(legacyFigure["folderId"])
+
+
+        // The generated binary contract returns the bytes the existing HTTP
+        // renderer writes, for both formats and explicit output sizing.
+        let exportCases: [(String, [String: Any])] = [
+            ("png", ["format": "png"]),
+            ("svg", ["format": "svg"]),
+            ("png", ["format": "png", "width": 320.5, "height": 200.25, "scale": 1.5])
+        ]
+        for (format, options) in exportCases {
+            let route = try await request(
+                "POST", path: "/api/figures/\(firstID)/export", args: options,
+                port: port, bearer: bearer)
+            let verb = try await call("export-figure-data", [
+                "figure_id": firstID,
+                "format": format,
+                "width": options["width"] as Any? ?? NSNull(),
+                "height": options["height"] as Any? ?? NSNull(),
+                "scale": options["scale"] as Any? ?? NSNull()
+            ], port: port, bearer: bearer)
+            XCTAssertEqual(route.status, 200)
+            XCTAssertEqual(verb.status, 200)
+            let legacy = try XCTUnwrap(route.value as? [String: Any])
+            let generated = try XCTUnwrap(verb.value as? [String: Any])
+            let routeBytes = try XCTUnwrap(
+                Data(base64Encoded: try XCTUnwrap(legacy["data"] as? String)))
+            let generatedBytes = try XCTUnwrap((generated["data"] as? [NSNumber])?.map(\.uint8Value))
+            XCTAssertEqual(Data(generatedBytes), routeBytes)
+            XCTAssertEqual(generated["path"] as? String, legacy["path"] as? String)
+            XCTAssertEqual(generated["sha256"] as? String, legacy["sha256"] as? String)
+            XCTAssertEqual(generated["mime_type"] as? String, legacy["mimeType"] as? String)
+            if options["width"] != nil {
+                XCTAssertEqual(legacy["width"] as? Int, 321)
+                XCTAssertEqual(legacy["height"] as? Int, 200)
+            }
+        }
         let savedLibrary = try String(contentsOf: libraryURL, encoding: .utf8)
         XCTAssertTrue(savedLibrary.contains(firstID))
         XCTAssertTrue(savedLibrary.contains(secondID))
@@ -261,6 +363,16 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: args)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let http = try XCTUnwrap(response as? HTTPURLResponse)
+        return (http.statusCode, try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed))
+    }
+
+    private func legacyGet(_ path: String, port: UInt16, bearer: String) async throws -> (status: Int, value: Any) {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)\(path)"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
         let http = try XCTUnwrap(response as? HTTPURLResponse)
         return (http.statusCode, try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed))

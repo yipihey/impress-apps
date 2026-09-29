@@ -160,16 +160,31 @@ pub struct LibraryRecord {
     pub is_inbox: bool,
     #[serde(alias = "paperCount", default)]
     pub publication_count: i32,
+    #[serde(alias = "collectionCount", default)]
+    pub collection_count: u64,
+    /// Local imbib libraries are editable. Read-only SciX libraries use a
+    /// separate schema and are not returned by this local-library service.
+    #[serde(alias = "canEdit", default = "default_can_edit")]
+    pub can_edit: bool,
 }
 
-impl From<&imbib_core::unified::shaped_queries::LibraryRow> for LibraryRecord {
-    fn from(r: &imbib_core::unified::shaped_queries::LibraryRow) -> Self {
+fn default_can_edit() -> bool {
+    true
+}
+
+impl LibraryRecord {
+    fn from_row(
+        r: &imbib_core::unified::shaped_queries::LibraryRow,
+        collection_count: usize,
+    ) -> Self {
         Self {
             id: r.id.clone(),
             name: r.name.clone(),
             is_default: r.is_default,
             is_inbox: r.is_inbox,
             publication_count: r.publication_count,
+            collection_count: collection_count as u64,
+            can_edit: true,
         }
     }
 }
@@ -443,7 +458,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     // ---- Library lifecycle ----
     /// List all libraries in imbib. Libraries are top-level containers for
     /// papers.
-    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(name = "reading-library-list", args = r#"{}"#)]
     async fn list_libraries(&self) -> Vec<LibraryRecord>;
@@ -457,7 +472,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// Create a new library in imbib. Libraries are top-level containers
     /// for papers, separate from collections. Use this when asked to create
     /// a new library for a topic or project.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/library"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/library", "imbib/collection"], writes = ["imbib/library"]))]
     #[impress_example(
         name = "new-project-library",
         args = r#"{"name":"G3 reading project"}"#,
@@ -475,7 +490,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     )]
     async fn delete_library_undoable(&self, id: String) -> MutationResult;
     /// Get the library new papers are filed into by default, if one is set.
-    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(
         name = "project-default",
@@ -492,7 +507,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     )]
     async fn set_library_default(&self, id: String) -> MutationResult;
     /// Get the Inbox library, where incoming papers land before filing.
-    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(
         name = "inbox-library",
@@ -865,6 +880,15 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     #[impress_method(effects(reads = ["imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
     #[impress_example(name = "export-cite-key", args = r#"{"ids":["G3Export2026"]}"#)]
     async fn export_bibtex(&self, ids: Vec<String>) -> String;
+    /// Export selected papers as RIS, accepting UUIDs or cite keys in input
+    /// order and omitting identifiers that do not resolve.
+    #[impress_method(effects(reads = ["imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
+    #[impress_example(
+        name = "representative-ris-export",
+        args = r#"{"ids":["G3RIS2026"]}"#,
+        expect = r#""TY  - JOUR\nAU  - Doe, Jane\nTI  - RIS parity paper\nPY  - 2026\nJF  - Research Journal\nT2  - Research Journal\nVL  - 12\nIS  - 3\nSP  - 100\nEP  - 110\nDO  - 10.5555/g3-ris\nAB  - Representative abstract\nKW  - alpha\nKW  - beta\nUR  - https://example.org/g3-ris\nPB  - Example Press\nCY  - Boston\nSN  - 1234-5678\nN1  - G3 export note\nT3  - Research Series\nET  - 2\nLA  - en\nID  - G3RIS2026\nER  - ""#
+    )]
+    async fn export_ris(&self, ids: Vec<String>) -> String;
     /// Export every paper in a library as one BibTeX string.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/library"]))]
     #[impress_example(
@@ -961,6 +985,14 @@ pub struct DefaultImbibLibraryService {
 impl DefaultImbibLibraryService {
     pub fn new(store: Arc<ImbibStore>) -> Self {
         Self { store }
+    }
+
+    fn library_record(
+        &self,
+        row: &imbib_core::unified::shaped_queries::LibraryRow,
+    ) -> Result<LibraryRecord, imbib_core::unified::store_api::StoreApiError> {
+        let collection_count = self.store.list_collections(row.id.clone())?.len();
+        Ok(LibraryRecord::from_row(row, collection_count))
     }
 }
 
@@ -1060,7 +1092,7 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
     async fn list_libraries(&self) -> Vec<LibraryRecord> {
         self.store
             .list_libraries()
-            .map(|rs| rs.iter().map(LibraryRecord::from).collect::<Vec<_>>())
+            .and_then(|rows| rows.iter().map(|row| self.library_record(row)).collect())
             .unwrap_or_else(|e| {
                 log("list_libraries", e);
                 vec![]
@@ -1069,7 +1101,7 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
     async fn create_library(&self, name: String) -> Option<LibraryRecord> {
         self.store
             .create_library(name)
-            .map(|r| LibraryRecord::from(&r))
+            .and_then(|r| self.library_record(&r))
             .map_err(|e| log("create_library", e))
             .ok()
     }
@@ -1087,8 +1119,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .get_default_library()
             .ok()
             .flatten()
-            .as_ref()
-            .map(LibraryRecord::from)
+            .and_then(|row| {
+                self.library_record(&row)
+                    .map_err(|e| log("get_default_library", e))
+                    .ok()
+            })
     }
     async fn set_library_default(&self, id: String) -> MutationResult {
         match self.store.set_library_default(id) {
@@ -1104,8 +1139,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .get_inbox_library()
             .ok()
             .flatten()
-            .as_ref()
-            .map(LibraryRecord::from)
+            .and_then(|row| {
+                self.library_record(&row)
+                    .map_err(|e| log("get_inbox_library", e))
+                    .ok()
+            })
     }
 
     async fn list_collections(&self, library_id: String) -> Vec<CollectionRecord> {
@@ -1522,6 +1560,43 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             );
             String::new()
         })
+    }
+    async fn export_ris(&self, ids: Vec<String>) -> String {
+        // Share the exact UUID/cite-key resolution and input-order behavior
+        // with BibTeX export, then use the existing Rust parser, legacy
+        // compatibility converter, and shared RIS formatter.
+        let bibtex = self.export_bibtex(ids).await;
+        let parsed = match imbib_core::bibtex::parse(bibtex) {
+            Ok(parsed) if parsed.errors.is_empty() => parsed,
+            Ok(parsed) => {
+                let message = format!(
+                    "RIS export could not parse canonical BibTeX: {:?}",
+                    parsed.errors
+                );
+                log("export_ris/parse", &message);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    message,
+                );
+                return String::new();
+            }
+            Err(error) => {
+                log("export_ris/parse", &error);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    error.to_string(),
+                );
+                return String::new();
+            }
+        };
+
+        parsed
+            .entries
+            .into_iter()
+            .map(imbib_core::ris::from_bibtex_legacy_export)
+            .map(imbib_core::ris_format_entry)
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
     async fn export_all_bibtex(&self, library_id: String) -> String {
         self.store
@@ -2095,6 +2170,10 @@ impress_service_impl! {
             /// Publication UUIDs or cite keys to export, in requested order.
             ids: Vec<String>
         ) -> String,
+        export_ris(
+            /// Publication UUIDs or cite keys to export, in requested order.
+            ids: Vec<String>
+        ) -> String,
         export_all_bibtex(
             /// UUID of the library whose papers should be exported.
             library_id: String
@@ -2157,6 +2236,45 @@ mod tests {
         let by_key = service.export_bibtex(vec!["Key2026".into()]).await;
         let by_id = service.export_bibtex(vec![id]).await;
         assert!(by_key.contains("Key2026"), "{by_key}");
+        assert_eq!(by_key, by_id);
+    }
+
+    #[tokio::test]
+    async fn ris_export_preserves_identifier_order_and_omits_unknown_keys() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("RIS export scratch".into()).unwrap();
+        let first_id = store
+            .import_bibtex(
+                "@article{FirstRIS2026, title={First RIS paper}, author={Doe, Jane}}".into(),
+                library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        store
+            .import_bibtex(
+                "@article{SecondRIS2026, title={Second RIS paper}, author={Roe, John}}".into(),
+                library.id,
+            )
+            .unwrap();
+        let service = super::DefaultImbibLibraryService::new(store);
+
+        let ris = service
+            .export_ris(vec![
+                "SecondRIS2026".into(),
+                "NoSuchRISKey".into(),
+                first_id.clone(),
+            ])
+            .await;
+        let second = ris.find("TI  - Second RIS paper").unwrap();
+        let first = ris.find("TI  - First RIS paper").unwrap();
+        assert!(
+            second < first,
+            "RIS entries did not preserve request order: {ris}"
+        );
+        assert!(!ris.contains("NoSuchRISKey"));
+
+        let by_key = service.export_ris(vec!["FirstRIS2026".into()]).await;
+        let by_id = service.export_ris(vec![first_id]).await;
         assert_eq!(by_key, by_id);
     }
 

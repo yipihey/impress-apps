@@ -856,14 +856,18 @@ public actor AutomationService: AutomationOperations {
         }
 
         logger.info("Created library '\(name)' with ID: \(library.id)")
-        return toLibraryResult(library)
+        return await toLibraryResult(library)
     }
 
     public func listLibraries() async throws -> [LibraryResult] {
         try await checkAuthorization()
 
-        let libraries = await withStore { $0.listLibraries() }
-        return libraries.map { toLibraryResult($0) }
+        let libraries = await withStore { store in
+            store.listLibraries().map { library in
+                (library, store.listCollections(libraryId: library.id).count)
+            }
+        }
+        return libraries.map { toLibraryResult($0.0, collectionCount: $0.1) }
     }
 
     public func getDefaultLibrary() async throws -> LibraryResult? {
@@ -872,7 +876,7 @@ public actor AutomationService: AutomationOperations {
         guard let library = await withStore({ $0.getDefaultLibrary() }) else {
             return nil
         }
-        return toLibraryResult(library)
+        return await toLibraryResult(library)
     }
 
     public func getInboxLibrary() async throws -> LibraryResult? {
@@ -881,7 +885,7 @@ public actor AutomationService: AutomationOperations {
         guard let library = await withStore({ $0.getInboxLibrary() }) else {
             return nil
         }
-        return toLibraryResult(library)
+        return await toLibraryResult(library)
     }
 
     // MARK: - Export Operations
@@ -913,8 +917,39 @@ public actor AutomationService: AutomationOperations {
     public func exportRIS(identifiers: [PaperIdentifier]?) async throws -> ExportResult {
         try await checkAuthorization()
 
-        // RIS export not yet available in Rust store
-        throw AutomationOperationError.operationFailed("RIS export not yet available with Rust store. Use BibTeX export instead.")
+        if let identifiers {
+            var ids: [UUID] = []
+            for identifier in identifiers {
+                if let publication = await findPublication(by: identifier) {
+                    ids.append(publication.id)
+                }
+            }
+            let bibtex = await withStore { $0.exportBibTeX(ids: ids) }
+            return ExportResult(format: "ris", content: formatRIS(bibtex), paperCount: ids.count)
+        }
+
+        guard let defaultLibrary = await withStore({ $0.getDefaultLibrary() }) else {
+            return ExportResult(format: "ris", content: "", paperCount: 0)
+        }
+        let bibtex = await withStore { $0.exportAllBibTeX(libraryId: defaultLibrary.id) }
+        return ExportResult(
+            format: "ris",
+            content: formatRIS(bibtex),
+            paperCount: defaultLibrary.publicationCount
+        )
+    }
+
+    /// Keep the legacy HTTP path on the same parser, converter and formatter
+    /// used by the in-app RIS export action while the generated Rust verb is
+    /// introduced alongside it.
+    private func formatRIS(_ bibtex: String) -> String {
+        let parser = BibTeXParserFactory.createParser()
+        let items = (try? parser.parse(bibtex)) ?? []
+        let entries = items.compactMap { item -> BibTeXEntry? in
+            if case .entry(let entry) = item { return entry }
+            return nil
+        }
+        return RISExporter().export(RISBibTeXConverter.toRIS(entries))
     }
 
     // MARK: - PDF Operations
@@ -1597,12 +1632,17 @@ public actor AutomationService: AutomationOperations {
         )
     }
 
-    private func toLibraryResult(_ library: LibraryModel) -> LibraryResult {
+    private func toLibraryResult(_ library: LibraryModel) async -> LibraryResult {
+        let collectionCount = await withStore { $0.listCollections(libraryId: library.id).count }
+        return toLibraryResult(library, collectionCount: collectionCount)
+    }
+
+    private func toLibraryResult(_ library: LibraryModel, collectionCount: Int) -> LibraryResult {
         LibraryResult(
             id: library.id,
             name: library.name,
             paperCount: library.publicationCount,
-            collectionCount: 0,  // Would need separate query; omit for now
+            collectionCount: collectionCount,
             isDefault: library.isDefault,
             isInbox: library.isInbox,
             canEdit: true

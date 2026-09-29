@@ -35,8 +35,83 @@ pub struct ConversationRecord {
     pub created_at: Option<String>,
     #[serde(default, alias = "updatedAt")]
     pub updated_at: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "isArchived")]
     pub archived: Option<bool>,
+    #[serde(default)]
+    pub participants: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default, alias = "parentConversationId")]
+    pub parent_conversation_id: Option<String>,
+    #[serde(default, alias = "lastActivityAt")]
+    pub last_activity_at: Option<String>,
+    #[serde(default, alias = "summaryText")]
+    pub summary_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<ConversationMessageRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statistics: Option<ConversationStatistics>,
+}
+
+/// A message in the detailed conversation read, retaining every field in
+/// `GET /api/research/conversations/{id}`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConversationMessageRecord {
+    pub id: String,
+    pub sequence: u32,
+    #[serde(alias = "senderRole")]
+    pub sender_role: String,
+    #[serde(alias = "senderId")]
+    pub sender_id: String,
+    #[serde(default, alias = "modelUsed")]
+    pub model_used: Option<String>,
+    #[serde(alias = "contentMarkdown")]
+    pub content_markdown: String,
+    #[serde(alias = "sentAt")]
+    pub sent_at: String,
+    #[serde(default, alias = "tokenCount")]
+    pub token_count: Option<i64>,
+    #[serde(default, alias = "processingDurationMs")]
+    pub processing_duration_ms: Option<i64>,
+    #[serde(default, alias = "mentionedArtifactURIs")]
+    pub mentioned_artifact_uris: Vec<String>,
+}
+
+/// Computed statistics returned with a conversation detail read.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConversationStatistics {
+    #[serde(alias = "messageCount")]
+    pub message_count: u32,
+    #[serde(alias = "humanMessageCount")]
+    pub human_message_count: u32,
+    #[serde(alias = "counselMessageCount")]
+    pub counsel_message_count: u32,
+    #[serde(alias = "artifactCount")]
+    pub artifact_count: u32,
+    #[serde(alias = "paperCount")]
+    pub paper_count: u32,
+    #[serde(alias = "repositoryCount")]
+    pub repository_count: u32,
+    #[serde(alias = "totalTokens")]
+    pub total_tokens: u64,
+    pub duration: f64,
+    #[serde(alias = "branchCount")]
+    pub branch_count: u32,
+}
+
+/// Page metadata for the most-recent-first conversation index.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConversationList {
+    pub conversations: Vec<ConversationRecord>,
+    /// Number of rows in this page (`count` in the HTTP envelope).
+    pub count: u32,
+    /// Number of matching rows before pagination.
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+    pub include_archived: bool,
+    /// Optional case-insensitive title/summary filter.
+    pub query: Option<String>,
 }
 
 /// One message in a conversation.
@@ -107,10 +182,12 @@ pub trait ImpartService: Send + Sync + 'static {
         &self,
         limit: u32,
         include_archived: bool,
-    ) -> Vec<ConversationRecord>;
+        offset: Option<u32>,
+        query: Option<String>,
+    ) -> ConversationList;
 
-    /// One conversation's metadata and message count. Read message details
-    /// from the app's conversation view; this DTO does not embed messages.
+    /// One conversation's complete detail, including its ordered messages and
+    /// computed statistics.
     #[impress_method]
     #[impress_example(
         name = "read_fixture_thread",
@@ -247,11 +324,21 @@ impl ImpartService for DefaultImpartService {
     }
     async fn list_conversations(
         &self,
-        _limit: u32,
-        _include_archived: bool,
-    ) -> Vec<ConversationRecord> {
+        limit: u32,
+        include_archived: bool,
+        offset: Option<u32>,
+        query: Option<String>,
+    ) -> ConversationList {
         refuse("list_conversations");
-        vec![]
+        ConversationList {
+            conversations: vec![],
+            count: 0,
+            total: 0,
+            offset: offset.unwrap_or(0),
+            limit: if limit == 0 { 20 } else { limit.min(1_000) },
+            include_archived,
+            query,
+        }
     }
     async fn get_conversation(&self, _conversation_id: String) -> Option<ConversationRecord> {
         refuse("get_conversation");
@@ -367,8 +454,12 @@ impress_service_impl! {
             /// Maximum conversations to return, capped at 1,000.
             limit: u32,
             /// Include archived research conversations when true.
-            include_archived: bool
-        ) -> Vec<ConversationRecord>,
+            include_archived: bool,
+            /// Number of matching conversations to skip before this page.
+            offset: Option<u32>,
+            /// Optional case-insensitive title/summary substring filter.
+            query: Option<String>
+        ) -> ConversationList,
         get_conversation(
             /// UUID of the research conversation to read.
             conversation_id: String
@@ -420,4 +511,88 @@ impress_service_impl! {
             title: String
         ) -> Option<ConversationRecord>,
     ],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversation_detail_reads_legacy_route_fields_without_loss() {
+        let record: ConversationRecord = serde_json::from_value(serde_json::json!({
+            "id": "5b000000-0000-4000-8000-000000000011",
+            "title": "Research",
+            "summaryText": "Working summary",
+            "participants": ["person@example.org"],
+            "createdAt": "2026-09-29T10:00:00Z",
+            "lastActivityAt": "2026-09-29T10:05:00Z",
+            "isArchived": false,
+            "tags": ["analysis"],
+            "parentConversationId": "5b000000-0000-4000-8000-000000000010",
+            "messages": [{
+                "id": "5b000000-0000-4000-8000-000000000012",
+                "sequence": 1,
+                "senderRole": "human",
+                "senderId": "person@example.org",
+                "modelUsed": null,
+                "contentMarkdown": "Evidence",
+                "sentAt": "2026-09-29T10:05:00Z",
+                "tokenCount": null,
+                "processingDurationMs": null,
+                "mentionedArtifactURIs": []
+            }],
+            "statistics": {
+                "messageCount": 1,
+                "humanMessageCount": 1,
+                "counselMessageCount": 0,
+                "artifactCount": 0,
+                "paperCount": 0,
+                "repositoryCount": 0,
+                "totalTokens": 0,
+                "duration": 0.0,
+                "branchCount": 0
+            }
+        }))
+        .unwrap();
+        assert_eq!(record.participants, vec!["person@example.org".to_owned()]);
+        assert_eq!(record.tags, vec!["analysis".to_owned()]);
+        assert_eq!(record.archived, Some(false));
+        assert_eq!(
+            record.parent_conversation_id.as_deref(),
+            Some("5b000000-0000-4000-8000-000000000010")
+        );
+        assert_eq!(
+            record.last_activity_at.as_deref(),
+            Some("2026-09-29T10:05:00Z")
+        );
+        assert_eq!(record.summary_text, "Working summary");
+        let message = &record.messages.as_ref().unwrap()[0];
+        assert_eq!(message.sender_role, "human");
+        assert_eq!(message.content_markdown, "Evidence");
+        assert_eq!(record.statistics.as_ref().unwrap().human_message_count, 1);
+
+        let encoded = serde_json::to_value(record).unwrap();
+        assert_eq!(encoded["messages"][0]["sender_role"], "human");
+        assert_eq!(encoded["statistics"]["human_message_count"], 1);
+    }
+
+    #[test]
+    fn conversation_list_carries_page_count_and_filter_metadata() {
+        let page = ConversationList {
+            conversations: vec![],
+            count: 0,
+            total: 7,
+            offset: 5,
+            limit: 10,
+            include_archived: true,
+            query: Some("evidence".into()),
+        };
+        let encoded = serde_json::to_value(page).unwrap();
+        assert_eq!(encoded["count"], 0);
+        assert_eq!(encoded["total"], 7);
+        assert_eq!(encoded["offset"], 5);
+        assert_eq!(encoded["limit"], 10);
+        assert_eq!(encoded["include_archived"], true);
+        assert_eq!(encoded["query"], "evidence");
+    }
 }

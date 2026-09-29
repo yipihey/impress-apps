@@ -4,7 +4,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use impart_service::{
-    AppStatus, ConversationRecord, ImpartBackend, ImpartService, LogEntry, MessageRecord,
+    AppStatus, ConversationList, ConversationRecord, ImpartBackend, ImpartService, LogEntry,
+    MessageRecord,
 };
 use impress_service_core::pipeline::context::report_refusal;
 use impress_service_core::refusal::codes;
@@ -85,13 +86,23 @@ impl ImpartService for NativeImpartService {
         &self,
         limit: u32,
         include_archived: bool,
-    ) -> Vec<ConversationRecord> {
+        offset: Option<u32>,
+        query: Option<String>,
+    ) -> ConversationList {
         self.invoke(
             "list_conversations",
-            json!({ "limit": limit, "include_archived": include_archived }),
+            json!({ "limit": limit, "include_archived": include_archived, "offset": offset, "query": query }),
         )
         .await
-        .unwrap_or_default()
+        .unwrap_or_else(|_| ConversationList {
+            conversations: vec![],
+            count: 0,
+            total: 0,
+            offset: offset.unwrap_or(0),
+            limit: if limit == 0 { 20 } else { limit.min(1_000) },
+            include_archived,
+            query,
+        })
     }
 
     async fn get_conversation(&self, conversation_id: String) -> Option<ConversationRecord> {

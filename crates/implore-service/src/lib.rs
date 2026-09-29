@@ -49,8 +49,50 @@ pub struct FigureRecord {
     pub name: String,
     #[serde(default, alias = "datasetId", alias = "datasetID")]
     pub dataset_id: Option<String>,
+    /// The plot kind (`type` in implore's HTTP figure response).
+    #[serde(default = "default_figure_type", alias = "figureType", alias = "type")]
+    pub figure_type: String,
+    /// Not currently included by `/api/figures`; `None` preserves that absence.
+    #[serde(
+        default,
+        alias = "datasetName",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dataset_name: Option<String>,
+    /// Canvas dimensions; the HTTP handler supplies 800×600 defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<i64>,
+    #[serde(default, alias = "xColumn", skip_serializing_if = "Option::is_none")]
+    pub x_column: Option<String>,
+    #[serde(default, alias = "yColumn", skip_serializing_if = "Option::is_none")]
+    pub y_column: Option<String>,
+    #[serde(
+        default,
+        alias = "colorColumn",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub color_column: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
+    /// The HTTP figure response includes `modifiedAt`; older/native fixtures may omit it.
+    #[serde(default, alias = "modifiedAt", skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<String>,
+    /// Not currently included by `/api/figures`; retained as optional structured state.
+    #[serde(default, alias = "viewState", skip_serializing_if = "Option::is_none")]
+    pub view_state: Option<serde_json::Value>,
+    /// HTTP omits empty tags and absent folders rather than returning null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(default, alias = "folderId", skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+}
+
+fn default_figure_type() -> String {
+    "custom".into()
 }
 
 /// One inline data series, as `create-figure`'s `series` takes it. Schema
@@ -193,6 +235,18 @@ pub struct FigureArtifactInfo {
     pub height: u32,
 }
 
+/// Rendered bytes for a figure export. The file path remains available for
+/// local callers that can open it; `data` carries the actual PNG or SVG to
+/// remote/generated callers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FigureExport {
+    pub path: String,
+    pub sha256: String,
+    #[serde(alias = "mimeType")]
+    pub mime_type: String,
+    pub data: Vec<u8>,
+}
+
 /// What `create-figure` answers: the figure and its stored artifact, or
 /// `ok: false` and an `error` saying why nothing was created.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -201,8 +255,8 @@ pub struct CreateFigureOutcome {
     /// Why the figure was not created (argument problems name the argument).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// The figure (`id`, `name`, `dataset_id`, `created_at`), flattened
-    /// into the answer as the verb returned it before it had data arguments.
+    /// The figure record, flattened into the answer as the verb returned it
+    /// before it had data arguments.
     #[serde(flatten, default)]
     pub figure: Option<FigureRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -459,6 +513,27 @@ pub trait ImploreService: Send + Sync + 'static {
     )]
     async fn export_figure(&self, figure_id: String, format: String) -> Option<String>;
 
+    /// Render a figure and return both its local artifact path and bytes.
+    /// Width and height override the figure's logical size; non-finite or
+    /// non-positive values use the current size. Scale is pixels per point
+    /// for PNG output. A supplied view state is rendered directly.
+    #[impress_method]
+    #[impress_example(
+        name = "host-png-export-data",
+        tier = "b",
+        args = r#"{"figure_id":"{{state.figure_id}}","format":"png","width":320.5,"height":200.25,"scale":1.0}"#,
+        expect = r#"{"mime_type":"image/png"}"#
+    )]
+    async fn export_figure_data(
+        &self,
+        figure_id: String,
+        format: String,
+        width: Option<f64>,
+        height: Option<f64>,
+        scale: Option<f64>,
+        view_state: Option<String>,
+    ) -> FigureExport;
+
     /// Plot one or more named series and return the rendered SVG.
     #[impress_method]
     #[impress_example(
@@ -668,6 +743,23 @@ impl ImploreService for DefaultImploreService {
         refuse("export_figure");
         None
     }
+    async fn export_figure_data(
+        &self,
+        _figure_id: String,
+        _format: String,
+        _width: Option<f64>,
+        _height: Option<f64>,
+        _scale: Option<f64>,
+        _view_state: Option<String>,
+    ) -> FigureExport {
+        refuse("export_figure_data");
+        FigureExport {
+            path: String::new(),
+            sha256: String::new(),
+            mime_type: String::new(),
+            data: Vec::new(),
+        }
+    }
     async fn plot_series(&self, _series: Vec<String>, _title: Option<String>) -> Option<String> {
         refuse("plot_series");
         None
@@ -873,6 +965,22 @@ impress_service_impl! {
             /// Output format: `png`, `pdf`, or `svg`.
             format: String
         ) -> Option<String>,
+        export_figure_data(
+            /// Figure ID to export from the running host.
+            figure_id: String,
+            /// Output format: `png` or `svg`.
+            format: String,
+            /// Logical output width in points, or the figure's current width.
+            /// Non-finite or non-positive values use the current width.
+            width: Option<f64>,
+            /// Logical output height in points, or the figure's current height.
+            /// Non-finite or non-positive values use the current height.
+            height: Option<f64>,
+            /// Raster pixels per point; ignored for SVG. Defaults to 2.
+            scale: Option<f64>,
+            /// Optional complete figure view-state JSON to render.
+            view_state: Option<String>
+        ) -> FigureExport,
         plot_series(
             /// Names of the series to render from the current dataset.
             series: Vec<String>,
@@ -936,8 +1044,122 @@ mod tests {
             .unwrap_or_else(|| panic!("{name} is in the generated inventory"))
     }
 
+    fn export_figure_data_tool() -> &'static impress_service_core::McpToolDescriptor {
+        impress_service_core::McpToolDescriptor::iter()
+            .find(|tool| tool.name == "implore-service_export-figure-data")
+            .expect("binary figure export is in the generated inventory")
+    }
+
     fn schema() -> Value {
         (create_figure_tool().input_schema)()
+    }
+
+    #[test]
+    fn binary_export_schema_keeps_render_options_optional_and_returns_bytes() {
+        let schema = (export_figure_data_tool().input_schema)();
+        let properties = &schema["properties"];
+        assert_eq!(properties["figure_id"]["type"], "string");
+        assert_eq!(properties["format"]["type"], "string");
+        assert_eq!(properties["width"]["type"], json!(["number", "null"]));
+        assert_eq!(properties["height"]["type"], json!(["number", "null"]));
+        assert_eq!(properties["scale"]["type"], json!(["number", "null"]));
+        assert_eq!(properties["view_state"]["type"], json!(["string", "null"]));
+        assert_eq!(schema["required"], json!(["figure_id", "format"]));
+        let output_schema = (export_figure_data_tool().verb.output_schema)();
+        assert_eq!(output_schema["properties"]["data"]["type"], "array");
+        assert_eq!(
+            output_schema["properties"]["data"]["items"]["type"],
+            "integer"
+        );
+    }
+
+    #[test]
+    fn figure_record_maps_http_metadata_and_preserves_absent_or_null_fields() {
+        let from_route: FigureRecord = serde_json::from_value(json!({
+            "id":"figure-1",
+            "name":"Figure One",
+            "datasetId":"dataset-1",
+            "type":"scatter",
+            "width":640,
+            "height":400,
+            "xColumn":"time",
+            "yColumn":"value",
+            "colorColumn":"group",
+            "title":"Velocity",
+            "createdAt":"2026-09-29T12:00:00Z",
+            "modifiedAt":"2026-09-29T12:30:00Z",
+            "tags":["proof"],
+            "folderId":"folder-1"
+        }))
+        .unwrap();
+        assert_eq!(from_route.figure_type, "scatter");
+        assert_eq!(
+            from_route.modified_at.as_deref(),
+            Some("2026-09-29T12:30:00Z")
+        );
+        assert_eq!(from_route.dataset_name, None);
+        assert_eq!(from_route.view_state, None);
+        assert_eq!(from_route.width, Some(640));
+        assert_eq!(from_route.height, Some(400));
+        assert_eq!(from_route.x_column.as_deref(), Some("time"));
+        assert_eq!(from_route.y_column.as_deref(), Some("value"));
+        assert_eq!(from_route.color_column.as_deref(), Some("group"));
+        assert_eq!(from_route.title.as_deref(), Some("Velocity"));
+        assert_eq!(
+            from_route.tags.as_ref().unwrap(),
+            &vec!["proof".to_string()]
+        );
+        assert_eq!(from_route.folder_id.as_deref(), Some("folder-1"));
+        let serialized = serde_json::to_value(from_route).unwrap();
+        assert_eq!(serialized["figure_type"], "scatter");
+        assert_eq!(serialized["modified_at"], "2026-09-29T12:30:00Z");
+        assert_eq!(serialized["width"], 640);
+        assert_eq!(serialized["height"], 400);
+        assert_eq!(serialized["x_column"], "time");
+        assert_eq!(serialized["y_column"], "value");
+        assert_eq!(serialized["color_column"], "group");
+        assert_eq!(serialized["title"], "Velocity");
+        assert_eq!(serialized["tags"], json!(["proof"]));
+        assert_eq!(serialized["folder_id"], "folder-1");
+        assert!(serialized.get("dataset_name").is_none());
+        assert!(serialized.get("view_state").is_none());
+
+        let nulls: FigureRecord = serde_json::from_value(json!({
+            "id":"figure-2",
+            "name":"Figure Two",
+            "datasetName":null,
+            "modifiedAt":null,
+            "viewState":null
+        }))
+        .unwrap();
+        assert_eq!(nulls.figure_type, "custom");
+        assert_eq!(nulls.dataset_name, None);
+        assert_eq!(nulls.modified_at, None);
+        assert_eq!(nulls.view_state, None);
+        assert_eq!(nulls.width, None);
+        assert_eq!(nulls.height, None);
+        assert_eq!(nulls.tags, None);
+        assert_eq!(nulls.folder_id, None);
+
+        // The DTO can carry richer metadata from another host even though the
+        // current HTTP figure serializer does not emit these two keys.
+        let enriched: FigureRecord = serde_json::from_value(json!({
+            "id":"figure-3",
+            "datasetName":"Dataset One",
+            "viewState":{"mode":"scatter"}
+        }))
+        .unwrap();
+        assert_eq!(enriched.dataset_name.as_deref(), Some("Dataset One"));
+        assert_eq!(enriched.view_state, Some(json!({"mode":"scatter"})));
+    }
+
+    #[test]
+    fn headless_figure_reads_remain_empty_and_absent() {
+        let service = DefaultImploreService::new();
+        impress_service_core::runtime::block_on(async {
+            assert!(service.list_figures(None).await.is_empty());
+            assert!(service.get_figure("closed-host".into()).await.is_none());
+        });
     }
 
     fn call(args: Value) -> Value {
@@ -1122,7 +1344,19 @@ mod tests {
                 id: "F".into(),
                 name: "n".into(),
                 dataset_id: Some("d".into()),
+                figure_type: "custom".into(),
+                dataset_name: None,
+                width: None,
+                height: None,
+                x_column: None,
+                y_column: None,
+                color_column: None,
+                title: None,
                 created_at: None,
+                modified_at: None,
+                view_state: None,
+                tags: None,
+                folder_id: None,
             }),
             artifact: None,
             drawn_from: Some("series".into()),

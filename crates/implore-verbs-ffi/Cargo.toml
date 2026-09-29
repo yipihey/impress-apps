@@ -16,6 +16,7 @@ native = ["uniffi"]
 
 [dependencies]
 async-trait = { workspace = true }
+base64 = "0.22"
 impress-service-core = { workspace = true }
 impress-core = { workspace = true }
 impress-store-service = { workspace = true }

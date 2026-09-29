@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import CryptoKit
 import Foundation
 import ImploreCore
 import ImploreRustCore
@@ -111,6 +112,9 @@ public actor ImploreHTTPRouter: HTTPRouter {
             guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
             return await handleDeleteFigure(id: id)
         case "export_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleExportFigure(id: id, request: request("POST", "/api/figures/\(id)/export"))
+        case "export_figure_data":
             guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
             return await handleExportFigure(id: id, request: request("POST", "/api/figures/\(id)/export"))
         case "rg_load": return await handleRgLoad(request("POST", "/api/rg/load"))
@@ -574,13 +578,17 @@ public actor ImploreHTTPRouter: HTTPRouter {
         do {
             let out = try ImploreStoreAdapter.shared.exportFigure(
                 figureID: figure.id,
-                viewStateJSON: figure.viewStateSnapshot,
+                viewStateJSON: body["view_state"] as? String ?? figure.viewStateSnapshot,
                 format: format,
                 width: number("width"),
                 height: number("height"),
                 scale: number("scale")
             )
             let data = try Data(contentsOf: URL(fileURLWithPath: out.path))
+            let writtenHash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            guard UInt64(data.count) == out.byteCount, writtenHash == out.sha256 else {
+                return .serverError("Rendered figure export changed before it could be returned")
+            }
             logInfo(
                 "figure export \(figure.id): \(out.format) \(out.width)x\(out.height) → \(out.path) (\(out.byteCount) B)",
                 category: "figure-api")
