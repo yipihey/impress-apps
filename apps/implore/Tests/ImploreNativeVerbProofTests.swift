@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import ImploreCore
 import ImpressAutomation
 import ImpressKit
 import PublicationManagerCore
@@ -229,6 +230,112 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         XCTAssertTrue(savedLibrary.contains(firstID))
         XCTAssertTrue(savedLibrary.contains(secondID))
         XCTAssertEqual(RustStoreAdapter.shared.databaseLocation, SharedWorkspace.databasePath)
+
+        let mutationDataset = "p5c8-mutation-\(UUID().uuidString)"
+        let initialSeries: [[String: Any]] = [[
+            "label": "initial", "x": [0.0, 1.0, 2.0], "y": [1.0, 2.0, 3.0]
+        ]]
+        let updatedSeries: [[String: Any]] = [[
+            "label": "updated", "x": [0.0, 1.0, 2.0], "y": [3.0, 1.0, 4.0]
+        ]]
+        let initialViewState = #"{"title":"initial title","width":640,"height":400}"#
+        func createByVerb() async throws -> (id: String, hash: String) {
+            let result = try await call("create-figure", [
+                "dataset_id": mutationDataset, "plot_type": "line", "x": "time",
+                "y": "flux", "name": "Shared mutation figure", "title": "Shared plot",
+                "color_column": "instrument", "width": 640, "height": 400,
+                "view_state": initialViewState, "series": initialSeries
+            ], port: port, bearer: bearer)
+            XCTAssertEqual(result.status, 200)
+            let value = try XCTUnwrap(result.value as? [String: Any])
+            XCTAssertEqual(value["ok"] as? Bool, true)
+            return (try XCTUnwrap(value["id"] as? String),
+                    try XCTUnwrap((value["artifact"] as? [String: Any])?["data_hash"] as? String))
+        }
+        func createByHTTP() async throws -> (id: String, hash: String) {
+            let result = try await request("POST", path: "/api/figures", args: [
+                "datasetId": mutationDataset, "plotType": "line", "x": "time",
+                "y": "flux", "name": "Shared mutation figure", "title": "Shared plot",
+                "colorColumn": "instrument", "width": 640, "height": 400,
+                "view_state": initialViewState, "series": initialSeries
+            ], port: port, bearer: bearer)
+            XCTAssertEqual(result.status, 201)
+            let value = try XCTUnwrap(result.value as? [String: Any])
+            return (try XCTUnwrap((value["figure"] as? [String: Any])?["id"] as? String),
+                    try XCTUnwrap((value["artifact"] as? [String: Any])?["dataHash"] as? String))
+        }
+
+        let verbFigure = try await createByVerb()
+        let httpFigure = try await createByHTTP()
+        XCTAssertEqual(verbFigure.hash, httpFigure.hash)
+        let oldBlob = ImploreStoreAdapter.shared.contentStoreDirectory
+            .appendingPathComponent(verbFigure.hash)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldBlob.path))
+        let initialBytes = try Data(contentsOf: oldBlob)
+        XCTAssertEqual(Array(initialBytes.prefix(8)), [137, 80, 78, 71, 13, 10, 26, 10])
+
+        let updatedViewState = #"{"title":"updated title","width":800,"height":500}"#
+        let updatedByVerb = try await call("update-figure", [
+            "figure_id": verbFigure.id, "name": "Updated shared figure",
+            "plot_type": "scatter", "x": "time", "y": "flux",
+            "color_column": "instrument", "title": "Updated plot",
+            "width": 800, "height": 500, "series": updatedSeries,
+            "view_state": updatedViewState
+        ], port: port, bearer: bearer)
+        XCTAssertEqual(updatedByVerb.status, 200)
+        let updatedVerbValue = try XCTUnwrap(updatedByVerb.value as? [String: Any])
+        XCTAssertEqual(updatedVerbValue["ok"] as? Bool, true)
+        let newHash = try XCTUnwrap(
+            (updatedVerbValue["artifact"] as? [String: Any])?["data_hash"] as? String)
+        XCTAssertNotEqual(newHash, verbFigure.hash)
+        let newBlob = ImploreStoreAdapter.shared.contentStoreDirectory.appendingPathComponent(newHash)
+        let updatedBytes = try Data(contentsOf: newBlob)
+        XCTAssertEqual(Array(updatedBytes.prefix(8)), [137, 80, 78, 71, 13, 10, 26, 10])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldBlob.path),
+                      "the HTTP-created peer still references the original shared blob")
+
+        let updatedByHTTP = try await request("PATCH", path: "/api/figures/\(httpFigure.id)", args: [
+            "name": "Updated shared figure", "plotType": "scatter", "x": "time",
+            "y": "flux", "colorColumn": "instrument", "title": "Updated plot",
+            "width": 800, "height": 500, "series": updatedSeries,
+            "view_state": updatedViewState
+        ], port: port, bearer: bearer)
+        XCTAssertEqual(updatedByHTTP.status, 200)
+        let updatedHTTPValue = try XCTUnwrap(updatedByHTTP.value as? [String: Any])
+        XCTAssertEqual((updatedHTTPValue["artifact"] as? [String: Any])?["dataHash"] as? String, newHash)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldBlob.path),
+                       "the old blob is released after its final figure reference changes")
+
+        let exportByVerb = try await call("export-figure", [
+            "figure_id": verbFigure.id, "format": "png"
+        ], port: port, bearer: bearer)
+        XCTAssertEqual(exportByVerb.status, 200)
+        let verbExportPath = try XCTUnwrap(exportByVerb.value as? String)
+        let exportByHTTP = try await request("POST", path: "/api/figures/\(httpFigure.id)/export",
+                                             args: ["format": "png"], port: port, bearer: bearer)
+        XCTAssertEqual(exportByHTTP.status, 200)
+        let httpExportPath = try XCTUnwrap((exportByHTTP.value as? [String: Any])?["path"] as? String)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: verbExportPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: httpExportPath))
+
+        let deletedByVerb = try await call("delete-figure", ["figure_id": verbFigure.id],
+                                           port: port, bearer: bearer)
+        XCTAssertEqual(deletedByVerb.status, 200)
+        XCTAssertEqual(deletedByVerb.value as? Bool, true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newBlob.path),
+                      "the HTTP-created peer still references the updated blob")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: verbExportPath),
+                       "delete removes the figure's exported files")
+        let peerReadback = try await call("get-figure", ["figure_id": httpFigure.id],
+                                          port: port, bearer: bearer)
+        XCTAssertEqual(peerReadback.status, 200)
+        let deletedByHTTP = try await request("DELETE", path: "/api/figures/\(httpFigure.id)",
+                                               args: [:], port: port, bearer: bearer)
+        XCTAssertEqual(deletedByHTTP.status, 200)
+        XCTAssertEqual((deletedByHTTP.value as? [String: Any])?["deleted"] as? Bool, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: httpExportPath))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newBlob.path),
+                       "the final delete releases the unreferenced content blob")
     }
 
     private func requireIsolation(_ condition: Bool, _ message: String) throws {
