@@ -161,7 +161,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_count-publications` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_count-starred` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_count-unread` | "imbib/bibliography-entry" | — | — | example ×2 |
-| `imbib-library-service_create-assignment` | "imbib/bibliography-entry", "imbib/assignment" | "imbib/assignment" | — | example ×1 |
+| `imbib-library-service_create-assignment` | "imbib/bibliography-entry", "imbib/assignment", "imbib/tag-definition", "imbib/eink-device" | "imbib/assignment" | — | example ×1 |
 | `imbib-library-service_create-collection` | "imbib/library" | "imbib/collection" | — | example ×1 |
 | `imbib-library-service_create-library` | "imbib/library", "imbib/collection" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_create-muted-item` | "imbib/muted-item" | "imbib/muted-item" | — | example ×1 |

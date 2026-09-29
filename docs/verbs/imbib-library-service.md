@@ -213,7 +213,7 @@ Count unread papers, optionally within one library or collection.
 Create an assignment on an existing publication.
 
 - **safety**: `mutating`
-- **reads**: "imbib/bibliography-entry", "imbib/assignment"
+- **reads**: "imbib/bibliography-entry", "imbib/assignment", "imbib/tag-definition", "imbib/eink-device"
 - **writes**: "imbib/assignment"
 - **reach**: —
 

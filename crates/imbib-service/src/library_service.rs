@@ -694,7 +694,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         library_id: Option<String>,
     ) -> Vec<AssignmentRecord>;
     /// Create an assignment on an existing publication.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/assignment"], writes = ["imbib/assignment"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/assignment", "imbib/tag-definition", "imbib/eink-device"], writes = ["imbib/assignment"]))]
     #[impress_example(
         name = "assign-paper",
         args = r#"{"publication_id":"5c000000-0000-4000-8000-0000000000d5","assignee_name":"G3 assignee","assigned_by_name":"G3 assigner","note":"read this","due_date":null,"library_id":"5c000000-0000-4000-8000-0000000000d4"}"#
