@@ -1751,6 +1751,22 @@ Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
 
+## P5c15 — imbib library deletion contract (2026-09-29)
+
+Extended single library deletion with `delete_files` and added validated batch
+deletion. The store preflights every batch UUID and existing library before
+file cleanup or row mutation; `delete_files: false` remains a store-only unlink,
+while `true` reaches the running app's shared + legacy container cleanup. File
+cleanup errors now refuse the store deletion and disclose if earlier containers
+in that batch were already removed. The generated methods do not return store
+undo snapshots, and an undo cannot recreate deleted filesystem bytes.
+
+Rust coverage checks the single/batch argument schemas and proves a valid first
+ID plus a missing later ID leaves the first library intact. Native scratch
+coverage checks unlink-only file preservation and the callback's exact
+container cleanup. Root owns builds, tests and native framework verification;
+this package ran static formatting and diff checks only.
+
 - 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
   `implore-service_export-figure-data` with fractional width/height,
   scale and optional view-state arguments. The native callback reuses the HTTP
@@ -1780,6 +1796,17 @@ Data warnings remain; no persistence schema was changed.
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
 
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
+
 ## P5c7 — imprint threaded comment metadata (2026-09-29)
 
 Extended `imprint-app-service_list-comments` with optional route-compatible
@@ -1806,17 +1833,6 @@ same PID-owned scratch manuscript, then creates a generated threaded suggestion
 and verifies parent identity and inherited UTF-16 offsets. Root owns running
 the Rust/native verification and regenerating any generated assets.
 
-- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
-  three ignored), every quick gate, and full supported arm64 builds of
-  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
-  proof passed one XCTest and 13 shared transport calls, including RIS parity
-  against the retained route; SQLite symbol checks passed and owned PID 77670
-  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
-  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
-  Tables and reference pages were regenerated. Root corrected the seeded
-  bibliography fixture, a module-qualified test helper and converter lint
-  findings before these runs. No user store or running app was touched.
-
 - 2026-09-29 — **P5c7 verified.** Root passed 132 Rust tests (zero failures,
   three ignored), all quick gates and full supported arm64 builds of store-ffi,
   impel-tools and imprint-verbs-ffi, alongside the final RIS archives.
@@ -1829,3 +1845,229 @@ the Rust/native verification and regenerating any generated assets.
   thread writes; the final test snapshots immediately before the refusal and
   still requires equality of every stored comment afterward. Generated project
   identifier/path churn was discarded. No real store or user app was touched.
+
+## P5c8 — implore figure mutation contracts (2026-09-29)
+
+Extended `implore-service_create-figure` with HTTP-compatible integer
+`width`/`height`, separate plot `title`/`color_column`, and an optional raw
+JSON `view_state`; explicit create fields overlay corresponding fields in that
+view state. Added generated `update-figure` and `delete-figure` callbacks that
+reuse `handleUpdateFigure`/`handleDeleteFigure` and `LibraryManager`'s existing
+store, rerender, rollback, export cleanup, and content-blob reference logic.
+Update accepts only the fields PATCH actually mutates; it deliberately has no
+`dataset_id` because the HTTP handler does not change a figure's dataset.
+Update returns a structured `{ok, error?, figure?, artifact?}` result and
+refused native responses remain refusals; delete keeps the approved `bool`
+result. Create/update/delete declare figure-record effects and app reach.
+
+Rust coverage checks generated schemas, effects, callback argument mapping,
+render/update and missing/delete failures. Hosted proof compares verb and HTTP
+create/update hashes on isolated figures, confirms a changed non-empty PNG,
+and tests shared-blob retention through update and the last delete. Root owns
+verification; no tests/builds, caller migrations, route removals, or real-store
+operations were performed here.
+
+## P5c9 — imbib publication search contract (2026-09-29)
+
+Extended `imbib-library-service_search-publications` with optional offset and
+the approved read/collection/library/tags/flag/added-after/added-before
+filters. The generated service evaluates membership and metadata filters on
+the complete ordered match set before applying pagination; exact library and
+collection UUID membership comes from the existing store queries, not names
+or a capped result page. Empty queries retain the default-library scope unless
+an explicit library or collection selects its own scope.
+
+Inspection found that the legacy `GET /api/search` parsed library and
+collection UUIDs but `AutomationService.applyFilters` explicitly skipped both
+filters. This package fixes that parity gap without changing the route shape:
+empty-query container selection now uses the selected container; exact
+library membership uses the existing store query, and exact collection
+membership uses the existing detail relationship before pagination. Focused
+Rust coverage checks same-named libraries, collection/library intersection,
+read/tag/flag filters, post-filter offset behavior and strict date boundaries.
+The hosted transport fixture compares generated and legacy IDs/order for
+library/read, collection (including empty-query selection), and offset cases on
+its isolated papers. Verification remains pending with root; no builds/tests
+were run in this package.
+
+## P5c10 — imprint suggestion actions (2026-09-29)
+
+Added generated accept/reject suggestion actions by routing the native callback
+through the retained HTTP handlers. Inspection found `DocumentRegistry` has no
+imprint operation consumer after the editor migration; the old accept handler
+queued `replaceRange` but therefore did not apply or save it. Acceptance now
+validates the comment and proposed text, replaces the comment's UTF-16 range in
+the live editor session through the existing native save/readback path, registers
+and returns a completed operation ID, refreshes comment anchors against the new
+source, and then resolves only that comment. Rejection resolves without editing
+the manuscript. Failures remain explicit: malformed IDs are bad requests,
+missing comments are not found, non-suggestions cannot be accepted, and a failed
+live edit leaves the comment unresolved. `update-comment` still refuses
+accepted/rejected status values.
+
+`SuggestionApplyResult` retains the route's accepted flag, comment/document IDs,
+and operation ID. Rust coverage checks its route-response aliases. The hosted
+proof exercises direct HTTP and generated acceptance, verifies live-buffer and
+store readback at the expected UTF-16 replacement, and checks rejection leaves
+source unchanged. Root owns builds, tests, framework/binding regeneration, and
+final native verification.
+
+- 2026-09-29 — **P5c10 review refinement.** Accepting a suggestion captures
+  its synchronized range and source together. The edit checks that source
+  again on MainActor before applying the range, returning conflict if typing
+  intervened. A native fixture covers a stale range that remains numerically
+  valid, preserving both the live edits and the previously saved manuscript.
+
+
+## P5c11 — imbib citation resolution (2026-09-29)
+
+Added `imbib-app-service_resolve-citation` with optional free-text, BibTeX,
+structured citation, target library, and PDF-download inputs. Its native
+callback dispatches to the existing `handleResolvePaper`, preserving the
+legacy identifier/local-search/external-search cascade and the structured ADS
+resolution path. The output preserves `via`, open paper/candidate objects,
+ranked confidence, and reason without flattening the distinct HTTP candidate
+shapes. Citation text, BibTeX, and structured citation arguments are marked
+private in generated call audit metadata. The headless backend explicitly
+returns `via: unavailable` rather than reporting a false miss. `ExternalPaper`
+now carries the HTTP candidate's selected import `identifier`, including its
+title fallback when no DOI, arXiv ID, or bibcode is present.
+
+Focused Rust fixtures cover HTTP-compatible structured input conversion,
+callback argument forwarding, candidate order/confidence/reason preservation,
+external import identifiers, generated private-field schema, and honest
+headless refusal. The hosted transport proof now resolves a paper it imported
+into its PID-owned scratch library through both `/api/papers/resolve` and the
+generated verb, compares the local-search `via` and paper identity/content, and
+checks missing-input refusals on both surfaces. External search identifier
+mapping is covered by the deterministic Rust native-response fixture; no live
+source credentials or network search are required. No builds/tests, route
+removal, or caller migration were performed in this package.
+
+## P5c12 — imbib identifier import contract (2026-09-29)
+
+Added `imbib-library-service_import-identifiers` as the generated library
+capability while keeping identifier resolution, default-library selection,
+collection membership, duplicate lookup, recent-add activity and optional
+background PDF acquisition on the existing `AutomationService.addPapers`
+path. A private app-service callback seam lets the library verb reach that
+running-app behavior without creating a second public verb. The legacy paper
+dictionaries in `added` remain lossless JSON; `duplicates` and `failed` retain
+their exact per-identifier results. With imbib closed, the default callback
+reports `host-unavailable` instead of claiming that imports succeeded.
+
+The native XCTest fixture covers an already-local cite key and an unsupported
+identifier in a scratch library/collection; Rust schema/callback tests cover
+full added-row fields and optional target/PDF arguments. Build and test
+verification is owned by the root integrator; this package did not run builds,
+tests or framework generation.
+
+## P5c13 — imbib collection membership (2026-09-29)
+
+Added `imbib-library-service_update-collection-members(collection_id,
+identifiers, action)` with ordered `assigned` and `not_found` outcomes for
+`add`/`remove`. Resolution follows `PaperIdentifier.fromString` for local UUID,
+citation key, DOI, arXiv, bibcode and PMID lookups; recognized external-only
+Semantic Scholar/OpenAlex identifiers remain misses, with no fuzzy search.
+Generated writes use the library service's store-backed mutation path and its
+declared collection write effect, so the imbib domain dispatcher posts its
+normal store-mutation/display refresh after success.
+
+Route review found both retained membership paths could report papers as
+assigned even when a valid UUID named no collection: `AutomationService` ignored
+the adapter's logged `addToCollection`/`removeFromCollection` failure. The
+shared collection operations now perform exact existing-collection lookup
+before membership work, making both routes return their existing 404 mapping;
+the generated verb refuses the same missing target. Tests cover ordered local
+identifier outcomes, add/remove persisted edges, invalid action/missing target,
+and an isolated route-versus-generated callback fixture. Root owns tests and
+native verification; no callers or routes are removed here.
+
+
+## P5c14 — imbib tag-count reads (2026-09-29)
+
+Extended `imbib-tags-service_list-tags-with-counts` with optional case-
+insensitive `prefix` and optional `limit` (default 100), applied after the
+shared store's full hierarchical count projection and preserving its existing
+order. `TagWithCount` now includes `id = path` and the parent path derived from
+the last `/`. The native HTTP `/api/tags` projection now returns this stable
+path as `id`; this intentionally replaces the old freshly-generated UUID,
+which changed on every read and could not identify a tag across calls. Existing
+name/path/count, prefix, hierarchy and `/tags/tree` behavior remain intact.
+
+Scratch Rust fixtures cover nested counts, case-insensitive prefix filtering,
+no-match behavior, limit/order and stable hierarchy identity. The opt-in hosted
+transport proof compares generated and HTTP rows for a nested path, count,
+case-insensitive prefix and limit using only the PID-owned scratch library.
+No builds/tests, route removal or caller migration were performed here.
+
+- 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
+  uses the manuscript list/get and app get-content verbs, composing metadata
+  and source for word count and artifact preview while retaining absent dates
+  and linked imbib IDs. Implore bridge list/detail maps `FigureRecord` into its
+  public result, leaving HTTP-absent dataset name/format and null timestamps
+  absent; empty tags match the route's omission. Impart bridge now maps paged
+  conversations and detailed messages/statistics, retaining count, total,
+  offset, limit and filter query. Counsel's existing figure/conversation list
+  residue reads now use those generated result mappings. ArtifactResolver reads
+  document artifacts through ImprintBridge and retains metadata absence. The
+  current Counsel registry has no figure/conversation detail tool cases, so
+  this package adds no new agent tools. Route arms, binary export, writes and
+  imbib remain for their separate packages. Focused DTO decoding and canonical
+  transport fixtures were added; static review only, root verification pending.
+
+## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
+
+Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
+and added optional offset plus the finalized local read/collection/library/tag/
+flag/date filters. The bridge hydrates each summary through exact publication
+detail and BibTeX export verbs, retaining its existing `[ImbibPaper]` result
+shape. `getPaper(citeKey:)` now uses exact `imbib-search-service_find-by-cite-key`
+followed by the same hydration path, so misses remain `nil` without fuzzy
+search. Added `exportRIS(citeKeys:)` over the generated RIS export verb. The
+transport fixtures verify filter wire names, exact lookup, summary/detail field
+mapping, result ordering under concurrent hydration, and RIS forwarding. HTTP
+routes and other callers remain in place until hosted parity and root
+verification.
+
+- 2026-09-29 — **P5c18 implore figure export consumer.** The ImpressKit bridge
+  now calls `implore-service_export-figure-data` for image bytes and metadata
+  while keeping `exportFigure(id:format:) -> Data`; the richer method retains
+  renderer path, SHA-256, MIME type and byte count. The previous implementation
+  returned the HTTP route's JSON envelope as `Data`, despite the method's image
+  export contract. A repository-wide Swift caller audit found no consumers, so
+  the canonical result now returns the rendered bytes. Create/update/delete
+  routes also have no Swift callers; leave them without parallel bridge methods
+  and consider them eligible for retirement after their native/HTTP contract
+  proof. Counsel has only a figure-list tool, owned by the metadata consumer
+  package. Added mocked generated-verb transport and DTO fixtures. Static
+  review only; root verification pending.
+
+## P5c20 — imbib container consumers (2026-09-29)
+
+Caller inventory found `ImprintIntegrationService.listDestinations()` as the
+only cross-app consumer of library/collection listing and its existing
+`createLibrary` call already uses `imbib-library-service_create-library`.
+Migrated list-library reads to `list-libraries` and all-library collection
+reads to the generated per-library `list-collections`, composing results in
+the same library then collection order as the retained route and preserving
+the bridge's DTO shape and library names. No cross-app callers currently use
+collection creation/membership/member reads, tag read/create, or library and
+collection deletion; no unused bridge methods were added. Counsel's direct
+store and event paths are outside this caller inventory. Static diff review
+only; root owns build and test verification.
+
+- 2026-09-29 — **P5c21 imbib external search/import/resolve callers.** The
+  shared `ImbibBridge` now uses generated `search-sources`,
+  `import-identifiers`, and `resolve-citation` verbs for the existing imprint
+  citation picker, identifier importer and structured `CitationClient` flow.
+  It preserves source/limit, library/collection and PDF defaults, per-identifier
+  added/duplicate/failure outcomes, ranked candidate order/confidence, and open
+  paper/candidate dictionaries alongside the existing typed Swift convenience
+  models. Audited `apps/imprint/macOS/Services/ImbibIntegrationService.swift`
+  and `CitationClient.swift`; no ArtifactResolver/Counsel external-search,
+  identifier-import or citation-resolve caller exists. Counsel's separate
+  artifact capture route is unrelated and remains out of scope. The HTTP
+  `resolve-citation` free-text/BibTeX branches likewise have no cross-app
+  caller; no overload was added. Internal imbib route/MCP and smart-search
+  behavior remains unchanged. Root verification pending.

@@ -227,9 +227,9 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         // real suggestion rooted in the live UTF-16 editor buffer.
         let legacyCreateBody = try JSONSerialization.data(withJSONObject: [
             "content": "Thread root",
-            "start": 9,
-            "end": 14,
-            "proposedText": "agent researcher",
+            "start": 7,
+            "end": 9,
+            "proposedText": "🧪",
             "authorAgentId": "legacy-reviewer",
             "authorName": "Legacy Reviewer",
         ])
@@ -241,8 +241,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
             JSONSerialization.jsonObject(with: legacyCreate.body) as? [String: Any])
         let legacyRoot = try XCTUnwrap(legacyCreatedObject["comment"] as? [String: Any])
         let legacyRootID = try XCTUnwrap(legacyRoot["id"] as? String)
-        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["start"], 9)
-        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["end"], 14)
+        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["start"], 7)
+        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["end"], 9)
         XCTAssertEqual(legacyRoot["authorAgentId"] as? String, "legacy-reviewer")
 
         let legacySuggestionList = await router.route(HTTPRequest(
@@ -310,8 +310,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(generatedReplyRecord["proposed_text"] as? String, "revised agent")
         XCTAssertEqual(generatedReplyRecord["author_agent_id"] as? String, "reply-agent")
         XCTAssertEqual(generatedReplyRecord["author"] as? String, "Reply Agent")
-        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["start"], 9)
-        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["end"], 14)
+        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["start"], 7)
+        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["end"], 9)
         XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRootID }?.textRange,
                        comments.comments.first {
                            $0.id.uuidString == generatedReplyRecord["id"] as? String
@@ -327,11 +327,157 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(legacyAgentRows.count, 1)
         XCTAssertEqual(legacyAgentRows.first?["parentId"] as? String, legacyRootID)
 
-        // Snapshot after the successful thread writes; the refusal must
-        // preserve all records now present, including the new root and reply.
-        let storedBeforeStatusRefusal = ManuscriptCommentStore.list(manuscriptID: id)
+        // The legacy accept route applies and saves the replacement at the
+        // comment's UTF-16 range, returns its completed operation handle, and
+        // resolves the comment only after the editor write succeeds.
+        let rootRange = try XCTUnwrap(comments.comments.first { $0.id.uuidString == legacyRootID }?.textRange)
+        XCTAssertEqual(rootRange, TextRange(start: 7, end: 9))
+        let expectedAfterLegacyAccept = (session.source as NSString).replacingCharacters(
+            in: NSRange(location: rootRange.start, length: rootRange.length),
+            with: "🧪")
+        let legacyAccept = await router.route(HTTPRequest(
+            method: "POST", path: "/api/comments/\(legacyRootID)/accept"))
+        XCTAssertEqual(legacyAccept.status, 200, String(decoding: legacyAccept.body, as: UTF8.self))
+        let legacyAcceptBody = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: legacyAccept.body) as? [String: Any])
+        XCTAssertEqual(legacyAcceptBody["accepted"] as? Bool, true)
+        XCTAssertEqual(legacyAcceptBody["commentId"] as? String, legacyRootID)
+        XCTAssertEqual(legacyAcceptBody["documentId"] as? String, id.uuidString)
+        let legacyOperationID = try XCTUnwrap(
+            UUID(uuidString: try XCTUnwrap(legacyAcceptBody["operationId"] as? String)))
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRootID }?.isResolved, true)
+        XCTAssertEqual(session.source, expectedAfterLegacyAccept)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, expectedAfterLegacyAccept)
+        XCTAssertEqual(OperationTracker.shared.get(id: legacyOperationID)?.kind, "acceptSuggestion")
+        XCTAssertEqual(OperationTracker.shared.get(id: legacyOperationID)?.status.rawValue, "completed")
+
+        // The generated accept verb follows the same native route and exposes
+        // its camel-case HTTP result as a typed Rust record.
+        let generatedAcceptSuggestion = try await call("create-comment", [
+            "document_id": id.uuidString,
+            "body": "Apply this generated suggestion",
+            "proposed_text": "delta",
+            "anchor": "gamma",
+        ])
+        XCTAssertEqual(generatedAcceptSuggestion.status, 200)
+        let generatedAcceptComment = try XCTUnwrap(value(generatedAcceptSuggestion) as? [String: Any])
+        let generatedAcceptID = try XCTUnwrap(generatedAcceptComment["id"] as? String)
+        let generatedRange = try XCTUnwrap(generatedAcceptComment["range"] as? [String: Int])
+        let expectedGammaRange = (session.source as NSString).range(of: "gamma")
+        XCTAssertEqual(generatedRange["start"], expectedGammaRange.location)
+        XCTAssertEqual(generatedRange["end"], expectedGammaRange.location + expectedGammaRange.length)
+        let expectedAfterGeneratedAccept = (session.source as NSString).replacingCharacters(
+            in: expectedGammaRange, with: "delta")
+        let generatedAccept = try await call("accept-comment-suggestion", ["comment_id": generatedAcceptID])
+        XCTAssertEqual(generatedAccept.status, 200, String(decoding: generatedAccept.body, as: UTF8.self))
+        let generatedAcceptBody = try XCTUnwrap(value(generatedAccept) as? [String: Any])
+        XCTAssertEqual(generatedAcceptBody["accepted"] as? Bool, true)
+        XCTAssertEqual(generatedAcceptBody["comment_id"] as? String, generatedAcceptID)
+        XCTAssertEqual(generatedAcceptBody["document_id"] as? String, id.uuidString)
+        let generatedOperationID = try XCTUnwrap(
+            UUID(uuidString: try XCTUnwrap(generatedAcceptBody["operation_id"] as? String)))
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == generatedAcceptID }?.isResolved, true)
+        XCTAssertEqual(session.source, expectedAfterGeneratedAccept)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, expectedAfterGeneratedAccept)
+        XCTAssertEqual(OperationTracker.shared.get(id: generatedOperationID)?.kind, "acceptSuggestion")
+        XCTAssertEqual(OperationTracker.shared.get(id: generatedOperationID)?.status.rawValue, "completed")
+
+        // A stale suggestion range must fail against the latest live buffer,
+        // leave the comment unresolved, and never overwrite the saved body.
+        let staleSuggestion = try await call("create-comment", [
+            "document_id": id.uuidString,
+            "body": "This anchor will be out of range",
+            "proposed_text": "not applied",
+            "anchor": "beta",
+        ])
+        XCTAssertEqual(staleSuggestion.status, 200)
+        let staleRecord = try XCTUnwrap(value(staleSuggestion) as? [String: Any])
+        let staleID = try XCTUnwrap(staleRecord["id"] as? String)
+        let savedBeforeStaleAccept = try XCTUnwrap(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body)
+        session.source = "short"
+        let staleAccept = try await call("accept-comment-suggestion", ["comment_id": staleID])
+        XCTAssertEqual(staleAccept.status, 400, String(decoding: staleAccept.body, as: UTF8.self))
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == staleID }?.isResolved, false)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, savedBeforeStaleAccept)
+        session.source = savedBeforeStaleAccept
+        comments.syncBody(savedBeforeStaleAccept)
+
+        // Simulate typing after the range snapshot but before the edit enters
+        // MainActor. A still-valid numeric range must not replace different text.
+        let changedSource = "typed " + savedBeforeStaleAccept
+        session.source = changedSource
+        let racedBody = try JSONSerialization.data(withJSONObject: [
+            "start": 0, "end": 1, "text": "must not apply",
+            "expected_source": savedBeforeStaleAccept,
+        ])
+        let racedEdit = await ImprintNativeEdits.apply(
+            method: "replace_range", id: id.uuidString,
+            request: HTTPRequest(method: "POST", path: "/proof/range",
+                                 body: String(decoding: racedBody, as: UTF8.self)))
+        XCTAssertEqual(racedEdit.status, 409)
+        XCTAssertEqual(session.source, changedSource)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, savedBeforeStaleAccept)
+        session.source = savedBeforeStaleAccept
+
+        // The retained reject route resolves without changing source.
+        let legacyRejectCreateBody = try JSONSerialization.data(withJSONObject: [
+            "content": "Legacy reject",
+            "start": 0,
+            "end": 0,
+            "proposedText": "unused replacement",
+        ])
+        let legacyRejectCreate = await router.route(HTTPRequest(
+            method: "POST", path: "/api/documents/\(id.uuidString)/comments",
+            body: String(decoding: legacyRejectCreateBody, as: UTF8.self)))
+        XCTAssertEqual(legacyRejectCreate.status, 201)
+        let legacyRejectObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: legacyRejectCreate.body) as? [String: Any])
+        let legacyRejectComment = try XCTUnwrap(legacyRejectObject["comment"] as? [String: Any])
+        let legacyRejectID = try XCTUnwrap(legacyRejectComment["id"] as? String)
+        let sourceBeforeLegacyReject = session.source
+        let legacyReject = await router.route(HTTPRequest(
+            method: "POST", path: "/api/comments/\(legacyRejectID)/reject"))
+        XCTAssertEqual(legacyReject.status, 200)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRejectID }?.isResolved, true)
+        XCTAssertEqual(session.source, sourceBeforeLegacyReject)
+
+        let rejectedSuggestion = try await call("create-comment", [
+            "document_id": id.uuidString,
+            "body": "No need to apply this",
+            "proposed_text": "discard me",
+            "anchor": "beta",
+        ])
+        XCTAssertEqual(rejectedSuggestion.status, 200)
+        let rejectedSuggestionRecord = try XCTUnwrap(value(rejectedSuggestion) as? [String: Any])
+        let rejectedSuggestionID = try XCTUnwrap(rejectedSuggestionRecord["id"] as? String)
+        let sourceBeforeReject = session.source
+        let storedBodyBeforeReject = ManuscriptStoreAdapter.shared.manuscript(id: id)?.body
+        let rejected = try await call("reject-comment-suggestion", ["comment_id": rejectedSuggestionID])
+        XCTAssertEqual(rejected.status, 200, String(decoding: rejected.body, as: UTF8.self))
+        XCTAssertEqual(try value(rejected) as? Bool, true)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == rejectedSuggestionID }?.isResolved, true)
+        XCTAssertEqual(session.source, sourceBeforeReject)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, storedBodyBeforeReject)
+
+        // Acceptance refuses ordinary comments and unknown IDs; neither case
+        // changes review state or the live/saved manuscript.
+        let contentBeforeAcceptanceRefusals = session.source
+        let storedBeforeAcceptanceRefusals = ManuscriptStoreAdapter.shared.manuscript(id: id)?.body
+        let ordinaryCommentAccept = try await call("accept-comment-suggestion", ["comment_id": commentID])
+        XCTAssertEqual(ordinaryCommentAccept.status, 400)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved, false)
+        let unknownCommentAccept = try await call(
+            "accept-comment-suggestion", ["comment_id": UUID().uuidString])
+        XCTAssertEqual(unknownCommentAccept.status, 404)
+        XCTAssertEqual(session.source, contentBeforeAcceptanceRefusals)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body,
+                       storedBeforeAcceptanceRefusals)
+
         // Accept/reject need suggestion semantics, so neither may mutate a
         // comment by silently treating the status as merely resolved.
+        // The refusal must preserve every comment after the preceding
+        // accepted/rejected and stale-range cases have completed.
+        let storedBeforeUnsupportedStatus = ManuscriptCommentStore.list(manuscriptID: id)
         for unsupported in ["accepted", "rejected"] {
             let refusal = try await call("update-comment", [
                 "comment_id": commentID, "body": "must not be saved", "status": unsupported])
@@ -342,7 +488,7 @@ final class ImprintNativeVerbProofTests: XCTestCase {
                            "Check this phrase")
             XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved,
                            false)
-            XCTAssertEqual(ManuscriptCommentStore.list(manuscriptID: id), storedBeforeStatusRefusal)
+            XCTAssertEqual(ManuscriptCommentStore.list(manuscriptID: id), storedBeforeUnsupportedStatus)
         }
 
         let resolved = try await call("update-comment", ["comment_id": commentID, "status": "resolved"])

@@ -127,6 +127,18 @@ pub async fn prepare(
             paper(store, "7c", "7a", "G3Unfile2026", "G3 unfile paper", None)?;
             member(store, "7b", "7c")?;
         }
+        ("imbib-library-service_update-collection-members", "file-existing-paper") => {
+            library(store, "c0", "G3 membership library", false, false)?;
+            collection(store, "c1", "G3 membership collection", "c0")?;
+            paper(
+                store,
+                "c2",
+                "c0",
+                "G3Membership2026",
+                "G3 membership paper",
+                None,
+            )?;
+        }
         ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
             library(store, "89", "G3 dismissal library", false, false)?;
             collection(store, "6f", "G3 dismissal collection", "89")?;
@@ -161,7 +173,10 @@ pub async fn prepare(
             library(store, "78", "G3 unread query library", false, false)?;
             paper_with_status(store, "79", "78", false, false, None)?;
         }
-        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+        (
+            "imbib-library-service_search-publications",
+            "find-unique-spectrum" | "filtered-project-spectrum" | "filtered-collection-spectrum",
+        ) => {
             library(store, "88", "G3 search library", false, false)?;
             paper(
                 store,
@@ -171,6 +186,10 @@ pub async fn prepare(
                 "G3 Unique Spectrum",
                 None,
             )?;
+            if example == "filtered-collection-spectrum" {
+                collection(store, "89", "G3 search collection", "88")?;
+                member(store, "89", "7f")?;
+            }
         }
         ("imbib-library-service_set-read", "finish-reading") => {
             library(store, "88", "G3 status library", false, false)?;
@@ -254,6 +273,10 @@ pub async fn prepare(
         }
         ("imbib-library-service_delete-library-undoable", "remove-empty-library") => {
             library(store, "0a", "G3 disposable library", false, false)?;
+        }
+        ("imbib-library-service_delete-libraries", "delete-library-batch") => {
+            library(store, "0d", "G3 batch disposable one", false, false)?;
+            library(store, "0e", "G3 batch disposable two", false, false)?;
         }
         ("imbib-library-service_get-default-library", "project-default") => {
             library(store, "0b", "G3 default library", true, false)?;
@@ -695,6 +718,27 @@ pub fn verify(
         ("imbib-library-service_remove-from-collection", "unfile-paper") => {
             require_unfiled(store, "7b", "7c")?;
         }
+        ("imbib-library-service_update-collection-members", "file-existing-paper") => {
+            let assigned = result["assigned"]
+                .as_array()
+                .ok_or("missing assigned identifiers")?;
+            let not_found = result["not_found"]
+                .as_array()
+                .ok_or("missing not_found identifiers")?;
+            if assigned != &[Value::String("G3Membership2026".into())]
+                || not_found != &[Value::String("missing-G3".into())]
+            {
+                return Err("collection membership result changed input-order outcomes".into());
+            }
+            let members = collection_ops::list_members(store, &IMBIB_COLLECTION, &uuid("c1")?)
+                .map_err(|e| e.to_string())?;
+            let paper_id = uuid("c2")?;
+            if !members.iter().any(|member| member.id == paper_id) {
+                return Err(
+                    "service reported assignment without persisting the member edge".into(),
+                );
+            }
+        }
         ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
             require_unfiled(store, "6f", "70")?;
         }
@@ -713,7 +757,10 @@ pub fn verify(
         ("imbib-library-service_query-unread", "unread-project-paper") => {
             require_row(result, &id("79"))?;
         }
-        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+        (
+            "imbib-library-service_search-publications",
+            "find-unique-spectrum" | "filtered-project-spectrum" | "filtered-collection-spectrum",
+        ) => {
             require_row(result, &id("7f"))?;
         }
         ("imbib-library-service_set-read", "finish-reading") => {
@@ -798,6 +845,11 @@ pub fn verify(
         ("imbib-library-service_delete-library-undoable", "remove-empty-library") => {
             if load(store, &id("0a"))?.is_some() {
                 return Err("library survived deletion".into());
+            }
+        }
+        ("imbib-library-service_delete-libraries", "delete-library-batch") => {
+            if load(store, &id("0d"))?.is_some() || load(store, &id("0e"))?.is_some() {
+                return Err("one or more batch libraries survived deletion".into());
             }
         }
         ("imbib-library-service_create-collection", "manual-collection") => {

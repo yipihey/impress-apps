@@ -118,16 +118,41 @@ public actor AutomationService: AutomationOperations {
 
         let publications: [PublicationRowData]
         if query.isEmpty {
-            // Fetch all from default library
+            // An explicit container filter selects that container. Without
+            // one, preserve the existing empty-query default-library scope.
             publications = await withStore { store in
+                if let libraryID = filters?.libraries?.first {
+                    return store.queryPublications(
+                        parentId: libraryID,
+                        sort: "created",
+                        ascending: false,
+                        limit: nil,
+                        offset: nil
+                    )
+                }
+                if let collectionID = filters?.collections?.first {
+                    return store.listCollectionMembers(
+                        collectionId: collectionID,
+                        sort: "created",
+                        ascending: false,
+                        limit: nil,
+                        offset: nil
+                    )
+                }
                 if let lib = store.getDefaultLibrary() {
-                    return store.queryPublications(parentId: lib.id)
+                    return store.queryPublications(
+                        parentId: lib.id,
+                        sort: "created",
+                        ascending: false,
+                        limit: nil,
+                        offset: nil
+                    )
                 }
                 return []
             }
         } else {
             publications = await withStore { store in
-                store.searchPublications(query: query)
+                store.searchPublications(query: query, parentId: filters?.libraries?.first)
             }
         }
 
@@ -135,6 +160,28 @@ public actor AutomationService: AutomationOperations {
         var filtered = publications
         if let filters = filters {
             filtered = applyFilters(to: filtered, filters: filters)
+        }
+
+        // Library scope is pushed into the store query above because detail
+        // rows expose only the home library, not secondary Contains members.
+        // Collection identity is absent from row data, so resolve it from
+        // exact detail membership before pagination.
+        let needsMembershipFilter = !(filters?.collections?.isEmpty ?? true)
+        var membershipDetails: [UUID: PublicationModel] = [:]
+        if let filters, needsMembershipFilter {
+            let membershipCandidates = filtered
+            let resolved = await withStore { store in
+                membershipCandidates.compactMap { publication -> (PublicationRowData, PublicationModel)? in
+                    guard let detail = store.getPublicationDetail(id: publication.id) else { return nil }
+                    if let collections = filters.collections, !collections.isEmpty,
+                       !collections.contains(where: detail.collectionIDs.contains) {
+                        return nil
+                    }
+                    return (publication, detail)
+                }
+            }
+            filtered = resolved.map(\.0)
+            membershipDetails = Dictionary(uniqueKeysWithValues: resolved.map { ($0.0.id, $0.1) })
         }
 
         // Apply limit/offset
@@ -145,7 +192,7 @@ public actor AutomationService: AutomationOperations {
             filtered = Array(filtered.prefix(limit))
         }
 
-        return await paperResults(for: filtered)
+        return await paperResults(for: filtered, detailOverrides: membershipDetails)
     }
 
     private func applyFilters(to publications: [PublicationRowData], filters: SearchFilters) -> [PublicationRowData] {
@@ -169,8 +216,8 @@ public actor AutomationService: AutomationOperations {
                 return authors.contains { pubAuthors.contains($0.lowercased()) }
             }
         }
-        // Note: library/collection filtering requires detail lookups; skip for now
-        // since most callers filter by parentId at query time.
+        // Library scope is applied in the query; collection membership is
+        // resolved from detail rows before pagination in searchLibrary.
         if let tags = filters.tags, !tags.isEmpty {
             result = result.filter { pub in
                 let pubTagPaths = Set(pub.tagDisplays.map(\.path))
@@ -452,6 +499,7 @@ public actor AutomationService: AutomationOperations {
         collectionID: UUID
     ) async throws -> AddToContainerResult {
         try await checkAuthorization()
+        try await requireCollection(collectionID)
         var assigned: [String] = []
         var notFound: [String] = []
 
@@ -772,15 +820,21 @@ public actor AutomationService: AutomationOperations {
     public func deleteLibrary(id: UUID, deleteFiles: Bool = false) async throws -> Bool {
         try await checkAuthorization()
 
-        if deleteFiles {
-            let containerURLs = await MainActor.run { LibraryManager.allContainerURLs(for: id) }
-            for containerURL in containerURLs where FileManager.default.fileExists(atPath: containerURL.path) {
-                try? FileManager.default.removeItem(at: containerURL)
-            }
+        guard await MainActor.run(body: { RustStoreAdapter.shared.getLibrary(id: id) != nil }) else {
+            throw AutomationOperationError.operationFailed("Library \(id.uuidString) was not found")
         }
 
-        await withStore { store in
+        if deleteFiles {
+            try await removeLibraryFileContainers(ids: [id])
+        }
+
+        let removed = await withStore { store in
             store.deleteLibrary(id: id)
+            return store.getLibrary(id: id) == nil
+        }
+        guard removed else {
+            throw AutomationOperationError.operationFailed(
+                "Library deletion failed; requested file cleanup may already have completed")
         }
         return true
     }
@@ -790,25 +844,63 @@ public actor AutomationService: AutomationOperations {
     /// once. Matches the on-device `LibraryManager.deleteLibraries(ids:)` semantics.
     public func deleteLibraries(ids: [UUID], deleteFiles: Bool = false) async throws -> Int {
         try await checkAuthorization()
+        var seen = Set<UUID>()
+        let ids = ids.filter { seen.insert($0).inserted }
         guard !ids.isEmpty else { return 0 }
 
-        if deleteFiles {
-            let urls = await MainActor.run { ids.flatMap(LibraryManager.allContainerURLs(for:)) }
-            for url in urls where FileManager.default.fileExists(atPath: url.path) {
-                try? FileManager.default.removeItem(at: url)
-            }
+        // Validate every row before touching any file container or library.
+        let missingID = await MainActor.run {
+            ids.first { RustStoreAdapter.shared.getLibrary(id: $0) == nil }
+        }
+        if let missingID {
+            throw AutomationOperationError.operationFailed(
+                "Library \(missingID.uuidString) was not found; batch was not changed"
+            )
         }
 
-        await withStore { store in
-            store.beginBatchMutation()
-            for id in ids { store.deleteLibrary(id: id) }
-            store.endBatchMutation()
+        if deleteFiles {
+            try await removeLibraryFileContainers(ids: ids)
         }
-        return ids.count
+
+        let removed = await withStore { store in
+            store.beginBatchMutation()
+            defer { store.endBatchMutation() }
+            var removed = 0
+            for id in ids {
+                store.deleteLibrary(id: id)
+                guard store.getLibrary(id: id) == nil else { break }
+                removed += 1
+            }
+            return removed
+        }
+        guard removed == ids.count else {
+            throw AutomationOperationError.operationFailed(
+                "Deleted \(removed) libraries before a store failure; requested file cleanup may already have completed")
+        }
+        return removed
+    }
+
+    private func removeLibraryFileContainers(ids: [UUID]) async throws {
+        let urls = await MainActor.run { ids.flatMap(LibraryManager.allContainerURLs(for:)) }
+        var removedAny = false
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.removeItem(at: url)
+                removedAny = true
+            } catch {
+                let partial = removedAny
+                    ? " Some earlier library containers were already removed."
+                    : ""
+                throw AutomationOperationError.operationFailed(
+                    "Could not remove a library file container; no library rows were deleted.\(partial)"
+                )
+            }
+        }
     }
 
     public func addToCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
+        try await requireCollection(collectionID)
 
         var ids: [UUID] = []
         for identifier in papers {
@@ -828,6 +920,7 @@ public actor AutomationService: AutomationOperations {
 
     public func removeFromCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
+        try await requireCollection(collectionID)
 
         var ids: [UUID] = []
         for identifier in papers {
@@ -843,6 +936,22 @@ public actor AutomationService: AutomationOperations {
         }
 
         return ids.count
+    }
+
+    /// Validate a collection before any membership changes. The retained HTTP
+    /// routes previously let the store adapter log a missing target and still
+    /// returned success; checking the same local collection inventory here
+    /// makes those routes report their declared `collectionNotFound` error.
+    private func requireCollection(_ collectionID: UUID) async throws {
+        let libraries = await withStore { $0.listLibraries() }
+        for library in libraries {
+            if await withStore({ store in
+                store.listCollections(libraryId: library.id).contains { $0.id == collectionID }
+            }) {
+                return
+            }
+        }
+        throw AutomationOperationError.collectionNotFound(collectionID)
     }
 
     // MARK: - Library Operations
@@ -1554,13 +1663,21 @@ public actor AutomationService: AutomationOperations {
     /// came back `[]` for every paper — so each row is paired with its detail,
     /// the read that knows the paper's store parent (its library) and the
     /// collections that contain it. One main-actor hop for the whole page.
-    private func paperResults(for rows: [PublicationRowData]) async -> [PaperResult] {
+    private func paperResults(
+        for rows: [PublicationRowData],
+        detailOverrides: [UUID: PublicationModel] = [:]
+    ) async -> [PaperResult] {
         guard !rows.isEmpty else { return [] }
         let ids = rows.map(\.id)
-        let details = await withStore { store in
-            ids.map { store.getPublicationDetail(id: $0) }
+        let missingIDs = ids.filter { detailOverrides[$0] == nil }
+        let fetchedDetails = await withStore { store in
+            Dictionary(uniqueKeysWithValues: missingIDs.compactMap { id in
+                store.getPublicationDetail(id: id).map { (id, $0) }
+            })
         }
-        return zip(rows, details).map { Self.toPaperResult($0, detail: $1) }
+        return rows.map { row in
+            Self.toPaperResult(row, detail: detailOverrides[row.id] ?? fetchedDetails[row.id])
+        }
     }
 
     /// `detail` is `nil` only when the paper vanished between the two reads;
@@ -1657,7 +1774,7 @@ public actor AutomationService: AutomationOperations {
             : nil
 
         return TagResult(
-            id: UUID(),  // TagDefinition uses path as ID, generate UUID for TagResult
+            id: tag.path,
             name: tag.leafName,
             canonicalPath: tag.path,
             parentPath: parentPath,
