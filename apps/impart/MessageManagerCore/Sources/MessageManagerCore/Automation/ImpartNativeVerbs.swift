@@ -270,7 +270,7 @@ private func conversationRecord(
 }
 
 private func detailMessageRecord(_ message: ResearchMessage) -> [String: Any] {
-    var record: [String: Any] = [
+    let record: [String: Any] = [
         "id": message.id.uuidString,
         "sequence": message.sequence,
         "sender_role": message.senderRole.rawValue,
