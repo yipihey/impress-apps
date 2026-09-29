@@ -19,29 +19,64 @@ public struct ImbibBridge: Sendable {
 
     /// Search the imbib library for papers matching a query.
     ///
-    /// The server endpoint is `GET /api/search?q=&limit=`. Empty `query` is
-    /// treated as "list everything matching the other filters".
-    public static func searchLibrary(query: String, limit: Int = 20) async throws -> [ImbibPaper] {
-        let env: SearchEnvelope = try await SiblingBridge.shared.get(
-            "/api/search",
-            from: .imbib,
-            query: ["q": query, "limit": String(limit)]
+    /// Search results are hydrated from the generated publication detail and
+    /// BibTeX export verbs so callers keep receiving the complete
+    /// `ImbibPaper` shape. Empty `query` lists papers from imbib's default
+    /// library, matching the prior HTTP endpoint.
+    public static func searchLibrary(
+        query: String,
+        limit: Int = 20,
+        offset: UInt32 = 0,
+        filters: ImbibPublicationSearchFilters? = nil
+    ) async throws -> [ImbibPaper] {
+        try await searchLibrary(
+            query: query, limit: limit, offset: offset, filters: filters, bridge: .shared)
+    }
+
+    static func searchLibrary(
+        query: String,
+        limit: Int,
+        offset: UInt32 = 0,
+        filters: ImbibPublicationSearchFilters? = nil,
+        bridge: SiblingBridge
+    ) async throws -> [ImbibPaper] {
+        let summaries: [ImbibPublicationSummary] = try await bridge.callVerb(
+            "imbib-library-service_search-publications",
+            on: .imbib,
+            arguments: [
+                "query": query,
+                "limit": min(max(limit, 0), Int(UInt32.max)),
+                "offset": offset,
+                "filters": filters.map { $0.wireValue as Any } ?? NSNull(),
+            ]
         )
-        return env.papers
+        return try await withThrowingTaskGroup(of: (Int, ImbibPaper).self) { group in
+            for (index, summary) in summaries.enumerated() {
+                group.addTask {
+                    (index, try await hydrate(summary, using: bridge))
+                }
+            }
+            var ordered = Array<ImbibPaper?>(repeating: nil, count: summaries.count)
+            for try await (index, paper) in group {
+                ordered[index] = paper
+            }
+            return ordered.compactMap { $0 }
+        }
     }
 
     /// Get a single paper by cite key. Returns `nil` if not found.
     public static func getPaper(citeKey: String) async throws -> ImbibPaper? {
-        let encoded = citeKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? citeKey
-        do {
-            let env: PaperEnvelope = try await SiblingBridge.shared.get(
-                "/api/papers/\(encoded)",
-                from: .imbib
-            )
-            return env.paper
-        } catch SiblingBridgeError.httpError(statusCode: 404) {
-            return nil
-        }
+        try await getPaper(citeKey: citeKey, bridge: .shared)
+    }
+
+    static func getPaper(citeKey: String, bridge: SiblingBridge) async throws -> ImbibPaper? {
+        let summary: ImbibPublicationSummary? = try await bridge.callVerb(
+            "imbib-search-service_find-by-cite-key",
+            on: .imbib,
+            arguments: ["cite_key": citeKey, "library_id": NSNull()]
+        )
+        guard let summary else { return nil }
+        return try await hydrate(summary, using: bridge)
     }
 
     // MARK: - External search
@@ -76,6 +111,57 @@ public struct ImbibBridge: Sendable {
             "imbib-library-service_export-bibtex",
             on: .imbib,
             arguments: ["ids": citeKeys]
+        )
+    }
+
+    /// Export RIS for the given cite keys using imbib's shared RIS formatter.
+    public static func exportRIS(citeKeys: [String]) async throws -> String {
+        try await exportRIS(citeKeys: citeKeys, bridge: .shared)
+    }
+
+    static func exportRIS(citeKeys: [String], bridge: SiblingBridge) async throws -> String {
+        guard !citeKeys.isEmpty else { return "" }
+        return try await bridge.callVerb(
+            "imbib-library-service_export-ris",
+            on: .imbib,
+            arguments: ["ids": citeKeys]
+        )
+    }
+
+    private static func hydrate(
+        _ summary: ImbibPublicationSummary,
+        using bridge: SiblingBridge
+    ) async throws -> ImbibPaper {
+        async let detail: ImbibPublicationDetail? = bridge.callVerb(
+            "imbib-library-service_get-publication-detail",
+            on: .imbib,
+            arguments: ["id": summary.id]
+        )
+        async let bibtex: String = bridge.callVerb(
+            "imbib-library-service_export-bibtex",
+            on: .imbib,
+            arguments: ["ids": [summary.id]]
+        )
+        let (record, exportedBibTeX) = try await (detail, bibtex)
+        guard let record else { throw SiblingBridgeError.httpError(statusCode: 404) }
+        let fields = record.fields
+        return ImbibPaper(
+            id: summary.id,
+            citeKey: summary.citeKey,
+            title: summary.title,
+            authors: summary.authors,
+            year: summary.year ?? fields["year"].flatMap(Int.init),
+            venue: summary.venue ?? fields["journal"] ?? fields["booktitle"],
+            abstract: fields["abstract"],
+            doi: summary.doi ?? fields["doi"],
+            arxivID: summary.arxivID ?? fields["arxiv_id"] ?? fields["arxiv"],
+            bibcode: fields["bibcode"],
+            pmid: fields["pmid"],
+            bibtex: exportedBibTeX,
+            hasPDF: summary.hasPDF,
+            isRead: summary.isRead,
+            isStarred: summary.isStarred,
+            tags: summary.tags
         )
     }
 
@@ -171,20 +257,12 @@ public struct ImbibBridge: Sendable {
     /// List all libraries. `isInbox`-flagged libraries are included — filter client-side
     /// if you want to hide them from a picker.
     public static func listLibraries() async throws -> [ImbibLibrary] {
-        let env: LibrariesEnvelope = try await SiblingBridge.shared.get(
-            "/api/libraries",
-            from: .imbib
-        )
-        return env.libraries
+        try await ImbibContainerVerbBridge(bridge: .shared).listLibraries()
     }
 
     /// List all collections. Smart-collections are included; filter client-side if needed.
     public static func listCollections() async throws -> [ImbibCollection] {
-        let env: CollectionsEnvelope = try await SiblingBridge.shared.get(
-            "/api/collections",
-            from: .imbib
-        )
-        return env.collections
+        try await ImbibContainerVerbBridge(bridge: .shared).listCollections()
     }
 
     /// Create a new library and return its id.
@@ -203,6 +281,127 @@ public struct ImbibBridge: Sendable {
 
 private struct CreatedLibraryID: Decodable, Sendable {
     let id: String
+}
+
+struct ImbibContainerVerbBridge: Sendable {
+    let bridge: SiblingBridge
+
+    func listLibraries() async throws -> [ImbibLibrary] {
+        let rows: [VerbLibraryRecord] = try await bridge.callVerb(
+            "imbib-library-service_list-libraries", on: .imbib)
+        return rows.map(\.publicValue)
+    }
+
+    /// The generated list verb is scoped to one library. Compose the historical
+    /// all-libraries result in the same library/collection order as the route.
+    func listCollections() async throws -> [ImbibCollection] {
+        let libraries: [VerbLibraryRecord] = try await bridge.callVerb(
+            "imbib-library-service_list-libraries", on: .imbib)
+        var collections: [ImbibCollection] = []
+        for library in libraries {
+            let rows: [VerbCollectionRecord] = try await bridge.callVerb(
+                "imbib-library-service_list-collections",
+                on: .imbib,
+                arguments: ["library_id": library.id])
+            collections.append(contentsOf: rows.map { $0.publicValue(library: library) })
+        }
+        return collections
+    }
+}
+
+private struct VerbLibraryRecord: Decodable, Sendable {
+    let id: String
+    let name: String
+    let isDefault: Bool
+    let isInbox: Bool
+    let publicationCount: Int32
+    let collectionCount: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case isDefault = "is_default"
+        case isInbox = "is_inbox"
+        case publicationCount = "publication_count"
+        case collectionCount = "collection_count"
+    }
+
+    var publicValue: ImbibLibrary {
+        ImbibLibrary(
+            id: id,
+            name: name,
+            paperCount: Int(publicationCount),
+            collectionCount: Int(collectionCount),
+            isDefault: isDefault,
+            isInbox: isInbox,
+            isShared: nil)
+    }
+}
+
+private struct VerbCollectionRecord: Decodable, Sendable {
+    let id: String
+    let name: String
+    let libraryID: String?
+    let isSmart: Bool
+    let publicationCount: Int32
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case libraryID = "library_id"
+        case isSmart = "is_smart"
+        case publicationCount = "publication_count"
+    }
+
+    func publicValue(library: VerbLibraryRecord) -> ImbibCollection {
+        ImbibCollection(
+            id: id,
+            name: name,
+            paperCount: Int(publicationCount),
+            isSmartCollection: isSmart,
+            libraryID: libraryID ?? library.id,
+            libraryName: library.name)
+    }
+}
+
+/// Optional local publication filters accepted by imbib's generated search
+/// verb. Dates use RFC 3339 strings and collection/library values are UUIDs.
+public struct ImbibPublicationSearchFilters: Sendable {
+    public var read: Bool?
+    public var collection: String?
+    public var library: String?
+    public var tags: [String]?
+    public var flag: String?
+    public var addedAfter: String?
+    public var addedBefore: String?
+
+    public init(
+        read: Bool? = nil,
+        collection: String? = nil,
+        library: String? = nil,
+        tags: [String]? = nil,
+        flag: String? = nil,
+        addedAfter: String? = nil,
+        addedBefore: String? = nil
+    ) {
+        self.read = read
+        self.collection = collection
+        self.library = library
+        self.tags = tags
+        self.flag = flag
+        self.addedAfter = addedAfter
+        self.addedBefore = addedBefore
+    }
+
+    fileprivate var wireValue: [String: Any] {
+        [
+            "read": read.map { $0 as Any } ?? NSNull(),
+            "collection": collection as Any? ?? NSNull(),
+            "library": library as Any? ?? NSNull(),
+            "tags": tags as Any? ?? NSNull(),
+            "flag": flag as Any? ?? NSNull(),
+            "added_after": addedAfter as Any? ?? NSNull(),
+            "added_before": addedBefore as Any? ?? NSNull(),
+        ]
+    }
 }
 
 // MARK: - Public result types
@@ -726,14 +925,6 @@ private struct DynamicKey: CodingKey, Hashable {
 
 // MARK: - Response envelopes (internal)
 
-private struct SearchEnvelope: Decodable, Sendable {
-    let papers: [ImbibPaper]
-}
-
-private struct PaperEnvelope: Decodable, Sendable {
-    let paper: ImbibPaper
-}
-
 private struct ExternalPaperVerbResult: Decodable, Sendable {
     let title: String
     let identifier: String?
@@ -785,10 +976,30 @@ private struct IdentifierImportVerbResult: Decodable, Sendable {
     }
 }
 
-private struct LibrariesEnvelope: Decodable, Sendable {
-    let libraries: [ImbibLibrary]
+private struct ImbibPublicationSummary: Decodable, Sendable {
+    let id: String
+    let citeKey: String
+    let title: String
+    let authors: String
+    let year: Int?
+    let venue: String?
+    let doi: String?
+    let arxivID: String?
+    let isRead: Bool
+    let isStarred: Bool
+    let hasPDF: Bool
+    let tags: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, authors, year, venue, doi, tags
+        case citeKey = "cite_key"
+        case arxivID = "arxiv_id"
+        case isRead = "is_read"
+        case isStarred = "is_starred"
+        case hasPDF = "has_pdf"
+    }
 }
 
-private struct CollectionsEnvelope: Decodable, Sendable {
-    let collections: [ImbibCollection]
+private struct ImbibPublicationDetail: Decodable, Sendable {
+    let fields: [String: String]
 }

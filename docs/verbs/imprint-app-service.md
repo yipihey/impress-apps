@@ -14,8 +14,12 @@ Add a review comment to a manuscript. Anchor it to a quoted snippet where you ca
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `anchor` | — | no | Optional exact source snippet to anchor the comment. |
+| `author_agent_id` | — | no | Agent identity used for comment attribution and author filtering. |
+| `author_name` | — | no | Optional display name; defaults to the existing local/agent name. |
 | `body` | string | yes | Review comment text; kept private in call logs. |
 | `document_id` | string | yes | UUID of an open manuscript with a registered comment service. |
+| `parent_id` | — | no | Optional parent UUID; replies inherit its live text range. |
+| `proposed_text` | — | no | Proposed replacement text; private in call logs. Applying it is separate. |
 
 **Examples**
 
@@ -237,7 +241,7 @@ Insert text at a UTF-16 editor offset in a manuscript. Goes through the running 
 
 ## `imprint-app-service_list-comments`
 
-Review comments on a manuscript, newest first.
+Review comments on a manuscript. `filter` accepts the same values as the retained route (`all`, `unresolved`, `resolved`, `suggestions`); `author_agent_id` further narrows to comments by that agent.
 
 - **safety**: `external`
 - **reads**: —
@@ -246,7 +250,9 @@ Review comments on a manuscript, newest first.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `author_agent_id` | — | no | Only comments attributed to this agent identifier. |
 | `document_id` | string | yes | UUID of an open manuscript with a registered comment service. |
+| `filter` | — | no | Route-compatible filter: all, unresolved, resolved, or suggestions. |
 
 **Examples**
 
