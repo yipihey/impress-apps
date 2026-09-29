@@ -38,11 +38,66 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
 
     for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
         let args = match step {
-            Step::Call(call) => serde_json::json!({
-                "args": call.args,
-                "expect": call.expect,
-                "capture": call.capture
-            }),
+            Step::Call(call) => {
+                let mut capture_references = Vec::new();
+                for (name, capture) in &call.capture {
+                    let mut messages = Vec::new();
+                    match capture {
+                        crate::spec::CallCapture::Path(path) if path.trim().is_empty() => {
+                            messages.push("capture path must be non-empty")
+                        }
+                        crate::spec::CallCapture::SelectOne(spec) => {
+                            let query = &spec.select_one;
+                            if query.from.trim().is_empty() || query.path.trim().is_empty() {
+                                messages.push("select_one paths must be non-empty");
+                            }
+                            if query.path.contains("{{") {
+                                messages.push("select_one candidate path must be fixed");
+                            }
+                            if query.object_key_as.as_deref().is_some_and(|v| v != "u64") {
+                                messages.push("select_one object_key_as only accepts `u64`");
+                            }
+                        }
+                        crate::spec::CallCapture::FillArray(spec)
+                            if spec.fill_array.length_of.trim().is_empty() =>
+                        {
+                            messages.push("fill_array length_of must be non-empty")
+                        }
+                        _ => {}
+                    }
+                    for message in messages {
+                        problems.push(Problem {
+                            step: Some(index),
+                            message: format!("capture `{name}`: {message}"),
+                        });
+                    }
+                    match capture {
+                        crate::spec::CallCapture::Path(path) => {
+                            capture_references.push(serde_json::json!(path));
+                        }
+                        crate::spec::CallCapture::SelectOne(spec) => {
+                            let query = &spec.select_one;
+                            capture_references.push(serde_json::json!(query.from));
+                            match &query.predicate {
+                                crate::spec::SelectPredicate::Equals(predicate) => {
+                                    capture_references.push(predicate.equals.clone());
+                                }
+                                crate::spec::SelectPredicate::ArrayContains(predicate) => {
+                                    capture_references.push(predicate.array_contains.clone());
+                                }
+                            }
+                        }
+                        crate::spec::CallCapture::FillArray(spec) => {
+                            capture_references.push(serde_json::json!(spec.fill_array.length_of));
+                        }
+                    }
+                }
+                serde_json::json!({
+                    "args": call.args,
+                    "expect": call.expect,
+                    "capture_references": capture_references
+                })
+            }
             Step::BestEffort(step) => step.best_effort.args.clone(),
             Step::Store(step) => {
                 if step.store.schema_ref.trim().is_empty()
@@ -191,7 +246,7 @@ pub fn requires_ok(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::{CallStep, Scenario, SeedRecord, Step, Tier};
+    use crate::spec::{CallCapture, CallStep, Scenario, SeedRecord, Step, Tier};
     use serde_json::json;
 
     fn base(steps: Vec<Step>) -> Scenario {
@@ -249,11 +304,81 @@ mod tests {
     fn a_capture_from_an_earlier_step_is_known_to_a_later_one() {
         let mut first = call(json!({}));
         if let Step::Call(c) = &mut first {
-            c.capture.insert("name".to_string(), "$.name".to_string());
+            c.capture
+                .insert("name".to_string(), CallCapture::Path("$.name".to_string()));
         }
         let second = call(json!({"name": "{{state.name}}"}));
         let scenario = base(vec![first, second]);
         assert!(validate(&scenario).is_empty());
+    }
+
+    #[test]
+    fn malformed_capture_operations_are_rejected_structurally() {
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "malformed-capture",
+            "description": "invalid bounded capture",
+            "tier": "a",
+            "steps": [{
+                "call": "x",
+                "capture": {
+                    "bad_selector": {"select_one": {
+                        "from": " ",
+                        "path": "$.{{state.dynamic}}",
+                        "predicate": {"equals": "detail"},
+                        "object_key_as": "integer"
+                    }},
+                    "bad_array": {"fill_array": {"value": 1, "length_of": " "}}
+                }
+            }]
+        }))
+        .unwrap();
+        let problems = validate(&scenario);
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("select_one paths")));
+        assert!(problems.iter().any(|p| p.message.contains("object_key_as")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("candidate path must be fixed")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("fill_array length_of")));
+        assert!(serde_json::from_value::<CallCapture>(json!({
+            "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<CallCapture>(json!({
+            "select_one": {
+                "from": "$.x",
+                "path": "$.y",
+                "predicate": {"equals": 1, "array_contains": 1}
+            }
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn fill_array_value_is_literal_not_a_capture_reference() {
+        let first = call(json!({}));
+        let mut first = first;
+        if let Step::Call(call) = &mut first {
+            call.capture
+                .insert("items".into(), CallCapture::Path("$.items".into()));
+        }
+        let mut second = call(json!({}));
+        if let Step::Call(call) = &mut second {
+            call.capture.insert(
+                "literal_values".into(),
+                CallCapture::FillArray(crate::spec::FillArrayCapture {
+                    fill_array: crate::spec::FillArraySpec {
+                        value: json!("{{{{state.missing}}}}"),
+                        length_of: "{{state.items}}".into(),
+                    },
+                }),
+            );
+        }
+        assert!(validate(&base(vec![first, second])).is_empty());
     }
 
     #[test]

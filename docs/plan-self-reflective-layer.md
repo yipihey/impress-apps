@@ -1378,7 +1378,7 @@ beyond a plain `call` step.
 | 8 | imprint `store.wal_health` (`:156`) | `GET http://127.0.0.1:8787/api/health` (impress-ai-http) | `wal_bytes ≤ 4 × wal_budget_bytes` | — | iv | another daemon; stays code |
 | 9 | layout `app.reachable` (`tier_b.rs:427`) | `GET /api/status`; setup `POST /api/layout/op {save-layout RESTORE}` (`:441`) | responds | M | i | `seed`-like setup step |
 | 10 | layout `layout.apply_preset` (`:480`) | `op apply-layout ordinal 1`; `GET /api/layout/tree` | `version` present, panes non-empty | M | i | — |
-| 11 | layout `layout.version_moves` (`:512`) | tree; `verb split` on `{role: detail}`; tree; `verb resize` with shares read from the tree; `swap list/detail`; swap back; `close` | `version` strictly increases at each step | M, C | i | `capture` from the tree, `gte` on a captured value, a computed shares array (the one step that is not a literal) |
+| 11 | layout `layout.version_moves` (`:512`) | tree; `verb split` on `{role: detail}`; tree; `verb resize` with shares read from the tree; `swap list/detail`; swap back; `close` | `version` strictly increases at each step | M, C | i | bounded `select_one` and `fill_array` call captures; `gt` on captured versions |
 | 12 | layout `layout.saved_round_trip` (`:601`) | `op save-layout`; `GET /api/layout/layouts`; `op apply-layout name`; `op delete-layout`; `GET layouts` | listed, then `version`, then gone | M, C | i | `capture`, `contains`/`absent` |
 | 13 | layout `layout.channel_selection` (`:660`) | tree; find the detail param sourced from a channel; `verb select` on the list with a fresh uuid; tree | that channel carries exactly `[uuid]` | M | i | a JSON-path lookup into the tree, `{{uuid}}` |
 | 14 | layout `surface.show_and_dispatch` (`tier_b.rs`) | stored scenario: create; render; dispatch `bins` change 17; render and state reread; dispatch `choose` click; events; required delete teardown | initial/re-rendered slider values 4/17; persisted state 17; successful effect; event `bins-chosen` payload 17 | M, C | i | `{{!…}}` literal escape, `capture`, exact render JSON path |
@@ -3041,6 +3041,21 @@ per-scenario cleanup without evaluating expressions.
   captures as closed templates; validation rejects references not captured by
   an earlier step, and captured values are not recursively templated. No build
   or test run was performed; verification remains with the parent task.
+- 2026-09-28 — **S2h: `layout.version_moves` converted to a stored scenario.**
+  The scenario retains the detail-side horizontal info-pane split and exact
+  publication query, builds resize shares from the split parent's live child
+  count, swaps list/detail twice, closes the created tile in required teardown,
+  and checks strict version growth after split, resize, each swap and close.
+  The pure scenario interpreter adds closed call-capture operators: bounded
+  `select_one` scans at most 10,000 object/array entries, uses a fixed relative
+  equality or array-contains predicate, refuses zero/multiple matches and can
+  explicitly expose a decimal object key as `u64`; `fill_array` repeats a JSON
+  constant using an earlier captured array's length, bounded at 10,000 items
+  and 1 MiB encoded output. Key coercion requires canonical decimal spelling;
+  literal fill values are not scanned or re-templated.
+  No expression language, layout-specific code, verbs, schemas or dependencies
+  were added. Focused operator tests and scenario inventory validation were
+  added; build/test verification remains with the parent task.
 - 2026-09-28 — **W3 exploration identity verification completed.** Automatic
   retention can now discover the migrated internal settings pointer when the
   existing explicit argument is omitted; invalid explicit IDs do not silently
@@ -3110,3 +3125,15 @@ per-scenario cleanup without evaluating expressions.
   scenarios, all three surface and all fourteen layout entries, zero skips.
   The source-session entry ran the document. Native symbol checks passed and
   the owned host exited. No user app or store was used.
+
+### 2026-09-28 — S2h verification
+
+The version-movement scenario passed 212 Rust tests (zero failures, three ignored),
+both clippy shards and every quick gate. Removed its two retired Rust helpers.
+Rebuilt impress-store-ffi and impel-tools for the supported arm64 macOS/iOS
+slices with swiftformat off PATH. The owned imprint proof passed two XCTests,
+two stored scenarios, three surface entries and all fourteen layout entries,
+with zero skips; version_moves ran through the interpreter. Native symbols
+passed and host PID 30217 exited. Evidence: `/tmp/impress-s2h-tests-final.log`,
+`/tmp/impress-s2h-final-*.log`, `/tmp/impress-s2h-frameworks.log`, and
+`/tmp/impress-g5-proof-gsvmopze/output/`.

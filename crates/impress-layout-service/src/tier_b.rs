@@ -47,13 +47,12 @@
 //!    its next call from what it finds — a tile id for a role, a
 //!    container's current child count to build an even `shares` array,
 //!    which pane's parameter reads a channel. A stored scenario document
-//!    has no expressions or loops (ADR-0033 D3, by design): its `call`/
-//!    `gesture` args are a literal or a `{{state.<capture>}}` reference to
-//!    an *earlier step's own result* — never a computed lookup into an
-//!    arbitrary JSON structure the way `tile_with_role`/`linear_parent`/
-//!    `channel_ids` below do. This is `layout.version_moves`,
+//!    has no expressions or loops (ADR-0033 D3, by design), but its bounded
+//!    `select_one` and `fill_array` captures now cover the parent lookup and
+//!    even shares for `layout.version_moves`. The channel scan and outline
+//!    target still need different selection/click primitives:
 //!    `layout.channel_selection`, `layout.hidden_share` and
-//!    `layout.outline_collection_row`. S2e converts `layout.console_pane`
+//!    `layout.outline_collection_row` remain code. S2e converts `layout.console_pane`
 //!    using a role target, captured split result and a pre-mutation log cursor;
 //!    S2g adds prior-capture interpolation to a closed JSON capture path, which
 //!    also lets `layout.source_pane_session` follow captured tile ids.
@@ -111,6 +110,7 @@ const SURFACE_SHOW_AND_DISPATCH_SCENARIO: &str =
     include_str!("../scenarios/surface.show_and_dispatch.json");
 const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
 const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pane.json");
+const VERSION_MOVES_SCENARIO: &str = include_str!("../scenarios/layout.version_moves.json");
 const SOURCE_PANE_SESSION_SCENARIO: &str =
     include_str!("../scenarios/layout.source_pane_session.json");
 
@@ -296,15 +296,6 @@ impl Http {
     async fn tree(&self) -> Result<Value, String> {
         self.get("/api/layout/tree").await
     }
-
-    /// The tree's `version`, which is top-level beside `layout` (not inside
-    /// it) — `LayoutController.layoutTreeJSON` builds it that way.
-    async fn version(&self) -> Result<u64, String> {
-        let tree = self.tree().await?;
-        tree.get("version")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "tree response carried no `version`".to_string())
-    }
 }
 
 /// Read one response: non-2xx, or an `{"ok": false}` envelope, is an error
@@ -429,20 +420,6 @@ fn share_of(tree: &Value, tile: u64) -> Result<f64, String> {
         .ok_or_else(|| format!("container {container} has no share at index {index}"))
 }
 
-/// A minimal but valid `PaneQuery` — every field the algebra requires,
-/// spelled as `impress_core::pane_query::PaneQuery` serialises it.
-fn any_publication_query() -> Value {
-    json!({
-        "kinds": ["publication"],
-        "scope": { "scope": "all" },
-        "filters": [],
-        "text": null,
-        "relation": null,
-        "sort": [],
-        "limit": null
-    })
-}
-
 // ─── the catalogue ────────────────────────────────────────────────────────
 
 /// Run every Tier B capability against `base_url`, restoring what it changed.
@@ -499,7 +476,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
         .is_ok();
 
     out.push(scenario_caller::run_embedded(APPLY_PRESET_SCENARIO, &mut scenario_caller).await);
-    out.push(version_moves_capability(&http).await);
+    out.push(scenario_caller::run_embedded(VERSION_MOVES_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(SAVED_ROUND_TRIP_SCENARIO, &mut scenario_caller).await);
     out.push(channel_selection_capability(&http).await);
     out.push(
@@ -522,99 +499,6 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(restore_capability(&http, parked).await);
 
     out
-}
-
-/// 2. Split / resize / swap / close, each advancing `version`.
-///
-/// Strictly increasing, checked between every step: a verb the host accepted
-/// but did not apply would leave the version still and is the failure this
-/// capability exists to catch.
-async fn version_moves_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[2];
-    check(id, description, Tier::B, || async {
-        let mut steps: Vec<String> = Vec::new();
-        let mut version = http.version().await?;
-
-        let mut advanced = |label: &str, before: u64, after: u64| -> Result<(), String> {
-            if after <= before {
-                return Err(format!(
-                    "{label} did not advance `version` ({before} → {after})"
-                ));
-            }
-            steps.push(format!("{label} {before}→{after}"));
-            Ok(())
-        };
-
-        // Split the detail pane. Focus follows the new pane, and the response
-        // names the tiles it changed — we take the new tile from the tree
-        // rather than the response so the reader is the same one a person's
-        // app uses.
-        let before = version;
-        let detail = tile_with_role(&http.tree().await?, "detail")?;
-        let split = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "horizontal",
-                "after": true,
-                "new": {
-                    "query": any_publication_query(),
-                    "view_kind": "info",
-                    "channel": { "number": 1 }
-                }
-            }))
-            .await?;
-        version = http.version().await?;
-        advanced("split", before, version)?;
-        let new_tile = split
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "split did not report a focused tile".to_string())?;
-
-        // Resize the container the split produced, through `Verb::Resize`
-        // (the whole-container form; `resize-share` is capability 6).
-        let before = version;
-        let tree = http.tree().await?;
-        let (container, children, _) = linear_parent(&tree, new_tile)?;
-        let even: Vec<f64> = children.iter().map(|_| 1.0).collect();
-        http.verb(&json!({
-            "verb": "resize",
-            "container": container,
-            "shares": even
-        }))
-        .await?;
-        version = http.version().await?;
-        advanced("resize", before, version)?;
-
-        // Swap two roles and swap them straight back, so the capability's own
-        // arrangement change nets out even before the restore step.
-        let before = version;
-        let swap = json!({
-            "verb": "swap",
-            "a": {"role": "list"},
-            "b": {"role": "detail"}
-        });
-        http.verb(&swap).await?;
-        version = http.version().await?;
-        advanced("swap", before, version)?;
-        let before = version;
-        http.verb(&swap).await?;
-        version = http.version().await?;
-        advanced("swap-back", before, version)?;
-
-        // Close the pane the split created, leaving the tree as it was found.
-        let before = version;
-        http.verb(&json!({
-            "verb": "close",
-            "target": {"id": new_tile}
-        }))
-        .await?;
-        version = http.version().await?;
-        advanced("close", before, version)?;
-
-        Ok(steps.join(", "))
-    })
-    .await
 }
 
 /// 4. A selection published in the list pane reaches the info pane's channel.
@@ -1266,6 +1150,24 @@ async fn restore_capability(http: &Http, parked: bool) -> CapabilityResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_moves_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(VERSION_MOVES_SCENARIO).expect("version moves scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[2].0);
+        assert_eq!(scenario.description, CATALOGUE[2].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
 
     #[test]
     fn console_pane_scenario_checks_scoped_fresh_log_and_required_close() {
