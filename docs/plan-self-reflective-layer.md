@@ -1382,7 +1382,7 @@ beyond a plain `call` step.
 | 12 | layout `layout.saved_round_trip` (`:601`) | `op save-layout`; `GET /api/layout/layouts`; `op apply-layout name`; `op delete-layout`; `GET layouts` | listed, then `version`, then gone | M, C | i | `capture`, `contains`/`absent` |
 | 13 | layout `layout.channel_selection` (`:660`) | tree; find the detail param sourced from a channel; `verb select` on the list with a fresh uuid; tree | that channel carries exactly `[uuid]` | M | i | a JSON-path lookup into the tree, `{{uuid}}` |
 | 14 | layout `surface.show_and_dispatch` (`tier_b.rs`) | stored scenario: create; render; dispatch `bins` change 17; render and state reread; dispatch `choose` click; events; required delete teardown | initial/re-rendered slider values 4/17; persisted state 17; successful effect; event `bins-chosen` payload 17 | M, C | i | `{{!…}}` literal escape, `capture`, exact render JSON path |
-| 15 | layout `layout.hidden_share` (`:1599`) | tree; `verb set-collapsed {role navigator}`; tree; same again; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `within` tolerance; a Rust constant → a literal in the document |
+| 15 | layout `layout.hidden_share` (`scenarios/layout.hidden_share.json`) | tree; find navigator's parent and child index; capture share; `set-collapsed`; tree; teardown toggles back; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `select_one`, dynamic JSON paths, `lte`, `within` |
 | 16 | layout `layout.outline_collection_row` (`:762`) | tree; **in-process `outline_target` + `outline_verbs`** (what a click runs); POST each; tree; `wait_for_log "pane N display: 0 rows"`; `verb select` random item; wait for the detail line | list query = collection query; channel 1 carries the collection; the logs appear | M | ii | `gesture` step; `wait.log`. L |
 | 17 | layout `layout.reading_pdf_pane` (`:978`) | `apply-layout ordinal 1`; tree; `split` a pdf pane; `set-query` read filter; **`first_row_of` reads the shared store in-process** (`:1331-1362`); `select`; wait for `pane N pdf: publication`; `close` | the pdf pane logged the selected paper (note if none) | M, C | iv (+iii) | a read paper with a PDF on disk; depends on #16's leftovers (`:981`). L |
 | 18 | layout `layout.source_pane_session` (`:1173`) | ordinal 1; split a source pane; tree; wait `source session <id> opened`; split a copy; split pdf; swap; close all newest-first; ordinal 1 | sessions stable and distinct; pdf has none; preset keeps the detail session | M, C | i | `wait.log`, `capture`. L |
@@ -3125,3 +3125,12 @@ per-scenario cleanup without evaluating expressions.
   scenarios, all three surface and all fourteen layout entries, zero skips.
   The source-session entry ran the document. Native symbol checks passed and
   the owned host exited. No user app or store was used.
+- 2026-09-28 — **S2k: `layout.hidden_share` converted to a stored scenario.**
+  The scenario selects the navigator, finds its linear parent and child index,
+  captures that exact share, checks the collapsed share against the existing
+  `HIDDEN_SHARE_CEILING` value copied at its exact `f64` conversion, and toggles
+  back in required teardown. The restored share
+  uses the original capability's `1e-4` comparison tolerance. The old Rust
+  capability and its tree-share reader were removed; the catalogue-wide saved
+  layout restoration remains. Identity and call-inventory validation were
+  added; build/test verification remains with the parent task.

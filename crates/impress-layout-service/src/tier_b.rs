@@ -39,9 +39,10 @@
 //! entries that are literal call sequences. S2b converts three:
 //! `layout.apply_preset`, `layout.saved_round_trip`, `layout.wire_contract`
 //! — as `impress/scenario@1.0.0` documents under `scenarios/`, run through
-//! [`scenario_caller`](crate::scenario_caller)'s shared `TierBCaller`. The
-//! rest stay code, for reasons unchanged from S2's own account plus one new
-//! one this pass found:
+//! [`scenario_caller`](crate::scenario_caller)'s shared `TierBCaller`. Later
+//! packages also converted surface dispatch, version movement, source sessions,
+//! console panes and hidden shares. The remaining code entries have reasons
+//! unchanged from S2's own account plus one new one this pass found:
 //!
 //! 1. Almost every other entry here reads the live tree back and computes
 //!    its next call from what it finds — a tile id for a role, a
@@ -51,8 +52,8 @@
 //!    `select_one` and `fill_array` captures now cover the parent lookup and
 //!    even shares for `layout.version_moves`. The channel scan and outline
 //!    target still need different selection/click primitives:
-//!    `layout.channel_selection`, `layout.hidden_share` and
-//!    `layout.outline_collection_row` remain code. S2e converts `layout.console_pane`
+//!    `layout.channel_selection` and `layout.outline_collection_row` remain
+//!    code. S2e converts `layout.console_pane`
 //!    using a role target, captured split result and a pre-mutation log cursor;
 //!    S2g adds prior-capture interpolation to a closed JSON capture path, which
 //!    also lets `layout.source_pane_session` follow captured tile ids.
@@ -111,6 +112,7 @@ const SURFACE_SHOW_AND_DISPATCH_SCENARIO: &str =
 const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
 const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pane.json");
 const VERSION_MOVES_SCENARIO: &str = include_str!("../scenarios/layout.version_moves.json");
+const HIDDEN_SHARE_SCENARIO: &str = include_str!("../scenarios/layout.hidden_share.json");
 const SOURCE_PANE_SESSION_SCENARIO: &str =
     include_str!("../scenarios/layout.source_pane_session.json");
 
@@ -381,68 +383,6 @@ fn tile_with_role(tree: &Value, role: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("no pane carries the `{role}` role"))
 }
 
-/// The linear container holding `tile`, as `(container id, children, shares)`.
-///
-/// Shares live on the container as a parallel `shares` array — there is no
-/// per-tile `share` field (`impress_layout::Container::Linear`), so reading
-/// one pane's share means finding its index among its parent's children.
-fn linear_parent(tree: &Value, tile: u64) -> Result<(u64, Vec<u64>, Vec<f64>), String> {
-    let tiles = layout_of(tree)?
-        .get("tiles")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "layout carried no `tiles`".to_string())?;
-    for (id, value) in tiles {
-        let Some(linear) = value.get("container").and_then(|c| c.get("linear")) else {
-            continue;
-        };
-        let children: Vec<u64> = linear
-            .get("children")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_u64).collect())
-            .unwrap_or_default();
-        if !children.contains(&tile) {
-            continue;
-        }
-        let shares: Vec<f64> = linear
-            .get("shares")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_f64).collect())
-            .unwrap_or_default();
-        let container = id
-            .parse::<u64>()
-            .map_err(|_| format!("container id `{id}` is not a number"))?;
-        return Ok((container, children, shares));
-    }
-    Err(format!("tile {tile} has no linear parent"))
-}
-
-/// One pane's share, read through its parent container.
-fn share_of(tree: &Value, tile: u64) -> Result<f64, String> {
-    let (container, children, shares) = linear_parent(tree, tile)?;
-    let index = children
-        .iter()
-        .position(|c| *c == tile)
-        .ok_or_else(|| format!("tile {tile} vanished from container {container}"))?;
-    shares
-        .get(index)
-        .copied()
-        .ok_or_else(|| format!("container {container} has no share at index {index}"))
-}
-
-/// A minimal but valid `PaneQuery` — every field the algebra requires,
-/// spelled as `impress_core::pane_query::PaneQuery` serialises it.
-fn any_publication_query() -> Value {
-    json!({
-        "kinds": ["publication"],
-        "scope": { "scope": "all" },
-        "filters": [],
-        "text": null,
-        "relation": null,
-        "sort": [],
-        "limit": null
-    })
-}
-
 // ─── the catalogue ────────────────────────────────────────────────────────
 
 /// Run every Tier B capability against `base_url`, restoring what it changed.
@@ -506,7 +446,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
         scenario_caller::run_embedded(SURFACE_SHOW_AND_DISPATCH_SCENARIO, &mut scenario_caller)
             .await,
     );
-    out.push(hidden_share_capability(&http).await);
+    out.push(scenario_caller::run_embedded(HIDDEN_SHARE_SCENARIO, &mut scenario_caller).await);
     out.push(outline_collection_capability(&http).await);
     out.push(reading_pdf_pane_capability(&http).await);
     out.push(
@@ -1073,51 +1013,6 @@ async fn wait_for_log(http: &Http, after: &str, needles: &[&str]) -> Result<Stri
     ))
 }
 
-/// 6. ⌃⌘S-style: resize a pane to `HIDDEN_SHARE` and bring it back.
-///
-/// `resize-share` is the operation the chord routes through, and the store
-/// clamps with `share.max(HIDDEN_SHARE)` — so asking for the constant is
-/// asking for the floor. "Back" is checked as *above the hidden ceiling*
-/// rather than as an exact number: un-collapsing restores the sibling
-/// average, which is a value the tree computes, not one the caller names.
-async fn hidden_share_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[6];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        let navigator = tile_with_role(&tree, "navigator")?;
-        let original = share_of(&tree, navigator)?;
-        let toggle = json!({"verb": "set-collapsed", "target": {"role": "navigator"}});
-
-        // ⌃⌘S as the tree's own verb (review RL-L13): the decision to hide
-        // or show is taken under the verb's lock, from the tree.
-        http.verb(&toggle).await?;
-        let hidden = share_of(&http.tree().await?, navigator)?;
-        if hidden > f64::from(impress_layout::HIDDEN_SHARE_CEILING) {
-            return Err(format!(
-                "set-collapsed left the navigator at {hidden}, above the {} ceiling — it \
-                 would still be visible",
-                impress_layout::HIDDEN_SHARE_CEILING
-            ));
-        }
-
-        // Showing it again restores EXACTLY the share it had — not the
-        // siblings' average, which is what the Swift toggle used to compute.
-        http.verb(&toggle).await?;
-        let restored = share_of(&http.tree().await?, navigator)?;
-        if (restored - original).abs() > 1e-4 {
-            return Err(format!(
-                "the navigator came back at {restored}, not the {original} it had"
-            ));
-        }
-
-        Ok(format!(
-            "tile {navigator}: {original} → {hidden} (≤ {}) → {restored}",
-            impress_layout::HIDDEN_SHARE_CEILING
-        ))
-    })
-    .await
-}
-
 /// The `finally`: put the tree back after the catalogue run.
 ///
 /// Reported as its own capability so a failed cleanup is a failed self-test.
@@ -1180,6 +1075,24 @@ mod tests {
             serde_json::from_str(VERSION_MOVES_SCENARIO).expect("version moves scenario parses");
         assert_eq!(scenario.id, CATALOGUE[2].0);
         assert_eq!(scenario.description, CATALOGUE[2].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hidden_share_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(HIDDEN_SHARE_SCENARIO).expect("hidden share scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[6].0);
+        assert_eq!(scenario.description, CATALOGUE[6].1);
         assert!(impress_scenario::validate(&scenario).is_empty());
         for step in scenario.steps.iter().chain(&scenario.teardown) {
             if let impress_scenario::Step::Call(call) = step {
@@ -1309,29 +1222,6 @@ mod tests {
         ids.dedup();
         assert_eq!(before, ids.len(), "duplicate capability id in CATALOGUE");
         assert!(CATALOGUE.iter().all(|(_, d)| !d.is_empty()));
-    }
-
-    /// `share_of` reads a pane's share through its parent's parallel array —
-    /// the shape `impress_layout::Container::Linear` actually serialises.
-    #[test]
-    fn share_of_reads_the_parallel_shares_array() {
-        let tree = json!({
-            "layout": {
-                "tiles": {
-                    "1": { "pane": { "role": "navigator" } },
-                    "2": { "pane": { "role": "list" } },
-                    "3": { "container": { "linear": {
-                        "dir": "horizontal",
-                        "children": [1, 2],
-                        "shares": [0.0001, 3.0]
-                    } } }
-                }
-            }
-        });
-        assert_eq!(share_of(&tree, 1).unwrap(), 0.0001);
-        assert_eq!(share_of(&tree, 2).unwrap(), 3.0);
-        assert_eq!(tile_with_role(&tree, "list").unwrap(), 2);
-        assert!(share_of(&tree, 99).is_err());
     }
 }
 
