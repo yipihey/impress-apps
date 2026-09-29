@@ -296,15 +296,6 @@ impl Http {
     async fn tree(&self) -> Result<Value, String> {
         self.get("/api/layout/tree").await
     }
-
-    /// The tree's `version`, which is top-level beside `layout` (not inside
-    /// it) — `LayoutController.layoutTreeJSON` builds it that way.
-    async fn version(&self) -> Result<u64, String> {
-        let tree = self.tree().await?;
-        tree.get("version")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "tree response carried no `version`".to_string())
-    }
 }
 
 /// Read one response: non-2xx, or an `{"ok": false}` envelope, is an error
@@ -427,20 +418,6 @@ fn share_of(tree: &Value, tile: u64) -> Result<f64, String> {
         .get(index)
         .copied()
         .ok_or_else(|| format!("container {container} has no share at index {index}"))
-}
-
-/// A minimal but valid `PaneQuery` — every field the algebra requires,
-/// spelled as `impress_core::pane_query::PaneQuery` serialises it.
-fn any_publication_query() -> Value {
-    json!({
-        "kinds": ["publication"],
-        "scope": { "scope": "all" },
-        "filters": [],
-        "text": null,
-        "relation": null,
-        "sort": [],
-        "limit": null
-    })
 }
 
 // ─── the catalogue ────────────────────────────────────────────────────────
