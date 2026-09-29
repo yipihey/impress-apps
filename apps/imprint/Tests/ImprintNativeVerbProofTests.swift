@@ -327,6 +327,9 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(legacyAgentRows.count, 1)
         XCTAssertEqual(legacyAgentRows.first?["parentId"] as? String, legacyRootID)
 
+        // Snapshot after the successful thread writes; the refusal must
+        // preserve all records now present, including the new root and reply.
+        let storedBeforeStatusRefusal = ManuscriptCommentStore.list(manuscriptID: id)
         // Accept/reject need suggestion semantics, so neither may mutate a
         // comment by silently treating the status as merely resolved.
         for unsupported in ["accepted", "rejected"] {
@@ -339,7 +342,7 @@ final class ImprintNativeVerbProofTests: XCTestCase {
                            "Check this phrase")
             XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved,
                            false)
-            XCTAssertEqual(ManuscriptCommentStore.list(manuscriptID: id), storedBefore)
+            XCTAssertEqual(ManuscriptCommentStore.list(manuscriptID: id), storedBeforeStatusRefusal)
         }
 
         let resolved = try await call("update-comment", ["comment_id": commentID, "status": "resolved"])
