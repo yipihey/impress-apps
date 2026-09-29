@@ -88,7 +88,10 @@ pub async fn prepare(
             library(store, "78", "G3 unread query library", false, false)?;
             paper_with_status(store, "79", "78", false, false, None)?;
         }
-        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+        (
+            "imbib-library-service_search-publications",
+            "find-unique-spectrum" | "filtered-project-spectrum" | "filtered-collection-spectrum",
+        ) => {
             library(store, "88", "G3 search library", false, false)?;
             paper(
                 store,
@@ -98,6 +101,10 @@ pub async fn prepare(
                 "G3 Unique Spectrum",
                 None,
             )?;
+            if example == "filtered-collection-spectrum" {
+                collection(store, "89", "G3 search collection", "88")?;
+                member(store, "89", "7f")?;
+            }
         }
         ("imbib-library-service_set-read", "finish-reading") => {
             library(store, "88", "G3 status library", false, false)?;
@@ -593,7 +600,10 @@ pub fn verify(
         ("imbib-library-service_query-unread", "unread-project-paper") => {
             require_row(result, &id("79"))?;
         }
-        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+        (
+            "imbib-library-service_search-publications",
+            "find-unique-spectrum" | "filtered-project-spectrum" | "filtered-collection-spectrum",
+        ) => {
             require_row(result, &id("7f"))?;
         }
         ("imbib-library-service_set-read", "finish-reading") => {

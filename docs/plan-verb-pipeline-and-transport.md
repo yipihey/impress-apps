@@ -1677,3 +1677,26 @@ containing allocation addresses; value equality fixes that test without changing
 production results. Failed evidence remains at
 `/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
 The existing debug linker unwind-size warning remains unchanged.
+
+## P5c9 — imbib publication search contract (2026-09-29)
+
+Extended `imbib-library-service_search-publications` with optional offset and
+the approved read/collection/library/tags/flag/added-after/added-before
+filters. The generated service evaluates membership and metadata filters on
+the complete ordered match set before applying pagination; exact library and
+collection UUID membership comes from the existing store queries, not names
+or a capped result page. Empty queries retain the default-library scope unless
+an explicit library or collection selects its own scope.
+
+Inspection found that the legacy `GET /api/search` parsed library and
+collection UUIDs but `AutomationService.applyFilters` explicitly skipped both
+filters. This package fixes that parity gap without changing the route shape:
+empty-query container selection now uses the selected container; exact
+library membership uses the existing store query, and exact collection
+membership uses the existing detail relationship before pagination. Focused
+Rust coverage checks same-named libraries, collection/library intersection,
+read/tag/flag filters, post-filter offset behavior and strict date boundaries.
+The hosted transport fixture compares generated and legacy IDs/order for
+library/read, collection (including empty-query selection), and offset cases on
+its isolated papers. Verification remains pending with root; no builds/tests
+were run in this package.
