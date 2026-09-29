@@ -58,12 +58,51 @@ pub async fn prepare(
                 "G3RIS2026",
                 Some(uuid("c1")?),
             )?;
-            store
-                .import_bibtex(
-                    "@article{G3RIS2026, author={Doe, Jane}, title={RIS parity paper}, year={2026}, journal={Research Journal}, volume={12}, number={3}, pages={100-110}, doi={10.5555/g3-ris}, abstract={Representative abstract}, keywords={alpha, beta}, url={https://example.org/g3-ris}, publisher={Example Press}, address={Boston}, issn={1234-5678}, note={G3 export note}, series={Research Series}, edition={2}, language={en}}".into(),
-                    uuid("c1")?.to_string(),
-                )
-                .map_err(|e| e.to_string())?;
+            let mut item = super::seed_item(
+                uuid("c2")?,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str(),
+                Some(uuid("c1")?),
+            );
+            reset(store, item.id)?;
+            for (key, value) in [
+                ("cite_key", "G3RIS2026"),
+                ("entry_type", "article"),
+                ("author_text", "Doe, Jane"),
+                ("title", "RIS parity paper"),
+                ("journal", "Research Journal"),
+                ("volume", "12"),
+                ("number", "3"),
+                ("pages", "100-110"),
+                ("doi", "10.5555/g3-ris"),
+                ("abstract_text", "Representative abstract"),
+                ("url", "https://example.org/g3-ris"),
+                ("publisher", "Example Press"),
+                ("address", "Boston"),
+                ("issn", "1234-5678"),
+                ("note", "G3 export note"),
+                ("series", "Research Series"),
+                ("edition", "2"),
+            ] {
+                item.payload
+                    .insert(key.into(), ItemValue::String(value.into()));
+            }
+            item.payload.insert("year".into(), ItemValue::Int(2026));
+            item.payload.insert(
+                "keywords".into(),
+                ItemValue::Array(vec![
+                    ItemValue::String("alpha".into()),
+                    ItemValue::String("beta".into()),
+                ]),
+            );
+            item.payload.insert(
+                "extra_fields".into(),
+                ItemValue::Object(
+                    [("language".into(), ItemValue::String("en".into()))]
+                        .into_iter()
+                        .collect(),
+                ),
+            );
+            store.insert(item).map_err(|e| e.to_string())?;
         }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             library(store, "84", "G3 sidebar library", false, false)?;
