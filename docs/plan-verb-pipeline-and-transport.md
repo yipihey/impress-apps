@@ -2076,6 +2076,50 @@ No route removal or caller migration is part of this package.
   still requires equality of every stored comment afterward. Generated project
   identifier/path churn was discarded. No real store or user app was touched.
 
+- 2026-09-29 — **P5c14 native follow-up: cross-handle tag cache.** The hosted
+  proof failed because generated tag reads returned the two seeded paths while
+  legacy `/api/tags` returned an empty list. Both Swift and Rust prefix
+  predicates are case-insensitive, so the fixture's uppercase prefix was
+  valid; the underlying issue is that the app's Swift FFI handle and generated
+  service handle cache tag definitions independently. A handle's cache was
+  not invalidated when the other connection committed. `ImbibStore` now keys
+  its tag-definition cache by SQLite `data_version` and avoids caching a
+  snapshot if another handle writes during the read. A focused two-handle
+  regression covers an initially empty reader followed by a tag written
+  through a second store handle. Root is running the required fresh
+  imbib-core-dependent archives before the hosted proof rerun. Failure evidence:
+  `/tmp/impress-p5b-transport-44jczzva/test.log` and
+  `/tmp/impress-p5b-transport-44jczzva/output/calls.json`.
+
+- 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
+  uses the manuscript list/get and app get-content verbs, composing metadata
+  and source for word count and artifact preview while retaining absent dates
+  and linked imbib IDs. Implore bridge list/detail maps `FigureRecord` into its
+  public result, leaving HTTP-absent dataset name/format and null timestamps
+  absent; empty tags match the route's omission. Impart bridge now maps paged
+  conversations and detailed messages/statistics, retaining count, total,
+  offset, limit and filter query. Counsel's existing figure/conversation list
+  residue reads now use those generated result mappings. ArtifactResolver reads
+  document artifacts through ImprintBridge and retains metadata absence. The
+  current Counsel registry has no figure/conversation detail tool cases, so
+  this package adds no new agent tools. Route arms, binary export, writes and
+  imbib remain for their separate packages. Focused DTO decoding and canonical
+  transport fixtures were added; root verification pending.
+
+## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
+
+Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
+and added optional offset plus the finalized local read/collection/library/tag/
+flag/date filters. The bridge hydrates each summary through exact publication
+detail and BibTeX export verbs, retaining its existing `[ImbibPaper]` result
+shape. `getPaper(citeKey:)` now uses exact `imbib-search-service_find-by-cite-key`
+followed by the same hydration path, so misses remain `nil` without fuzzy
+search. Added `exportRIS(citeKeys:)` over the generated RIS export verb. The
+transport fixtures verify filter wire names, exact lookup, summary/detail field
+mapping, result ordering under concurrent hydration, and RIS forwarding. HTTP
+routes and other callers remain in place until hosted parity and root
+verification.
+
 - 2026-09-29 — **P5c8 verified.** Root passed 61 Rust tests (zero failures,
   three ignored), every quick gate and full supported arm64 store-ffi,
   impel-tools and implore-verbs-ffi builds. The isolated native run passed
@@ -2152,16 +2196,14 @@ No route removal or caller migration is part of this package.
 
 - 2026-09-29 — **P5c14/P5c15 Rust verification.** P5c14 passed 90 touched Rust
   tests (zero failures, three ignored) and every package gate. P5c15 passed 95
-  touched Rust tests (zero failures, three ignored), including the generated
-  library-deletion dispatch effects checks, and every package gate. The two
-  deletion verbs remain classified destructive; the documented reach ceiling
-  increases from 152 to 154 for the native file-cleanup operations, while the
-  headless Tier A examples cover unlink-only behavior. The owned hosted
-  `LibraryDeletionContractTests` fixture now exercises generated dispatch,
-  unlink-only preservation, single/batch file cleanup, duplicate IDs and
-  missing-row preflight; root's native execution is pending. Evidence:
-  `/tmp/impress-p5c14-touched-tests.log`, `/tmp/impress-p5c14-packages.log`,
-  `/tmp/impress-p5c15-touched-tests-all.log`, and `/tmp/impress-p5c15-*.log`.
+  touched Rust tests (zero failures, three ignored), including generated
+  deletion dispatch effects checks. The deletion verbs remain destructive;
+  documented reach ceiling increased 152→154 for native file cleanup while
+  headless Tier A examples cover unlink-only behavior. The hosted fixture covers
+  generated dispatch, unlink-only preservation, single/batch cleanup, duplicate
+  IDs and missing-row preflight. Evidence: `/tmp/impress-p5c14-touched-tests.log`,
+  `/tmp/impress-p5c14-packages.log`, `/tmp/impress-p5c15-touched-tests-all.log`,
+  and `/tmp/impress-p5c15-*.log`.
 - 2026-09-29 — **P5c15 final Rust and quick-gate verification.** The final
   touched-package command passed 95 tests with zero failures and three
   ignored; all ten package gates passed, including native bindings and kit
@@ -2176,6 +2218,14 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c16-final-gates.log`, and the per-gate
   `/tmp/impress-p5c16-final-*.log` files. Native consumer proofs remain with
   root.
+- 2026-09-29 — **P5c17 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c17-final-verify.log`,
+  `/tmp/impress-p5c17-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c17-final-*.log` files. Native consumer proofs remain with
+  root.
+
 
 
 - 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
