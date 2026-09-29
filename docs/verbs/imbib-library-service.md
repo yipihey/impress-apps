@@ -1097,16 +1097,18 @@ Three sources, each independent and each reading its own threshold from the sett
 
 ## `imbib-library-service_search-publications`
 
-Search paper metadata by free text, newest-added first, up to `limit` results (0 means 50).
+Search paper metadata by free text, newest-added first, applying optional state, membership, tag, flag, and date filters before paging. An empty query lists the selected library or collection; with no membership filter it lists the default library. A zero limit means 50.
 
 - **safety**: `read_only`, idempotent
-- **reads**: "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library"
+- **reads**: "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection"
 - **writes**: —
 - **reach**: —
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `filters` | — | no | Optional local-state, membership, tag, flag, and added-date filters. |
 | `limit` | integer | yes | Maximum number of papers, with zero selecting the default of 50. |
+| `offset` | — | no | Number of matching papers to skip after filtering. |
 | `query` | string | yes | Text to find in paper titles, authors, abstracts, or notes. |
 
 **Examples**
@@ -1115,6 +1117,18 @@ Search paper metadata by free text, newest-added first, up to `limit` results (0
 
   ```json
   {"query":"G3 Unique Spectrum","limit":10}
+  ```
+
+- `filtered-project-spectrum` — Tier A:
+
+  ```json
+  {"query":"G3 Unique Spectrum","limit":10,"filters":{"read":false,"library":"5c000000-0000-4000-8000-000000000088"}}
+  ```
+
+- `filtered-collection-spectrum` — Tier A:
+
+  ```json
+  {"query":"G3 Unique Spectrum","limit":10,"filters":{"read":false,"collection":"5c000000-0000-4000-8000-000000000089"}}
   ```
 
 ## `imbib-library-service_set-flag`
