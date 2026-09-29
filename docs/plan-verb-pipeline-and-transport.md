@@ -1989,6 +1989,21 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c14-inventory-dump.log` and `/tmp/impress-p5c14-{fmt,clippy-rest,clippy-imprint,coverage,docs,deps,standalone,packages,bindings,schema,hakari}.log`.
   Hosted transport verification and archive builds remain with root.
 
+- 2026-09-29 — **P5c14 native follow-up: cross-handle tag cache.** The hosted
+  proof failed because generated tag reads returned the two seeded paths while
+  legacy `/api/tags` returned an empty list. Both Swift and Rust prefix
+  predicates are case-insensitive, so the fixture's uppercase prefix was
+  valid; the underlying issue is that the app's Swift FFI handle and generated
+  service handle cache tag definitions independently. A handle's cache was
+  not invalidated when the other connection committed. `ImbibStore` now keys
+  its tag-definition cache by SQLite `data_version` and avoids caching a
+  snapshot if another handle writes during the read. A focused two-handle
+  regression covers an initially empty reader followed by a tag written
+  through a second store handle. This source change is not yet Rust-verified;
+  root is running the required fresh imbib-core-dependent archives. Failure
+  evidence: `/tmp/impress-p5b-transport-44jczzva/test.log` and
+  `/tmp/impress-p5b-transport-44jczzva/output/calls.json`.
+
 - 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
   uses the manuscript list/get and app get-content verbs, composing metadata
   and source for word count and artifact preview while retaining absent dates
@@ -2075,6 +2090,32 @@ No route removal or caller migration is part of this package.
   refusal category and became HTTP 502. Both paths are fixed and documented
   as invariants. The open paper result retains its original `citeKey` spelling;
   the fixture now checks that exact wire field. No user app/store was touched.
+
+- 2026-09-29 — **P5c12 verified.** Touched Rust crates and capabilities passed
+  after correcting import's external safety class and regenerating its tables.
+  The final broad run had 84 passed, three ignored and one stale safety-table
+  failure; after regeneration all eight descriptor checks passed. Every quick
+  gate and full supported arm64 store-ffi, impel-tools and imbib-verbs-ffi build
+  passed. The final isolated host passed both XCTest cases and 30 transport
+  calls, including duplicate and unsupported-identifier outcomes and collection
+  membership. SQLite checks passed; owned PID 61838 exited. Evidence:
+  `/tmp/impress-p5b-transport-uo8c1zjy/output/`,
+  `/tmp/impress-p5c12-tests-final.log`,
+  `/tmp/impress-p5c12-descriptor-final.log`, and
+  `/tmp/impress-p5c12-{gates,frameworks,native-proof-final}.log`.
+  The first native run retained the older shared citation refusal behavior;
+  the final build includes P5c11's verified canonical error mapping.
+
+- 2026-09-29 — **P5c13 verified.** Root passed 88 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 store-ffi,
+  impel-tools and imbib-verbs-ffi builds. The owned host passed three XCTest
+  cases and 30 shared transport calls. Membership proof covers ordered local
+  cite-key/DOI/UUID resolution, missing identifiers, exact add/remove state,
+  display-observer notification and missing-collection/invalid-action refusal.
+  SQLite checks passed; owned PID 90923 exited. Evidence:
+  `/tmp/impress-p5b-transport-q7tt7qri/output/` and
+  `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
+  Root corrected a fixture helper's UUID/string argument before verification.
 
 - 2026-09-29 — **P5c14/P5c15 Rust verification.** P5c14 passed 90 touched Rust
   tests (zero failures, three ignored) and every package gate. P5c15 passed 95
