@@ -21,29 +21,64 @@ public struct ImbibBridge: Sendable {
 
     /// Search the imbib library for papers matching a query.
     ///
-    /// The server endpoint is `GET /api/search?q=&limit=`. Empty `query` is
-    /// treated as "list everything matching the other filters".
-    public static func searchLibrary(query: String, limit: Int = 20) async throws -> [ImbibPaper] {
-        let env: SearchEnvelope = try await SiblingBridge.shared.get(
-            "/api/search",
-            from: .imbib,
-            query: ["q": query, "limit": String(limit)]
+    /// Search results are hydrated from the generated publication detail and
+    /// BibTeX export verbs so callers keep receiving the complete
+    /// `ImbibPaper` shape. Empty `query` lists papers from imbib's default
+    /// library, matching the prior HTTP endpoint.
+    public static func searchLibrary(
+        query: String,
+        limit: Int = 20,
+        offset: UInt32 = 0,
+        filters: ImbibPublicationSearchFilters? = nil
+    ) async throws -> [ImbibPaper] {
+        try await searchLibrary(
+            query: query, limit: limit, offset: offset, filters: filters, bridge: .shared)
+    }
+
+    static func searchLibrary(
+        query: String,
+        limit: Int,
+        offset: UInt32 = 0,
+        filters: ImbibPublicationSearchFilters? = nil,
+        bridge: SiblingBridge
+    ) async throws -> [ImbibPaper] {
+        let summaries: [ImbibPublicationSummary] = try await bridge.callVerb(
+            "imbib-library-service_search-publications",
+            on: .imbib,
+            arguments: [
+                "query": query,
+                "limit": limit,
+                "offset": offset,
+                "filters": filters.map { $0.wireValue as Any } ?? NSNull(),
+            ]
         )
-        return env.papers
+        return try await withThrowingTaskGroup(of: (Int, ImbibPaper).self) { group in
+            for (index, summary) in summaries.enumerated() {
+                group.addTask {
+                    (index, try await hydrate(summary, using: bridge))
+                }
+            }
+            var ordered = Array<ImbibPaper?>(repeating: nil, count: summaries.count)
+            for try await (index, paper) in group {
+                ordered[index] = paper
+            }
+            return ordered.compactMap { $0 }
+        }
     }
 
     /// Get a single paper by cite key. Returns `nil` if not found.
     public static func getPaper(citeKey: String) async throws -> ImbibPaper? {
-        let encoded = citeKey.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? citeKey
-        do {
-            let env: PaperEnvelope = try await SiblingBridge.shared.get(
-                "/api/papers/\(encoded)",
-                from: .imbib
-            )
-            return env.paper
-        } catch SiblingBridgeError.httpError(statusCode: 404) {
-            return nil
-        }
+        try await getPaper(citeKey: citeKey, bridge: .shared)
+    }
+
+    static func getPaper(citeKey: String, bridge: SiblingBridge) async throws -> ImbibPaper? {
+        let summary: ImbibPublicationSummary? = try await bridge.callVerb(
+            "imbib-search-service_find-by-cite-key",
+            on: .imbib,
+            arguments: ["cite_key": citeKey, "library_id": NSNull()]
+        )
+        guard let summary else { return nil }
+        return try await hydrate(summary, using: bridge)
     }
 
     // MARK: - External search
@@ -71,6 +106,56 @@ public struct ImbibBridge: Sendable {
             "imbib-library-service_export-bibtex",
             on: .imbib,
             arguments: ["ids": citeKeys]
+        )
+    }
+
+    /// Export RIS for the given cite keys using imbib's shared RIS formatter.
+    public static func exportRIS(citeKeys: [String]) async throws -> String {
+        try await exportRIS(citeKeys: citeKeys, bridge: .shared)
+    }
+
+    static func exportRIS(citeKeys: [String], bridge: SiblingBridge) async throws -> String {
+        guard !citeKeys.isEmpty else { return "" }
+        return try await bridge.callVerb(
+            "imbib-library-service_export-ris",
+            on: .imbib,
+            arguments: ["ids": citeKeys]
+        )
+    }
+
+    private static func hydrate(
+        _ summary: ImbibPublicationSummary,
+        using bridge: SiblingBridge
+    ) async throws -> ImbibPaper {
+        async let detail: ImbibPublicationDetail? = bridge.callVerb(
+            "imbib-library-service_get-publication-detail",
+            on: .imbib,
+            arguments: ["id": summary.id]
+        )
+        async let bibtex: String = bridge.callVerb(
+            "imbib-library-service_export-bibtex",
+            on: .imbib,
+            arguments: ["ids": [summary.id]]
+        )
+        let (record, exportedBibTeX) = try await (detail, bibtex)
+        let fields = record?.fields ?? [:]
+        return ImbibPaper(
+            id: summary.id,
+            citeKey: summary.citeKey,
+            title: summary.title,
+            authors: summary.authors,
+            year: summary.year ?? fields["year"].flatMap(Int.init),
+            venue: summary.venue ?? fields["journal"] ?? fields["booktitle"],
+            abstract: fields["abstract"],
+            doi: summary.doi ?? fields["doi"],
+            arxivID: summary.arxivID ?? fields["arxiv_id"] ?? fields["arxiv"],
+            bibcode: fields["bibcode"],
+            pmid: fields["pmid"],
+            bibtex: exportedBibTeX,
+            hasPDF: summary.hasPDF,
+            isRead: summary.isRead,
+            isStarred: summary.isStarred,
+            tags: summary.tags
         )
     }
 
@@ -162,6 +247,48 @@ public struct ImbibBridge: Sendable {
 
 private struct CreatedLibraryID: Decodable, Sendable {
     let id: String
+}
+
+/// Optional local publication filters accepted by imbib's generated search
+/// verb. Dates use RFC 3339 strings and collection/library values are UUIDs.
+public struct ImbibPublicationSearchFilters: Sendable {
+    public var read: Bool?
+    public var collection: String?
+    public var library: String?
+    public var tags: [String]?
+    public var flag: String?
+    public var addedAfter: String?
+    public var addedBefore: String?
+
+    public init(
+        read: Bool? = nil,
+        collection: String? = nil,
+        library: String? = nil,
+        tags: [String]? = nil,
+        flag: String? = nil,
+        addedAfter: String? = nil,
+        addedBefore: String? = nil
+    ) {
+        self.read = read
+        self.collection = collection
+        self.library = library
+        self.tags = tags
+        self.flag = flag
+        self.addedAfter = addedAfter
+        self.addedBefore = addedBefore
+    }
+
+    fileprivate var wireValue: [String: Any] {
+        [
+            "read": read.map { $0 as Any } ?? NSNull(),
+            "collection": collection as Any? ?? NSNull(),
+            "library": library as Any? ?? NSNull(),
+            "tags": tags as Any? ?? NSNull(),
+            "flag": flag as Any? ?? NSNull(),
+            "added_after": addedAfter as Any? ?? NSNull(),
+            "added_before": addedBefore as Any? ?? NSNull(),
+        ]
+    }
 }
 
 // MARK: - Public result types
@@ -607,14 +734,6 @@ private struct AddPapersRequest: Encodable, Sendable {
 
 // MARK: - Response envelopes (internal)
 
-private struct SearchEnvelope: Decodable, Sendable {
-    let papers: [ImbibPaper]
-}
-
-private struct PaperEnvelope: Decodable, Sendable {
-    let paper: ImbibPaper
-}
-
 private struct ExternalSearchEnvelope: Decodable, Sendable {
     let results: [ImbibExternalCandidate]
 }
@@ -625,4 +744,32 @@ private struct LibrariesEnvelope: Decodable, Sendable {
 
 private struct CollectionsEnvelope: Decodable, Sendable {
     let collections: [ImbibCollection]
+}
+
+private struct ImbibPublicationSummary: Decodable, Sendable {
+    let id: String
+    let citeKey: String
+    let title: String
+    let authors: String
+    let year: Int?
+    let venue: String?
+    let doi: String?
+    let arxivID: String?
+    let isRead: Bool
+    let isStarred: Bool
+    let hasPDF: Bool
+    let tags: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, authors, year, venue, doi, tags
+        case citeKey = "cite_key"
+        case arxivID = "arxiv_id"
+        case isRead = "is_read"
+        case isStarred = "is_starred"
+        case hasPDF = "has_pdf"
+    }
+}
+
+private struct ImbibPublicationDetail: Decodable, Sendable {
+    let fields: [String: String]
 }

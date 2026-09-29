@@ -1769,3 +1769,17 @@ Data warnings remain; no persistence schema was changed.
   evidence requires the native app, and a refusal is not claimed as byte
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
+
+## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
+
+Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
+and added optional offset plus the finalized local read/collection/library/tag/
+flag/date filters. The bridge hydrates each summary through exact publication
+detail and BibTeX export verbs, retaining its existing `[ImbibPaper]` result
+shape. `getPaper(citeKey:)` now uses exact `imbib-search-service_find-by-cite-key`
+followed by the same hydration path, so misses remain `nil` without fuzzy
+search. Added `exportRIS(citeKeys:)` over the generated RIS export verb. The
+transport fixtures verify filter wire names, exact lookup, summary/detail field
+mapping, result ordering under concurrent hydration, and RIS forwarding. HTTP
+routes and other callers remain in place until hosted parity and root
+verification.
