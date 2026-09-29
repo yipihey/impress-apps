@@ -756,6 +756,16 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
 
 ## Session log (append-only)
 
+- 2026-09-29 — **P5c2 library-list read parity.** The generated imbib
+  `list-libraries` record now exposes collection counts derived from the local
+  collection store and `can_edit` for local editable libraries, matching the
+  native automation contract. The native HTTP mapper now reports the same
+  per-library collection count instead of a zero placeholder. A hosted scratch
+  fixture checks two persisted collections, the actual library metadata, and
+  excludes a read-only SciX-schema record. The isolated native transport proof
+  compares generated metadata with `/api/libraries` for two scratch
+  collections. Builds and tests are left to the parent verification lane.
+
 - 2026-09-26 — Planned on a worktree of main at 3222f573, branch `claude/plan-auto-gui-self-docs`, from
   Tom's second and third addenda. Measured: the nine handler call sites and two bypasses; the concern ×
   path matrix; the automation servers' auth and CORS (`Access-Control-Allow-Origin: *`, loopback
