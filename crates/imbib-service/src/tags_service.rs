@@ -464,7 +464,7 @@ mod tag_read_contract_tests {
             .create_tag(format!("unrelated-{root}"), None, None)
             .unwrap();
 
-        let service = DefaultImbibTagsService::new(Arc::new(store));
+        let service = DefaultImbibTagsService::new(store);
         let filtered = service
             .list_tags_with_counts(Some(root.to_uppercase()), Some(10))
             .await;
