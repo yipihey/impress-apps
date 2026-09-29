@@ -2402,3 +2402,7 @@ With the final P5c15 archive cohort, the isolated imprint proof passed two XCTes
 ### 2026-09-29 — P5c16 final native verification
 
 Merged verified main `16a0b7cc`; only appended session-log entries differed. The final P5c15 framework cohort passes the isolated impel proof at `/tmp/impress-p5b-transport-lu8quz0f/output/`: one XCTest, two shared transport calls, SQLite check green, owned PID 73083 exited. Focused bridge tests: 6 passed. Capabilities: 44 passed, 0 failed, 3 ignored. All quick gates passed (`/tmp/impress-p5c16-final-gates.log`). Impart's changed artifact consumer also compiled (`/tmp/impress-p5c16-build-impart.log`).
+
+### 2026-09-29 — Wave 11 final integration and handoff
+
+P5c1–18 and P5c20–24 are merged as PRs #148–170. P5c19 is the audit-only entry above. On merged main `2d4bf63f`, the isolated full native workspace suite exited zero: 4,516 passed, zero failed, 26 ignored across 223 result groups (`/tmp/impress-wave11-main-workspace-final.log`, owned workspace `/tmp/impress-cargo-tests.q54SgF/workspace`). The documentation-only handoff passed 44 capability tests, zero failed/three ignored, and all eleven quick gates (`/tmp/impress-wave11-handoff-{capabilities,gates}.log`). Final supported frameworks were published to main via twenty APFS clones from P5c24. `docs/next-steps-after-wave-11.md` records package/native evidence, fixes, intentional later scope and operating rules. No implementation or verification work remains for this approved P5c batch.

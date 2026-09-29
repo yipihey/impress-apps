@@ -1,6 +1,6 @@
 # Next steps after Wave 11 (2026-09-29)
 
-This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md). The original open packages and subsequent S2/S3/W3 follow-ups are recorded in the Wave 9/10 handoffs. Wave 11 completes the approved [P5c contracts](p5c-contract-proposal.md), consumer migrations and route retirements. All implementation packages are merged through main `2d4bf63f` (PR #170). The full native workspace integration run is in progress.
+This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md). The original open packages and subsequent S2/S3/W3 follow-ups are recorded in the Wave 9/10 handoffs. Wave 11 completes the approved [P5c contracts](p5c-contract-proposal.md), consumer migrations and route retirements. All implementation packages are merged through main `2d4bf63f` (PR #170). The full native workspace integration run passed. No implementation or verification work remains for this P5c batch; intentionally retained/later scope is listed below.
 
 ## Package status
 
@@ -37,9 +37,11 @@ SQLite ownership/linkage checks passed. Retirement proofs pair old-route 404 res
 
 P5c14 final logs use `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-verified.log`. P5c15–24 Rust/gate logs use `/tmp/impress-p5cNN-final-{verify,gates}.log`; native/archive details are recorded in the dated pipeline log. Focused Swift logs are `/tmp/impress-p5cNN-swift-tests-final.log` for N = 16, 17, 18, 20, 21. All twenty framework bundles were copied with APFS clones; changed native consumers were rebuilt with supported arm64 macOS/iOS/simulator slices, swiftformat off PATH and no `--fast`.
 
-## Remaining integration gate
+## Final integration verification
 
-All retirement PRs are merged. Run `cargo test --workspace --features native --no-fail-fast -- --test-threads=1` on exact merged main with an isolated scratch store. Record the commit, result totals and log here. The prior Wave 10 full workspace result (`3c56dfbb`, 4,478 passed, zero failed, 26 ignored across 223 groups) is historical and does not verify this batch.
+On main `2d4bf63f5c3a9d72d8f8105021edb99afc6cd998`, `cargo test --workspace --features native --no-fail-fast -- --test-threads=1` exited zero: **4,516 passed, zero failed, 26 ignored across 223 result groups**. Log: `/tmp/impress-wave11-main-workspace-final.log`; owned workspace: `/tmp/impress-cargo-tests.q54SgF/workspace`. The command used the isolated wrapper, `CARGO_INCREMENTAL=0`, and `.claude/target-p7-consumer`. The known intermittent import example passed in this run.
+
+The documentation-only handoff also passed 44 capability tests (zero failed, three ignored) and every quick gate, using the isolated wrapper and `.claude/target-p7-schema`. Evidence: `/tmp/impress-wave11-handoff-capabilities.log`, `/tmp/impress-wave11-handoff-gates.log` and per-stage logs. Main has twenty coherent framework bundles cloned from the final P5c24 cohort; prior bundles remain in ignored backups. The final handoff changes only documentation, so the tested production source is unchanged.
 
 ## Intentional later scope
 
