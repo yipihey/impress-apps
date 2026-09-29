@@ -198,8 +198,8 @@ struct PlotView: View {
 
     /// Save the plot on screen as a library figure. Its view state carries
     /// the SVG itself, so the stored artifact is exactly what is shown; the
-    /// write is `LibraryManager.addFigure`, the same path as
-    /// `POST /api/figures`.
+    /// write is `LibraryManager.addFigure`, the same shared artifact writer
+    /// used by the generated `create-figure` operation.
     private func saveAsFigure() {
         let svg = svgString
         guard !svg.isEmpty else { return }

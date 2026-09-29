@@ -2,10 +2,13 @@
 #
 # test-imprint-api.sh — Comprehensive HTTP API stress test for imprint
 #
-# Exercises every HTTP endpoint of imprint's automation API (port 23121),
-# validates responses, and tests error handling to verify full AI agent operability.
+# Exercises retained HTTP routes and generated document contracts on an isolated
+# imprint host, validates responses, and tests error handling.
 #
-# Usage: bash apps/imprint/test-imprint-api.sh
+# Usage: IMPRINT_API_TEST_ISOLATED=1 \
+#   IMPRINT_API_TEST_BASE_URL=http://localhost:<scratch-port> \
+#   bash apps/imprint/test-imprint-api.sh
+# The target must be an isolated imprint host using a PID-owned scratch workspace.
 # Exit codes: 0 = all pass, 1 = failures, 2 = precondition fail
 
 set -euo pipefail
@@ -21,10 +24,43 @@ DIM='\033[2m'
 NC='\033[0m'
 
 # ── Configuration ───────────────────────────────────────────────────
-BASE_URL="http://localhost:23121"
+BASE_URL="${IMPRINT_API_TEST_BASE_URL:-}"
 RESULTS_FILE="/tmp/imprint_api_results.txt"
 DOC_ID=""
 FAKE_UUID="00000000-0000-0000-0000-000000000000"
+LOOPBACK_TOKEN="${IMPRESS_APP_TOKEN:-}"
+
+if [[ "${IMPRINT_API_TEST_ISOLATED:-}" != "1" ]]; then
+    echo "Error: refusing to run without IMPRINT_API_TEST_ISOLATED=1."
+    echo "Use a dedicated imprint host backed by a PID-owned scratch workspace."
+    exit 2
+fi
+
+case "$BASE_URL" in
+    http://localhost:*|http://127.0.0.1:*) ;;
+    *)
+        echo "Error: set IMPRINT_API_TEST_BASE_URL to the isolated host's loopback URL."
+        exit 2
+        ;;
+esac
+
+API_PORT=$(printf '%s' "$BASE_URL" | sed -E 's#^http://(localhost|127\.0\.0\.1):([0-9]+)$#\2#')
+case "$API_PORT" in
+    ''|*[!0-9]*)
+        echo "Error: IMPRINT_API_TEST_BASE_URL must be http://localhost:<port> or http://127.0.0.1:<port>."
+        exit 2
+        ;;
+esac
+
+if [[ -z "$LOOPBACK_TOKEN" ]]; then
+    TOKEN_FILE="$HOME/Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/automation/loopback-${API_PORT}.token"
+    if [[ -r "$TOKEN_FILE" ]]; then
+        LOOPBACK_TOKEN=$(cat "$TOKEN_FILE")
+    else
+        echo "Error: no loopback token found for port ${API_PORT}; set IMPRESS_APP_TOKEN or start the isolated host."
+        exit 2
+    fi
+fi
 
 TOTAL_PASS=0
 TOTAL_FAIL=0
@@ -93,7 +129,8 @@ run_test() {
 
     # Run curl; capture body and http_code on the last line
     local response
-    response=$(curl -s -w "\n%{http_code}" "$@" 2>&1) || true
+    response=$(curl -s -H "Authorization: Bearer ${LOOPBACK_TOKEN}" \
+        -w "\n%{http_code}" "$@" 2>&1) || true
     http_code=$(echo "$response" | tail -1)
     body=$(echo "$response" | sed '$d')
 
@@ -115,6 +152,17 @@ run_test() {
         (( TOTAL_FAIL++ )) || true
         return 1
     fi
+}
+
+# Generated verbs are POST requests and require the per-launch loopback bearer.
+# Keep their raw JSON result in LAST_BODY so the existing jq assertions can map
+# arrays/records directly without expecting the legacy {status, ...} envelopes.
+run_verb_test() {
+    local category="$1" test_name="$2" expected_status="$3" descriptor="$4" args_json="$5"
+    run_test "$category" "$test_name" "$expected_status" \
+        -X POST "${BASE_URL}/api/verb/${descriptor}" \
+        -H "Content-Type: application/json" \
+        -d "$args_json"
 }
 
 # Assertions — operate on LAST_BODY from most recent run_test
@@ -302,30 +350,31 @@ print_section_end
 # ════════════════════════════════════════════════════════════════════
 print_section "3. Document Lifecycle"
 
-# Create a test document
-run_test "document" "create_document" "200" \
-    -X POST "${BASE_URL}/api/documents/create" \
-    -H "Content-Type: application/json" \
-    -d '{"title":"API Test Doc","source":"= Introduction\n\nTest document.\n\n== Methods\n\nTest methods.\n"}'
-
+# Create a test document through the generated contract (raw JSON string ID).
+run_verb_test "document" "create_document" "200" \
+    "imprint-app-service_create-document" \
+    '{"title":"API Test Doc","format":"typst"}'
 if [[ "$LAST_STATUS" == "200" ]]; then
-    DOC_ID=$(echo "$LAST_BODY" | jq -r '.id // empty' 2>/dev/null)
+    DOC_ID=$(echo "$LAST_BODY" | jq -r '. // empty' 2>/dev/null)
 fi
 
-# Verify the created doc is actually accessible; if not, fall back to document list
+# Verify the created row with the generated detail contract; otherwise fall back
+# to the generated list result (a raw array, not the old {documents: [...]} envelope).
 if [[ -n "$DOC_ID" && "$DOC_ID" != "null" ]]; then
-    VERIFY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/api/documents/${DOC_ID}" 2>/dev/null) || VERIFY_STATUS="000"
-    if [[ "$VERIFY_STATUS" != "200" ]]; then
-        echo -e "${DIM}│${NC}  ${YELLOW}⚠ Created doc not accessible (${VERIFY_STATUS}), falling back to document list...${NC}"
+    run_verb_test "document" "verify_created_document" "200" \
+        "imprint-manuscript-service_get-document" "{\"id\":\"${DOC_ID}\"}"
+    VERIFY_ID=$(echo "$LAST_BODY" | jq -r '.id // empty' 2>/dev/null)
+    if [[ "$LAST_STATUS" != "200" || "$VERIFY_ID" != "$DOC_ID" ]]; then
+        echo -e "${DIM}│${NC}  ${YELLOW}⚠ Created doc detail was not verified; falling back to generated list...${NC}"
         DOC_ID=""
     fi
 fi
 
-# Fallback: grab first document from list
 if [[ -z "$DOC_ID" || "$DOC_ID" == "null" ]]; then
-    echo -e "${DIM}│${NC}  ${DIM}Fetching document list for fallback...${NC}"
-    FALLBACK_BODY=$(curl -s "${BASE_URL}/api/documents" 2>/dev/null) || true
-    DOC_ID=$(echo "$FALLBACK_BODY" | jq -r '.documents[0].id // empty' 2>/dev/null)
+    echo -e "${DIM}│${NC}  ${DIM}Fetching generated manuscript list for fallback...${NC}"
+    run_verb_test "document" "list_documents_fallback" "200" \
+        "imprint-manuscript-service_list-documents" "{}"
+    DOC_ID=$(echo "$LAST_BODY" | jq -r '.[0].id // empty' 2>/dev/null)
 fi
 
 if [[ -z "$DOC_ID" || "$DOC_ID" == "null" ]]; then
@@ -337,13 +386,15 @@ else
 fi
 
 if [[ "$SKIP_DOC_TESTS" == "false" ]]; then
-    # List documents
-    run_test "document" "list_documents" "200" "${BASE_URL}/api/documents"
-    assert_field_type ".documents" "array" "document" "list_documents_array"
+    # The generated list returns a raw array of DocumentSummary rows.
+    run_verb_test "document" "list_documents" "200" \
+        "imprint-manuscript-service_list-documents" "{}"
+    assert_field_type "." "array" "document" "list_documents_array"
 
-    # Get document metadata
-    run_test "document" "get_document_metadata" "200" "${BASE_URL}/api/documents/${DOC_ID}"
-    assert_field ".document.id" "$DOC_ID" "document" "metadata_id_matches"
+    # The generated detail returns a raw DocumentDetail record.
+    run_verb_test "document" "get_document_metadata" "200" \
+        "imprint-manuscript-service_get-document" "{\"id\":\"${DOC_ID}\"}"
+    assert_field ".id" "$DOC_ID" "document" "metadata_id_matches"
 
     # Get document content
     run_test "document" "get_document_content" "200" "${BASE_URL}/api/documents/${DOC_ID}/content"
@@ -549,9 +600,9 @@ fi
 # ════════════════════════════════════════════════════════════════════
 print_section "8. Error Handling"
 
-# Invalid UUID format
-run_test "errors" "invalid_uuid_format" "400" "${BASE_URL}/api/documents/not-a-uuid"
-assert_contains "$LAST_BODY" "Invalid" "errors" "invalid_uuid_error_msg"
+# The generated detail contract is exercised above. This legacy URL stays in
+# the harness only to verify that the retired registration is no longer mounted.
+run_test "errors" "retired_document_detail_invalid_uuid" "404" "${BASE_URL}/api/documents/not-a-uuid"
 
 # Nonexistent document (valid UUID, not found)
 run_test "errors" "nonexistent_document" "404" "${BASE_URL}/api/documents/${FAKE_UUID}"
@@ -655,7 +706,6 @@ STRESS_MAX_MS=0
 # Build endpoint list to cycle through
 declare -a STRESS_ENDPOINTS
 STRESS_ENDPOINTS+=("${BASE_URL}/api/status")
-STRESS_ENDPOINTS+=("${BASE_URL}/api/documents")
 if [[ "$SKIP_DOC_TESTS" == "false" ]]; then
     STRESS_ENDPOINTS+=("${BASE_URL}/api/documents/${DOC_ID}/content")
     STRESS_ENDPOINTS+=("${BASE_URL}/api/documents/${DOC_ID}/outline")

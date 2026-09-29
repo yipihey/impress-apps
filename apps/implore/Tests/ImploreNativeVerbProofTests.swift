@@ -119,46 +119,12 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(figures.first?["dataset_id"] as? String, firstDataset)
         XCTAssertFalse(figures.contains { $0["id"] as? String == secondID })
 
-        // Compare the generated read against the actual legacy HTTP handler.
-        // The HTTP shape emits `type` and `modifiedAt`; it currently omits
-        // datasetName and viewState, which the optional DTO fields must retain
-        // as absent rather than fabricating values.
+        // The former HTTP list route is retired; the generated result above
+        // still returns the seeded figure and honors its dataset filter.
         let legacyList = try await legacyGet(
             "/api/figures?dataset=\(firstDataset)", port: port, bearer: bearer)
-        XCTAssertEqual(legacyList.status, 200)
-        let legacyListEnvelope = try XCTUnwrap(legacyList.value as? [String: Any])
-        let legacyFigures = try XCTUnwrap(legacyListEnvelope["figures"] as? [[String: Any]])
-        XCTAssertEqual(legacyFigures.count, 1)
-        let generatedListedFigure = try XCTUnwrap(figures.first)
-        let legacyListedFigure = try XCTUnwrap(legacyFigures.first)
-        XCTAssertEqual(generatedListedFigure["figure_type"] as? String,
-                       legacyListedFigure["type"] as? String)
-        XCTAssertEqual(generatedListedFigure["name"] as? String,
-                       legacyListedFigure["name"] as? String)
-        XCTAssertEqual(generatedListedFigure["created_at"] as? String,
-                       legacyListedFigure["createdAt"] as? String)
-        XCTAssertEqual(generatedListedFigure["modified_at"] as? String,
-                       legacyListedFigure["modifiedAt"] as? String)
-        XCTAssertEqual(generatedListedFigure["width"] as? Int,
-                       legacyListedFigure["width"] as? Int)
-        XCTAssertEqual(generatedListedFigure["height"] as? Int,
-                       legacyListedFigure["height"] as? Int)
-        XCTAssertEqual(generatedListedFigure["x_column"] as? String,
-                       legacyListedFigure["xColumn"] as? String)
-        XCTAssertEqual(generatedListedFigure["y_column"] as? String,
-                       legacyListedFigure["yColumn"] as? String)
-        XCTAssertNil(generatedListedFigure["dataset_name"])
-        XCTAssertNil(generatedListedFigure["view_state"])
-        XCTAssertNil(generatedListedFigure["color_column"])
-        XCTAssertNil(generatedListedFigure["title"])
-        XCTAssertNil(generatedListedFigure["tags"])
-        XCTAssertNil(generatedListedFigure["folder_id"])
-        XCTAssertNil(legacyListedFigure["datasetName"])
-        XCTAssertNil(legacyListedFigure["viewState"])
-        XCTAssertNil(legacyListedFigure["colorColumn"])
-        XCTAssertNil(legacyListedFigure["title"])
-        XCTAssertNil(legacyListedFigure["tags"])
-        XCTAssertNil(legacyListedFigure["folderId"])
+        XCTAssertEqual(legacyList.status, 404)
+        XCTAssertEqual(figures.first?["name"] as? String, "Figure A")
 
         let readback = try await call("get-figure", ["figure_id": firstID], port: port, bearer: bearer)
         XCTAssertEqual(readback.status, 200)
@@ -167,40 +133,22 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(figure["dataset_id"] as? String, firstDataset)
         let legacyReadback = try await legacyGet(
             "/api/figures/\(firstID)", port: port, bearer: bearer)
-        XCTAssertEqual(legacyReadback.status, 200)
-        let legacyReadEnvelope = try XCTUnwrap(legacyReadback.value as? [String: Any])
-        let legacyFigure = try XCTUnwrap(legacyReadEnvelope["figure"] as? [String: Any])
-        XCTAssertEqual(figure["figure_type"] as? String, legacyFigure["type"] as? String)
-        XCTAssertEqual(figure["name"] as? String, legacyFigure["name"] as? String)
-        XCTAssertEqual(figure["created_at"] as? String, legacyFigure["createdAt"] as? String)
-        XCTAssertEqual(figure["modified_at"] as? String, legacyFigure["modifiedAt"] as? String)
-        XCTAssertEqual(figure["width"] as? Int, legacyFigure["width"] as? Int)
-        XCTAssertEqual(figure["height"] as? Int, legacyFigure["height"] as? Int)
-        XCTAssertEqual(figure["x_column"] as? String, legacyFigure["xColumn"] as? String)
-        XCTAssertEqual(figure["y_column"] as? String, legacyFigure["yColumn"] as? String)
-        XCTAssertNil(figure["dataset_name"])
-        XCTAssertNil(figure["view_state"])
-        XCTAssertNil(figure["color_column"])
-        XCTAssertNil(figure["title"])
-        XCTAssertNil(figure["tags"])
-        XCTAssertNil(figure["folder_id"])
-        XCTAssertNil(legacyFigure["datasetName"])
-        XCTAssertNil(legacyFigure["viewState"])
-        XCTAssertNil(legacyFigure["colorColumn"])
-        XCTAssertNil(legacyFigure["title"])
-        XCTAssertNil(legacyFigure["tags"])
-        XCTAssertNil(legacyFigure["folderId"])
+        XCTAssertEqual(legacyReadback.status, 404)
+        XCTAssertEqual(figure["name"] as? String, "Figure A")
 
 
-        // The generated binary contract returns the bytes the existing HTTP
-        // renderer writes, for both formats and explicit output sizing.
+        // The generated binary contract remains available for both formats
+        // and explicit output sizing after retiring the HTTP export routes.
         let exportCases: [(String, [String: Any])] = [
             ("png", ["format": "png"]),
             ("svg", ["format": "svg"]),
             ("png", ["format": "png", "width": 320.5, "height": 200.25, "scale": 1.5])
         ]
         for (format, options) in exportCases {
-            let route = try await request(
+            let retiredGetRoute = try await legacyGet(
+                "/api/figures/\(firstID)/export?format=\(format)",
+                port: port, bearer: bearer)
+            let retiredPostRoute = try await request(
                 "POST", path: "/api/figures/\(firstID)/export", args: options,
                 port: port, bearer: bearer)
             let verb = try await call("export-figure-data", [
@@ -210,21 +158,14 @@ final class ImploreNativeVerbProofTests: XCTestCase {
                 "height": options["height"] as Any? ?? NSNull(),
                 "scale": options["scale"] as Any? ?? NSNull()
             ], port: port, bearer: bearer)
-            XCTAssertEqual(route.status, 200)
+            XCTAssertEqual(retiredGetRoute.status, 404)
+            XCTAssertEqual(retiredPostRoute.status, 404)
             XCTAssertEqual(verb.status, 200)
-            let legacy = try XCTUnwrap(route.value as? [String: Any])
             let generated = try XCTUnwrap(verb.value as? [String: Any])
-            let routeBytes = try XCTUnwrap(
-                Data(base64Encoded: try XCTUnwrap(legacy["data"] as? String)))
             let generatedBytes = try XCTUnwrap((generated["data"] as? [NSNumber])?.map(\.uint8Value))
-            XCTAssertEqual(Data(generatedBytes), routeBytes)
-            XCTAssertEqual(generated["path"] as? String, legacy["path"] as? String)
-            XCTAssertEqual(generated["sha256"] as? String, legacy["sha256"] as? String)
-            XCTAssertEqual(generated["mime_type"] as? String, legacy["mimeType"] as? String)
-            if options["width"] != nil {
-                XCTAssertEqual(legacy["width"] as? Int, 321)
-                XCTAssertEqual(legacy["height"] as? Int, 200)
-            }
+            XCTAssertFalse(generatedBytes.isEmpty)
+            XCTAssertEqual(generated["mime_type"] as? String,
+                           format == "svg" ? "image/svg+xml" : "image/png")
         }
         let savedLibrary = try String(contentsOf: libraryURL, encoding: .utf8)
         XCTAssertTrue(savedLibrary.contains(firstID))
@@ -252,22 +193,14 @@ final class ImploreNativeVerbProofTests: XCTestCase {
             return (try XCTUnwrap(value["id"] as? String),
                     try XCTUnwrap((value["artifact"] as? [String: Any])?["data_hash"] as? String))
         }
-        func createByHTTP() async throws -> (id: String, hash: String) {
-            let result = try await request("POST", path: "/api/figures", args: [
-                "datasetId": mutationDataset, "plotType": "line", "x": "time",
-                "y": "flux", "name": "Shared mutation figure", "title": "Shared plot",
-                "colorColumn": "instrument", "width": 640, "height": 400,
-                "view_state": initialViewState, "series": initialSeries
-            ], port: port, bearer: bearer)
-            XCTAssertEqual(result.status, 201)
-            let value = try XCTUnwrap(result.value as? [String: Any])
-            return (try XCTUnwrap((value["figure"] as? [String: Any])?["id"] as? String),
-                    try XCTUnwrap((value["artifact"] as? [String: Any])?["dataHash"] as? String))
-        }
-
         let verbFigure = try await createByVerb()
-        let httpFigure = try await createByHTTP()
-        XCTAssertEqual(verbFigure.hash, httpFigure.hash)
+        let peerFigure = try await createByVerb()
+        XCTAssertEqual(verbFigure.hash, peerFigure.hash)
+        let retiredCreateRoute = try await request("POST", path: "/api/figures", args: [
+            "datasetId": mutationDataset, "plotType": "line", "x": "time",
+            "y": "flux", "name": "Retired route", "series": initialSeries
+        ], port: port, bearer: bearer)
+        XCTAssertEqual(retiredCreateRoute.status, 404)
         let oldBlob = ImploreStoreAdapter.shared.contentStoreDirectory
             .appendingPathComponent(verbFigure.hash)
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldBlob.path))
@@ -292,50 +225,59 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         let updatedBytes = try Data(contentsOf: newBlob)
         XCTAssertEqual(Array(updatedBytes.prefix(8)), [137, 80, 78, 71, 13, 10, 26, 10])
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldBlob.path),
-                      "the HTTP-created peer still references the original shared blob")
+                      "the generated peer still references the original shared blob")
 
-        let updatedByHTTP = try await request("PATCH", path: "/api/figures/\(httpFigure.id)", args: [
+        let retiredUpdateRoute = try await request("PATCH", path: "/api/figures/\(peerFigure.id)", args: [
             "name": "Updated shared figure", "plotType": "scatter", "x": "time",
             "y": "flux", "colorColumn": "instrument", "title": "Updated plot",
             "width": 800, "height": 500, "series": updatedSeries,
             "view_state": updatedViewState
         ], port: port, bearer: bearer)
-        XCTAssertEqual(updatedByHTTP.status, 200)
-        let updatedHTTPValue = try XCTUnwrap(updatedByHTTP.value as? [String: Any])
-        XCTAssertEqual((updatedHTTPValue["artifact"] as? [String: Any])?["dataHash"] as? String, newHash)
+        XCTAssertEqual(retiredUpdateRoute.status, 404)
+        let updatedPeer = try await call("update-figure", [
+            "figure_id": peerFigure.id, "name": "Updated shared figure",
+            "plot_type": "scatter", "x": "time", "y": "flux",
+            "color_column": "instrument", "title": "Updated plot",
+            "width": 800, "height": 500, "series": updatedSeries,
+            "view_state": updatedViewState
+        ], port: port, bearer: bearer)
+        XCTAssertEqual(updatedPeer.status, 200)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newBlob.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: oldBlob.path),
-                       "the old blob is released after its final figure reference changes")
+                       "the old blob is released after both generated figures change")
 
         let exportByVerb = try await call("export-figure", [
             "figure_id": verbFigure.id, "format": "png"
         ], port: port, bearer: bearer)
         XCTAssertEqual(exportByVerb.status, 200)
         let verbExportPath = try XCTUnwrap(exportByVerb.value as? String)
-        let exportByHTTP = try await request("POST", path: "/api/figures/\(httpFigure.id)/export",
-                                             args: ["format": "png"], port: port, bearer: bearer)
-        XCTAssertEqual(exportByHTTP.status, 200)
-        let httpExportPath = try XCTUnwrap((exportByHTTP.value as? [String: Any])?["path"] as? String)
+        let retiredExportRoute = try await request("POST", path: "/api/figures/\(peerFigure.id)/export",
+                                                   args: ["format": "png"], port: port, bearer: bearer)
+        XCTAssertEqual(retiredExportRoute.status, 404)
         XCTAssertTrue(FileManager.default.fileExists(atPath: verbExportPath))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: httpExportPath))
-
         let deletedByVerb = try await call("delete-figure", ["figure_id": verbFigure.id],
                                            port: port, bearer: bearer)
         XCTAssertEqual(deletedByVerb.status, 200)
         XCTAssertEqual(deletedByVerb.value as? Bool, true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: newBlob.path),
-                      "the HTTP-created peer still references the updated blob")
+                      "the generated peer still references the updated blob")
         XCTAssertFalse(FileManager.default.fileExists(atPath: verbExportPath),
                        "delete removes the figure's exported files")
-        let peerReadback = try await call("get-figure", ["figure_id": httpFigure.id],
+        let peerReadback = try await call("get-figure", ["figure_id": peerFigure.id],
                                           port: port, bearer: bearer)
         XCTAssertEqual(peerReadback.status, 200)
-        let deletedByHTTP = try await request("DELETE", path: "/api/figures/\(httpFigure.id)",
-                                               args: [:], port: port, bearer: bearer)
-        XCTAssertEqual(deletedByHTTP.status, 200)
-        XCTAssertEqual((deletedByHTTP.value as? [String: Any])?["deleted"] as? Bool, true)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: httpExportPath))
+        let retiredDeleteRoute = try await request("DELETE", path: "/api/figures/\(peerFigure.id)",
+                                                   args: [:], port: port, bearer: bearer)
+        XCTAssertEqual(retiredDeleteRoute.status, 404)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newBlob.path),
+                      "the generated peer still references the updated blob")
+        let deletedPeer = try await call("delete-figure", ["figure_id": peerFigure.id],
+                                         port: port, bearer: bearer)
+        XCTAssertEqual(deletedPeer.status, 200)
+        XCTAssertEqual(deletedPeer.value as? Bool, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: verbExportPath))
         XCTAssertFalse(FileManager.default.fileExists(atPath: newBlob.path),
-                       "the final delete releases the unreferenced content blob")
+                       "the final generated delete releases the unreferenced content blob")
     }
 
     private func requireIsolation(_ condition: Bool, _ message: String) throws {

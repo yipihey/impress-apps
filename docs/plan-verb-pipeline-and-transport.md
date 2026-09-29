@@ -2016,6 +2016,33 @@ No builds/tests, route removal or caller migration were performed here.
   imbib remain for their separate packages. Focused DTO decoding and canonical
   transport fixtures were added; static review only, root verification pending.
 
+- 2026-09-29 — **P5c22 imprint domain-route retirement.** Removed only the
+  public `GET /api/documents`, `GET /api/documents/{id}`, and comment
+  list/create/update/delete/accept/reject registrations. P5c16 moved the
+  production document list/detail readers, including impart's ArtifactResolver,
+  to generated manuscript/content verbs; the comments caller audit found no
+  production Swift, CLI or scenario consumer. The hosted proof now expects
+  those old URLs to return 404 and exercises the same seeded reads, threaded
+  comments and suggestion effects through generated verbs. The earlier P5c7
+  and P5c10 entries record route parity before retirement, not current HTTP
+  availability. Private comment handlers remain reachable from native verb
+  callbacks. The manual `apps/imprint/test-imprint-api.sh` harness now uses the
+  generated document create/list/detail contracts, keeps checks for distinct
+  platform routes, and requires explicit isolated-host opt-in plus the
+  loopback bearer. It had no comment-route requests to migrate. Queued document
+  edits, metadata, caret citation, status/logs, compile, and other approved
+  platform routes remain registered.
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
+
 ## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
 
 Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
@@ -2043,6 +2070,22 @@ verification.
   package. Added mocked generated-verb transport and DTO fixtures. Static
   review only; root verification pending.
 
+## P5c23 — retire migrated figure and conversation reads (2026-09-29)
+
+Caller audit found Counsel's figure-list and conversation-list cases now use
+the generated bridge methods introduced in P5c16; no application caller remains
+for the former HTTP figure list/detail/export/create/update/delete routes or
+conversation list/detail routes. Removed those router registrations and API
+info entries while retaining implore's private figure handlers reachable from
+its native callback switch. Raw RG/plot viewer routes and all impart queued
+conversation writes remain registered. Native proof fixtures now expect 404
+from the retired routes and still check seeded generated list/detail/export,
+mutation and conversation results. Before retirement, the hosted figure proof
+compared generated list/detail fields and export bytes with the old routes and
+checked shared-artifact update/delete behavior; the conversation proof compared
+page/archived results plus detail messages and statistics. Those historical
+parity checks remain recorded here alongside the P5c8/P5c16 entries. No
+builds/tests were run; root owns verification.
 ## P5c20 — imbib container consumers (2026-09-29)
 
 Caller inventory found `ImprintIntegrationService.listDestinations()` as the
