@@ -116,23 +116,34 @@ pub struct CallStep {
     pub r#as: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Expect>,
-    /// Named captures out of this step's result. A string is a JSON path;
-    /// closed object forms provide the bounded `select_one` and `fill_array`
-    /// operations. Later steps reference captures as `{{state.name}}`.
+    /// Named captures out of this step's resolved arguments or result. A
+    /// string is a result JSON path; closed object forms provide argument
+    /// capture and the bounded `select_one`/`fill_array` operations. Later
+    /// steps reference captures as `{{state.name}}`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub capture: std::collections::BTreeMap<String, CallCapture>,
 }
 
-/// A closed capture operation on one call result. A string keeps the original
-/// JSON-path capture spelling; the tagged forms below select one unique
-/// member or build a bounded constant array from an earlier capture.
+/// A closed capture operation on one call's resolved arguments or result. A
+/// string keeps the original result JSON-path spelling; tagged forms capture
+/// one argument, select one unique result member, or build a bounded constant
+/// array from an earlier capture.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum CallCapture {
     Path(String),
+    Argument(ArgumentCapture),
     SelectOne(SelectOneCapture),
     FillArray(FillArrayCapture),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ArgumentCapture {
+    /// Fixed JSON path into the arguments after template and UUID resolution.
+    pub argument: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
