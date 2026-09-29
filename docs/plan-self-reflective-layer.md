@@ -3137,6 +3137,14 @@ per-scenario cleanup without evaluating expressions.
   The source-session entry ran the document. Native symbol checks passed and
   the owned host exited. No user app or store was used.
 
+- 2026-09-28 — **S2j outline collection gesture stored.** The scenario delegates
+  the live outline query and exact verb choice to the existing
+  `outline_target`/`outline_verbs` UI decision functions. It retains exact
+  list query/channel assertions, the fresh zero-row display log, and the
+  fresh selected-detail log when a detail pane exists; a closed wait presence
+  guard preserves the original no-detail behavior. Focused interpreter and
+  caller tests cover nullable detail and guarded wait behavior. No build or
+  test run was performed in this package; root owns integrated verification.
 ### 2026-09-28 — S2h verification
 
 The version-movement scenario passed 212 Rust tests (zero failures, three ignored),
@@ -3165,3 +3173,17 @@ stored scenarios, three surface and fourteen layout entries with zero skips;
 the channel entry ran through the interpreter. Native symbol checks passed,
 and owned host PID 78856 exited. Logs: `/tmp/impress-s2i-tests-final2.log`,
 `/tmp/impress-s2i-final-*.log`, `/tmp/impress-s2i-frameworks-final.log`.
+
+### 2026-09-28 — S2j native outline verification
+
+Final tests passed 193 Rust cases (zero failures, three ignored), both clippy
+shards and all quick gates. Root review corrected the transparent channel
+path, retained the exact catalogue identity, removed duplicate-document
+assertions, and fixed the guarded-wait fixture's textual needle. The two
+affected frameworks were rebuilt for all supported arm64 slices. The owned
+imprint proof `/tmp/impress-g5-proof-p2tr6x4n/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries with zero skips;
+the outline document proved the exact query, collection channel, fresh empty
+list display, and fresh selected-detail log. Native symbols passed and host
+PID 98570 exited. Logs: `/tmp/impress-s2j-tests-final2.log`,
+`/tmp/impress-s2j-final-*.log`, `/tmp/impress-s2j-frameworks-final.log`.

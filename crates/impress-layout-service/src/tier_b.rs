@@ -49,14 +49,15 @@
 //!    which pane's parameter reads a channel. A stored scenario document
 //!    has no expressions or loops (ADR-0033 D3, by design), but its bounded
 //!    `select_one` and `fill_array` captures now cover the parent lookup and
-//!    even shares for `layout.version_moves`. S2i also converts
+//!    even shares for `layout.version_moves`. S2i converts
 //!    `layout.channel_selection` with a role lookup, a channel-param selector
 //!    and a capture of the resolved selection argument. `layout.hidden_share`
-//!    and `layout.outline_collection_row` remain code. S2e converts
-//!    `layout.console_pane` using a role target, captured split result and a
-//!    pre-mutation log cursor; S2g adds prior-capture interpolation to a closed
-//!    JSON capture path, which also lets `layout.source_pane_session` follow
-//!    captured tile ids.
+//!    remains code. S2e converts `layout.console_pane` using a role target,
+//!    captured split result and a pre-mutation log cursor; S2g adds
+//!    prior-capture interpolation to a closed JSON capture path, which also
+//!    lets `layout.source_pane_session` follow captured tile ids. S2j converts
+//!    the outline row with a narrow gesture that invokes the same
+//!    `outline_target` and `outline_verbs` UI decision functions.
 //! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
 //!    shape one level down: `first_row_of` is a live, filtered read of the
 //!    shared store (a read paper that already has its PDF) done in-process
@@ -85,11 +86,6 @@
 //! `impress-surface-service` `surface.http.*` scenarios remain outside this
 //! change.
 //!
-//! `layout.outline_collection_row` (class ii, "gesture") has the same
-//! dynamic-lookup shape as (1) above (`outline_target`, `first_row_of`) and
-//! stays code for the same reason, not because a `gesture` step could not
-//! carry it in principle.
-//!
 //! **S2e converts `layout.console_pane`.** Its scenario captures the server's
 //! log cursor immediately before the split, then checks the new pane and all
 //! required fragments of its fresh, case-insensitive scoped log line.
@@ -115,6 +111,8 @@ const VERSION_MOVES_SCENARIO: &str = include_str!("../scenarios/layout.version_m
 const SOURCE_PANE_SESSION_SCENARIO: &str =
     include_str!("../scenarios/layout.source_pane_session.json");
 const CHANNEL_SELECTION_SCENARIO: &str = include_str!("../scenarios/layout.channel_selection.json");
+const OUTLINE_COLLECTION_SCENARIO: &str =
+    include_str!("../scenarios/layout.outline_collection_row.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -486,7 +484,9 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
             .await,
     );
     out.push(hidden_share_capability(&http).await);
-    out.push(outline_collection_capability(&http).await);
+    out.push(
+        scenario_caller::run_embedded(OUTLINE_COLLECTION_SCENARIO, &mut scenario_caller).await,
+    );
     out.push(reading_pdf_pane_capability(&http).await);
     out.push(
         scenario_caller::run_embedded(SOURCE_PANE_SESSION_SCENARIO, &mut scenario_caller).await,
@@ -526,126 +526,6 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
 /// after the verb (it re-ran its query); after a `select` in the list, the
 /// detail pane logged `pane <n> <view kind>: … <id>` (it followed) — `info`
 /// in impress, `source` in imprint.
-async fn outline_collection_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[7];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        let app = tree
-            .get("app")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "tree response names no `app`".to_string())?
-            .to_string();
-        let spec_of = |role: &str| -> Result<Option<(u64, impress_layout::PaneSpec)>, String> {
-            let Ok(tile) = tile_with_role(&tree, role) else {
-                return Ok(None);
-            };
-            let pane = panes(&tree)?
-                .into_iter()
-                .find(|(t, _)| *t == tile)
-                .map(|(_, p)| p.clone())
-                .ok_or_else(|| format!("tile {tile} is not a pane"))?;
-            let spec: impress_layout::PaneSpec = serde_json::from_value(pane)
-                .map_err(|e| format!("the `{role}` pane does not decode as a PaneSpec: {e}"))?;
-            Ok(Some((tile, spec)))
-        };
-        let (list_tile, list_spec) =
-            spec_of("list")?.ok_or_else(|| "no pane carries the `list` role".to_string())?;
-        let detail = spec_of("detail")?;
-
-        let collection = uuid::Uuid::new_v4();
-        let node = crate::outline::OutlineNode::Collection { id: collection };
-        let target = crate::outline::outline_target(&app, &node, &Default::default());
-        let crate::outline::OutlineTarget::Query { query } = &target else {
-            return Err(format!("a collection row must be a query, Rust said {target:?}"));
-        };
-        let verbs = crate::outline::outline_verbs(
-            &node,
-            &target,
-            &crate::outline::OutlinePanes {
-                list: Some(list_spec),
-                detail: detail.as_ref().map(|(_, s)| s.clone()),
-            },
-        );
-        if verbs.is_empty() {
-            return Err("the outline produced no verbs for a new collection".into());
-        }
-
-        let before_verbs = log_cursor();
-        for verb in &verbs {
-            let body = serde_json::to_value(verb).map_err(|e| e.to_string())?;
-            http.verb(&body).await?;
-        }
-
-        // 1. The list pane's query IS the collection now.
-        let after = http.tree().await?;
-        let list_query = panes(&after)?
-            .into_iter()
-            .find(|(t, _)| *t == list_tile)
-            .and_then(|(_, p)| p.get("query").cloned())
-            .ok_or_else(|| format!("tile {list_tile} lost its query"))?;
-        let expected = serde_json::to_value(query).map_err(|e| e.to_string())?;
-        if list_query != expected {
-            return Err(format!(
-                "the list pane's query is {list_query}, not the collection's {expected}"
-            ));
-        }
-        // 2. The navigator published the collection on channel 1.
-        let carried = channel_ids(&after, 1, "collection");
-        if carried != vec![collection.to_string()] {
-            return Err(format!(
-                "channel 1 carries collection {carried:?}, not {collection}"
-            ));
-        }
-        // 3. The list re-ran THE NEW query. The collection is fresh, so the
-        // query matches nothing and the pane's own display line says 0 rows.
-        // Any other count is the list re-running its OLD query on the
-        // `select`'s refresh — seen on impel, where that line read "500 rows"
-        // and would have passed as evidence had only the prefix been matched.
-        let display = wait_for_log(
-            http,
-            &before_verbs,
-            &[&format!("pane {list_tile} display: 0 rows")],
-        )
-        .await?;
-
-        // 4. Select in the list; the detail pane follows — `info` in
-        // impress, `source` in imprint: each view kind logs
-        // `pane <n> <kind>: … <id>` when it resolves its item.
-        let Some((detail_tile, detail_spec)) = detail else {
-            return Ok(format!(
-                "list tile {list_tile} re-queried to collection {collection} ({display}); no detail pane in this layout, so `info` was not checked"
-            ));
-        };
-        let kind = query.kinds.first().cloned().unwrap_or_else(|| "publication".into());
-        let item = uuid::Uuid::new_v4();
-        let before_select = log_cursor();
-        http.verb(&json!({
-            "verb": "select",
-            "target": {"id": list_tile},
-            "kind": kind,
-            "ids": [item.to_string()]
-        }))
-        .await?;
-        // The line must name THIS item: an earlier capability's selection
-        // logged the same `pane N <kind>:` prefix moments ago.
-        let followed = wait_for_log(
-            http,
-            &before_select,
-            &[
-                &format!("pane {detail_tile} {}: ", detail_spec.view_kind),
-                &item.to_string(),
-            ],
-        )
-        .await?;
-
-        Ok(format!(
-            "{} verb(s) from the outline; list tile {list_tile} now queries collection {collection} and logged `{display}`; channel 1 carries it; a `{kind}` select in the list reached tile {detail_tile}: `{followed}`",
-            verbs.len()
-        ))
-    })
-    .await
-}
-
 /// 8. The reading arrangement (plan wave 6, W4).
 ///
 /// impress ships only its Default preset, and imbib's Reading preset is app
@@ -901,26 +781,6 @@ fn first_row_of(list_pane: &Value) -> Result<String, String> {
 }
 
 /// The ids channel `n` carries for `kind`, read from a tree response.
-fn channel_ids(tree: &Value, n: u64, kind: &str) -> Vec<String> {
-    layout_of(tree)
-        .ok()
-        .and_then(|l| l.get("channels"))
-        .and_then(|c| c.get("channels").unwrap_or(c).get(n.to_string()))
-        .and_then(|k| k.get(kind))
-        .and_then(Value::as_array)
-        .map(|ids| {
-            ids.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Now, as the `after` cursor `/api/logs` takes. The app and this process
-/// share a clock (it is a loopback call), so the slack is only the
-/// millisecond truncation on either side — a whole second of it let the
-/// previous capability's `pane N info:` line answer for this one.
 fn log_cursor() -> String {
     (chrono::Utc::now() - chrono::Duration::milliseconds(5))
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -1122,10 +982,28 @@ mod tests {
 
     #[test]
     fn channel_selection_scenario_validates_and_preserves_catalogue_identity() {
-        let scenario: impress_scenario::Scenario = serde_json::from_str(CHANNEL_SELECTION_SCENARIO)
-            .expect("channel selection scenario parses");
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(CHANNEL_SELECTION_SCENARIO).expect("scenario parses");
         assert_eq!(scenario.id, CATALOGUE[4].0);
         assert_eq!(scenario.description, CATALOGUE[4].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn outline_collection_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(OUTLINE_COLLECTION_SCENARIO).expect("scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[7].0);
+        assert_eq!(scenario.description, CATALOGUE[7].1);
         assert!(impress_scenario::validate(&scenario).is_empty());
         for step in scenario.steps.iter().chain(&scenario.teardown) {
             if let impress_scenario::Step::Call(call) = step {

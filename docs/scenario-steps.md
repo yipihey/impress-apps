@@ -72,6 +72,13 @@ expressions, traverses arbitrary code, nor re-templates captured JSON. The
 `layout.version_moves` scenario uses these operations to find the split's
 linear parent and construct its equal shares.
 
+The layout catalogue's closed collection-row gesture is
+`{"outline_collection":"{{uuid}}"}`. Its caller derives the app-specific
+query and exact verbs from the live tree using the same outline decision
+functions as a native row click. The result exposes the query, list tile, and
+optional detail metadata for later assertions; the scenario does not copy a
+query or verb sequence by hand.
+
 `wait.log_cursor` captures the current server timestamp for a later log wait.
 Capture it immediately before the mutation whose log line you need to observe:
 
@@ -95,6 +102,19 @@ ISO-8601 cursor, so entries at or before it cannot satisfy the wait:
       "timeout_ms": 3000
     }
   }
+}
+```
+
+An optional `when_present` on a wait step guards that wait with a prior
+capture-state JSON path. Missing and `null` values skip the wait before its
+body is resolved; a malformed path or a path rooted at a capture that has not
+yet been set fails validation. This is a closed presence guard, not a general
+conditional or branch:
+
+```json
+{
+  "wait": {"log": {"category":"layout", "contains":"pane {{state.detail.tile}}"}},
+  "when_present": "$.detail"
 }
 ```
 
