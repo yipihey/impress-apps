@@ -279,6 +279,10 @@ final class TransportProofTests: XCTestCase {
                     "both surfaces explain the missing citation input")
     }
 
+    private func array(_ value: Any, _ label: String) throws -> [Any] {
+        try XCTUnwrap(value as? [Any], "\(label) did not return an array")
+    }
+
     private func searchResultIDs(_ values: [Any]) -> [String] {
         values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
     }
