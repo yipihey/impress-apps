@@ -2003,6 +2003,30 @@ No builds/tests, route removal or caller migration were performed here.
   imbib remain for their separate packages. Focused DTO decoding and canonical
   transport fixtures were added; static review only, root verification pending.
 
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
+
+- 2026-09-29 — **P5c7 verified.** Root passed 132 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 builds of store-ffi,
+  impel-tools and imprint-verbs-ffi, alongside the final RIS archives.
+  The isolated native run passed both XCTest cases and 14 shared transport
+  calls, including threaded suggestion metadata/range parity and invalid-parent
+  and unsupported-status refusals. SQLite checks passed; owned PID 21487 exited.
+  Evidence: `/tmp/impress-p5b-transport-0kkhokqi/output/` and
+  `/tmp/impress-p5c7-{final-tests,gates,final-frameworks,native-proof-final}.log`.
+  The first native run caught an old snapshot taken before two successful
+  thread writes; the final test snapshots immediately before the refusal and
+  still requires equality of every stored comment afterward. Generated project
+  identifier/path churn was discarded. No real store or user app was touched.
+
 ## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
 
 Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
