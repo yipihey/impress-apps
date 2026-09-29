@@ -147,6 +147,10 @@ public final class LibraryManager {
         self.explorationDefaults = explorationDefaults
         loadLibraries()
 
+        // Migrate the legacy exploration pointer during startup so background
+        // workflows can resolve it before any view asks for the special library.
+        _ = explorationLibraryID
+
         // Load default library set if none exist (first run).
         // Skip when UI testing — test data seeding handles library creation.
         let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")

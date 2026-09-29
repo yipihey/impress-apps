@@ -2654,7 +2654,9 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   internal and omitted from generated user panes; the existing settings registry remains the
   persistence mechanism, with no new record kind, schema ref, or public verb argument. Retention
   uses the stored UUID only when the explicit argument is absent, and ignores malformed IDs. The
-  stored workflow's 90-second delay and seed-if-missing behavior are unchanged. Scratch-only Rust
+  stored workflow's 90-second delay and seed-if-missing behavior are unchanged. Startup now reads
+  the pointer from `LibraryManager.init`, ensuring migration completes before the retention
+  workflow's delayed first run even when no view opens the exploration library. Scratch-only Rust
   and PMC tests cover migration, precedence and UUID handling. Shared gates and native builds are
   pending the root review.
 

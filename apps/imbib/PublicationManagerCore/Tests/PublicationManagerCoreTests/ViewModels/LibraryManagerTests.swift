@@ -240,7 +240,7 @@ struct LibraryManagerTests {
     }
 
     @Test("Legacy exploration library ID migrates to settings and remains authoritative")
-    func explorationLibraryIDMigratesAndMirrors() {
+    func explorationLibraryIDMigratesAndMirrors() throws {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("imbib-exploration-settings-\(UUID().uuidString)")
         let suiteName = "imbib-exploration-settings-\(UUID().uuidString)"
@@ -263,6 +263,12 @@ struct LibraryManagerTests {
         let exploration = store.seedLibrary(name: "Exploration")
         defaults.set(exploration.id.uuidString, forKey: "explorationLibraryID")
         let manager = LibraryManager(store: store, explorationDefaults: defaults)
+
+        let migratedRecord = try #require(
+            settings.record("imbib.internal.exploration_library_id"))
+        #expect(migratedRecord.source == "stored")
+        #expect(try JSONDecoder().decode(String.self, from: Data(migratedRecord.valueJson.utf8))
+            == exploration.id.uuidString)
 
         #expect(manager.explorationLibrary?.id == exploration.id)
         #expect(settings.value(
