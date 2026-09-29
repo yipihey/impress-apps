@@ -2263,3 +2263,14 @@ only; root owns build and test verification.
   return 404 while generated verbs still return their seeded outcomes; earlier
   route-parity assertions remain in the prior dated package entries and history.
   Static review only; root owns all verification.
+
+- 2026-09-29 — **P5c24 native fixture corrections.** The collection-members
+  proof had called `list_collection_members` through the app-native callback
+  switch even though it is a generated library-service method; it now exercises
+  the generated `/api/verb/imbib-library-service_list-collection-members`
+  dispatch and keeps the same ordered member assertions. The citation proof now
+  reads the raw paper dictionary's actual `citeKey` field and compares UUID
+  values rather than their differing text casing, preserving exact paper
+  identity, local-search path, and title checks. The failed proof was
+  `/tmp/impress-p5b-transport-z9589ulo/`; root owns the rerun. Tests only; no
+  service behavior changed.

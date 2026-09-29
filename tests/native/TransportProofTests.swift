@@ -245,9 +245,12 @@ final class TransportProofTests: XCTestCase {
         let generatedResolutionBody = try object(generatedResolution, "generated local citation resolution")
         let generatedResolvedPaper = try XCTUnwrap(generatedResolutionBody["paper"] as? [String: Any])
         let generatedVia = try XCTUnwrap(generatedResolutionBody["via"] as? String)
+        let generatedResolvedID = try XCTUnwrap(generatedResolvedPaper["id"] as? String)
+        let expectedPaperUUID = try XCTUnwrap(UUID(uuidString: paperID))
+        let actualPaperUUID = try XCTUnwrap(UUID(uuidString: generatedResolvedID))
         try require(generatedVia == "local-search" &&
-                    generatedResolvedPaper["id"] as? String == paperID &&
-                    generatedResolvedPaper["cite_key"] as? String == key &&
+                    actualPaperUUID == expectedPaperUUID &&
+                    generatedResolvedPaper["citeKey"] as? String == key &&
                     generatedResolvedPaper["title"] as? String == paperTitle,
                     "native citation resolution returns the exact saved local paper")
 

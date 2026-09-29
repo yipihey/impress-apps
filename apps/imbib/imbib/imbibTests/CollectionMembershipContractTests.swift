@@ -61,12 +61,16 @@ final class CollectionMembershipContractTests: XCTestCase {
                              "the generated native write must notify imbib's store/display observers")
         XCTAssertEqual(Set(store.listCollectionMembers(collectionId: verbCollection.id).map(\.citeKey)),
                        Set([firstKey, secondKey]))
-        let generatedMembers = await router.invokeNativeVerb(
-            method: "list_collection_members",
-            argsJSON: """
-            {"collection_id":"\(verbCollection.id.uuidString)","sort_field":"title","ascending":true,"limit":50,"offset":0}
-            """
-        )
+        let generatedMembers = await router.route(HTTPRequest(
+            method: "POST",
+            path: "/api/verb/imbib-library-service_list-collection-members",
+            body: try json([
+                "collection_id": verbCollection.id.uuidString,
+                "sort_field": "title",
+                "ascending": true,
+                "limit": 50,
+                "offset": 0,
+            ])))
         XCTAssertEqual(generatedMembers.status, 200)
         let generatedMemberRows = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(generatedMembers.bodyJson.utf8)) as? [[String: Any]])
