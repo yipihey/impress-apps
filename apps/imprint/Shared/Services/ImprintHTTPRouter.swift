@@ -3009,18 +3009,15 @@ public actor ImprintHTTPRouter: HTTPRouter {
         guard let docID, let service else {
             return .notFound("Comment not found: \(id)")
         }
-        let hasLiveSession = await MainActor.run { () -> Bool in
+        let (comment, expectedSource) = await MainActor.run { () -> (Comment?, String?) in
             guard let liveSource = ManuscriptSessionRegistry.shared.session(for: docID)?.source else {
-                return false
+                return (nil, nil)
             }
             service.syncBody(liveSource)
-            return true
+            return (service.comments.first(where: { $0.id == commentUUID }), liveSource)
         }
-        guard hasLiveSession else {
+        guard let expectedSource else {
             return .serverError("Editor session unavailable")
-        }
-        let comment = await MainActor.run {
-            service.comments.first(where: { $0.id == commentUUID })
         }
         guard let comment else {
             return .notFound("Comment not found: \(id)")
@@ -3038,6 +3035,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "start": comment.textRange.start,
             "end": comment.textRange.end,
             "text": proposed,
+            "expected_source": expectedSource,
         ])
         guard let bodyData, let body = String(data: bodyData, encoding: .utf8) else {
             OperationTracker.shared.markFailed(id: opID, reason: "Could not encode suggestion replacement")

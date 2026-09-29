@@ -77,6 +77,9 @@ enum ImprintNativeEdits {
                 return .serverError("Editor session unavailable")
             }
             let source = session.source
+            if let expected = args["expected_source"] as? String, expected != source {
+                return .json(["error": "Live source changed after the suggestion anchor was read"], status: 409)
+            }
             var edited = source
             var replaced = 0
             switch method {

@@ -402,6 +402,23 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         session.source = savedBeforeStaleAccept
         comments.syncBody(savedBeforeStaleAccept)
 
+        // Simulate typing after the range snapshot but before the edit enters
+        // MainActor. A still-valid numeric range must not replace different text.
+        let changedSource = "typed " + savedBeforeStaleAccept
+        session.source = changedSource
+        let racedBody = try JSONSerialization.data(withJSONObject: [
+            "start": 0, "end": 1, "text": "must not apply",
+            "expected_source": savedBeforeStaleAccept,
+        ])
+        let racedEdit = await ImprintNativeEdits.apply(
+            method: "replace_range", id: id.uuidString,
+            request: HTTPRequest(method: "POST", path: "/proof/range",
+                                 body: String(decoding: racedBody, as: UTF8.self)))
+        XCTAssertEqual(racedEdit.status, 409)
+        XCTAssertEqual(session.source, changedSource)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, savedBeforeStaleAccept)
+        session.source = savedBeforeStaleAccept
+
         // The retained reject route resolves without changing source.
         let legacyRejectCreateBody = try JSONSerialization.data(withJSONObject: [
             "content": "Legacy reject",

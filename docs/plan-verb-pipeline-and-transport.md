@@ -1858,3 +1858,9 @@ proof exercises direct HTTP and generated acceptance, verifies live-buffer and
 store readback at the expected UTF-16 replacement, and checks rejection leaves
 source unchanged. Root owns builds, tests, framework/binding regeneration, and
 final native verification.
+
+- 2026-09-29 — **P5c10 review refinement.** Accepting a suggestion captures
+  its synchronized range and source together. The edit checks that source
+  again on MainActor before applying the range, returning conflict if typing
+  intervened. A native fixture covers a stale range that remains numerically
+  valid, preserving both the live edits and the previously saved manuscript.
