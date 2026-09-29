@@ -2094,3 +2094,18 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5b-transport-q7tt7qri/output/` and
   `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
   Root corrected a fixture helper's UUID/string argument before verification.
+
+- 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
+  (zero failures, three ignored), every quick gate, and full supported arm64
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi builds. The final owned
+  native proof passed three XCTest cases and 37 transport calls, including
+  stable tag path identity, hierarchy/counts, case-insensitive prefix filters
+  and limits. SQLite checks passed; owned PID 51204 exited. Evidence:
+  `/tmp/impress-p5b-transport-xz36o8we/output/` and
+  `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-verified.log`.
+  Native verification exposed a per-handle tag cache that hid generated writes
+  from Swift readers; it now checks SQLite's data version. A separate cold/warm
+  regression pins logical read evidence, and normal builds keep observation
+  disabled through the store wrapper. The newly observable reads are declared;
+  tables were regenerated from the tests' dump, including the newly verified
+  tag-count example. No user app or store was touched.
