@@ -312,10 +312,16 @@ fn bind_prior_ids(
                 let capture_name = origin
                     .capture
                     .iter()
-                    .find_map(|(name, path)| (path == &producer.path).then(|| name.clone()))
+                    .find_map(|(name, path)| {
+                        matches!(path, impress_scenario::spec::CallCapture::Path(path) if path == &producer.path)
+                            .then(|| name.clone())
+                    })
                     .unwrap_or_else(|| {
                         let name = format!("capture_{index}_{}", origin.capture.len());
-                        origin.capture.insert(name.clone(), producer.path.clone());
+                        origin.capture.insert(
+                            name.clone(),
+                            impress_scenario::spec::CallCapture::Path(producer.path.clone()),
+                        );
                         name
                     });
                 *value = Value::String(format!("{{{{state.{capture_name}}}}}"));
@@ -409,7 +415,7 @@ mod tests {
         let generated = generate(vec![origin, later]);
         assert_eq!(
             as_call(&generated.scenario.steps[0]).capture["capture_0_0"],
-            "$"
+            impress_scenario::spec::CallCapture::Path("$".into())
         );
         assert_eq!(
             as_call(&generated.scenario.steps[1]).args["id"],
@@ -440,7 +446,10 @@ mod tests {
         let generated = generate(vec![origin, second, third]);
         let first = as_call(&generated.scenario.steps[0]);
         assert_eq!(first.capture.len(), 1);
-        assert_eq!(first.capture["capture_0_0"], "$.result.0.id");
+        assert_eq!(
+            first.capture["capture_0_0"],
+            impress_scenario::spec::CallCapture::Path("$.result.0.id".into())
+        );
         let expected = "{{state.capture_0_0}}";
         let second = as_call(&generated.scenario.steps[1]);
         assert_eq!(second.args["nested"][0]["id-42"], json!(expected));
@@ -478,7 +487,7 @@ mod tests {
         );
         assert_eq!(
             as_call(&generated.scenario.steps[1]).capture["capture_1_0"],
-            "$.first"
+            impress_scenario::spec::CallCapture::Path("$.first".into())
         );
         assert!(as_call(&generated.scenario.steps[2]).capture.is_empty());
         assert_eq!(

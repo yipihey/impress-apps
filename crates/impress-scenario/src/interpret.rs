@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::spec::{
-    CallStep, Check, EventBody, Expect, ExpectEffects, FieldExpect, Scenario, Step, StoreStep,
-    WaitBody,
+    CallCapture, CallStep, Check, EventBody, Expect, ExpectEffects, FieldExpect, Scenario,
+    SelectPredicate, Step, StoreStep, WaitBody,
 };
 use crate::{template, validate};
 use impress_service_core::report::{CapabilityResult, Tier};
@@ -317,24 +317,125 @@ async fn run_call(
             .map_err(|detail| format!("step {index} (`{}`): {detail}", call_step.call))?;
     }
 
-    for (name, path) in &call_step.capture {
-        let resolved_path = template::resolve(&Value::String(path.clone()), captures_value)
+    for (name, operation) in &call_step.capture {
+        let captured = capture_call_result(operation, &outcome.result, captures_value)
             .map_err(|e| format!("step {index} (`{}`) capture `{name}`: {e}", call_step.call))?;
-        let path = resolved_path.as_str().ok_or_else(|| {
-            format!(
-                "step {index} (`{}`) capture `{name}` path did not resolve to a string",
-                call_step.call
-            )
-        })?;
-        let captured = json_path_get(&outcome.result, path).ok_or_else(|| {
-            format!(
-                "step {index} (`{}`): capture `{name}` path `{path}` did not resolve",
-                call_step.call
-            )
-        })?;
-        captures.insert(name.clone(), captured.clone());
+        captures.insert(name.clone(), captured);
     }
     Ok(())
+}
+
+fn capture_call_result(
+    operation: &CallCapture,
+    result: &Value,
+    captures: &Value,
+) -> Result<Value, String> {
+    match operation {
+        CallCapture::Path(path) => {
+            let resolved = template::resolve(&Value::String(path.clone()), captures)?;
+            let resolved = resolved
+                .as_str()
+                .ok_or("capture path must resolve to a string")?;
+            json_path_get(result, resolved)
+                .cloned()
+                .ok_or_else(|| format!("path `{resolved}` did not resolve"))
+        }
+        CallCapture::SelectOne(spec) => {
+            let query = &spec.select_one;
+            if query.from.trim().is_empty() || query.path.trim().is_empty() {
+                return Err("select_one paths must be non-empty".to_string());
+            }
+            if query.path.contains("{{") {
+                return Err("select_one candidate path must be fixed".to_string());
+            }
+            if query
+                .object_key_as
+                .as_deref()
+                .is_some_and(|kind| kind != "u64")
+            {
+                return Err("select_one object_key_as only accepts `u64`".to_string());
+            }
+            let from = template::resolve(&Value::String(query.from.clone()), captures)?;
+            let from = from
+                .as_str()
+                .ok_or("select_one from must resolve to a JSON path")?;
+            let candidates = json_path_get(result, from)
+                .ok_or_else(|| format!("select_one source `{from}` did not resolve"))?;
+            let (contains, expected) = match &query.predicate {
+                SelectPredicate::Equals(predicate) => {
+                    (false, template::resolve(&predicate.equals, captures)?)
+                }
+                SelectPredicate::ArrayContains(predicate) => (
+                    true,
+                    template::resolve(&predicate.array_contains, captures)?,
+                ),
+            };
+            let mut found = None;
+            let mut inspect = |key: Value, candidate: &Value| -> Result<(), String> {
+                let Some(field) = json_path_get(candidate, &query.path) else {
+                    return Ok(());
+                };
+                let matches = if contains {
+                    let items = field
+                        .as_array()
+                        .ok_or("select_one array_contains path is not an array")?;
+                    if items.len() > 10_000 {
+                        return Err("select_one predicate array exceeds 10000 items".to_string());
+                    }
+                    items.contains(&expected)
+                } else {
+                    *field == expected
+                };
+                if matches {
+                    if found.is_some() {
+                        return Err("select_one matched more than one candidate".to_string());
+                    }
+                    let mut selection = serde_json::Map::new();
+                    if query.object_key_as.as_deref() == Some("u64") {
+                        let numeric_key = key
+                            .as_str()
+                            .ok_or("select_one u64 key conversion requires an object")?
+                            .parse::<u64>()
+                            .map_err(|_| "select_one object key is not a u64")?;
+                        selection.insert("numeric_key".into(), Value::from(numeric_key));
+                    }
+                    selection.insert("key".into(), key);
+                    selection.insert("value".into(), candidate.clone());
+                    found = Some(Value::Object(selection));
+                }
+                Ok(())
+            };
+            match candidates {
+                Value::Object(map) if map.len() <= 10_000 => {
+                    for (key, candidate) in map {
+                        inspect(Value::String(key.clone()), candidate)?;
+                    }
+                }
+                Value::Array(items) if items.len() <= 10_000 => {
+                    for (index, candidate) in items.iter().enumerate() {
+                        inspect(Value::from(index), candidate)?;
+                    }
+                }
+                Value::Object(_) | Value::Array(_) => {
+                    return Err("select_one source exceeds 10000 candidates".to_string());
+                }
+                _ => return Err("select_one source must be an object or array".to_string()),
+            }
+            found.ok_or_else(|| "select_one matched no candidate".to_string())
+        }
+        CallCapture::FillArray(spec) => {
+            let source =
+                template::resolve(&Value::String(spec.fill_array.length_of.clone()), captures)?;
+            let length = source
+                .as_array()
+                .ok_or_else(|| "fill_array length_of must resolve to a captured array".to_string())?
+                .len();
+            if length > 10_000 {
+                return Err("fill_array length exceeds 10000".to_string());
+            }
+            Ok(Value::Array(vec![spec.fill_array.value.clone(); length]))
+        }
+    }
 }
 
 // A bounded scan through existing verbs keeps store IO and identity handling
@@ -663,5 +764,217 @@ mod tests {
             status: Some(200),
         })
         .is_ok());
+    }
+
+    #[test]
+    fn select_one_captures_unique_object_key_numeric_key_and_value() {
+        let operation: CallCapture = serde_json::from_value(json!({
+            "select_one": {
+                "from": "$.tiles",
+                "path": "$.container.linear.children",
+                "predicate": {"array_contains": "{{state.tile}}"},
+                "object_key_as": "u64"
+            }
+        }))
+        .unwrap();
+        let result = json!({"tiles": {
+            "3": {"pane": {}},
+            "9": {"container": {"linear": {"children": [4, 7]}}}
+        }});
+        let captures = json!({"tile": 7});
+        assert_eq!(
+            capture_call_result(&operation, &result, &captures).unwrap(),
+            json!({
+                "key": "9",
+                "numeric_key": 9,
+                "value": {"container": {"linear": {"children": [4, 7]}}}
+            })
+        );
+    }
+
+    #[test]
+    fn select_one_resolves_prior_capture_in_source_and_returns_array_index() {
+        let operation: CallCapture = serde_json::from_value(json!({
+            "select_one": {
+                "from": "$.tiles.{{state.container_id}}.channels",
+                "path": "$.source",
+                "predicate": {"equals": "selection"}
+            }
+        }))
+        .unwrap();
+        let result = json!({"tiles": {"8": {"channels": [
+            {"source": "other"}, {"source": "selection", "number": 3}
+        ]}}});
+        assert_eq!(
+            capture_call_result(&operation, &result, &json!({"container_id": 8})).unwrap(),
+            json!({"key": 1, "value": {"source": "selection", "number": 3}})
+        );
+    }
+
+    #[test]
+    fn select_one_refuses_zero_multiple_non_collection_and_oversized_inputs() {
+        let operation: CallCapture = serde_json::from_value(json!({
+            "select_one": {
+                "from": "$.items",
+                "path": "$.name",
+                "predicate": {"equals": "wanted"}
+            }
+        }))
+        .unwrap();
+        for (result, expected) in [
+            (
+                json!({"items": [{"name": "other"}]}),
+                "matched no candidate",
+            ),
+            (
+                json!({"items": [{"name": "wanted"}, {"name": "wanted"}]}),
+                "more than one",
+            ),
+            (
+                json!({"items": "not a collection"}),
+                "must be an object or array",
+            ),
+            (
+                json!({"items": (0..=10_000).map(|_| json!({})).collect::<Vec<_>>()}),
+                "exceeds 10000",
+            ),
+        ] {
+            assert!(capture_call_result(&operation, &result, &json!({}))
+                .unwrap_err()
+                .contains(expected));
+        }
+        let contains: CallCapture = serde_json::from_value(json!({
+            "select_one": {
+                "from": "$.items",
+                "path": "$.values",
+                "predicate": {"array_contains": 1}
+            }
+        }))
+        .unwrap();
+        for (result, expected) in [
+            (json!({"items": [{"values": "wrong type"}]}), "not an array"),
+            (
+                json!({"items": [{"values": (0..=10_000).collect::<Vec<_>>()}]}),
+                "predicate array exceeds 10000",
+            ),
+        ] {
+            assert!(capture_call_result(&contains, &result, &json!({}))
+                .unwrap_err()
+                .contains(expected));
+        }
+    }
+
+    #[test]
+    fn fill_array_is_bounded_and_uses_only_a_prior_captured_array() {
+        let operation: CallCapture = serde_json::from_value(json!({
+            "fill_array": {"value": 1.0, "length_of": "{{state.parent.value.children}}"}
+        }))
+        .unwrap();
+        assert_eq!(
+            capture_call_result(
+                &operation,
+                &json!({}),
+                &json!({"parent": {"value": {"children": [1, 2, 3]}}})
+            )
+            .unwrap(),
+            json!([1.0, 1.0, 1.0])
+        );
+        for captures in [
+            json!({"parent": {"value": {"children": "not array"}}}),
+            json!({"parent": {"value": {"children": (0..=10_000).collect::<Vec<_>>()}}}),
+        ] {
+            let error = capture_call_result(&operation, &json!({}), &captures).unwrap_err();
+            assert!(error.contains("array") || error.contains("exceeds 10000"));
+        }
+    }
+
+    #[tokio::test]
+    async fn call_capture_operators_feed_typed_values_to_later_calls() {
+        struct Fixture {
+            resize: Option<Value>,
+        }
+
+        #[async_trait::async_trait]
+        impl Caller for Fixture {
+            async fn call(
+                &mut self,
+                verb: &str,
+                args: Value,
+                _as_ident: &str,
+            ) -> Result<CallOutcome, String> {
+                if verb == "layout-service_resize" {
+                    self.resize = Some(args);
+                    return Ok(CallOutcome {
+                        result: json!({"ok": true}),
+                        status: None,
+                    });
+                }
+                Ok(CallOutcome {
+                    result: json!({
+                        "focused": 7,
+                        "layout": {"tiles": {
+                            "8": {"container": {"linear": {"children": [4, 7]}}}
+                        }}
+                    }),
+                    status: None,
+                })
+            }
+
+            async fn event(&mut self, _event: &EventBody) -> Result<CallOutcome, String> {
+                Err("unused".into())
+            }
+
+            async fn gesture(&mut self, _gesture: &Value) -> Result<CallOutcome, String> {
+                Err("unused".into())
+            }
+
+            async fn wait(&mut self, _wait: &WaitBody) -> Result<(), String> {
+                Err("unused".into())
+            }
+
+            async fn seed(&mut self, _kind: &str, _payload: &Value) -> Result<Value, String> {
+                Err("unused".into())
+            }
+
+            fn wrote(&self, _kind: &str) -> bool {
+                false
+            }
+        }
+
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "capture-operators",
+            "description": "typed capture values flow to later calls",
+            "tier": "b",
+            "steps": [
+                {"call": "layout-service_get-pane", "capture": {"tile": "$.focused"}},
+                {"call": "layout-service_get-layout", "capture": {
+                    "parent": {"select_one": {
+                        "from": "$.layout.tiles",
+                        "path": "$.container.linear.children",
+                        "predicate": {"array_contains": "{{state.tile}}"},
+                        "object_key_as": "u64"
+                    }}
+                }},
+                {"call": "layout-service_get-layout", "capture": {
+                    "shares": {"fill_array": {
+                        "value": 1.0,
+                        "length_of": "{{state.parent.value.container.linear.children}}"
+                    }}
+                }},
+                {"call": "layout-service_resize", "args": {
+                    "container": "{{state.parent.numeric_key}}",
+                    "shares": "{{state.shares}}"
+                }}
+            ]
+        }))
+        .unwrap();
+        let mut caller = Fixture { resize: None };
+        let result = run(&scenario, &mut caller).await;
+        assert!(result.pass, "{}", result.detail);
+        assert_eq!(
+            caller.resize,
+            Some(json!({"container": 8, "shares": [1.0, 1.0]}))
+        );
     }
 }
