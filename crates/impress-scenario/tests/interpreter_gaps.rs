@@ -249,6 +249,43 @@ fn gt_rejects_non_numeric_values_and_missing_capture_references() {
 }
 
 #[test]
+fn gt_preserves_order_between_integer_and_float_representations() {
+    for (actual, expected, pass) in [
+        (
+            json!(9_007_199_254_740_993_u64),
+            json!(9_007_199_254_740_992_f64),
+            true,
+        ),
+        (
+            json!(9_007_199_254_740_992_f64),
+            json!(9_007_199_254_740_993_u64),
+            false,
+        ),
+        (
+            json!(u64::MAX),
+            json!(18_446_744_073_709_551_616_f64),
+            false,
+        ),
+        (json!(18_446_744_073_709_551_616_f64), json!(u64::MAX), true),
+        (json!(-3), json!(-3.5), true),
+        (json!(-3.5), json!(-3), false),
+        (json!(0), json!(-0.0), false),
+        (json!(7), json!(7.0), false),
+        (json!(1e100), json!(u64::MAX), true),
+        (json!(i64::MIN), json!(-1e100), true),
+    ] {
+        let s = scenario(json!([{"call":"echo","args":{"value":actual},
+            "expect":{"fields":[{"path":"value","gt":expected}]}}]));
+        let report = execute(&s, &mut Fixture::default());
+        assert_eq!(
+            report.pass, pass,
+            "{actual} > {expected}: {}",
+            report.detail
+        );
+    }
+}
+
+#[test]
 fn required_cleanup_failure_fails_but_all_cleanup_is_attempted() {
     let mut s = scenario(json!([{"call":"echo","args":{"ok":true},"expect":{"ok":true}}]));
     s.teardown = serde_json::from_value(json!([
