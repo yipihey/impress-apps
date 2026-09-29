@@ -24,7 +24,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [imbib-undo-service](imbib-undo-service.md) (3 verbs)
 - [impart-service](impart-service.md) (10 verbs)
 - [impel-service](impel-service.md) (11 verbs)
-- [implore-service](implore-service.md) (20 verbs)
+- [implore-service](implore-service.md) (21 verbs)
 - [impress-ai-service](impress-ai-service.md) (16 verbs)
 - [impress-bridges-service](impress-bridges-service.md) (18 verbs)
 - [impress-scenario-service](impress-scenario-service.md) (6 verbs)
