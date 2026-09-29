@@ -54,20 +54,38 @@ pub fn init_imbib_store(store_path: PathBuf) -> Result<(), String> {
         .map_err(|_| "imbib store already initialized".to_string())
 }
 
-/// Get (or auto-initialize) the shared `Arc<ImbibStore>`. On open failure
-/// falls back to an in-memory store so service methods don't panic — they'll
-/// just return empty results and log via stderr.
+/// The path the singleton opened, once it has initialized.
+pub fn opened_store_path() -> Option<PathBuf> {
+    STORE.get().map(|(_, path)| path.clone())
+}
+
+/// Get (or auto-initialize) the shared `Arc<ImbibStore>`. An explicit
+/// `IMBIB_STORE_PATH` that fails to open is fatal: falling back to
+/// `:memory:` makes a scratch-store example look like an empty import.
+/// The default app-group path may still fall back so a headless process
+/// without that file can answer empty reads.
 pub fn store_instance() -> Arc<ImbibStore> {
     STORE
         .get_or_init(|| {
             let path = default_store_path();
-            let store = ImbibStore::open(path.to_string_lossy().into_owned()).unwrap_or_else(|e| {
-                eprintln!(
-                    "[imbib-service] failed to open store at {}: {e}",
-                    path.display()
-                );
-                ImbibStore::open(":memory:".to_string()).expect("in-memory ImbibStore always opens")
-            });
+            let explicit = std::env::var_os("IMBIB_STORE_PATH").is_some();
+            let store = match ImbibStore::open(path.to_string_lossy().into_owned()) {
+                Ok(store) => store,
+                Err(error) if explicit => {
+                    panic!(
+                        "[imbib-service] IMBIB_STORE_PATH {} failed to open: {error}",
+                        path.display()
+                    );
+                }
+                Err(error) => {
+                    eprintln!(
+                        "[imbib-service] failed to open store at {}: {error}",
+                        path.display()
+                    );
+                    ImbibStore::open(":memory:".to_string())
+                        .expect("in-memory ImbibStore always opens")
+                }
+            };
             (store, path)
         })
         .0

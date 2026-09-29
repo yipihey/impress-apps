@@ -2406,3 +2406,13 @@ Merged verified main `16a0b7cc`; only appended session-log entries differed. The
 ### 2026-09-29 — Wave 11 final integration and handoff
 
 P5c1–18 and P5c20–24 are merged as PRs #148–170. P5c19 is the audit-only entry above. On merged main `2d4bf63f`, the isolated full native workspace suite exited zero: 4,516 passed, zero failed, 26 ignored across 223 result groups (`/tmp/impress-wave11-main-workspace-final.log`, owned workspace `/tmp/impress-cargo-tests.q54SgF/workspace`). The documentation-only handoff passed 44 capability tests, zero failed/three ignored, and all eleven quick gates (`/tmp/impress-wave11-handoff-{capabilities,gates}.log`). Final supported frameworks were published to main via twenty APFS clones from P5c24. `docs/next-steps-after-wave-11.md` records package/native evidence, fixes, intentional later scope and operating rules. No implementation or verification work remains for this approved P5c batch.
+
+- 2026-09-29 — **Wave 11 later store contracts.** Generated
+  `imbib-library-service_update-library-members`, assignment create/list/delete,
+  `list-library-activity`, and `imbib-tags-service_formatted-tag-tree`. HTTP
+  registrations stay until a hosted proof. A cite-key duplicate import now
+  records `existing_ids` instead of an all-zero summary, and an explicit
+  `IMBIB_STORE_PATH` that fails to open no longer falls back to `:memory:`.
+  The example scratch binds that path before verbs run. Live editor queues,
+  citation caret insertion, implore binary routes, sharing stubs, scenario
+  class iii/iv cases, and D-R13 chord overrides remain platform work.

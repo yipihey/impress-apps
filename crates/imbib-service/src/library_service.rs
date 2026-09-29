@@ -150,6 +150,62 @@ pub struct CollectionMembershipResult {
     pub not_found: Vec<String>,
 }
 
+/// One paper assignment. `library_id` is the publication's owning library.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AssignmentRecord {
+    pub id: String,
+    pub publication_id: String,
+    pub library_id: Option<String>,
+    pub assignee_name: String,
+    pub assigned_by_name: Option<String>,
+    pub note: Option<String>,
+    pub date_created: i64,
+    pub due_date: Option<i64>,
+}
+
+impl From<imbib_core::unified::shaped_queries::AssignmentRow> for AssignmentRecord {
+    fn from(row: imbib_core::unified::shaped_queries::AssignmentRow) -> Self {
+        Self {
+            id: row.id,
+            publication_id: row.publication_id,
+            library_id: row.library_id,
+            assignee_name: row.assignee_name,
+            assigned_by_name: row.assigned_by_name,
+            note: row.note,
+            date_created: row.date_created,
+            due_date: row.due_date,
+        }
+    }
+}
+
+/// One library activity-log row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LibraryActivityRecord {
+    pub id: String,
+    pub library_id: String,
+    pub activity_type: String,
+    pub date: i64,
+    pub actor_display_name: Option<String>,
+    pub target_title: Option<String>,
+    pub target_id: Option<String>,
+    pub detail: Option<String>,
+}
+
+impl From<&imbib_core::unified::shaped_queries::ActivityRecordRow> for LibraryActivityRecord {
+    fn from(row: &imbib_core::unified::shaped_queries::ActivityRecordRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            library_id: row.library_id.clone(),
+            activity_type: row.activity_type.clone(),
+            date: row.date,
+            actor_display_name: row.actor_display_name.clone(),
+            target_title: row.target_title.clone(),
+            target_id: row.target_id.clone(),
+            detail: row.detail.clone(),
+        }
+    }
+}
+
 /// What `retention_cleanup` removed, per source (plan W3 / D-R10). Each
 /// count is papers or searches actually removed; a `0` for a source that
 /// found nothing to remove is not distinguishable from a source that was
@@ -612,6 +668,66 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         identifiers: Vec<String>,
         action: String,
     ) -> CollectionMembershipResult;
+    /// Move existing papers into a library by the same local identifiers the
+    /// retained `POST /api/libraries/add-papers` route accepts. Results keep
+    /// input order in `assigned` and `not_found`.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/tag-definition"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "file-into-library",
+        args = r#"{"library_id":"5c000000-0000-4000-8000-0000000000d1","identifiers":["G3LibraryMember2026","missing-G3-lib"]}"#,
+        expect = r#"{"assigned":["G3LibraryMember2026"],"not_found":["missing-G3-lib"]}"#
+    )]
+    async fn update_library_members(
+        &self,
+        library_id: String,
+        identifiers: Vec<String>,
+    ) -> CollectionMembershipResult;
+    /// List assignments for one publication, one library, or the whole store.
+    #[impress_method(safety = read_only, effects(reads = ["imbib/assignment", "imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "library-assignments",
+        args = r#"{"publication_id":null,"library_id":"5c000000-0000-4000-8000-0000000000d3"}"#
+    )]
+    async fn list_assignments(
+        &self,
+        publication_id: Option<String>,
+        library_id: Option<String>,
+    ) -> Vec<AssignmentRecord>;
+    /// Create an assignment on an existing publication.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/assignment", "imbib/tag-definition", "imbib/eink-device"], writes = ["imbib/assignment"]))]
+    #[impress_example(
+        name = "assign-paper",
+        args = r#"{"publication_id":"5c000000-0000-4000-8000-0000000000d5","assignee_name":"G3 assignee","assigned_by_name":"G3 assigner","note":"read this","due_date":null,"library_id":"5c000000-0000-4000-8000-0000000000d4"}"#
+    )]
+    async fn create_assignment(
+        &self,
+        publication_id: String,
+        assignee_name: String,
+        assigned_by_name: Option<String>,
+        note: Option<String>,
+        due_date: Option<i64>,
+        library_id: Option<String>,
+    ) -> Option<AssignmentRecord>;
+    /// Delete one assignment row.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/assignment"], writes = ["imbib/assignment"]))]
+    #[impress_example(
+        name = "drop-assignment",
+        args = r#"{"assignment_id":"5c000000-0000-4000-8000-0000000000d7"}"#,
+        expect = "true"
+    )]
+    async fn delete_assignment(&self, assignment_id: String) -> bool;
+    /// List a library's activity log, newest first.
+    #[impress_method(safety = read_only, effects(reads = ["imbib/activity-record"]))]
+    #[impress_example(
+        name = "library-activity",
+        args = r#"{"library_id":"5c000000-0000-4000-8000-0000000000d8","limit":10,"offset":0}"#
+    )]
+    async fn list_library_activity(
+        &self,
+        library_id: String,
+        limit: u32,
+        offset: u32,
+    ) -> Vec<LibraryActivityRecord>;
     /// List all papers in a specific collection.
     #[impress_method(effects(reads = ["imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"]))]
     #[impress_example(
@@ -1072,6 +1188,17 @@ impl DefaultImbibLibraryService {
     ) -> Result<LibraryRecord, imbib_core::unified::store_api::StoreApiError> {
         let collection_count = self.store.list_collections(row.id.clone())?.len();
         Ok(LibraryRecord::from_row(row, collection_count))
+    }
+
+    fn library_exists(
+        &self,
+        library_id: &str,
+    ) -> Result<bool, imbib_core::unified::store_api::StoreApiError> {
+        Ok(self
+            .store
+            .list_libraries()?
+            .iter()
+            .any(|library| library.id == library_id))
     }
 
     fn collection_exists(
@@ -1643,6 +1770,279 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         }
         result
     }
+    async fn update_library_members(
+        &self,
+        library_id: String,
+        identifiers: Vec<String>,
+    ) -> CollectionMembershipResult {
+        let Ok(library_uuid) = uuid::Uuid::parse_str(&library_id) else {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "library_id must be a UUID",
+            );
+            return CollectionMembershipResult::default();
+        };
+        if identifiers.is_empty() {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "identifiers must contain at least one value",
+            );
+            return CollectionMembershipResult::default();
+        }
+        let library_id = library_uuid.to_string();
+        match self.library_exists(&library_id) {
+            Ok(true) => {}
+            Ok(false) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Library not found: {library_id}"),
+                );
+                return CollectionMembershipResult::default();
+            }
+            Err(error) => {
+                log("update_library_members.validate_library", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::INTERNAL,
+                    "Unable to validate library",
+                );
+                return CollectionMembershipResult::default();
+            }
+        }
+        let mut resolved = Vec::new();
+        let mut result = CollectionMembershipResult::default();
+        for identifier in identifiers
+            .iter()
+            .map(|value| LocalPaperIdentifier::parse(value))
+        {
+            match self.publication_id_for_local_identifier(&identifier) {
+                Ok(Some(publication_id)) => {
+                    resolved.push(publication_id);
+                    result.assigned.push(identifier.value().to_string());
+                }
+                Ok(None) => result.not_found.push(identifier.value().to_string()),
+                Err(error) => {
+                    log("update_library_members.resolve_identifier", &error);
+                    report_refusal(
+                        impress_service_core::refusal::codes::INTERNAL,
+                        "Unable to resolve local publication identifier",
+                    );
+                    return CollectionMembershipResult::default();
+                }
+            }
+        }
+        if resolved.is_empty() {
+            return result;
+        }
+        if let Err(error) = self.store.move_publications(resolved, library_id) {
+            log("update_library_members.move", &error);
+            report_refusal(
+                impress_service_core::refusal::codes::VERB_FAILED,
+                "Library membership update failed",
+            );
+            return CollectionMembershipResult::default();
+        }
+        result
+    }
+    async fn list_assignments(
+        &self,
+        publication_id: Option<String>,
+        library_id: Option<String>,
+    ) -> Vec<AssignmentRecord> {
+        let publication_filter = match publication_id.as_deref().filter(|value| !value.is_empty()) {
+            Some(value) => match uuid::Uuid::parse_str(value) {
+                Ok(id) => Some(id.to_string()),
+                Err(_) => {
+                    report_refusal(
+                        impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                        "publication_id must be a UUID",
+                    );
+                    return Vec::new();
+                }
+            },
+            None => None,
+        };
+        let library_filter = match library_id.as_deref().filter(|value| !value.is_empty()) {
+            Some(value) => match uuid::Uuid::parse_str(value) {
+                Ok(id) => Some(id.to_string()),
+                Err(_) => {
+                    report_refusal(
+                        impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                        "library_id must be a UUID",
+                    );
+                    return Vec::new();
+                }
+            },
+            None => None,
+        };
+        match self.store.list_assignments(publication_filter) {
+            Ok(rows) => rows
+                .into_iter()
+                .filter(|row| {
+                    library_filter
+                        .as_ref()
+                        .is_none_or(|library| row.library_id.as_ref() == Some(library))
+                })
+                .map(AssignmentRecord::from)
+                .collect(),
+            Err(error) => {
+                log("list_assignments", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    "Unable to list assignments",
+                );
+                Vec::new()
+            }
+        }
+    }
+    async fn create_assignment(
+        &self,
+        publication_id: String,
+        assignee_name: String,
+        assigned_by_name: Option<String>,
+        note: Option<String>,
+        due_date: Option<i64>,
+        library_id: Option<String>,
+    ) -> Option<AssignmentRecord> {
+        let Ok(publication_uuid) = uuid::Uuid::parse_str(&publication_id) else {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "publication_id must be a UUID",
+            );
+            return None;
+        };
+        if assignee_name.trim().is_empty() {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "assignee_name must not be empty",
+            );
+            return None;
+        }
+        let library_filter = match library_id.as_deref().filter(|value| !value.is_empty()) {
+            Some(value) => match uuid::Uuid::parse_str(value) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    report_refusal(
+                        impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                        "library_id must be a UUID",
+                    );
+                    return None;
+                }
+            },
+            None => None,
+        };
+        match self.store.get_publication(publication_uuid.to_string()) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Publication not found: {publication_uuid}"),
+                );
+                return None;
+            }
+            Err(error) => {
+                log("create_assignment.publication", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::INTERNAL,
+                    "Unable to load publication",
+                );
+                return None;
+            }
+        }
+        if let Some(expected) = library_filter {
+            match self.store.publication_parent(&publication_uuid.to_string()) {
+                Ok(Some(parent)) if uuid::Uuid::parse_str(&parent).ok() == Some(expected) => {}
+                Ok(_) => {
+                    report_refusal(
+                        impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                        "publication is not in library_id",
+                    );
+                    return None;
+                }
+                Err(error) => {
+                    log("create_assignment.library", &error);
+                    report_refusal(
+                        impress_service_core::refusal::codes::INTERNAL,
+                        "Unable to resolve publication library",
+                    );
+                    return None;
+                }
+            }
+        }
+        match self.store.create_assignment(
+            publication_uuid.to_string(),
+            assignee_name,
+            assigned_by_name,
+            note,
+            due_date,
+        ) {
+            Ok(row) => Some(AssignmentRecord::from(row)),
+            Err(error) => {
+                log("create_assignment", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    "Unable to create assignment",
+                );
+                None
+            }
+        }
+    }
+    async fn delete_assignment(&self, assignment_id: String) -> bool {
+        match self.store.delete_assignment(assignment_id) {
+            Ok(true) => true,
+            Ok(false) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    "Assignment not found",
+                );
+                false
+            }
+            Err(imbib_core::unified::store_api::StoreApiError::InvalidInput(message)) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                    message,
+                );
+                false
+            }
+            Err(error) => {
+                log("delete_assignment", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    "Unable to delete assignment",
+                );
+                false
+            }
+        }
+    }
+    async fn list_library_activity(
+        &self,
+        library_id: String,
+        limit: u32,
+        offset: u32,
+    ) -> Vec<LibraryActivityRecord> {
+        let Ok(library_uuid) = uuid::Uuid::parse_str(&library_id) else {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "library_id must be a UUID",
+            );
+            return Vec::new();
+        };
+        let limit = if limit == 0 { None } else { Some(limit) };
+        let offset = if offset == 0 { None } else { Some(offset) };
+        match self
+            .store
+            .list_activity_records(library_uuid.to_string(), limit, offset)
+        {
+            Ok(rows) => rows.iter().map(LibraryActivityRecord::from).collect(),
+            Err(error) => {
+                log("list_library_activity", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    "Unable to list library activity",
+                );
+                Vec::new()
+            }
+        }
+    }
     async fn list_collection_members(
         &self,
         collection_id: String,
@@ -2074,7 +2474,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                 failed_count: r.failed_count,
             },
             Err(e) => {
-                log("import_papers", e);
+                log("import_papers", &e);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    format!("import_papers: {e}"),
+                );
                 ImportSummary {
                     imported_ids: vec![],
                     existing_ids: vec![],
@@ -2588,6 +2992,44 @@ impress_service_impl! {
             /// Add memberships or remove them (`add` or `remove`).
             action: String
         ) -> CollectionMembershipResult,
+        update_library_members(
+            /// UUID of the library receiving the papers.
+            library_id: String,
+            /// Existing local cite keys, identifiers, or publication UUIDs.
+            identifiers: Vec<String>
+        ) -> CollectionMembershipResult,
+        list_assignments(
+            /// Publication UUID, or null to search more widely.
+            publication_id: Option<String>,
+            /// Library UUID, or null to skip the library filter.
+            library_id: Option<String>
+        ) -> Vec<AssignmentRecord>,
+        create_assignment(
+            /// UUID of the publication being assigned.
+            publication_id: String,
+            /// Person the paper is assigned to.
+            assignee_name: String,
+            /// Person who made the assignment, when known.
+            assigned_by_name: Option<String>,
+            /// Optional note.
+            note: Option<String>,
+            /// Optional due date, milliseconds since the Unix epoch.
+            due_date: Option<i64>,
+            /// Optional owning library; when set it must match the publication.
+            library_id: Option<String>
+        ) -> Option<AssignmentRecord>,
+        delete_assignment(
+            /// UUID of the assignment to delete.
+            assignment_id: String
+        ) -> bool,
+        list_library_activity(
+            /// UUID of the library whose activity log is listed.
+            library_id: String,
+            /// Maximum rows; 0 means no limit.
+            limit: u32,
+            /// Rows to skip; 0 means the newest page.
+            offset: u32
+        ) -> Vec<LibraryActivityRecord>,
         list_collection_members(
             /// UUID of the collection to inspect.
             collection_id: String,
@@ -2917,6 +3359,106 @@ mod tests {
             .list_collection_members(collection.id, "title".into(), true, None, None)
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn library_members_assignments_and_activity_match_the_retained_routes() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let source = store.create_library("Source library".into()).unwrap();
+        let destination = store.create_library("Destination library".into()).unwrap();
+        let publication_id = store
+            .import_bibtex(
+                "@article{LibraryMember2026, title={Library member}, doi={10.1234/library-member}}"
+                    .into(),
+                source.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let moved = service
+            .update_library_members(
+                destination.id.clone(),
+                vec![
+                    " LibraryMember2026 ".into(),
+                    "doi:10.1234/library-member".into(),
+                    publication_id.to_ascii_uppercase(),
+                    "missing-library-key".into(),
+                ],
+            )
+            .await;
+        assert_eq!(
+            moved.assigned,
+            vec![
+                "LibraryMember2026".to_string(),
+                "10.1234/library-member".to_string(),
+                publication_id.to_ascii_uppercase(),
+            ]
+        );
+        assert_eq!(moved.not_found, vec!["missing-library-key".to_string()]);
+        let row = store
+            .get_publication(publication_id.clone())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            store
+                .publication_parent(&publication_id)
+                .unwrap()
+                .as_deref(),
+            Some(destination.id.as_str())
+        );
+        assert_eq!(row.cite_key, "LibraryMember2026");
+
+        let created = service
+            .create_assignment(
+                publication_id.clone(),
+                "Ada".into(),
+                Some("Grace".into()),
+                Some("review".into()),
+                Some(1_700_000_000_000),
+                Some(destination.id.clone()),
+            )
+            .await
+            .expect("assignment created");
+        assert_eq!(created.assignee_name, "Ada");
+        assert_eq!(created.library_id.as_deref(), Some(destination.id.as_str()));
+        let listed = service
+            .list_assignments(None, Some(destination.id.clone()))
+            .await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, created.id);
+        assert!(service
+            .create_assignment(
+                publication_id.clone(),
+                "Ada".into(),
+                None,
+                None,
+                None,
+                Some(source.id.clone()),
+            )
+            .await
+            .is_none());
+        assert!(service.delete_assignment(created.id.clone()).await);
+        assert!(service
+            .list_assignments(Some(publication_id), None)
+            .await
+            .is_empty());
+
+        let activity = store
+            .create_activity_record(
+                destination.id.clone(),
+                "added".into(),
+                Some("Ada".into()),
+                Some("Library member".into()),
+                None,
+                Some("filed".into()),
+            )
+            .unwrap();
+        let feed = service.list_library_activity(destination.id, 10, 0).await;
+        assert_eq!(feed.len(), 1);
+        assert_eq!(feed[0].id, activity.id);
+        assert_eq!(feed[0].activity_type, "added");
+        assert_eq!(feed[0].detail.as_deref(), Some("filed"));
     }
 
     #[tokio::test]

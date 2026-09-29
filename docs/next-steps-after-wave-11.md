@@ -43,21 +43,34 @@ On main `2d4bf63f5c3a9d72d8f8105021edb99afc6cd998`, `cargo test --workspace --fe
 
 The documentation-only handoff also passed 44 capability tests (zero failed, three ignored) and every quick gate, using the isolated wrapper and `.claude/target-p7-schema`. Evidence: `/tmp/impress-wave11-handoff-capabilities.log`, `/tmp/impress-wave11-handoff-gates.log` and per-stage logs. Main has twenty coherent framework bundles cloned from the final P5c24 cohort; prior bundles remain in ignored backups. The final handoff changes only documentation, so the tested production source is unchanged.
 
-## Intentional later scope
+## Store contracts added after the handoff
 
-The P5c proposal retains platform contracts whose queue, live-editor or binary semantics differ from the generated store verbs:
+These generated verbs cover the retained imbib store behavior. Their HTTP registrations stay until a hosted proof pairs the old envelopes with the verb results.
 
-- Imprint queued document operations, caret-sensitive citation insertion and live-editor operations.
-- Impart queued conversation writes and reserved-ID acknowledgments.
-- Implore ray-grid viewer and raw SVG/render routes.
-- Imbib's nested tag tree, library add-papers, tag mutations, sharing/activity/assignment and collaboration routes.
+| Verb | Retained HTTP behavior it matches |
+| --- | --- |
+| `imbib-library-service_update-library-members` | `POST /api/libraries/add-papers`: ordered local identifier resolution and `assigned` / `not_found` |
+| `imbib-library-service_list-assignments`, `_create-assignment`, `_delete-assignment` | Library and paper assignment routes. `library_id` is the publication's owning library. |
+| `imbib-library-service_list-library-activity` | `GET /api/libraries/{id}/activity`. This is the library log, distinct from `imbib-app-service_recent-activity`. |
+| `imbib-tags-service_formatted-tag-tree` | `GET /api/tags/tree`: the indented `tagTree()` text, `(no tags)` when empty |
+
+`import-fetched-record` still requires one imported id. A cite-key duplicate is now an `existing_ids` hit instead of an all-zero summary, and `import_papers` refuses when the store returns an error. An explicit `IMBIB_STORE_PATH` that fails to open does not fall back to `:memory:`. The example scratch binds that path before any imbib verb runs.
+
+## Still platform-owned
+
+These stay as they are. The plans keep them out of generated store verbs:
+
+- Imprint queued document operations and caret-sensitive citation insertion. The HTTP queue has no consumer, and the generated edit verbs commit through the live editor.
+- Impart queued conversation writes and reserved-ID acknowledgments. `popOperation` has no caller, and archive/participants/tags are not on the synchronous verbs.
+- Implore ray-grid viewer and raw SVG/render routes. Verb results are strings; the HTTP routes return bytes.
+- Imbib sharing and participant routes. They answer 410/400 because CloudKit is gone.
 - App diagnostics and the remaining app-only account/mailbox/message, compile, e-ink, hardware and viewer operations listed in the proposal.
 
-Four scenario cases intentionally remain in code: manuscript history, WAL health, PDF-pane reading and the Reading preset. Reachability and restoration remain runner gate/finally logic. R3 command-palette overrides are D-R13's later work; appearance/modal editing and app-specific LaTeX/export/AI preferences retain their existing owners. This batch does not claim those migrations.
+Four scenario cases intentionally remain in code: manuscript history, WAL health, PDF-pane reading and the Reading preset. Reachability and restoration remain runner gate/finally logic. R3 command-palette overrides are D-R13's later work; appearance/modal editing and app-specific LaTeX/export/AI preferences retain their existing owners.
 
 ## Known intermittent test and session setup
 
-The `imbib-library-service_import-papers` example `import-fetched-record` previously produced an all-zero import summary intermittently. No ordering/concurrency cause was established. Preserve the assertion and diagnostic; do not add an exception or mark the effect unverified to obtain a green gate. Wave 10 records the earlier reproductions and focused passes.
+The `imbib-library-service_import-papers` example `import-fetched-record` previously produced an all-zero import summary intermittently. Preserve the assertion and diagnostic; do not add an exception or mark the effect unverified to obtain a green gate. Wave 10 records the earlier reproductions and focused passes. The empty summary was also what a swallowed store error and a silent cite-key duplicate both looked like; those two paths now refuse or report `existing_ids`.
 
 Use one worktree per package and unset the initial upstream. Coordinate Cargo caches serially with `CARGO_INCREMENTAL=0`: `.claude/target-p7-consumer` for tests, `.claude/target-p7-schema` for gates/docs, `.claude/target-p5b-native` for archives. `/tmp/impress-cargo-test-isolated.sh` supplies owned scratch store/workspace/device/cache paths. Regenerate verb tables from capability dump tests and pages from `gen-verb-docs`; never hand-edit either.
 

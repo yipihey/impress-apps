@@ -161,10 +161,12 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_count-publications` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_count-starred` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_count-unread` | "imbib/bibliography-entry" | — | — | example ×2 |
+| `imbib-library-service_create-assignment` | "imbib/bibliography-entry", "imbib/assignment", "imbib/tag-definition", "imbib/eink-device" | "imbib/assignment" | — | example ×1 |
 | `imbib-library-service_create-collection` | "imbib/library" | "imbib/collection" | — | example ×1 |
 | `imbib-library-service_create-library` | "imbib/library", "imbib/collection" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_create-muted-item` | "imbib/muted-item" | "imbib/muted-item" | — | example ×1 |
 | `imbib-library-service_deduplicate-library` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-library-service_delete-assignment` | "imbib/assignment" | "imbib/assignment" | — | example ×1 |
 | `imbib-library-service_delete-libraries` | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), fs | — |
 | `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), fs | — |
 | `imbib-library-service_delete-publications-undoable` | "imbib/bibliography-entry", any("undo snapshots query all children of each publication, regardless of kind") | "imbib/bibliography-entry" | — | example ×1 |
@@ -182,10 +184,12 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_import-identifiers` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), network, fs | — |
 | `imbib-library-service_import-papers` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_is-paper-dismissed` | "imbib/dismissed-paper" | — | — | example ×2 |
+| `imbib-library-service_list-assignments` | "imbib/assignment", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_list-collections` | "imbib/collection", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_list-dismissed-papers` | "imbib/dismissed-paper" | — | — | example ×1 |
 | `imbib-library-service_list-libraries` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
+| `imbib-library-service_list-library-activity` | "imbib/activity-record" | — | — | example ×1 |
 | `imbib-library-service_list-linked-files` | "imbib/linked-file" | — | — | example ×1 |
 | `imbib-library-service_list-muted-items` | "imbib/muted-item" | — | — | example ×2 |
 | `imbib-library-service_list-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
@@ -204,6 +208,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_set-starred` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_sidebar-view` | "imbib/library", "imbib/bibliography-entry", "imbib/smart-search", "imbib/collection", prefix("impress/artifact/") | — | — | example ×2 |
 | `imbib-library-service_update-collection-members` | "imbib/collection", "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition" | "imbib/collection" | — | example ×1 |
+| `imbib-library-service_update-library-members` | "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-manuscripts-service_compile-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript-from-template` | — | — | app("imbib") | — |
@@ -235,6 +240,7 @@ catalogue, 300 on the exception table.
 | `imbib-tags-service_count-by-tag` | "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
 | `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-tags-service_formatted-tag-tree` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_list-tags` | "imbib/tag-definition" | — | — | example ×1 |
 | `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |

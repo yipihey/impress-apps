@@ -1463,7 +1463,12 @@ impl ImbibStore {
                         }
                         // Per-item dedup (checks cite key + arXiv version variants)
                         match self.is_duplicate_in_library(&publication, parent_uuid) {
-                            Ok(true) => {} // skip duplicate
+                            Ok(true) => match self
+                                .find_existing_publication(&publication, Some(parent_uuid))
+                            {
+                                Ok(Some(id)) => existing_ids.push(id.to_string()),
+                                Ok(None) | Err(_) => failed_count += 1,
+                            },
                             Ok(false) => {
                                 items_to_insert.push(conversion::publication_to_item(
                                     &publication,
@@ -3593,7 +3598,7 @@ impl ImbibStore {
             due_date,
         );
         self.store.insert(item.clone())?;
-        Ok(item_to_assignment_row(&item))
+        self.with_assignment_library(item_to_assignment_row(&item))
     }
 
     pub fn list_assignments(
@@ -3615,7 +3620,11 @@ impl ImbibStore {
             ..Default::default()
         };
         let items = self.store.query(&q)?;
-        Ok(items.iter().map(item_to_assignment_row).collect())
+        items
+            .iter()
+            .map(item_to_assignment_row)
+            .map(|row| self.with_assignment_library(row))
+            .collect()
     }
 
     // --- Activity record operations ---
@@ -4805,6 +4814,46 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Delete one assignment row. `Ok(false)` means no such row.
+    ///
+    /// Not a UniFFI export: the app deletes through `deleteItem`, and the
+    /// service verb is the agent contract.
+    pub fn delete_assignment(&self, id: String) -> Result<bool, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            None => Ok(false),
+            Some(item) if item.schema != impress_core::schema::refs::IMBIB_ASSIGNMENT => Err(
+                StoreApiError::InvalidInput(format!("{id} is not an assignment")),
+            ),
+            Some(_) => {
+                self.store.delete(uuid)?;
+                Ok(true)
+            }
+        }
+    }
+
+    /// The parent id of a store row, used to hydrate an assignment's library.
+    pub fn publication_parent(
+        &self,
+        publication_id: &str,
+    ) -> Result<Option<String>, StoreApiError> {
+        let uuid = parse_uuid(publication_id)?;
+        Ok(self
+            .store
+            .get(uuid)?
+            .and_then(|item| item.parent.map(|parent| parent.to_string())))
+    }
+
+    fn with_assignment_library(
+        &self,
+        mut row: AssignmentRow,
+    ) -> Result<AssignmentRow, StoreApiError> {
+        if !row.publication_id.is_empty() {
+            row.library_id = self.publication_parent(&row.publication_id)?;
+        }
+        Ok(row)
+    }
+
     /// Give one entry the `Bdsk-File-*` fields its attachments imply
     /// (ADR-0023 W5).
     ///
@@ -8140,6 +8189,33 @@ mod tests {
         // which only sees pre-existing rows. For search results this is acceptable because
         // the Swift-side deduplication service already handles cross-result dedup.
         assert!(!result.imported_ids.is_empty());
+    }
+
+    #[test]
+    fn batch_import_records_an_existing_cite_key_instead_of_an_empty_summary() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        store
+            .import_bibtex(
+                r#"@article{Kept2026, title={Already here}}"#.into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        let result = store
+            .batch_import_search_results(
+                vec![SearchResultInput {
+                    bibtex: r#"@article{Kept2026, title={Already here}}"#.into(),
+                    doi: None,
+                    arxiv_id: None,
+                    bibcode: None,
+                }],
+                lib.id,
+                false,
+            )
+            .unwrap();
+        assert_eq!(result.imported_ids.len(), 0);
+        assert_eq!(result.existing_ids.len(), 1);
+        assert_eq!(result.failed_count, 0);
     }
 
     #[test]

@@ -10,7 +10,7 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 
 | App | Retained route and caller | Difference from existing verbs |
 | --- | --- | --- |
-| imbib | `POST /api/libraries/add-papers` | The route resolves local cite-key/DOI identifiers and returns ordered per-item `assigned`/`notFound` outcomes. `add-to-library` accepts publication UUIDs and returns only a count; this route was outside the approved P5c24 retirement set. |
+| imbib | `POST /api/libraries/add-papers` | `imbib-library-service_update-library-members` now resolves the same local identifiers and returns ordered `assigned`/`not_found`. The HTTP arm stays until a hosted proof shows envelope parity; `add-to-library` still returns only a count. |
 | imprint | `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | No verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
 | imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers acknowledge queued editor operations and return an `operationId`. `/update` also accepts full source, and `/replace` supports replacing only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. Keep them pending the caller and contract decision. |
 | implore | `GET /api/rg/slice/png`, `/api/rg/cascade_plot`, `/api/plot/svg`, and `/api/plot/histogram` | These routes accept viewer query/body options or return raw image/SVG data. A string result does not preserve binary HTTP response behavior. |
@@ -46,9 +46,13 @@ the corresponding HTTP `if` arm is removed.
 
 Imbib's migrated publication, citation, library/collection, flat-tag, and RIS
 routes are retired after their generated contracts and hosted consumer mappings
-were established. `/api/tags/tree` remains because it is a separate formatted
-hierarchy. Other unlisted library and tag routes (including sharing, activity,
-assignments, tag mutation, and library-add) retain their independent behavior.
+were established. `imbib-tags-service_formatted-tag-tree` reproduces the
+indented `tagTree()` text, and library activity plus assignment create/list/delete
+are generated store verbs. Their HTTP registrations stay until a hosted proof
+pairs the old envelopes with those verbs. Sharing and participant routes still
+answer 410/400 because CloudKit is gone; they are not store verbs. Tag
+vocabulary mutation HTTP arms were already removed; the generated tag verbs
+remain the contract.
 The inventory above lists only routes still retained for distinct contracts;
 historical route-to-verb evidence remains in the dated pipeline log. Manuscript,
 e-ink, revisions, and shared status/log routes remain independent capabilities.

@@ -127,6 +127,57 @@ pub async fn prepare(
             paper(store, "7c", "7a", "G3Unfile2026", "G3 unfile paper", None)?;
             member(store, "7b", "7c")?;
         }
+        ("imbib-library-service_update-library-members", "file-into-library") => {
+            library(store, "d0", "G3 library member source", false, false)?;
+            library(store, "d1", "G3 library member destination", false, false)?;
+            paper(
+                store,
+                "d2",
+                "d0",
+                "G3LibraryMember2026",
+                "G3 library member paper",
+                None,
+            )?;
+        }
+        ("imbib-library-service_list-assignments", "library-assignments") => {
+            library(store, "d3", "G3 assignment library", false, false)?;
+            paper(
+                store,
+                "d6",
+                "d3",
+                "G3Assigned2026",
+                "G3 assigned paper",
+                None,
+            )?;
+            assignment(store, "da", "d6", "G3 listed assignee")?;
+        }
+        ("imbib-library-service_create-assignment", "assign-paper") => {
+            library(store, "d4", "G3 create assignment library", false, false)?;
+            paper(
+                store,
+                "d5",
+                "d4",
+                "G3CreateAssign2026",
+                "G3 create assignment paper",
+                None,
+            )?;
+        }
+        ("imbib-library-service_delete-assignment", "drop-assignment") => {
+            library(store, "de", "G3 delete assignment library", false, false)?;
+            paper(
+                store,
+                "df",
+                "de",
+                "G3DeleteAssign2026",
+                "G3 delete assignment paper",
+                None,
+            )?;
+            assignment(store, "d7", "df", "G3 deleted assignee")?;
+        }
+        ("imbib-library-service_list-library-activity", "library-activity") => {
+            library(store, "d8", "G3 activity library", false, false)?;
+            activity(store, "db", "d8", "imported")?;
+        }
         ("imbib-library-service_update-collection-members", "file-existing-paper") => {
             library(store, "c0", "G3 membership library", false, false)?;
             collection(store, "c1", "G3 membership collection", "c0")?;
@@ -492,6 +543,46 @@ fn collection(
     Ok(())
 }
 
+fn assignment(
+    store: &SqliteItemStore,
+    suffix: &str,
+    paper_suffix: &str,
+    assignee: &str,
+) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(
+        item_id,
+        refs::IMBIB_ASSIGNMENT.as_str(),
+        Some(uuid(paper_suffix)?),
+    );
+    item.payload
+        .insert("assignee_name".into(), ItemValue::String(assignee.into()));
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn activity(
+    store: &SqliteItemStore,
+    suffix: &str,
+    library_suffix: &str,
+    activity_type: &str,
+) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(
+        item_id,
+        refs::IMBIB_ACTIVITY_RECORD.as_str(),
+        Some(uuid(library_suffix)?),
+    );
+    item.payload.insert(
+        "activity_type".into(),
+        ItemValue::String(activity_type.into()),
+    );
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn paper(
     store: &SqliteItemStore,
     suffix: &str,
@@ -717,6 +808,33 @@ pub fn verify(
         }
         ("imbib-library-service_remove-from-collection", "unfile-paper") => {
             require_unfiled(store, "7b", "7c")?;
+        }
+        ("imbib-library-service_update-library-members", "file-into-library") => {
+            let row = load(store, &id("d2"))?.ok_or("moved paper disappeared")?;
+            if row.parent != Some(uuid("d1")?) {
+                return Err("paper was not moved into the destination library".into());
+            }
+        }
+        ("imbib-library-service_list-assignments", "library-assignments") => {
+            require_row(result, &id("da"))?;
+        }
+        ("imbib-library-service_create-assignment", "assign-paper") => {
+            let created = result["id"].as_str().ok_or("assignment id missing")?;
+            let row = load(store, created)?.ok_or("assignment was not persisted")?;
+            if row.parent != Some(uuid("d5")?)
+                || row.payload.get("assignee_name")
+                    != Some(&ItemValue::String("G3 assignee".into()))
+            {
+                return Err("assignment was not stored on the publication".into());
+            }
+        }
+        ("imbib-library-service_delete-assignment", "drop-assignment") => {
+            if load(store, &id("d7"))?.is_some() {
+                return Err("assignment row was not deleted".into());
+            }
+        }
+        ("imbib-library-service_list-library-activity", "library-activity") => {
+            require_row(result, &id("db"))?;
         }
         ("imbib-library-service_update-collection-members", "file-existing-paper") => {
             let assigned = result["assigned"]
