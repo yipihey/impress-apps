@@ -49,13 +49,14 @@
 //!    which pane's parameter reads a channel. A stored scenario document
 //!    has no expressions or loops (ADR-0033 D3, by design), but its bounded
 //!    `select_one` and `fill_array` captures now cover the parent lookup and
-//!    even shares for `layout.version_moves`. The channel scan and outline
-//!    target still need different selection/click primitives:
-//!    `layout.channel_selection`, `layout.hidden_share` and
-//!    `layout.outline_collection_row` remain code. S2e converts `layout.console_pane`
-//!    using a role target, captured split result and a pre-mutation log cursor;
-//!    S2g adds prior-capture interpolation to a closed JSON capture path, which
-//!    also lets `layout.source_pane_session` follow captured tile ids.
+//!    even shares for `layout.version_moves`. S2i also converts
+//!    `layout.channel_selection` with a role lookup, a channel-param selector
+//!    and a capture of the resolved selection argument. `layout.hidden_share`
+//!    and `layout.outline_collection_row` remain code. S2e converts
+//!    `layout.console_pane` using a role target, captured split result and a
+//!    pre-mutation log cursor; S2g adds prior-capture interpolation to a closed
+//!    JSON capture path, which also lets `layout.source_pane_session` follow
+//!    captured tile ids.
 //! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
 //!    shape one level down: `first_row_of` is a live, filtered read of the
 //!    shared store (a read paper that already has its PDF) done in-process
@@ -113,6 +114,7 @@ const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pa
 const VERSION_MOVES_SCENARIO: &str = include_str!("../scenarios/layout.version_moves.json");
 const SOURCE_PANE_SESSION_SCENARIO: &str =
     include_str!("../scenarios/layout.source_pane_session.json");
+const CHANNEL_SELECTION_SCENARIO: &str = include_str!("../scenarios/layout.channel_selection.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -478,7 +480,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(scenario_caller::run_embedded(APPLY_PRESET_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(VERSION_MOVES_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(SAVED_ROUND_TRIP_SCENARIO, &mut scenario_caller).await);
-    out.push(channel_selection_capability(&http).await);
+    out.push(scenario_caller::run_embedded(CHANNEL_SELECTION_SCENARIO, &mut scenario_caller).await);
     out.push(
         scenario_caller::run_embedded(SURFACE_SHOW_AND_DISPATCH_SCENARIO, &mut scenario_caller)
             .await,
@@ -499,94 +501,6 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(restore_capability(&http, parked).await);
 
     out
-}
-
-/// 4. A selection published in the list pane reaches the info pane's channel.
-///
-/// The info pane declares an `item` parameter sourced from a channel
-/// (`ParamSource::Channel`); the tree's `channels` map is where a published
-/// selection lands. So the end-to-end assertion is: the detail pane's param
-/// reads channel N, and after a `select` on the list pane, channel N carries
-/// exactly the ids that were selected under the kind that was published. That
-/// is the whole path the pane's `single_item` resolves through, observed at
-/// the one point the tree actually exposes.
-async fn channel_selection_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[4];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let panes = panes(&tree)?;
-        let detail_pane = panes
-            .iter()
-            .find(|(t, _)| *t == detail)
-            .map(|(_, p)| *p)
-            .ok_or_else(|| format!("tile {detail} is not a pane"))?;
-
-        // Which channel does the detail pane's `item` parameter read?
-        let params = detail_pane
-            .get("params")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "the detail pane declares no params".to_string())?;
-        let (param_name, channel, kind) = params
-            .iter()
-            .find_map(|p| {
-                let source = p.get("source")?;
-                if source.get("source")?.as_str()? != "channel" {
-                    return None;
-                }
-                let channel = source.get("channel")?.get("number")?.as_u64()?;
-                let decl = p.get("decl")?;
-                Some((
-                    decl.get("name")?.as_str()?.to_string(),
-                    channel,
-                    decl.get("kind")?.as_str()?.to_string(),
-                ))
-            })
-            .ok_or_else(|| {
-                "the detail pane has no parameter sourced from a channel — this preset \
-                 cannot carry a selection from a list to an info pane"
-                    .to_string()
-            })?;
-
-        // Publish a selection from the list pane on that channel.
-        let list = tile_with_role(&tree, "list")?;
-        let selected = uuid::Uuid::new_v4().to_string();
-        http.verb(&json!({
-            "verb": "select",
-            "target": {"id": list},
-            "kind": kind,
-            "ids": [selected]
-        }))
-        .await?;
-
-        // …and read it back where the detail pane looks for it.
-        let after = http.tree().await?;
-        let carried = layout_of(&after)?
-            .get("channels")
-            .and_then(|c| c.get("channels").unwrap_or(c).get(channel.to_string()))
-            .and_then(|k| k.get(&kind))
-            .and_then(Value::as_array)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        if carried != vec![selected.clone()] {
-            return Err(format!(
-                "selected {selected} on tile {list}, but channel {channel}'s `{kind}` \
-                 carries {carried:?} — the detail pane's `{param_name}` would not follow"
-            ));
-        }
-
-        Ok(format!(
-            "tile {list} (list) published `{kind}` on channel {channel}; the detail pane \
-             (tile {detail}) reads `{param_name}` from that channel, which now carries {selected}"
-        ))
-    })
-    .await
 }
 
 /// 7. The outline sidebar (plan wave 6, W3).
@@ -1195,6 +1109,74 @@ mod tests {
         assert_eq!(scenario.id, "layout.source_pane_session");
         assert_eq!(scenario.description, CATALOGUE[9].1);
         assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn channel_selection_scenario_preserves_param_and_selected_id_contract() {
+        let scenario: impress_scenario::Scenario = serde_json::from_str(CHANNEL_SELECTION_SCENARIO)
+            .expect("channel selection scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[4].0);
+        assert_eq!(scenario.description, CATALOGUE[4].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        let Some(impress_scenario::Step::Call(apply)) = scenario.steps.first() else {
+            panic!("scenario starts by applying the default layout");
+        };
+        assert_eq!(apply.call, "layout-service_apply-layout");
+
+        let select = scenario
+            .steps
+            .iter()
+            .find_map(|step| match step {
+                impress_scenario::Step::Call(call) if call.call == "layout-service_select" => {
+                    Some(call)
+                }
+                _ => None,
+            })
+            .expect("scenario publishes a list selection");
+        assert_eq!(select.args["target"]["id"], "{{state.list.numeric_key}}");
+        assert_eq!(
+            select.args["kind"],
+            "{{state.channel_param.value.decl.kind}}"
+        );
+        assert_eq!(select.args["ids"][0], "{{uuid}}");
+        assert_eq!(
+            serde_json::to_value(&select.capture["selected_id"]).unwrap(),
+            json!({"argument": "$.ids.0"})
+        );
+        assert!(impress_service_core::call::find(&select.call).is_some());
+
+        let after = scenario
+            .steps
+            .iter()
+            .rev()
+            .find_map(|step| match step {
+                impress_scenario::Step::Call(call) if call.call == "layout-service_get-layout" => {
+                    Some(call)
+                }
+                _ => None,
+            })
+            .expect("scenario reads the tree after publishing");
+        assert!(after.expect.as_ref().is_some_and(|expect| {
+            expect.fields.iter().any(|field| {
+                field.path
+                    == "layout.channels.channels.{{state.channel_param.value.source.channel.number}}.{{state.channel_param.value.decl.kind}}"
+                    && matches!(
+                        &field.check,
+                        impress_scenario::Check::Equals(value)
+                            if value == &json!(["{{state.selected_id}}"])
+                    )
+            })
+        }));
+
         for step in scenario.steps.iter().chain(&scenario.teardown) {
             if let impress_scenario::Step::Call(call) = step {
                 assert!(
