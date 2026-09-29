@@ -2047,3 +2047,16 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c10-{tests,gates,frameworks,native-proof-final}.log`.
   The first native run exposed a fixture range inside an emoji's surrogate
   pair; the final fixture anchors the complete emoji at UTF-16 units 6..<8.
+
+- 2026-09-29 — **P5c14/P5c15 Rust verification.** P5c14 passed 90 touched Rust
+  tests (zero failures, three ignored) and every package gate. P5c15 passed 95
+  touched Rust tests (zero failures, three ignored), including the generated
+  library-deletion dispatch effects checks, and every package gate. The two
+  deletion verbs remain classified destructive; the documented reach ceiling
+  increases from 152 to 154 for the native file-cleanup operations, while the
+  headless Tier A examples cover unlink-only behavior. The owned hosted
+  `LibraryDeletionContractTests` fixture now exercises generated dispatch,
+  unlink-only preservation, single/batch file cleanup, duplicate IDs and
+  missing-row preflight; root's native execution is pending. Evidence:
+  `/tmp/impress-p5c14-touched-tests.log`, `/tmp/impress-p5c14-packages.log`,
+  `/tmp/impress-p5c15-touched-tests-all.log`, and `/tmp/impress-p5c15-*.log`.
