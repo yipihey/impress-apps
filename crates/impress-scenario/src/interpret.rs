@@ -1164,7 +1164,7 @@ mod tests {
             "tier": "b",
             "steps": [
                 {"call": "read-detail", "capture": {"detail": "$.detail"}},
-                {"wait": {"log": {"category": "layout", "contains": "{{state.detail.tile}}", "timeout_ms": 100}}, "when_present": "$.detail.tile"}
+                {"wait": {"log": {"category": "layout", "contains": "pane {{state.detail.tile}}", "timeout_ms": 100}}, "when_present": "$.detail.tile"}
             ]
         })).unwrap();
         for detail in [Value::Null, json!({})] {
@@ -1179,7 +1179,7 @@ mod tests {
         };
         let result = run(&scenario, &mut caller).await;
         assert!(!result.pass);
-        assert!(result.detail.contains("wait failed"));
+        assert!(result.detail.contains("wait failed"), "{}", result.detail);
         assert_eq!(caller.waits, 1);
     }
 }
