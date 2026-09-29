@@ -1624,3 +1624,23 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   not a claimed physical click. Reproduce with the checked-in
   `scripts/test-runtime-provider-native.py` and the example README.
   P8 contains merged main `9d7ee7a4`; normal pre-push, PR and merge remain next.
+
+## P5c1 — imprint document read contract (2026-09-29)
+
+The generated `imprint-manuscript-service_list-documents` and `get-document`
+results now project authors, status, word count, timestamps, and linked imbib
+IDs from the same manuscript rows as imprint's existing `/api/documents`
+routes. Missing fields in older serialized summaries retain safe defaults;
+list reads preserve the route's created-time fallback for modified time, while
+detail reads preserve its optional modified time. Missing or invalid formats
+use the same `impress_core` format detector that backs Swift's
+`DocumentFormat.detect`; the native decoder now accepts both whole-second and
+fractional RFC 3339 dates before the routes normalize them to whole-second UTC.
+The native verb backend already delegates these reads to the shared-store
+implementation, so it needs no separate metadata source.
+
+Focused Rust contract coverage checks list/detail projection, exact stored
+timestamps and links, body-derived word count, and legacy deserialization.
+The isolated hosted XCTest compares legacy HTTP list/detail metadata against
+the generated verb responses on its PID-owned scratch store. Tests and builds
+remain for the root verification pass; this worker made static edits only.
