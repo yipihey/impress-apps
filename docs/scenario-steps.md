@@ -128,6 +128,10 @@ not interpreted again, so surface templates inside that content remain literal.
 References must name an earlier capture; use the literal escape below when the
 expectation itself contains a surface template.
 
+`within` accepts a fixed JSON number or a whole capture reference resolving to
+a JSON number. The tolerance remains an ordinary numeric value; nonnumeric
+captured targets fail the expectation.
+
 Every teardown step is attempted even after an earlier failure. A failed
 teardown call or assertion fails the scenario; use `best_effort` explicitly
 when that operation may fail. A teardown refusal needs an `expect` assertion

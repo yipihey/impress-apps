@@ -319,6 +319,55 @@ fn gt_rejects_non_numeric_values_and_missing_capture_references() {
 }
 
 #[test]
+fn within_resolves_numeric_captures_and_rejects_outside_or_non_numeric_targets() {
+    let boundary = scenario(json!([
+        {"call":"echo","args":{"value":1.0},"capture":{"original_share":"$.value"}},
+        {"call":"echo","args":{"value":1.25},
+            "expect":{"fields":[{"path":"value","within":{"value":"{{state.original_share}}","tol":0.25}}]}}
+    ]));
+    let report = execute(&boundary, &mut Fixture::default());
+    assert!(
+        report.pass,
+        "captured value at tolerance boundary: {}",
+        report.detail
+    );
+
+    let outside = scenario(json!([
+        {"call":"echo","args":{"value":1.0},"capture":{"original_share":"$.value"}},
+        {"call":"echo","args":{"value":1.2501},
+            "expect":{"fields":[{"path":"value","within":{"value":"{{state.original_share}}","tol":0.25}}]}}
+    ]));
+    let report = execute(&outside, &mut Fixture::default());
+    assert!(
+        !report.pass,
+        "outside tolerance must fail: {}",
+        report.detail
+    );
+
+    let non_numeric = scenario(json!([
+        {"call":"echo","args":{"value":"not-a-number"},"capture":{"original_share":"$.value"}},
+        {"call":"echo","args":{"value":1.0},
+            "expect":{"fields":[{"path":"value","within":{"value":"{{state.original_share}}","tol":0.25}}]}}
+    ]));
+    let report = execute(&non_numeric, &mut Fixture::default());
+    assert!(
+        !report.pass,
+        "non-numeric captured target must fail: {}",
+        report.detail
+    );
+    assert!(report.detail.contains("within expects a JSON number"));
+
+    let literal = scenario(json!([{"call":"echo","args":{"value":1.25},
+        "expect":{"fields":[{"path":"value","within":{"value":1.0,"tol":0.25}}]}}]));
+    let report = execute(&literal, &mut Fixture::default());
+    assert!(
+        report.pass,
+        "fixed numeric expectations remain valid: {}",
+        report.detail
+    );
+}
+
+#[test]
 fn gt_preserves_order_between_integer_and_float_representations() {
     for (actual, expected, pass) in [
         (

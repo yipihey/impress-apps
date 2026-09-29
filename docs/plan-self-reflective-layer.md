@@ -3144,7 +3144,10 @@ per-scenario cleanup without evaluating expressions.
   uses the original capability's `1e-4` comparison tolerance. The old Rust
   capability and its tree-share reader were removed; the catalogue-wide saved
   layout restoration remains. Identity and call-inventory validation were
-  added; build/test verification remains with the parent task.
+  added. The interpreter now resolves a captured numeric target for `within`
+  while retaining the fixed-number form and rejecting nonnumeric values; the
+  share comparison keeps its original tolerance. Build/test verification
+  remains with the parent task.
 
 - 2026-09-28 — **S2j outline collection gesture stored.** The scenario delegates
   the live outline query and exact verb choice to the existing

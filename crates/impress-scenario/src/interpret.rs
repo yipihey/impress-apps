@@ -703,6 +703,9 @@ fn check_field(field: &FieldExpect, result: &Value) -> Result<(), String> {
             }
         }
         Check::Within { value: target, tol } => {
+            let target = target
+                .as_f64()
+                .ok_or_else(|| format!("{path}: within expects a JSON number, got {target}"))?;
             let n = value.and_then(Value::as_f64);
             if n.is_none_or(|n| (n - target).abs() > *tol) {
                 return Err(format!("{path}: expected {target} +/- {tol}, got {n:?}"));
