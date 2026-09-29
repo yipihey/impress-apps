@@ -23,10 +23,8 @@ private let httpLogger = Logger(subsystem: "com.imbib.app", category: "httpServe
 /// Runs on `127.0.0.1:<SiblingApp.imbib.httpPort>` (localhost only for security).
 /// Provides endpoints for:
 /// - `GET /api/status` - Server health and library stats
-/// - `GET /api/search?q=...` - Search library
-/// - `GET /api/papers/{citeKey}` - Get paper with BibTeX
-/// - `GET /api/export?keys=...` - Export BibTeX for cite keys
-/// - `GET /api/collections` - List collections
+/// - Generated `imbib-*` verbs provide paper search, detail, import and export
+///   through the shared native and agent-facing capability surface.
 ///
 /// Usage:
 /// ```swift

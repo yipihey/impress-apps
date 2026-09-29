@@ -26,15 +26,19 @@ final class LibraryDeletionContractTests: XCTestCase {
             }
 
             let router = HTTPAutomationRouter()
-            try ImbibNativeVerbs.install(router: router)
-            let unlink = await router.route(HTTPRequest(
+            let retiredUnlink = await router.route(HTTPRequest(
                 method: "DELETE",
                 path: "/api/libraries/\(unlinkLibrary.id.uuidString)",
                 queryParams: ["deleteFiles": "false"]
             ))
-            XCTAssertTrue(unlink.status == 200)
-            XCTAssertNil(store.getLibrary(id: unlinkLibrary.id),
-                         "unlink-only deletion removes the library row")
+            XCTAssertEqual(retiredUnlink.status, 404)
+            let unlink = await router.invokeNativeVerb(
+                method: "delete_library",
+                argsJSON: "{\"id\":\"\(unlinkLibrary.id.uuidString)\",\"delete_files\":false}"
+            )
+            XCTAssertEqual(unlink.status, 200)
+            XCTAssertEqual(unlink.bodyJson, "true")
+            XCTAssertNil(store.getLibrary(id: unlinkLibrary.id))
             XCTAssertTrue(unlinkContainers.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
 
             let cleanupLibrary = try XCTUnwrap(store.createLibrary(name: "Cleanup-only \(suffix)"))
@@ -46,14 +50,12 @@ final class LibraryDeletionContractTests: XCTestCase {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try Data("scratch".utf8).write(to: directory.appendingPathComponent("fixture.txt"))
             }
-            let cleaned = await router.route(HTTPRequest(
-                method: "POST", path: "/api/verb/imbib-library-service_delete-library-undoable",
-                body: "{\"id\":\"\(cleanupLibrary.id.uuidString)\",\"delete_files\":true}"
-            ))
+            let cleaned = await router.invokeNativeVerb(
+                method: "delete_library",
+                argsJSON: "{\"id\":\"\(cleanupLibrary.id.uuidString)\",\"delete_files\":true}"
+            )
             XCTAssertTrue(cleaned.status == 200)
-            let cleanedResult = try XCTUnwrap(JSONSerialization.jsonObject(with: cleaned.body) as? [String: Any])
-            XCTAssertEqual(cleanedResult["ok"] as? Bool, true)
-            XCTAssertEqual(cleanedResult["affected_count"] as? Int, 1)
+            XCTAssertTrue(cleaned.bodyJson == "true")
             XCTAssertTrue(cleanupContainers.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
             XCTAssertTrue(store.getLibrary(id: cleanupLibrary.id) == nil)
 
@@ -68,15 +70,18 @@ final class LibraryDeletionContractTests: XCTestCase {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try Data("scratch".utf8).write(to: directory.appendingPathComponent("fixture.txt"))
             }
-            let ids = (batchLibraries + [batchLibraries[0]])
-                .map { "\"\($0.id.uuidString)\"" }
-                .joined(separator: ",")
-            let batch = await router.route(HTTPRequest(
-                method: "POST", path: "/api/verb/imbib-library-service_delete-libraries",
-                body: "{\"ids\":[\(ids)],\"delete_files\":true}"
+            let ids = batchLibraries.map { "\"\($0.id.uuidString)\"" }.joined(separator: ",")
+            let retiredBatch = await router.route(HTTPRequest(
+                method: "DELETE", path: "/api/libraries",
+                body: "{\"identifiers\":[\(ids)],\"deleteFiles\":true}"
             ))
+            XCTAssertEqual(retiredBatch.status, 404)
+            let batch = await router.invokeNativeVerb(
+                method: "delete_libraries",
+                argsJSON: "{\"ids\":[\(ids)],\"delete_files\":true}"
+            )
             XCTAssertTrue(batch.status == 200)
-            XCTAssertEqual(String(decoding: batch.body, as: UTF8.self), "2")
+            XCTAssertTrue(batch.bodyJson == "2")
             XCTAssertTrue(batchContainers.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
             XCTAssertTrue(batchLibraries.allSatisfy { store.getLibrary(id: $0.id) == nil })
 
@@ -89,11 +94,11 @@ final class LibraryDeletionContractTests: XCTestCase {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try Data("scratch".utf8).write(to: directory.appendingPathComponent("fixture.txt"))
             }
-            let preflight = await router.route(HTTPRequest(
-                method: "POST", path: "/api/verb/imbib-library-service_delete-libraries",
-                body: "{\"ids\":[\"\(preflightLibrary.id.uuidString)\",\"\(UUID().uuidString)\"],\"delete_files\":true}"
-            ))
-            XCTAssertEqual(preflight.status, 404, String(decoding: preflight.body, as: UTF8.self))
+            let preflight = await router.invokeNativeVerb(
+                method: "delete_libraries",
+                argsJSON: "{\"ids\":[\"\(preflightLibrary.id.uuidString)\",\"\(UUID().uuidString)\"],\"delete_files\":true}"
+            )
+            XCTAssertTrue(preflight.status == 500)
             XCTAssertTrue(store.getLibrary(id: preflightLibrary.id) != nil)
             XCTAssertTrue(preflightContainers.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
         } catch {

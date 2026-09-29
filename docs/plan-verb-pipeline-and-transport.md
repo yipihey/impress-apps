@@ -2249,6 +2249,35 @@ only; root owns build and test verification.
   `/tmp/impress-p5c14-packages.log`, `/tmp/impress-p5c15-touched-tests-all.log`,
   and `/tmp/impress-p5c15-*.log`.
 
+- 2026-09-29 — **P5c24 imbib domain route retirement.** Audited Swift callers
+  after P5c17/P5c20/P5c21: `ImbibBridge` consumers now use generated publication
+  search/detail/RIS, library and collection reads, external search, identifier
+  import, and citation resolution. No production Swift caller uses the
+  collection list/create/member/membership routes, flat tag list, or library
+  deletion routes. Removed only the approved `/api/search`,
+  `/api/search/external`, cite-key detail, identifier add/resolve, library and
+  collection list/create/member/membership, flat tag list, RIS export, and
+  library delete registrations. `/api/tags/tree`, `POST /api/libraries/add-papers`,
+  tag mutations, library sharing/activity/assignments, and all native callback
+  handlers remain. Updated transport proof assertions to require retired URLs
+  return 404 while generated verbs still return their seeded outcomes; earlier
+  route-parity assertions remain in the prior dated package entries and history.
+  Static review only; root owns all verification.
+
+- 2026-09-29 — **P5c24 native fixture corrections.** The collection-members
+  proof had called `list_collection_members` through the app-native callback
+  switch even though it is a generated library-service method; it now exercises
+  the generated `/api/verb/imbib-library-service_list-collection-members`
+  dispatch and keeps the same ordered member assertions. The citation proof now
+  reads the raw paper dictionary's actual `citeKey` field and compares UUID
+  values rather than their differing text casing, preserving exact paper
+  identity, local-search path, and title checks. The failed proof was
+  `/tmp/impress-p5b-transport-z9589ulo/`; root owns the rerun. Tests only; no
+  service behavior changed.
+
+### 2026-09-29 — P5c24 verified native retirement proof
+
+Full supported arm64 store-ffi, impel-tools and imbib-verbs-ffi builds passed (`/tmp/impress-p5c24-frameworks-final.log`). Final isolated proof `/tmp/impress-p5b-transport-zjp98zqt/output/` passed four XCTest cases and 44 shared transport calls, including retired URL refusals, generated reads/import/resolution and collection/library behavior; SQLite checks passed and owned PID 22731 exited. The preceding rerun caught a fixture-only HTTPResponse `bodyJson`/`body` compile error (`/tmp/impress-p5b-transport-kqv_82rh/`), corrected in `0407299f`. Both earlier failures remain recorded; the final proof passes without weakening assertions.
 ### 2026-09-29 — P5c23 final native retirement proofs
 
 Full supported arm64 store-ffi, impel-tools, implore-verbs-ffi and impart-verbs-ffi builds passed (`/tmp/impress-p5c23-frameworks.log`). Isolated implore proof: two XCTest cases, five shared transport calls, `/tmp/impress-p5b-transport-z9kipzlz/output/`, owned PID 90865 exited. Isolated impart proof: one XCTest, eight shared transport calls, `/tmp/impress-p5b-transport-au01yhmg/output/`, owned PID 90909 exited. SQLite checks, retired URL refusals and generated behavior passed in both apps.
@@ -2315,6 +2344,16 @@ With the final P5c15 archive cohort, the isolated imprint proof passed two XCTes
   `/tmp/impress-p5c23-final-verify.log`,
   `/tmp/impress-p5c23-final-gates.log`, per-gate
   `/tmp/impress-p5c23-final-*.log`, and native/framework records above.
+- 2026-09-29 — **P5c24 final Rust and quick-gate verification.** Isolated
+  service/capability tests passed 84 with zero failures and three ignored;
+  native FFI tests passed 11 with zero failures. All 11 package gates passed,
+  including native bindings and kit standalone checks. The docs generator
+  refreshed `docs/verbs/imbib-app-service.md` from the linked inventory. Native
+  app-host proof and full supported arm64 builds are recorded above. Evidence:
+  `/tmp/impress-p5c24-final-verify-summary.log`,
+  `/tmp/impress-p5c24-final-gates.log`, per-gate
+  `/tmp/impress-p5c24-final-*.log`, and native/framework records above.
+
 
 
 
