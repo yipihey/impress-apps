@@ -1769,3 +1769,18 @@ Data warnings remain; no persistence schema was changed.
   evidence requires the native app, and a refusal is not claimed as byte
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
+
+- 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
+  uses the manuscript list/get and app get-content verbs, composing metadata
+  and source for word count and artifact preview while retaining absent dates
+  and linked imbib IDs. Implore bridge list/detail maps `FigureRecord` into its
+  public result, leaving HTTP-absent dataset name/format and null timestamps
+  absent; empty tags match the route's omission. Impart bridge now maps paged
+  conversations and detailed messages/statistics, retaining count, total,
+  offset, limit and filter query. Counsel's existing figure/conversation list
+  residue reads now use those generated result mappings. ArtifactResolver reads
+  document artifacts through ImprintBridge and retains metadata absence. The
+  current Counsel registry has no figure/conversation detail tool cases, so
+  this package adds no new agent tools. Route arms, binary export, writes and
+  imbib remain for their separate packages. Focused DTO decoding and canonical
+  transport fixtures were added; static review only, root verification pending.

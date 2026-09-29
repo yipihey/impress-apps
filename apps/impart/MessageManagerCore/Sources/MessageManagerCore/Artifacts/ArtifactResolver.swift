@@ -92,17 +92,21 @@ public struct DocumentArtifactData: Codable, Sendable {
     public let documentId: String
     public let title: String
     public let version: String?
-    public let lastModified: Date
+    public let lastModified: Date?
     public let wordCount: Int?
     public let previewText: String?
+    public let linkedImbibManuscriptId: String?
+    public let linkedImbibLibraryId: String?
 
     public init(
         documentId: String,
         title: String,
         version: String? = nil,
-        lastModified: Date,
+        lastModified: Date?,
         wordCount: Int? = nil,
-        previewText: String? = nil
+        previewText: String? = nil,
+        linkedImbibManuscriptId: String? = nil,
+        linkedImbibLibraryId: String? = nil
     ) {
         self.documentId = documentId
         self.title = title
@@ -110,6 +114,8 @@ public struct DocumentArtifactData: Codable, Sendable {
         self.lastModified = lastModified
         self.wordCount = wordCount
         self.previewText = previewText
+        self.linkedImbibManuscriptId = linkedImbibManuscriptId
+        self.linkedImbibLibraryId = linkedImbibLibraryId
     }
 }
 
@@ -209,8 +215,6 @@ public actor ArtifactResolver {
     /// like "the artifact doesn't exist".
     private let imbibPort = Int(SiblingApp.imbib.httpPort)
 
-    /// Port for imprint HTTP API — see the note on `imbibPort`.
-    private let imprintPort = Int(SiblingApp.imprint.httpPort)
 
     // MARK: - Initialization
 
@@ -353,20 +357,20 @@ public actor ArtifactResolver {
     private func resolveDocument(uri: ArtifactURI) async throws -> ResolvedArtifact {
         let documentId = uri.resourcePath.replacingOccurrences(of: "documents/", with: "")
 
-        // Try imprint HTTP API
-        let url = URL(string: "http://localhost:\(imprintPort)/api/documents/\(documentId)")!
-
         do {
-            let (data, response) = try await session.data(from: url)
-
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                throw ArtifactResolverError.apiError("imprint returned status \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+            guard let document = try await ImprintBridge.getDocument(id: documentId) else {
+                throw ArtifactResolverError.apiError("imprint document not found")
             }
-
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let docData = try decoder.decode(DocumentArtifactData.self, from: data)
+            let docData = DocumentArtifactData(
+                documentId: document.id,
+                title: document.title,
+                version: document.format,
+                lastModified: document.lastModified,
+                wordCount: document.wordCount,
+                previewText: String(document.source.prefix(500)),
+                linkedImbibManuscriptId: document.linkedImbibManuscriptId,
+                linkedImbibLibraryId: document.linkedImbibLibraryId
+            )
 
             let reference = ArtifactReference.document(
                 id: documentId,

@@ -70,8 +70,6 @@ public actor CounselToolRegistry {
         residueTools.contains { $0.name == name }
     }
 
-    private let bridge = SiblingBridge.shared
-
     private var backends: ToolBackends?
     private var cachedTools: [AITool]?
     private var gate: ToolNamespaceGate
@@ -267,16 +265,19 @@ public actor CounselToolRegistry {
             let result: String
             switch toolUse.name {
             case "implore_list_figures":
-                let data = try await bridge.getRaw("/api/figures", from: .implore)
-                result = String(data: data, encoding: .utf8) ?? "[]"
+                let page = try await ImploreBridge.listFiguresPage()
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(page)
+                result = String(data: data, encoding: .utf8) ?? "{}"
 
             case "impart_list_conversations":
                 let limit: Int = toolUse.input["limit"]?.get() ?? 20
-                let data = try await bridge.getRaw(
-                    "/api/research/conversations", from: .impart,
-                    query: ["limit": String(limit)]
-                )
-                result = String(data: data, encoding: .utf8) ?? "[]"
+                let page = try await ImpartBridge.listConversations(limit: limit)
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(page)
+                result = String(data: data, encoding: .utf8) ?? "{}"
 
             default:
                 return AIToolResult(
