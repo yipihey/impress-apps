@@ -95,7 +95,10 @@ def main():
     if not cli.is_file() or not os.access(cli, os.X_OK):
         parser.error("--cli must name an existing executable")
 
-    root = Path(tempfile.mkdtemp(prefix="impress-s3-proof-", dir="/tmp")).resolve()
+    # Foundation canonicalizes existing /private/tmp paths to /tmp, but
+    # leaves a not-yet-created database path alone. Keep the same /tmp
+    # spelling for both so the hosted bootstrap ownership check agrees.
+    root = Path(tempfile.mkdtemp(prefix="impress-s3-proof-", dir="/tmp"))
     (root / "bootstrap").mkdir()
     output = root / "output"
     output.mkdir()
