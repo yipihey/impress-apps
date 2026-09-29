@@ -208,6 +208,32 @@ Count unread papers, optionally within one library or collection.
   1
   ```
 
+## `imbib-library-service_create-assignment`
+
+Create an assignment on an existing publication.
+
+- **safety**: `mutating`
+- **reads**: "imbib/bibliography-entry", "imbib/assignment"
+- **writes**: "imbib/assignment"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `assigned_by_name` | — | no | Person who made the assignment, when known. |
+| `assignee_name` | string | yes | Person the paper is assigned to. |
+| `due_date` | — | no | Optional due date, milliseconds since the Unix epoch. |
+| `library_id` | — | no | Optional owning library; when set it must match the publication. |
+| `note` | — | no | Optional note. |
+| `publication_id` | string | yes | UUID of the publication being assigned. |
+
+**Examples**
+
+- `assign-paper` — Tier A:
+
+  ```json
+  {"publication_id":"5c000000-0000-4000-8000-0000000000d5","assignee_name":"G3 assignee","assigned_by_name":"G3 assigner","note":"read this","due_date":null,"library_id":"5c000000-0000-4000-8000-0000000000d4"}
+  ```
+
 ## `imbib-library-service_create-collection`
 
 Create a new collection to organize papers. Collections can be regular (manual) or smart (auto-populated by predicate).
@@ -314,6 +340,32 @@ Merge duplicate papers within a library and hard-delete the duplicate rows (not 
 
   ```json
   1
+  ```
+
+## `imbib-library-service_delete-assignment`
+
+Delete one assignment row.
+
+- **safety**: `destructive`
+- **reads**: "imbib/assignment"
+- **writes**: "imbib/assignment"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `assignment_id` | string | yes | UUID of the assignment to delete. |
+
+**Examples**
+
+- `drop-assignment` — Tier A:
+
+  ```json
+  {"assignment_id":"5c000000-0000-4000-8000-0000000000d7"}
+  ```
+  expects:
+
+  ```json
+  true
   ```
 
 ## `imbib-library-service_delete-libraries`
@@ -753,6 +805,28 @@ Whether a paper with any of the given identifiers has been dismissed.
   true
   ```
 
+## `imbib-library-service_list-assignments`
+
+List assignments for one publication, one library, or the whole store.
+
+- **safety**: `read_only`, idempotent
+- **reads**: "imbib/assignment", "imbib/bibliography-entry"
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `library_id` | — | no | Library UUID, or null to skip the library filter. |
+| `publication_id` | — | no | Publication UUID, or null to search more widely. |
+
+**Examples**
+
+- `library-assignments` — Tier A:
+
+  ```json
+  {"publication_id":null,"library_id":"5c000000-0000-4000-8000-0000000000d3"}
+  ```
+
 ## `imbib-library-service_list-collection-members`
 
 List all papers in a specific collection.
@@ -844,6 +918,29 @@ Takes no arguments.
 
   ```json
   {}
+  ```
+
+## `imbib-library-service_list-library-activity`
+
+List a library's activity log, newest first.
+
+- **safety**: `read_only`, idempotent
+- **reads**: "imbib/activity-record"
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `library_id` | string | yes | UUID of the library whose activity log is listed. |
+| `limit` | integer | yes | Maximum rows; 0 means no limit. |
+| `offset` | integer | yes | Rows to skip; 0 means the newest page. |
+
+**Examples**
+
+- `library-activity` — Tier A:
+
+  ```json
+  {"library_id":"5c000000-0000-4000-8000-0000000000d8","limit":10,"offset":0}
   ```
 
 ## `imbib-library-service_list-linked-files`
@@ -1341,5 +1438,32 @@ Add or remove existing papers by the same local identifiers accepted by the reta
 
   ```json
   {"assigned":["G3Membership2026"],"not_found":["missing-G3"]}
+  ```
+
+## `imbib-library-service_update-library-members`
+
+Move existing papers into a library by the same local identifiers the retained `POST /api/libraries/add-papers` route accepts. Results keep input order in `assigned` and `not_found`.
+
+- **safety**: `mutating`
+- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition"
+- **writes**: "imbib/bibliography-entry"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `identifiers` | array | yes | Existing local cite keys, identifiers, or publication UUIDs. |
+| `library_id` | string | yes | UUID of the library receiving the papers. |
+
+**Examples**
+
+- `file-into-library` — Tier A:
+
+  ```json
+  {"library_id":"5c000000-0000-4000-8000-0000000000d1","identifiers":["G3LibraryMember2026","missing-G3-lib"]}
+  ```
+  expects:
+
+  ```json
+  {"assigned":["G3LibraryMember2026"],"not_found":["missing-G3-lib"]}
   ```
 

@@ -90,6 +90,25 @@ Delete a tag from the library vocabulary; it is detached from EVERY paper that c
   {"path": "effects/example"}
   ```
 
+## `imbib-tags-service_formatted-tag-tree`
+
+The indented tag tree `TagManagementService.tagTree()` prints: two spaces per path segment, a count only when it is positive, and `(no tags)` when the vocabulary is empty.
+
+- **safety**: `read_only`, idempotent
+- **reads**: "imbib/tag-definition", "imbib/bibliography-entry"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `default` — Tier A:
+
+  ```json
+  {}
+  ```
+
 ## `imbib-tags-service_list-tags`
 
 List tags in the library with their usage counts. Useful for finding existing tags before tagging papers. EXPENSIVE on a large library: imbib recomputes a count for every tag in the vocabulary (the prefix filter is applied after that), which on a few thousand tags takes minutes and blocks the app's UI while it runs. When you only need one number use `imbib-library-service_count-publications` (kind:'by-tag'); when you only need to attach a tag, just call `imbib-tags-service_add-tag`, which creates missing tags on the fly.

@@ -192,6 +192,12 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     #[impress_method(safety = read_only, effects(reads = ["imbib/bibliography-entry"]))]
     #[impress_example(name = "default", args = r#"{"tag_path": "effects/example"}"#)]
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32;
+    /// The indented tag tree `TagManagementService.tagTree()` prints:
+    /// two spaces per path segment, a count only when it is positive, and
+    /// `(no tags)` when the vocabulary is empty.
+    #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn formatted_tag_tree(&self) -> String;
 }
 
 #[derive(Clone)]
@@ -344,6 +350,31 @@ impl ImbibTagsService for DefaultImbibTagsService {
     async fn count_by_tag(&self, tag_path: String, parent_id: Option<String>) -> u32 {
         self.store.count_by_tag(tag_path, parent_id).unwrap_or(0)
     }
+    async fn formatted_tag_tree(&self) -> String {
+        let mut rows = match self.store.list_tags_with_counts() {
+            Ok(rows) => rows,
+            Err(error) => {
+                log("formatted_tag_tree", &error);
+                return "(no tags)".to_string();
+            }
+        };
+        rows.sort_by(|left, right| left.path.cmp(&right.path));
+        if rows.is_empty() {
+            return "(no tags)".to_string();
+        }
+        rows.iter()
+            .map(|tag| {
+                let depth = tag.path.split('/').count().saturating_sub(1);
+                let count = if tag.publication_count > 0 {
+                    format!(" ({})", tag.publication_count)
+                } else {
+                    String::new()
+                };
+                format!("{}{}{count}", "  ".repeat(depth), tag.leaf_name)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 impress_service_impl! {
@@ -427,6 +458,7 @@ impress_service_impl! {
             /// everywhere.
             parent_id: Option<String>,
         ) -> u32,
+        formatted_tag_tree() -> String,
     ],
 }
 
@@ -501,5 +533,31 @@ mod tag_read_contract_tests {
             limited[0].path, filtered[0].path,
             "limit preserves kernel order"
         );
+    }
+
+    #[tokio::test]
+    async fn formatted_tag_tree_uses_swift_indent_and_positive_counts() {
+        let empty = ImbibStore::open_in_memory().unwrap();
+        assert_eq!(
+            DefaultImbibTagsService::new(empty)
+                .formatted_tag_tree()
+                .await,
+            "(no tags)"
+        );
+        let store = ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Tag tree".into()).unwrap();
+        let paper = store
+            .import_bibtex("@article{treepaper, title={Tag tree}}".into(), library.id)
+            .unwrap()
+            .remove(0);
+        let root = format!("tree{}", uuid::Uuid::new_v4().simple());
+        let child = format!("{root}/child");
+        store.create_tag(root.clone(), None, None).unwrap();
+        store.create_tag(child.clone(), None, None).unwrap();
+        store.add_tag(vec![paper], child).unwrap();
+        let tree = DefaultImbibTagsService::new(store)
+            .formatted_tag_tree()
+            .await;
+        assert!(tree.contains(&format!("{root} (1)\n  child (1)")), "{tree}");
     }
 }

@@ -191,10 +191,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_count-publications` | read_only | name/doc |
 | `imbib-library-service_count-starred` | read_only | name/doc |
 | `imbib-library-service_count-unread` | read_only | name/doc |
+| `imbib-library-service_create-assignment` | mutating | name/doc |
 | `imbib-library-service_create-collection` | mutating | name/doc |
 | `imbib-library-service_create-library` | mutating | name/doc |
 | `imbib-library-service_create-muted-item` | mutating | name/doc |
 | `imbib-library-service_deduplicate-library` | destructive | crates/imbib-service/src/library_service.rs:1075 -> crates/imbib-core/src/unified/store_api.rs:2527-2584 finds dup DOI/arXiv/cite-key rows within library and store.delete()s them outright: no snapshot, no operation-lo… |
+| `imbib-library-service_delete-assignment` | destructive | name/doc |
 | `imbib-library-service_delete-libraries` | destructive | name/doc |
 | `imbib-library-service_delete-library-undoable` | destructive | crates/imbib-service/src/library_service.rs:769 store.delete_library_undoable -> crates/imbib-core/src/unified/store_api.rs:1811-1849 store.delete(library); child pubs/collections get parent NULL; snapshot is RETURNED… |
 | `imbib-library-service_delete-publications-undoable` | destructive | crates/imbib-service/src/library_service.rs:1044 -> crates/imbib-core/src/unified/store_api.rs:1744-1762 store.delete per id; snapshots returned but discarded by service (only .len() used) and never written to the ope… |
@@ -212,10 +214,12 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_import-identifiers` | external | name/doc |
 | `imbib-library-service_import-papers` | mutating | crates/imbib-service/src/library_service.rs:1135 -> crates/imbib-core/src/unified/store_api.rs:1335-1499 batch_import_search_results: parses the BibTeX the CALLER supplies, dedups, insert_batch; NO network fetch in th… |
 | `imbib-library-service_is-paper-dismissed` | read_only | name/doc |
+| `imbib-library-service_list-assignments` | read_only | name/doc |
 | `imbib-library-service_list-collection-members` | read_only | name/doc |
 | `imbib-library-service_list-collections` | read_only | name/doc |
 | `imbib-library-service_list-dismissed-papers` | read_only | name/doc |
 | `imbib-library-service_list-libraries` | read_only | name/doc |
+| `imbib-library-service_list-library-activity` | read_only | name/doc |
 | `imbib-library-service_list-linked-files` | read_only | name/doc |
 | `imbib-library-service_list-muted-items` | read_only | name/doc |
 | `imbib-library-service_list-publications` | read_only | name/doc |
@@ -234,6 +238,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_set-starred` | mutating | name/doc |
 | `imbib-library-service_sidebar-view` | read_only | name/doc |
 | `imbib-library-service_update-collection-members` | mutating | name/doc |
+| `imbib-library-service_update-library-members` | mutating | name/doc |
 | `imbib-manuscripts-service_compile-manuscript` | external | E/M: name/doc |
 | `imbib-manuscripts-service_create-manuscript` | external | E/M: crates/imbib-service/src/manuscripts_service.rs:238 default refuses; HTTP POST /api/manuscripts creates a row (crates/imbib-service-http/src/lib.rs:1507). Doc does not say it needs the app. |
 | `imbib-manuscripts-service_create-manuscript-from-template` | external | E/M: crates/imbib-service/src/manuscripts_service.rs:272 default refuses; HTTP creates a scaffolded row (crates/imbib-service-http/src/lib.rs:1560). Needs-app not stated. |
@@ -265,6 +270,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-tags-service_count-by-tag` | read_only | name/doc |
 | `imbib-tags-service_create-tag` | mutating | name/doc |
 | `imbib-tags-service_delete-tag-undoable` | destructive | crates/imbib-service/src/tags_service.rs:203 -> crates/imbib-core/src/unified/store_api.rs:1885-1917 delete_tag: store.delete of the definition + RemoveTag on every tagged publication; snapshot returned and DROPPED by… |
+| `imbib-tags-service_formatted-tag-tree` | read_only | name/doc |
 | `imbib-tags-service_list-tags` | read_only | name/doc |
 | `imbib-tags-service_list-tags-with-counts` | read_only | name/doc |
 | `imbib-tags-service_query-by-tag` | read_only | name/doc |

@@ -91,6 +91,24 @@ fn scratch() -> &'static Scratch {
         std::env::set_var("IMPRESS_MEMORY_VECTORS", "0");
         std::env::set_var("IMPRESS_FASTEMBED_CACHE", root.join("embedding-models"));
         let store = Arc::new(SqliteItemStore::open(&path).expect("open owned example store"));
+        #[cfg(feature = "imbib")]
+        {
+            let scratch_path = path.clone();
+            imbib_service::init_imbib_store(scratch_path.clone()).unwrap_or_else(|error| {
+                let opened = imbib_service::store_singleton::opened_store_path();
+                if opened.as_ref() == Some(&scratch_path) {
+                    return;
+                }
+                panic!(
+                    "example scratch {} could not bind the imbib store ({error}); already open at {}",
+                    scratch_path.display(),
+                    opened
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| "<unopened>".into())
+                );
+            });
+        }
         impress_store_service::install_store(store.clone()).expect("install example store");
         impress_store_service::set_settings_workspace(&root).expect("isolate settings files");
         impress_store_service::set_source_asset_root(root.join("assets"))

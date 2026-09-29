@@ -14,9 +14,9 @@ This is the backstop for the retirement: a row that is **deferred** is a decisio
 - TypeScript tools: **229**
 - Rust inventory at cutover (2026-07-26): **220** — a historical figure; the
   inventory grows with every service added since.
-- covered: **161**
+- covered: **165**
 - port: **0**
-- defer: **28**
+- defer: **24**
 - drop: **40**
 
 
@@ -75,7 +75,7 @@ This is the backstop for the retirement: a row that is **deferred** is a decisio
 | `imbib_edit_comment` | covered | `imbib-annotations-service_update-comment` |
 | `imbib_export_bibtex` | covered | `imbib-library-service_export-bibtex` |
 | `imbib_get_artifact` | covered | `imbib-artifacts-service_get-artifact` |
-| `imbib_get_library_activity` | covered | `imbib-app-service_recent-activity` |
+| `imbib_get_library_activity` | covered | `imbib-library-service_list-library-activity` |
 | `imbib_get_logs` | covered | `imbib-app-service_get-logs` |
 | `imbib_get_manuscript` | covered | `imbib-manuscripts-service_get-manuscript` |
 | `imbib_get_notes` | covered | `imbib-app-service_get-notes` |
@@ -118,10 +118,10 @@ This is the backstop for the retirement: a row that is **deferred** is a decisio
 | `imbib_undo` | covered | `imbib-undo-service_undo-batch` |
 | `imbib_update_notes` | covered | `imbib-app-service_update-notes` |
 | `imbib_write_manuscript_body` | covered | `imbib-manuscripts-service_write-manuscript-body` |
-| `imbib_create_assignment` | defer | imbib sharing & collaboration — a feature area of its own; port when it is in use. |
-| `imbib_delete_assignment` | defer | imbib sharing & collaboration — a feature area of its own; port when it is in use. |
-| `imbib_list_assignments` | defer | imbib sharing & collaboration — a feature area of its own; port when it is in use. |
-| `imbib_list_paper_assignments` | defer | imbib sharing & collaboration — a feature area of its own; port when it is in use. |
+| `imbib_create_assignment` | covered | `imbib-library-service_create-assignment` |
+| `imbib_delete_assignment` | covered | `imbib-library-service_delete-assignment` |
+| `imbib_list_assignments` | covered | `imbib-library-service_list-assignments` |
+| `imbib_list_paper_assignments` | covered | `imbib-library-service_list-assignments` |
 | `imbib_list_participants` | defer | imbib sharing & collaboration — a feature area of its own; port when it is in use. |
 | `imbib_list_plot_specs` | defer | Plotting belongs to implore. Porting it into imbib as well is how the drift started. |
 | `imbib_render_plot` | defer | Plotting belongs to implore. Porting it into imbib as well is how the drift started. |
