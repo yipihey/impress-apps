@@ -603,8 +603,7 @@ pub fn verify(
             }
             let remote = load(store, &id("b3"))?.ok_or("read-only SciX fixture disappeared")?;
             if remote.schema != refs::IMBIB_SCIX_LIBRARY
-                || remote.payload.get("permission_level")
-                    != Some(&ItemValue::String("read".into()))
+                || remote.payload.get("permission_level") != Some(&ItemValue::String("read".into()))
             {
                 return Err("read-only SciX permission fixture was not persisted".into());
             }

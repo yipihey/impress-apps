@@ -127,7 +127,9 @@ final class TransportProofTests: XCTestCase {
         let legacyEnvelope = try object(try await request(base, bearer, "/api/libraries", nil),
                                         "legacy library list")
         let legacyRows = try XCTUnwrap(legacyEnvelope["libraries"] as? [[String: Any]])
-        let legacyRow = try XCTUnwrap(legacyRows.first { $0["id"] as? String == libraryID })
+        let legacyRow = try XCTUnwrap(legacyRows.first {
+            ($0["id"] as? String)?.lowercased() == libraryID.lowercased()
+        })
         try require(legacyRow["collectionCount"] as? Int == generatedRow["collection_count"] as? Int &&
                     legacyRow["canEdit"] as? Bool == generatedRow["can_edit"] as? Bool,
                     "legacy HTTP and generated library metadata agree")
