@@ -381,6 +381,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impress-workflow-service_workflow-get` | read_only | name/doc |
 | `impress-workflow-service_workflow-list` | read_only | name/doc |
 | `impress-workflow-service_workflow-validate` | read_only | name/doc |
+| `imprint-app-service_accept-comment-suggestion` | external | name/doc |
 | `imprint-app-service_create-comment` | external | E/M: name/doc |
 | `imprint-app-service_create-document` | external | E/M: name/doc |
 | `imprint-app-service_delete-comment` | external | E/D: crates/imprint-service/src/app_service.rs:301 DEFAULT REFUSES (eprintln + empty/false; no store path); HTTP backend /Users/tabel/Projects/impress-apps/.claude/worktrees/agent-a9747ebb |
@@ -391,6 +392,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imprint-app-service_get-pdf` | external | E/M: name/doc |
 | `imprint-app-service_insert-text` | external | E/M: name/doc |
 | `imprint-app-service_list-comments` | external | name/doc |
+| `imprint-app-service_reject-comment-suggestion` | external | name/doc |
 | `imprint-app-service_replace` | external | E/D: crates/imprint-service/src/app_service.rs:255 DEFAULT REFUSES (eprintln + empty/false; no store path); HTTP backend /Users/tabel/Projects/impress-apps/.claude/worktrees/agent-a9747ebb |
 | `imprint-app-service_status` | external | name/doc |
 | `imprint-app-service_update-comment` | external | E/M: name/doc |

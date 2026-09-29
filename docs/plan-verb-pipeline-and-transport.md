@@ -1850,6 +1850,34 @@ library/read, collection (including empty-query selection), and offset cases on
 its isolated papers. Verification remains pending with root; no builds/tests
 were run in this package.
 
+## P5c10 — imprint suggestion actions (2026-09-29)
+
+Added generated accept/reject suggestion actions by routing the native callback
+through the retained HTTP handlers. Inspection found `DocumentRegistry` has no
+imprint operation consumer after the editor migration; the old accept handler
+queued `replaceRange` but therefore did not apply or save it. Acceptance now
+validates the comment and proposed text, replaces the comment's UTF-16 range in
+the live editor session through the existing native save/readback path, registers
+and returns a completed operation ID, refreshes comment anchors against the new
+source, and then resolves only that comment. Rejection resolves without editing
+the manuscript. Failures remain explicit: malformed IDs are bad requests,
+missing comments are not found, non-suggestions cannot be accepted, and a failed
+live edit leaves the comment unresolved. `update-comment` still refuses
+accepted/rejected status values.
+
+`SuggestionApplyResult` retains the route's accepted flag, comment/document IDs,
+and operation ID. Rust coverage checks its route-response aliases. The hosted
+proof exercises direct HTTP and generated acceptance, verifies live-buffer and
+store readback at the expected UTF-16 replacement, and checks rejection leaves
+source unchanged. Root owns builds, tests, framework/binding regeneration, and
+final native verification.
+
+- 2026-09-29 — **P5c10 review refinement.** Accepting a suggestion captures
+  its synchronized range and source together. The edit checks that source
+  again on MainActor before applying the range, returning conflict if typing
+  intervened. A native fixture covers a stale range that remains numerically
+  valid, preserving both the live edits and the previously saved manuscript.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -1896,3 +1924,15 @@ were run in this package.
   `/tmp/impress-p5b-transport-y9st8dhc/output/` and
   `/tmp/impress-p5c9-{tests,gates,frameworks,native-proof-final}.log`.
   Root corrected the nested-array proof decoder before the passing run.
+
+- 2026-09-29 — **P5c10 verified.** Root passed 133 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 store-ffi,
+  impel-tools and imprint-verbs-ffi builds. Final native proof passed both
+  XCTest cases and 14 transport calls, including saved UTF-16 suggestion
+  replacement, operation completion, stale-anchor and intervening-typing
+  refusals, and rejection without source changes. SQLite checks passed;
+  owned PID 11889 exited. Evidence:
+  `/tmp/impress-p5b-transport-qzqm0nsy/output/` and
+  `/tmp/impress-p5c10-{tests,gates,frameworks,native-proof-final}.log`.
+  The first native run exposed a fixture range inside an emoji's surrogate
+  pair; the final fixture anchors the complete emoji at UTF-16 units 6..<8.

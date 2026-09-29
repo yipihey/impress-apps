@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use impress_service_core::refusal::codes;
 use imprint_service::app_service::{
-    AppStatus, CommentRecord, CompiledPdf, ImprintAppService, LogEntry,
+    AppStatus, CommentRecord, CompiledPdf, ImprintAppService, LogEntry, SuggestionApplyResult,
 };
 use imprint_service::backend::ImprintBackend;
 use imprint_service::handlers::{
@@ -467,6 +467,31 @@ impl ImprintAppService for NativeApp {
     async fn delete_comment(&self, comment_id: String) -> bool {
         self.succeeded("delete_comment", json!({"comment_id":comment_id}))
             .await
+    }
+    async fn accept_comment_suggestion(&self, comment_id: String) -> SuggestionApplyResult {
+        let value = self
+            .call(
+                "accept_comment_suggestion",
+                json!({"comment_id":comment_id}),
+            )
+            .await;
+        let result = value.and_then(|value| serde_json::from_value(value).ok());
+        if result.is_none() {
+            refusal("accept_comment_suggestion", "suggestion apply result");
+        }
+        result.unwrap_or(SuggestionApplyResult {
+            accepted: false,
+            comment_id,
+            document_id: String::new(),
+            operation_id: String::new(),
+        })
+    }
+    async fn reject_comment_suggestion(&self, comment_id: String) -> bool {
+        self.succeeded(
+            "reject_comment_suggestion",
+            json!({"comment_id":comment_id}),
+        )
+        .await
     }
 }
 

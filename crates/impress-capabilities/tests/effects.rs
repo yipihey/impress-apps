@@ -86,7 +86,9 @@ use serde_json::Value;
 // keep that headless gap explicit rather than count a refusal as byte coverage.
 // P5c8 adds native figure update/delete. Their Tier B examples and hosted
 // rerender/cleanup proof require the app; neither is headless positive evidence.
-const EXCEPTION_CEILING: usize = 148;
+// P5c10 adds native suggestion apply/reject; the live-editor save and
+// comment state proofs require a host, so their headless gap stays explicit.
+const EXCEPTION_CEILING: usize = 150;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

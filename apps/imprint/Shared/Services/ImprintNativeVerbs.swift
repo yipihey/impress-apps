@@ -162,6 +162,12 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
                 }
             }
         case "delete_comment": verb = "DELETE"; path = commentPath()
+        case "accept_comment_suggestion":
+            verb = "POST"
+            path = commentPath().map { $0 + "/accept" }
+        case "reject_comment_suggestion":
+            verb = "POST"
+            path = commentPath().map { $0 + "/reject" }
         default: return failure(404, "Unknown imprint native method")
         }
         guard let path else { return failure(400, "Invalid identifier") }
