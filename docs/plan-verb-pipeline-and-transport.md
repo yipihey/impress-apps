@@ -2274,3 +2274,7 @@ only; root owns build and test verification.
   identity, local-search path, and title checks. The failed proof was
   `/tmp/impress-p5b-transport-z9589ulo/`; root owns the rerun. Tests only; no
   service behavior changed.
+
+### 2026-09-29 — P5c24 verified native retirement proof
+
+Full supported arm64 store-ffi, impel-tools and imbib-verbs-ffi builds passed (`/tmp/impress-p5c24-frameworks-final.log`). Final isolated proof `/tmp/impress-p5b-transport-zjp98zqt/output/` passed four XCTest cases and 44 shared transport calls, including retired URL refusals, generated reads/import/resolution and collection/library behavior; SQLite checks passed and owned PID 22731 exited. The preceding rerun caught a fixture-only HTTPResponse `bodyJson`/`body` compile error (`/tmp/impress-p5b-transport-kqv_82rh/`), corrected in `0407299f`. Both earlier failures remain recorded; the final proof passes without weakening assertions.
