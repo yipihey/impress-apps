@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, ExternalPaper, ImbibAppService, LogEntry, PapersWindowResult,
-    SyncNudgeResult,
+    ActivityEntry, AppStatus, CitationInput, CitationResolution, ExternalPaper, ImbibAppService,
+    LogEntry, PapersWindowResult, SyncNudgeResult,
 };
 use imbib_service::manuscripts_service::{
     CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
@@ -69,6 +69,29 @@ impl ImbibAppService for NativeImbibAppService {
         )
         .await
         .unwrap_or_default()
+    }
+    async fn resolve_citation(
+        &self,
+        query: Option<String>,
+        bibtex: Option<String>,
+        citation: Option<CitationInput>,
+        library_id: Option<String>,
+        download_pdfs: bool,
+    ) -> CitationResolution {
+        let mut args = json!({
+            "query": query,
+            "bibtex": bibtex,
+            "library_id": library_id,
+            "download_pdfs": download_pdfs,
+        });
+        if let Some(citation) = citation {
+            args["citation"] = serde_json::to_value(citation).unwrap_or(Value::Null);
+        }
+        self.invoke("resolve_citation", args)
+            .await
+            .unwrap_or_else(|_| CitationResolution::unavailable(
+                "Citation resolution was refused by the running imbib app; inspect the refusal details.",
+            ))
     }
     async fn recent_activity(&self, limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry> {
         self.invoke(
@@ -321,9 +344,23 @@ mod tests {
         response: NativeCallResult,
     }
 
+    struct RecordingFixture {
+        response: NativeCallResult,
+        seen: std::sync::Mutex<Option<(String, Value)>>,
+    }
+
     #[async_trait::async_trait]
     impl ImbibNativeCallbacks for Fixture {
         async fn invoke(&self, _method: String, _args_json: String) -> NativeCallResult {
+            self.response.clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ImbibNativeCallbacks for RecordingFixture {
+        async fn invoke(&self, method: String, args_json: String) -> NativeCallResult {
+            let args = serde_json::from_str(&args_json).expect("callback arguments are JSON");
+            *self.seen.lock().unwrap() = Some((method, args));
             self.response.clone()
         }
     }
@@ -346,6 +383,90 @@ mod tests {
             .await;
         assert_eq!(result.as_deref(), Some("Saved note"));
         assert_eq!(service(200, "null").get_notes("missing".into()).await, None);
+    }
+
+    #[tokio::test]
+    async fn external_search_decodes_the_http_import_identifier() {
+        let result = service(
+            200,
+            r#"[{"title":"A paper without DOI","authors":["Ada"],"sourceID":"crossref","identifier":"A paper without DOI"}]"#,
+        )
+        .search_sources("A paper".into(), None, 5)
+        .await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].identifier.as_deref(), Some("A paper without DOI"));
+        assert_eq!(result[0].source.as_deref(), Some("crossref"));
+    }
+
+    #[tokio::test]
+    async fn resolve_citation_forwards_all_inputs_and_preserves_ranked_candidates() {
+        let callback = Arc::new(RecordingFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: r#"{"via":"ads-candidates","candidates":[{"title":"A paper","confidence":0.82},{"title":"Another","confidence":0.71}],"reason":"Choose the matching reference"}"#.into(),
+            },
+            seen: Default::default(),
+        });
+        let service = NativeImbibAppService {
+            callback: callback.clone(),
+        };
+        let citation: CitationInput = serde_json::from_value(json!({
+            "authors": "Ada Lovelace; Charles Babbage",
+            "title": "Analytical engines",
+            "year": 1843,
+            "rawBibtex": "@article{private-key, title={Analytical engines}}",
+            "freeText": "Lovelace 1843",
+            "preferredDatabase": "astronomy"
+        }))
+        .unwrap();
+        let resolved = service
+            .resolve_citation(
+                Some("Lovelace 1843".into()),
+                Some("@article{private-key}".into()),
+                Some(citation),
+                Some("library-uuid".into()),
+                true,
+            )
+            .await;
+        assert_eq!(resolved.via, "ads-candidates");
+        assert_eq!(resolved.candidates.as_ref().unwrap().len(), 2);
+        assert_eq!(resolved.candidates.as_ref().unwrap()[0]["confidence"], 0.82);
+        assert_eq!(
+            resolved.reason.as_deref(),
+            Some("Choose the matching reference")
+        );
+
+        let seen = callback.seen.lock().unwrap();
+        let (method, args) = seen.as_ref().unwrap();
+        assert_eq!(method, "resolve_citation");
+        assert_eq!(args["query"], "Lovelace 1843");
+        assert_eq!(args["bibtex"], "@article{private-key}");
+        assert_eq!(args["library_id"], "library-uuid");
+        assert_eq!(args["download_pdfs"], true);
+        assert_eq!(
+            args["citation"]["authors"],
+            json!(["Ada Lovelace", "Charles Babbage"])
+        );
+        assert_eq!(
+            args["citation"]["rawBibtex"],
+            "@article{private-key, title={Analytical engines}}"
+        );
+        assert_eq!(args["citation"]["freeText"], "Lovelace 1843");
+        assert_eq!(args["citation"]["preferredDatabase"], "astronomy");
+    }
+
+    #[tokio::test]
+    async fn headless_citation_resolution_is_an_explicit_unavailable_result() {
+        let result = imbib_service::app_service::DefaultImbibAppService::new()
+            .resolve_citation(None, None, None, None, false)
+            .await;
+        assert_eq!(result.via, "unavailable");
+        assert!(result
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Open imbib"));
+        assert!(result.candidates.is_none());
     }
 
     #[tokio::test]

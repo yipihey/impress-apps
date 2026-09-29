@@ -1740,3 +1740,24 @@ and the test diagnostic's Swift Testing comment before the successful runs.
 Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
+
+
+## P5c11 — imbib citation resolution (2026-09-29)
+
+Added `imbib-app-service_resolve-citation` with optional free-text, BibTeX,
+structured citation, target library, and PDF-download inputs. Its native
+callback dispatches to the existing `handleResolvePaper`, preserving the
+legacy identifier/local-search/external-search cascade and the structured ADS
+resolution path. The output preserves `via`, open paper/candidate objects,
+ranked confidence, and reason without flattening the distinct HTTP candidate
+shapes. Citation text, BibTeX, and structured citation arguments are marked
+private in generated call audit metadata. The headless backend explicitly
+returns `via: unavailable` rather than reporting a false miss. `ExternalPaper`
+now carries the HTTP candidate's selected import `identifier`, including its
+title fallback when no DOI, arXiv ID, or bibcode is present.
+
+Focused Rust fixtures cover HTTP-compatible structured input conversion,
+callback argument forwarding, candidate order/confidence/reason preservation,
+external import identifiers, generated private-field schema, and honest
+headless refusal. No live network, builds, tests, route removal, or caller
+migration were performed in this package.
