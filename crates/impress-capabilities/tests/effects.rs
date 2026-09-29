@@ -84,7 +84,9 @@ use serde_json::Value;
 // P5c5 adds export-figure-data, a native renderer operation. Its Tier B
 // example and isolated hosted PNG/SVG parity proof require a running implore;
 // keep that headless gap explicit rather than count a refusal as byte coverage.
-const EXCEPTION_CEILING: usize = 146;
+// P5c8 adds native figure update/delete. Their Tier B examples and hosted
+// rerender/cleanup proof require the app; neither is headless positive evidence.
+const EXCEPTION_CEILING: usize = 148;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

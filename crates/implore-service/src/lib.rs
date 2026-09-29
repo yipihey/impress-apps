@@ -476,6 +476,12 @@ pub trait ImploreService: Send + Sync + 'static {
         safety = external,
         effects(reads = [target(figure_id)], writes = ["figure"], reach = [app("implore")])
     )]
+    #[impress_example(
+        name = "host-update-rendered-figure",
+        tier = "b",
+        args = r#"{"figure_id":"{{state.figure_id}}","title":"Updated figure"}"#,
+        expect = r#"{"ok":true}"#
+    )]
     #[allow(clippy::too_many_arguments)]
     async fn update_figure(
         &self,
@@ -499,6 +505,12 @@ pub trait ImploreService: Send + Sync + 'static {
     #[impress_method(
         safety = external,
         effects(reads = [target(figure_id)], writes = ["figure"], reach = [app("implore")])
+    )]
+    #[impress_example(
+        name = "host-delete-figure",
+        tier = "b",
+        args = r#"{"figure_id":"{{state.figure_id}}"}"#,
+        expect = "true"
     )]
     async fn delete_figure(&self, figure_id: String) -> bool;
 
