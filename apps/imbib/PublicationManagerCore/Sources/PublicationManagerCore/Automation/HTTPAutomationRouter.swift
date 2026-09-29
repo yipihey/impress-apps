@@ -3410,7 +3410,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
             let tags = try await automationService.listTags(matching: prefix, limit: limit)
             let tagDicts = tags.map { tag -> [String: Any] in
                 var dict: [String: Any] = [
-                    "id": tag.id.uuidString,
+                    "id": tag.id,
                     "name": tag.name,
                     "canonicalPath": tag.canonicalPath,
                     "useCount": tag.useCount,
