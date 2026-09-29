@@ -2029,3 +2029,20 @@ verification.
   proof. Counsel has only a figure-list tool, owned by the metadata consumer
   package. Added mocked generated-verb transport and DTO fixtures. Static
   review only; root verification pending.
+
+## P5c23 — retire migrated figure and conversation reads (2026-09-29)
+
+Caller audit found Counsel's figure-list and conversation-list cases now use
+the generated bridge methods introduced in P5c16; no application caller remains
+for the former HTTP figure list/detail/export/create/update/delete routes or
+conversation list/detail routes. Removed those router registrations and API
+info entries while retaining implore's private figure handlers reachable from
+its native callback switch. Raw RG/plot viewer routes and all impart queued
+conversation writes remain registered. Native proof fixtures now expect 404
+from the retired routes and still check seeded generated list/detail/export,
+mutation and conversation results. Before retirement, the hosted figure proof
+compared generated list/detail fields and export bytes with the old routes and
+checked shared-artifact update/delete behavior; the conversation proof compared
+page/archived results plus detail messages and statistics. Those historical
+parity checks remain recorded here alongside the P5c8/P5c16 entries. No
+builds/tests were run; root owns verification.

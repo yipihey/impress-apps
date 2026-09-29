@@ -161,7 +161,7 @@ struct ImpartNativeVerbsTests {
         #expect(failureStatus == 400)
     }
 
-    @MainActor @Test("Conversation HTTP reads match generated list and detail verbs")
+    @MainActor @Test("Retired conversation reads leave generated list and detail verbs available")
     func conversationReadParity() async throws {
         let persistence = PersistenceController(inMemory: true)
         let repository = ResearchConversationRepository(persistenceController: persistence)
@@ -226,60 +226,42 @@ struct ImpartNativeVerbsTests {
                 with: Data(result.bodyJson.utf8), options: [.fragmentsAllowed])
         }
 
+        let retiredListResponse = await router.route(HTTPRequest(
+            method: "GET", path: "/api/research/conversations",
+            queryParams: ["limit": "1", "offset": "0", "includeArchived": "false"]))
+        #expect(retiredListResponse.status == 404)
+
         let listArgs: [String: Any] = [
             "limit": 1, "include_archived": false, "offset": 0,
         ]
-        let legacyListResponse = await router.route(HTTPRequest(
-            method: "GET", path: "/api/research/conversations",
-            queryParams: ["limit": "1", "offset": "0", "includeArchived": "false"]))
-        #expect(legacyListResponse.status == 200)
-        let legacyList = try #require(JSONSerialization.jsonObject(
-            with: legacyListResponse.body) as? [String: Any])
         let generatedList = try #require(await generated("list-conversations", listArgs) as? [String: Any])
-        let legacyRows = try #require(legacyList["conversations"] as? [[String: Any]])
         let generatedRows = try #require(generatedList["conversations"] as? [[String: Any]])
-        #expect(legacyList["count"] as? Int == generatedList["count"] as? Int)
-        #expect(legacyList["total"] as? Int == generatedList["total"] as? Int)
+        #expect(generatedList["total"] as? Int == 2)
+        #expect(generatedRows.count == 1)
         #expect(generatedList["offset"] as? Int == 0)
         #expect(generatedList["limit"] as? Int == 1)
         #expect(generatedList["include_archived"] as? Bool == false)
-        #expect(legacyRows.count == 1)
-        #expect(generatedRows.count == 1)
-        let legacyRow = try #require(legacyRows.first)
-        let generatedRow = try #require(generatedRows.first)
-        #expect((legacyRow["id"] as? String)?.lowercased() == (generatedRow["id"] as? String)?.lowercased())
-        #expect(legacyRow["title"] as? String == generatedRow["title"] as? String)
-        #expect(legacyRow["participants"] as? [String] == generatedRow["participants"] as? [String])
-        #expect(legacyRow["createdAt"] as? String == generatedRow["created_at"] as? String)
-        #expect(legacyRow["lastActivityAt"] as? String == generatedRow["last_activity_at"] as? String)
-        #expect(legacyRow["summaryText"] as? String == generatedRow["summary_text"] as? String)
-        #expect(legacyRow["isArchived"] as? Bool == generatedRow["archived"] as? Bool)
-        #expect(legacyRow["tags"] as? [String] == generatedRow["tags"] as? [String])
+        let firstPageID = try #require(generatedRows.first?["id"] as? String)
 
-        let legacySecondPageResponse = await router.route(HTTPRequest(
+        let retiredListPageResponse = await router.route(HTTPRequest(
             method: "GET", path: "/api/research/conversations",
             queryParams: ["limit": "1", "offset": "1", "includeArchived": "false"]))
-        let legacySecondPage = try #require(JSONSerialization.jsonObject(
-            with: legacySecondPageResponse.body) as? [String: Any])
+        #expect(retiredListPageResponse.status == 404)
         let generatedSecondPage = try #require(await generated("list-conversations", [
             "limit": 1, "include_archived": false, "offset": 1
         ]) as? [String: Any])
-        #expect(legacySecondPage["total"] as? Int == generatedSecondPage["total"] as? Int)
-        #expect(legacySecondPage["count"] as? Int == generatedSecondPage["count"] as? Int)
-        let legacySecondRows = try #require(legacySecondPage["conversations"] as? [[String: Any]])
         let generatedSecondRows = try #require(generatedSecondPage["conversations"] as? [[String: Any]])
-        #expect((legacySecondRows.first?["id"] as? String)?.lowercased()
-            == (generatedSecondRows.first?["id"] as? String)?.lowercased())
+        #expect(generatedSecondPage["total"] as? Int == 2)
+        #expect(generatedSecondRows.count == 1)
+        #expect(generatedSecondRows.first?["id"] as? String != firstPageID)
 
-        let legacyArchivedResponse = await router.route(HTTPRequest(
+        let retiredArchivedListResponse = await router.route(HTTPRequest(
             method: "GET", path: "/api/research/conversations",
             queryParams: ["limit": "10", "offset": "0", "includeArchived": "true"]))
-        let legacyArchived = try #require(JSONSerialization.jsonObject(
-            with: legacyArchivedResponse.body) as? [String: Any])
+        #expect(retiredArchivedListResponse.status == 404)
         let generatedArchived = try #require(await generated("list-conversations", [
             "limit": 10, "include_archived": true, "offset": 0
         ]) as? [String: Any])
-        #expect(legacyArchived["total"] as? Int == generatedArchived["total"] as? Int)
         #expect(generatedArchived["total"] as? Int == 3)
 
         let filtered = try #require(await generated("list-conversations", [
@@ -287,60 +269,39 @@ struct ImpartNativeVerbsTests {
         ]) as? [String: Any])
         #expect(filtered["total"] as? Int == 1)
         #expect(filtered["query"] as? String == "distinctive")
+        let filteredRows = try #require(filtered["conversations"] as? [[String: Any]])
+        #expect(filteredRows.first?["title"] as? String == "Branch read fixture")
 
-        let legacyDetailResponse = await router.route(HTTPRequest(
+        let retiredDetailResponse = await router.route(HTTPRequest(
             method: "GET", path: "/api/research/conversations/\(child.id.uuidString)"))
-        #expect(legacyDetailResponse.status == 200)
-        let legacyDetail = try #require(JSONSerialization.jsonObject(
-            with: legacyDetailResponse.body) as? [String: Any])
-        let legacyConversation = try #require(legacyDetail["conversation"] as? [String: Any])
+        #expect(retiredDetailResponse.status == 404)
         let generatedConversation = try #require(await generated("get-conversation", [
             "conversation_id": child.id.uuidString
         ]) as? [String: Any])
-        #expect((legacyConversation["id"] as? String)?.lowercased()
-            == (generatedConversation["id"] as? String)?.lowercased())
-        #expect(legacyConversation["participants"] as? [String]
-            == generatedConversation["participants"] as? [String])
-        #expect(legacyConversation["tags"] as? [String] == generatedConversation["tags"] as? [String])
-        #expect(legacyConversation["parentConversationId"] as? String
-            == generatedConversation["parent_conversation_id"] as? String)
-        #expect(legacyConversation["lastActivityAt"] as? String
-            == generatedConversation["last_activity_at"] as? String)
-        #expect(legacyConversation["summaryText"] as? String
-            == generatedConversation["summary_text"] as? String)
+        #expect((generatedConversation["id"] as? String)?.lowercased() == child.id.uuidString.lowercased())
+        #expect(generatedConversation["title"] as? String == "Branch read fixture")
+        #expect(generatedConversation["participants"] as? [String]
+            == ["researcher@example.org", "counsel-opus@impart.local"])
+        #expect(generatedConversation["tags"] as? [String] == ["analysis", "draft"])
+        #expect(generatedConversation["parent_conversation_id"] as? String
+            == parent.id.uuidString)
+        #expect(generatedConversation["last_activity_at"] as? String != nil)
+        #expect(generatedConversation["summary_text"] as? String == "A distinctive detail")
 
-        let legacyMessages = try #require(legacyDetail["messages"] as? [[String: Any]])
         let generatedMessages = try #require(generatedConversation["messages"] as? [[String: Any]])
-        #expect(legacyMessages.count == generatedMessages.count)
-        for (legacy, generated) in zip(legacyMessages, generatedMessages) {
-            #expect((legacy["id"] as? String)?.lowercased() == (generated["id"] as? String)?.lowercased())
-            #expect(legacy["sequence"] as? Int == generated["sequence"] as? Int)
-            #expect(legacy["senderRole"] as? String == generated["sender_role"] as? String)
-            #expect(legacy["senderId"] as? String == generated["sender_id"] as? String)
-            #expect(legacy["modelUsed"] as? String == generated["model_used"] as? String)
-            #expect(legacy["contentMarkdown"] as? String == generated["content_markdown"] as? String)
-            #expect(legacy["sentAt"] as? String == generated["sent_at"] as? String)
-            #expect(legacy["tokenCount"] as? Int == generated["token_count"] as? Int)
-            #expect(legacy["processingDurationMs"] as? Int == generated["processing_duration_ms"] as? Int)
-            #expect(legacy["mentionedArtifactURIs"] as? [String]
-                == generated["mentioned_artifact_uris"] as? [String])
-        }
-        let legacyStatistics = try #require(legacyDetail["statistics"] as? [String: Any])
+        #expect(generatedMessages.count == 2)
+        #expect(generatedMessages.first?["sequence"] as? Int == 1)
+        #expect(generatedMessages.first?["content_markdown"] as? String == "Question")
+        #expect(generatedMessages.last?["sequence"] as? Int == 2)
+        #expect(generatedMessages.last?["content_markdown"] as? String == "Evidence")
         let generatedStatistics = try #require(generatedConversation["statistics"] as? [String: Any])
-        for (legacyKey, generatedKey) in [
-            ("messageCount", "message_count"), ("humanMessageCount", "human_message_count"),
-            ("counselMessageCount", "counsel_message_count"), ("artifactCount", "artifact_count"),
-            ("paperCount", "paper_count"), ("repositoryCount", "repository_count"),
-            ("totalTokens", "total_tokens"), ("branchCount", "branch_count"),
-        ] {
-            #expect(legacyStatistics[legacyKey] as? Int == generatedStatistics[generatedKey] as? Int)
-        }
-        #expect((legacyStatistics["duration"] as? Double) == (generatedStatistics["duration"] as? Double))
+        #expect(generatedStatistics["message_count"] as? Int == 2)
+        #expect(generatedStatistics["human_message_count"] as? Int == 1)
+        #expect(generatedStatistics["counsel_message_count"] as? Int == 1)
+        #expect(generatedStatistics["total_tokens"] as? Int == 13)
+        #expect(generatedStatistics["artifact_count"] as? Int == 1)
 
         let missingID = UUID()
-        let legacyMissing = await router.route(HTTPRequest(
-            method: "GET", path: "/api/research/conversations/\(missingID.uuidString)"))
-        #expect(legacyMissing.status == 404)
         let missingArgs = try JSONSerialization.data(withJSONObject: [
             "conversation_id": missingID.uuidString
         ])

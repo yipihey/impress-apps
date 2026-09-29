@@ -18,20 +18,21 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 | imprint | `GET /api/documents` and `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | `list-documents` omits word count and last modification; no verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
 | imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers acknowledge queued editor operations and return an `operationId`. `/update` also accepts full source, and `/replace` supports replacing only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. Keep them pending the caller and contract decision. |
 | imprint | `GET/POST /api/documents/{id}/comments`, `PATCH/DELETE /api/comments/{id}`, and `POST /api/comments/{id}/accept|reject` | The HTTP comment routes carry filters, threaded replies, proposed text, agent attribution, and suggestion actions that the present comment verbs do not all represent. In particular, `update-comment` explicitly refuses accepted/rejected status rather than claiming a suggestion was applied. |
-| implore | `GET /api/figures`, `GET /api/figures/{id}`, `GET /api/figures/{id}/export` in `ImploreBridge` and impel's `CounselToolRegistry` | `FigureRecord` lacks the route's type, dataset name, modified time and view-state fields. `export-figure` returns a file path, while `ImploreBridge.exportFigure` returns image bytes. Counsel's raw result expects the old full envelope. |
-| implore | `POST /api/figures`, `PATCH /api/figures/{id}`, `DELETE /api/figures/{id}` | The HTTP figure writer accepts dataset/view configuration and re-renders or cleans up the stored artifact. Current service verbs do not cover that full update/delete contract; keep the handlers and routes. |
 | implore | `GET /api/rg/slice/png`, `/api/rg/cascade_plot`, `/api/plot/svg`, and `/api/plot/histogram` | These routes accept viewer query/body options or return raw image/SVG data. A string result does not preserve binary HTTP response behavior. |
-| impart | `GET /api/research/conversations` in `ImpartBridge` and impel's `CounselToolRegistry` | `ConversationRecord` omits participants, tags, parent conversation, and `lastActivityAt` from the HTTP list; Counsel also consumes the old count/total/query envelope. `GET /api/messages` is a separate app-only mail capability. |
-| impart | `GET /api/research/conversations/{id}` | The HTTP detail includes messages and statistics; `get-conversation` returns a summary record only. |
 | impart | `POST /api/research/conversations`, `/{id}/messages`, `/{id}/branch`, `/{id}/artifacts`, `/{id}/decisions`; `PATCH /api/research/conversations/{id}`, `/{id}/archive` | These legacy routes queue UI operations and return queue acknowledgements. The native verbs perform writes before returning. The HTTP routes also accept fields absent from the verb signatures: participants, sender ID/causation ID, branch message ID, artifact URI/type/display name, tags, and archive. No verb represents archive. |
 | imprint | `GET /api/documents/{id}` in impart's `ArtifactResolver` | `get-document` returns id/title/format, but the resolver's `DocumentArtifactData` requires lastModified and can carry version/preview text. Retaining the route is necessary until that read is represented. |
 
 The exact equivalent bridge operations now use verbs: imbib BibTeX export and
-library creation, and imprint document content composed from `get-document`
-plus `get-content`. The imbib BibTeX export and library creation route arms were
-removed after hosted parity; the three old undo and seven local SciX routing
-arms also moved to verbs. No Swift caller uses those SciX URLs; the seven
-existing SciX descriptors cover local record CRUD, membership, and counts.
+library creation, imprint document content composed from `get-document` plus
+`get-content`, implore figure list/detail/export/create/update/delete, and
+impart conversation list/detail. The implore figure domain route registrations
+and impart conversation read registrations were removed after their bridge and
+Counsel consumers moved to generated verbs. The raw implore RG/plot viewer
+routes and all impart queued conversation writes remain. The imbib BibTeX
+export and library creation route arms were removed after hosted parity; the
+three old undo and seven local SciX routing arms also moved to verbs. No Swift
+caller uses those SciX URLs; the seven existing SciX descriptors cover local
+record CRUD, membership, and counts.
 Imprint's `POST /api/documents/create` arm was also removed: it returned a
 new UUID without persisting a manuscript, while the native `create-document`
 verb commits one to the shared store. No production Swift caller used that URL.
