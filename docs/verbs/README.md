@@ -30,7 +30,7 @@ Tier A runs without an app or external service. Tier B requires an explicit isol
 - [impress-scenario-service](impress-scenario-service.md) (6 verbs)
 - [impress-surface-service](impress-surface-service.md) (15 verbs)
 - [impress-workflow-service](impress-workflow-service.md) (7 verbs)
-- [imprint-app-service](imprint-app-service.md) (15 verbs)
+- [imprint-app-service](imprint-app-service.md) (17 verbs)
 - [imprint-manuscript-service](imprint-manuscript-service.md) (17 verbs)
 - [imprint-project-service](imprint-project-service.md) (30 verbs)
 - [imprint-selftest-service](imprint-selftest-service.md) (1 verbs)
