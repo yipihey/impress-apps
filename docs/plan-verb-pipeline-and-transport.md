@@ -2248,3 +2248,7 @@ only; root owns build and test verification.
   IDs and missing-row preflight. Evidence: `/tmp/impress-p5c14-touched-tests.log`,
   `/tmp/impress-p5c14-packages.log`, `/tmp/impress-p5c15-touched-tests-all.log`,
   and `/tmp/impress-p5c15-*.log`.
+
+### 2026-09-29 — P5c23 final native retirement proofs
+
+Full supported arm64 store-ffi, impel-tools, implore-verbs-ffi and impart-verbs-ffi builds passed (`/tmp/impress-p5c23-frameworks.log`). Isolated implore proof: two XCTest cases, five shared transport calls, `/tmp/impress-p5b-transport-z9kipzlz/output/`, owned PID 90865 exited. Isolated impart proof: one XCTest, eight shared transport calls, `/tmp/impress-p5b-transport-au01yhmg/output/`, owned PID 90909 exited. SQLite checks, retired URL refusals and generated behavior passed in both apps.
