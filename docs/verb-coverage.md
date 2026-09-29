@@ -41,7 +41,7 @@ read.
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 8 | 6 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 35 | 22 |
-| `imbib-library-service` | imbib-service | 46 | 46 | 85 (65) | 85 | 46 |
+| `imbib-library-service` | imbib-service | 47 | 47 | 86 (66) | 86 | 47 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 23 | 10 |
@@ -57,7 +57,7 @@ read.
 | `impress-scenario-service` | impress-scenario-service | 6 | 6 | 11 (4) | 11 | 6 |
 | `impress-surface-service` | impress-surface-service | 15 | 15 | 33 (18) | 33 | 15 |
 | `impress-workflow-service` | impress-workflow-service | 7 | 7 | 7 (6) | 7 | 7 |
-| `imprint-app-service` | imprint-service | 15 | 15 | 29 (22) | 29 | 15 |
+| `imprint-app-service` | imprint-service | 15 | 15 | 35 (22) | 34 | 15 |
 | `imprint-manuscript-service` | imprint-service | 17 | 17 | 34 (34) | 34 | 17 |
 | `imprint-project-service` | imprint-service | 30 | 30 | 97 (47) | 97 | 30 |
 | `imprint-selftest-service` | imprint-selftest | 1 | 1 | 1 (1) | 1 | 1 |
@@ -78,7 +78,7 @@ read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 21 crates, 46 services | **480** | **480** | **1076 (711)** | **1076** | **480** |
+| **Total** | 21 crates, 46 services | **481** | **481** | **1083 (712)** | **1082** | **481** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -97,12 +97,12 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | Shape | Arguments |
 |---|---:|
 | `array-of-objects` | 3 |
-| `array-of-scalars` | 52 |
+| `array-of-scalars` | 53 |
 | `inline-object` | 6 |
 | `map` | 2 |
 | `other` | 43 |
 | `ref-object` | 4 |
-| `scalar` | 966 |
+| `scalar` | 972 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)
