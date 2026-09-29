@@ -5541,8 +5541,20 @@ private func nativeMapped(_ response: HTTPResponse, extract: ([String: Any]) -> 
         return nativeFailure(500, "internal", "Native handler returned invalid JSON")
     }
     if !(200..<300).contains(response.status) || (body["status"] as? String) == "error" {
+        // The Rust dispatcher maps canonical refusal codes back to HTTP.
+        // Preserve input/not-found/conflict failures instead of recoding all
+        // legacy handler errors as a 502 backend failure.
+        let fallbackCode: String
+        switch response.status {
+        case 400: fallbackCode = "invalid-argument"
+        case 404: fallbackCode = "not-found"
+        case 409: fallbackCode = "conflict"
+        case 500: fallbackCode = "internal"
+        case 503: fallbackCode = "host-unavailable"
+        default: fallbackCode = "verb-failed"
+        }
         return nativeFailure(UInt16(clamping: response.status == 200 ? 422 : response.status),
-                             body["code"] as? String ?? "verb-failed",
+                             body["code"] as? String ?? fallbackCode,
                              body["error"] as? String ?? body["message"] as? String ?? "imbib operation failed")
     }
     guard let value = extract(body) else { return nativeFailure(500, "internal", "Native handler omitted required result") }
