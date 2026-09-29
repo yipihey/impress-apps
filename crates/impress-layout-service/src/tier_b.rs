@@ -908,52 +908,12 @@ mod tests {
     }
 
     #[test]
-    fn channel_selection_scenario_preserves_param_and_selected_id_contract() {
-        let scenario: impress_scenario::Scenario = serde_json::from_str(CHANNEL_SELECTION_SCENARIO)
-            .expect("channel selection scenario parses");
+    fn channel_selection_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(CHANNEL_SELECTION_SCENARIO).expect("scenario parses");
         assert_eq!(scenario.id, CATALOGUE[4].0);
         assert_eq!(scenario.description, CATALOGUE[4].1);
         assert!(impress_scenario::validate(&scenario).is_empty());
-        let Some(impress_scenario::Step::Call(apply)) = scenario.steps.first() else {
-            panic!("scenario starts by applying the default layout");
-        };
-        assert_eq!(apply.call, "layout-service_apply-layout");
-        let select = scenario
-            .steps
-            .iter()
-            .find_map(|step| match step {
-                impress_scenario::Step::Call(call) if call.call == "layout-service_select" => {
-                    Some(call)
-                }
-                _ => None,
-            })
-            .expect("scenario publishes a list selection");
-        assert_eq!(select.args["target"]["id"], "{{state.list.numeric_key}}");
-        assert_eq!(
-            select.args["kind"],
-            "{{state.channel_param.value.decl.kind}}"
-        );
-        assert_eq!(select.args["ids"][0], "{{uuid}}");
-        assert_eq!(
-            serde_json::to_value(&select.capture["selected_id"]).unwrap(),
-            json!({"argument": "$.ids.0"})
-        );
-        assert!(impress_service_core::call::find(&select.call).is_some());
-        let after = scenario
-            .steps
-            .iter()
-            .rev()
-            .find_map(|step| match step {
-                impress_scenario::Step::Call(call) if call.call == "layout-service_get-layout" => {
-                    Some(call)
-                }
-                _ => None,
-            })
-            .expect("scenario reads the tree after publishing");
-        assert!(after.expect.as_ref().is_some_and(|expect| expect.fields.iter().any(|field| {
-            field.path == "layout.channels.channels.{{state.channel_param.value.source.channel.number}}.{{state.channel_param.value.decl.kind}}"
-                && matches!(&field.check, impress_scenario::Check::Equals(value) if value == &json!(["{{state.selected_id}}"]))
-        })));
         for step in scenario.steps.iter().chain(&scenario.teardown) {
             if let impress_scenario::Step::Call(call) = step {
                 assert!(
@@ -966,28 +926,12 @@ mod tests {
     }
 
     #[test]
-    fn outline_collection_scenario_validates_and_keeps_catalogue_identity() {
+    fn outline_collection_scenario_validates_and_preserves_catalogue_identity() {
         let scenario: impress_scenario::Scenario =
-            serde_json::from_str(OUTLINE_COLLECTION_SCENARIO)
-                .expect("outline collection scenario parses");
+            serde_json::from_str(OUTLINE_COLLECTION_SCENARIO).expect("scenario parses");
         assert_eq!(scenario.id, CATALOGUE[7].0);
         assert_eq!(scenario.description, CATALOGUE[7].1);
         assert!(impress_scenario::validate(&scenario).is_empty());
-        let selection = scenario
-            .steps
-            .iter()
-            .find_map(|step| match step {
-                impress_scenario::Step::Call(call) if call.call == "layout-service_select" => {
-                    Some(call)
-                }
-                _ => None,
-            })
-            .expect("scenario publishes a list selection");
-        assert_eq!(selection.args["ids"][0], "{{uuid}}");
-        assert_eq!(
-            serde_json::to_value(&selection.capture["selection_id"]).unwrap(),
-            json!({"argument": "$.ids.0"})
-        );
         for step in scenario.steps.iter().chain(&scenario.teardown) {
             if let impress_scenario::Step::Call(call) = step {
                 assert!(

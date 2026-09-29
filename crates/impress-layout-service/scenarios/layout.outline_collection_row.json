@@ -27,7 +27,7 @@
             "equals": "{{state.collection_query}}"
           },
           {
-            "path": "layout.channels.channels.1.collection",
+            "path": "layout.channels.1.collection",
             "equals": ["{{state.collection_id}}"]
           }
         ]
