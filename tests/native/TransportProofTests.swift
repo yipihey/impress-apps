@@ -110,13 +110,32 @@ final class TransportProofTests: XCTestCase {
         let libraryID = try XCTUnwrap(library["id"] as? String)
         try require(UUID(uuidString: libraryID) != nil && library["name"] as? String == title,
                     "created library has its persisted identity and title")
+        for suffix in ["one", "two"] {
+            _ = try object(try await verb(base, bearer, "imbib-library-service_create-collection", [
+                "name": "P5c2 " + suffix + " " + UUID().uuidString,
+                "library_id": libraryID, "is_smart": false, "query": NSNull()
+            ]), "created library collection")
+        }
         let libraries = try array(try await verb(base, bearer,
             "imbib-library-service_list-libraries", [:]), "library readback")
-        try require(libraries.contains { ($0 as? [String: Any])?["id"] as? String == libraryID },
-                    "created library reads back")
+        let generatedRow = try XCTUnwrap(libraries
+            .compactMap { $0 as? [String: Any] }
+            .first { $0["id"] as? String == libraryID })
+        try require(generatedRow["collection_count"] as? Int == 2 &&
+                    generatedRow["can_edit"] as? Bool == true,
+                    "generated list reports stored collection count and local editability")
+        let legacyEnvelope = try object(try await request(base, bearer, "/api/libraries", nil),
+                                        "legacy library list")
+        let legacyRows = try XCTUnwrap(legacyEnvelope["libraries"] as? [[String: Any]])
+        let legacyRow = try XCTUnwrap(legacyRows.first {
+            ($0["id"] as? String)?.lowercased() == libraryID.lowercased()
+        })
+        try require(legacyRow["collectionCount"] as? Int == generatedRow["collection_count"] as? Int &&
+                    legacyRow["canEdit"] as? Bool == generatedRow["can_edit"] as? Bool,
+                    "legacy HTTP and generated library metadata agree")
         let key = "p5bproof" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let paperTitle = "P5b Transport Paper"
-        let bibtex = "@article{\(key), title={\(paperTitle)}, author={Doe, Jane}, year={2026}}"
+        let bibtex = "@article{\(key), title={\(paperTitle)}, author={Doe, Jane and Roe, John}, year={2026}, journal={Transport Journal}, volume={7}, number={2}, pages={10-20}, doi={10.5555/p5c6-ris}, abstract={RIS transport fixture}, keywords={alpha, beta}, issn={9876-5432}}"
         let imported = try array(try await verb(base, bearer,
             "imbib-library-service_import-bibtex",
             ["bibtex": bibtex, "library_id": libraryID]), "BibTeX import")
@@ -127,6 +146,13 @@ final class TransportProofTests: XCTestCase {
         try require(paper["id"] as? String == paperID &&
                     (paper["title"] as? String)?.contains(paperTitle) == true,
                     "BibTeX paper reads back with its title")
+        let ris = try string(try await verb(base, bearer,
+            "imbib-library-service_export-ris", ["ids": [key]]), "generated RIS export")
+        let legacyRIS = try object(try await request(
+            base, bearer, "/api/export?keys=\(key)&format=ris", nil), "legacy RIS export")
+        try require(legacyRIS["content"] as? String == ris &&
+                    legacyRIS["paperCount"] as? Int == 1,
+                    "generated RIS bytes match the legacy export route")
         let exported = try string(try await verb(base, bearer,
             "imbib-library-service_export-bibtex", ["ids": [paperID]]), "BibTeX export")
         try require(exported.contains(paperTitle), "imported BibTeX exports from the store")

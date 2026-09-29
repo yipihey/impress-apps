@@ -161,7 +161,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_count-starred` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_count-unread` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_create-collection` | "imbib/library" | "imbib/collection" | — | example ×1 |
-| `imbib-library-service_create-library` | "imbib/library" | "imbib/library" | — | example ×1 |
+| `imbib-library-service_create-library` | "imbib/library", "imbib/collection" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_create-muted-item` | "imbib/muted-item" | "imbib/muted-item" | — | example ×1 |
 | `imbib-library-service_deduplicate-library` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
@@ -170,8 +170,9 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_duplicate-publications` | "imbib/bibliography-entry", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/linked-file" | fs | — |
 | `imbib-library-service_export-all-bibtex` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_export-bibtex` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
-| `imbib-library-service_get-default-library` | "imbib/library", "imbib/bibliography-entry" | — | — | example ×2 |
-| `imbib-library-service_get-inbox-library` | "imbib/library", "imbib/bibliography-entry" | — | — | example ×2 |
+| `imbib-library-service_export-ris` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
+| `imbib-library-service_get-default-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
+| `imbib-library-service_get-inbox-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_get-publication` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_get-publication-detail` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | example ×1 |
 | `imbib-library-service_import-bibtex` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
@@ -181,7 +182,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_list-collections` | "imbib/collection", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_list-dismissed-papers` | "imbib/dismissed-paper" | — | — | example ×1 |
-| `imbib-library-service_list-libraries` | "imbib/library", "imbib/bibliography-entry" | — | — | example ×2 |
+| `imbib-library-service_list-libraries` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_list-linked-files` | "imbib/linked-file" | — | — | example ×1 |
 | `imbib-library-service_list-muted-items` | "imbib/muted-item" | — | — | example ×2 |
 | `imbib-library-service_list-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
@@ -265,8 +266,10 @@ catalogue, 300 on the exception table.
 | `impel-service_resolve-review` | "review-request@1.0.0", "task@1.0.0" | "review-request@1.0.0", "task@1.0.0" | — | example ×1 |
 | `impel-service_retention-status` | "task@1.0.0", "review-request@1.0.0", "core/operation" | — | — | — |
 | `impel-service_scheduler-status` | "task@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
-| `implore-service_create-figure` | — | — | app("implore") | — |
+| `implore-service_create-figure` | — | "figure" | app("implore") | — |
+| `implore-service_delete-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `implore-service_export-figure` | — | — | app("implore") | — |
+| `implore-service_export-figure-data` | — | — | app("implore") | — |
 | `implore-service_get-dataset` | — | — | app("implore") | — |
 | `implore-service_get-figure` | — | — | app("implore") | — |
 | `implore-service_get-logs` | — | — | app("implore") | — |
@@ -285,6 +288,7 @@ catalogue, 300 on the exception table.
 | `implore-service_rg-state` | — | — | app("implore") | — |
 | `implore-service_rg-statistics` | — | — | app("implore") | — |
 | `implore-service_status` | — | — | app("implore") | — |
+| `implore-service_update-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `impress-ai-service_ai-health` | — | — | network | — |
 | `impress-ai-service_ai-preferences` | — | — | fs | example ×1 |
 | `impress-ai-service_create-conversation` | "conversation@1.0.0" | "conversation@1.0.0" | — | example ×1 |
@@ -616,7 +620,9 @@ when one lands).
 | `impart-service_update-conversation` | needs a running app |
 | `impel-service_retention-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `implore-service_create-figure` | needs a running app |
+| `implore-service_delete-figure` | needs a running app |
 | `implore-service_export-figure` | needs a running app |
+| `implore-service_export-figure-data` | needs a running app |
 | `implore-service_get-dataset` | needs a running app |
 | `implore-service_get-figure` | needs a running app |
 | `implore-service_get-logs` | needs a running app |
@@ -635,6 +641,7 @@ when one lands).
 | `implore-service_rg-state` | needs a running app |
 | `implore-service_rg-statistics` | needs a running app |
 | `implore-service_status` | needs a running app |
+| `implore-service_update-figure` | needs a running app |
 | `impress-ai-service_ai-health` | leaves the process (network) |
 | `impress-ai-service_list-models` | leaves the process (provider) |
 | `impress-ai-service_list-providers` | leaves the process (provider, fs) |

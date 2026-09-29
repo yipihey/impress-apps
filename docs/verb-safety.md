@@ -200,6 +200,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_duplicate-publications` | mutating | name/doc |
 | `imbib-library-service_export-all-bibtex` | read_only | name/doc |
 | `imbib-library-service_export-bibtex` | read_only | name/doc |
+| `imbib-library-service_export-ris` | read_only | name/doc |
 | `imbib-library-service_get-default-library` | read_only | name/doc |
 | `imbib-library-service_get-inbox-library` | read_only | name/doc |
 | `imbib-library-service_get-publication` | read_only | name/doc |
@@ -297,6 +298,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impel-service_scheduler-status` | read_only | name/doc |
 | `implore-service_create-figure` | external | E/M: name/doc |
 | `implore-service_export-figure` | external | E/M: name/doc |
+| `implore-service_export-figure-data` | external | name/doc |
 | `implore-service_get-dataset` | external | name/doc |
 | `implore-service_get-figure` | external | name/doc |
 | `implore-service_get-logs` | external | name/doc |

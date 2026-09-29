@@ -124,7 +124,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
             }
         case "list_comments":
             guard let id else { return .badRequest("Missing document ID") }
-            return await handleListComments(docId: id, filter: nil, authorAgentId: nil)
+            return await handleListComments(
+                docId: id,
+                filter: request.queryParams["filter"],
+                authorAgentId: request.queryParams["authorAgentId"])
         case "create_comment":
             guard let id else { return .badRequest("Missing document ID") }
             return await handleCreateComment(docId: id, request: request)

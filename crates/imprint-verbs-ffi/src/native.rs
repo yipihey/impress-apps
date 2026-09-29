@@ -419,10 +419,15 @@ impl ImprintAppService for NativeApp {
         )
         .await
     }
-    async fn list_comments(&self, document_id: String) -> Vec<CommentRecord> {
+    async fn list_comments(
+        &self,
+        document_id: String,
+        filter: Option<String>,
+        author_agent_id: Option<String>,
+    ) -> Vec<CommentRecord> {
         self.required(
             "list_comments",
-            json!({"document_id":document_id}),
+            json!({"document_id":document_id,"filter":filter,"author_agent_id":author_agent_id}),
             "comments",
         )
         .await
@@ -433,10 +438,16 @@ impl ImprintAppService for NativeApp {
         document_id: String,
         body: String,
         anchor: Option<String>,
+        parent_id: Option<String>,
+        proposed_text: Option<String>,
+        author_agent_id: Option<String>,
+        author_name: Option<String>,
     ) -> Option<CommentRecord> {
         self.required(
             "create_comment",
-            json!({"document_id":document_id,"body":body,"anchor":anchor}),
+            json!({"document_id":document_id,"body":body,"anchor":anchor,
+                "parent_id":parent_id,"proposed_text":proposed_text,
+                "author_agent_id":author_agent_id,"author_name":author_name}),
             "comment",
         )
         .await

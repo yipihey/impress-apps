@@ -30,6 +30,79 @@ pub async fn prepare(
     match (verb, example) {
         ("imbib-library-service_list-libraries", "reading-library-list") => {
             library(store, "67", "G3 listed library", false, false)?;
+            collection(store, "b1", "G3 listed collection one", "67")?;
+            collection(store, "b2", "G3 listed collection two", "67")?;
+            // This read-only remote library has a distinct schema and must
+            // not leak into the local-library list.
+            let item_id = uuid("b3")?;
+            reset(store, item_id)?;
+            let mut remote = super::seed_item(item_id, refs::IMBIB_SCIX_LIBRARY.as_str(), None);
+            remote.payload.insert(
+                "remote_id".into(),
+                ItemValue::String("g3-read-only-remote".into()),
+            );
+            remote
+                .payload
+                .insert("name".into(), ItemValue::String("G3 read-only SciX".into()));
+            remote
+                .payload
+                .insert("permission_level".into(), ItemValue::String("read".into()));
+            store.insert(remote).map_err(|e| e.to_string())?;
+        }
+        ("imbib-library-service_export-ris", "representative-ris-export") => {
+            library(store, "c1", "G3 RIS export library", false, false)?;
+            reset_matching(
+                store,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+                "cite_key",
+                "G3RIS2026",
+                Some(uuid("c1")?),
+            )?;
+            let mut item = super::seed_item(
+                uuid("c2")?,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str(),
+                Some(uuid("c1")?),
+            );
+            reset(store, item.id)?;
+            for (key, value) in [
+                ("cite_key", "G3RIS2026"),
+                ("entry_type", "article"),
+                ("author_text", "Doe, Jane"),
+                ("title", "RIS parity paper"),
+                ("journal", "Research Journal"),
+                ("volume", "12"),
+                ("number", "3"),
+                ("pages", "100-110"),
+                ("doi", "10.5555/g3-ris"),
+                ("abstract_text", "Representative abstract"),
+                ("url", "https://example.org/g3-ris"),
+                ("publisher", "Example Press"),
+                ("address", "Boston"),
+                ("issn", "1234-5678"),
+                ("note", "G3 export note"),
+                ("series", "Research Series"),
+                ("edition", "2"),
+            ] {
+                item.payload
+                    .insert(key.into(), ItemValue::String(value.into()));
+            }
+            item.payload.insert("year".into(), ItemValue::Int(2026));
+            item.payload.insert(
+                "keywords".into(),
+                ItemValue::Array(vec![
+                    ItemValue::String("alpha".into()),
+                    ItemValue::String("beta".into()),
+                ]),
+            );
+            item.payload.insert(
+                "extra_fields".into(),
+                ItemValue::Object(
+                    [("language".into(), ItemValue::String("en".into()))]
+                        .into_iter()
+                        .collect(),
+                ),
+            );
+            store.insert(item).map_err(|e| e.to_string())?;
         }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             library(store, "84", "G3 sidebar library", false, false)?;
@@ -562,7 +635,54 @@ pub fn verify(
 ) -> Result<(), String> {
     match (verb, example) {
         ("imbib-library-service_list-libraries", "reading-library-list") => {
-            require_row(result, &id("67"))?;
+            let rows = result.as_array().ok_or("expected a list of libraries")?;
+            let row = rows
+                .iter()
+                .find(|row| row["id"] == id("67"))
+                .ok_or("result omitted scratch library")?;
+            let stored = load(store, &id("67"))?.ok_or("scratch library disappeared")?;
+            let actual_collection_count =
+                collection_ops::list_tree_in(store, &IMBIB_COLLECTION, Some(&id("67")))
+                    .map_err(|e| e.to_string())?
+                    .len();
+            if stored.payload.get("name")
+                != Some(&ItemValue::String(
+                    row["name"].as_str().unwrap_or_default().into(),
+                ))
+                || row["collection_count"].as_u64() != Some(actual_collection_count as u64)
+                || actual_collection_count != 2
+                || row["is_default"] != false
+                || row["is_inbox"] != false
+                || row["publication_count"] != 0
+                || row["can_edit"] != true
+            {
+                return Err(format!(
+                    "generated library metadata did not match scratch store: {row}"
+                ));
+            }
+            if rows.iter().any(|row| row["id"] == id("b3")) {
+                return Err("read-only SciX library leaked into local library list".into());
+            }
+            let remote = load(store, &id("b3"))?.ok_or("read-only SciX fixture disappeared")?;
+            if remote.schema != refs::IMBIB_SCIX_LIBRARY
+                || remote.payload.get("permission_level") != Some(&ItemValue::String("read".into()))
+            {
+                return Err("read-only SciX permission fixture was not persisted".into());
+            }
+        }
+        ("imbib-library-service_export-ris", "representative-ris-export") => {
+            let rows = store
+                .query(&ItemQuery {
+                    schema: Some(refs::IMBIB_BIBLIOGRAPHY_ENTRY),
+                    ..Default::default()
+                })
+                .map_err(|e| e.to_string())?;
+            if !rows.iter().any(|row| {
+                row.payload.get("cite_key") == Some(&ItemValue::String("G3RIS2026".into()))
+                    && row.parent == Some(uuid("c1").expect("fixed fixture UUID"))
+            }) {
+                return Err("representative RIS paper was not persisted in scratch library".into());
+            }
         }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             require_row(&result["libraries"], &id("84"))?;
