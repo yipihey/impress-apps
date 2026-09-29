@@ -927,12 +927,9 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// - **Feed collections**: every `imbib/smart-search` row carrying its
     ///   own per-collection `retention_days` and `auto_remove_read`.
     /// - **Exploration**: `imbib.retention.exploration_days`, applied to
-    ///   executed smart searches under `exploration_library_id`. That id is
-    ///   local UI state (a `UserDefaults` pointer, not a store row) with no
-    ///   Rust-visible identity yet, so this method only touches exploration
-    ///   when a caller supplies it; a stored workflow with no dynamic
-    ///   arguments therefore covers inbox + feed but not exploration until
-    ///   that identity moves into the store (left as follow-up, table RG-S).
+    ///   executed smart searches under the library pointer migrated from
+    ///   imbib's legacy `explorationLibraryID` setting. A valid explicit
+    ///   `exploration_library_id` takes precedence over that stored pointer.
     #[impress_method(
         safety = destructive,
         effects(
@@ -1592,6 +1589,8 @@ mod retention {
 
     use super::RetentionCleanupReport;
 
+    const EXPLORATION_LIBRARY_ID_KEY: &str = "imbib.internal.exploration_library_id";
+
     static SETTINGS: OnceLock<SettingsStore> = OnceLock::new();
 
     fn settings() -> &'static SettingsStore {
@@ -1613,6 +1612,27 @@ mod retention {
             .ok()
             .and_then(|r| r.value.as_bool())
             .unwrap_or(default)
+    }
+
+    fn normalized_library_id(raw: &str) -> Option<String> {
+        uuid::Uuid::parse_str(raw)
+            .ok()
+            .map(|id| id.hyphenated().to_string())
+    }
+
+    /// The caller's valid override wins; otherwise read the pointer that
+    /// LibraryManager copied from its legacy UserDefaults key into the shared
+    /// settings file. Invalid values never broaden retention to a library.
+    fn exploration_library_id(explicit: Option<&str>, settings: &SettingsStore) -> Option<String> {
+        match explicit {
+            Some(raw) => normalized_library_id(raw),
+            None => settings
+                .get(EXPLORATION_LIBRARY_ID_KEY)
+                .ok()?
+                .value
+                .as_str()
+                .and_then(normalized_library_id),
+        }
     }
 
     /// Milliseconds-since-epoch cutoff `days` in the past; `None` when
@@ -1752,18 +1772,71 @@ mod retention {
         store: &ImbibStore,
         exploration_library_id: Option<&str>,
     ) -> RetentionCleanupReport {
+        let exploration_library_id = exploration_library_id(exploration_library_id, settings());
         tracing::info!(target: "workflow", exploration_library_id, "retention cleanup requested");
         // Match the retired Swift cleanup order. Removing an expired
         // exploration search first prevents its own feed policy from deleting
         // the papers linked to a search that no longer exists.
         let inbox_removed = cleanup_inbox(store);
-        let exploration_removed = cleanup_exploration(store, exploration_library_id);
+        let exploration_removed = cleanup_exploration(store, exploration_library_id.as_deref());
         let feed_removed = cleanup_feed_collections(store);
         tracing::info!(target: "workflow", inbox_removed, exploration_removed, feed_removed, "retention cleanup saved");
         RetentionCleanupReport {
             inbox_removed,
             feed_removed,
             exploration_removed,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use serde_json::Value;
+
+        #[test]
+        fn legacy_exploration_library_id_is_read_from_the_scratch_settings_store() {
+            let dir = tempfile::tempdir().unwrap();
+            let settings = SettingsStore::open(dir.path());
+            let legacy_id = "5c000000-0000-4000-8000-000000000086";
+            assert!(settings
+                .import_legacy(EXPLORATION_LIBRARY_ID_KEY, &Value::String(legacy_id.into()))
+                .unwrap());
+
+            assert_eq!(
+                exploration_library_id(None, &settings).as_deref(),
+                Some(legacy_id)
+            );
+        }
+
+        #[test]
+        fn explicit_exploration_library_id_overrides_the_stored_pointer() {
+            let dir = tempfile::tempdir().unwrap();
+            let settings = SettingsStore::open(dir.path());
+            let stored_id = "5c000000-0000-4000-8000-000000000086";
+            let explicit_id = "5c000000-0000-4000-8000-000000000087";
+            settings
+                .set(EXPLORATION_LIBRARY_ID_KEY, &Value::String(stored_id.into()))
+                .unwrap();
+
+            assert_eq!(
+                exploration_library_id(Some(explicit_id), &settings).as_deref(),
+                Some(explicit_id)
+            );
+            assert_eq!(exploration_library_id(Some("not-a-uuid"), &settings), None);
+        }
+
+        #[test]
+        fn invalid_internal_exploration_id_is_ignored() {
+            let dir = tempfile::tempdir().unwrap();
+            let settings = SettingsStore::open(dir.path());
+            settings
+                .set(
+                    EXPLORATION_LIBRARY_ID_KEY,
+                    &Value::String("not-a-uuid".into()),
+                )
+                .unwrap();
+
+            assert_eq!(exploration_library_id(None, &settings), None);
         }
     }
 }

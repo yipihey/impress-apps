@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 
 #if os(iOS)
@@ -23,6 +24,9 @@ import IOKit
 @MainActor
 @Observable
 public final class LibraryManager {
+
+    private static let explorationLibrarySettingKey = "imbib.internal.exploration_library_id"
+    private let explorationDefaults: UserDefaults
 
     // MARK: - Published State
 
@@ -80,11 +84,28 @@ public final class LibraryManager {
     /// ID of the Exploration system library
     private var explorationLibraryID: UUID? {
         get {
-            guard let str = UserDefaults.standard.string(forKey: "explorationLibraryID") else { return nil }
-            return UUID(uuidString: str)
+            let storedRecord = ImpressSettings.shared.record(Self.explorationLibrarySettingKey)
+            if storedRecord?.source == "stored" {
+                let stored = ImpressSettings.shared.value(
+                    Self.explorationLibrarySettingKey, as: String.self)
+                return UUID(uuidString: stored)
+            }
+            let stored = ImpressSettings.shared.value(
+                Self.explorationLibrarySettingKey, as: String.self)
+            if let id = UUID(uuidString: stored) { return id }
+            guard let legacy = explorationDefaults.string(forKey: "explorationLibraryID") else {
+                return nil
+            }
+            return UUID(uuidString: legacy)
         }
         set {
-            UserDefaults.standard.set(newValue?.uuidString, forKey: "explorationLibraryID")
+            let value = newValue?.uuidString
+            explorationDefaults.set(value, forKey: "explorationLibraryID")
+            if let value {
+                ImpressSettings.shared.set(Self.explorationLibrarySettingKey, value)
+            } else {
+                ImpressSettings.shared.reset(Self.explorationLibrarySettingKey)
+            }
         }
     }
 
@@ -118,8 +139,12 @@ public final class LibraryManager {
 
     // MARK: - Initialization
 
-    public init(store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
+    public init(
+        store: any PublicationStoreProtocol = RustStoreAdapter.shared,
+        explorationDefaults: UserDefaults = .standard
+    ) {
         self.store = store
+        self.explorationDefaults = explorationDefaults
         loadLibraries()
 
         // Load default library set if none exist (first run).
