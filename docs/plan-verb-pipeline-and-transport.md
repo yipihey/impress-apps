@@ -1780,6 +1780,32 @@ Data warnings remain; no persistence schema was changed.
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
 
+## P5c7 — imprint threaded comment metadata (2026-09-29)
+
+Extended `imprint-app-service_list-comments` with optional route-compatible
+`filter` and `author_agent_id`, and `create-comment` with optional parent,
+suggestion, agent identity, and display name. `CommentRecord` now retains the
+actual route fields: author identifier, duplicate `content`/`body`, live
+UTF-16 range, modified time, resolved/suggestion flags, parent, proposed text,
+and agent identity. These are existing `Comment` values, not synthesized
+metadata. Native create continues to call `CommentService.addComment`; anchors
+are located in the current source and converted from UTF-16 to the store's
+UTF-8 anchor through the existing comment store, while replies inherit their
+parent's current range. A malformed or cross-document parent is refused.
+
+The route source showed that its documented `mine` filter currently falls
+through to the unfiltered result; this package preserves the handler's actual
+behavior and does not silently change a retained HTTP route. Unknown filters
+also retain that existing all-comments behavior. Accept/reject remain separate
+actions; update-comment still only accepts open/resolved status.
+
+Rust record coverage checks all newly projected fields and route camel-case
+aliases. The hosted `ImprintNativeVerbProofTests.testNativeGenericRouteAndAppRefusalUseTheScratchWorkspace`
+compares a direct legacy suggestion/read and a generated filtered read on the
+same PID-owned scratch manuscript, then creates a generated threaded suggestion
+and verifies parent identity and inherited UTF-16 offsets. Root owns running
+the Rust/native verification and regenerating any generated assets.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -1790,3 +1816,16 @@ Data warnings remain; no persistence schema was changed.
   Tables and reference pages were regenerated. Root corrected the seeded
   bibliography fixture, a module-qualified test helper and converter lint
   findings before these runs. No user store or running app was touched.
+
+- 2026-09-29 — **P5c7 verified.** Root passed 132 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 builds of store-ffi,
+  impel-tools and imprint-verbs-ffi, alongside the final RIS archives.
+  The isolated native run passed both XCTest cases and 14 shared transport
+  calls, including threaded suggestion metadata/range parity and invalid-parent
+  and unsupported-status refusals. SQLite checks passed; owned PID 21487 exited.
+  Evidence: `/tmp/impress-p5b-transport-0kkhokqi/output/` and
+  `/tmp/impress-p5c7-{final-tests,gates,final-frameworks,native-proof-final}.log`.
+  The first native run caught an old snapshot taken before two successful
+  thread writes; the final test snapshots immediately before the refusal and
+  still requires equality of every stored comment afterward. Generated project
+  identifier/path churn was discarded. No real store or user app was touched.
