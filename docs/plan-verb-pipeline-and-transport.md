@@ -1704,5 +1704,12 @@ The existing debug linker unwind-size warning remains unchanged.
   host. The `custom` type fallback and HTTP 800×600 dimension defaults remain
   intact. Native adapter and headless refusal tests cover the mapping, and the
   isolated native proof compares generated list/get output with actual HTTP
-  fields and absent keys. No build, tests or framework proof was run in this
-  package; root owns verification.
+  fields and absent keys. Root verification passed 56 Rust tests (zero failures,
+  three ignored) and every quick gate after integrating merged library reads.
+  Store-ffi, impel-tools and implore-verbs-ffi were rebuilt for all supported
+  arm64 slices with swiftformat off PATH. Seven semantic-search dump tables
+  were regenerated unchanged. Both hosted XCTest cases and five shared
+  transport calls passed at `/tmp/impress-p5b-transport-xaasbfub/output/`;
+  SQLite symbol checks passed and owned PID 50195 exited. Logs are
+  `/tmp/impress-p5c3-final-{tests,gates}.log`,
+  `/tmp/impress-p5c3-frameworks.log` and `/tmp/impress-p5c3-native-proof.log`.
