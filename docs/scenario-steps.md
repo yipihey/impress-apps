@@ -4,6 +4,44 @@ Scenarios retain `wire_version: 1` and the `impress/scenario@1.0.0` record kind.
 The interpreter uses the same `Caller` for Tier A scratch stores and Tier B
 isolated native hosts. Call, event, gesture and wait steps keep their wire shapes.
 
+## Gesture results and fresh log waits
+
+A gesture can capture fields from its result with a JSON-path map, just like a
+call step. Refused gestures fail before captures are stored:
+
+```json
+{
+  "gesture": {"verb": "split", "target": {"role": "detail"}},
+  "capture": {"new_tile": "$.focused"}
+}
+```
+
+`wait.log_cursor` captures the current server timestamp for a later log wait.
+Capture it immediately before the mutation whose log line you need to observe:
+
+```json
+{"wait": {"log_cursor": {"capture": "before"}}}
+```
+
+`wait.log` requires `category`, `contains` and a `timeout_ms` from 1 through
+60,000. Optional `also_contains` needles must also occur in that same message;
+all message matches are case-insensitive. Optional `after` accepts a captured
+ISO-8601 cursor, so entries at or before it cannot satisfy the wait:
+
+```json
+{
+  "wait": {
+    "log": {
+      "category": "layout",
+      "contains": "pane {{state.new_tile}} console:",
+      "also_contains": ["search 'layout'", "levels info,warning,error"],
+      "after": "{{state.before}}",
+      "timeout_ms": 3000
+    }
+  }
+}
+```
+
 ## Comparing captured results and checking cleanup
 
 An expectation can compare a later response with captured JSON. For example,

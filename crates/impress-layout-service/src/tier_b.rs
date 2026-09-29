@@ -53,8 +53,9 @@
 //!    arbitrary JSON structure the way `tile_with_role`/`linear_parent`/
 //!    `channel_ids` below do. This is `layout.version_moves`,
 //!    `layout.channel_selection`, `layout.hidden_share`,
-//!    `layout.outline_collection_row`, `layout.source_pane_session` and
-//!    `layout.console_pane` — the six named in S2's own account, unchanged.
+//!    `layout.outline_collection_row` and `layout.source_pane_session` — five
+//!    of the six named in S2's own account. S2e converts `layout.console_pane`
+//!    using a role target, captured split result and a pre-mutation log cursor.
 //! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
 //!    shape one level down: `first_row_of` is a live, filtered read of the
 //!    shared store (a read paper that already has its PDF) done in-process
@@ -87,6 +88,10 @@
 //! dynamic-lookup shape as (1) above (`outline_target`, `first_row_of`) and
 //! stays code for the same reason, not because a `gesture` step could not
 //! carry it in principle.
+//!
+//! **S2e converts `layout.console_pane`.** Its scenario captures the server's
+//! log cursor immediately before the split, then checks the new pane and all
+//! required fragments of its fresh, case-insensitive scoped log line.
 
 use std::time::Duration;
 
@@ -104,6 +109,7 @@ const SAVED_ROUND_TRIP_SCENARIO: &str = include_str!("../scenarios/layout.saved_
 const SURFACE_SHOW_AND_DISPATCH_SCENARIO: &str =
     include_str!("../scenarios/surface.show_and_dispatch.json");
 const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
+const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pane.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -502,7 +508,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(reading_pdf_pane_capability(&http).await);
     out.push(source_pane_session_capability(&http).await);
     out.push(reading_preset_capability(&http).await);
-    out.push(console_pane_capability(&http).await);
+    out.push(scenario_caller::run_embedded(CONSOLE_PANE_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(WIRE_CONTRACT_SCENARIO, &mut scenario_caller).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
@@ -1045,74 +1051,6 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
     .await
 }
 
-/// The `console` view kind in the running app: a pane whose spec is only
-/// `view_kind: console` plus the console's own two controls in `view_state`
-/// (`search`, `levels` — what `ImpressLogging.ConsoleView` already has; the
-/// query is left at its default because a log is not store items). The pane
-/// logs `pane N console: <app> log, search 'layout', levels …` when it
-/// renders — a `layout`-category line, so it is one of the lines its own
-/// search matches, i.e. the pane is seen showing its own log line. The spec
-/// is read back from the tree to prove `view_state` survived the split
-/// untouched (the tree never interprets it), then the pane is closed.
-async fn console_pane_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[11];
-    check(id, description, Tier::B, || async {
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let view_state = json!({ "search": "layout", "levels": ["info", "warning", "error"] });
-        let before = log_cursor();
-        let split = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "vertical",
-                "after": true,
-                "new": { "view_kind": "console", "view_state": view_state }
-            }))
-            .await?;
-        let console = split
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "the split did not report the new tile".to_string())?;
-
-        let checked = async {
-            let pane = pane_of_tree(&http.tree().await?, console)?;
-            if pane.get("view_kind").and_then(Value::as_str) != Some("console") {
-                return Err(format!("tile {console} is not a console pane: {pane}"));
-            }
-            if pane.get("view_state") != Some(&view_state) {
-                return Err(format!(
-                    "the console pane's view_state changed on the way in: {pane}"
-                ));
-            }
-            wait_for_log(
-                http,
-                &before,
-                &[
-                    &format!("pane {console} console: "),
-                    "search 'layout'",
-                    "levels info,warning,error",
-                ],
-            )
-            .await
-        }
-        .await;
-
-        // Tidy up even when the log never came.
-        http.verb(&json!({ "verb": "close", "target": {"id": console} }))
-            .await?;
-        checked.map(|line| {
-            format!(
-                "`console` pane tile {console} split below detail tile {detail}, view_state kept; \
-                 the pane logged `{line}`"
-            )
-        })
-    })
-    .await
-}
-
 /// ADR-0031 D6 in the running app: the session id Rust gives a `source` pane
 /// is the pane's for good. A `source` pane is split in beside the detail
 /// pane (whatever that pane shows — over publications the pane renders its
@@ -1483,6 +1421,24 @@ async fn restore_capability(http: &Http, parked: bool) -> CapabilityResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn console_pane_scenario_checks_scoped_fresh_log_and_required_close() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(CONSOLE_PANE_SCENARIO).expect("console scenario parses");
+        assert_eq!(scenario.id, "layout.console_pane");
+        assert_eq!(scenario.description, CATALOGUE[11].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
 
     #[test]
     fn surface_dispatch_document_validates_and_preserves_catalogue_identity() {
