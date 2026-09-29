@@ -215,9 +215,7 @@ pub fn from_bibtex_legacy_export(entry: BibTeXEntry) -> RISEntry {
         ris.add_tag("IS", number);
     }
     if let Some(pages) = entry.get_field("pages") {
-        let parts: Vec<&str> = pages
-            .split(|character| matches!(character, '-' | '–' | '—'))
-            .collect();
+        let parts: Vec<&str> = pages.split(['-', '–', '—']).collect();
         if parts.len() >= 2 {
             ris.add_tag("SP", parts[0].trim());
             ris.add_tag("EP", parts[1].trim());
@@ -411,7 +409,7 @@ mod tests {
 
         let ris = from_bibtex_legacy_export(bibtex);
         assert_eq!(
-            super::format_entry(ris),
+            crate::ris::format_entry(ris),
             concat!(
                 "TY  - JOUR\nAU  - Doe, Jane\nA2  - Roe, John\nTI  - RIS parity paper\n",
                 "PY  - 2026\nJF  - Research Journal\nT2  - Research Journal\n",
