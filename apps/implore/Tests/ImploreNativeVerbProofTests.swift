@@ -189,6 +189,42 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         XCTAssertNil(legacyFigure["title"])
         XCTAssertNil(legacyFigure["tags"])
         XCTAssertNil(legacyFigure["folderId"])
+
+
+        // The generated binary contract returns the bytes the existing HTTP
+        // renderer writes, for both formats and explicit output sizing.
+        let exportCases: [(String, [String: Any])] = [
+            ("png", ["format": "png"]),
+            ("svg", ["format": "svg"]),
+            ("png", ["format": "png", "width": 320.5, "height": 200.25, "scale": 1.5])
+        ]
+        for (format, options) in exportCases {
+            let route = try await request(
+                "POST", path: "/api/figures/\(firstID)/export", args: options,
+                port: port, bearer: bearer)
+            let verb = try await call("export-figure-data", [
+                "figure_id": firstID,
+                "format": format,
+                "width": options["width"] as Any? ?? NSNull(),
+                "height": options["height"] as Any? ?? NSNull(),
+                "scale": options["scale"] as Any? ?? NSNull()
+            ], port: port, bearer: bearer)
+            XCTAssertEqual(route.status, 200)
+            XCTAssertEqual(verb.status, 200)
+            let legacy = try XCTUnwrap(route.value as? [String: Any])
+            let generated = try XCTUnwrap(verb.value as? [String: Any])
+            let routeBytes = try XCTUnwrap(
+                Data(base64Encoded: try XCTUnwrap(legacy["data"] as? String)))
+            let generatedBytes = try XCTUnwrap((generated["data"] as? [NSNumber])?.map(\.uint8Value))
+            XCTAssertEqual(Data(generatedBytes), routeBytes)
+            XCTAssertEqual(generated["path"] as? String, legacy["path"] as? String)
+            XCTAssertEqual(generated["sha256"] as? String, legacy["sha256"] as? String)
+            XCTAssertEqual(generated["mime_type"] as? String, legacy["mimeType"] as? String)
+            if options["width"] != nil {
+                XCTAssertEqual(legacy["width"] as? Int, 321)
+                XCTAssertEqual(legacy["height"] as? Int, 200)
+            }
+        }
         let savedLibrary = try String(contentsOf: libraryURL, encoding: .utf8)
         XCTAssertTrue(savedLibrary.contains(firstID))
         XCTAssertTrue(savedLibrary.contains(secondID))
@@ -208,9 +244,15 @@ final class ImploreNativeVerbProofTests: XCTestCase {
     }
 
     private func call(_ method: String, _ args: [String: Any], port: UInt16, bearer: String) async throws -> (status: Int, value: Any) {
-        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/api/verb/implore-service_\(method)"))
+        try await request("POST", path: "/api/verb/implore-service_\(method)", args: args,
+                          port: port, bearer: bearer)
+    }
+
+    private func request(_ method: String, path: String, args: [String: Any],
+                         port: UInt16, bearer: String) async throws -> (status: Int, value: Any) {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)\(path)"))
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = method
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: args)

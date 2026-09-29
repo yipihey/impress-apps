@@ -5,10 +5,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use implore_service::{
     register_backend, validate_figure_data, AppStatus, CreateFigureOutcome, DatasetRecord,
-    FigureArtifactInfo, FigureRecord, FigureSeriesArg, ImploreBackend, ImploreService, LogEntry,
-    PlotSpecArg,
+    FigureArtifactInfo, FigureExport, FigureRecord, FigureSeriesArg, ImploreBackend,
+    ImploreService, LogEntry, PlotSpecArg,
 };
 use impress_service_core::refusal::codes;
 use serde_json::{json, Value};
@@ -109,6 +111,17 @@ impl NativeService {
                 .get("png_base64")
                 .and_then(Value::as_str)
                 .is_some_and(|png| !png.is_empty()),
+            "export_figure_data" => {
+                ["path", "sha256", "mimeType", "data"].iter().all(|key| {
+                    value
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|field| !field.is_empty())
+                }) && value
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .is_some_and(|encoded| !encoded.is_empty())
+            }
             _ => true,
         };
         if !valid {
@@ -132,6 +145,15 @@ fn invalid_result(method: &str, field: &str) {
         codes::INTERNAL,
         format!("{method}: native response omitted or invalid {field}"),
     );
+}
+
+fn empty_figure_export() -> FigureExport {
+    FigureExport {
+        path: String::new(),
+        sha256: String::new(),
+        mime_type: String::new(),
+        data: Vec::new(),
+    }
 }
 
 fn array<T: serde::de::DeserializeOwned>(value: &Value, key: &str) -> Option<Vec<T>> {
@@ -297,6 +319,54 @@ impl ImploreService for NativeService {
         }
     }
 
+    async fn export_figure_data(
+        &self,
+        figure_id: String,
+        format: String,
+        width: Option<f64>,
+        height: Option<f64>,
+        scale: Option<f64>,
+        view_state: Option<String>,
+    ) -> FigureExport {
+        let value = match self
+            .call(
+                "export_figure_data",
+                json!({
+                    "figure_id": figure_id,
+                    "format": format,
+                    "width": width,
+                    "height": height,
+                    "scale": scale,
+                    "view_state": view_state
+                }),
+            )
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => return empty_figure_export(),
+        };
+        let decoded = value
+            .get("data")
+            .and_then(Value::as_str)
+            .and_then(|encoded| BASE64.decode(encoded).ok());
+        match decoded {
+            Some(data) if !data.is_empty() => FigureExport {
+                path: value["path"].as_str().unwrap_or_default().to_string(),
+                sha256: value["sha256"].as_str().unwrap_or_default().to_string(),
+                mime_type: value["mimeType"]
+                    .as_str()
+                    .or_else(|| value["mime_type"].as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                data,
+            },
+            _ => {
+                invalid_result("export_figure_data", "base64 data");
+                empty_figure_export()
+            }
+        }
+    }
+
     async fn plot_series(&self, series: Vec<String>, title: Option<String>) -> Option<String> {
         self.call("plot_series", json!({"series":series,"title":title}))
             .await
@@ -361,7 +431,10 @@ mod tests {
     impl ImploreVerbHost for FixtureHost {
         async fn invoke(&self, method: String, args_json: String) -> NativeReply {
             let args: Value = serde_json::from_str(&args_json).unwrap();
-            self.seen.lock().unwrap().push((method.clone(), args));
+            self.seen
+                .lock()
+                .unwrap()
+                .push((method.clone(), args.clone()));
             let body = match method.as_str() {
                 "plot_series" => json!({"svg":"<svg>series</svg>"}),
                 "plot_histogram" => json!({"svg":"<svg>histogram</svg>"}),
@@ -372,6 +445,17 @@ mod tests {
                 "rg_slice_png" => {
                     json!({"status":"ok","width":2,"height":1,"png_base64":"iVBORw0K"})
                 }
+                "export_figure_data" if args["format"] == "malformed" => json!({
+                    "status":"ok", "path":"/tmp/export.png", "sha256":"hash",
+                    "mimeType":"image/png", "data":"not base64!"
+                }),
+                "export_figure_data" if args["format"] == "missing" => {
+                    json!({"error":"Figure not found"})
+                }
+                "export_figure_data" => json!({
+                    "status":"ok", "path":"/tmp/export.png", "sha256":"abc123",
+                    "mimeType":"image/png", "data":"iVBORw0KGgo="
+                }),
                 "list_figures" => json!({
                     "status":"ok",
                     "count":1,
@@ -408,8 +492,11 @@ mod tests {
                 _ => json!({"error":"unexpected method"}),
             };
             NativeReply {
-                status: if method.starts_with("rg_")
+                status: if method == "export_figure_data" && args["format"] == "missing" {
+                    404
+                } else if method.starts_with("rg_")
                     || method.starts_with("plot_")
+                    || method == "export_figure_data"
                     || method == "list_figures"
                     || method == "get_figure"
                 {
@@ -454,6 +541,57 @@ mod tests {
         let seen = host.seen.lock().unwrap();
         assert_eq!(seen[0].1["series"], json!(["energy"]));
         assert_eq!(seen[4].1["format"], "base64");
+    }
+
+    #[tokio::test]
+    async fn native_backend_decodes_export_bytes_and_forwards_render_options() {
+        let host = Arc::new(FixtureHost::default());
+        let service = NativeService { host: host.clone() };
+        let exported = service
+            .export_figure_data(
+                "figure-1".into(),
+                "png".into(),
+                Some(320.5),
+                Some(200.25),
+                Some(1.5),
+                Some(r#"{"title":"custom"}"#.into()),
+            )
+            .await;
+        assert_eq!(exported.path, "/tmp/export.png");
+        assert_eq!(exported.sha256, "abc123");
+        assert_eq!(exported.mime_type, "image/png");
+        assert_eq!(exported.data, b"\x89PNG\r\n\x1a\n");
+        let seen = host.seen.lock().unwrap();
+        assert_eq!(seen[0].0, "export_figure_data");
+        assert_eq!(seen[0].1["figure_id"], "figure-1");
+        assert_eq!(seen[0].1["format"], "png");
+        assert_eq!(seen[0].1["width"], 320.5);
+        assert_eq!(seen[0].1["height"], 200.25);
+        assert_eq!(seen[0].1["scale"], 1.5);
+        assert_eq!(seen[0].1["view_state"], r#"{"title":"custom"}"#);
+    }
+
+    #[tokio::test]
+    async fn native_backend_does_not_return_malformed_or_refused_export_as_success() {
+        let host = Arc::new(FixtureHost::default());
+        let service = NativeService { host };
+        let malformed = service
+            .export_figure_data(
+                "figure-1".into(),
+                "malformed".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(malformed.data.is_empty());
+        assert!(malformed.path.is_empty());
+        let refused = service
+            .export_figure_data("missing".into(), "missing".into(), None, None, None, None)
+            .await;
+        assert!(refused.data.is_empty());
+        assert!(refused.path.is_empty());
     }
 
     #[tokio::test]

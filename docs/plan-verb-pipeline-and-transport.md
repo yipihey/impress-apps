@@ -1740,3 +1740,32 @@ and the test diagnostic's Swift Testing comment before the successful runs.
 Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
+
+- 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
+  `implore-service_export-figure-data` with fractional width/height,
+  scale and optional view-state arguments. The native callback reuses the HTTP
+  export handler and `ImploreStoreAdapter.exportFigure`, then returns the
+  renderer's path/hash/MIME plus the rendered file bytes decoded from the HTTP
+  base64 envelope. It verifies byte count and SHA-256 against the renderer
+  result before replying, so a concurrent or stale file cannot be reported as
+  the requested render. Legacy `export-figure(figure_id, format)` remains
+  unchanged. Evidence refinement: the route and verb both accept fractional
+  `f64` dimensions; zero, negative, and non-finite overrides fall back to the
+  current logical size via the renderer's existing `positive_or` rule. Hosted
+  proof compares generated PNG/SVG bytes, including a fractional-size case,
+  with the actual route. Rust callback tests cover fractional argument
+  forwarding, decoding, malformed data and HTTP refusal. Root verification is
+  pending; no caller or route was migrated.
+
+- 2026-09-29 — **P5c5 verified.** Root passed 59 Rust tests (zero failures,
+  three ignored), every quick gate and all supported arm64 slices of store-ffi,
+  impel-tools and implore-verbs-ffi. The hosted proof passed both XCTest cases,
+  five shared transport calls and PNG/SVG byte-for-byte parity, including
+  fractional dimensions; SQLite symbols passed and owned PID 10562 exited.
+  Evidence: `/tmp/impress-p5b-transport-9jpsnn14/output/` and
+  `/tmp/impress-p5c5-{tests-final,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. The new renderer verb increases
+  the documented headless exception ceiling from 145 to 146: its positive
+  evidence requires the native app, and a refusal is not claimed as byte
+  coverage. Root corrected a merged test fixture's moved JSON value before
+  verification. No user app, launcher or real store was used.

@@ -297,6 +297,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impel-service_scheduler-status` | read_only | name/doc |
 | `implore-service_create-figure` | external | E/M: name/doc |
 | `implore-service_export-figure` | external | E/M: name/doc |
+| `implore-service_export-figure-data` | external | name/doc |
 | `implore-service_get-dataset` | external | name/doc |
 | `implore-service_get-figure` | external | name/doc |
 | `implore-service_get-logs` | external | name/doc |
