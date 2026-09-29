@@ -121,6 +121,32 @@ Add a comment to any item by UUID (publication, artifact, or other item type).
   {"text":"Preserve the dataset provenance.","parent_item_id":"60000000-0000-4000-8000-000000000042"}
   ```
 
+## `imbib-annotations-service_delete-comment`
+
+Delete one comment and nothing else. A missing id or a row of another kind is refused and deletes nothing.
+
+- **safety**: `destructive`
+- **reads**: "imbib/comment"
+- **writes**: "imbib/comment"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | UUID of the comment to delete. |
+
+**Examples**
+
+- `delete-scratch-comment` — Tier A:
+
+  ```json
+  {"id":"60000000-0000-4000-8000-000000000034"}
+  ```
+  expects:
+
+  ```json
+  true
+  ```
+
 ## `imbib-annotations-service_list-annotations`
 
 List PDF annotations on a paper. Includes highlights, underlines, notes, and text comments made on the PDF.

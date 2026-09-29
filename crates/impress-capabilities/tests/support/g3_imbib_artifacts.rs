@@ -233,6 +233,16 @@ pub async fn prepare(
             reset(store, "33")?;
             comment(store, "33", "43", "The first interpretation.")?;
         }
+        "imbib-annotations-service_delete-comment" => {
+            artifact(
+                store,
+                "44",
+                refs::IMPRESS_ARTIFACT_NOTE,
+                "G3 deletion target",
+            )?;
+            reset(store, "34")?;
+            comment(store, "34", "44", "Remove this note.")?;
+        }
         _ => {}
     }
     Ok(())
@@ -338,6 +348,14 @@ pub fn verify(
                 != Some(&ItemValue::String("The revised interpretation.".into()))
             {
                 return Err("comment revision did not persist".into());
+            }
+        }
+        "imbib-annotations-service_delete-comment" => {
+            if result.as_bool() != Some(true) {
+                return Err(format!("comment delete did not report success: {result}"));
+            }
+            if store.get(id("34")?).map_err(|e| e.to_string())?.is_some() {
+                return Err("comment survived deletion".into());
             }
         }
         _ => {}

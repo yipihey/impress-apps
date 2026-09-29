@@ -52,7 +52,9 @@ These generated verbs cover the retained imbib store behavior. Their HTTP regist
 | `imbib-library-service_update-library-members` | `POST /api/libraries/add-papers`: ordered local identifier resolution and `assigned` / `not_found` |
 | `imbib-library-service_list-assignments`, `_create-assignment`, `_delete-assignment` | Library and paper assignment routes. `library_id` is the publication's owning library. |
 | `imbib-library-service_list-library-activity` | `GET /api/libraries/{id}/activity`. This is the library log, distinct from `imbib-app-service_recent-activity`. |
-| `imbib-tags-service_formatted-tag-tree` | `GET /api/tags/tree`: the indented `tagTree()` text, `(no tags)` when empty |
+| `imbib-tags-service_formatted-tag-tree` | `GET /api/tags/tree`: the indented `tagTree()` text, `(no tags)` when empty. A store error refuses instead of looking like an empty tree. |
+| `imbib-library-service_import-ris` | RIS text into a library, the same created-id result as `import-bibtex`. |
+| `imbib-annotations-service_delete-comment` | `DELETE /api/comments/{id}`: one comment, refused when the id is missing or another kind. The app-only `imbib-app-service_delete-comment` stays for the live host. |
 
 `import-fetched-record` still requires one imported id. A cite-key duplicate is now an `existing_ids` hit instead of an all-zero summary, and `import_papers` refuses when the store returns an error. An explicit `IMBIB_STORE_PATH` that fails to open does not fall back to `:memory:`. The example scratch binds that path before any imbib verb runs.
 
