@@ -886,7 +886,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     #[impress_example(
         name = "representative-ris-export",
         args = r#"{"ids":["G3RIS2026"]}"#,
-        expect = r#""TY  - JOUR\nAU  - Doe, Jane\nTI  - RIS parity paper\nPY  - 2026\nJF  - Research Journal\nT2  - Research Journal\nVL  - 12\nIS  - 3\nSP  - 100\nEP  - 110\nDO  - 10.5555/g3-ris\nAB  - Representative abstract\nKW  - alpha\nKW  - beta\nUR  - https://example.org/g3-ris\nPB  - Example Press\nCY  - Boston\nSN  - 1234-5678\nN1  - G3 export note\nT3  - Research Series\nET  - 2\nLA  - en\nID  - G3RIS2026\nER  - """#
+        expect = r#""TY  - JOUR\nAU  - Doe, Jane\nTI  - RIS parity paper\nPY  - 2026\nJF  - Research Journal\nT2  - Research Journal\nVL  - 12\nIS  - 3\nSP  - 100\nEP  - 110\nDO  - 10.5555/g3-ris\nAB  - Representative abstract\nKW  - alpha\nKW  - beta\nUR  - https://example.org/g3-ris\nPB  - Example Press\nCY  - Boston\nSN  - 1234-5678\nN1  - G3 export note\nT3  - Research Series\nET  - 2\nLA  - en\nID  - G3RIS2026\nER  - ""#
     )]
     async fn export_ris(&self, ids: Vec<String>) -> String;
     /// Export every paper in a library as one BibTeX string.
