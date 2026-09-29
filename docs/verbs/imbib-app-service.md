@@ -259,6 +259,31 @@ What the USER was recently working on: papers they viewed or added by hand, most
   {"limit":10,"parent_id":null}
   ```
 
+## `imbib-app-service_resolve-citation`
+
+Resolve free text, BibTeX, or structured citation fields through the running app's existing `/api/papers/resolve` cascade. Candidate order, confidence, `via`, and reason values are preserved. The returned paper and candidate objects use the same open dictionary shape as HTTP.
+
+- **safety**: `external`
+- **reads**: —
+- **writes**: —
+- **reach**: app("imbib")
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `bibtex` | — | no | BibTeX fragment, kept private because it may contain unpublished citation data. |
+| `citation` | — | no | Structured fields; kept private for the same reason as the raw citation. |
+| `download_pdfs` | boolean | yes | Whether to fetch a PDF after automatic import. |
+| `library_id` | — | no | Destination library UUID; omit to use the default library. |
+| `query` | — | no | Free-text citation query (kept private because it may contain manuscript text). |
+
+**Examples**
+
+- `host-resolve-local-citation` — Tier B (explicit isolated run):
+
+  ```json
+  {"query":"{{state.cite_key}}","download_pdfs":false}
+  ```
+
 ## `imbib-app-service_resolve-identifier`
 
 Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching its metadata from the outside world if the library does not have it yet. Unlike the find-by-* searches, which only look locally, this one can go and get it.
