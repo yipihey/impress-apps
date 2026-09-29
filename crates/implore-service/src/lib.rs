@@ -406,6 +406,12 @@ pub trait ImploreService: Send + Sync + 'static {
     /// non-positive values use the current size. Scale is pixels per point
     /// for PNG output. A supplied view state is rendered directly.
     #[impress_method]
+    #[impress_example(
+        name = "host-png-export-data",
+        tier = "b",
+        args = r#"{"figure_id":"{{state.figure_id}}","format":"png","width":320.5,"height":200.25,"scale":1.0}"#,
+        expect = r#"{"mime_type":"image/png"}"#
+    )]
     async fn export_figure_data(
         &self,
         figure_id: String,
