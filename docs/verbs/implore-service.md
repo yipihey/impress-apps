@@ -67,6 +67,37 @@ Export a figure to a file and return its path. `format` is `png`, `pdf` or `svg`
   {"figure_id":"{{state.figure_id}}","format":"png"}
   ```
 
+## `implore-service_export-figure-data`
+
+Render a figure and return both its local artifact path and bytes. Width and height override the figure's logical size; non-finite or non-positive values use the current size. Scale is pixels per point for PNG output. A supplied view state is rendered directly.
+
+- **safety**: `external`
+- **reads**: —
+- **writes**: —
+- **reach**: app("implore")
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `figure_id` | string | yes | Figure ID to export from the running host. |
+| `format` | string | yes | Output format: `png` or `svg`. |
+| `height` | — | no | Logical output height in points, or the figure's current height. Non-finite or non-positive values use the current height. |
+| `scale` | — | no | Raster pixels per point; ignored for SVG. Defaults to 2. |
+| `view_state` | — | no | Optional complete figure view-state JSON to render. |
+| `width` | — | no | Logical output width in points, or the figure's current width. Non-finite or non-positive values use the current width. |
+
+**Examples**
+
+- `host-png-export-data` — Tier B (explicit isolated run):
+
+  ```json
+  {"figure_id":"{{state.figure_id}}","format":"png","width":320.5,"height":200.25,"scale":1.0}
+  ```
+  expects:
+
+  ```json
+  {"mime_type":"image/png"}
+  ```
+
 ## `implore-service_get-dataset`
 
 One dataset in detail, including per-column statistics where implore has computed them. Use it to pick sensible axes before creating a figure.

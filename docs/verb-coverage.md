@@ -49,9 +49,9 @@ read.
 | `imbib-tags-service` | imbib-service | 10 | 10 | 20 (14) | 20 | 10 |
 | `imbib-text-service` | imbib-service | 5 | 5 | 7 (4) | 7 | 5 |
 | `imbib-undo-service` | imbib-service | 3 | 3 | 3 (3) | 3 | 3 |
-| `impart-service` | impart-service | 10 | 10 | 22 (14) | 22 | 10 |
+| `impart-service` | impart-service | 10 | 10 | 24 (14) | 24 | 10 |
 | `impel-service` | impel-service | 11 | 11 | 15 (12) | 15 | 11 |
-| `implore-service` | implore-service | 20 | 20 | 26 (13) | 26 | 20 |
+| `implore-service` | implore-service | 21 | 21 | 32 (15) | 32 | 21 |
 | `impress-ai-service` | impress-ai-service | 16 | 16 | 25 (19) | 25 | 16 |
 | `impress-bridges-service` | impress-bridges-service | 18 | 18 | 30 (29) | 30 | 18 |
 | `impress-scenario-service` | impress-scenario-service | 6 | 6 | 11 (4) | 11 | 6 |
@@ -78,7 +78,7 @@ read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 21 crates, 46 services | **479** | **479** | **1068 (709)** | **1068** | **479** |
+| **Total** | 21 crates, 46 services | **480** | **480** | **1076 (711)** | **1076** | **480** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`
@@ -102,7 +102,7 @@ histogram folds the plan's one `tagged-union` into `ref-object`.
 | `map` | 2 |
 | `other` | 43 |
 | `ref-object` | 4 |
-| `scalar` | 958 |
+| `scalar` | 966 |
 <!-- verb-coverage-shapes:end -->
 
 ## Crates (table 5 and appendix A5 of the plan)

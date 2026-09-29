@@ -86,7 +86,7 @@ Start a new research conversation.
 
 ## `impart-service_get-conversation`
 
-One conversation's metadata and message count. Read message details from the app's conversation view; this DTO does not embed messages.
+One conversation's complete detail, including its ordered messages and computed statistics.
 
 - **safety**: `external`
 - **reads**: —
@@ -145,6 +145,8 @@ Research conversations, most recently updated first. START HERE: every other con
 |---|---|---|---|
 | `include_archived` | boolean | yes | Include archived research conversations when true. |
 | `limit` | integer | yes | Maximum conversations to return, capped at 1,000. |
+| `offset` | — | no | Number of matching conversations to skip before this page. |
+| `query` | — | no | Optional case-insensitive title/summary substring filter. |
 
 **Examples**
 
