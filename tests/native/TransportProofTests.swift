@@ -264,8 +264,8 @@ final class TransportProofTests: XCTestCase {
         try require(legacyVia == "local-search" && generatedVia == legacyVia,
                     "native citation resolution preserves the legacy local-search branch")
         try require(legacyResolvedPaper["id"] as? String == generatedResolvedPaper["id"] as? String &&
-                    legacyResolvedPaper["cite_key"] as? String == key &&
-                    generatedResolvedPaper["cite_key"] as? String == key &&
+                    legacyResolvedPaper["citeKey"] as? String == key &&
+                    generatedResolvedPaper["citeKey"] as? String == key &&
                     legacyResolvedPaper["title"] as? String == generatedResolvedPaper["title"] as? String,
                     "native citation resolution returns the same saved paper as HTTP")
 
@@ -331,6 +331,10 @@ final class TransportProofTests: XCTestCase {
         try require(generatedLimited.count == 1 && legacyLimited.status == 200 &&
                     legacyLimitedTags.count == 1 && generatedLimitedPath == legacyLimitedPath,
                     "both surfaces apply the same limit without reordering")
+    }
+
+    private func array(_ value: Any, _ label: String) throws -> [Any] {
+        try XCTUnwrap(value as? [Any], "\(label) did not return an array")
     }
 
     private func searchResultIDs(_ values: [Any]) -> [String] {

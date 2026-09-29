@@ -111,21 +111,24 @@ Takes no arguments.
 
 ## `imbib-tags-service_list-tags-with-counts`
 
-List every tag with the number of papers carrying it. As expensive as `imbib-tags-service_list-tags`: each count is recomputed, so on a large vocabulary prefer `imbib-tags-service_count-by-tag` for one tag.
+List tags with publication counts, matching GET `/api/tags`: an optional case-insensitive path prefix is applied before the optional limit (default 100), in the store's existing order. Parent paths are derived from `/` hierarchy segments, and `id` is the stable path. Counts roll up descendant tags as the store's shared tag kernel does.
 
 - **safety**: `read_only`, idempotent
 - **reads**: "imbib/tag-definition", "imbib/bibliography-entry"
 - **writes**: —
 - **reach**: —
 
-Takes no arguments.
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `limit` | — | no | Maximum rows after prefix filtering; defaults to 100. |
+| `prefix` | — | no | Case-insensitive prefix for canonical hierarchical paths. |
 
 **Examples**
 
-- `default` — Tier A:
+- `path-filter` — Tier A:
 
   ```json
-  {}
+  {"prefix":"methods","limit":10}
   ```
 
 ## `imbib-tags-service_query-by-tag`
