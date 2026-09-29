@@ -3050,7 +3050,9 @@ per-scenario cleanup without evaluating expressions.
   `select_one` scans at most 10,000 object/array entries, uses a fixed relative
   equality or array-contains predicate, refuses zero/multiple matches and can
   explicitly expose a decimal object key as `u64`; `fill_array` repeats a JSON
-  constant using an earlier captured array's length, also bounded at 10,000.
+  constant using an earlier captured array's length, bounded at 10,000 items
+  and 1 MiB encoded output. Key coercion requires canonical decimal spelling;
+  literal fill values are not scanned or re-templated.
   No expression language, layout-specific code, verbs, schemas or dependencies
   were added. Focused operator tests and scenario inventory validation were
   added; build/test verification remains with the parent task.

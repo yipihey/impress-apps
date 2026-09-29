@@ -22,6 +22,9 @@ use crate::spec::{
 use crate::{template, validate};
 use impress_service_core::report::{CapabilityResult, Tier};
 
+const MAX_CAPTURE_ARRAY_ITEMS: usize = 10_000;
+const MAX_CAPTURE_ARRAY_ENCODED_BYTES: usize = 1_048_576;
+
 /// What a scenario step needs to do outside this crate. Every method
 /// returns a plain `String` error — the interpreter's job is to say *which
 /// step* failed, not to model every caller's error type.
@@ -379,8 +382,10 @@ fn capture_call_result(
                     let items = field
                         .as_array()
                         .ok_or("select_one array_contains path is not an array")?;
-                    if items.len() > 10_000 {
-                        return Err("select_one predicate array exceeds 10000 items".to_string());
+                    if items.len() > MAX_CAPTURE_ARRAY_ITEMS {
+                        return Err(format!(
+                            "select_one predicate array exceeds {MAX_CAPTURE_ARRAY_ITEMS} items"
+                        ));
                     }
                     items.contains(&expected)
                 } else {
@@ -392,11 +397,17 @@ fn capture_call_result(
                     }
                     let mut selection = serde_json::Map::new();
                     if query.object_key_as.as_deref() == Some("u64") {
-                        let numeric_key = key
+                        let raw_key = key
                             .as_str()
-                            .ok_or("select_one u64 key conversion requires an object")?
+                            .ok_or("select_one u64 key conversion requires an object")?;
+                        let numeric_key = raw_key
                             .parse::<u64>()
                             .map_err(|_| "select_one object key is not a u64")?;
+                        if raw_key != numeric_key.to_string() {
+                            return Err(
+                                "select_one object key is not a canonical decimal u64".to_string()
+                            );
+                        }
                         selection.insert("numeric_key".into(), Value::from(numeric_key));
                     }
                     selection.insert("key".into(), key);
@@ -406,18 +417,20 @@ fn capture_call_result(
                 Ok(())
             };
             match candidates {
-                Value::Object(map) if map.len() <= 10_000 => {
+                Value::Object(map) if map.len() <= MAX_CAPTURE_ARRAY_ITEMS => {
                     for (key, candidate) in map {
                         inspect(Value::String(key.clone()), candidate)?;
                     }
                 }
-                Value::Array(items) if items.len() <= 10_000 => {
+                Value::Array(items) if items.len() <= MAX_CAPTURE_ARRAY_ITEMS => {
                     for (index, candidate) in items.iter().enumerate() {
                         inspect(Value::from(index), candidate)?;
                     }
                 }
                 Value::Object(_) | Value::Array(_) => {
-                    return Err("select_one source exceeds 10000 candidates".to_string());
+                    return Err(format!(
+                        "select_one source exceeds {MAX_CAPTURE_ARRAY_ITEMS} candidates"
+                    ));
                 }
                 _ => return Err("select_one source must be an object or array".to_string()),
             }
@@ -430,8 +443,27 @@ fn capture_call_result(
                 .as_array()
                 .ok_or_else(|| "fill_array length_of must resolve to a captured array".to_string())?
                 .len();
-            if length > 10_000 {
-                return Err("fill_array length exceeds 10000".to_string());
+            if length > MAX_CAPTURE_ARRAY_ITEMS {
+                return Err(format!(
+                    "fill_array length exceeds {MAX_CAPTURE_ARRAY_ITEMS}"
+                ));
+            }
+            let value_bytes = serde_json::to_vec(&spec.fill_array.value)
+                .map_err(|error| format!("fill_array value could not be encoded: {error}"))?
+                .len();
+            let output_bytes = if length == 0 {
+                Some(2)
+            } else {
+                value_bytes
+                    .checked_mul(length)
+                    .and_then(|bytes| bytes.checked_add(length - 1))
+                    .and_then(|bytes| bytes.checked_add(2))
+            }
+            .ok_or("fill_array encoded size overflowed")?;
+            if output_bytes > MAX_CAPTURE_ARRAY_ENCODED_BYTES {
+                return Err(format!(
+                    "fill_array encoded output exceeds {MAX_CAPTURE_ARRAY_ENCODED_BYTES} bytes"
+                ));
             }
             Ok(Value::Array(vec![spec.fill_array.value.clone(); length]))
         }
@@ -812,6 +844,27 @@ mod tests {
     }
 
     #[test]
+    fn select_one_u64_conversion_rejects_noncanonical_and_overflowing_keys() {
+        let operation: CallCapture = serde_json::from_value(json!({
+            "select_one": {
+                "from": "$.tiles",
+                "path": "$.children",
+                "predicate": {"array_contains": 7},
+                "object_key_as": "u64"
+            }
+        }))
+        .unwrap();
+        for key in ["+9", "09", "18446744073709551616"] {
+            let mut tiles = serde_json::Map::new();
+            tiles.insert(key.to_string(), json!({"children": [7]}));
+            let result = json!({"tiles": tiles});
+            assert!(capture_call_result(&operation, &result, &json!({}))
+                .unwrap_err()
+                .contains("object key"));
+        }
+    }
+
+    #[test]
     fn select_one_refuses_zero_multiple_non_collection_and_oversized_inputs() {
         let operation: CallCapture = serde_json::from_value(json!({
             "select_one": {
@@ -886,6 +939,37 @@ mod tests {
             let error = capture_call_result(&operation, &json!({}), &captures).unwrap_err();
             assert!(error.contains("array") || error.contains("exceeds 10000"));
         }
+
+        let literal: CallCapture = serde_json::from_value(json!({
+            "fill_array": {
+                "value": "{{state.missing}}",
+                "length_of": "{{state.parent.value.children}}"
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            capture_call_result(
+                &literal,
+                &json!({}),
+                &json!({"parent": {"value": {"children": [1]}}})
+            )
+            .unwrap(),
+            json!(["{{state.missing}}"])
+        );
+
+        let amplification: CallCapture = serde_json::from_value(json!({
+            "fill_array": {
+                "value": "x".repeat(128),
+                "length_of": "{{state.items}}"
+            }
+        }))
+        .unwrap();
+        let items = (0..MAX_CAPTURE_ARRAY_ITEMS).collect::<Vec<_>>();
+        assert!(
+            capture_call_result(&amplification, &json!({}), &json!({"items": items}))
+                .unwrap_err()
+                .contains("encoded output exceeds")
+        );
     }
 
     #[tokio::test]
