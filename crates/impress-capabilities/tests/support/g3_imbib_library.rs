@@ -49,6 +49,61 @@ pub async fn prepare(
                 .insert("permission_level".into(), ItemValue::String("read".into()));
             store.insert(remote).map_err(|e| e.to_string())?;
         }
+        ("imbib-library-service_export-ris", "representative-ris-export") => {
+            library(store, "c1", "G3 RIS export library", false, false)?;
+            reset_matching(
+                store,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+                "cite_key",
+                "G3RIS2026",
+                Some(uuid("c1")?),
+            )?;
+            let mut item = super::seed_item(
+                uuid("c2")?,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str(),
+                Some(uuid("c1")?),
+            );
+            reset(store, item.id)?;
+            for (key, value) in [
+                ("cite_key", "G3RIS2026"),
+                ("entry_type", "article"),
+                ("author_text", "Doe, Jane"),
+                ("title", "RIS parity paper"),
+                ("journal", "Research Journal"),
+                ("volume", "12"),
+                ("number", "3"),
+                ("pages", "100-110"),
+                ("doi", "10.5555/g3-ris"),
+                ("abstract_text", "Representative abstract"),
+                ("url", "https://example.org/g3-ris"),
+                ("publisher", "Example Press"),
+                ("address", "Boston"),
+                ("issn", "1234-5678"),
+                ("note", "G3 export note"),
+                ("series", "Research Series"),
+                ("edition", "2"),
+            ] {
+                item.payload
+                    .insert(key.into(), ItemValue::String(value.into()));
+            }
+            item.payload.insert("year".into(), ItemValue::Int(2026));
+            item.payload.insert(
+                "keywords".into(),
+                ItemValue::Array(vec![
+                    ItemValue::String("alpha".into()),
+                    ItemValue::String("beta".into()),
+                ]),
+            );
+            item.payload.insert(
+                "extra_fields".into(),
+                ItemValue::Object(
+                    [("language".into(), ItemValue::String("en".into()))]
+                        .into_iter()
+                        .collect(),
+                ),
+            );
+            store.insert(item).map_err(|e| e.to_string())?;
+        }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             library(store, "84", "G3 sidebar library", false, false)?;
             paper(store, "8a", "84", "G3Sidebar2026", "G3 sidebar paper", None)?;
@@ -118,7 +173,10 @@ pub async fn prepare(
             library(store, "78", "G3 unread query library", false, false)?;
             paper_with_status(store, "79", "78", false, false, None)?;
         }
-        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+        (
+            "imbib-library-service_search-publications",
+            "find-unique-spectrum" | "filtered-project-spectrum" | "filtered-collection-spectrum",
+        ) => {
             library(store, "88", "G3 search library", false, false)?;
             paper(
                 store,
@@ -128,6 +186,10 @@ pub async fn prepare(
                 "G3 Unique Spectrum",
                 None,
             )?;
+            if example == "filtered-collection-spectrum" {
+                collection(store, "89", "G3 search collection", "88")?;
+                member(store, "89", "7f")?;
+            }
         }
         ("imbib-library-service_set-read", "finish-reading") => {
             library(store, "88", "G3 status library", false, false)?;
@@ -620,6 +682,20 @@ pub fn verify(
                 return Err("read-only SciX permission fixture was not persisted".into());
             }
         }
+        ("imbib-library-service_export-ris", "representative-ris-export") => {
+            let rows = store
+                .query(&ItemQuery {
+                    schema: Some(refs::IMBIB_BIBLIOGRAPHY_ENTRY),
+                    ..Default::default()
+                })
+                .map_err(|e| e.to_string())?;
+            if !rows.iter().any(|row| {
+                row.payload.get("cite_key") == Some(&ItemValue::String("G3RIS2026".into()))
+                    && row.parent == Some(uuid("c1").expect("fixed fixture UUID"))
+            }) {
+                return Err("representative RIS paper was not persisted in scratch library".into());
+            }
+        }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             require_row(&result["libraries"], &id("84"))?;
         }
@@ -677,7 +753,10 @@ pub fn verify(
         ("imbib-library-service_query-unread", "unread-project-paper") => {
             require_row(result, &id("79"))?;
         }
-        ("imbib-library-service_search-publications", "find-unique-spectrum") => {
+        (
+            "imbib-library-service_search-publications",
+            "find-unique-spectrum" | "filtered-project-spectrum" | "filtered-collection-spectrum",
+        ) => {
             require_row(result, &id("7f"))?;
         }
         ("imbib-library-service_set-read", "finish-reading") => {
