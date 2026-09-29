@@ -1436,8 +1436,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let library: [UUID]? = request.queryParams["library"].flatMap { UUID(uuidString: $0) }.map { [$0] }
 
         let iso8601 = ISO8601DateFormatter()
-        let addedAfter = request.queryParams["addedAfter"].flatMap { iso8601.date(from: $0) }
-        let addedBefore = request.queryParams["addedBefore"].flatMap { iso8601.date(from: $0) }
+        let fractionalISO8601 = ISO8601DateFormatter()
+        fractionalISO8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func filterDate(_ value: String) -> Date? {
+            fractionalISO8601.date(from: value) ?? iso8601.date(from: value)
+        }
+        let addedAfter = request.queryParams["addedAfter"].flatMap(filterDate)
+        let addedBefore = request.queryParams["addedBefore"].flatMap(filterDate)
 
         do {
             let filters = SearchFilters(

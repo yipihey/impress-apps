@@ -232,10 +232,22 @@ final class TransportProofTests: XCTestCase {
                                          "offset legacy papers")
         try require(searchResultIDs(generatedOffsetRows) == searchResultIDs(legacyOffsetRows),
                     "offset is applied after the same library filter")
+        let future = "2999-01-01T00:00:00.000Z"
+        let generatedFuture = try array(try await verb(base, bearer,
+            "imbib-library-service_search-publications",
+            ["query": "P5c9Search", "limit": 10, "filters": ["added_after": future]]),
+            "fractional date search")
+        let legacyFuture = try await request(base, bearer,
+            "/api/search?q=P5c9Search&addedAfter=\(future)", nil)
+        try require(legacyFuture.status == 200, "fractional date HTTP succeeded")
+        let legacyFutureRows = try array(object(legacyFuture, "fractional date HTTP")["papers"] ?? NSNull(),
+                                         "fractional date papers")
+        try require(generatedFuture.isEmpty && legacyFutureRows.isEmpty,
+                    "both transports apply fractional timestamp bounds")
     }
 
     private func searchResultIDs(_ values: [Any]) -> [String] {
-        values.compactMap { ($0 as? [String: Any])?["id"] as? String }
+        values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
     }
 
     private func proveImprint(_ base: String, _ bearer: String) async throws {
