@@ -224,7 +224,7 @@ async fn run_step(
                 .event(&event)
                 .await
                 .map_err(|e| format!("step {index} (event): {e}"))?;
-            check_event_outcome(&outcome).map_err(|e| format!("step {index} (event): {e}"))
+            check_action_outcome(&outcome).map_err(|e| format!("step {index} (event): {e}"))
         }
         Step::Gesture(gesture_step) => {
             let resolved = template::resolve(&gesture_step.gesture, &captures_value)
@@ -233,6 +233,7 @@ async fn run_step(
                 .gesture(&resolved)
                 .await
                 .map_err(|e| format!("step {index} (gesture): {e}"))?;
+            check_action_outcome(&outcome).map_err(|e| format!("step {index} (gesture): {e}"))?;
             for (name, path) in &gesture_step.capture {
                 let captured = json_path_get(&outcome.result, path).ok_or_else(|| {
                     format!(
@@ -274,17 +275,17 @@ async fn run_step(
     }
 }
 
-// An event has no `expect` field: unlike a call step, a refusal can never be
-// an expected result. Check both the transport and the service envelope so a
-// replay cannot report success when the dispatch did nothing.
-fn check_event_outcome(outcome: &CallOutcome) -> Result<(), String> {
+// An event or gesture has no `expect` field: unlike a call step, a refusal can
+// never be an expected result. Check transport status and the service envelope
+// before a gesture's result can be captured, so refusals cannot look successful.
+fn check_action_outcome(outcome: &CallOutcome) -> Result<(), String> {
     if let Some(status) = outcome.status {
         if !(200..300).contains(&status) {
-            return Err(format!("dispatch returned HTTP {status}"));
+            return Err(format!("action returned HTTP {status}"));
         }
     }
     if outcome.result.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err("dispatch did not return ok=true".to_string());
+        return Err("action did not return ok=true".to_string());
     }
     Ok(())
 }
@@ -567,7 +568,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn event_outcome_requires_successful_status_and_envelope() {
+    fn action_outcome_requires_successful_status_and_envelope() {
         for outcome in [
             CallOutcome {
                 result: json!({"ok": true}),
@@ -582,9 +583,9 @@ mod tests {
                 status: Some(200),
             },
         ] {
-            assert!(check_event_outcome(&outcome).is_err(), "{outcome:?}");
+            assert!(check_action_outcome(&outcome).is_err(), "{outcome:?}");
         }
-        assert!(check_event_outcome(&CallOutcome {
+        assert!(check_action_outcome(&CallOutcome {
             result: json!({"ok": true}),
             status: Some(200),
         })

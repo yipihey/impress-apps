@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 struct Fixture {
     calls: Vec<(String, Value)>,
     truncated: bool,
+    gesture_refused: bool,
     timeline: Vec<&'static str>,
     waits: Vec<WaitBody>,
 }
@@ -41,7 +42,11 @@ impl Caller for Fixture {
     async fn gesture(&mut self, _: &Value) -> Result<CallOutcome, String> {
         self.timeline.push("gesture");
         Ok(CallOutcome {
-            result: json!({"focused": 7}),
+            result: if self.gesture_refused {
+                json!({"ok":false,"code":"invalid-argument"})
+            } else {
+                json!({"ok":true,"focused":7})
+            },
             status: Some(200),
         })
     }
@@ -143,6 +148,20 @@ fn a_log_wait_uses_a_pre_mutation_cursor_and_capture_aware_case_insensitive_need
     );
     assert_eq!(log.after.as_deref(), Some("2026-09-28T12:00:00.000Z"));
     assert_eq!(log.timeout_ms, 3000);
+}
+
+#[test]
+fn refused_gesture_cannot_be_hidden_by_a_successful_result_capture() {
+    let s = scenario(json!([
+        {"gesture": {"verb": "split"}, "capture": {"console": "$.focused"}}
+    ]));
+    let mut f = Fixture {
+        gesture_refused: true,
+        ..Fixture::default()
+    };
+    let report = execute(&s, &mut f);
+    assert!(!report.pass);
+    assert!(report.detail.contains("action did not return ok=true"));
 }
 #[test]
 fn store_predicate_pages_and_captures_a_real_payload_match() {

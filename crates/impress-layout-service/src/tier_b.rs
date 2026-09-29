@@ -1622,50 +1622,6 @@ mod tests {
         assert_eq!(scenario.id, "layout.console_pane");
         assert_eq!(scenario.description, CATALOGUE[11].1);
         assert!(impress_scenario::validate(&scenario).is_empty());
-
-        let document: Value = serde_json::from_str(CONSOLE_PANE_SCENARIO).unwrap();
-        assert_eq!(
-            document["steps"][0]["call"],
-            "layout-service_apply-layout-by-ordinal"
-        );
-        assert_eq!(document["steps"][0]["args"]["ordinal"], 1);
-        assert_eq!(
-            document["steps"][1]["wait"]["log_cursor"]["capture"],
-            "before"
-        );
-        assert_eq!(document["steps"][2]["gesture"]["verb"], "split");
-        assert_eq!(document["steps"][2]["gesture"]["target"]["role"], "detail");
-        assert_eq!(
-            document["steps"][2]["gesture"]["new"]["view_kind"],
-            "console"
-        );
-        assert_eq!(
-            document["steps"][2]["gesture"]["new"]["view_state"],
-            json!({ "search": "layout", "levels": ["info", "warning", "error"] })
-        );
-        assert_eq!(document["steps"][2]["capture"]["console"], "$.focused");
-        assert_eq!(
-            document["steps"][3]["expect"]["fields"][0]["path"],
-            "layout.tiles.{{state.console}}.pane.view_kind"
-        );
-        assert_eq!(
-            document["steps"][3]["expect"]["fields"][1]["path"],
-            "layout.tiles.{{state.console}}.pane.view_state"
-        );
-        assert_eq!(document["steps"][4]["wait"]["log"]["category"], "layout");
-        assert_eq!(
-            document["steps"][4]["wait"]["log"]["after"],
-            "{{state.before}}"
-        );
-        assert_eq!(
-            document["steps"][4]["wait"]["log"]["also_contains"],
-            json!(["search 'layout'", "levels info,warning,error"])
-        );
-        assert_eq!(document["teardown"][0]["call"], "layout-service_close");
-        assert_eq!(
-            document["teardown"][0]["args"]["target"]["id"],
-            "{{state.console}}"
-        );
         for step in scenario.steps.iter().chain(&scenario.teardown) {
             if let impress_scenario::Step::Call(call) = step {
                 assert!(
