@@ -2878,3 +2878,33 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   clippy shards passed. Logs: `/tmp/impress-retention-cutoff-tests2.log` and
   `/tmp/impress-retention-cutoff-repeat.log`. The first test build exhausted
   disk space before running; obsolete session caches were cleared before retry.
+
+
+- 2026-09-28 — **S2c: surface HTTP catalogue converted to stored scenarios.**
+  On `claude/reflective-s2c-surface`, all three `surface.http.*` entries now
+  use the shared interpreter and checked-in JSON with canonical inventory names.
+  The catalogue selects the REST projection of the shared caller, preserving
+  method/path/query/status/wire-version checks; other canonical calls keep
+  `/api/verb`. Unknown query arguments reach the server instead of disappearing,
+  `surface-show` posts to `/show`, and update/wait use their existing routes.
+  The routes case checks the emitted payload and required deletion; invalid
+  create compares the entire surface list before/after. Escaped nested surface
+  templates remain intact. Captured JSON now works in expectations, including
+  typed arrays; invalid capture references fail validation. Required teardown
+  failures now fail the report, while all cleanup is attempted and explicit
+  `best_effort` remains optional. No record kind, schema ref, public verb
+  argument, widget/action kind or dependency changed.
+
+  Final isolated touched-crate and capabilities tests: **249 passed, zero failed,
+  three ignored** (`/tmp/impress-s2c-tests-final.log`). Both clippy shards, fmt,
+  verb coverage/docs, strict kit dependencies, kit standalone, Swift kit boundary,
+  bindings, schema refs and hakari diff passed (`/tmp/impress-s2c-final-*.log`).
+  All twelve native frameworks were verified on the final sources for their
+  supported arm64 slices, without swiftformat or `--fast`
+  (`/tmp/impress-s2c-frameworks-final.log`). Owned imprint proof
+  `/tmp/impress-g5-proof-7_ulo7mz/output`: two XCTest cases, two stored scenarios,
+  all three surface entries and all fourteen layout entries passed, zero skips.
+  The proof used its own bundle, derived data, port 63381, device and store;
+  owned host PID 80634 exited. Native symbol/SQLite checks passed.
+  Twelve of twenty-five catalogue entries are documents; thirteen remain code
+  (eleven layout/gate/restoration entries and two platform imprint entries).

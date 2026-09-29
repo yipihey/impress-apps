@@ -38,7 +38,7 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
 
     for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
         let args = match step {
-            Step::Call(call) => call.args.clone(),
+            Step::Call(call) => serde_json::json!({"args": call.args, "expect": call.expect}),
             Step::BestEffort(step) => step.best_effort.args.clone(),
             Step::Store(step) => {
                 if step.store.schema_ref.trim().is_empty()

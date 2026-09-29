@@ -1,44 +1,16 @@
-//! Tier B: the surface verbs over a running app's HTTP mirror
-//! (`/api/surface/*`, `docs/agent-surfaces.md` "HTTP").
-//!
-//! Tier A proves the verbs; this proves that an app serves them as the same
-//! wire — every route answering its verb's result with `wire_version`, an
-//! argument the verb does not take refused naming it, an invalid spec
-//! refused at create — against the app actually running. It creates one
-//! scratch surface, shows it nowhere, and deletes it. Every capability is
-//! skipped (and the report is not `ok`) when no app answers.
-//!
-//! The base url is `IMPRESS_SURFACE_SELFTEST_BASE_URL`, else
-//! `IMPRESS_LAYOUT_SELFTEST_BASE_URL` (so one variable points both
-//! self-tests at one app), else impress's own port.
-//!
-//! **SC-1, kept as code (docs/plan-self-reflective-layer.md § Scenarios,
-//! table SC-1; S2's row).** Unlike `impress-layout-service`'s catalogue, this
-//! one is already a near-literal call+capture+assert sequence (`routes`
-//! captures the created surface's `id` and reuses it in later paths exactly
-//! as a scenario's `{{state.id}}` would) — the reason it stays code this
-//! round is purely the kit boundary: `impress-surface-service` is a kit
-//! crate (`docs/kit-manifest.md`, ADR-0033 D7), `check-kit-deps.sh --strict`
-//! refuses a workspace dependency the manifest's table does not list, and
-//! `impress-scenario` (the interpreter imprint's converted entries run
-//! through) is deliberately not in that table (S1's session log: "not the
-//! layout+surface kit"). Adding it here without first amending the manifest
-//! is an ask-first kit-boundary change (D7), out of this pass's remit — a
-//! natural next candidate once that decision is made, since nothing else
-//! here blocks it.
-
-use std::time::Duration;
-
-use serde_json::{json, Value};
+//! Surface HTTP catalogue expressed as stored scenarios (SC-1/S2c).
+//! The shared Tier B caller preserves the `/api/surface/*` routes, status
+//! codes and query arguments. Literal templates are escaped for the surface
+//! engine, and the shared interpreter checks cleanup as well as each request.
 
 use crate::report::{CapabilityResult, Tier};
-use crate::{check, skipped};
+use crate::skipped;
+use impress_layout_service::scenario_caller::{LoopbackClient, TierBCaller};
+use impress_scenario::Scenario;
 
-/// See the module docs.
 pub const BASE_URL_ENV: &str = "IMPRESS_SURFACE_SELFTEST_BASE_URL";
 const FALLBACK_ENV: &str = "IMPRESS_LAYOUT_SELFTEST_BASE_URL";
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:23125";
-const SCRATCH: &str = "surface-selftest tier-b scratch";
 
 pub fn configured_base_url() -> String {
     [BASE_URL_ENV, FALLBACK_ENV]
@@ -62,86 +34,18 @@ const CATALOGUE: &[(&str, &str)] = &[
     ),
 ];
 
-struct Http {
-    client: reqwest::Client,
-    base: String,
-}
-
-impl Http {
-    /// `(status, body)`; a transport failure is an `Err`.
-    async fn call(
-        &self,
-        method: &str,
-        path: &str,
-        body: Option<Value>,
-    ) -> Result<(u16, Value), String> {
-        let url = format!("{}{path}", self.base);
-        let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-        let mut request = self.client.request(method.clone(), &url);
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("{method} {path}: {e}"))?;
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| format!("{method} {path}: {e}"))?;
-        let value = serde_json::from_str(&text)
-            .map_err(|e| format!("{method} {path}: HTTP {status}, not JSON ({e}): {text}"))?;
-        Ok((status, value))
-    }
-}
-
-/// `status` and `wire_version: 1`, or why not.
-fn expect(what: &str, got: &(u16, Value), status: u16) -> Result<(), String> {
-    let (actual, body) = got;
-    if *actual != status {
-        return Err(format!("{what}: HTTP {actual}, expected {status}: {body}"));
-    }
-    if body.get("wire_version").and_then(Value::as_u64) != Some(1) {
-        return Err(format!("{what}: no wire_version 1: {body}"));
-    }
-    Ok(())
-}
-
-fn scratch_spec() -> Value {
-    json!({
-        "surface": "1.0", "name": SCRATCH, "state": { "bins": 4 },
-        "root": { "column": [
-            { "id": "bins", "field": { "slider": { "min": 1, "max": 64, "step": 1 } },
-              "label": "Bins", "bind": "state.bins" },
-            { "id": "choose", "button": { "label": "Use", "on_click": [
-                { "emit": { "name": "chosen", "payload": { "bins": "{{state.bins}}" } } } ] } }
-        ] }
-    })
-}
+const DOCUMENTS: &[&str] = &[
+    include_str!("../scenarios/surface.http.routes.json"),
+    include_str!("../scenarios/surface.http.strict.json"),
+    include_str!("../scenarios/surface.http.invalid_spec.json"),
+];
 
 pub async fn run() -> Vec<CapabilityResult> {
-    let base = configured_base_url();
-    // The app bearer (P0, SEC-2): the create/dispatch calls below mutate the
-    // running app, which needs the per-launch loopback token —
-    // `IMPRESS_APP_TOKEN`, else the file the app at `base`'s port wrote
-    // (`impress_core::loopback_token`).
-    let mut builder = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(15));
-    if let Some(token) = impress_core::loopback_token::client_token_for_url(&base) {
-        let mut headers = reqwest::header::HeaderMap::new();
-        if let Ok(mut value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")) {
-            value.set_sensitive(true);
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-            builder = builder.default_headers(headers);
-        }
-    }
-    let http = Http {
-        client: builder.build().unwrap_or_else(|_| reqwest::Client::new()),
-        base: base.trim_end_matches('/').to_string(),
-    };
-    if http.call("GET", "/api/surface", None).await.is_err() {
+    run_at(&configured_base_url()).await
+}
+
+async fn run_at(base: &str) -> Vec<CapabilityResult> {
+    if LoopbackClient::new(base).get("/api/surface").await.is_err() {
         return CATALOGUE
             .iter()
             .map(|(id, description)| {
@@ -154,171 +58,42 @@ pub async fn run() -> Vec<CapabilityResult> {
             })
             .collect();
     }
-    vec![
-        check(CATALOGUE[0].0, CATALOGUE[0].1, Tier::B, || routes(&http)).await,
-        check(CATALOGUE[1].0, CATALOGUE[1].1, Tier::B, || strict(&http)).await,
-        check(CATALOGUE[2].0, CATALOGUE[2].1, Tier::B, || {
-            invalid_spec(&http)
-        })
-        .await,
-    ]
+    let mut caller = TierBCaller::for_surface_routes(base);
+    let mut results = Vec::new();
+    for document in DOCUMENTS {
+        let scenario: Scenario = serde_json::from_str(document).expect("embedded surface scenario");
+        results.push(impress_scenario::run(&scenario, &mut caller).await);
+    }
+    results
 }
 
-async fn routes(http: &Http) -> Result<String, String> {
-    let created = http
-        .call(
-            "POST",
-            "/api/surface",
-            Some(json!({ "spec": scratch_spec() })),
-        )
-        .await?;
-    expect("POST /api/surface", &created, 200)?;
-    let id = created
-        .1
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or("create answered no id")?
-        .to_string();
-    let result = async {
-        let steps: Vec<(&str, String, Option<Value>, &str)> = vec![
-            ("GET", "/api/surface".into(), None, "surfaces"),
-            ("GET", "/api/surface/schema".into(), None, "rules"),
-            ("GET", "/api/surface/examples".into(), None, "examples"),
-            (
-                "POST",
-                "/api/surface/validate".into(),
-                Some(json!({ "spec": scratch_spec() })),
-                "problems",
-            ),
-            ("GET", format!("/api/surface/{id}"), None, "spec"),
-            ("GET", format!("/api/surface/{id}/render"), None, "tree"),
-            ("GET", format!("/api/surface/{id}/state"), None, "state"),
-            (
-                "PUT",
-                format!("/api/surface/{id}/state"),
-                Some(json!({ "state": { "bins": 9 } })),
-                "state",
-            ),
-            (
-                "POST",
-                format!("/api/surface/{id}/dispatch"),
-                Some(json!({ "event": { "widget": "choose", "kind": "click" } })),
-                "effects",
-            ),
-            (
-                "GET",
-                format!("/api/surface/{id}/events?after_seq=0"),
-                None,
-                "events",
-            ),
-            (
-                "GET",
-                format!("/api/surface/{id}/wait?after_seq=0&timeout_ms=10"),
-                None,
-                "events",
-            ),
-            (
-                "PUT",
-                format!("/api/surface/{id}?expected_revision=1"),
-                Some(json!({ "spec": scratch_spec() })),
-                "revision",
-            ),
-        ];
-        let mut seen = Vec::new();
-        for (method, path, body, key) in steps {
-            let got = http.call(method, &path, body).await?;
-            expect(&format!("{method} {path}"), &got, 200)?;
-            if got.1.get(key).is_none() {
-                return Err(format!("{method} {path} has no `{key}`: {}", got.1));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn documents_preserve_catalogue_ids_and_validate() {
+        for (document, (id, description)) in DOCUMENTS.iter().zip(CATALOGUE) {
+            let scenario: Scenario = serde_json::from_str(document).unwrap();
+            assert_eq!(&scenario.id, id);
+            assert_eq!(&scenario.description, description);
+            assert!(impress_scenario::validate(&scenario).is_empty());
+            for step in scenario.steps.iter().chain(&scenario.teardown) {
+                if let impress_scenario::Step::Call(call) = step {
+                    assert!(
+                        impress_service_core::call::find(&call.call).is_some(),
+                        "{}",
+                        call.call
+                    );
+                }
             }
-            seen.push(format!("{method} {}", path.replace(&id, "<id>")));
         }
-        // The dispatch's emit reached the ring.
-        let events = http
-            .call("GET", &format!("/api/surface/{id}/events"), None)
-            .await?;
-        let names: Vec<&str> = events.1["events"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|e| e["name"].as_str()).collect())
-            .unwrap_or_default();
-        if !names.contains(&"chosen") {
-            return Err(format!("the click emitted nothing: {}", events.1));
-        }
-        Ok(format!(
-            "{} routes answered 200 with wire_version 1: {}",
-            seen.len() + 2,
-            seen.join(", ")
-        ))
     }
-    .await;
-    let deleted = http
-        .call("DELETE", &format!("/api/surface/{id}"), None)
-        .await;
-    let deleted = deleted.and_then(|d| expect("DELETE", &d, 200));
-    match (result, deleted) {
-        (Ok(detail), Ok(())) => Ok(format!("{detail}; scratch surface {id} deleted")),
-        (Err(e), _) => Err(format!("{e} (scratch surface {id} delete attempted)")),
-        (Ok(_), Err(e)) => Err(format!("the scratch surface {id} was not deleted: {e}")),
-    }
-}
 
-async fn strict(http: &Http) -> Result<String, String> {
-    let none = "00000000-0000-4000-8000-000000000000";
-    let cases = [
-        (
-            "POST",
-            format!("/api/surface/{none}/show"),
-            Some(json!({ "target": { "ref": "id", "tile": 7 } })),
-            "tile",
-        ),
-        (
-            "GET",
-            format!("/api/surface/{none}/events?after=0"),
-            None,
-            "after",
-        ),
-        (
-            "GET",
-            format!("/api/surface/{none}/render?pane=3"),
-            None,
-            "pane",
-        ),
-    ];
-    for (method, path, body, field) in cases {
-        let got = http.call(method, &path, body).await?;
-        expect(&format!("{method} {path}"), &got, 400)?;
-        let message = got.1["message"].as_str().unwrap_or_default();
-        if got.1["code"] != "invalid-argument" || !message.contains(field) {
-            return Err(format!(
-                "{method} {path} must refuse `{field}` by name: {}",
-                got.1
-            ));
-        }
+    #[tokio::test]
+    async fn unreachable_host_skips_all_three_cases() {
+        let results = run_at("http://127.0.0.1:1").await;
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.skipped && !r.pass));
     }
-    Ok("the retired target {\"ref\": \"id\", \"tile\": 7}, ?after= and ?pane= each refused 400 invalid-argument, naming the field".into())
-}
-
-async fn invalid_spec(http: &Http) -> Result<String, String> {
-    let spec = json!({ "surface": "1.0", "name": SCRATCH, "root": { "table": { "rows": [] } } });
-    let got = http.call("POST", "/api/surface", Some(spec)).await?;
-    expect("POST /api/surface (invalid)", &got, 422)?;
-    if got.1["code"] != "invalid-spec" || got.1["problems"].as_array().is_none_or(|p| p.is_empty())
-    {
-        return Err(format!(
-            "not refused as invalid-spec with problems: {}",
-            got.1
-        ));
-    }
-    let listed = http.call("GET", "/api/surface", None).await?;
-    let stored = listed.1["surfaces"]
-        .as_array()
-        .map(|rows| rows.iter().any(|r| r["name"] == SCRATCH))
-        .unwrap_or(false);
-    if stored {
-        return Err("the refused spec was stored anyway".into());
-    }
-    Ok(format!(
-        "422 invalid-spec, first problem {} — nothing stored",
-        got.1["problems"][0]
-    ))
 }
