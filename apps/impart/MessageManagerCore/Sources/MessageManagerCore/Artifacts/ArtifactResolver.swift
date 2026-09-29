@@ -364,7 +364,7 @@ public actor ArtifactResolver {
             let docData = DocumentArtifactData(
                 documentId: document.id,
                 title: document.title,
-                version: document.format,
+                version: nil,
                 lastModified: document.lastModified,
                 wordCount: document.wordCount,
                 previewText: String(document.source.prefix(500)),
