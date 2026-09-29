@@ -3901,6 +3901,11 @@ impl ImbibStore {
         // and an item tagged with several descendants of one definition
         // counts ONCE. (The old arm's accidental treatment of `%`/`_` inside
         // a tag path as wildcards is deliberately not reproduced.)
+        // `query_raw` is intentionally a narrow SQL escape hatch and does not
+        // carry schema metadata for the effects recorder. Record the logical
+        // bibliography-entry read here at the query site.
+        self.store
+            .record_logical_read(&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY);
         let pairs: Vec<(String, String)> = self.store.query_raw(
             "SELECT t.tag_path, t.item_id FROM item_tags t
               WHERE EXISTS (SELECT 1 FROM items i
@@ -5230,6 +5235,13 @@ impl ImbibStore {
         let data_version = self.store.data_version()?;
         if let Some((cached_version, cached)) = cache.as_ref() {
             if *cached_version == data_version {
+                // A cache hit still semantically reads the tag vocabulary.
+                // Keep effects evidence stable across cold and warm access;
+                // without this, the Tier A store spy sees whichever example
+                // happened to populate the cache first, rather than the
+                // operation's actual dependency.
+                self.store
+                    .record_logical_read(&impress_core::schema::refs::IMBIB_TAG_DEFINITION);
                 return Ok(cached.clone());
             }
         }
@@ -6163,6 +6175,34 @@ mod tests {
         let rows = reader.list_tags_with_counts().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].path, "p5c14/cache-coherence");
+    }
+
+    #[test]
+    fn tag_count_effects_are_the_same_on_cold_and_warm_cache_reads() {
+        let store = make_store();
+        store
+            .create_tag("p5c14/effect-evidence".into(), None, None)
+            .unwrap();
+
+        impress_core::effects_spy::start();
+        let cold_rows = store.list_tags_with_counts().unwrap();
+        let cold = impress_core::effects_spy::stop();
+
+        impress_core::effects_spy::start();
+        let warm_rows = store.list_tags_with_counts().unwrap();
+        let warm = impress_core::effects_spy::stop();
+
+        assert_eq!(cold_rows.len(), warm_rows.len());
+        for (cold, warm) in cold_rows.iter().zip(&warm_rows) {
+            assert_eq!(cold.path, warm.path);
+            assert_eq!(cold.leaf_name, warm.leaf_name);
+            assert_eq!(cold.color_light, warm.color_light);
+            assert_eq!(cold.color_dark, warm.color_dark);
+            assert_eq!(cold.publication_count, warm.publication_count);
+        }
+        assert!(cold.reads.contains("imbib/tag-definition"));
+        assert!(cold.reads.contains("imbib/bibliography-entry"));
+        assert_eq!(cold.reads, warm.reads);
     }
 
     // --- New method tests ---
