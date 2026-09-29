@@ -66,7 +66,27 @@ struct ImbibNativeVerbsTests {
         #expect(bibtex.status == 404)
         let ris = await router.route(HTTPRequest(method: "GET", path: "/api/export",
                                                     queryParams: ["keys": "Key2026", "format": "ris"]))
-        #expect(ris.status != 404, "RIS export remains an app-only HTTP capability")
+        #expect(ris.status == 404)
+        let retiredPaths: [(String, String)] = [
+            ("GET", "/api/search"),
+            ("GET", "/api/search/external"),
+            ("GET", "/api/papers/Key2026"),
+            ("GET", "/api/libraries"),
+            ("GET", "/api/collections"),
+            ("GET", "/api/collections/\(UUID())/papers"),
+            ("GET", "/api/tags"),
+            ("POST", "/api/papers/add"),
+            ("POST", "/api/papers/resolve"),
+            ("POST", "/api/collections"),
+            ("POST", "/api/collections/add-papers"),
+            ("PUT", "/api/collections/\(UUID())/papers"),
+            ("DELETE", "/api/libraries"),
+            ("DELETE", "/api/libraries/\(UUID())"),
+        ]
+        for (method, path) in retiredPaths {
+            let result = await router.route(HTTPRequest(method: method, path: path))
+            #expect(result.status == 404, "\(method) \(path) should be retired")
+        }
         let library = await router.route(HTTPRequest(method: "POST", path: "/api/libraries",
                                                         body: #"{"name":"Retired alias"}"#))
         #expect(library.status == 404)

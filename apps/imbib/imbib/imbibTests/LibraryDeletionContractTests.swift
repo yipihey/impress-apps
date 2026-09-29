@@ -26,12 +26,19 @@ final class LibraryDeletionContractTests: XCTestCase {
             }
 
             let router = HTTPAutomationRouter()
-            let unlink = await router.route(HTTPRequest(
+            let retiredUnlink = await router.route(HTTPRequest(
                 method: "DELETE",
                 path: "/api/libraries/\(unlinkLibrary.id.uuidString)",
                 queryParams: ["deleteFiles": "false"]
             ))
-            XCTAssertTrue(unlink.status == 200)
+            XCTAssertEqual(retiredUnlink.status, 404)
+            let unlink = await router.invokeNativeVerb(
+                method: "delete_library",
+                argsJSON: "{\"id\":\"\(unlinkLibrary.id.uuidString)\",\"delete_files\":false}"
+            )
+            XCTAssertEqual(unlink.status, 200)
+            XCTAssertEqual(unlink.bodyJson, "true")
+            XCTAssertNil(store.getLibrary(id: unlinkLibrary.id))
             XCTAssertTrue(unlinkContainers.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
 
             let cleanupLibrary = try XCTUnwrap(store.createLibrary(name: "Cleanup-only \(suffix)"))
@@ -64,6 +71,11 @@ final class LibraryDeletionContractTests: XCTestCase {
                 try Data("scratch".utf8).write(to: directory.appendingPathComponent("fixture.txt"))
             }
             let ids = batchLibraries.map { "\"\($0.id.uuidString)\"" }.joined(separator: ",")
+            let retiredBatch = await router.route(HTTPRequest(
+                method: "DELETE", path: "/api/libraries",
+                body: "{\"identifiers\":[\(ids)],\"deleteFiles\":true}"
+            ))
+            XCTAssertEqual(retiredBatch.status, 404)
             let batch = await router.invokeNativeVerb(
                 method: "delete_libraries",
                 argsJSON: "{\"ids\":[\(ids)],\"delete_files\":true}"

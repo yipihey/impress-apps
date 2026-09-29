@@ -2071,3 +2071,18 @@ only; root owns build and test verification.
   `resolve-citation` free-text/BibTeX branches likewise have no cross-app
   caller; no overload was added. Internal imbib route/MCP and smart-search
   behavior remains unchanged. Root verification pending.
+
+- 2026-09-29 — **P5c24 imbib domain route retirement.** Audited Swift callers
+  after P5c17/P5c20/P5c21: `ImbibBridge` consumers now use generated publication
+  search/detail/RIS, library and collection reads, external search, identifier
+  import, and citation resolution. No production Swift caller uses the
+  collection list/create/member/membership routes, flat tag list, or library
+  deletion routes. Removed only the approved `/api/search`,
+  `/api/search/external`, cite-key detail, identifier add/resolve, library and
+  collection list/create/member/membership, flat tag list, RIS export, and
+  library delete registrations. `/api/tags/tree`, `POST /api/libraries/add-papers`,
+  tag mutations, library sharing/activity/assignments, and all native callback
+  handlers remain. Updated transport proof assertions to require retired URLs
+  return 404 while generated verbs still return their seeded outcomes; earlier
+  route-parity assertions remain in the prior dated package entries and history.
+  Static review only; root owns all verification.

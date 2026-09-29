@@ -10,11 +10,7 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 
 | App | Retained route and caller | Difference from existing verbs |
 | --- | --- | --- |
-| imbib | `GET /api/search`, `GET /api/papers/{citeKey}` in `ImbibBridge` | `search-publications` returns `PublicationSummary`; it lacks the HTTP paper's abstract, bibcode, PMID, and BibTeX. A cite-key detail needs more than one verb and field conversion. |
-| imbib | `GET /api/search/external` in `ImbibBridge` | `search-sources` returns `ExternalPaper`, but the HTTP candidate also has an importable `identifier`; some results have no DOI, arXiv ID, or bibcode from which to recover it. |
-| imbib | `POST /api/papers/add`, `POST /api/papers/resolve` in `ImbibBridge` | `import-papers` accepts BibTeX-backed `PaperImport`, not arbitrary identifiers plus target collection/PDF preference or per-paper failures. `resolve-identifier` accepts a string, not the bridge's structured citation and ranked candidates. |
-| imbib | `GET /api/libraries`, `GET /api/collections` in `ImbibBridge` | `list-libraries` omits collection count and sharing; `list-collections` requires a library ID while the HTTP route lists across libraries with names. |
-| imbib | `GET /api/export?keys=...&format=ris` | The canonical `export-bibtex` verb cannot produce RIS. The old route now accepts only explicit `format=ris`; BibTeX uses the verb. |
+| imbib | `POST /api/libraries/add-papers` | The route resolves local cite-key/DOI identifiers and returns ordered per-item `assigned`/`notFound` outcomes. `add-to-library` accepts publication UUIDs and returns only a count; this route was outside the approved P5c24 retirement set. |
 | imprint | `GET /api/documents` and `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | `list-documents` omits word count and last modification; no verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
 | imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers acknowledge queued editor operations and return an `operationId`. `/update` also accepts full source, and `/replace` supports replacing only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. Keep them pending the caller and contract decision. |
 | imprint | `GET/POST /api/documents/{id}/comments`, `PATCH/DELETE /api/comments/{id}`, and `POST /api/comments/{id}/accept|reject` | The HTTP comment routes carry filters, threaded replies, proposed text, agent attribution, and suggestion actions that the present comment verbs do not all represent. In particular, `update-comment` explicitly refuses accepted/rejected status rather than claiming a suggestion was applied. |
@@ -39,11 +35,14 @@ The shared `SiblingBridge` reads the per-launch token for POST and decodes the
 raw result. Keep private Swift handlers invoked by native callbacks even when
 the corresponding HTTP `if` arm is removed.
 
-Other candidate library and tag routes remain pending a route-by-route contract
-proof. The library and collection list routes expose sharing and cross-library
-fields that current verb results omit, while the tag-tree route returns a
-formatted hierarchy rather than flat tag records. Manuscript, e-ink,
-revisions, and shared status/log routes remain independent capabilities.
+Imbib's migrated publication, citation, library/collection, flat-tag, and RIS
+routes are retired after their generated contracts and hosted consumer mappings
+were established. `/api/tags/tree` remains because it is a separate formatted
+hierarchy. Other unlisted library and tag routes (including sharing, activity,
+assignments, tag mutation, and library-add) retain their independent behavior.
+The inventory above lists only routes still retained for distinct contracts;
+historical route-to-verb evidence remains in the dated pipeline log. Manuscript,
+e-ink, revisions, and shared status/log routes remain independent capabilities.
 
 Implore retired ten legacy registrations whose existing native callback calls
 the same private handlers with the same arguments: `GET /api/datasets`,
@@ -55,7 +54,7 @@ registration removal does not change their native behavior. No repository
 Swift caller uses these ten URLs. Impart retired no research registrations:
 its remaining HTTP contracts differ from the current verbs as listed above.
 
-Imbib also retired ten unused library/collection/tag registrations: GET library
+Before the contract parity work, Imbib retired ten unused library/collection/tag registrations: GET library
 `default` and `inbox`, POST library `set-default` and `deduplicate`, collection
 `purge-dismissed`, and tag creation, PUT tag rename/color, and DELETE tag or
 collection. Collection creation still accepts an absent library and a predicate;
