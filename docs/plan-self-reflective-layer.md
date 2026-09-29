@@ -2891,6 +2891,17 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   `/tmp/impress-retention-cutoff-repeat.log`. The first test build exhausted
   disk space before running; obsolete session caches were cleared before retry.
 
+- 2026-09-28 — **S3 nested host-context follow-up (implementation pending
+  verification)**: the surface FFI now carries the current pipeline caller,
+  trace and parent call in a separate, strictly parsed context value across
+  `SharedVerbHost` into `impel-tools`; domain arguments cannot set those fields.
+  `DefaultExecutor` re-enters that context around its `spawn_blocking` host
+  callback, and the existing app transport continues trace and parent
+  forwarding from the nested pipeline call. Added focused context round-trip,
+  malformed-context, argument-separation and Rust callback tests, plus an
+  owned native audit-lineage proof through the Swift ImpelTools callback. The
+  additive UniFFI export and callback signature require binding regeneration;
+  native builds/proof and workspace verification remain for integration.
 
 - 2026-09-28 — **S2c: surface HTTP catalogue converted to stored scenarios.**
   On `claude/reflective-s2c-surface`, all three `surface.http.*` entries now
@@ -2920,3 +2931,28 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   owned host PID 80634 exited. Native symbol/SQLite checks passed.
   Twelve of twenty-five catalogue entries are documents; thirteen remain code
   (eleven layout/gate/restoration entries and two platform imprint entries).
+
+- 2026-09-28 — **S3 host-context verification completed.** The nested
+  callback now preserves the pipeline context across `spawn_blocking`, the
+  SharedVerbHost callback, Swift and ImpelTools. Separate trusted metadata
+  carries caller, trace and parent; domain arguments cannot choose them. The
+  generated bindings were rebuilt with all twelve supported full arm64
+  framework scripts (no swiftformat/fast mode). Both clippy shards and every
+  quick gate passed. The final combined native-feature Rust run passed
+  **367 tests, zero failed, four ignored** (`/tmp/impress-s3-combined-tests3.log`).
+  An earlier import-papers example readback failed once; the same graph passed
+  on retry and default capabilities passed separately. Its failure now includes
+  the complete ImportSummary for diagnosis; no assertion or fixture was weakened.
+
+  The owned native proof passed one XCTest with no skips, checking actual audit
+  rows for a human surface dispatch and its memory-service child: same trace,
+  exact parent call. Evidence: `/tmp/impress-s3-proof-gpaxukku/output/host-48118/`.
+  The first proof attempt stopped at the bootstrap ownership check because
+  Python resolved `/tmp` to `/private/tmp` while Foundation canonicalized only
+  the existing parent. The runner now keeps the consistent `/tmp` spelling;
+  the ownership checks remain unchanged. Native symbol checks passed and the
+  owned host exited. Reproduce with `scripts/test-s3-host-context-native.py`,
+  an owned `target-s3-*` build using bundle `com.impress.s3proof.impress`, and
+  the built CLI. Normal pre-push passed macOS and arm64 iOS simulator builds
+  (`/tmp/impress-s3-host-context-push.log`), with installation disabled and
+  worktree-owned derived data. No user's app or store was used.

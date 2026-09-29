@@ -305,13 +305,14 @@ pub trait SharedVerbHost: Send + Sync {
     /// `call_verb` runs it, so `surface_validate` can say "no such verb"
     /// without a round trip through the host.
     fn has_verb(&self, name: String) -> bool;
-    /// Run the verb by name; `args_json` and the successful return are both
-    /// `serde_json::Value` JSON, exactly as every other verb call in the
-    /// suite (MCP, the CLI, the linked inventory) speaks it.
+    /// Run the verb by name. Domain args and trusted pipeline context are
+    /// separate JSON strings; the successful return is the same JSON value
+    /// every other verb call in the suite (MCP, CLI, linked inventory) speaks.
     fn call_verb(
         &self,
         name: String,
         args_json: String,
+        context_json: String,
     ) -> std::result::Result<String, SharedVerbHostError>;
 }
 
@@ -356,20 +357,29 @@ impl VerbHost for HostAdapter {
         };
         let args_json = serde_json::to_string(&args)
             .map_err(|e| Refusal::internal(format!("encode args for '{name}': {e}")))?;
-        let reply_json = host.call_verb(name.to_string(), args_json).map_err(|e| {
-            tracing::warn!(target: "surface", "verb host refused '{name}': {e}");
-            match e {
-                SharedVerbHostError::Unavailable { app, verb } => Refusal::new(
-                    codes::HOST_UNAVAILABLE,
-                    format!(
-                        "{app} is not running, so {verb} is unavailable — open {app} to use it"
+        // Swift is a callback boundary, so do not rely on Tokio task-local
+        // context surviving the round trip. Carry the current trusted call
+        // separately from the verb's own args; an empty string retains the
+        // pre-context call_tool behavior for standalone renders.
+        let context_json = pipeline::context::current()
+            .map(|context| pipeline::TransportContext::from_parent(&context).to_json())
+            .unwrap_or_default();
+        let reply_json = host
+            .call_verb(name.to_string(), args_json, context_json)
+            .map_err(|e| {
+                tracing::warn!(target: "surface", "verb host refused '{name}': {e}");
+                match e {
+                    SharedVerbHostError::Unavailable { app, verb } => Refusal::new(
+                        codes::HOST_UNAVAILABLE,
+                        format!(
+                            "{app} is not running, so {verb} is unavailable — open {app} to use it"
+                        ),
                     ),
-                ),
-                SharedVerbHostError::Failed { message } => {
-                    Refusal::new(codes::VERB_FAILED, format!("{name}: {message}"))
+                    SharedVerbHostError::Failed { message } => {
+                        Refusal::new(codes::VERB_FAILED, format!("{name}: {message}"))
+                    }
                 }
-            }
-        })?;
+            })?;
         serde_json::from_str(&reply_json).map_err(|e| {
             Refusal::new(
                 codes::VERB_FAILED,
@@ -1618,6 +1628,7 @@ mod tests {
             &self,
             name: String,
             args_json: String,
+            _context_json: String,
         ) -> std::result::Result<String, SharedVerbHostError> {
             if name != FAKE_VERB {
                 return Err(SharedVerbHostError::Failed {
@@ -1660,6 +1671,61 @@ mod tests {
         row.id.to_string()
     }
 
+    #[test]
+    fn a_nested_host_verb_receives_its_trusted_surface_context() {
+        struct ContextHost(Arc<std::sync::Mutex<Option<String>>>);
+        impl SharedVerbHost for ContextHost {
+            fn has_verb(&self, name: String) -> bool {
+                name == FAKE_VERB
+            }
+
+            fn call_verb(
+                &self,
+                _name: String,
+                _args_json: String,
+                context_json: String,
+            ) -> std::result::Result<String, SharedVerbHostError> {
+                *self.0.lock().unwrap() = Some(context_json);
+                Ok(r#"{"ok":true}"#.into())
+            }
+        }
+
+        let (store, surface) = open();
+        let context = Arc::new(std::sync::Mutex::new(None));
+        store.set_verb_host(Box::new(ContextHost(context.clone())));
+        let spec: SurfaceSpec = serde_json::from_value(serde_json::json!({
+            "surface": "1.0",
+            "name": "Host context fixture",
+            "state": {},
+            "root": {"column": [{
+                "button": {"label": "Run", "on_click": [{
+                    "call": {"verb": FAKE_VERB, "args": {"kind": "forged"}}
+                }]},
+                "id": "go"
+            }]}
+        }))
+        .unwrap();
+        let id = create(&store, &spec);
+
+        let result = surface
+            .dispatch_now(id, None, CLICK.into())
+            .expect("native surface dispatch");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result).unwrap()["ok"],
+            true
+        );
+
+        let context_json = context.lock().unwrap().clone().expect("callback context");
+        let context: serde_json::Value = serde_json::from_str(&context_json).unwrap();
+        assert_eq!(context["kind"], "person");
+        assert!(context["trace_id"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+        assert!(context["parent_call"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+    }
+
     const METADATA_VERB: &str = "capabilities-service_list-verbs";
 
     struct RevisionedMetadataHost {
@@ -1681,6 +1747,7 @@ mod tests {
             &self,
             name: String,
             _args_json: String,
+            _context_json: String,
         ) -> std::result::Result<String, SharedVerbHostError> {
             match name.as_str() {
                 METADATA_VERB => {
@@ -2309,6 +2376,7 @@ mod tests {
             &self,
             _name: String,
             args_json: String,
+            _context_json: String,
         ) -> std::result::Result<String, SharedVerbHostError> {
             std::thread::sleep(std::time::Duration::from_millis(400));
             Ok(format!("{{\"echoed\": {args_json}}}"))
@@ -2877,6 +2945,7 @@ mod tests {
                 &self,
                 name: String,
                 _args_json: String,
+                _context_json: String,
             ) -> std::result::Result<String, SharedVerbHostError> {
                 Err(SharedVerbHostError::Unavailable {
                     app: "imbib".into(),

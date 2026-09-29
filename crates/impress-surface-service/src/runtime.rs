@@ -436,11 +436,19 @@ impl Executor for DefaultExecutor {
         // runtime's own worker threads so a slow host call — an HTTP round
         // trip to imbib or imprint — cannot park one.
         let owned_name = name.to_string();
-        tokio::task::spawn_blocking(move || host.call_verb(&owned_name, args))
-            .await
-            .map_err(|e| {
-                Refusal::internal(format!("verb host call to {name}: task panicked: {e}"))
-            })?
+        // Tokio task locals do not cross spawn_blocking. Surface dispatch
+        // and its linked effects already share one pipeline call; re-enter
+        // its context just around this callback so a host bridge can carry
+        // that trusted caller/trace/parent across its own boundary too.
+        let parent_context = pipeline::context::current();
+        tokio::task::spawn_blocking(move || match parent_context {
+            Some(context) => {
+                pipeline::context::sync_scope(context, || host.call_verb(&owned_name, args))
+            }
+            None => host.call_verb(&owned_name, args),
+        })
+        .await
+        .map_err(|e| Refusal::internal(format!("verb host call to {name}: task panicked: {e}")))?
     }
 
     async fn run_query(

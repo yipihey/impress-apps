@@ -811,6 +811,8 @@ public enum ToolError {
     )
     case BadArguments(name: String, message: String
     )
+    case BadContext(message: String
+    )
     case Handler(name: String, message: String
     )
     /**
@@ -843,11 +845,14 @@ public struct FfiConverterTypeToolError: FfiConverterRustBuffer {
             name: try FfiConverterString.read(from: &buf), 
             message: try FfiConverterString.read(from: &buf)
             )
-        case 3: return .Handler(
+        case 3: return .BadContext(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .Handler(
             name: try FfiConverterString.read(from: &buf), 
             message: try FfiConverterString.read(from: &buf)
             )
-        case 4: return .AppUnavailable(
+        case 5: return .AppUnavailable(
             app: try FfiConverterString.read(from: &buf), 
             name: try FfiConverterString.read(from: &buf)
             )
@@ -874,14 +879,19 @@ public struct FfiConverterTypeToolError: FfiConverterRustBuffer {
             FfiConverterString.write(message, into: &buf)
             
         
-        case let .Handler(name,message):
+        case let .BadContext(message):
             writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Handler(name,message):
+            writeInt(&buf, Int32(4))
             FfiConverterString.write(name, into: &buf)
             FfiConverterString.write(message, into: &buf)
             
         
         case let .AppUnavailable(app,name):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(app, into: &buf)
             FfiConverterString.write(name, into: &buf)
             
@@ -959,6 +969,20 @@ public func callTool(name: String, argsJson: String)throws  -> String {
     uniffi_impel_tools_fn_func_call_tool(
         FfiConverterString.lower(name),
         FfiConverterString.lower(argsJson),$0
+    )
+})
+}
+/**
+ * Invoke a tool with trusted caller lineage supplied separately from the
+ * tool's domain arguments. This is for native host callbacks that have
+ * captured a pipeline context; ordinary impel calls use [`call_tool`].
+ */
+public func callToolWithContext(name: String, argsJson: String, contextJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeToolError.lift) {
+    uniffi_impel_tools_fn_func_call_tool_with_context(
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(argsJson),
+        FfiConverterString.lower(contextJson),$0
     )
 })
 }
@@ -1094,6 +1118,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_impel_tools_checksum_func_call_tool() != 25506) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impel_tools_checksum_func_call_tool_with_context() != 19673) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impel_tools_checksum_func_configure() != 26147) {
