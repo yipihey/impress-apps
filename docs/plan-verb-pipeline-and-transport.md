@@ -2278,3 +2278,12 @@ With the final P5c15 archive cohort, the isolated imprint proof passed two XCTes
   `/tmp/impress-p5c21-final-gates.log`, and the per-gate
   `/tmp/impress-p5c21-final-*.log` files. Native consumer proofs remain with
   root.
+- 2026-09-29 — **P5c22 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all 11 package gates passed, including native bindings and kit standalone
+  checks. The isolated imprint retirement proof passed two XCTest cases and
+  14 shared calls, with owned PID 84629 exited. Evidence:
+  `/tmp/impress-p5c22-final-verify.log`,
+  `/tmp/impress-p5c22-final-gates.log`, per-gate
+  `/tmp/impress-p5c22-final-*.log`, and
+  `/tmp/impress-p5b-transport-y9waq_71/output/`.
