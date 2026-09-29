@@ -3145,3 +3145,12 @@ per-scenario cleanup without evaluating expressions.
   capability and its tree-share reader were removed; the catalogue-wide saved
   layout restoration remains. Identity and call-inventory validation were
   added; build/test verification remains with the parent task.
+
+- 2026-09-28 — **S2j outline collection gesture stored.** The scenario delegates
+  the live outline query and exact verb choice to the existing
+  `outline_target`/`outline_verbs` UI decision functions. It retains exact
+  list query/channel assertions, the fresh zero-row display log, and the
+  fresh selected-detail log when a detail pane exists; a closed wait presence
+  guard preserves the original no-detail behavior. Focused interpreter and
+  caller tests cover nullable detail and guarded wait behavior. No build or
+  test run was performed in this package; root owns integrated verification.

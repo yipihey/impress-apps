@@ -249,6 +249,29 @@ async fn run_step(
             Ok(())
         }
         Step::Wait(wait_step) => {
+            if let Some(path) = &wait_step.when_present {
+                let segments = validate::capture_state_path_segments(path)
+                    .map_err(|e| format!("step {index} (wait): when_present path `{path}`: {e}"))?;
+                let mut value = &captures_value;
+                for segment in segments {
+                    value = match value {
+                        Value::Object(map) => match map.get(segment) {
+                            Some(value) => value,
+                            None => return Ok(()),
+                        },
+                        Value::Array(items) => {
+                            match segment.parse::<usize>().ok().and_then(|i| items.get(i)) {
+                                Some(value) => value,
+                                None => return Ok(()),
+                            }
+                        }
+                        _ => return Ok(()),
+                    };
+                }
+                if value.is_null() {
+                    return Ok(());
+                }
+            }
             let resolved = template::resolve(
                 &serde_json::to_value(&wait_step.wait).map_err(|e| e.to_string())?,
                 &captures_value,
@@ -552,7 +575,9 @@ async fn run_store(
             check_action_outcome(&record)
                 .map_err(|e| format!("step {index} (store get {id}): {e}"))?;
             if record.result["truncated"] == true {
-                return Err(format!("step {index} (store): payload for {id} is truncated; predicate cannot be checked"));
+                return Err(format!(
+                    "step {index} (store): payload for {id} is truncated; predicate cannot be checked"
+                ));
             }
             let payload: Value = serde_json::from_str(
                 record.result["payload"]
@@ -1094,5 +1119,67 @@ mod tests {
             caller.resize,
             Some(json!({"container": 8, "shares": [1.0, 1.0]}))
         );
+    }
+
+    #[tokio::test]
+    async fn guarded_wait_skips_missing_or_null_capture_before_template_resolution() {
+        struct Fixture {
+            detail: Value,
+            waits: usize,
+        }
+        #[async_trait::async_trait]
+        impl Caller for Fixture {
+            async fn call(
+                &mut self,
+                _verb: &str,
+                _args: Value,
+                _as_ident: &str,
+            ) -> Result<CallOutcome, String> {
+                Ok(CallOutcome {
+                    result: json!({"detail": self.detail}),
+                    status: None,
+                })
+            }
+            async fn event(&mut self, _event: &EventBody) -> Result<CallOutcome, String> {
+                Err("unused".into())
+            }
+            async fn gesture(&mut self, _gesture: &Value) -> Result<CallOutcome, String> {
+                Err("unused".into())
+            }
+            async fn wait(&mut self, _wait: &WaitBody) -> Result<(), String> {
+                self.waits += 1;
+                Err("wait failed".into())
+            }
+            async fn seed(&mut self, _kind: &str, _payload: &Value) -> Result<Value, String> {
+                Err("unused".into())
+            }
+            fn wrote(&self, _kind: &str) -> bool {
+                false
+            }
+        }
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "guarded-wait",
+            "description": "optional detail wait",
+            "tier": "b",
+            "steps": [
+                {"call": "read-detail", "capture": {"detail": "$.detail"}},
+                {"wait": {"log": {"category": "layout", "contains": "{{state.detail.tile}}", "timeout_ms": 100}}, "when_present": "$.detail.tile"}
+            ]
+        })).unwrap();
+        for detail in [Value::Null, json!({})] {
+            let mut caller = Fixture { detail, waits: 0 };
+            let result = run(&scenario, &mut caller).await;
+            assert!(result.pass, "{}", result.detail);
+            assert_eq!(caller.waits, 0);
+        }
+        let mut caller = Fixture {
+            detail: json!({"tile": 9}),
+            waits: 0,
+        };
+        let result = run(&scenario, &mut caller).await;
+        assert!(!result.pass);
+        assert!(result.detail.contains("wait failed"));
+        assert_eq!(caller.waits, 1);
     }
 }
