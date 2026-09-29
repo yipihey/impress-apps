@@ -1790,3 +1790,18 @@ Data warnings remain; no persistence schema was changed.
   Tables and reference pages were regenerated. Root corrected the seeded
   bibliography fixture, a module-qualified test helper and converter lint
   findings before these runs. No user store or running app was touched.
+
+- 2026-09-29 — **P5c21 imbib external search/import/resolve callers.** The
+  shared `ImbibBridge` now uses generated `search-sources`,
+  `import-identifiers`, and `resolve-citation` verbs for the existing imprint
+  citation picker, identifier importer and structured `CitationClient` flow.
+  It preserves source/limit, library/collection and PDF defaults, per-identifier
+  added/duplicate/failure outcomes, ranked candidate order/confidence, and open
+  paper/candidate dictionaries alongside the existing typed Swift convenience
+  models. Audited `apps/imprint/macOS/Services/ImbibIntegrationService.swift`
+  and `CitationClient.swift`; no ArtifactResolver/Counsel external-search,
+  identifier-import or citation-resolve caller exists. Counsel's separate
+  artifact capture route is unrelated and remains out of scope. The HTTP
+  `resolve-citation` free-text/BibTeX branches likewise have no cross-app
+  caller; no overload was added. Internal imbib route/MCP and smart-search
+  behavior remains unchanged. Root verification pending.
