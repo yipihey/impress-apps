@@ -148,6 +148,13 @@ pub fn app_service_instance() -> Arc<dyn ImbibAppService> {
     }
 }
 
+/// True when an embedding app installed its app-owned callback backend.
+/// Store-backed services use this to preserve their headless path for work
+/// that does not need native app state.
+pub fn has_app_service_backend() -> bool {
+    APP_BACKEND.is_installed()
+}
+
 pub fn eink_service_instance() -> Arc<dyn ImbibEinkService> {
     match BACKEND.get() {
         Some(b) => b.eink(),

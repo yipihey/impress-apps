@@ -1741,6 +1741,22 @@ Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
 
+## P5c15 — imbib library deletion contract (2026-09-29)
+
+Extended single library deletion with `delete_files` and added validated batch
+deletion. The store preflights every batch UUID and existing library before
+file cleanup or row mutation; `delete_files: false` remains a store-only unlink,
+while `true` reaches the running app's shared + legacy container cleanup. File
+cleanup errors now refuse the store deletion and disclose if earlier containers
+in that batch were already removed. The generated methods do not return store
+undo snapshots, and an undo cannot recreate deleted filesystem bytes.
+
+Rust coverage checks the single/batch argument schemas and proves a valid first
+ID plus a missing later ID leaves the first library intact. Native scratch
+coverage checks unlink-only file preservation and the callback's exact
+container cleanup. Root owns builds, tests and native framework verification;
+this package ran static formatting and diff checks only.
+
 - 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
   `implore-service_export-figure-data` with fractional width/height,
   scale and optional view-state arguments. The native callback reuses the HTTP

@@ -5253,6 +5253,32 @@ extension HTTPAutomationRouter {
         var response: HTTPResponse
         var field: String?
         switch method {
+        case "delete_library":
+            guard let id = uuid("id") else {
+                return nativeFailure(400, "invalid-args", "Missing or invalid library UUID")
+            }
+            let deleteFiles = (args["delete_files"] as? Bool) ?? false
+            do {
+                let deleted = try await automationService.deleteLibrary(id: id, deleteFiles: deleteFiles)
+                return nativeSuccess(deleted)
+            } catch {
+                return nativeFailure(500, "library-deletion-failed", error.localizedDescription)
+            }
+        case "delete_libraries":
+            guard let rawIDs = strings("ids") else {
+                return nativeFailure(400, "invalid-args", "Missing ids")
+            }
+            let ids = rawIDs.compactMap(UUID.init(uuidString:))
+            guard ids.count == rawIDs.count else {
+                return nativeFailure(400, "invalid-args", "One or more library IDs are not UUIDs")
+            }
+            let deleteFiles = (args["delete_files"] as? Bool) ?? false
+            do {
+                let count = try await automationService.deleteLibraries(ids: ids, deleteFiles: deleteFiles)
+                return nativeSuccess(count)
+            } catch {
+                return nativeFailure(500, "library-deletion-failed", error.localizedDescription)
+            }
         case "search_sources":
             guard let query = string("query") else { return nativeFailure(400, "invalid-args", "Missing query") }
             var q = ["q": query, "limit": String((args["limit"] as? Int) ?? 20)]

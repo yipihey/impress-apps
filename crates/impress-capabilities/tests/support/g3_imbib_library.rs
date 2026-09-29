@@ -200,6 +200,10 @@ pub async fn prepare(
         ("imbib-library-service_delete-library-undoable", "remove-empty-library") => {
             library(store, "0a", "G3 disposable library", false, false)?;
         }
+        ("imbib-library-service_delete-libraries", "delete-library-batch") => {
+            library(store, "0d", "G3 batch disposable one", false, false)?;
+            library(store, "0e", "G3 batch disposable two", false, false)?;
+        }
         ("imbib-library-service_get-default-library", "project-default") => {
             library(store, "0b", "G3 default library", true, false)?;
         }
@@ -729,6 +733,11 @@ pub fn verify(
         ("imbib-library-service_delete-library-undoable", "remove-empty-library") => {
             if load(store, &id("0a"))?.is_some() {
                 return Err("library survived deletion".into());
+            }
+        }
+        ("imbib-library-service_delete-libraries", "delete-library-batch") => {
+            if load(store, &id("0d"))?.is_some() || load(store, &id("0e"))?.is_some() {
+                return Err("one or more batch libraries survived deletion".into());
             }
         }
         ("imbib-library-service_create-collection", "manual-collection") => {

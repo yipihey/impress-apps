@@ -125,6 +125,14 @@ pub struct PapersWindowResult {
 
 #[impress_service]
 pub trait ImbibAppService: Send + Sync + 'static {
+    /// Internal bridge to the app's undo-aware library deletion path, including
+    /// its file-container cleanup when requested.
+    /// `id` is the library UUID; `delete_files` opts into removing its containers.
+    async fn delete_library(&self, id: String, delete_files: bool) -> bool;
+    /// Internal bridge to the app's validated, batched library deletion path.
+    /// `ids` are library UUIDs; `delete_files` opts into removing their containers.
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32;
+
     /// Search external academic sources — ADS, arXiv, Crossref and the rest —
     /// for papers NOT yet in the library. This is how you find new work; to
     /// search papers already saved use the library search tools instead.
@@ -364,6 +372,24 @@ fn refuse(method: &str) {
 
 #[async_trait::async_trait]
 impl ImbibAppService for DefaultImbibAppService {
+    async fn delete_library(&self, _id: String, _delete_files: bool) -> bool {
+        refuse("delete_library");
+        impress_service_core::pipeline::context::report_refusal(
+            impress_service_core::refusal::codes::HOST_UNAVAILABLE,
+            "The app-owned library deletion path requires the running imbib app.",
+        );
+        false
+    }
+
+    async fn delete_libraries(&self, _ids: Vec<String>, _delete_files: bool) -> u32 {
+        refuse("delete_libraries");
+        impress_service_core::pipeline::context::report_refusal(
+            impress_service_core::refusal::codes::HOST_UNAVAILABLE,
+            "The app-owned library deletion path requires the running imbib app.",
+        );
+        0
+    }
+
     async fn search_sources(
         &self,
         _query: String,
@@ -565,4 +591,23 @@ impress_service_impl! {
             library_id: String
         ) -> u32,
     ],
+}
+
+#[cfg(test)]
+mod library_file_cleanup_tests {
+    use super::{DefaultImbibAppService, ImbibAppService};
+
+    #[tokio::test]
+    async fn headless_backend_refuses_native_library_deletion() {
+        let app = DefaultImbibAppService::new();
+        assert!(
+            !app.delete_library("50000000-0000-4000-8000-000000000001".into(), true)
+                .await
+        );
+        assert_eq!(
+            app.delete_libraries(vec!["50000000-0000-4000-8000-000000000001".into()], true)
+                .await,
+            0
+        );
+    }
 }
