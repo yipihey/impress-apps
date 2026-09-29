@@ -48,9 +48,18 @@
     {
       "call": "layout-service_get-layout",
       "capture": {
-        "source_session": "$.layout.tiles.{{state.source}}.pane.session"
+        "source_session": "$.layout.tiles.{{state.source}}.pane.session",
+        "source_pane": "$.layout.tiles.{{state.source}}.pane"
       },
-      "expect": { "status": 200 }
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.source}}.pane.session",
+            "contains": "session-"
+          }
+        ]
+      }
     },
     {
       "call": "layout-service_get-layout",
@@ -88,7 +97,8 @@
         "verb": "split",
         "target": { "id": "{{state.source}}" },
         "dir": "vertical",
-        "after": true
+        "after": true,
+        "new": "{{state.source_pane}}"
       },
       "capture": { "copy": "$.focused" }
     },
@@ -97,7 +107,15 @@
       "capture": {
         "copy_session": "$.layout.tiles.{{state.copy}}.pane.session"
       },
-      "expect": { "status": 200 }
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.copy}}.pane.session",
+            "contains": "session-"
+          }
+        ]
+      }
     },
     {
       "call": "layout-service_get-layout",
@@ -206,12 +224,19 @@
       "expect": { "status": 200 }
     },
     {
+      "call": "layout-service_focus",
+      "args": { "target": { "role": "detail" } },
+      "capture": { "detail_after": "$.focused" },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
       "call": "layout-service_get-layout",
       "expect": {
         "status": 200,
         "fields": [
           {
-            "path": "layout.tiles.{{state.detail}}.pane",
+            "path": "layout.tiles.{{state.detail_after}}.pane",
             "equals": "{{state.detail_pane}}"
           }
         ]

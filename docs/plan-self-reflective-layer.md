@@ -3021,9 +3021,11 @@ per-scenario cleanup without evaluating expressions.
 - 2026-09-28 — **S2g: `layout.source_pane_session` converted to a stored scenario.**
   The scenario captures the detail/source/copy/pdf tile IDs, checks copied query
   and view kind, verifies source-session stability and a distinct session for a
-  copied source pane, checks the fresh session-open log after a pre-mutation
-  cursor, then swaps panes and restores the default layout while asserting the
-  original detail pane spec. To express the existing dynamic tile path without
+  copied source pane by explicitly passing the full source pane spec (including
+  its session), checks session IDs retain their `session-` string form and checks
+  the fresh session-open log after a pre-mutation cursor, then swaps panes and
+  restores the default layout while resolving detail by role and asserting its
+  original pane spec. To express the existing dynamic tile path without
   adding selector logic, `CallStep.capture` paths now resolve prior `state`
   captures as closed templates; validation rejects references not captured by
   an earlier step, and captured values are not recursively templated. No build

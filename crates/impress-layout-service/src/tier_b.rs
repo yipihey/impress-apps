@@ -1302,6 +1302,46 @@ mod tests {
                 );
             }
         }
+        let source_copy = scenario.steps.iter().find_map(|step| match step {
+            impress_scenario::Step::Gesture(gesture)
+                if gesture.gesture["target"]["id"] == "{{state.source}}"
+                    && gesture.gesture["dir"] == "vertical" =>
+            {
+                Some(&gesture.gesture)
+            }
+            _ => None,
+        });
+        assert_eq!(
+            source_copy.map(|gesture| &gesture["new"]),
+            Some(&json!("{{state.source_pane}}")),
+            "the copied source split must pass the whole captured PaneSpec, including session"
+        );
+        let string_session_checks = scenario
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                impress_scenario::Step::Call(call) => call.expect.as_ref(),
+                _ => None,
+            })
+            .flat_map(|expect| expect.fields.iter())
+            .filter(|field| {
+                field.path.ends_with(".pane.session")
+                    && field.check == impress_scenario::Check::Contains("session-".into())
+            })
+            .count();
+        assert_eq!(
+            string_session_checks, 2,
+            "both captured source sessions must retain the SessionId string prefix"
+        );
+        assert!(
+            scenario.teardown.iter().any(|step| matches!(step,
+                impress_scenario::Step::Call(call)
+                    if call.call == "layout-service_focus"
+                        && call.args["target"]["role"] == "detail"
+                        && call.capture.get("detail_after").is_some()
+            )),
+            "preset restoration must resolve the detail role again before checking its pane"
+        );
         assert_eq!(scenario.teardown.len(), 5);
     }
 
