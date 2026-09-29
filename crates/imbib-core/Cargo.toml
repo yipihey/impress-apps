@@ -140,6 +140,9 @@ rstest = "0.18"               # Parameterized tests
 test-case = "3.3"             # Simple test cases
 insta = "1.34"                # Snapshot testing
 tempfile = "3.10"             # Temporary files
+# Exercise cache-independent effect evidence in ImbibStore unit tests without
+# enabling store spying in normal library builds.
+impress-core = { workspace = true, features = ["effects-spy"] }
 # Cross-adapter round-trip tests: prove imprint's SharedStore writes and
 # ImbibStore reads share one manuscript schema on one DB file.
 impress-store-ffi = { path = "../impress-store-ffi" }
