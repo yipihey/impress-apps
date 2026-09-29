@@ -1489,6 +1489,17 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   (`/tmp/impress-after-p5b-main-workspace.log`). The retained REST contract decision
   is still open; this merge does not claim all of the estimated 160 arms retired.
 
+- 2026-09-28 — **P5c retained-route contract proposal only.** Added
+  [`p5c-contract-proposal.md`](p5c-contract-proposal.md), based on the P5b route
+  inventory and local checks of the current service signatures and active Swift
+  callers. Follow-up review made cite-key resolution use the existing exact
+  `find-by-cite-key`, required per-result search hydration, avoided changing
+  `list-collections`, classified collection/membership/library-delete/tag
+  routes, and kept UI-registry queue operations as platform routes instead of
+  proposing duplicate queue verbs. Additive contracts remain subject to Tom's
+  review. No service signature or route changed; this proposal is not approval
+  to implement or retire any route.
+
 - 2026-09-28 — **P7 implemented and verified; draft #127 awaits the representation decision.**
   Worktree `p7-construction`, branch `claude/pipeline-p7-construction`, starts at
   `e7cf88a4`. One shared build-time manifest reader generates 85 typed core refs,
@@ -1624,3 +1635,14 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   not a claimed physical click. Reproduce with the checked-in
   `scripts/test-runtime-provider-native.py` and the example README.
   P8 contains merged main `9d7ee7a4`; normal pre-push, PR and merge remain next.
+
+
+- 2026-09-29 — **P5c contract decisions authorized.** Tom explicitly overrode
+  the ask-first rule and delegated remaining implementation decisions, including
+  verb argument changes. The retained-route contract document now records the
+  implementation baseline. Begin with small read-contract packages for imprint
+  document metadata, imbib library metadata and implore figure metadata, then
+  complete the remaining domain contracts and migrate callers after native
+  parity. Queued UI operations, live editor/viewer and hardware routes retain
+  their recorded platform ownership. This authorization record changes no
+  runtime behavior and does not claim the implementation or parity complete.
