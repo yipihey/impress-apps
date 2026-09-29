@@ -31,6 +31,22 @@ pub async fn prepare(
         ("imbib-library-service_list-libraries", "reading-library-list") => {
             library(store, "67", "G3 listed library", false, false)?;
         }
+        ("imbib-library-service_export-ris", "representative-ris-export") => {
+            library(store, "c1", "G3 RIS export library", false, false)?;
+            reset_matching(
+                store,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+                "cite_key",
+                "G3RIS2026",
+                Some(uuid("c1")?),
+            )?;
+            store
+                .import_bibtex(
+                    "@article{G3RIS2026, author={Doe, Jane}, title={RIS parity paper}, year={2026}, journal={Research Journal}, volume={12}, number={3}, pages={100-110}, doi={10.5555/g3-ris}, abstract={Representative abstract}, keywords={alpha, beta}, url={https://example.org/g3-ris}, publisher={Example Press}, address={Boston}, issn={1234-5678}, note={G3 export note}, series={Research Series}, edition={2}, language={en}}".into(),
+                    uuid("c1")?.to_string(),
+                )
+                .map_err(|e| e.to_string())?;
+        }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             library(store, "84", "G3 sidebar library", false, false)?;
             paper(store, "8a", "84", "G3Sidebar2026", "G3 sidebar paper", None)?;
@@ -556,6 +572,20 @@ pub fn verify(
     match (verb, example) {
         ("imbib-library-service_list-libraries", "reading-library-list") => {
             require_row(result, &id("67"))?;
+        }
+        ("imbib-library-service_export-ris", "representative-ris-export") => {
+            let rows = store
+                .query(&ItemQuery {
+                    schema: Some(refs::IMBIB_BIBLIOGRAPHY_ENTRY),
+                    ..Default::default()
+                })
+                .map_err(|e| e.to_string())?;
+            if !rows.iter().any(|row| {
+                row.payload.get("cite_key") == Some(&ItemValue::String("G3RIS2026".into()))
+                    && row.parent == Some(uuid("c1").expect("fixed fixture UUID"))
+            }) {
+                return Err("representative RIS paper was not persisted in scratch library".into());
+            }
         }
         ("imbib-library-service_sidebar-view", "reading-sidebar") => {
             require_row(&result["libraries"], &id("84"))?;

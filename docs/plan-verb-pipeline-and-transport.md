@@ -756,6 +756,16 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
 
 ## Session log (append-only)
 
+- 2026-09-29 — **P5c6 RIS domain export.** Added the generated
+  `imbib-library-service_export-ris` selection verb with the existing BibTeX
+  UUID/cite-key resolution and ordering semantics. Its named compatibility
+  adapter reuses Rust's shared RIS types and formatter while matching the
+  current PublicationManagerCore tag order; existing Rust RIS conversion stays
+  unchanged for its other callers. The legacy HTTP route now uses its existing
+  Swift parser/converter/exporter path, with isolated transport parity coverage
+  and a Tier A representative record. Builds and tests remain in the parent
+  verification lane.
+
 - 2026-09-26 — Planned on a worktree of main at 3222f573, branch `claude/plan-auto-gui-self-docs`, from
   Tom's second and third addenda. Measured: the nine handler call sites and two bypasses; the concern ×
   path matrix; the automation servers' auth and CORS (`Access-Control-Allow-Origin: *`, loopback

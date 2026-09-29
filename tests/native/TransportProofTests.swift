@@ -116,7 +116,7 @@ final class TransportProofTests: XCTestCase {
                     "created library reads back")
         let key = "p5bproof" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let paperTitle = "P5b Transport Paper"
-        let bibtex = "@article{\(key), title={\(paperTitle)}, author={Doe, Jane}, year={2026}}"
+        let bibtex = "@article{\(key), title={\(paperTitle)}, author={Doe, Jane and Roe, John}, year={2026}, journal={Transport Journal}, volume={7}, number={2}, pages={10-20}, doi={10.5555/p5c6-ris}, abstract={RIS transport fixture}, keywords={alpha, beta}, issn={9876-5432}}"
         let imported = try array(try await verb(base, bearer,
             "imbib-library-service_import-bibtex",
             ["bibtex": bibtex, "library_id": libraryID]), "BibTeX import")
@@ -127,6 +127,13 @@ final class TransportProofTests: XCTestCase {
         try require(paper["id"] as? String == paperID &&
                     (paper["title"] as? String)?.contains(paperTitle) == true,
                     "BibTeX paper reads back with its title")
+        let ris = try string(try await verb(base, bearer,
+            "imbib-library-service_export-ris", ["ids": [key]]), "generated RIS export")
+        let legacyRIS = try object(try await request(
+            base, bearer, "/api/export?keys=\(key)&format=ris", nil), "legacy RIS export")
+        try require(legacyRIS["content"] as? String == ris &&
+                    legacyRIS["paperCount"] as? Int == 1,
+                    "generated RIS bytes match the legacy export route")
         let exported = try string(try await verb(base, bearer,
             "imbib-library-service_export-bibtex", ["ids": [paperID]]), "BibTeX export")
         try require(exported.contains(paperTitle), "imported BibTeX exports from the store")
