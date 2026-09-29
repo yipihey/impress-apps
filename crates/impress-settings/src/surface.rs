@@ -62,7 +62,10 @@ pub fn section_surface(section_id: &str, settings: &[Resolved]) -> Option<Surfac
         Node::leaf(NodeKind::Text(format!("# {}", section.title))),
         Node::leaf(NodeKind::Text(section.doc.clone())),
     ];
-    for setting in settings.iter().filter(|s| s.def.section == section_id) {
+    for setting in settings
+        .iter()
+        .filter(|s| s.def.section == section_id && !s.def.internal)
+    {
         let state_key = surface_state_key(&setting.def.key);
         state.insert(state_key.clone(), field_value(setting));
         items.push(
@@ -107,6 +110,22 @@ mod tests {
             .unwrap();
         let settings = store.list(Some("imbib.retention")).unwrap();
         let spec = section_surface("imbib.retention", &settings).unwrap();
+        assert_eq!(
+            settings.len(),
+            4,
+            "registry keeps the internal value addressable"
+        );
+        assert!(
+            spec.state
+                .get("imbib_internal_exploration_library_id")
+                .is_none(),
+            "internal bookkeeping is not seeded into a generated field"
+        );
+        let serialized = serde_json::to_string(&spec).unwrap();
+        assert!(
+            !serialized.contains("imbib.internal.exploration_library_id"),
+            "internal bookkeeping must not render as a settings field"
+        );
         let problems = validate(&spec);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(spec.name, "Retention settings");

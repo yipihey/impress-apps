@@ -680,7 +680,7 @@ mod tests {
 
         let list = s.list(Some("imbib.retention".into())).await;
         assert!(list.ok);
-        assert_eq!(list.settings.len(), 3);
+        assert_eq!(list.settings.len(), 4);
         assert_eq!(
             list.settings[0].source.as_deref(),
             Some("stored"),

@@ -53,8 +53,9 @@
 //!    arbitrary JSON structure the way `tile_with_role`/`linear_parent`/
 //!    `channel_ids` below do. This is `layout.version_moves`,
 //!    `layout.channel_selection`, `layout.hidden_share`,
-//!    `layout.outline_collection_row`, `layout.source_pane_session` and
-//!    `layout.console_pane` — the six named in S2's own account, unchanged.
+//!    `layout.outline_collection_row` and `layout.source_pane_session` — five
+//!    of the six named in S2's own account. S2e converts `layout.console_pane`
+//!    using a role target, captured split result and a pre-mutation log cursor.
 //! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
 //!    shape one level down: `first_row_of` is a live, filtered read of the
 //!    shared store (a read paper that already has its PDF) done in-process
@@ -74,25 +75,23 @@
 //! 4. `app.reachable` is the tier's own gate (`GET /api/status`, run before
 //!    any scenario would), not a capability a scenario step names.
 //!
-//! **A found blocker, not carried into this pass:** `surface.show_and_dispatch`
-//! (here) and all three of `impress-surface-service`'s catalogue
-//! (`surface.http.*`) build a surface spec whose OWN `bind`/`on_click` fields
-//! use the surface engine's `{{state.…}}` template syntax
-//! (`{"bind": "state.bins"}`, `{"payload": {"bins": "{{state.bins}}"}}`).
-//! `impress_scenario::template::resolve` walks every string in a `call`
-//! step's `args` and resolves `{{…}}` against the *scenario's own* captures
-//! before the step runs — so embedding such a spec as `args` fails immediately
-//! (`a missing capture is an error`, not a slow-burning wrong-but-passing
-//! bug) because the scenario has no `bins` capture. Converting either
-//! catalogue's surface-creating entries needs either an escape for a literal
-//! `{{…}}` the scenario interpreter should not touch, or moving the spec into
-//! a `seed`-like non-templated slot — neither exists yet; left for the
-//! interpreter's own next pass rather than guessed at here.
+//! **S2d resolves the literal-template blocker for one entry.**
+//! `surface.show_and_dispatch` now stores its surface spec in a scenario and
+//! uses the scenario interpreter's `{{!…}}` escape for the surface engine's
+//! own `{{state.bins}}` payload template. Its scenario caller retains
+//! canonical `impress-surface-service_*` names while projecting the calls to
+//! `/api/surface/*`. This converts only the layout catalogue entry; the three
+//! `impress-surface-service` `surface.http.*` scenarios remain outside this
+//! change.
 //!
 //! `layout.outline_collection_row` (class ii, "gesture") has the same
 //! dynamic-lookup shape as (1) above (`outline_target`, `first_row_of`) and
 //! stays code for the same reason, not because a `gesture` step could not
 //! carry it in principle.
+//!
+//! **S2e converts `layout.console_pane`.** Its scenario captures the server's
+//! log cursor immediately before the split, then checks the new pane and all
+//! required fragments of its fresh, case-insensitive scoped log line.
 
 use std::time::Duration;
 
@@ -107,7 +106,10 @@ use crate::{check, skipped, CapabilityResult, Tier};
 /// `imprint-selftest`'s own embedding).
 const APPLY_PRESET_SCENARIO: &str = include_str!("../scenarios/layout.apply_preset.json");
 const SAVED_ROUND_TRIP_SCENARIO: &str = include_str!("../scenarios/layout.saved_round_trip.json");
+const SURFACE_SHOW_AND_DISPATCH_SCENARIO: &str =
+    include_str!("../scenarios/surface.show_and_dispatch.json");
 const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
+const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pane.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -154,9 +156,6 @@ pub fn base_url_from(override_value: Option<String>) -> String {
 /// anything. Deliberately unlikely to collide with a human's layout, and
 /// deleted again by the restore step.
 const RESTORE_LAYOUT: &str = "__tier-b-selftest-restore__";
-
-/// The name of the scratch surface the surface capability creates.
-const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 
 /// Every capability id this tier reports, in order. Written out so the
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
@@ -277,17 +276,6 @@ impl Http {
             .send()
             .await
             .map_err(|e| format!("POST {path}: {e}"))?;
-        decode(path, response).await
-    }
-
-    async fn delete(&self, path: &str) -> Result<Value, String> {
-        let url = format!("{}{path}", self.base);
-        let response = self
-            .client
-            .delete(&url)
-            .send()
-            .await
-            .map_err(|e| format!("DELETE {path}: {e}"))?;
         decode(path, response).await
     }
 
@@ -461,7 +449,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     // loopback connection, separate from `http` above): nothing here
     // depends on it seeing the other capabilities' effects, so one per run
     // is simplicity over sharing a connection that buys nothing yet.
-    let mut scenario_caller = scenario_caller::TierBCaller::new(base_url);
+    let mut scenario_caller = scenario_caller::TierBCaller::for_surface_routes(base_url);
 
     // One probe gates the tier. `/api/status` is the shared automation
     // surface's own liveness route, answered by every app in the suite.
@@ -507,26 +495,26 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
         .await
         .is_ok();
 
-    // Surfaces this run created, deleted by the restore step whatever happens.
-    let mut created_surfaces: Vec<String> = Vec::new();
-
     out.push(scenario_caller::run_embedded(APPLY_PRESET_SCENARIO, &mut scenario_caller).await);
     out.push(version_moves_capability(&http).await);
     out.push(scenario_caller::run_embedded(SAVED_ROUND_TRIP_SCENARIO, &mut scenario_caller).await);
     out.push(channel_selection_capability(&http).await);
-    out.push(surface_capability(&http, &mut created_surfaces).await);
+    out.push(
+        scenario_caller::run_embedded(SURFACE_SHOW_AND_DISPATCH_SCENARIO, &mut scenario_caller)
+            .await,
+    );
     out.push(hidden_share_capability(&http).await);
     out.push(outline_collection_capability(&http).await);
     out.push(reading_pdf_pane_capability(&http).await);
     out.push(source_pane_session_capability(&http).await);
     out.push(reading_preset_capability(&http).await);
-    out.push(console_pane_capability(&http).await);
+    out.push(scenario_caller::run_embedded(CONSOLE_PANE_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(WIRE_CONTRACT_SCENARIO, &mut scenario_caller).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
     // long as it takes to get to this line.
-    out.push(restore_capability(&http, parked, &created_surfaces).await);
+    out.push(restore_capability(&http, parked).await);
 
     out
 }
@@ -1063,74 +1051,6 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
     .await
 }
 
-/// The `console` view kind in the running app: a pane whose spec is only
-/// `view_kind: console` plus the console's own two controls in `view_state`
-/// (`search`, `levels` — what `ImpressLogging.ConsoleView` already has; the
-/// query is left at its default because a log is not store items). The pane
-/// logs `pane N console: <app> log, search 'layout', levels …` when it
-/// renders — a `layout`-category line, so it is one of the lines its own
-/// search matches, i.e. the pane is seen showing its own log line. The spec
-/// is read back from the tree to prove `view_state` survived the split
-/// untouched (the tree never interprets it), then the pane is closed.
-async fn console_pane_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[11];
-    check(id, description, Tier::B, || async {
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let view_state = json!({ "search": "layout", "levels": ["info", "warning", "error"] });
-        let before = log_cursor();
-        let split = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "vertical",
-                "after": true,
-                "new": { "view_kind": "console", "view_state": view_state }
-            }))
-            .await?;
-        let console = split
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "the split did not report the new tile".to_string())?;
-
-        let checked = async {
-            let pane = pane_of_tree(&http.tree().await?, console)?;
-            if pane.get("view_kind").and_then(Value::as_str) != Some("console") {
-                return Err(format!("tile {console} is not a console pane: {pane}"));
-            }
-            if pane.get("view_state") != Some(&view_state) {
-                return Err(format!(
-                    "the console pane's view_state changed on the way in: {pane}"
-                ));
-            }
-            wait_for_log(
-                http,
-                &before,
-                &[
-                    &format!("pane {console} console: "),
-                    "search 'layout'",
-                    "levels info,warning,error",
-                ],
-            )
-            .await
-        }
-        .await;
-
-        // Tidy up even when the log never came.
-        http.verb(&json!({ "verb": "close", "target": {"id": console} }))
-            .await?;
-        checked.map(|line| {
-            format!(
-                "`console` pane tile {console} split below detail tile {detail}, view_state kept; \
-                 the pane logged `{line}`"
-            )
-        })
-    })
-    .await
-}
-
 /// ADR-0031 D6 in the running app: the session id Rust gives a `source` pane
 /// is the pane's for good. A `source` pane is split in beside the detail
 /// pane (whatever that pane shows — over publications the pane renders its
@@ -1401,170 +1321,6 @@ async fn wait_for_log(http: &Http, after: &str, needles: &[&str]) -> Result<Stri
     ))
 }
 
-/// 5. Create a surface, render it, dispatch an event, see the state change.
-///
-/// The spec is written here rather than taken from `surface_examples` so the
-/// widget ids are author-given and the capability does not depend on the demo
-/// verbs (`surface-demo-service_*`) being linked into whichever app is
-/// answering. The event is `impress_surface::Event`'s own shape.
-async fn surface_capability(http: &Http, created: &mut Vec<String>) -> CapabilityResult {
-    let (id, description) = CATALOGUE[5];
-
-    let spec = json!({
-        "surface": "1.0",
-        "name": SCRATCH_SURFACE,
-        "state": { "bins": 4 },
-        "root": {
-            "column": [
-                { "text": "tier-b self-test" },
-                {
-                    "id": "bins",
-                    "field": { "slider": { "min": 1, "max": 64, "step": 1 } },
-                    "label": "Bins",
-                    "bind": "state.bins"
-                },
-                {
-                    "id": "choose",
-                    "button": {
-                        "label": "Use these bins",
-                        "on_click": [
-                            { "emit": { "name": "bins-chosen",
-                                        "payload": { "bins": "{{state.bins}}" } } }
-                        ]
-                    }
-                }
-            ]
-        }
-    });
-
-    // The surface id has to escape the closure so the restore step can delete
-    // it even when a later assertion fails.
-    let surface_id = match http.post("/api/surface", &spec).await {
-        Ok(created_row) => created_row
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        Err(reason) => {
-            return check(id, description, Tier::B, || async move {
-                Err(format!("creating the scratch surface failed: {reason}"))
-            })
-            .await
-        }
-    };
-    let Some(surface_id) = surface_id else {
-        return check(id, description, Tier::B, || async {
-            Err("POST /api/surface returned no `id`".to_string())
-        })
-        .await;
-    };
-    created.push(surface_id.clone());
-
-    check(id, description, Tier::B, || async {
-        /// The value of the widget bound to `state.bins` in a render — the
-        /// wire's render envelope (`{"ok", "tree", …}`, wave 7 T6a) or a bare
-        /// tree.
-        fn bins_value(rendered: &Value) -> Option<f64> {
-            let tree = rendered.get("tree").unwrap_or(rendered);
-            fn walk(node: &Value) -> Option<f64> {
-                if node.get("id").and_then(Value::as_str) == Some("bins") {
-                    return node.get("node")?.get("value")?.as_f64();
-                }
-                if let Some(items) = node
-                    .get("node")
-                    .and_then(|n| n.get("items"))
-                    .and_then(Value::as_array)
-                {
-                    return items.iter().find_map(walk);
-                }
-                None
-            }
-            walk(tree.get("root")?)
-        }
-
-        let rendered = http
-            .get(&format!("/api/surface/{surface_id}/render"))
-            .await?;
-        let before = bins_value(&rendered)
-            .ok_or_else(|| "the render tree has no `bins` widget".to_string())?;
-
-        // A `change` on the slider must move the bound state…
-        let changed = http
-            .post(
-                &format!("/api/surface/{surface_id}/dispatch"),
-                &json!({ "widget": "bins", "kind": "change", "value": 17 }),
-            )
-            .await?;
-        if changed.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(format!(
-                "dispatching `change` was refused: {}",
-                changed
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("no message")
-            ));
-        }
-
-        // …as seen by a fresh render, not just by the dispatch's own reply.
-        let rerendered = http
-            .get(&format!("/api/surface/{surface_id}/render"))
-            .await?;
-        let after = bins_value(&rerendered)
-            .ok_or_else(|| "the re-render has no `bins` widget".to_string())?;
-        if after != 17.0 {
-            return Err(format!(
-                "dispatched bins=17 but the re-render shows {after} (was {before})"
-            ));
-        }
-
-        // A `click` must run the button's effect and emit a named event.
-        let clicked = http
-            .post(
-                &format!("/api/surface/{surface_id}/dispatch"),
-                &json!({ "widget": "choose", "kind": "click" }),
-            )
-            .await?;
-        let emitted = clicked
-            .get("effects")
-            .and_then(Value::as_array)
-            .map(|effects| {
-                effects
-                    .iter()
-                    .any(|e| e.get("ok").and_then(Value::as_bool) == Some(true))
-            })
-            .unwrap_or(false);
-        if !emitted {
-            return Err(format!(
-                "clicking `choose` ran no successful effect: {:?}",
-                clicked.get("effects")
-            ));
-        }
-
-        let events = http
-            .get(&format!("/api/surface/{surface_id}/events?after_seq=0"))
-            .await?;
-        let names: Vec<&str> = events
-            .get("events")
-            .and_then(Value::as_array)
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|r| r.get("name").and_then(Value::as_str))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !names.contains(&"bins-chosen") {
-            return Err(format!(
-                "the click emitted no `bins-chosen` event; the feed carries {names:?}"
-            ));
-        }
-
-        Ok(format!(
-            "surface {surface_id} rendered (bins={before}), `change` moved it to {after}, \
-             and `click` emitted bins-chosen"
-        ))
-    })
-    .await
-}
-
 /// 6. ⌃⌘S-style: resize a pane to `HIDDEN_SHARE` and bring it back.
 ///
 /// `resize-share` is the operation the chord routes through, and the store
@@ -1610,30 +1366,19 @@ async fn hidden_share_capability(http: &Http) -> CapabilityResult {
     .await
 }
 
-/// The `finally`: put the tree back and delete everything this run created.
+/// The `finally`: put the tree back after the catalogue run.
 ///
 /// Reported as its own capability so a failed cleanup is a failed self-test.
 /// A catalogue that quietly left a scratch layout behind would be a worse
 /// neighbour than one that says it could not tidy up.
-async fn restore_capability(
-    http: &Http,
-    parked: bool,
-    created_surfaces: &[String],
-) -> CapabilityResult {
+async fn restore_capability(http: &Http, parked: bool) -> CapabilityResult {
     check(
         "layout.restored",
-        "The live arrangement and surfaces are left as they were found",
+        "The live arrangement is left as it was found",
         Tier::B,
         || async {
             let mut notes: Vec<String> = Vec::new();
             let mut problems: Vec<String> = Vec::new();
-
-            for id in created_surfaces {
-                match http.delete(&format!("/api/surface/{id}")).await {
-                    Ok(_) => notes.push(format!("deleted surface {id}")),
-                    Err(e) => problems.push(format!("surface {id} not deleted: {e}")),
-                }
-            }
 
             if parked {
                 // Applied by NAME: the `apply-layout` ordinal space is the
@@ -1676,6 +1421,39 @@ async fn restore_capability(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn console_pane_scenario_checks_scoped_fresh_log_and_required_close() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(CONSOLE_PANE_SCENARIO).expect("console scenario parses");
+        assert_eq!(scenario.id, "layout.console_pane");
+        assert_eq!(scenario.description, CATALOGUE[11].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn surface_dispatch_document_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(SURFACE_SHOW_AND_DISPATCH_SCENARIO)
+                .expect("embedded surface scenario parses");
+        assert_eq!(scenario.id, "surface.show_and_dispatch");
+        assert_eq!(
+            scenario.description,
+            "A surface renders and a dispatched event changes its state"
+        );
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        assert_eq!(scenario.steps.len(), 7);
+        assert_eq!(scenario.teardown.len(), 1);
+    }
 
     /// The skip path is the one a headless box takes, so it is the one that
     /// must be tested without an app: an unreachable port skips every
