@@ -1850,3 +1850,16 @@ operations were performed here.
   thread writes; the final test snapshots immediately before the refusal and
   still requires equality of every stored comment afterward. Generated project
   identifier/path churn was discarded. No real store or user app was touched.
+
+- 2026-09-29 — **P5c8 verified.** Root passed 61 Rust tests (zero failures,
+  three ignored), every quick gate and full supported arm64 store-ffi,
+  impel-tools and implore-verbs-ffi builds. The isolated native run passed
+  both XCTest cases and five shared transport calls, including route/verb
+  render hashes, non-empty changed PNG bytes and shared blob/export cleanup.
+  SQLite checks passed; owned PID 48130 exited. Evidence:
+  `/tmp/impress-p5b-transport-xgsqb5h4/output/` and
+  `/tmp/impress-p5c8-{tests,gates,frameworks,native-proof}.log`.
+  Tables/reference pages were regenerated. Root corrected fixture safety-class
+  comparisons and retained the preceding threaded-comment refusal snapshot.
+  The documented exception ceiling increases 146→148 for the two new native
+  callbacks; positive evidence comes from the app proof, not headless refusal.
