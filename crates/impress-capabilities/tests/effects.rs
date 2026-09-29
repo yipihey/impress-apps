@@ -88,7 +88,9 @@ use serde_json::Value;
 // rerender/cleanup proof require the app; neither is headless positive evidence.
 // P5c10 adds native suggestion apply/reject; the live-editor save and
 // comment state proofs require a host, so their headless gap stays explicit.
-const EXCEPTION_CEILING: usize = 150;
+// P5c11 citation resolution uses the native source/import cascade. Local
+// resolution parity is hosted; external candidates use a deterministic callback fixture.
+const EXCEPTION_CEILING: usize = 151;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write

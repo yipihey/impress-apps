@@ -74,6 +74,7 @@ pub struct CitationInput {
     /// A list of authors, or the comma/semicolon/newline separated string the
     /// HTTP handler also accepts.
     #[serde(default, deserialize_with = "deserialize_citation_authors")]
+    #[schemars(with = "CitationAuthorsInput")]
     pub authors: Vec<String>,
     #[serde(default)]
     pub title: Option<String>,
@@ -99,26 +100,27 @@ pub struct CitationInput {
     pub preferred_database: Option<String>,
 }
 
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+enum CitationAuthorsInput {
+    List(Vec<String>),
+    Text(String),
+    Empty(()),
+}
+
 fn deserialize_citation_authors<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Authors {
-        List(Vec<String>),
-        Text(String),
-        Empty(()),
-    }
-    match Authors::deserialize(deserializer)? {
-        Authors::List(values) => Ok(values),
-        Authors::Text(value) => Ok(value
+    match CitationAuthorsInput::deserialize(deserializer)? {
+        CitationAuthorsInput::List(values) => Ok(values),
+        CitationAuthorsInput::Text(value) => Ok(value
             .split([',', ';', '&', '\n'])
             .map(str::trim)
             .filter(|author| !author.is_empty())
             .map(str::to_owned)
             .collect()),
-        Authors::Empty(()) => Ok(Vec::new()),
+        CitationAuthorsInput::Empty(()) => Ok(Vec::new()),
     }
 }
 
@@ -236,6 +238,11 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// confidence, `via`, and reason values are preserved. The returned paper
     /// and candidate objects use the same open dictionary shape as HTTP.
     #[impress_method(safety = external, effects(reach = [app("imbib")]))]
+    #[impress_example(
+        name = "host-resolve-local-citation",
+        tier = "b",
+        args = r#"{"query":"{{state.cite_key}}","download_pdfs":false}"#
+    )]
     async fn resolve_citation(
         &self,
         query: Option<String>,
