@@ -2944,3 +2944,12 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   the built CLI. Normal pre-push passed macOS and arm64 iOS simulator builds
   (`/tmp/impress-s3-host-context-push.log`), with installation disabled and
   worktree-owned derived data. No user's app or store was used.
+
+- 2026-09-28 — **S2f comparison expectations**, on
+  `claude/reflective-s2f-comparisons`: added closed `gt` and `not_equals` field
+  checks to the existing expectation DSL. Both accept literal JSON and typed
+  whole-capture references through normal expectation-template resolution.
+  `gt` rejects non-number operands and preserves exact integer ordering above
+  2^53; `not_equals` rejects missing paths. Focused interpreter tests cover
+  unchanged/increasing versions, distinct/equal session IDs, malformed operands
+  and missing references. Build and test gates remain with integration.

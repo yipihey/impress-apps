@@ -267,7 +267,9 @@ pub struct FieldExpect {
 #[serde(rename_all = "snake_case")]
 pub enum Check {
     Equals(serde_json::Value),
+    NotEquals(serde_json::Value),
     Contains(String),
+    Gt(serde_json::Value),
     Gte(f64),
     Lte(f64),
     Within { value: f64, tol: f64 },
