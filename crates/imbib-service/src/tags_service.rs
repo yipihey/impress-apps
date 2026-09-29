@@ -355,6 +355,10 @@ impl ImbibTagsService for DefaultImbibTagsService {
             Ok(rows) => rows,
             Err(error) => {
                 log("formatted_tag_tree", &error);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    format!("formatted_tag_tree: {error}"),
+                );
                 return "(no tags)".to_string();
             }
         };

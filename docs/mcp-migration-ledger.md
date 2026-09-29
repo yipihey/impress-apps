@@ -67,7 +67,7 @@ This is the backstop for the retirement: a row that is **deferred** is a decisio
 | `imbib_delete_artifact` | covered | `imbib-artifacts-service_delete-artifact` |
 | `imbib_delete_backup` | covered | `imbib-backup-service_delete-backup` |
 | `imbib_delete_collection` | covered | `imbib-app-service_delete-collection` |
-| `imbib_delete_comment` | covered | `imbib-app-service_delete-comment` |
+| `imbib_delete_comment` | covered | `imbib-annotations-service_delete-comment` |
 | `imbib_delete_papers` | covered | `imbib-library-service_delete-publications-undoable` |
 | `imbib_delete_smart_searches` | covered | `imbib-app-service_delete-smart-searches` |
 | `imbib_delete_tag` | covered | `imbib-tags-service_delete-tag-undoable` |

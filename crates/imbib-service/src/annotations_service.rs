@@ -224,6 +224,15 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         expect = r#"{"ok":true,"affected_count":1}"#
     )]
     async fn update_comment(&self, id: String, text: String) -> MutationResult;
+    /// Delete one comment and nothing else. A missing id or a row of another
+    /// kind is refused and deletes nothing.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/comment"], writes = ["imbib/comment"]))]
+    #[impress_example(
+        name = "delete-scratch-comment",
+        args = r#"{"id":"60000000-0000-4000-8000-000000000034"}"#,
+        expect = r#"true"#
+    )]
+    async fn delete_comment(&self, id: String) -> bool;
 }
 
 #[derive(Clone)]
@@ -372,6 +381,33 @@ impl ImbibAnnotationsService for DefaultImbibAnnotationsService {
             }
         }
     }
+    async fn delete_comment(&self, id: String) -> bool {
+        match self.store.delete_comment_undoable(id) {
+            Ok(_) => true,
+            Err(imbib_core::unified::store_api::StoreApiError::NotFound(message)) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    message,
+                );
+                false
+            }
+            Err(imbib_core::unified::store_api::StoreApiError::InvalidInput(message)) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                    message,
+                );
+                false
+            }
+            Err(error) => {
+                log("delete_comment", &error);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    format!("delete_comment: {error}"),
+                );
+                false
+            }
+        }
+    }
 }
 
 impress_service_impl! {
@@ -458,5 +494,9 @@ impress_service_impl! {
             /// New private comment body.
             #[impress_private] text: String
         ) -> MutationResult,
+        delete_comment(
+            /// UUID of the comment to delete.
+            id: String
+        ) -> bool,
     ],
 }
