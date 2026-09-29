@@ -6,6 +6,9 @@ import XCTest
 @MainActor
 final class CollectionMembershipContractTests: XCTestCase {
     func testRetainedRoutesAndGeneratedVerbAgreeOnLocalResolutionAndMembership() async throws {
+        guard ProcessInfo.processInfo.environment["IMPRESS_P5B_TRANSPORT_PROOF"] == "1" else {
+            throw XCTSkip("Run the isolated native transport proof")
+        }
         let settings = AutomationSettingsStore.shared
         let wasEnabled = await settings.isEnabled
         await settings.setEnabled(true)
