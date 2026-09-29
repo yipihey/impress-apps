@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, ExternalPaper, ImbibAppService, LogEntry, PapersWindowResult,
-    SyncNudgeResult,
+    ActivityEntry, AppStatus, CitationInput, CitationResolution, ExternalPaper,
+    IdentifierImportResult, ImbibAppService, LogEntry, PapersWindowResult, SyncNudgeResult,
 };
 use imbib_service::manuscripts_service::{
     CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
@@ -57,6 +57,44 @@ impl NativeImbibAppService {
 
 #[async_trait::async_trait]
 impl ImbibAppService for NativeImbibAppService {
+    async fn delete_library(&self, id: String, delete_files: bool) -> bool {
+        self.invoke(
+            "delete_library",
+            json!({ "id": id, "delete_files": delete_files }),
+        )
+        .await
+        .unwrap_or(false)
+    }
+
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32 {
+        self.invoke(
+            "delete_libraries",
+            json!({ "ids": ids, "delete_files": delete_files }),
+        )
+        .await
+        .unwrap_or(0)
+    }
+
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult {
+        self.invoke(
+            "import_identifiers",
+            json!({
+                "identifiers": identifiers,
+                "library_id": library_id,
+                "collection_id": collection_id,
+                "download_pdfs": download_pdfs
+            }),
+        )
+        .await
+        .unwrap_or_default()
+    }
+
     async fn search_sources(
         &self,
         query: String,
@@ -69,6 +107,29 @@ impl ImbibAppService for NativeImbibAppService {
         )
         .await
         .unwrap_or_default()
+    }
+    async fn resolve_citation(
+        &self,
+        query: Option<String>,
+        bibtex: Option<String>,
+        citation: Option<CitationInput>,
+        library_id: Option<String>,
+        download_pdfs: bool,
+    ) -> CitationResolution {
+        let mut args = json!({
+            "query": query,
+            "bibtex": bibtex,
+            "library_id": library_id,
+            "download_pdfs": download_pdfs,
+        });
+        if let Some(citation) = citation {
+            args["citation"] = serde_json::to_value(citation).unwrap_or(Value::Null);
+        }
+        self.invoke("resolve_citation", args)
+            .await
+            .unwrap_or_else(|_| CitationResolution::unavailable(
+                "Citation resolution was refused by the running imbib app; inspect the refusal details.",
+            ))
     }
     async fn recent_activity(&self, limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry> {
         self.invoke(
@@ -321,9 +382,23 @@ mod tests {
         response: NativeCallResult,
     }
 
+    struct RecordingFixture {
+        response: NativeCallResult,
+        seen: std::sync::Mutex<Option<(String, Value)>>,
+    }
+
     #[async_trait::async_trait]
     impl ImbibNativeCallbacks for Fixture {
         async fn invoke(&self, _method: String, _args_json: String) -> NativeCallResult {
+            self.response.clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ImbibNativeCallbacks for RecordingFixture {
+        async fn invoke(&self, method: String, args_json: String) -> NativeCallResult {
+            let args = serde_json::from_str(&args_json).expect("callback arguments are JSON");
+            *self.seen.lock().unwrap() = Some((method, args));
             self.response.clone()
         }
     }
@@ -346,6 +421,90 @@ mod tests {
             .await;
         assert_eq!(result.as_deref(), Some("Saved note"));
         assert_eq!(service(200, "null").get_notes("missing".into()).await, None);
+    }
+
+    #[tokio::test]
+    async fn external_search_decodes_the_http_import_identifier() {
+        let result = service(
+            200,
+            r#"[{"title":"A paper without DOI","authors":["Ada"],"sourceID":"crossref","identifier":"A paper without DOI"}]"#,
+        )
+        .search_sources("A paper".into(), None, 5)
+        .await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].identifier.as_deref(), Some("A paper without DOI"));
+        assert_eq!(result[0].source.as_deref(), Some("crossref"));
+    }
+
+    #[tokio::test]
+    async fn resolve_citation_forwards_all_inputs_and_preserves_ranked_candidates() {
+        let callback = Arc::new(RecordingFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: r#"{"via":"ads-candidates","candidates":[{"title":"A paper","confidence":0.82},{"title":"Another","confidence":0.71}],"reason":"Choose the matching reference"}"#.into(),
+            },
+            seen: Default::default(),
+        });
+        let service = NativeImbibAppService {
+            callback: callback.clone(),
+        };
+        let citation: CitationInput = serde_json::from_value(json!({
+            "authors": "Ada Lovelace; Charles Babbage",
+            "title": "Analytical engines",
+            "year": 1843,
+            "rawBibtex": "@article{private-key, title={Analytical engines}}",
+            "freeText": "Lovelace 1843",
+            "preferredDatabase": "astronomy"
+        }))
+        .unwrap();
+        let resolved = service
+            .resolve_citation(
+                Some("Lovelace 1843".into()),
+                Some("@article{private-key}".into()),
+                Some(citation),
+                Some("library-uuid".into()),
+                true,
+            )
+            .await;
+        assert_eq!(resolved.via, "ads-candidates");
+        assert_eq!(resolved.candidates.as_ref().unwrap().len(), 2);
+        assert_eq!(resolved.candidates.as_ref().unwrap()[0]["confidence"], 0.82);
+        assert_eq!(
+            resolved.reason.as_deref(),
+            Some("Choose the matching reference")
+        );
+
+        let seen = callback.seen.lock().unwrap();
+        let (method, args) = seen.as_ref().unwrap();
+        assert_eq!(method, "resolve_citation");
+        assert_eq!(args["query"], "Lovelace 1843");
+        assert_eq!(args["bibtex"], "@article{private-key}");
+        assert_eq!(args["library_id"], "library-uuid");
+        assert_eq!(args["download_pdfs"], true);
+        assert_eq!(
+            args["citation"]["authors"],
+            json!(["Ada Lovelace", "Charles Babbage"])
+        );
+        assert_eq!(
+            args["citation"]["rawBibtex"],
+            "@article{private-key, title={Analytical engines}}"
+        );
+        assert_eq!(args["citation"]["freeText"], "Lovelace 1843");
+        assert_eq!(args["citation"]["preferredDatabase"], "astronomy");
+    }
+
+    #[tokio::test]
+    async fn headless_citation_resolution_is_an_explicit_unavailable_result() {
+        let result = imbib_service::app_service::DefaultImbibAppService::new()
+            .resolve_citation(None, None, None, None, false)
+            .await;
+        assert_eq!(result.via, "unavailable");
+        assert!(result
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Open imbib"));
+        assert!(result.candidates.is_none());
     }
 
     #[tokio::test]
@@ -375,5 +534,123 @@ mod tests {
             Some("/scratch/manuscripts/result.pdf")
         );
         assert_eq!(result.page_count, Some(3));
+    }
+
+    struct ImportFixture {
+        response: NativeCallResult,
+        received: std::sync::Mutex<Option<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ImbibNativeCallbacks for ImportFixture {
+        async fn invoke(&self, method: String, args_json: String) -> NativeCallResult {
+            *self.received.lock().unwrap() = Some((method, args_json));
+            self.response.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn identifier_import_forwards_options_and_preserves_full_added_dictionary() {
+        let callback = Arc::new(ImportFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: r#"{"added":[{"id":"paper-id","citeKey":"Example2026","title":"Example","authors":["Doe, Jane"],"year":2026,"bibtex":"@article{Example2026}","dateAdded":"2026-09-29T00:00:00Z","collectionIDs":["collection-id"],"libraryIDs":["library-id"]}],"duplicates":["Existing2026"],"failed":{"bad-key":"unsupported identifier"}}"#.into(),
+            },
+            received: std::sync::Mutex::new(None),
+        });
+        let service = NativeImbibAppService {
+            callback: Arc::clone(&callback) as Arc<dyn ImbibNativeCallbacks>,
+        };
+
+        let result = service
+            .import_identifiers(
+                vec!["10.5555/example".into(), "Existing2026".into()],
+                Some("library-id".into()),
+                Some("collection-id".into()),
+                true,
+            )
+            .await;
+
+        assert_eq!(result.duplicates, vec!["Existing2026"]);
+        assert_eq!(
+            result.failed.get("bad-key").map(String::as_str),
+            Some("unsupported identifier")
+        );
+        assert_eq!(result.added[0]["title"], "Example");
+        assert_eq!(result.added[0]["collectionIDs"][0], "collection-id");
+        assert_eq!(result.added[0]["dateAdded"], "2026-09-29T00:00:00Z");
+        let (method, args) = callback.received.lock().unwrap().clone().unwrap();
+        assert_eq!(method, "import_identifiers");
+        let args: Value = serde_json::from_str(&args).unwrap();
+        assert_eq!(args["library_id"], "library-id");
+        assert_eq!(args["collection_id"], "collection-id");
+        assert_eq!(args["download_pdfs"], true);
+        assert_eq!(args["identifiers"][0], "10.5555/example");
+    }
+    struct FileCleanupFixture {
+        response: NativeCallResult,
+        received: std::sync::Mutex<Option<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ImbibNativeCallbacks for FileCleanupFixture {
+        async fn invoke(&self, method: String, args_json: String) -> NativeCallResult {
+            *self.received.lock().unwrap() = Some((method, args_json));
+            self.response.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn library_deletion_uses_native_callback_and_propagates_failure() {
+        let callback = Arc::new(FileCleanupFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: "true".into(),
+            },
+            received: std::sync::Mutex::new(None),
+        });
+        let service = NativeImbibAppService {
+            callback: Arc::clone(&callback) as Arc<dyn ImbibNativeCallbacks>,
+        };
+
+        assert!(service.delete_library("library-a".into(), true).await);
+        let (method, args) = callback.received.lock().unwrap().clone().unwrap();
+        assert_eq!(method, "delete_library");
+        let args: Value = serde_json::from_str(&args).unwrap();
+        assert_eq!(args["id"], "library-a");
+        assert_eq!(args["delete_files"], true);
+
+        let batch_callback = Arc::new(FileCleanupFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: "2".into(),
+            },
+            received: std::sync::Mutex::new(None),
+        });
+        let batch = NativeImbibAppService {
+            callback: Arc::clone(&batch_callback) as Arc<dyn ImbibNativeCallbacks>,
+        };
+        assert_eq!(
+            batch
+                .delete_libraries(vec!["a".into(), "b".into()], false)
+                .await,
+            2
+        );
+        let (method, args) = batch_callback.received.lock().unwrap().clone().unwrap();
+        assert_eq!(method, "delete_libraries");
+        let args: Value = serde_json::from_str(&args).unwrap();
+        assert_eq!(args["ids"][0], "a");
+        assert_eq!(args["delete_files"], false);
+
+        let failed = NativeImbibAppService {
+            callback: Arc::new(Fixture {
+                response: NativeCallResult {
+                    status: 500,
+                    body_json: r#"{"code":"file-cleanup-failed","message":"partial cleanup"}"#
+                        .into(),
+                },
+            }),
+        };
+        assert!(!failed.delete_library("library-a".into(), true).await);
     }
 }

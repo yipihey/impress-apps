@@ -8,7 +8,7 @@ Create a figure in implore and store its rendered image (a PNG in the shared con
 
 Data: give AT MOST ONE of `series` (inline x/y lists; the usual choice), `spec` (a whole implore plot spec: error bars, log axes, axis ranges, per-series style) or `svg` (a finished SVG). With none of them the figure is labelled EMPTY AXES: `x` and `y` become axis labels and nothing is plotted (implore cannot load a dataset by id).
 
-`plot_type` styles `series`: scatter, line, line-scatter, bar (or histogram), step; anything else draws lines. `x`/`y` are the axis labels (the dataset's column names). `spec` and `svg` replace `plot_type`, `x` and `y`. `dataset_id` is recorded on the figure; with inline data any short label for where the data came from will do. `name` is the figure's name in implore (default "Untitled Figure").
+`plot_type` styles `series`: scatter, line, line-scatter, bar (or histogram), step; anything else draws lines. `x`/`y` are the axis labels (the dataset's column names). `spec` and `svg` replace `plot_type`, `x` and `y`. `dataset_id` is recorded on the figure; with inline data any short label for where the data came from will do. `name` is the figure's name in implore (default "Untitled Figure"). `title`, `color_column`, `width`, and `height` map the remaining `/api/figures` options. `view_state` is an optional complete JSON object for additional figure-view fields; explicit plot arguments override matching base fields.
 
 Caps: 32 series and 50000 points in all; `svg` up to 2 MB and 4096 points a side; `spec` width/height up to 4096. A refusal answers `ok: false` with an `error` naming the argument (and index), e.g. "create-figure refused: series[1]: x has 4 values but y has 3". Success answers `ok: true`, the figure's `id`, the `artifact` (`data_hash`, `width`, `height`) and `drawn_from`.
 
@@ -18,17 +18,22 @@ Example (CLI): impress create-figure --dataset-id inline --plot-type scatter --x
 
 - **safety**: `external`
 - **reads**: —
-- **writes**: —
+- **writes**: "figure"
 - **reach**: app("implore")
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `color_column` | — | no | Optional colour grouping column. |
 | `dataset_id` | string | yes | Recorded on the figure as its dataset. With inline data, any short label for the data's source (e.g. "inline"). |
+| `height` | — | no | Logical output height in points (defaults to 600). |
 | `name` | — | no | The figure's name in implore (default "Untitled Figure"). |
 | `plot_type` | string | yes | Styles `series`: scatter, line, line-scatter, bar (or histogram), step; anything else draws lines. Ignored for `spec` and `svg`. |
 | `series` | — | no | Inline data: a list of 1-32 series, each {"label"?: string, "x": [numbers], "y": [numbers]} with x and y the same length (at least 1; at most 50000 points over all series). Drawn in the style `plot_type` names; two or more series get a legend. Give at most one of series, spec and svg.  CLI: repeat the flag, one JSON object per series: --series '{"label":"a","x":[1,2,3],"y":[2,4,9]}' --series '{"label":"b","x":[1,2,3],"y":[1,1,2]}' |
 | `spec` | — | no | A whole implore plot spec, for what inline series cannot say: error bars, log axes, axis ranges, per-series style and colour, reference lines. Only series[].x and series[].y are required; the rest defaults (640x400 points, grid on, legend top right, lines in the colour cycle). Replaces plot_type, x and y. Enum values are capitalised: style Line \| Scatter \| LineScatter \| Bar \| Step. Give at most one of series, spec and svg.  CLI: one JSON object, e.g. --spec '{"title":"decay", "x_axis":{"label":"t (s)"},"y_axis":{"label":"flux", "log_scale":true},"series":[{"label":"run 1","x":[0,1,2], "y":[1,0.5,0.25],"style":"LineScatter","error_low":[0.05,0.05,0.05], "error_high":[0.05,0.05,0.05]}]}' |
 | `svg` | — | no | A finished SVG document (at most 2 MB, at most 4096 points a side), stored as-is: rasterised to a 2x PNG on white. Use it for a plot drawn elsewhere, e.g. the SVG `plot-series` returns. Replaces plot_type, x and y. Give at most one of series, spec and svg.  CLI: --svg "$(cat plot.svg)" |
+| `title` | — | no | Optional plot title separate from the library name. |
+| `view_state` | — | no | Optional complete view-state JSON; explicit plot arguments override its corresponding base fields. |
+| `width` | — | no | Logical output width in points (defaults to 800). |
 | `x` | string | yes | X-axis label (a dataset column name). Ignored for `spec`/`svg`. |
 | `y` | — | no | Y-axis label (a dataset column name). Ignored for `spec`/`svg`. |
 
@@ -43,6 +48,32 @@ Example (CLI): impress create-figure --dataset-id inline --plot-type scatter --x
 
   ```json
   {"ok":true,"drawn_from":"series"}
+  ```
+
+## `implore-service_delete-figure`
+
+Delete a figure, its exported files and its stored image when no other figure or record references that image. Returns false on refusal.
+
+- **safety**: `external`
+- **reads**: target(figure_id)
+- **writes**: "figure"
+- **reach**: app("implore")
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `figure_id` | string | yes | UUID of the figure whose record and unreferenced files are removed. |
+
+**Examples**
+
+- `host-delete-figure` — Tier B (explicit isolated run):
+
+  ```json
+  {"figure_id":"{{state.figure_id}}"}
+  ```
+  expects:
+
+  ```json
+  true
   ```
 
 ## `implore-service_export-figure`
@@ -472,5 +503,43 @@ Takes no arguments.
 
   ```json
   {"running":true}
+  ```
+
+## `implore-service_update-figure`
+
+Update an existing figure using the same partial fields as PATCH `/api/figures/{id}`. All fields are optional except the ID; dataset ID is not patchable in the HTTP contract. `view_state`, when supplied, replaces the stored snapshot before these fields are applied. A successful update is saved only if it can be rerendered; failed renders are rolled back. Success includes the updated figure and artifact; missing figures and render failures are structured refusals.
+
+- **safety**: `external`
+- **reads**: target(figure_id)
+- **writes**: "figure"
+- **reach**: app("implore")
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `color_column` | — | no | Replacement color grouping column. |
+| `figure_id` | string | yes | Existing figure ID. |
+| `height` | — | no | Replacement height in logical points. |
+| `name` | — | no | New library name, if changing it. |
+| `plot_type` | — | no | Replacement plot type. |
+| `series` | — | no | Replacement inline series, if supplied. |
+| `spec` | — | no | Replacement whole plot spec, if supplied. |
+| `svg` | — | no | Replacement SVG, if supplied. |
+| `title` | — | no | Replacement plot title. |
+| `view_state` | — | no | Full JSON view-state replacement applied before other fields. |
+| `width` | — | no | Replacement width in logical points. |
+| `x` | — | no | Replacement x-axis label. |
+| `y` | — | no | Replacement y-axis label. |
+
+**Examples**
+
+- `host-update-rendered-figure` — Tier B (explicit isolated run):
+
+  ```json
+  {"figure_id":"{{state.figure_id}}","title":"Updated figure"}
+  ```
+  expects:
+
+  ```json
+  {"ok":true}
   ```
 
