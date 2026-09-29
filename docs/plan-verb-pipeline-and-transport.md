@@ -1766,3 +1766,16 @@ Data warnings remain; no persistence schema was changed.
   with the actual route. Rust callback tests cover fractional argument
   forwarding, decoding, malformed data and HTTP refusal. Root verification is
   pending; no caller or route was migrated.
+
+- 2026-09-29 — **P5c5 verified.** Root passed 59 Rust tests (zero failures,
+  three ignored), every quick gate and all supported arm64 slices of store-ffi,
+  impel-tools and implore-verbs-ffi. The hosted proof passed both XCTest cases,
+  five shared transport calls and PNG/SVG byte-for-byte parity, including
+  fractional dimensions; SQLite symbols passed and owned PID 10562 exited.
+  Evidence: `/tmp/impress-p5b-transport-9jpsnn14/output/` and
+  `/tmp/impress-p5c5-{tests-final,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. The new renderer verb increases
+  the documented headless exception ceiling from 145 to 146: its positive
+  evidence requires the native app, and a refusal is not claimed as byte
+  coverage. Root corrected a merged test fixture's moved JSON value before
+  verification. No user app, launcher or real store was used.
