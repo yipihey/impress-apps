@@ -145,3 +145,44 @@ fn resolved_empty_schema_is_rejected_before_a_store_read() {
     assert_eq!(f.calls.len(), 1);
     assert_eq!(f.calls[0].0, "echo");
 }
+
+#[test]
+fn expectations_compare_captured_json_without_reinterpreting_its_templates() {
+    let rows = json!([{"name":"{{state.surface-owned}}"}]);
+    let s = scenario(json!([
+        {"call":"echo","args":{"rows":[{"name":"{{!state.surface-owned}}"}]},"capture":{"before":"$.rows"}},
+        {"call":"echo","args":{"rows":[{"name":"{{!state.surface-owned}}"}]},"expect":{"fields":[{"path":"rows","equals":"{{state.before}}"}]}}
+    ]));
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(report.pass, "{}", report.detail);
+    assert_eq!(f.calls[1].1["rows"], rows);
+    let mut changed = s.clone();
+    if let impress_scenario::Step::Call(step) = &mut changed.steps[1] {
+        step.args = json!({"rows":[]});
+    }
+    assert!(!execute(&changed, &mut Fixture::default()).pass);
+    let invalid = scenario(
+        json!([{"call":"echo","expect":{"fields":[{"path":"rows","equals":"{{state.missing}}"}]}}]),
+    );
+    let mut f = Fixture::default();
+    assert!(!execute(&invalid, &mut f).pass);
+    assert!(f.calls.is_empty());
+}
+
+#[test]
+fn required_cleanup_failure_fails_but_all_cleanup_is_attempted() {
+    let mut s = scenario(json!([{"call":"echo","args":{"ok":true},"expect":{"ok":true}}]));
+    s.teardown = serde_json::from_value(json!([
+        {"call":"refusal","expect":{"ok":true}},
+        {"call":"echo","args":{"cleanup":"second"}}
+    ]))
+    .unwrap();
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(!report.pass, "{}", report.detail);
+    assert!(report.detail.contains("teardown"));
+    assert_eq!(f.calls.last().unwrap().1["cleanup"], "second");
+    s.teardown[0] = serde_json::from_value(json!({"best_effort":{"call":"refusal"}})).unwrap();
+    assert!(execute(&s, &mut Fixture::default()).pass);
+}
