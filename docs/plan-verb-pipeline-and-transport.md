@@ -2344,3 +2344,12 @@ With the final P5c15 archive cohort, the isolated imprint proof passed two XCTes
   `/tmp/impress-p5c23-final-verify.log`,
   `/tmp/impress-p5c23-final-gates.log`, per-gate
   `/tmp/impress-p5c23-final-*.log`, and native/framework records above.
+- 2026-09-29 — **P5c24 final Rust and quick-gate verification.** Isolated
+  service/capability tests passed 84 with zero failures and three ignored;
+  native FFI tests passed 11 with zero failures. All 11 package gates passed,
+  including native bindings and kit standalone checks. The docs generator
+  refreshed `docs/verbs/imbib-app-service.md` from the linked inventory. Native
+  app-host proof and full supported arm64 builds are recorded above. Evidence:
+  `/tmp/impress-p5c24-final-verify-summary.log`,
+  `/tmp/impress-p5c24-final-gates.log`, per-gate
+  `/tmp/impress-p5c24-final-*.log`, and native/framework records above.
