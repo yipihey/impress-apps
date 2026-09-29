@@ -323,8 +323,8 @@ impl ImploreService for NativeService {
         &self,
         figure_id: String,
         format: String,
-        width: Option<u32>,
-        height: Option<u32>,
+        width: Option<f64>,
+        height: Option<f64>,
         scale: Option<f64>,
         view_state: Option<String>,
     ) -> FigureExport {
@@ -513,8 +513,8 @@ mod tests {
             .export_figure_data(
                 "figure-1".into(),
                 "png".into(),
-                Some(320),
-                Some(200),
+                Some(320.5),
+                Some(200.25),
                 Some(1.5),
                 Some(r#"{"title":"custom"}"#.into()),
             )
@@ -527,8 +527,8 @@ mod tests {
         assert_eq!(seen[0].0, "export_figure_data");
         assert_eq!(seen[0].1["figure_id"], "figure-1");
         assert_eq!(seen[0].1["format"], "png");
-        assert_eq!(seen[0].1["width"], 320);
-        assert_eq!(seen[0].1["height"], 200);
+        assert_eq!(seen[0].1["width"], 320.5);
+        assert_eq!(seen[0].1["height"], 200.25);
         assert_eq!(seen[0].1["scale"], 1.5);
         assert_eq!(seen[0].1["view_state"], r#"{"title":"custom"}"#);
     }

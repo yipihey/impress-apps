@@ -402,15 +402,16 @@ pub trait ImploreService: Send + Sync + 'static {
     async fn export_figure(&self, figure_id: String, format: String) -> Option<String>;
 
     /// Render a figure and return both its local artifact path and bytes.
-    /// Width and height override the figure's logical size; scale is pixels
-    /// per point for PNG output. A supplied view state is rendered directly.
+    /// Width and height override the figure's logical size; non-finite or
+    /// non-positive values use the current size. Scale is pixels per point
+    /// for PNG output. A supplied view state is rendered directly.
     #[impress_method]
     async fn export_figure_data(
         &self,
         figure_id: String,
         format: String,
-        width: Option<u32>,
-        height: Option<u32>,
+        width: Option<f64>,
+        height: Option<f64>,
         scale: Option<f64>,
         view_state: Option<String>,
     ) -> FigureExport;
@@ -595,8 +596,8 @@ impl ImploreService for DefaultImploreService {
         &self,
         _figure_id: String,
         _format: String,
-        _width: Option<u32>,
-        _height: Option<u32>,
+        _width: Option<f64>,
+        _height: Option<f64>,
         _scale: Option<f64>,
         _view_state: Option<String>,
     ) -> FigureExport {
@@ -779,9 +780,11 @@ impress_service_impl! {
             /// Output format: `png` or `svg`.
             format: String,
             /// Logical output width in points, or the figure's current width.
-            width: Option<u32>,
+            /// Non-finite or non-positive values use the current width.
+            width: Option<f64>,
             /// Logical output height in points, or the figure's current height.
-            height: Option<u32>,
+            /// Non-finite or non-positive values use the current height.
+            height: Option<f64>,
             /// Raster pixels per point; ignored for SVG. Defaults to 2.
             scale: Option<f64>,
             /// Optional complete figure view-state JSON to render.
@@ -860,8 +863,8 @@ mod tests {
         let properties = &schema["properties"];
         assert_eq!(properties["figure_id"]["type"], "string");
         assert_eq!(properties["format"]["type"], "string");
-        assert_eq!(properties["width"]["type"], json!(["integer", "null"]));
-        assert_eq!(properties["height"]["type"], json!(["integer", "null"]));
+        assert_eq!(properties["width"]["type"], json!(["number", "null"]));
+        assert_eq!(properties["height"]["type"], json!(["number", "null"]));
         assert_eq!(properties["scale"]["type"], json!(["number", "null"]));
         assert_eq!(properties["view_state"]["type"], json!(["string", "null"]));
         assert_eq!(schema["required"], json!(["figure_id", "format"]));

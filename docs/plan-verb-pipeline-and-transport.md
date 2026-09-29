@@ -1648,16 +1648,17 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   runtime behavior and does not claim the implementation or parity complete.
 
 - 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
-  `implore-service_export-figure-data` with delegated integer width/height,
+  `implore-service_export-figure-data` with fractional width/height,
   scale and optional view-state arguments. The native callback reuses the HTTP
   export handler and `ImploreStoreAdapter.exportFigure`, then returns the
   renderer's path/hash/MIME plus the rendered file bytes decoded from the HTTP
   base64 envelope. It verifies byte count and SHA-256 against the renderer
   result before replying, so a concurrent or stale file cannot be reported as
   the requested render. Legacy `export-figure(figure_id, format)` remains
-  unchanged. Evidence refinement: HTTP accepts `Double` width/height, while
-  the delegated verb accepts `u32`; fractional point dimensions remain
-  available only through the retained route. Hosted proof now compares
-  generated PNG/SVG bytes and explicit integer sizing with the actual route;
-  Rust callback tests cover argument forwarding, decoding, malformed data and
-  HTTP refusal. Root verification is pending; no caller or route was migrated.
+  unchanged. Evidence refinement: the route and verb both accept fractional
+  `f64` dimensions; zero, negative, and non-finite overrides fall back to the
+  current logical size via the renderer's existing `positive_or` rule. Hosted
+  proof compares generated PNG/SVG bytes, including a fractional-size case,
+  with the actual route. Rust callback tests cover fractional argument
+  forwarding, decoding, malformed data and HTTP refusal. Root verification is
+  pending; no caller or route was migrated.

@@ -129,7 +129,7 @@ final class ImploreNativeVerbProofTests: XCTestCase {
         let exportCases: [(String, [String: Any])] = [
             ("png", ["format": "png"]),
             ("svg", ["format": "svg"]),
-            ("png", ["format": "png", "width": 320, "height": 200, "scale": 1.5])
+            ("png", ["format": "png", "width": 320.5, "height": 200.25, "scale": 1.5])
         ]
         for (format, options) in exportCases {
             let route = try await request(
@@ -154,7 +154,7 @@ final class ImploreNativeVerbProofTests: XCTestCase {
             XCTAssertEqual(generated["sha256"] as? String, legacy["sha256"] as? String)
             XCTAssertEqual(generated["mime_type"] as? String, legacy["mimeType"] as? String)
             if options["width"] != nil {
-                XCTAssertEqual(legacy["width"] as? Int, 320)
+                XCTAssertEqual(legacy["width"] as? Int, 321)
                 XCTAssertEqual(legacy["height"] as? Int, 200)
             }
         }
