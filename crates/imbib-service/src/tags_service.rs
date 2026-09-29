@@ -248,7 +248,7 @@ impl ImbibTagsService for DefaultImbibTagsService {
             .filter(|tag| {
                 prefix
                     .as_ref()
-                    .map_or(true, |prefix| tag.path.to_lowercase().starts_with(prefix))
+                    .is_none_or(|prefix| tag.path.to_lowercase().starts_with(prefix))
             })
             .take(limit.unwrap_or(100) as usize)
             .collect()

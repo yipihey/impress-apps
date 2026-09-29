@@ -916,7 +916,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
     /// Resolve each identifier in the running app, importing fetched records
     /// and preserving per-identifier duplicate/failure outcomes.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]))]
+    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]))]
     #[impress_example(
         name = "import-identifiers-native",
         tier = "b",
