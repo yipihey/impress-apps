@@ -126,7 +126,9 @@ pub async fn run(scenario: &Scenario, caller: &mut dyn Caller) -> CapabilityResu
         }
     }
 
-    run_teardown(scenario, &mut captures, caller, &mut notes).await;
+    if !run_teardown(scenario, &mut captures, caller, &mut notes).await {
+        return failed(scenario, tier, started, notes.join("; "));
+    }
 
     if let Some(expect) = &scenario.expect_effects {
         if let Some(missing) = missing_effect(expect, caller) {
@@ -151,12 +153,15 @@ async fn run_teardown(
     captures: &mut BTreeMap<String, Value>,
     caller: &mut dyn Caller,
     notes: &mut Vec<String>,
-) {
+) -> bool {
+    let mut passed = true;
     for (index, step) in scenario.teardown.iter().enumerate() {
         if let Err(error) = run_step(step, index, captures, caller, notes).await {
+            passed = false;
             notes.push(format!("teardown: {error}"));
         }
     }
+    passed
 }
 
 fn missing_effect(expect: &ExpectEffects, caller: &dyn Caller) -> Option<String> {
@@ -261,7 +266,14 @@ async fn run_call(
         .map_err(|e| format!("step {index} (`{}`): {e}", call_step.call))?;
 
     if let Some(expect) = &call_step.expect {
-        check_expect(expect, &outcome)
+        let resolved = template::resolve(
+            &serde_json::to_value(expect).map_err(|e| e.to_string())?,
+            captures_value,
+        )
+        .map_err(|e| format!("step {index} expectation: {e}"))?;
+        let expect: Expect = serde_json::from_value(resolved)
+            .map_err(|e| format!("step {index} expectation: {e}"))?;
+        check_expect(&expect, &outcome)
             .map_err(|detail| format!("step {index} (`{}`): {detail}", call_step.call))?;
     }
 
