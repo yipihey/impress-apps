@@ -380,7 +380,7 @@ pub enum Check {
     Gt(serde_json::Value),
     Gte(f64),
     Lte(f64),
-    Within { value: f64, tol: f64 },
+    Within { value: serde_json::Value, tol: f64 },
     Len(usize),
     Present(bool),
     Absent(bool),

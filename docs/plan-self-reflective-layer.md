@@ -1382,7 +1382,7 @@ beyond a plain `call` step.
 | 12 | layout `layout.saved_round_trip` (`:601`) | `op save-layout`; `GET /api/layout/layouts`; `op apply-layout name`; `op delete-layout`; `GET layouts` | listed, then `version`, then gone | M, C | i | `capture`, `contains`/`absent` |
 | 13 | layout `layout.channel_selection` (`scenarios/layout.channel_selection.json`) | apply ordinal 1; select detail/list tiles by role; select the detail pane's channel-sourced param; `layout-service_select` with a fresh captured UUID; read the tree | that channel carries exactly the UUID sent to `select`; the detail param still names the same channel and kind | M | i | closed `select_one` and resolved-argument capture |
 | 14 | layout `surface.show_and_dispatch` (`tier_b.rs`) | stored scenario: create; render; dispatch `bins` change 17; render and state reread; dispatch `choose` click; events; required delete teardown | initial/re-rendered slider values 4/17; persisted state 17; successful effect; event `bins-chosen` payload 17 | M, C | i | `{{!…}}` literal escape, `capture`, exact render JSON path |
-| 15 | layout `layout.hidden_share` (`:1599`) | tree; `verb set-collapsed {role navigator}`; tree; same again; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `within` tolerance; a Rust constant → a literal in the document |
+| 15 | layout `layout.hidden_share` (`scenarios/layout.hidden_share.json`) | tree; find navigator's parent and child index; capture share; `set-collapsed`; tree; teardown toggles back; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `select_one`, dynamic JSON paths, `lte`, `within` |
 | 16 | layout `layout.outline_collection_row` (`:762`) | tree; **in-process `outline_target` + `outline_verbs`** (what a click runs); POST each; tree; `wait_for_log "pane N display: 0 rows"`; `verb select` random item; wait for the detail line | list query = collection query; channel 1 carries the collection; the logs appear | M | ii | `gesture` step; `wait.log`. L |
 | 17 | layout `layout.reading_pdf_pane` (`:978`) | `apply-layout ordinal 1`; tree; `split` a pdf pane; `set-query` read filter; **`first_row_of` reads the shared store in-process** (`:1331-1362`); `select`; wait for `pane N pdf: publication`; `close` | the pdf pane logged the selected paper (note if none) | M, C | iv (+iii) | a read paper with a PDF on disk; depends on #16's leftovers (`:981`). L |
 | 18 | layout `layout.source_pane_session` (`:1173`) | ordinal 1; split a source pane; tree; wait `source session <id> opened`; split a copy; split pdf; swap; close all newest-first; ordinal 1 | sessions stable and distinct; pdf has none; preset keeps the detail session | M, C | i | `wait.log`, `capture`. L |
@@ -3136,6 +3136,18 @@ per-scenario cleanup without evaluating expressions.
   scenarios, all three surface and all fourteen layout entries, zero skips.
   The source-session entry ran the document. Native symbol checks passed and
   the owned host exited. No user app or store was used.
+- 2026-09-28 — **S2k: `layout.hidden_share` converted to a stored scenario.**
+  The scenario selects the navigator, finds its linear parent and child index,
+  captures that exact share, checks the collapsed share against the existing
+  `HIDDEN_SHARE_CEILING` value copied at its exact `f64` conversion, and toggles
+  back in required teardown. The restored share
+  uses the original capability's `1e-4` comparison tolerance. The old Rust
+  capability and its tree-share reader were removed; the catalogue-wide saved
+  layout restoration remains. Identity and call-inventory validation were
+  added. The interpreter now resolves a captured numeric target for `within`
+  while retaining the fixed-number form and rejecting nonnumeric values; the
+  share comparison keeps its original tolerance. Build/test verification
+  remains with the parent task.
 
 - 2026-09-28 — **S2j outline collection gesture stored.** The scenario delegates
   the live outline query and exact verb choice to the existing
@@ -3187,3 +3199,18 @@ the outline document proved the exact query, collection channel, fresh empty
 list display, and fresh selected-detail log. Native symbols passed and host
 PID 98570 exited. Logs: `/tmp/impress-s2j-tests-final2.log`,
 `/tmp/impress-s2j-final-*.log`, `/tmp/impress-s2j-frameworks-final.log`.
+
+### 2026-09-28 — S2k verified; literal-sequence conversions complete
+
+The hidden-share document and captured numeric tolerance passed 194 Rust
+tests (zero failures, three ignored), both clippy shards and every quick gate.
+Both affected frameworks were rebuilt for all supported arm64 slices. Owned
+imprint proof `/tmp/impress-g5-proof-05kcm8l_/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries, zero skips.
+The hidden-share document proved the collapse ceiling and restoration within
+the original tolerance. Native symbols passed and host PID 29328 exited.
+Logs: `/tmp/impress-s2k-tests-final.log`, `/tmp/impress-s2k-final-*.log`,
+`/tmp/impress-s2k-frameworks.log`. Nineteen of twenty-five catalogue entries
+now run as documents; four platform/live-state cases and the runner's
+reachability/restoration gate remain code. No assertion was weakened to force
+those remaining cases into the interpreter.
