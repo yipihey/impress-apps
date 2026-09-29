@@ -54,7 +54,7 @@ pub struct ConversationRecord {
 }
 
 /// A message in the detailed conversation read, retaining every field in
-/// `GET /api/research/conversations/{id}`.
+/// the former `GET /api/research/conversations/{id}` response.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConversationMessageRecord {
     pub id: String,
