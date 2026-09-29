@@ -2232,3 +2232,7 @@ only; root owns build and test verification.
   IDs and missing-row preflight. Evidence: `/tmp/impress-p5c14-touched-tests.log`,
   `/tmp/impress-p5c14-packages.log`, `/tmp/impress-p5c15-touched-tests-all.log`,
   and `/tmp/impress-p5c15-*.log`.
+
+### 2026-09-29 — P5c22 final native retirement proof
+
+With the final P5c15 archive cohort, the isolated imprint proof passed two XCTest cases and 14 shared transport calls. Retired document/comment URL checks, generated behavior and refusal snapshots passed; SQLite checks passed and owned PID 84629 exited. Evidence: `/tmp/impress-p5b-transport-y9waq_71/output/`, `/tmp/impress-p5c22-native-proof-final.log`. Generated Xcode path/ID churn was restored after the build.
