@@ -50,7 +50,7 @@ The P5c proposal retains platform contracts whose queue, live-editor or binary s
 - Imprint queued document operations, caret-sensitive citation insertion and live-editor operations.
 - Impart queued conversation writes and reserved-ID acknowledgments.
 - Implore ray-grid viewer and raw SVG/render routes.
-- Imbib's nested tag tree, library add-papers, tag mutations, sharing/activity/assignment and collaboration routes.
+- Imbib's tag mutations, sharing/activity/assignment and collaboration routes. Library add-papers and the formatted tag tree now have generated verbs (`add-existing-papers-to-library`, `tag-tree`); their HTTP registrations are retired.
 - App diagnostics and the remaining app-only account/mailbox/message, compile, e-ink, hardware and viewer operations listed in the proposal.
 
 Four scenario cases intentionally remain in code: manuscript history, WAL health, PDF-pane reading and the Reading preset. Reachability and restoration remain runner gate/finally logic. R3 command-palette overrides are D-R13's later work; appearance/modal editing and app-specific LaTeX/export/AI preferences retain their existing owners. This batch does not claim those migrations.

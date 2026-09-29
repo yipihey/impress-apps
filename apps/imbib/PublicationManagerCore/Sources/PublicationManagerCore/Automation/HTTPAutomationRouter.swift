@@ -26,7 +26,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 ///
 /// API Endpoints (GET):
 /// - `GET /api/status` - Server health and library statistics
-/// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/sync/status` - CloudKit sync state (ADR-0007 Phase 3)
 /// - `GET /api/eink/status` - reMarkable USB mirror status: devices, marker device, per-state counts (ADR-025)
@@ -531,10 +530,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleListLibraryAssignments(libraryID: libraryID)
         }
 
-        if path == "/api/tags/tree" {
-            return await handleTagTree()
-        }
-
         // The GENERIC route group, mounted once: `/api/logs`,
         // `/api/logs/stream` (which imbib did not have before, though the handler
         // has always been in the shared package), `/api/performance{,/reset}` and
@@ -929,10 +924,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
             return await handleCreateAnnotationForFile(linkedFileID: fileID, request: request)
         }
-        if path == "/api/libraries/add-papers" {
-            return await handleAddToLibrary(request)
-        }
-
         if path == "/api/papers/download-pdfs" {
             return await handleDownloadPDFs(request)
         }
@@ -2218,7 +2209,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             "endpoints": [
                 // GET endpoints
                 "GET /api/status": "Server health and library statistics",
-                "GET /api/tags/tree": "Get formatted tag tree",
                 "GET /api/logs": "Query in-app log entries (params: limit, level, category, search, after)",
                 "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
                 "POST /api/performance/reset": "Clear PerfMetrics samples (budgets preserved)",
@@ -2262,7 +2252,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/papers/{citeKey}/annotations": "List annotations for a paper (params: page)",
                 "GET /api/papers/{citeKey}/notes": "Get notes for a paper",
                 // POST endpoints
-                "POST /api/libraries/add-papers": "Add existing papers to a library (body: libraryID, identifiers)",
                 "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers); awaited, per-paper outcomes",
                 "GET /api/papers/{citeKey}/pdf": "The primary PDF as application/pdf (404 when none on this device, 422 when the one it holds is damaged)",
                 // reMarkable USB mirror (ADR-025)
@@ -2707,34 +2696,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 ]
             ]
             return .json(response, status: 201)
-        } catch {
-            return mapError(error)
-        }
-    }
-
-    /// POST /api/libraries/add-papers
-    private func handleAddToLibrary(_ request: HTTPRequest) async -> HTTPResponse {
-        guard let json = parseJSONBody(request) else {
-            return .badRequest("Invalid JSON body")
-        }
-        guard let libraryIDStr = json["libraryID"] as? String,
-              let libraryID = UUID(uuidString: libraryIDStr) else {
-            return .badRequest("Missing or invalid 'libraryID' field")
-        }
-        guard let identifiers = parseIdentifiers(json) else {
-            return .badRequest("Missing or invalid 'identifiers' array")
-        }
-
-        do {
-            let result = try await automationService.addPapersToLibrary(
-                identifiers: identifiers,
-                libraryID: libraryID
-            )
-            return .json([
-                "status": "ok",
-                "assigned": result.assigned,
-                "notFound": result.notFound
-            ])
         } catch {
             return mapError(error)
         }
@@ -3320,19 +3281,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "status": "ok",
                 "count": tags.count,
                 "tags": tagDicts
-            ])
-        } catch {
-            return mapError(error)
-        }
-    }
-
-    /// GET /api/tags/tree
-    private func handleTagTree() async -> HTTPResponse {
-        do {
-            let tree = try await automationService.getTagTree()
-            return .json([
-                "status": "ok",
-                "tree": tree
             ])
         } catch {
             return mapError(error)

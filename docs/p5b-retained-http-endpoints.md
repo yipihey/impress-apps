@@ -10,7 +10,6 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 
 | App | Retained route and caller | Difference from existing verbs |
 | --- | --- | --- |
-| imbib | `POST /api/libraries/add-papers` | The route resolves local cite-key/DOI identifiers and returns ordered per-item `assigned`/`notFound` outcomes. `add-to-library` accepts publication UUIDs and returns only a count; this route was outside the approved P5c24 retirement set. |
 | imprint | `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | No verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
 | imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers acknowledge queued editor operations and return an `operationId`. `/update` also accepts full source, and `/replace` supports replacing only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. Keep them pending the caller and contract decision. |
 | implore | `GET /api/rg/slice/png`, `/api/rg/cascade_plot`, `/api/plot/svg`, and `/api/plot/histogram` | These routes accept viewer query/body options or return raw image/SVG data. A string result does not preserve binary HTTP response behavior. |
@@ -44,11 +43,11 @@ The shared `SiblingBridge` reads the per-launch token for POST and decodes the
 raw result. Keep private Swift handlers invoked by native callbacks even when
 the corresponding HTTP `if` arm is removed.
 
-Imbib's migrated publication, citation, library/collection, flat-tag, and RIS
-routes are retired after their generated contracts and hosted consumer mappings
-were established. `/api/tags/tree` remains because it is a separate formatted
-hierarchy. Other unlisted library and tag routes (including sharing, activity,
-assignments, tag mutation, and library-add) retain their independent behavior.
+Imbib's migrated publication, citation, library/collection, flat-tag, RIS,
+library add-papers, and formatted tag-tree routes are retired after their
+generated contracts were established. `imbib-tags-service_tag-tree` is the
+formatted hierarchy. Other unlisted library and tag routes (including sharing,
+activity, assignments, and tag mutation) retain their independent behavior.
 The inventory above lists only routes still retained for distinct contracts;
 historical route-to-verb evidence remains in the dated pipeline log. Manuscript,
 e-ink, revisions, and shared status/log routes remain independent capabilities.

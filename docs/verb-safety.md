@@ -184,6 +184,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-eink-service_eink-status` | read_only | name/doc |
 | `imbib-eink-service_eink-sync` | external | E/M: name/doc |
 | `imbib-eink-service_eink-unmark` | mutating | name/doc |
+| `imbib-library-service_add-existing-papers-to-library` | mutating | name/doc |
 | `imbib-library-service_add-linked-file` | mutating | name/doc |
 | `imbib-library-service_add-to-collection` | mutating | name/doc |
 | `imbib-library-service_count-flagged` | read_only | name/doc |
@@ -270,6 +271,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-tags-service_query-by-tag` | read_only | name/doc |
 | `imbib-tags-service_remove-tag` | mutating | name/doc |
 | `imbib-tags-service_rename-tag` | mutating | name/doc |
+| `imbib-tags-service_tag-tree` | read_only | name/doc |
 | `imbib-tags-service_update-tag` | mutating | name/doc |
 | `imbib-text-service_decode-latex` | read_only | name/doc |
 | `imbib-text-service_expand-journal-macro` | read_only | name/doc |

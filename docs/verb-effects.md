@@ -154,6 +154,7 @@ catalogue, 300 on the exception table.
 | `imbib-eink-service_eink-status` | "imbib/bibliography-entry", "imbib/eink-device", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-eink-service_eink-sync` | "imbib/eink-device", "imbib/eink-mirror", "imbib/bibliography-entry", "imbib/linked-file" | "imbib/eink-mirror", "imbib/annotation", "imbib/linked-file" | device, fs | — |
 | `imbib-eink-service_eink-unmark` | "imbib/eink-device", "imbib/eink-mirror" | "imbib/eink-mirror" | — | example ×1 |
+| `imbib-library-service_add-existing-papers-to-library` | "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition", "imbib/eink-device" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_add-linked-file` | "imbib/bibliography-entry" | "imbib/linked-file" | — | example ×1 |
 | `imbib-library-service_add-to-collection` | "imbib/collection", "imbib/bibliography-entry" | "imbib/collection" | — | example ×1 |
 | `imbib-library-service_count-flagged` | "imbib/bibliography-entry" | — | — | example ×2 |
@@ -240,6 +241,7 @@ catalogue, 300 on the exception table.
 | `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-tags-service_remove-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-tags-service_tag-tree` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_update-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
 | `imbib-text-service_decode-latex` | — | — | — | example ×1 |
 | `imbib-text-service_expand-journal-macro` | — | — | — | example ×1 |

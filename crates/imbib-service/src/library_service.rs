@@ -150,6 +150,13 @@ pub struct CollectionMembershipResult {
     pub not_found: Vec<String>,
 }
 
+/// Per-identifier outcome for filing existing papers into a library.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LibraryMembershipResult {
+    pub assigned: Vec<String>,
+    pub not_found: Vec<String>,
+}
+
 /// What `retention_cleanup` removed, per source (plan W3 / D-R10). Each
 /// count is papers or searches actually removed; a `0` for a source that
 /// found nothing to remove is not distinguishable from a source that was
@@ -834,6 +841,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         publication_ids: Vec<String>,
         to_library_id: String,
     ) -> MutationResult;
+    /// File existing papers into a library by the same local identifiers the
+    /// collection membership verb accepts. Results preserve input order.
+    /// Identifiers that do not resolve are reported and left untouched.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/tag-definition", "imbib/eink-device"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "file-existing-paper-into-library",
+        args = r#"{"library_id":"5c000000-0000-4000-8000-0000000000d3","identifiers":["G3LibraryMove2026","missing-G3-lib"]}"#,
+        expect = r#"{"assigned":["G3LibraryMove2026"],"not_found":["missing-G3-lib"]}"#
+    )]
+    async fn add_existing_papers_to_library(
+        &self,
+        library_id: String,
+        identifiers: Vec<String>,
+    ) -> LibraryMembershipResult;
     /// Copy papers into another library; returns the ids of the new copies.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/linked-file"], reach = [fs]))]
     #[impress_example(
@@ -1985,6 +2006,86 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             }
         }
     }
+    async fn add_existing_papers_to_library(
+        &self,
+        library_id: String,
+        identifiers: Vec<String>,
+    ) -> LibraryMembershipResult {
+        let Ok(library_uuid) = uuid::Uuid::parse_str(&library_id) else {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "library_id must be a UUID",
+            );
+            return LibraryMembershipResult::default();
+        };
+        if identifiers.is_empty() {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "identifiers must contain at least one value",
+            );
+            return LibraryMembershipResult::default();
+        }
+        match self.store.get_library(library_uuid.to_string()) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Library not found: {library_uuid}"),
+                );
+                return LibraryMembershipResult::default();
+            }
+            Err(error) => {
+                log("add_existing_papers_to_library.validate_library", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::INTERNAL,
+                    "Unable to validate library",
+                );
+                return LibraryMembershipResult::default();
+            }
+        }
+
+        let parsed: Vec<LocalPaperIdentifier> = identifiers
+            .iter()
+            .map(|value| LocalPaperIdentifier::parse(value))
+            .collect();
+        let mut resolved = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut result = LibraryMembershipResult::default();
+        for identifier in parsed {
+            match self.publication_id_for_local_identifier(&identifier) {
+                Ok(Some(publication_id)) => {
+                    if seen.insert(publication_id.clone()) {
+                        resolved.push(publication_id);
+                    }
+                    result.assigned.push(identifier.value().to_string());
+                }
+                Ok(None) => result.not_found.push(identifier.value().to_string()),
+                Err(error) => {
+                    log("add_existing_papers_to_library.resolve_identifier", &error);
+                    report_refusal(
+                        impress_service_core::refusal::codes::INTERNAL,
+                        "Unable to resolve local publication identifier",
+                    );
+                    return LibraryMembershipResult::default();
+                }
+            }
+        }
+        if resolved.is_empty() {
+            return result;
+        }
+        if let Err(error) = self
+            .store
+            .move_publications(resolved, library_uuid.to_string())
+        {
+            log("add_existing_papers_to_library.move", &error);
+            report_refusal(
+                impress_service_core::refusal::codes::VERB_FAILED,
+                "Library membership update failed",
+            );
+            return LibraryMembershipResult::default();
+        }
+        result
+    }
     async fn duplicate_publications(&self, ids: Vec<String>, to_library_id: String) -> Vec<String> {
         self.store
             .duplicate_publications(ids, to_library_id)
@@ -2709,6 +2810,12 @@ impress_service_impl! {
             /// UUID of the destination library.
             to_library_id: String
         ) -> MutationResult,
+        add_existing_papers_to_library(
+            /// UUID of the library that should own the papers.
+            library_id: String,
+            /// Existing local cite keys, identifiers, or publication UUIDs.
+            identifiers: Vec<String>
+        ) -> LibraryMembershipResult,
         duplicate_publications(
             /// UUIDs of publications to copy.
             ids: Vec<String>,
@@ -2853,7 +2960,10 @@ pub fn init_imbib_library_service(store_path: std::path::PathBuf) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::{CollectionMembershipResult, ImbibLibraryService, LocalPaperIdentifier};
+    use super::{
+        CollectionMembershipResult, ImbibLibraryService, LibraryMembershipResult,
+        LocalPaperIdentifier,
+    };
     use impress_service_core::McpToolDescriptor;
 
     #[tokio::test]
@@ -2917,6 +3027,64 @@ mod tests {
             .list_collection_members(collection.id, "title".into(), true, None, None)
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn library_membership_resolves_identifiers_and_moves_only_found_papers() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let source = store.create_library("Source library".into()).unwrap();
+        let destination = store.create_library("Destination library".into()).unwrap();
+        let publication_id = store
+            .import_bibtex(
+                "@article{LibraryMove2026, title={Library move}, doi={10.1234/library-move}}"
+                    .into(),
+                source.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let moved = service
+            .add_existing_papers_to_library(
+                destination.id.clone(),
+                vec![
+                    " LibraryMove2026 ".into(),
+                    "doi:10.1234/library-move".into(),
+                    "missing-key".into(),
+                ],
+            )
+            .await;
+        assert_eq!(
+            moved,
+            LibraryMembershipResult {
+                assigned: vec!["LibraryMove2026".into(), "10.1234/library-move".into()],
+                not_found: vec!["missing-key".into()],
+            }
+        );
+        let in_destination = store
+            .query_publications(destination.id.clone(), "title".into(), true, None, None)
+            .unwrap();
+        assert_eq!(in_destination.len(), 1);
+        assert_eq!(in_destination[0].id, publication_id);
+        assert!(store
+            .query_publications(source.id, "title".into(), true, None, None)
+            .unwrap()
+            .is_empty());
+
+        let missing_library = service
+            .add_existing_papers_to_library(
+                uuid::Uuid::new_v4().to_string(),
+                vec!["LibraryMove2026".into()],
+            )
+            .await;
+        assert!(missing_library.assigned.is_empty());
+        assert_eq!(
+            store
+                .query_publications(destination.id, "title".into(), true, None, None)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]

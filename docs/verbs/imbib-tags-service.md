@@ -200,6 +200,30 @@ Rename or re-parent a tag path across the whole library; every paper carrying it
   {"old_path": "effects/example", "new_path": "effects/example-renamed"}
   ```
 
+## `imbib-tags-service_tag-tree`
+
+Formatted tag tree used by imbib's settings pane: every vocabulary path, sorted, indented by `/` depth, with a count only when positive. An empty vocabulary is the literal `(no tags)`.
+
+- **safety**: `read_only`, idempotent
+- **reads**: "imbib/tag-definition", "imbib/bibliography-entry"
+- **writes**: —
+- **reach**: —
+
+Takes no arguments.
+
+**Examples**
+
+- `nested-counts` — Tier A:
+
+  ```json
+  {}
+  ```
+  expects:
+
+  ```json
+  "methods (1)\n  mcmc (1)"
+  ```
+
 ## `imbib-tags-service_update-tag`
 
 Set a tag's light and dark display colors; its path and memberships are unchanged (rename with `imbib-tags-service_rename-tag`).

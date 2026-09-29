@@ -2406,3 +2406,7 @@ Merged verified main `16a0b7cc`; only appended session-log entries differed. The
 ### 2026-09-29 — Wave 11 final integration and handoff
 
 P5c1–18 and P5c20–24 are merged as PRs #148–170. P5c19 is the audit-only entry above. On merged main `2d4bf63f`, the isolated full native workspace suite exited zero: 4,516 passed, zero failed, 26 ignored across 223 result groups (`/tmp/impress-wave11-main-workspace-final.log`, owned workspace `/tmp/impress-cargo-tests.q54SgF/workspace`). The documentation-only handoff passed 44 capability tests, zero failed/three ignored, and all eleven quick gates (`/tmp/impress-wave11-handoff-{capabilities,gates}.log`). Final supported frameworks were published to main via twenty APFS clones from P5c24. `docs/next-steps-after-wave-11.md` records package/native evidence, fixes, intentional later scope and operating rules. No implementation or verification work remains for this approved P5c batch.
+
+### 2026-09-29 — library add-papers and formatted tag tree
+
+`imbib-library-service_add-existing-papers-to-library` resolves the same local identifiers as collection membership, reports ordered `assigned` / `not_found`, and moves only the resolved papers. `imbib-tags-service_tag-tree` returns the settings pane's indented path tree, including `(no tags)`. Both HTTP registrations are retired; the settings pane still calls `TagManagementService.tagTree()`, which must stay on the Rust spelling. Queued editor and conversation routes, live citation insertion, binary viewer routes, and the four live scenario cases remain platform-owned.

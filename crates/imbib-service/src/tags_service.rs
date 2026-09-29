@@ -100,6 +100,17 @@ pub trait ImbibTagsService: Send + Sync + 'static {
         prefix: Option<String>,
         limit: Option<u32>,
     ) -> Vec<TagWithCount>;
+    /// Formatted tag tree used by imbib's settings pane: every vocabulary
+    /// path, sorted, indented by `/` depth, with a count only when positive.
+    /// An empty vocabulary is the literal `(no tags)`.
+    #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "nested-counts",
+        tier = "a",
+        args = r#"{}"#,
+        expect = r#""methods (1)\n  mcmc (1)""#
+    )]
+    async fn tag_tree(&self) -> String;
     /// Create a tag in the library's tag vocabulary, optionally with
     /// light/dark display colors. Paths are hierarchical with '/' (e.g.
     /// 'method/mcmc'). This does NOT put the tag on any paper —
@@ -220,6 +231,30 @@ fn log(m: &str, e: impl std::fmt::Display) {
     eprintln!("[imbib-tags-service] {m}: {e}");
 }
 
+/// The settings pane's tree: path order, two spaces per `/` segment, and a
+/// count only when it is positive. `TagManagementService.tagTree()` in Swift
+/// must stay on this spelling.
+fn format_tag_tree(rows: impl IntoIterator<Item = TagWithCount>) -> String {
+    let mut rows: Vec<TagWithCount> = rows.into_iter().collect();
+    if rows.is_empty() {
+        return "(no tags)".into();
+    }
+    rows.sort_by(|left, right| left.path.cmp(&right.path));
+    let lines: Vec<String> = rows
+        .into_iter()
+        .map(|tag| {
+            let depth = tag.path.split('/').count().saturating_sub(1);
+            let count = if tag.publication_count > 0 {
+                format!(" ({})", tag.publication_count)
+            } else {
+                String::new()
+            };
+            format!("{}{}{count}", "  ".repeat(depth), tag.leaf_name)
+        })
+        .collect();
+    lines.join("\n")
+}
+
 #[async_trait::async_trait]
 impl ImbibTagsService for DefaultImbibTagsService {
     async fn list_tags(&self) -> Vec<TagRecord> {
@@ -252,6 +287,13 @@ impl ImbibTagsService for DefaultImbibTagsService {
             })
             .take(limit.unwrap_or(100) as usize)
             .collect()
+    }
+    async fn tag_tree(&self) -> String {
+        let rows = self.store.list_tags_with_counts().unwrap_or_else(|e| {
+            log("tag_tree", e);
+            vec![]
+        });
+        format_tag_tree(rows.iter().map(TagWithCount::from))
     }
     async fn create_tag(
         &self,
@@ -365,6 +407,7 @@ impress_service_impl! {
             /// Maximum rows after prefix filtering; defaults to 100.
             limit: Option<u32>,
         ) -> Vec<TagWithCount>,
+        tag_tree() -> String,
         create_tag(
             /// The hierarchical path to create, e.g. `"methods/sims"`.
             path: String,
@@ -433,6 +476,41 @@ impress_service_impl! {
 #[cfg(test)]
 mod tag_read_contract_tests {
     use super::*;
+
+    #[test]
+    fn formatted_tree_indents_by_path_and_omits_zero_counts() {
+        let tree = format_tag_tree([
+            TagWithCount {
+                id: "methods/mcmc".into(),
+                path: "methods/mcmc".into(),
+                parent_path: Some("methods".into()),
+                leaf_name: "mcmc".into(),
+                color_light: None,
+                color_dark: None,
+                publication_count: 1,
+            },
+            TagWithCount {
+                id: "methods".into(),
+                path: "methods".into(),
+                parent_path: None,
+                leaf_name: "methods".into(),
+                color_light: None,
+                color_dark: None,
+                publication_count: 1,
+            },
+            TagWithCount {
+                id: "unused".into(),
+                path: "unused".into(),
+                parent_path: None,
+                leaf_name: "unused".into(),
+                color_light: None,
+                color_dark: None,
+                publication_count: 0,
+            },
+        ]);
+        assert_eq!(tree, "methods (1)\n  mcmc (1)\nunused");
+        assert_eq!(format_tag_tree([]), "(no tags)");
+    }
 
     #[test]
     fn generated_tag_count_contract_has_prefix_limit_and_hierarchy_fields() {

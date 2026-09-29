@@ -139,6 +139,27 @@ pub async fn prepare(
                 None,
             )?;
         }
+        (
+            "imbib-library-service_add-existing-papers-to-library",
+            "file-existing-paper-into-library",
+        ) => {
+            library(store, "d1", "G3 library source", false, false)?;
+            library(store, "d3", "G3 library destination", false, false)?;
+            paper(
+                store,
+                "d2",
+                "d1",
+                "G3LibraryMove2026",
+                "G3 library move paper",
+                None,
+            )?;
+        }
+        ("imbib-tags-service_tag-tree", "nested-counts") => {
+            library(store, "e1", "G3 tag library", false, false)?;
+            tag_definition(store, "e3", "methods", "methods")?;
+            tag_definition(store, "e4", "mcmc", "methods/mcmc")?;
+            paper_with_tag(store, "e2", "e1", "methods/mcmc")?;
+        }
         ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
             library(store, "89", "G3 dismissal library", false, false)?;
             collection(store, "6f", "G3 dismissal collection", "89")?;
@@ -492,6 +513,48 @@ fn collection(
     Ok(())
 }
 
+fn tag_definition(
+    store: &SqliteItemStore,
+    suffix: &str,
+    name: &str,
+    path: &str,
+) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(item_id, refs::IMBIB_TAG_DEFINITION.as_str(), None);
+    item.payload
+        .insert("name".into(), ItemValue::String(name.into()));
+    item.payload
+        .insert("canonical_path".into(), ItemValue::String(path.into()));
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn paper_with_tag(
+    store: &SqliteItemStore,
+    suffix: &str,
+    library_suffix: &str,
+    tag_path: &str,
+) -> Result<(), String> {
+    let item_id = uuid(suffix)?;
+    reset(store, item_id)?;
+    let mut item = super::seed_item(
+        item_id,
+        refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str(),
+        Some(uuid(library_suffix)?),
+    );
+    item.payload
+        .insert("cite_key".into(), ItemValue::String("G3TagTree2026".into()));
+    item.payload
+        .insert("entry_type".into(), ItemValue::String("article".into()));
+    item.payload
+        .insert("title".into(), ItemValue::String("G3 tagged paper".into()));
+    item.payload.insert("year".into(), ItemValue::Int(2026));
+    item.tags = vec![tag_path.into()];
+    store.insert(item).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn paper(
     store: &SqliteItemStore,
     suffix: &str,
@@ -738,6 +801,35 @@ pub fn verify(
                 return Err(
                     "service reported assignment without persisting the member edge".into(),
                 );
+            }
+        }
+        (
+            "imbib-library-service_add-existing-papers-to-library",
+            "file-existing-paper-into-library",
+        ) => {
+            let assigned = result["assigned"]
+                .as_array()
+                .ok_or("missing assigned identifiers")?;
+            let not_found = result["not_found"]
+                .as_array()
+                .ok_or("missing not_found identifiers")?;
+            if assigned != &[Value::String("G3LibraryMove2026".into())]
+                || not_found != &[Value::String("missing-G3-lib".into())]
+            {
+                return Err("library membership result changed input-order outcomes".into());
+            }
+            let paper = load(store, &id("d2"))?.ok_or("moved paper disappeared")?;
+            if paper.parent != Some(uuid("d3")?) {
+                return Err("assigned paper was not filed into the destination library".into());
+            }
+        }
+        ("imbib-tags-service_tag-tree", "nested-counts") => {
+            if result != "methods (1)\n  mcmc (1)" {
+                return Err(format!("tag tree changed: {result}"));
+            }
+            let paper = load(store, &id("e2"))?.ok_or("tagged paper disappeared")?;
+            if paper.tags != ["methods/mcmc".to_string()] {
+                return Err("tag tree read changed the paper's tags".into());
             }
         }
         ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {

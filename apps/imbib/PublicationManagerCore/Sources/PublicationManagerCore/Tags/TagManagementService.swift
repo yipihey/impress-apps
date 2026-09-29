@@ -163,6 +163,8 @@ public final class TagManagementService {
     // MARK: - Query
 
     /// Get a formatted tree view of all tags with publication counts.
+    /// Keep this spelling identical to `format_tag_tree` in
+    /// `crates/imbib-service/src/tags_service.rs` (`imbib-tags-service_tag-tree`).
     public func tagTree() -> String {
         let allTags = store.listTagsWithCounts()
 
