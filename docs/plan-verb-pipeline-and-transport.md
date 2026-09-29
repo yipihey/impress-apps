@@ -2005,6 +2005,14 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5b-transport-44jczzva/test.log` and
   `/tmp/impress-p5b-transport-44jczzva/output/calls.json`.
 
+- 2026-09-29 — **P5c14 effect declarations after cache coherence.** The
+  `data_version` check makes tag-definition reads visible in more Tier A
+  examples than before. Added the observed `imbib/tag-definition` reads to
+  `retention-cleanup` and `update-collection-members`; the existing
+  `list-tags-with-counts` example now observes its declared read, so its
+  reviewed exception is removed by root's effects-table regeneration. Root
+  owns the rebuilt archives and rerun; no tests or builds were run here.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
