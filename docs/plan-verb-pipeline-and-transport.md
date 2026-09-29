@@ -1646,3 +1646,34 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   parity. Queued UI operations, live editor/viewer and hardware routes retain
   their recorded platform ownership. This authorization record changes no
   runtime behavior and does not claim the implementation or parity complete.
+
+## P5c1 — imprint document read contract (2026-09-29)
+
+The generated `imprint-manuscript-service_list-documents` and `get-document`
+results now project authors, status, word count, timestamps, and linked imbib
+IDs from the same manuscript rows as imprint's existing `/api/documents`
+routes. Missing fields in older serialized summaries retain safe defaults;
+list reads preserve the route's created-time fallback for modified time, while
+detail reads preserve its optional modified time. Missing or invalid formats
+use the same `impress_core` format detector that backs Swift's
+`DocumentFormat.detect`; the native decoder now accepts both whole-second and
+fractional RFC 3339 dates before the routes normalize them to whole-second UTC.
+The native verb backend already delegates these reads to the shared-store
+implementation, so it needs no separate metadata source.
+
+Focused Rust contract coverage checks list/detail projection, exact stored
+timestamps and links, body-derived word count, and legacy deserialization.
+The isolated hosted XCTest compares legacy HTTP list/detail metadata against
+the generated verb responses on its PID-owned scratch store. Root verification
+passed 130 Rust tests (zero failures, three ignored), every quick gate, and all
+supported arm64 slices of store-ffi, impel-tools and imprint-verbs-ffi with
+swiftformat off PATH. Seven verb tables were regenerated from semantic-search
+test dumps and were unchanged. Logs: `/tmp/impress-p5c1-{tests,gates,frameworks}.log`.
+
+The hosted proof passed both XCTest cases and fourteen shared transport calls:
+`/tmp/impress-p5b-transport-uipdhngz/output/`. Native SQLite symbol checks passed;
+PID 86745 exited. The first proof exposed a test comparing NSArray descriptions
+containing allocation addresses; value equality fixes that test without changing
+production results. Failed evidence remains at
+`/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
+The existing debug linker unwind-size warning remains unchanged.

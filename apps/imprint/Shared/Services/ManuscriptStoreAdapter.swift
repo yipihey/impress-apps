@@ -769,6 +769,16 @@ public final class ManuscriptStoreAdapter {
 
     // MARK: - Decoding
 
+    /// Accept the RFC 3339 fractional-second form emitted by some store
+    /// writers as well as the whole-second form used by the HTTP router.
+    private static func parseISO8601Date(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+
     /// Decode a `SharedItemRow` into a `ManuscriptModel`. Throws if the
     /// payload JSON is malformed or required fields are missing.
     private static func decode(row: SharedItemRow) throws -> ManuscriptModel {
@@ -793,7 +803,7 @@ public final class ManuscriptStoreAdapter {
             ?? .typst
         let bodyHash = payload["body_content_hash"] as? String
         let bodyModifiedAt = (payload["body_modified_at"] as? String)
-            .flatMap { ISO8601DateFormatter().date(from: $0) }
+            .flatMap { Self.parseISO8601Date($0) }
         let createdAt = Date(timeIntervalSince1970: TimeInterval(row.createdMs) / 1000.0)
 
         var importSource: ImportSource?
@@ -810,7 +820,7 @@ public final class ManuscriptStoreAdapter {
         let funder = payload["funder"] as? String
         let license = payload["license"] as? String
         let embargoUntil = (payload["embargo_until"] as? String)
-            .flatMap { ISO8601DateFormatter().date(from: $0) }
+            .flatMap { Self.parseISO8601Date($0) }
 
         return ManuscriptModel(
             id: id,
