@@ -1677,3 +1677,29 @@ containing allocation addresses; value equality fixes that test without changing
 production results. Failed evidence remains at
 `/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
 The existing debug linker unwind-size warning remains unchanged.
+
+## P5c7 — imprint threaded comment metadata (2026-09-29)
+
+Extended `imprint-app-service_list-comments` with optional route-compatible
+`filter` and `author_agent_id`, and `create-comment` with optional parent,
+suggestion, agent identity, and display name. `CommentRecord` now retains the
+actual route fields: author identifier, duplicate `content`/`body`, live
+UTF-16 range, modified time, resolved/suggestion flags, parent, proposed text,
+and agent identity. These are existing `Comment` values, not synthesized
+metadata. Native create continues to call `CommentService.addComment`; anchors
+are located in the current source and converted from UTF-16 to the store's
+UTF-8 anchor through the existing comment store, while replies inherit their
+parent's current range. A malformed or cross-document parent is refused.
+
+The route source showed that its documented `mine` filter currently falls
+through to the unfiltered result; this package preserves the handler's actual
+behavior and does not silently change a retained HTTP route. Unknown filters
+also retain that existing all-comments behavior. Accept/reject remain separate
+actions; update-comment still only accepts open/resolved status.
+
+Rust record coverage checks all newly projected fields and route camel-case
+aliases. The hosted `ImprintNativeVerbProofTests.testNativeGenericRouteAndAppRefusalUseTheScratchWorkspace`
+compares a direct legacy suggestion/read and a generated filtered read on the
+same PID-owned scratch manuscript, then creates a generated threaded suggestion
+and verifies parent identity and inherited UTF-16 offsets. Root owns running
+the Rust/native verification and regenerating any generated assets.
