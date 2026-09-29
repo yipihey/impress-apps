@@ -1623,7 +1623,10 @@ mod retention {
     /// The caller's valid override wins; otherwise read the pointer that
     /// LibraryManager copied from its legacy UserDefaults key into the shared
     /// settings file. Invalid values never broaden retention to a library.
-    fn exploration_library_id(explicit: Option<&str>, settings: &SettingsStore) -> Option<String> {
+    fn resolve_exploration_library_id(
+        explicit: Option<&str>,
+        settings: &SettingsStore,
+    ) -> Option<String> {
         match explicit {
             Some(raw) => normalized_library_id(raw),
             None => settings
@@ -1772,7 +1775,8 @@ mod retention {
         store: &ImbibStore,
         exploration_library_id: Option<&str>,
     ) -> RetentionCleanupReport {
-        let exploration_library_id = exploration_library_id(exploration_library_id, settings());
+        let exploration_library_id =
+            resolve_exploration_library_id(exploration_library_id, settings());
         tracing::info!(target: "workflow", exploration_library_id, "retention cleanup requested");
         // Match the retired Swift cleanup order. Removing an expired
         // exploration search first prevents its own feed policy from deleting
@@ -1803,7 +1807,7 @@ mod retention {
                 .unwrap());
 
             assert_eq!(
-                exploration_library_id(None, &settings).as_deref(),
+                resolve_exploration_library_id(None, &settings).as_deref(),
                 Some(legacy_id)
             );
         }
@@ -1819,10 +1823,10 @@ mod retention {
                 .unwrap();
 
             assert_eq!(
-                exploration_library_id(Some(explicit_id), &settings).as_deref(),
+                resolve_exploration_library_id(Some(explicit_id), &settings).as_deref(),
                 Some(explicit_id)
             );
-            assert_eq!(exploration_library_id(Some("not-a-uuid"), &settings), None);
+            assert_eq!(resolve_exploration_library_id(Some("not-a-uuid"), &settings), None);
         }
 
         #[test]
@@ -1836,7 +1840,7 @@ mod retention {
                 )
                 .unwrap();
 
-            assert_eq!(exploration_library_id(None, &settings), None);
+            assert_eq!(resolve_exploration_library_id(None, &settings), None);
         }
     }
 }
