@@ -128,6 +128,62 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.status, "in-review")
         XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.authors, ["Human Author"])
 
+        let linkedManuscriptID = UUID()
+        try ManuscriptStoreAdapter.shared.updateMetadata(
+            id: id, linkedImbibManuscriptID: linkedManuscriptID,
+            linkedImbibLibraryID: "linked-library-proof")
+        let legacyList = await router.route(HTTPRequest(method: "GET", path: "/api/documents"))
+        XCTAssertEqual(legacyList.status, 200)
+        let legacyListBody = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyList.body) as? [String: Any])
+        let legacyRows = try XCTUnwrap(legacyListBody["documents"] as? [[String: Any]])
+        let legacyRow = try XCTUnwrap(legacyRows.first {
+            ($0["id"] as? String)?.lowercased() == id.uuidString.lowercased()
+        })
+        let generatedList = await router.route(HTTPRequest(
+            method: "POST", path: "/api/verb/imprint-manuscript-service_list-documents", body: "{}"))
+        XCTAssertEqual(generatedList.status, 200, String(decoding: generatedList.body, as: UTF8.self))
+        let generatedRows = try XCTUnwrap(JSONSerialization.jsonObject(with: generatedList.body) as? [[String: Any]])
+        let generatedRow = try XCTUnwrap(generatedRows.first {
+            ($0["id"] as? String)?.lowercased() == id.uuidString.lowercased()
+        })
+        for (legacyKey, generatedKey) in [
+            ("title", "title"), ("authors", "authors"), ("format", "format"),
+            ("status", "status"), ("modifiedAt", "last_modified"), ("createdAt", "created_at"),
+        ] {
+            XCTAssertEqual(legacyRow[legacyKey] as? NSObject, generatedRow[generatedKey] as? NSObject,
+                           "Legacy and generated list field \(legacyKey) diverged")
+        }
+        XCTAssertEqual((legacyRow["id"] as? String)?.lowercased(),
+                       (generatedRow["id"] as? String)?.lowercased())
+        XCTAssertEqual(generatedRow["word_count"] as? Int, 3)
+
+        let legacyDetailResponse = await router.route(HTTPRequest(
+            method: "GET", path: "/api/documents/\(id.uuidString)"))
+        XCTAssertEqual(legacyDetailResponse.status, 200)
+        let legacyDetailBody = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyDetailResponse.body) as? [String: Any])
+        let legacyDetail = try XCTUnwrap(legacyDetailBody["document"] as? [String: Any])
+        let generatedDetailResponse = await router.route(HTTPRequest(
+            method: "POST", path: "/api/verb/imprint-manuscript-service_get-document",
+            body: #"{"id":"\#(id.uuidString)"}"#))
+        XCTAssertEqual(generatedDetailResponse.status, 200, String(decoding: generatedDetailResponse.body, as: UTF8.self))
+        let generatedDetail = try XCTUnwrap(JSONSerialization.jsonObject(with: generatedDetailResponse.body) as? [String: Any])
+        for (legacyKey, generatedKey) in [
+            ("title", "title"), ("authors", "authors"), ("format", "format"),
+            ("status", "status"), ("modifiedAt", "last_modified"), ("createdAt", "created_at"),
+            ("linkedImbibManuscriptID", "linked_imbib_manuscript_id"),
+            ("linkedImbibLibraryID", "linked_imbib_library_id"),
+        ] {
+            if legacyKey == "linkedImbibManuscriptID" {
+                XCTAssertEqual((legacyDetail[legacyKey] as? String)?.lowercased(),
+                               (generatedDetail[generatedKey] as? String)?.lowercased())
+                continue
+            }
+            XCTAssertEqual(legacyDetail[legacyKey] as? NSObject,
+                           generatedDetail[generatedKey] as? NSObject,
+                           "Legacy and generated detail field \(legacyKey) diverged")
+        }
+        XCTAssertEqual(generatedDetail["word_count"] as? Int, 3)
+
         // A local editor change has not yet passed its debounce. Native insert
         // must derive from that live buffer, not the older stored body. The
         // offset is an editor UTF-16 position, after the two-unit emoji.
