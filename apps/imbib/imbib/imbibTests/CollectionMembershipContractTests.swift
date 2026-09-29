@@ -73,7 +73,7 @@ final class CollectionMembershipContractTests: XCTestCase {
             ])))
         XCTAssertEqual(generatedMembers.status, 200)
         let generatedMemberRows = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(generatedMembers.bodyJson.utf8)) as? [[String: Any]])
+            JSONSerialization.jsonObject(with: generatedMembers.body) as? [[String: Any]])
         XCTAssertEqual(Set(generatedMemberRows.compactMap { $0["cite_key"] as? String }),
                        Set([firstKey, secondKey]))
 
