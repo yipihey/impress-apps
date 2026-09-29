@@ -25,6 +25,7 @@ def selected_tests(app):
     tests = [target + "/TransportProofTests"]
     if app == "imbib":
         tests.append(target + "/ImbibNativeContractProofTests")
+        tests.append(target + "/CollectionMembershipContractTests")
     if app == "imprint":
         tests.append(target + "/ImprintNativeVerbProofTests")
     if app == "implore":

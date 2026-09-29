@@ -127,6 +127,18 @@ pub async fn prepare(
             paper(store, "7c", "7a", "G3Unfile2026", "G3 unfile paper", None)?;
             member(store, "7b", "7c")?;
         }
+        ("imbib-library-service_update-collection-members", "file-existing-paper") => {
+            library(store, "c0", "G3 membership library", false, false)?;
+            collection(store, "c1", "G3 membership collection", "c0")?;
+            paper(
+                store,
+                "c2",
+                "c0",
+                "G3Membership2026",
+                "G3 membership paper",
+                None,
+            )?;
+        }
         ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
             library(store, "89", "G3 dismissal library", false, false)?;
             collection(store, "6f", "G3 dismissal collection", "89")?;
@@ -701,6 +713,28 @@ pub fn verify(
         }
         ("imbib-library-service_remove-from-collection", "unfile-paper") => {
             require_unfiled(store, "7b", "7c")?;
+        }
+        ("imbib-library-service_update-collection-members", "file-existing-paper") => {
+            let assigned = result["assigned"]
+                .as_array()
+                .ok_or("missing assigned identifiers")?;
+            let not_found = result["not_found"]
+                .as_array()
+                .ok_or("missing not_found identifiers")?;
+            if assigned != &[Value::String("G3Membership2026".into())]
+                || not_found != &[Value::String("missing-G3".into())]
+            {
+                return Err("collection membership result changed input-order outcomes".into());
+            }
+            let members =
+                collection_ops::list_members(store, &IMBIB_COLLECTION, &uuid("c1")?.to_string())
+                    .map_err(|e| e.to_string())?;
+            let paper_id = uuid("c2")?;
+            if !members.iter().any(|member| member.id == paper_id) {
+                return Err(
+                    "service reported assignment without persisting the member edge".into(),
+                );
+            }
         }
         ("imbib-library-service_purge-dismissed-from-collection", "unfile-dismissed-paper") => {
             require_unfiled(store, "6f", "70")?;

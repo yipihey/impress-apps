@@ -1922,6 +1922,27 @@ full added-row fields and optional target/PDF arguments. Build and test
 verification is owned by the root integrator; this package did not run builds,
 tests or framework generation.
 
+## P5c13 — imbib collection membership (2026-09-29)
+
+Added `imbib-library-service_update-collection-members(collection_id,
+identifiers, action)` with ordered `assigned` and `not_found` outcomes for
+`add`/`remove`. Resolution follows `PaperIdentifier.fromString` for local UUID,
+citation key, DOI, arXiv, bibcode and PMID lookups; recognized external-only
+Semantic Scholar/OpenAlex identifiers remain misses, with no fuzzy search.
+Generated writes use the library service's store-backed mutation path and its
+declared collection write effect, so the imbib domain dispatcher posts its
+normal store-mutation/display refresh after success.
+
+Route review found both retained membership paths could report papers as
+assigned even when a valid UUID named no collection: `AutomationService` ignored
+the adapter's logged `addToCollection`/`removeFromCollection` failure. The
+shared collection operations now perform exact existing-collection lookup
+before membership work, making both routes return their existing 404 mapping;
+the generated verb refuses the same missing target. Tests cover ordered local
+identifier outcomes, add/remove persisted edges, invalid action/missing target,
+and an isolated route-versus-generated callback fixture. Root owns tests and
+native verification; no callers or routes are removed here.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -2008,3 +2029,14 @@ tests or framework generation.
   `/tmp/impress-p5c12-{gates,frameworks,native-proof-final}.log`.
   The first native run retained the older shared citation refusal behavior;
   the final build includes P5c11's verified canonical error mapping.
+
+- 2026-09-29 — **P5c13 verified.** Root passed 88 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 store-ffi,
+  impel-tools and imbib-verbs-ffi builds. The owned host passed three XCTest
+  cases and 30 shared transport calls. Membership proof covers ordered local
+  cite-key/DOI/UUID resolution, missing identifiers, exact add/remove state,
+  display-observer notification and missing-collection/invalid-action refusal.
+  SQLite checks passed; owned PID 90923 exited. Evidence:
+  `/tmp/impress-p5b-transport-q7tt7qri/output/` and
+  `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
+  Root corrected a fixture helper's UUID/string argument before verification.

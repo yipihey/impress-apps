@@ -499,6 +499,7 @@ public actor AutomationService: AutomationOperations {
         collectionID: UUID
     ) async throws -> AddToContainerResult {
         try await checkAuthorization()
+        try await requireCollection(collectionID)
         var assigned: [String] = []
         var notFound: [String] = []
 
@@ -856,6 +857,7 @@ public actor AutomationService: AutomationOperations {
 
     public func addToCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
+        try await requireCollection(collectionID)
 
         var ids: [UUID] = []
         for identifier in papers {
@@ -875,6 +877,7 @@ public actor AutomationService: AutomationOperations {
 
     public func removeFromCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
         try await checkAuthorization()
+        try await requireCollection(collectionID)
 
         var ids: [UUID] = []
         for identifier in papers {
@@ -890,6 +893,22 @@ public actor AutomationService: AutomationOperations {
         }
 
         return ids.count
+    }
+
+    /// Validate a collection before any membership changes. The retained HTTP
+    /// routes previously let the store adapter log a missing target and still
+    /// returned success; checking the same local collection inventory here
+    /// makes those routes report their declared `collectionNotFound` error.
+    private func requireCollection(_ collectionID: UUID) async throws {
+        let libraries = await withStore { $0.listLibraries() }
+        for library in libraries {
+            if await withStore({ store in
+                store.listCollections(libraryId: library.id).contains { $0.id == collectionID }
+            }) {
+                return
+            }
+        }
+        throw AutomationOperationError.collectionNotFound(collectionID)
     }
 
     // MARK: - Library Operations
