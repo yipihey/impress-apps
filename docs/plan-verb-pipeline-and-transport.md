@@ -1729,5 +1729,14 @@ filtered total is computed before pagination and the query is echoed.
 Native callback tests exercise the new list/detail projection and an isolated
 hosted proof compares the actual legacy routes with generated Rust verbs on
 one in-memory Core Data fixture. No route or caller migration is part of this
-package. Root owns tests and builds; this worker performed static formatting
-and diff checks only.
+package. Root verification passed 46 Rust tests (zero failures, three ignored),
+all quick gates and all supported arm64 slices of store-ffi, impel-tools and
+impart-verbs-ffi. Three isolated Swift tests passed, including actual HTTP vs
+generated list/detail paging, archive filtering, messages and statistics. The
+native host proof passed one XCTest and eight shared transport calls, with
+SQLite symbol verification: `/tmp/impress-p5b-transport-uc2k9anm/output/`.
+Owned PID 78083 exited. Root fixed the list mapper's default-argument closure
+and the test diagnostic's Swift Testing comment before the successful runs.
+Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
+`/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
+Data warnings remain; no persistence schema was changed.
