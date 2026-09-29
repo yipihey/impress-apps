@@ -2037,6 +2037,45 @@ No route removal or caller migration is part of this package.
   still requires equality of every stored comment afterward. Generated project
   identifier/path churn was discarded. No real store or user app was touched.
 
+- 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
+  uses the manuscript list/get and app get-content verbs, composing metadata
+  and source for word count and artifact preview while retaining absent dates
+  and linked imbib IDs. Implore bridge list/detail maps `FigureRecord` into its
+  public result, leaving HTTP-absent dataset name/format and null timestamps
+  absent; empty tags match the route's omission. Impart bridge now maps paged
+  conversations and detailed messages/statistics, retaining count, total,
+  offset, limit and filter query. Counsel's existing figure/conversation list
+  residue reads now use those generated result mappings. ArtifactResolver reads
+  document artifacts through ImprintBridge and retains metadata absence. The
+  current Counsel registry has no figure/conversation detail tool cases, so
+  this package adds no new agent tools. Route arms, binary export, writes and
+  imbib remain for their separate packages. Focused DTO decoding and canonical
+  transport fixtures were added; static review only, root verification pending.
+
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
+
+- 2026-09-29 — **P5c7 verified.** Root passed 132 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 builds of store-ffi,
+  impel-tools and imprint-verbs-ffi, alongside the final RIS archives.
+  The isolated native run passed both XCTest cases and 14 shared transport
+  calls, including threaded suggestion metadata/range parity and invalid-parent
+  and unsupported-status refusals. SQLite checks passed; owned PID 21487 exited.
+  Evidence: `/tmp/impress-p5b-transport-0kkhokqi/output/` and
+  `/tmp/impress-p5c7-{final-tests,gates,final-frameworks,native-proof-final}.log`.
+  The first native run caught an old snapshot taken before two successful
+  thread writes; the final test snapshots immediately before the refusal and
+  still requires equality of every stored comment afterward. Generated project
+  identifier/path churn was discarded. No real store or user app was touched.
+
 - 2026-09-29 — **P5c8 verified.** Root passed 61 Rust tests (zero failures,
   three ignored), every quick gate and full supported arm64 store-ffi,
   impel-tools and implore-verbs-ffi builds. The isolated native run passed
@@ -2130,6 +2169,14 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c15-final-gates.log`, and the per-gate
   `/tmp/impress-p5c15-final-*.log` files. Native app-host proof remains with
   root.
+- 2026-09-29 — **P5c16 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c16-final-verify.log`,
+  `/tmp/impress-p5c16-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c16-final-*.log` files. Native consumer proofs remain with
+  root.
+
 
 - 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
   (zero failures, three ignored), every quick gate, and full supported arm64
@@ -2157,3 +2204,7 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c15-{frameworks,native-proof}-final.log`. The earlier host run
   passed deletion but exposed the shared stale tag cache; this final run
   includes P5c14's verified fix. No user files or running apps were touched.
+
+### 2026-09-29 — P5c16 final native verification
+
+Merged verified main `16a0b7cc`; only appended session-log entries differed. The final P5c15 framework cohort passes the isolated impel proof at `/tmp/impress-p5b-transport-lu8quz0f/output/`: one XCTest, two shared transport calls, SQLite check green, owned PID 73083 exited. Focused bridge tests: 6 passed. Capabilities: 44 passed, 0 failed, 3 ignored. All quick gates passed (`/tmp/impress-p5c16-final-gates.log`). Impart's changed artifact consumer also compiled (`/tmp/impress-p5c16-build-impart.log`).

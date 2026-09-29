@@ -195,8 +195,9 @@ final class TransportProofTests: XCTestCase {
         let legacyLibrary = try await request(base, bearer,
             "/api/search?q=P5c9Search&limit=10&offset=0&read=true&library=\(searchLibraryID)", nil)
         try require(legacyLibrary.status == 200, "filtered legacy search HTTP \(legacyLibrary.status)")
-        let legacyLibraryRows = try array(object(legacyLibrary, "filtered legacy search")["papers"] ?? NSNull(),
-                                         "filtered legacy papers")
+        let legacyLibraryBody = try object(legacyLibrary, "filtered legacy search")
+        let legacyLibraryRows = try XCTUnwrap(legacyLibraryBody["papers"] as? [Any],
+                                              "filtered legacy papers were not an array")
         try require(searchResultIDs(generatedLibraryRows) == searchResultIDs(legacyLibraryRows),
                     "library and read filters match between generated and legacy search")
         try require(searchResultIDs(generatedLibraryRows) == [searchPaperIDs[0]],
@@ -212,8 +213,9 @@ final class TransportProofTests: XCTestCase {
             "/api/search?q=&limit=10&offset=0&collection=\(searchCollectionID)", nil)
         try require(legacyCollection.status == 200,
                     "collection legacy search HTTP \(legacyCollection.status)")
-        let legacyCollectionRows = try array(object(legacyCollection, "collection legacy search")["papers"] ?? NSNull(),
-                                             "collection legacy papers")
+        let legacyCollectionBody = try object(legacyCollection, "collection legacy search")
+        let legacyCollectionRows = try XCTUnwrap(legacyCollectionBody["papers"] as? [Any],
+                                                 "collection legacy papers were not an array")
         try require(searchResultIDs(generatedCollectionRows) == searchResultIDs(legacyCollectionRows),
                     "empty-query collection selection matches between generated and legacy search")
         try require(searchResultIDs(generatedCollectionRows) == [searchPaperIDs[0]],
@@ -228,8 +230,9 @@ final class TransportProofTests: XCTestCase {
         let legacyOffset = try await request(base, bearer,
             "/api/search?q=P5c9Search&limit=1&offset=1&library=\(searchLibraryID)", nil)
         try require(legacyOffset.status == 200, "offset legacy search HTTP \(legacyOffset.status)")
-        let legacyOffsetRows = try array(object(legacyOffset, "offset legacy search")["papers"] ?? NSNull(),
-                                         "offset legacy papers")
+        let legacyOffsetBody = try object(legacyOffset, "offset legacy search")
+        let legacyOffsetRows = try XCTUnwrap(legacyOffsetBody["papers"] as? [Any],
+                                             "offset legacy papers were not an array")
         try require(searchResultIDs(generatedOffsetRows) == searchResultIDs(legacyOffsetRows),
                     "offset is applied after the same library filter")
         let future = "2999-01-01T00:00:00.000Z"
@@ -240,8 +243,9 @@ final class TransportProofTests: XCTestCase {
         let legacyFuture = try await request(base, bearer,
             "/api/search?q=P5c9Search&addedAfter=\(future)", nil)
         try require(legacyFuture.status == 200, "fractional date HTTP succeeded")
-        let legacyFutureRows = try array(object(legacyFuture, "fractional date HTTP")["papers"] ?? NSNull(),
-                                         "fractional date papers")
+        let legacyFutureBody = try object(legacyFuture, "fractional date HTTP")
+        let legacyFutureRows = try XCTUnwrap(legacyFutureBody["papers"] as? [Any],
+                                             "fractional date papers were not an array")
         try require(generatedFuture.isEmpty && legacyFutureRows.isEmpty,
                     "both transports apply fractional timestamp bounds")
         let legacyResolution = try await request(base, bearer, "/api/papers/resolve", [
