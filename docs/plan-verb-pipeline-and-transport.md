@@ -2060,3 +2060,29 @@ No route removal or caller migration is part of this package.
   refusal category and became HTTP 502. Both paths are fixed and documented
   as invariants. The open paper result retains its original `citeKey` spelling;
   the fixture now checks that exact wire field. No user app/store was touched.
+
+- 2026-09-29 — **P5c12 verified.** Touched Rust crates and capabilities passed
+  after correcting import's external safety class and regenerating its tables.
+  The final broad run had 84 passed, three ignored and one stale safety-table
+  failure; after regeneration all eight descriptor checks passed. Every quick
+  gate and full supported arm64 store-ffi, impel-tools and imbib-verbs-ffi build
+  passed. The final isolated host passed both XCTest cases and 30 transport
+  calls, including duplicate and unsupported-identifier outcomes and collection
+  membership. SQLite checks passed; owned PID 61838 exited. Evidence:
+  `/tmp/impress-p5b-transport-uo8c1zjy/output/`,
+  `/tmp/impress-p5c12-tests-final.log`,
+  `/tmp/impress-p5c12-descriptor-final.log`, and
+  `/tmp/impress-p5c12-{gates,frameworks,native-proof-final}.log`.
+  The first native run retained the older shared citation refusal behavior;
+  the final build includes P5c11's verified canonical error mapping.
+
+- 2026-09-29 — **P5c13 verified.** Root passed 88 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 store-ffi,
+  impel-tools and imbib-verbs-ffi builds. The owned host passed three XCTest
+  cases and 30 shared transport calls. Membership proof covers ordered local
+  cite-key/DOI/UUID resolution, missing identifiers, exact add/remove state,
+  display-observer notification and missing-collection/invalid-action refusal.
+  SQLite checks passed; owned PID 90923 exited. Evidence:
+  `/tmp/impress-p5b-transport-q7tt7qri/output/` and
+  `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
+  Root corrected a fixture helper's UUID/string argument before verification.
