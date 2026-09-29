@@ -196,14 +196,14 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
 | `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
 | `imbib-library-service_remove-from-collection` | "imbib/collection" | "imbib/collection" | — | example ×1 |
-| `imbib-library-service_retention-cleanup` | "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper" | — | example ×2 |
+| `imbib-library-service_retention-cleanup` | "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper", "imbib/tag-definition" | "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper" | — | example ×2 |
 | `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×3 |
 | `imbib-library-service_set-flag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_set-library-default` | "imbib/library" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_set-read` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_set-starred` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_sidebar-view` | "imbib/library", "imbib/bibliography-entry", "imbib/smart-search", "imbib/collection", prefix("impress/artifact/") | — | — | example ×2 |
-| `imbib-library-service_update-collection-members` | "imbib/collection", "imbib/library", "imbib/bibliography-entry" | "imbib/collection" | — | example ×1 |
+| `imbib-library-service_update-collection-members` | "imbib/collection", "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition" | "imbib/collection" | — | example ×1 |
 | `imbib-manuscripts-service_compile-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript-from-template` | — | — | app("imbib") | — |
