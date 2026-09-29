@@ -3094,3 +3094,19 @@ per-scenario cleanup without evaluating expressions.
   combined run hit the already observed all-zero import-summary flake; nine
   diagnostic runs and this final run passed. Its cause remains unconfirmed,
   as recorded in the S3 diagnosis above. No assertion or fixture was weakened.
+
+- 2026-09-28 — **S2g source-session verification completed.** The stored
+  scenario explicitly supplies the source pane's complete spec, including
+  its old session, when copying it, and proves the copy gets its own session.
+  It checks string session IDs, source query preservation, no PDF session,
+  stability through wrapping/swapping, and role-resolved preset restoration.
+  The initial identity test caught omitted Markdown backticks in the catalogue
+  description; the document now matches exactly. Final Rust tests: **177 passed,
+  zero failed, three ignored** (`/tmp/impress-s2g-tests2.log`). Both clippy shards
+  and all quick gates passed (`/tmp/impress-s2g-final-*.log`). Both affected
+  archives were rebuilt on the final source for every supported arm64 slice
+  (`/tmp/impress-s2g-frameworks-final.log`). Owned imprint proof
+  `/tmp/impress-g5-proof-aw1b27dd/output/` passed both XCTest cases, the stored
+  scenarios, all three surface and all fourteen layout entries, zero skips.
+  The source-session entry ran the document. Native symbol checks passed and
+  the owned host exited. No user app or store was used.
