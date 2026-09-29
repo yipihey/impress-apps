@@ -3136,3 +3136,15 @@ per-scenario cleanup without evaluating expressions.
   scenarios, all three surface and all fourteen layout entries, zero skips.
   The source-session entry ran the document. Native symbol checks passed and
   the owned host exited. No user app or store was used.
+
+### 2026-09-28 — S2h verification
+
+The version-movement scenario passed 212 Rust tests (zero failures, three ignored),
+both clippy shards and every quick gate. Removed its two retired Rust helpers.
+Rebuilt impress-store-ffi and impel-tools for the supported arm64 macOS/iOS
+slices with swiftformat off PATH. The owned imprint proof passed two XCTests,
+two stored scenarios, three surface entries and all fourteen layout entries,
+with zero skips; version_moves ran through the interpreter. Native symbols
+passed and host PID 30217 exited. Evidence: `/tmp/impress-s2h-tests-final.log`,
+`/tmp/impress-s2h-final-*.log`, `/tmp/impress-s2h-frameworks.log`, and
+`/tmp/impress-g5-proof-gsvmopze/output/`.
