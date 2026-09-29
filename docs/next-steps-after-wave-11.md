@@ -1,6 +1,6 @@
 # Next steps after Wave 11 (2026-09-29)
 
-This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md). The original open packages and subsequent S2/S3/W3 follow-ups are recorded in the Wave 9/10 handoffs. Wave 11 completes the approved [P5c contracts](p5c-contract-proposal.md), consumer migrations and route retirements. Main is currently `208da72e`; P5c24 has passed final gates and awaits its normal push and merge.
+This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md). The original open packages and subsequent S2/S3/W3 follow-ups are recorded in the Wave 9/10 handoffs. Wave 11 completes the approved [P5c contracts](p5c-contract-proposal.md), consumer migrations and route retirements. All implementation packages are merged through main `2d4bf63f` (PR #170). The full native workspace integration run is in progress.
 
 ## Package status
 
@@ -17,7 +17,7 @@ This succeeds the [Wave 10 handoff](next-steps-after-wave-10.md). The original o
 | P5c21 import consumers | Merged #167. 44 capability tests, fourteen focused Swift tests and all gates passed. |
 | P5c22 imprint retirement | Merged #168. 44 capability tests, all quick gates and final native proof passed. |
 | P5c23 figure/conversation retirement | Merged #169. 63 Rust tests, all quick gates, regenerated docs, full archives and both native proofs passed. |
-| P5c24 imbib retirement | 95 Rust tests, all quick gates, regenerated docs, full archives and final native proof passed. Normal push/merge pending. |
+| P5c24 imbib retirement | Merged #170. 95 Rust tests, all quick gates, regenerated docs, full archives, final native proof and normal macOS/iOS pre-push builds passed. |
 
 Each consumer capability run had zero failures and three ignored tests. Every merged package passed its normal pre-push hook. When the hook selected dual-platform compilation, both builds passed; imprint-only retirement correctly selected the hook’s documented scope-based skip after formatting/schema checks. Root reviewed the changes, fetched main freshly, verified main ancestry and matched the remote head before merging. Main-only merges changed session-log entries; existing code verification applied to unchanged source. Hosted CI may still run after a local-gate-verified merge; do not confuse local evidence with all hosted checks having completed.
 
@@ -39,7 +39,7 @@ P5c14 final logs use `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-v
 
 ## Remaining integration gate
 
-Finish the three retirement PRs, then run `cargo test --workspace --features native --no-fail-fast -- --test-threads=1` on exact merged main with an isolated scratch store. Record the commit, result totals and log here. The prior Wave 10 full workspace result (`3c56dfbb`, 4,478 passed, zero failed, 26 ignored across 223 groups) is historical and does not verify this batch.
+All retirement PRs are merged. Run `cargo test --workspace --features native --no-fail-fast -- --test-threads=1` on exact merged main with an isolated scratch store. Record the commit, result totals and log here. The prior Wave 10 full workspace result (`3c56dfbb`, 4,478 passed, zero failed, 26 ignored across 223 groups) is historical and does not verify this batch.
 
 ## Intentional later scope
 
