@@ -40,7 +40,7 @@ struct ImbibNativeVerbsTests {
                 "@article{\(citeKey), title={Native import fixture}, author={Doe, Jane}, year={2026}}",
                 libraryId: library.id)
             #expect(paperIDs.count == 1)
-            let paperID = try #require(paperIDs.first.flatMap(UUID.init(uuidString:)))
+            let paperID = try #require(paperIDs.first)
             let collection = try #require(store.createCollection(name: "Import target \(suffix)", libraryId: library.id))
 
             let router = HTTPAutomationRouter()
