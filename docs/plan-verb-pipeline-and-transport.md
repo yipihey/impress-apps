@@ -1950,3 +1950,15 @@ removal, or caller migration were performed in this package.
   `/tmp/impress-p5b-transport-y9st8dhc/output/` and
   `/tmp/impress-p5c9-{tests,gates,frameworks,native-proof-final}.log`.
   Root corrected the nested-array proof decoder before the passing run.
+
+- 2026-09-29 — **P5c10 verified.** Root passed 133 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 store-ffi,
+  impel-tools and imprint-verbs-ffi builds. Final native proof passed both
+  XCTest cases and 14 transport calls, including saved UTF-16 suggestion
+  replacement, operation completion, stale-anchor and intervening-typing
+  refusals, and rejection without source changes. SQLite checks passed;
+  owned PID 11889 exited. Evidence:
+  `/tmp/impress-p5b-transport-qzqm0nsy/output/` and
+  `/tmp/impress-p5c10-{tests,gates,frameworks,native-proof-final}.log`.
+  The first native run exposed a fixture range inside an emoji's surrogate
+  pair; the final fixture anchors the complete emoji at UTF-16 units 6..<8.
