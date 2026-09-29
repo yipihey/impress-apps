@@ -76,9 +76,12 @@ its normal authorization. It does not access a second database directly.
 
 The candidate has an `item` envelope and a decoded `payload` object. All
 predicates must match. Predicates use the existing closed field checks:
-`equals`, `contains`, `gte`, `lte`, `within`, `len`, `present` and `absent`.
-No expression language or executable code is accepted. An empty predicate list
-selects the first row of the requested kind.
+`equals`, `not_equals`, `contains`, `gt`, `gte`, `lte`, `within`, `len`,
+`present` and `absent`. `gt` requires JSON numbers and compares integer values
+without floating-point rounding; `not_equals` requires the path to exist and
+compares JSON values. Literal JSON values and whole `{{state.capture}}`
+references are accepted. No expression language or executable code is
+accepted. An empty predicate list selects the first row of the requested kind.
 
 `max_rows` defaults to 100 and must be between 1 and 10,000. Paging is bounded;
 this is a live scan, not a snapshot across concurrent edits. No match, an

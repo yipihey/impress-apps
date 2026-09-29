@@ -238,6 +238,121 @@ fn expectations_compare_captured_json_without_reinterpreting_its_templates() {
 }
 
 #[test]
+fn gt_and_not_equals_resolve_typed_captures_and_compare_exactly() {
+    let before = 9_007_199_254_740_992_u64;
+    let after = before + 1;
+    let s = scenario(json!([
+        {"call":"echo","args":{"version":before,"session":"session-before"},
+            "capture":{"version":"$.version","session":"$.session"}},
+        {"call":"echo","args":{"version":after,"session":"session-after"},
+            "expect":{"fields":[
+                {"path":"version","gt":"{{state.version}}"},
+                {"path":"session","not_equals":"{{state.session}}"}
+            ]}}
+    ]));
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(report.pass, "{}", report.detail);
+
+    let unchanged = scenario(json!([
+        {"call":"echo","args":{"version":12},"capture":{"version":"$.version"}},
+        {"call":"echo","args":{"version":12},
+            "expect":{"fields":[{"path":"version","gt":"{{state.version}}"}]}}
+    ]));
+    let report = execute(&unchanged, &mut Fixture::default());
+    assert!(
+        !report.pass,
+        "unchanged versions must fail: {}",
+        report.detail
+    );
+
+    let equal_session = scenario(json!([
+        {"call":"echo","args":{"session":"same"},"capture":{"session":"$.session"}},
+        {"call":"echo","args":{"session":"same"},
+            "expect":{"fields":[{"path":"session","not_equals":"{{state.session}}"}]}}
+    ]));
+    let report = execute(&equal_session, &mut Fixture::default());
+    assert!(
+        !report.pass,
+        "equal session IDs must fail: {}",
+        report.detail
+    );
+
+    let literal = scenario(
+        json!([{"call":"echo","args":{"version":8,"session":"current"},
+        "expect":{"fields":[{"path":"version","gt":7},
+            {"path":"session","not_equals":"previous"}]}}]),
+    );
+    assert!(execute(&literal, &mut Fixture::default()).pass);
+}
+
+#[test]
+fn gt_rejects_non_numeric_values_and_missing_capture_references() {
+    for (args, expected) in [
+        (json!({"version":"8"}), json!(7)),
+        (json!({"version":8}), json!("7")),
+        (json!({}), json!(7)),
+    ] {
+        let s = scenario(json!([{"call":"echo","args":args,
+            "expect":{"fields":[{"path":"version","gt":expected}]}}]));
+        let report = execute(&s, &mut Fixture::default());
+        assert!(
+            !report.pass,
+            "malformed gt operands must fail: {}",
+            report.detail
+        );
+    }
+
+    let missing = scenario(json!([{"call":"echo","args":{"version":8},
+        "expect":{"fields":[{"path":"version","gt":"{{state.missing}}"}]}}]));
+    assert!(!validate(&missing).is_empty());
+    let mut f = Fixture::default();
+    let report = execute(&missing, &mut f);
+    assert!(!report.pass);
+    assert!(
+        f.calls.is_empty(),
+        "missing captures fail validation before calls"
+    );
+}
+
+#[test]
+fn gt_preserves_order_between_integer_and_float_representations() {
+    for (actual, expected, pass) in [
+        (
+            json!(9_007_199_254_740_993_u64),
+            json!(9_007_199_254_740_992_f64),
+            true,
+        ),
+        (
+            json!(9_007_199_254_740_992_f64),
+            json!(9_007_199_254_740_993_u64),
+            false,
+        ),
+        (
+            json!(u64::MAX),
+            json!(18_446_744_073_709_551_616_f64),
+            false,
+        ),
+        (json!(18_446_744_073_709_551_616_f64), json!(u64::MAX), true),
+        (json!(-3), json!(-3.5), true),
+        (json!(-3.5), json!(-3), false),
+        (json!(0), json!(-0.0), false),
+        (json!(7), json!(7.0), false),
+        (json!(1e100), json!(u64::MAX), true),
+        (json!(i64::MIN), json!(-1e100), true),
+    ] {
+        let s = scenario(json!([{"call":"echo","args":{"value":actual},
+            "expect":{"fields":[{"path":"value","gt":expected}]}}]));
+        let report = execute(&s, &mut Fixture::default());
+        assert_eq!(
+            report.pass, pass,
+            "{actual} > {expected}: {}",
+            report.detail
+        );
+    }
+}
+
+#[test]
 fn required_cleanup_failure_fails_but_all_cleanup_is_attempted() {
     let mut s = scenario(json!([{"call":"echo","args":{"ok":true},"expect":{"ok":true}}]));
     s.teardown = serde_json::from_value(json!([
