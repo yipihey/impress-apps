@@ -351,6 +351,17 @@ const ITEM_COLUMNS: &str = "id, schema_ref, payload, created, modified, author, 
      message_type, produced_by, version, batch_id, op_target_id";
 
 impl SqliteItemStore {
+    /// Record a domain-level read that bypasses the typed query hooks, such
+    /// as a logical read served from a higher-level cache. This is a no-op
+    /// unless the store effects spy is enabled.
+    pub fn record_logical_read(&self, schema: &crate::schema::SchemaRef) {
+        #[cfg(feature = "effects-spy")]
+        crate::effects_spy::note_read(Some(schema.as_str()));
+
+        #[cfg(not(feature = "effects-spy"))]
+        let _ = schema;
+    }
+
     /// Insert a payload or additively update its supplied fields. This is the
     /// shared write behind the Swift FFI and native Rust domain services;
     /// omitted fields and the existing immutable envelope are preserved.
