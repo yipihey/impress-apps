@@ -551,8 +551,9 @@ mod tests {
         assert_eq!(registry().len(), 4 + 5 * APP_PORTS.len() + 13);
         assert!(lookup("imbib.retention.inbox_days").is_some());
         assert!(lookup("imbib.retention.inboxDays").is_none());
-        assert!(lookup("imbib.internal.exploration_library_id")
-            .is_some_and(|setting| setting.internal));
+        assert!(
+            lookup("imbib.internal.exploration_library_id").is_some_and(|setting| setting.internal)
+        );
     }
 
     #[test]

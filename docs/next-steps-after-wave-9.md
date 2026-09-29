@@ -85,8 +85,9 @@ required quick gate also passed (`/tmp/impress-wave9-handoff-*.log`).
   Current catalogue IDs and assertions remain intact.
 - W3 follow-up (2026-09-28, `claude/reflective-w3-discovery`): imbib now
   migrates the legacy exploration-library pointer into an internal Device
-  setting and mirrors `LibraryManager` changes; retention uses it when no
-  valid explicit `exploration_library_id` is supplied. The 90-second workflow
+  setting and mirrors `LibraryManager` changes; retention uses it when
+  `exploration_library_id` is omitted. An invalid explicit value disables
+  exploration cleanup instead of falling back. The 90-second workflow
   guard and existing workflow spec remain unchanged. Focused scratch-state
   tests are added; root owns the shared gates and native verification.
 - S3 nested Swift ImpelTools callbacks still lose parent identity/trace.

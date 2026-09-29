@@ -1620,7 +1620,8 @@ mod retention {
             .map(|id| id.hyphenated().to_string())
     }
 
-    /// The caller's valid override wins; otherwise read the pointer that
+    /// An explicit override wins (invalid values disable this cleanup). When
+    /// omitted, read the pointer that
     /// LibraryManager copied from its legacy UserDefaults key into the shared
     /// settings file. Invalid values never broaden retention to a library.
     fn resolve_exploration_library_id(
@@ -1826,7 +1827,10 @@ mod retention {
                 resolve_exploration_library_id(Some(explicit_id), &settings).as_deref(),
                 Some(explicit_id)
             );
-            assert_eq!(resolve_exploration_library_id(Some("not-a-uuid"), &settings), None);
+            assert_eq!(
+                resolve_exploration_library_id(Some("not-a-uuid"), &settings),
+                None
+            );
         }
 
         #[test]

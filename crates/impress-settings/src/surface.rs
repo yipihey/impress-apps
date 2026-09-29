@@ -110,7 +110,11 @@ mod tests {
             .unwrap();
         let settings = store.list(Some("imbib.retention")).unwrap();
         let spec = section_surface("imbib.retention", &settings).unwrap();
-        assert_eq!(settings.len(), 4, "registry keeps the internal value addressable");
+        assert_eq!(
+            settings.len(),
+            4,
+            "registry keeps the internal value addressable"
+        );
         assert!(
             spec.state
                 .get("imbib_internal_exploration_library_id")
