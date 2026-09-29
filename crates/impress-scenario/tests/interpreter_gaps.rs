@@ -369,6 +369,54 @@ fn capture_paths_resolve_prior_tile_ids_without_retemplating_captured_values() {
 }
 
 #[test]
+fn resolved_argument_capture_reuses_the_exact_generated_uuid() {
+    let s = scenario(json!([
+        {
+            "call": "echo",
+            "args": {"ids": ["{{uuid}}"]},
+            "capture": {"selected_id": {"argument": "$.ids.0"}}
+        },
+        {
+            "call": "echo",
+            "args": {"id": "{{state.selected_id}}"},
+            "expect": {
+                "fields": [{"path": "id", "equals": "{{state.selected_id}}"}]
+            }
+        }
+    ]));
+    assert!(validate(&s).is_empty());
+
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(report.pass, "{}", report.detail);
+    assert_eq!(f.calls.len(), 2, "argument capture adds no call or record");
+    let selected_id = f.calls[0].1["ids"][0]
+        .as_str()
+        .expect("resolved select argument is a UUID");
+    assert!(uuid::Uuid::parse_str(selected_id).is_ok());
+    assert_eq!(f.calls[1].1["id"], selected_id);
+}
+
+#[test]
+fn missing_resolved_argument_capture_path_fails_before_dispatch() {
+    let s = scenario(json!([{
+        "call": "echo",
+        "args": {"ids": ["{{uuid}}"]},
+        "capture": {"selected_id": {"argument": "$.missing"}}
+    }]));
+    assert!(validate(&s).is_empty());
+
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(!report.pass);
+    assert!(report.detail.contains("argument capture `selected_id`"));
+    assert!(
+        f.calls.is_empty(),
+        "a missing capture path must not dispatch"
+    );
+}
+
+#[test]
 fn capture_path_references_must_precede_the_capture_step() {
     let s = scenario(json!([{"call":"echo","args":{"focused":42},
         "capture":{"tile":"$.focused",
