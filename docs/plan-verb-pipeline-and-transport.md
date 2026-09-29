@@ -2236,3 +2236,45 @@ only; root owns build and test verification.
 ### 2026-09-29 — P5c22 final native retirement proof
 
 With the final P5c15 archive cohort, the isolated imprint proof passed two XCTest cases and 14 shared transport calls. Retired document/comment URL checks, generated behavior and refusal snapshots passed; SQLite checks passed and owned PID 84629 exited. Evidence: `/tmp/impress-p5b-transport-y9waq_71/output/`, `/tmp/impress-p5c22-native-proof-final.log`. Generated Xcode path/ID churn was restored after the build.
+- 2026-09-29 — **P5c15 final Rust and quick-gate verification.** The final
+  touched-package command passed 95 tests with zero failures and three
+  ignored; all ten package gates passed, including native bindings and kit
+  standalone checks. Evidence: `/tmp/impress-p5c15-final-verify.log`,
+  `/tmp/impress-p5c15-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c15-final-*.log` files. Native app-host proof remains with
+  root.
+- 2026-09-29 — **P5c16 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c16-final-verify.log`,
+  `/tmp/impress-p5c16-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c16-final-*.log` files. Native consumer proofs remain with
+  root.
+- 2026-09-29 — **P5c17 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c17-final-verify.log`,
+  `/tmp/impress-p5c17-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c17-final-*.log` files. Native consumer proofs remain with
+  root.
+- 2026-09-29 — **P5c18 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c18-final-verify.log`,
+  `/tmp/impress-p5c18-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c18-final-*.log` files. Native consumer proofs remain with
+  root.
+- 2026-09-29 — **P5c20 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c20-final-verify.log`,
+  `/tmp/impress-p5c20-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c20-final-*.log` files. Native consumer proofs remain with
+  root.
+- 2026-09-29 — **P5c21 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c21-final-verify.log`,
+  `/tmp/impress-p5c21-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c21-final-*.log` files. Native consumer proofs remain with
+  root.
