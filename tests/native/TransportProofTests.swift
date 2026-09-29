@@ -329,10 +329,6 @@ final class TransportProofTests: XCTestCase {
         values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
     }
 
-    private func searchResultIDs(_ values: [Any]) -> [String] {
-        values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
-    }
-
     private func proveImprint(_ base: String, _ bearer: String) async throws {
         let status = try object(try await verb(base, bearer, "imprint-app-service_status", [:]),
                                 "imprint status")
