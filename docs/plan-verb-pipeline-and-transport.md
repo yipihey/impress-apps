@@ -1988,6 +1988,48 @@ transport proof compares generated and HTTP rows for a nested path, count,
 case-insensitive prefix and limit using only the PID-owned scratch library.
 No builds/tests, route removal or caller migration were performed here.
 
+- 2026-09-29 — **P5c16 metadata read consumers.** Imprint bridge list/detail now
+  uses the manuscript list/get and app get-content verbs, composing metadata
+  and source for word count and artifact preview while retaining absent dates
+  and linked imbib IDs. Implore bridge list/detail maps `FigureRecord` into its
+  public result, leaving HTTP-absent dataset name/format and null timestamps
+  absent; empty tags match the route's omission. Impart bridge now maps paged
+  conversations and detailed messages/statistics, retaining count, total,
+  offset, limit and filter query. Counsel's existing figure/conversation list
+  residue reads now use those generated result mappings. ArtifactResolver reads
+  document artifacts through ImprintBridge and retains metadata absence. The
+  current Counsel registry has no figure/conversation detail tool cases, so
+  this package adds no new agent tools. Route arms, binary export, writes and
+  imbib remain for their separate packages. Focused DTO decoding and canonical
+  transport fixtures were added; static review only, root verification pending.
+
+## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
+
+Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
+and added optional offset plus the finalized local read/collection/library/tag/
+flag/date filters. The bridge hydrates each summary through exact publication
+detail and BibTeX export verbs, retaining its existing `[ImbibPaper]` result
+shape. `getPaper(citeKey:)` now uses exact `imbib-search-service_find-by-cite-key`
+followed by the same hydration path, so misses remain `nil` without fuzzy
+search. Added `exportRIS(citeKeys:)` over the generated RIS export verb. The
+transport fixtures verify filter wire names, exact lookup, summary/detail field
+mapping, result ordering under concurrent hydration, and RIS forwarding. HTTP
+routes and other callers remain in place until hosted parity and root
+verification.
+
+- 2026-09-29 — **P5c18 implore figure export consumer.** The ImpressKit bridge
+  now calls `implore-service_export-figure-data` for image bytes and metadata
+  while keeping `exportFigure(id:format:) -> Data`; the richer method retains
+  renderer path, SHA-256, MIME type and byte count. The previous implementation
+  returned the HTTP route's JSON envelope as `Data`, despite the method's image
+  export contract. A repository-wide Swift caller audit found no consumers, so
+  the canonical result now returns the rendered bytes. Create/update/delete
+  routes also have no Swift callers; leave them without parallel bridge methods
+  and consider them eligible for retirement after their native/HTTP contract
+  proof. Counsel has only a figure-list tool, owned by the metadata consumer
+  package. Added mocked generated-verb transport and DTO fixtures. Static
+  review only; root verification pending.
+
 ## P5c20 — imbib container consumers (2026-09-29)
 
 Caller inventory found `ImprintIntegrationService.listDestinations()` as the
