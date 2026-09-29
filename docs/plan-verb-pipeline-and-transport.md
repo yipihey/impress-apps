@@ -1695,3 +1695,21 @@ containing allocation addresses; value equality fixes that test without changing
 production results. Failed evidence remains at
 `/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
 The existing debug linker unwind-size warning remains unchanged.
+
+- 2026-09-29 — **P5c3 implore figure read DTO parity.** `FigureRecord` now
+  decodes the full legacy figure dictionary: type, dimensions, optional axis
+  columns/title, timestamps, tags and folder ID. The current handler omits
+  `datasetName` and `viewState`; their optional DTO fields preserve absence and
+  accept null, while a Rust fixture exercises populated values from an enriched
+  host. The `custom` type fallback and HTTP 800×600 dimension defaults remain
+  intact. Native adapter and headless refusal tests cover the mapping, and the
+  isolated native proof compares generated list/get output with actual HTTP
+  fields and absent keys. Root verification passed 56 Rust tests (zero failures,
+  three ignored) and every quick gate after integrating merged library reads.
+  Store-ffi, impel-tools and implore-verbs-ffi were rebuilt for all supported
+  arm64 slices with swiftformat off PATH. Seven semantic-search dump tables
+  were regenerated unchanged. Both hosted XCTest cases and five shared
+  transport calls passed at `/tmp/impress-p5b-transport-xaasbfub/output/`;
+  SQLite symbol checks passed and owned PID 50195 exited. Logs are
+  `/tmp/impress-p5c3-final-{tests,gates}.log`,
+  `/tmp/impress-p5c3-frameworks.log` and `/tmp/impress-p5c3-native-proof.log`.
