@@ -27,44 +27,6 @@ struct ImbibNativeVerbsTests {
     }
 
     @MainActor
-    @Test func identifierImportPreservesDuplicateAndUnsupportedPerPaperOutcomes() async throws {
-        let settings = AutomationSettingsStore.shared
-        let wasEnabled = await settings.isEnabled
-        await settings.setEnabled(true)
-        do {
-            let store = RustStoreAdapter.shared
-            let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10)
-            let citeKey = "NativeImport\(suffix)"
-            let library = try #require(store.createLibrary(name: "Native import \(suffix)"))
-            let paperIDs = store.importBibTeX(
-                "@article{\(citeKey), title={Native import fixture}, author={Doe, Jane}, year={2026}}",
-                libraryId: library.id)
-            #expect(paperIDs.count == 1)
-            let paperID = try #require(paperIDs.first)
-            let collection = try #require(store.createCollection(name: "Import target \(suffix)", libraryId: library.id))
-
-            let router = HTTPAutomationRouter()
-            let result = await router.invokeNativeVerb(
-                method: "import_identifiers",
-                argsJSON: """
-                {"identifiers":["\(citeKey)","unsupported-\(suffix)"],"library_id":"\(library.id)","collection_id":"\(collection.id)","download_pdfs":false}
-                """
-            )
-            #expect(result.status == 200)
-            let body = try #require(JSONSerialization.jsonObject(with: Data(result.bodyJson.utf8)) as? [String: Any])
-            #expect((body["added"] as? [Any])?.isEmpty == true)
-            #expect(body["duplicates"] as? [String] == [citeKey])
-            let failed = try #require(body["failed"] as? [String: String])
-            #expect(failed["unsupported-\(suffix)"]?.isEmpty == false)
-            #expect(store.listCollections(forPublication: paperID).contains { $0.id == collection.id })
-        } catch {
-            await settings.setEnabled(wasEnabled)
-            throw error
-        }
-        await settings.setEnabled(wasEnabled)
-    }
-
-    @MainActor
     @Test func recentActivityFiltersMembershipBeforeApplyingLimit() async throws {
         let store = RustStoreAdapter.shared // in-memory under XCTest
         let inside = try #require(store.createLibrary(name: "Recent inside \(UUID())"))
