@@ -91,7 +91,7 @@
             "equals": "{{state.channel_param.value.decl.kind}}"
           },
           {
-            "path": "layout.channels.channels.{{state.channel_param.value.source.channel.number}}.{{state.channel_param.value.decl.kind}}",
+            "path": "layout.channels.{{state.channel_param.value.source.channel.number}}.{{state.channel_param.value.decl.kind}}",
             "equals": ["{{state.selected_id}}"]
           }
         ]

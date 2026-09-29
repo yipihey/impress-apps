@@ -3145,3 +3145,19 @@ per-scenario cleanup without evaluating expressions.
   guard preserves the original no-detail behavior. Focused interpreter and
   caller tests cover nullable detail and guarded wait behavior. No build or
   test run was performed in this package; root owns integrated verification.
+### 2026-09-28 — S2h verification
+
+The version-movement scenario passed 212 Rust tests (zero failures, three ignored),
+both clippy shards and every quick gate. Removed its two retired Rust helpers.
+Rebuilt impress-store-ffi and impel-tools for the supported arm64 macOS/iOS
+slices with swiftformat off PATH. The owned imprint proof passed two XCTests,
+two stored scenarios, three surface entries and all fourteen layout entries,
+with zero skips; version_moves ran through the interpreter. Native symbols
+passed and host PID 30217 exited. Evidence: `/tmp/impress-s2h-tests-final.log`,
+`/tmp/impress-s2h-final-*.log`, `/tmp/impress-s2h-frameworks.log`, and
+`/tmp/impress-g5-proof-gsvmopze/output/`.
+
+S2i native verification found that ChannelState serializes transparently: the
+HTTP path is `layout.channels.<number>.<kind>`, with no second channels wrapper.
+Corrected the scenario path; the failed proof is retained at
+`/tmp/impress-g5-proof-w4m628lv/output/`. Verification continues below.
