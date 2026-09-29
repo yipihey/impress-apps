@@ -5,9 +5,10 @@ import ImpressKit
 import ImpressLogging
 import PublicationManagerCore
 
-/// Immediate native mutations for the app-service edit verbs. The old REST
-/// handlers only queue DocumentRegistry operations; no editor consumes that
-/// queue after the PMC editor migration, so their 200 response is not a save.
+/// Immediate native mutations for app-service edit verbs and accepted
+/// suggestions. Several legacy REST edit handlers only queue
+/// DocumentRegistry operations; no editor consumes that queue after the PMC
+/// editor migration, so a successful queue response is not a save.
 @MainActor
 enum ImprintNativeEdits {
     static func apply(method: String, id: String, request: HTTPRequest) async -> HTTPResponse {
@@ -71,7 +72,7 @@ enum ImprintNativeEdits {
             ManuscriptSessionRegistry.shared.postManuscriptChanged(id: uuid)
             logInfo("Native \(method) saved and displayed for manuscript \(id)", category: "manuscripts")
             return .json(["status": "ok", "documentId": id])
-        case "insert_text", "delete_text", "replace":
+        case "insert_text", "delete_text", "replace", "replace_range":
             guard let session = ManuscriptSessionRegistry.shared.session(for: uuid) else {
                 return .serverError("Editor session unavailable")
             }
@@ -93,6 +94,14 @@ enum ImprintNativeEdits {
                     return .badRequest("Invalid deletion range")
                 }
                 edited.removeSubrange(range)
+            case "replace_range":
+                guard let start = args["start"] as? Int, let end = args["end"] as? Int,
+                      let replacement = args["text"] as? String,
+                      start >= 0, end >= start,
+                      let range = Range(NSRange(location: start, length: end - start), in: source) else {
+                    return .badRequest("Invalid replacement range or text")
+                }
+                edited.replaceSubrange(range, with: replacement)
             default:
                 guard let search = args["search"] as? String, !search.isEmpty,
                       let replacement = args["replacement"] as? String else {

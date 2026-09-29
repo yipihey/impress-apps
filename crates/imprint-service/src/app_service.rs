@@ -71,9 +71,22 @@ pub struct CommentRange {
     pub end: u32,
 }
 
+/// Acceptance is applied and saved through the live editor. The operation ID
+/// is the same handle returned by the retained HTTP route and can be polled.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SuggestionApplyResult {
+    pub accepted: bool,
+    #[serde(alias = "commentId")]
+    pub comment_id: String,
+    #[serde(alias = "documentId")]
+    pub document_id: String,
+    #[serde(alias = "operationId")]
+    pub operation_id: String,
+}
+
 #[cfg(test)]
 mod comment_contract_tests {
-    use super::CommentRecord;
+    use super::{CommentRecord, SuggestionApplyResult};
 
     #[test]
     fn comment_record_reads_the_retained_route_metadata_and_utf16_range() {
@@ -120,6 +133,22 @@ mod comment_contract_tests {
         assert!(record.proposed_text.is_none());
         assert!(record.author_agent_id.is_none());
         assert!(record.range.is_none());
+    }
+
+    #[test]
+    fn suggestion_apply_result_accepts_the_retained_route_response() {
+        let result: SuggestionApplyResult = serde_json::from_value(serde_json::json!({
+            "accepted": true,
+            "commentId": "comment-id",
+            "documentId": "document-id",
+            "operationId": "operation-id"
+        }))
+        .expect("retained accept route response deserializes");
+
+        assert!(result.accepted);
+        assert_eq!(result.comment_id, "comment-id");
+        assert_eq!(result.document_id, "document-id");
+        assert_eq!(result.operation_id, "operation-id");
     }
 }
 
@@ -342,8 +371,8 @@ pub trait ImprintAppService: Send + Sync + 'static {
     ) -> Option<CommentRecord>;
 
     /// Edit a comment's body, or set its status to `open` or `resolved`.
-    /// The native app refuses `accepted` and `rejected` until an immediate
-    /// suggestion action can preserve their distinct review semantics.
+    /// Use the dedicated suggestion actions to apply or reject a proposed edit;
+    /// this method accepts only `open` and `resolved`.
     #[impress_method]
     #[impress_example(
         name = "resolve_fixture_comment",
@@ -368,6 +397,16 @@ pub trait ImprintAppService: Send + Sync + 'static {
         expect = "true"
     )]
     async fn delete_comment(&self, comment_id: String) -> bool;
+
+    /// Accept a proposed replacement. The live editor applies and saves it at
+    /// the comment's UTF-16 range and returns its completed operation handle.
+    #[impress_method]
+    async fn accept_comment_suggestion(&self, comment_id: String) -> SuggestionApplyResult;
+
+    /// Reject a proposed replacement by resolving the comment without editing
+    /// the manuscript.
+    #[impress_method]
+    async fn reject_comment_suggestion(&self, comment_id: String) -> bool;
 }
 
 /// The store-backed default: refuses, because none of this exists outside the
@@ -495,6 +534,21 @@ impl ImprintAppService for DefaultImprintAppService {
         refuse("delete_comment");
         false
     }
+
+    async fn accept_comment_suggestion(&self, comment_id: String) -> SuggestionApplyResult {
+        refuse("accept_comment_suggestion");
+        SuggestionApplyResult {
+            accepted: false,
+            comment_id,
+            document_id: String::new(),
+            operation_id: String::new(),
+        }
+    }
+
+    async fn reject_comment_suggestion(&self, _comment_id: String) -> bool {
+        refuse("reject_comment_suggestion");
+        false
+    }
 }
 
 impress_service_impl! {
@@ -605,6 +659,14 @@ impress_service_impl! {
         ) -> bool,
         delete_comment(
             /// UUID of the comment to remove from an open manuscript.
+            comment_id: String
+        ) -> bool,
+        accept_comment_suggestion(
+            /// UUID of an unresolved suggestion to apply in the live editor.
+            comment_id: String
+        ) -> SuggestionApplyResult,
+        reject_comment_suggestion(
+            /// UUID of a suggestion to resolve without changing manuscript text.
             comment_id: String
         ) -> bool,
     ],

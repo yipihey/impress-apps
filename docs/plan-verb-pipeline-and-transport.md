@@ -1721,3 +1721,25 @@ compares a direct legacy suggestion/read and a generated filtered read on the
 same PID-owned scratch manuscript, then creates a generated threaded suggestion
 and verifies parent identity and inherited UTF-16 offsets. Root owns running
 the Rust/native verification and regenerating any generated assets.
+
+## P5c10 — imprint suggestion actions (2026-09-29)
+
+Added generated accept/reject suggestion actions by routing the native callback
+through the retained HTTP handlers. Inspection found `DocumentRegistry` has no
+imprint operation consumer after the editor migration; the old accept handler
+queued `replaceRange` but therefore did not apply or save it. Acceptance now
+validates the comment and proposed text, replaces the comment's UTF-16 range in
+the live editor session through the existing native save/readback path, registers
+and returns a completed operation ID, refreshes comment anchors against the new
+source, and then resolves only that comment. Rejection resolves without editing
+the manuscript. Failures remain explicit: malformed IDs are bad requests,
+missing comments are not found, non-suggestions cannot be accepted, and a failed
+live edit leaves the comment unresolved. `update-comment` still refuses
+accepted/rejected status values.
+
+`SuggestionApplyResult` retains the route's accepted flag, comment/document IDs,
+and operation ID. Rust coverage checks its route-response aliases. The hosted
+proof exercises direct HTTP and generated acceptance, verifies live-buffer and
+store readback at the expected UTF-16 replacement, and checks rejection leaves
+source unchanged. Root owns builds, tests, framework/binding regeneration, and
+final native verification.
