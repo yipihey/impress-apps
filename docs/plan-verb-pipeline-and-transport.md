@@ -1943,6 +1943,60 @@ identifier outcomes, add/remove persisted edges, invalid action/missing target,
 and an isolated route-versus-generated callback fixture. Root owns tests and
 native verification; no callers or routes are removed here.
 
+
+## P5c14 — imbib tag-count reads (2026-09-29)
+
+Extended `imbib-tags-service_list-tags-with-counts` with optional case-
+insensitive `prefix` and optional `limit` (default 100), applied after the
+shared store's full hierarchical count projection and preserving its existing
+order. `TagWithCount` now includes `id = path` and the parent path derived from
+the last `/`. The native HTTP `/api/tags` projection now returns this stable
+path as `id`; this intentionally replaces the old freshly-generated UUID,
+which changed on every read and could not identify a tag across calls. Existing
+name/path/count, prefix, hierarchy and `/tags/tree` behavior remain intact.
+
+Scratch Rust fixtures cover nested counts, case-insensitive prefix filtering,
+no-match behavior, limit/order and stable hierarchy identity. The opt-in hosted
+transport proof compares generated and HTTP rows for a nested path, count,
+case-insensitive prefix and limit using only the PID-owned scratch library.
+No route removal or caller migration is part of this package.
+
+- 2026-09-29 — **P5c14 Rust/gates verified.** The focused package run passed
+  90 tests with zero failures and three ignored across `imbib-service`,
+  `imbib-verbs-ffi` and `impress-capabilities`; every P5c14 quick gate passed
+  (fmt, both clippy scopes, coverage/docs, kit dependency/standalone/package
+  checks, UniFFI bindings, schema refs and hakari). The first clippy pass caught
+  the new prefix predicate's `map_or` lint; it was corrected to `is_none_or`
+  and the full gates passed. Tables and the tag reference page were regenerated
+  from the semantic-search inventory dump/default doc generator respectively.
+  Evidence: `/tmp/impress-p5c14-touched-tests.log`,
+  `/tmp/impress-p5c14-inventory-dump.log` and `/tmp/impress-p5c14-{fmt,clippy-rest,clippy-imprint,coverage,docs,deps,standalone,packages,bindings,schema,hakari}.log`.
+  Hosted transport verification and archive builds remain with root.
+
+- 2026-09-29 — **P5c14 native follow-up: cross-handle tag cache.** The hosted
+  proof failed because generated tag reads returned the two seeded paths while
+  legacy `/api/tags` returned an empty list. Both Swift and Rust prefix
+  predicates are case-insensitive, so the fixture's uppercase prefix was
+  valid; the underlying issue is that the app's Swift FFI handle and generated
+  service handle cache tag definitions independently. A handle's cache was
+  not invalidated when the other connection committed. `ImbibStore` now keys
+  its tag-definition cache by SQLite `data_version` and avoids caching a
+  snapshot if another handle writes during the read. A focused two-handle
+  regression covers an initially empty reader followed by a tag written
+  through a second store handle. This source change is not yet Rust-verified;
+  it requires fresh imbib-core-dependent native archives before the hosted
+  proof can be rerun. Failure evidence:
+  `/tmp/impress-p5b-transport-44jczzva/test.log` and
+  `/tmp/impress-p5b-transport-44jczzva/output/calls.json`.
+
+- 2026-09-29 — **P5c14 effect declarations after cache coherence.** The
+  `data_version` check makes tag-definition reads visible in more Tier A
+  examples than before. Added the observed `imbib/tag-definition` reads to
+  `retention-cleanup` and `update-collection-members`; the existing
+  `list-tags-with-counts` example now observes its declared read, so its
+  reviewed exception is removed by root's effects-table regeneration. Root
+  owns the rebuilt archives and rerun; no tests or builds were run here.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -2040,3 +2094,18 @@ native verification; no callers or routes are removed here.
   `/tmp/impress-p5b-transport-q7tt7qri/output/` and
   `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
   Root corrected a fixture helper's UUID/string argument before verification.
+
+- 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
+  (zero failures, three ignored), every quick gate, and full supported arm64
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi builds. The final owned
+  native proof passed three XCTest cases and 37 transport calls, including
+  stable tag path identity, hierarchy/counts, case-insensitive prefix filters
+  and limits. SQLite checks passed; owned PID 51204 exited. Evidence:
+  `/tmp/impress-p5b-transport-xz36o8we/output/` and
+  `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-verified.log`.
+  Native verification exposed a per-handle tag cache that hid generated writes
+  from Swift readers; it now checks SQLite's data version. A separate cold/warm
+  regression pins logical read evidence, and normal builds keep observation
+  disabled through the store wrapper. The newly observable reads are declared;
+  tables were regenerated from the tests' dump, including the newly verified
+  tag-count example. No user app or store was touched.

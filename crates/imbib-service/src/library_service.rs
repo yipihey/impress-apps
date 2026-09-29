@@ -590,7 +590,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     ) -> MutationResult;
     /// Add or remove existing papers by the same local identifiers accepted
     /// by the retained collection HTTP routes. Results preserve input order.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "imbib/library", "imbib/bibliography-entry"], writes = ["imbib/collection"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition"], writes = ["imbib/collection"]))]
     #[impress_example(
         name = "file-existing-paper",
         args = r#"{"collection_id":"5c000000-0000-4000-8000-0000000000c1","identifiers":["G3Membership2026","missing-G3"],"action":"add"}"#,
@@ -1026,7 +1026,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     #[impress_method(
         safety = destructive,
         effects(
-            reads = ["imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper"],
+            reads = ["imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper", "imbib/tag-definition"],
             writes = ["imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper"],
         )
     )]

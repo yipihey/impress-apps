@@ -277,6 +277,56 @@ final class TransportProofTests: XCTestCase {
         try require((legacyError["error"] as? String)?.contains("Provide at least") == true &&
                     (generatedError["message"] as? String)?.contains("Provide at least") == true,
                     "both surfaces explain the missing citation input")
+
+        let tagRoot = "p5c14-" + UUID().uuidString.lowercased()
+        let tagChild = tagRoot + "/nested"
+        _ = try object(try await verb(base, bearer, "imbib-tags-service_create-tag", [
+            "path": tagRoot, "color_light": NSNull(), "color_dark": NSNull()
+        ]), "create tag parent")
+        _ = try object(try await verb(base, bearer, "imbib-tags-service_create-tag", [
+            "path": tagChild, "color_light": NSNull(), "color_dark": NSNull()
+        ]), "create nested tag")
+        _ = try object(try await verb(base, bearer, "imbib-tags-service_add-tag", [
+            "ids": [paperID], "tag_path": tagChild
+        ]), "assign nested tag")
+        let generatedTags = try array(try await verb(base, bearer,
+            "imbib-tags-service_list-tags-with-counts", [
+                "prefix": tagRoot.uppercased(), "limit": 10
+            ]), "generated hierarchical tag counts")
+            .compactMap { $0 as? [String: Any] }
+        let legacyTagEnvelope = try object(try await request(base, bearer,
+            "/api/tags?prefix=\(tagRoot.uppercased())&limit=10", nil),
+            "legacy hierarchical tag counts")
+        let legacyTags = try XCTUnwrap(legacyTagEnvelope["tags"] as? [[String: Any]])
+        try require(generatedTags.count == 2 && legacyTags.count == 2,
+                    "prefix filtering returns only the parent and nested tag")
+        for path in [tagRoot, tagChild] {
+            let generatedTag = try XCTUnwrap(generatedTags.first { $0["path"] as? String == path })
+            let legacyTag = try XCTUnwrap(legacyTags.first { $0["canonicalPath"] as? String == path })
+            let parent = path == tagRoot ? nil : tagRoot
+            try require(generatedTag["id"] as? String == path &&
+                        legacyTag["id"] as? String == path &&
+                        generatedTag["parent_path"] as? String == parent &&
+                        legacyTag["parentPath"] as? String == parent &&
+                        generatedTag["publication_count"] as? Int == 1 &&
+                        legacyTag["publicationCount"] as? Int == 1 &&
+                        legacyTag["useCount"] as? Int == 1,
+                        "stable path identity, hierarchy and descendant count agree for \(path)")
+        }
+        let generatedLimited = try array(try await verb(base, bearer,
+            "imbib-tags-service_list-tags-with-counts", [
+                "prefix": tagRoot.uppercased(), "limit": 1
+            ]), "generated limited tag counts")
+        let legacyLimited = try await request(base, bearer,
+            "/api/tags?prefix=\(tagRoot.uppercased())&limit=1", nil)
+        let legacyLimitedTags = try XCTUnwrap(
+            (legacyLimited.value as? [String: Any])?["tags"] as? [[String: Any]])
+        let generatedLimitedPath = try XCTUnwrap(
+            (generatedLimited.first as? [String: Any])?["path"] as? String)
+        let legacyLimitedPath = try XCTUnwrap(legacyLimitedTags.first?["canonicalPath"] as? String)
+        try require(generatedLimited.count == 1 && legacyLimited.status == 200 &&
+                    legacyLimitedTags.count == 1 && generatedLimitedPath == legacyLimitedPath,
+                    "both surfaces apply the same limit without reordering")
     }
 
     private func array(_ value: Any, _ label: String) throws -> [Any] {

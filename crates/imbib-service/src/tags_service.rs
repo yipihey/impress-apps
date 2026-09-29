@@ -37,8 +37,13 @@ impl From<&imbib_core::unified::shaped_queries::TagDisplayRow> for TagRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TagWithCount {
+    /// Stable identity: the store's tag path (not a fresh UUID per read).
+    #[serde(default)]
+    pub id: String,
     #[serde(default)]
     pub path: String,
+    #[serde(alias = "parentPath", default, skip_serializing_if = "Option::is_none")]
+    pub parent_path: Option<String>,
     #[serde(alias = "leafName", default)]
     pub leaf_name: String,
     #[serde(alias = "colorLight", default)]
@@ -52,7 +57,12 @@ pub struct TagWithCount {
 impl From<&imbib_core::unified::shaped_queries::TagWithCountRow> for TagWithCount {
     fn from(r: &imbib_core::unified::shaped_queries::TagWithCountRow) -> Self {
         Self {
+            id: r.path.clone(),
             path: r.path.clone(),
+            parent_path: r
+                .path
+                .rsplit_once('/')
+                .map(|(parent, _)| parent.to_string()),
             leaf_name: r.leaf_name.clone(),
             color_light: r.color_light.clone(),
             color_dark: r.color_dark.clone(),
@@ -74,12 +84,22 @@ pub trait ImbibTagsService: Send + Sync + 'static {
     #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn list_tags(&self) -> Vec<TagRecord>;
-    /// List every tag with the number of papers carrying it. As expensive as
-    /// `imbib-tags-service_list-tags`: each count is recomputed, so on a large
-    /// vocabulary prefer `imbib-tags-service_count-by-tag` for one tag.
+    /// List tags with publication counts, matching GET `/api/tags`: an
+    /// optional case-insensitive path prefix is applied before the optional
+    /// limit (default 100), in the store's existing order. Parent paths are
+    /// derived from `/` hierarchy segments, and `id` is the stable path.
+    /// Counts roll up descendant tags as the store's shared tag kernel does.
     #[impress_method(safety = read_only, effects(reads = ["imbib/tag-definition", "imbib/bibliography-entry"]))]
-    #[impress_example(name = "default", args = r#"{}"#)]
-    async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
+    #[impress_example(
+        name = "path-filter",
+        tier = "a",
+        args = r#"{"prefix":"methods","limit":10}"#
+    )]
+    async fn list_tags_with_counts(
+        &self,
+        prefix: Option<String>,
+        limit: Option<u32>,
+    ) -> Vec<TagWithCount>;
     /// Create a tag in the library's tag vocabulary, optionally with
     /// light/dark display colors. Paths are hierarchical with '/' (e.g.
     /// 'method/mcmc'). This does NOT put the tag on any paper —
@@ -211,14 +231,27 @@ impl ImbibTagsService for DefaultImbibTagsService {
                 vec![]
             })
     }
-    async fn list_tags_with_counts(&self) -> Vec<TagWithCount> {
-        self.store
-            .list_tags_with_counts()
-            .map(|rs| rs.iter().map(TagWithCount::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| {
-                log("list_tags_with_counts", e);
-                vec![]
+    async fn list_tags_with_counts(
+        &self,
+        prefix: Option<String>,
+        limit: Option<u32>,
+    ) -> Vec<TagWithCount> {
+        let rows = self.store.list_tags_with_counts().unwrap_or_else(|e| {
+            log("list_tags_with_counts", e);
+            vec![]
+        });
+        let prefix = prefix
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_lowercase());
+        rows.iter()
+            .map(TagWithCount::from)
+            .filter(|tag| {
+                prefix
+                    .as_ref()
+                    .is_none_or(|prefix| tag.path.to_lowercase().starts_with(prefix))
             })
+            .take(limit.unwrap_or(100) as usize)
+            .collect()
     }
     async fn create_tag(
         &self,
@@ -326,7 +359,12 @@ impress_service_impl! {
     instance = || crate::backend::tags_service_instance(),
     methods = [
         list_tags() -> Vec<TagRecord>,
-        list_tags_with_counts() -> Vec<TagWithCount>,
+        list_tags_with_counts(
+            /// Case-insensitive prefix for canonical hierarchical paths.
+            prefix: Option<String>,
+            /// Maximum rows after prefix filtering; defaults to 100.
+            limit: Option<u32>,
+        ) -> Vec<TagWithCount>,
         create_tag(
             /// The hierarchical path to create, e.g. `"methods/sims"`.
             path: String,
@@ -390,4 +428,78 @@ impress_service_impl! {
             parent_id: Option<String>,
         ) -> u32,
     ],
+}
+
+#[cfg(test)]
+mod tag_read_contract_tests {
+    use super::*;
+
+    #[test]
+    fn generated_tag_count_contract_has_prefix_limit_and_hierarchy_fields() {
+        let tool = impress_service_core::McpToolDescriptor::iter()
+            .find(|tool| tool.name == "imbib-tags-service_list-tags-with-counts")
+            .expect("list-tags-with-counts is registered");
+        let input = (tool.input_schema)();
+        assert!(input["properties"].get("prefix").is_some());
+        assert!(input["properties"].get("limit").is_some());
+    }
+
+    #[tokio::test]
+    async fn tag_count_read_filters_limits_and_returns_stable_hierarchy() {
+        let store = ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Tag contract".into()).unwrap();
+        let paper = store
+            .import_bibtex(
+                "@article{tagcontract, title={Tag count contract}}".into(),
+                library.id,
+            )
+            .unwrap()
+            .remove(0);
+        let root = format!("p5c14-{}", uuid::Uuid::new_v4().simple());
+        let child = format!("{root}/nested");
+        store.create_tag(root.clone(), None, None).unwrap();
+        store.create_tag(child.clone(), None, None).unwrap();
+        store.add_tag(vec![paper], child.clone()).unwrap();
+        store
+            .create_tag(format!("unrelated-{root}"), None, None)
+            .unwrap();
+
+        let service = DefaultImbibTagsService::new(store);
+        let filtered = service
+            .list_tags_with_counts(Some(root.to_uppercase()), Some(10))
+            .await;
+        assert_eq!(
+            filtered.len(),
+            2,
+            "only the matching parent and child paths"
+        );
+        let by_path: std::collections::HashMap<_, _> = filtered
+            .iter()
+            .map(|tag| (tag.path.as_str(), tag))
+            .collect();
+        let parent = by_path.get(root.as_str()).unwrap();
+        assert_eq!(parent.id, root);
+        assert_eq!(parent.parent_path, None);
+        assert_eq!(
+            parent.publication_count, 1,
+            "parent rolls up descendant use"
+        );
+        let nested = by_path.get(child.as_str()).unwrap();
+        assert_eq!(nested.id, child);
+        assert_eq!(nested.parent_path.as_deref(), Some(root.as_str()));
+        assert_eq!(nested.publication_count, 1);
+        assert!(service
+            .list_tags_with_counts(Some("no-such-p5c14-prefix".into()), None)
+            .await
+            .is_empty());
+
+        let limited = service
+            .list_tags_with_counts(Some(root.to_uppercase()), Some(1))
+            .await;
+        assert_eq!(limited.len(), 1);
+        assert_eq!(
+            limited[0].path, filtered[0].path,
+            "limit preserves kernel order"
+        );
+    }
 }

@@ -1731,7 +1731,7 @@ public actor AutomationService: AutomationOperations {
             : nil
 
         return TagResult(
-            id: UUID(),  // TagDefinition uses path as ID, generate UUID for TagResult
+            id: tag.path,
             name: tag.leafName,
             canonicalPath: tag.path,
             parentPath: parentPath,

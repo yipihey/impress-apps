@@ -383,7 +383,7 @@ pub struct ImbibStore {
     pub(crate) store: SqliteItemStore,
     #[allow(dead_code)] // Available for validation in future phases
     registry: impress_core::SchemaRegistry,
-    tag_defs_cache: std::sync::Mutex<Option<Vec<TagDisplayRow>>>,
+    tag_defs_cache: std::sync::Mutex<Option<(i64, Vec<TagDisplayRow>)>>,
     /// Which e-ink device (if any) puts a marker on list rows; see
     /// `crate::eink::store`. Keyed by a fingerprint of the device rows so a
     /// device configured from another process is noticed on the next query.
@@ -3901,6 +3901,11 @@ impl ImbibStore {
         // and an item tagged with several descendants of one definition
         // counts ONCE. (The old arm's accidental treatment of `%`/`_` inside
         // a tag path as wildcards is deliberately not reproduced.)
+        // `query_raw` is intentionally a narrow SQL escape hatch and does not
+        // carry schema metadata for the effects recorder. Record the logical
+        // bibliography-entry read here at the query site.
+        self.store
+            .record_logical_read(&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY);
         let pairs: Vec<(String, String)> = self.store.query_raw(
             "SELECT t.tag_path, t.item_id FROM item_tags t
               WHERE EXISTS (SELECT 1 FROM items i
@@ -5222,10 +5227,25 @@ impl ImbibStore {
     }
 
     fn load_tag_definitions(&self) -> Result<Vec<TagDisplayRow>, StoreApiError> {
-        // Return cached tag definitions if available
-        if let Some(cached) = self.tag_defs_cache.lock().unwrap().as_ref() {
-            return Ok(cached.clone());
+        // Swift and generated-service handles can point at the same SQLite
+        // file while keeping separate caches. PRAGMA data_version changes
+        // when another connection commits, so only reuse the cache when no
+        // other handle has written since it was populated.
+        let mut cache = self.tag_defs_cache.lock().unwrap();
+        let data_version = self.store.data_version()?;
+        if let Some((cached_version, cached)) = cache.as_ref() {
+            if *cached_version == data_version {
+                // A cache hit still semantically reads the tag vocabulary.
+                // Keep effects evidence stable across cold and warm access;
+                // without this, the Tier A store spy sees whichever example
+                // happened to populate the cache first, rather than the
+                // operation's actual dependency.
+                self.store
+                    .record_logical_read(&impress_core::schema::refs::IMBIB_TAG_DEFINITION);
+                return Ok(cached.clone());
+            }
         }
+        *cache = None;
 
         let q = ItemQuery {
             schema: Some(impress_core::schema::refs::IMBIB_TAG_DEFINITION),
@@ -5263,8 +5283,13 @@ impl ImbibStore {
             })
             .collect();
 
-        // Populate cache
-        *self.tag_defs_cache.lock().unwrap() = Some(result.clone());
+        // Do not cache a snapshot if another connection committed during the
+        // query. The caller still gets the query result, and the next call
+        // will reload against the current database version.
+        let version_after_read = self.store.data_version()?;
+        if version_after_read == data_version {
+            *cache = Some((version_after_read, result.clone()));
+        }
         Ok(result)
     }
 
@@ -6132,6 +6157,52 @@ mod tests {
 
         let tags = store.list_tags().unwrap();
         assert_eq!(tags.len(), 2);
+    }
+
+    #[test]
+    fn tag_definition_cache_refreshes_after_another_store_handle_writes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let reader = ImbibStore::open(path.to_string_lossy().into_owned()).unwrap();
+        let writer = ImbibStore::open(path.to_string_lossy().into_owned()).unwrap();
+
+        // Prime the reader handle's cache before the other handle writes.
+        assert!(reader.list_tags().unwrap().is_empty());
+        writer
+            .create_tag("p5c14/cache-coherence".into(), None, None)
+            .unwrap();
+
+        let rows = reader.list_tags_with_counts().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].path, "p5c14/cache-coherence");
+    }
+
+    #[test]
+    fn tag_count_effects_are_the_same_on_cold_and_warm_cache_reads() {
+        let store = make_store();
+        store
+            .create_tag("p5c14/effect-evidence".into(), None, None)
+            .unwrap();
+
+        impress_core::effects_spy::start();
+        let cold_rows = store.list_tags_with_counts().unwrap();
+        let cold = impress_core::effects_spy::stop();
+
+        impress_core::effects_spy::start();
+        let warm_rows = store.list_tags_with_counts().unwrap();
+        let warm = impress_core::effects_spy::stop();
+
+        assert_eq!(cold_rows.len(), warm_rows.len());
+        for (cold, warm) in cold_rows.iter().zip(&warm_rows) {
+            assert_eq!(cold.path, warm.path);
+            assert_eq!(cold.leaf_name, warm.leaf_name);
+            assert_eq!(cold.color_light, warm.color_light);
+            assert_eq!(cold.color_dark, warm.color_dark);
+            assert_eq!(cold.publication_count, warm.publication_count);
+        }
+        assert!(cold.reads.contains("imbib/tag-definition"));
+        assert!(cold.reads.contains("imbib/bibliography-entry"));
+        assert_eq!(cold.reads, warm.reads);
     }
 
     // --- New method tests ---

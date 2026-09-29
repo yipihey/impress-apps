@@ -1092,7 +1092,7 @@ Remove papers past their retention window (imbib CLAUDE.md "Background Services 
 Three sources, each independent and each reading its own threshold from the settings registry (R1) rather than an argument: - **Inbox**: `imbib.retention.inbox_days` (0 = keep forever) and `imbib.retention.auto_remove_read`. Every removed inbox paper is first recorded with `dismiss_paper` (by DOI/arXiv/bibcode/cite key) so a later import or feed refresh does not bring it back — "a dismissed paper must never re-enter the inbox" (imbib CLAUDE.md). - **Feed collections**: every `imbib/smart-search` row carrying its own per-collection `retention_days` and `auto_remove_read`. - **Exploration**: `imbib.retention.exploration_days`, applied to executed smart searches under the library pointer migrated from imbib's legacy `explorationLibraryID` setting. A valid explicit `exploration_library_id` takes precedence over that stored pointer.
 
 - **safety**: `destructive`
-- **reads**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper"
+- **reads**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper", "imbib/tag-definition"
 - **writes**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper"
 - **reach**: —
 
@@ -1292,7 +1292,7 @@ Takes no arguments.
 Add or remove existing papers by the same local identifiers accepted by the retained collection HTTP routes. Results preserve input order.
 
 - **safety**: `mutating`
-- **reads**: "imbib/collection", "imbib/library", "imbib/bibliography-entry"
+- **reads**: "imbib/collection", "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition"
 - **writes**: "imbib/collection"
 - **reach**: —
 
