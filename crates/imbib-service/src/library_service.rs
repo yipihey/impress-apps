@@ -503,16 +503,26 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         expect = r#"{"name":"G3 reading project","is_default":false}"#
     )]
     async fn create_library(&self, name: String) -> Option<LibraryRecord>;
-    /// Delete a library with its collections and memberships. The store hands
-    /// back an undo snapshot that this verb drops (plan-auto-gui finding S-2),
-    /// so on this path the deletion is not undoable: take a backup first.
-    #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
+    /// Delete a library with its collections and memberships. `delete_files`
+    /// also removes its shared and legacy file containers, which requires the
+    /// running imbib app. Store undo does not restore removed file bytes.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), fs]))]
     #[impress_example(
         name = "remove-empty-library",
-        args = r#"{"id":"5c000000-0000-4000-8000-00000000000a"}"#,
+        args = r#"{"id":"5c000000-0000-4000-8000-00000000000a","delete_files":false}"#,
         expect = r#"{"ok":true,"affected_count":1}"#
     )]
-    async fn delete_library_undoable(&self, id: String) -> MutationResult;
+    async fn delete_library_undoable(&self, id: String, delete_files: bool) -> MutationResult;
+    /// Delete a batch of existing libraries after validating every UUID and
+    /// library before any filesystem or store mutation. Removed file bytes are
+    /// not restored by store undo.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), fs]))]
+    #[impress_example(
+        name = "delete-library-batch",
+        args = r#"{"ids":["5c000000-0000-4000-8000-00000000000d","5c000000-0000-4000-8000-00000000000e"],"delete_files":false}"#,
+        expect = r#"2"#
+    )]
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32;
     /// Get the library new papers are filed into by default, if one is set.
     #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
@@ -1326,14 +1336,136 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .map_err(|e| log("create_library", e))
             .ok()
     }
-    async fn delete_library_undoable(&self, id: String) -> MutationResult {
-        match self.store.delete_library_undoable(id) {
+    async fn delete_library_undoable(&self, id: String, delete_files: bool) -> MutationResult {
+        let library_id = match uuid::Uuid::parse_str(&id) {
+            Ok(id) => id.to_string(),
+            Err(error) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                    format!("Invalid library UUID: {error}"),
+                );
+                return fail();
+            }
+        };
+        match self.store.get_library(library_id.clone()) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Library {library_id} was not found"),
+                );
+                return fail();
+            }
+            Err(error) => {
+                log("delete_library_undoable/preflight", &error);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    error.to_string(),
+                );
+                return fail();
+            }
+        }
+        if crate::backend::has_app_service_backend() {
+            return if crate::backend::app_service_instance()
+                .delete_library(library_id, delete_files)
+                .await
+            {
+                ok_n(1)
+            } else {
+                fail()
+            };
+        }
+        if delete_files {
+            // The headless backend cannot safely locate or remove native file containers.
+            let _ = crate::backend::app_service_instance()
+                .delete_library(library_id, true)
+                .await;
+            return fail();
+        }
+        match self.store.delete_library_undoable(library_id) {
             Ok(_) => ok_n(1),
             Err(e) => {
                 log("delete_library_undoable", e);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    "Library deletion failed after preflight",
+                );
                 fail()
             }
         }
+    }
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32 {
+        let mut parsed = match ids
+            .iter()
+            .map(|id| uuid::Uuid::parse_str(id).map(|uuid| uuid.to_string()))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(ids) => ids,
+            Err(error) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                    format!("One or more library IDs are invalid UUIDs: {error}"),
+                );
+                return 0;
+            }
+        };
+        // A library is deleted and counted once even when an ID is repeated.
+        let mut seen = std::collections::HashSet::new();
+        parsed.retain(|id| seen.insert(id.clone()));
+        if parsed.is_empty() {
+            return 0;
+        }
+
+        // Preflight every row before cleanup or deletion so an unknown later
+        // ID cannot leave an earlier library half-deleted.
+        for id in &parsed {
+            match self.store.get_library(id.clone()) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::NOT_FOUND,
+                        format!("Library {id} was not found; batch was not changed"),
+                    );
+                    return 0;
+                }
+                Err(error) => {
+                    log("delete_libraries/preflight", &error);
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::STORE_ERROR,
+                        error.to_string(),
+                    );
+                    return 0;
+                }
+            }
+        }
+        if crate::backend::has_app_service_backend() {
+            return crate::backend::app_service_instance()
+                .delete_libraries(parsed, delete_files)
+                .await;
+        }
+        if delete_files {
+            // Refuse before mutation when running without the app-owned file service.
+            let _ = crate::backend::app_service_instance()
+                .delete_libraries(parsed, true)
+                .await;
+            return 0;
+        }
+
+        let mut deleted = 0;
+        for id in parsed {
+            match self.store.delete_library_undoable(id) {
+                Ok(_) => deleted += 1,
+                Err(error) => {
+                    log("delete_libraries", &error);
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::STORE_ERROR,
+                        format!("Batch deleted {deleted} libraries before a store error: {error}"),
+                    );
+                    break;
+                }
+            }
+        }
+        deleted
     }
     async fn get_default_library(&self) -> Option<LibraryRecord> {
         self.store
@@ -2405,8 +2537,16 @@ impress_service_impl! {
         ) -> Option<LibraryRecord>,
         delete_library_undoable(
             /// UUID of the library to delete with its collections.
-            id: String
+            id: String,
+            /// Whether to remove its shared and legacy library-file containers.
+            delete_files: bool
         ) -> MutationResult,
+        delete_libraries(
+            /// UUIDs of libraries to delete; every UUID and row is preflighted.
+            ids: Vec<String>,
+            /// Whether to remove their shared and legacy library-file containers.
+            delete_files: bool
+        ) -> u32,
         get_default_library() -> Option<LibraryRecord>,
         set_library_default(
             /// UUID of the library that should receive new papers by default.
@@ -3089,7 +3229,7 @@ mod tests {
             .filter(|d| d.name.starts_with("imbib-library-service_"))
             .map(|d| d.name)
             .collect();
-        // 44 methods registered (see methods = [...] above)
+        // 45 methods registered (see methods = [...] above)
         assert!(
             names.len() >= 40,
             "expected >=40 library-service methods, got {}: {names:?}",
@@ -3320,5 +3460,57 @@ mod tests {
         assert!(!store
             .is_paper_dismissed(None, None, None, Some("ExplorationPaper2024".into()))
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_libraries_preflights_every_existing_row_before_mutating() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let first = store
+            .create_library("First scratch library".into())
+            .unwrap();
+        let missing = "50000000-0000-4000-8000-000000000001".to_string();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let deleted = service
+            .delete_libraries(vec![first.id.clone(), missing.clone()], false)
+            .await;
+
+        assert_eq!(deleted, 0);
+        assert!(store.get_library(first.id).unwrap().is_some());
+        assert!(store.get_library(missing).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn repeated_library_ids_are_deleted_and_counted_once() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store
+            .create_library("Duplicate deletion fixture".into())
+            .unwrap();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+        assert_eq!(
+            service
+                .delete_libraries(vec![library.id.clone(), library.id.clone()], false)
+                .await,
+            1
+        );
+        assert!(store.get_library(library.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_verbs_publish_the_filesystem_choice_and_batch_signature() {
+        let single = impress_service_core::VerbDescriptor::find(
+            "imbib-library-service_delete-library-undoable",
+        )
+        .unwrap();
+        let single_schema = (single.input_schema)();
+        assert!(single_schema["properties"].get("delete_files").is_some());
+
+        let batch =
+            impress_service_core::VerbDescriptor::find("imbib-library-service_delete-libraries")
+                .unwrap();
+        let batch_schema = (batch.input_schema)();
+        assert!(batch_schema["properties"].get("ids").is_some());
+        assert!(batch_schema["properties"].get("delete_files").is_some());
+        assert_eq!(batch.service, "imbib-library-service");
     }
 }

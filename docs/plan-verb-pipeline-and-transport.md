@@ -1751,6 +1751,22 @@ Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
 
+## P5c15 — imbib library deletion contract (2026-09-29)
+
+Extended single library deletion with `delete_files` and added validated batch
+deletion. The store preflights every batch UUID and existing library before
+file cleanup or row mutation; `delete_files: false` remains a store-only unlink,
+while `true` reaches the running app's shared + legacy container cleanup. File
+cleanup errors now refuse the store deletion and disclose if earlier containers
+in that batch were already removed. The generated methods do not return store
+undo snapshots, and an undo cannot recreate deleted filesystem bytes.
+
+Rust coverage checks the single/batch argument schemas and proves a valid first
+ID plus a missing later ID leaves the first library intact. Native scratch
+coverage checks unlink-only file preservation and the callback's exact
+container cleanup. Root owns builds, tests and native framework verification;
+this package ran static formatting and diff checks only.
+
 - 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
   `implore-service_export-figure-data` with fractional width/height,
   scale and optional view-state arguments. The native callback reuses the HTTP
@@ -2095,6 +2111,26 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c13-{tests,gates,frameworks,native-proof}.log`.
   Root corrected a fixture helper's UUID/string argument before verification.
 
+- 2026-09-29 — **P5c14/P5c15 Rust verification.** P5c14 passed 90 touched Rust
+  tests (zero failures, three ignored) and every package gate. P5c15 passed 95
+  touched Rust tests (zero failures, three ignored), including the generated
+  library-deletion dispatch effects checks, and every package gate. The two
+  deletion verbs remain classified destructive; the documented reach ceiling
+  increases from 152 to 154 for the native file-cleanup operations, while the
+  headless Tier A examples cover unlink-only behavior. The owned hosted
+  `LibraryDeletionContractTests` fixture now exercises generated dispatch,
+  unlink-only preservation, single/batch file cleanup, duplicate IDs and
+  missing-row preflight; root's native execution is pending. Evidence:
+  `/tmp/impress-p5c14-touched-tests.log`, `/tmp/impress-p5c14-packages.log`,
+  `/tmp/impress-p5c15-touched-tests-all.log`, and `/tmp/impress-p5c15-*.log`.
+- 2026-09-29 — **P5c15 final Rust and quick-gate verification.** The final
+  touched-package command passed 95 tests with zero failures and three
+  ignored; all ten package gates passed, including native bindings and kit
+  standalone checks. Evidence: `/tmp/impress-p5c15-final-verify.log`,
+  `/tmp/impress-p5c15-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c15-final-*.log` files. Native app-host proof remains with
+  root.
+
 - 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
   (zero failures, three ignored), every quick gate, and full supported arm64
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi builds. The final owned
@@ -2109,3 +2145,15 @@ No route removal or caller migration is part of this package.
   disabled through the store wrapper. The newly observable reads are declared;
   tables were regenerated from the tests' dump, including the newly verified
   tag-count example. No user app or store was touched.
+
+- 2026-09-29 — **P5c15 native verification complete.** Full supported arm64
+  store-ffi, impel-tools and imbib-verbs-ffi rebuilds passed against the final
+  cache-coherent ImbibCore cohort. The isolated host passed all four XCTest
+  cases and 37 shared transport calls, including generated single/batch
+  deletion, duplicate IDs, unlink-only file preservation, scratch-file removal,
+  store readback and missing-row refusal before mutation. SQLite checks passed;
+  owned PID 57922 exited. Evidence:
+  `/tmp/impress-p5b-transport-xqt71k0m/output/` and
+  `/tmp/impress-p5c15-{frameworks,native-proof}-final.log`. The earlier host run
+  passed deletion but exposed the shared stale tag cache; this final run
+  includes P5c14's verified fix. No user files or running apps were touched.

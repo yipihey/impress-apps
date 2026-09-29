@@ -316,17 +316,45 @@ Merge duplicate papers within a library and hard-delete the duplicate rows (not 
   1
   ```
 
-## `imbib-library-service_delete-library-undoable`
+## `imbib-library-service_delete-libraries`
 
-Delete a library with its collections and memberships. The store hands back an undo snapshot that this verb drops (plan-auto-gui finding S-2), so on this path the deletion is not undoable: take a backup first.
+Delete a batch of existing libraries after validating every UUID and library before any filesystem or store mutation. Removed file bytes are not restored by store undo.
 
 - **safety**: `destructive`
-- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/collection"
-- **writes**: "imbib/library", "imbib/bibliography-entry", "imbib/collection"
-- **reach**: —
+- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **writes**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **reach**: app("imbib"), fs
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `delete_files` | boolean | yes | Whether to remove their shared and legacy library-file containers. |
+| `ids` | array | yes | UUIDs of libraries to delete; every UUID and row is preflighted. |
+
+**Examples**
+
+- `delete-library-batch` — Tier A:
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-00000000000d","5c000000-0000-4000-8000-00000000000e"],"delete_files":false}
+  ```
+  expects:
+
+  ```json
+  2
+  ```
+
+## `imbib-library-service_delete-library-undoable`
+
+Delete a library with its collections and memberships. `delete_files` also removes its shared and legacy file containers, which requires the running imbib app. Store undo does not restore removed file bytes.
+
+- **safety**: `destructive`
+- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **writes**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **reach**: app("imbib"), fs
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `delete_files` | boolean | yes | Whether to remove its shared and legacy library-file containers. |
 | `id` | string | yes | UUID of the library to delete with its collections. |
 
 **Examples**
@@ -334,7 +362,7 @@ Delete a library with its collections and memberships. The store hands back an u
 - `remove-empty-library` — Tier A:
 
   ```json
-  {"id":"5c000000-0000-4000-8000-00000000000a"}
+  {"id":"5c000000-0000-4000-8000-00000000000a","delete_files":false}
   ```
   expects:
 

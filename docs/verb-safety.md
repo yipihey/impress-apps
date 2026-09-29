@@ -195,6 +195,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_create-library` | mutating | name/doc |
 | `imbib-library-service_create-muted-item` | mutating | name/doc |
 | `imbib-library-service_deduplicate-library` | destructive | crates/imbib-service/src/library_service.rs:1075 -> crates/imbib-core/src/unified/store_api.rs:2527-2584 finds dup DOI/arXiv/cite-key rows within library and store.delete()s them outright: no snapshot, no operation-lo… |
+| `imbib-library-service_delete-libraries` | destructive | name/doc |
 | `imbib-library-service_delete-library-undoable` | destructive | crates/imbib-service/src/library_service.rs:769 store.delete_library_undoable -> crates/imbib-core/src/unified/store_api.rs:1811-1849 store.delete(library); child pubs/collections get parent NULL; snapshot is RETURNED… |
 | `imbib-library-service_delete-publications-undoable` | destructive | crates/imbib-service/src/library_service.rs:1044 -> crates/imbib-core/src/unified/store_api.rs:1744-1762 store.delete per id; snapshots returned but discarded by service (only .len() used) and never written to the ope… |
 | `imbib-library-service_dismiss-paper` | mutating | crates/imbib-service/src/library_service.rs:1079 -> crates/imbib-core/src/unified/store_api.rs:2337-2355 store.insert of an imbib/dismissed-paper identifier TOMBSTONE; it does NOT move any publication to the Dismissed… |
