@@ -39,6 +39,7 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
     for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
         let args = match step {
             Step::Call(call) => {
+                let mut capture_references = Vec::new();
                 for (name, capture) in &call.capture {
                     let mut messages = Vec::new();
                     match capture {
@@ -70,11 +71,31 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
                             message: format!("capture `{name}`: {message}"),
                         });
                     }
+                    match capture {
+                        crate::spec::CallCapture::Path(path) => {
+                            capture_references.push(serde_json::json!(path));
+                        }
+                        crate::spec::CallCapture::SelectOne(spec) => {
+                            let query = &spec.select_one;
+                            capture_references.push(serde_json::json!(query.from));
+                            match &query.predicate {
+                                crate::spec::SelectPredicate::Equals(predicate) => {
+                                    capture_references.push(predicate.equals.clone());
+                                }
+                                crate::spec::SelectPredicate::ArrayContains(predicate) => {
+                                    capture_references.push(predicate.array_contains.clone());
+                                }
+                            }
+                        }
+                        crate::spec::CallCapture::FillArray(spec) => {
+                            capture_references.push(serde_json::json!(spec.fill_array.length_of));
+                        }
+                    }
                 }
                 serde_json::json!({
                     "args": call.args,
                     "expect": call.expect,
-                    "capture": call.capture
+                    "capture_references": capture_references
                 })
             }
             Step::BestEffort(step) => step.best_effort.args.clone(),
@@ -335,6 +356,29 @@ mod tests {
             }
         }))
         .is_err());
+    }
+
+    #[test]
+    fn fill_array_value_is_literal_not_a_capture_reference() {
+        let first = call(json!({}));
+        let mut first = first;
+        if let Step::Call(call) = &mut first {
+            call.capture
+                .insert("items".into(), CallCapture::Path("$.items".into()));
+        }
+        let mut second = call(json!({}));
+        if let Step::Call(call) = &mut second {
+            call.capture.insert(
+                "literal_values".into(),
+                CallCapture::FillArray(crate::spec::FillArrayCapture {
+                    fill_array: crate::spec::FillArraySpec {
+                        value: json!("{{{{state.missing}}}}"),
+                        length_of: "{{state.items}}".into(),
+                    },
+                }),
+            );
+        }
+        assert!(validate(&base(vec![first, second])).is_empty());
     }
 
     #[test]
