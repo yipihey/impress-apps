@@ -3601,21 +3601,6 @@ impl ImbibStore {
         self.with_assignment_library(item_to_assignment_row(&item))
     }
 
-    /// Delete one assignment row. `Ok(false)` means no such row.
-    pub fn delete_assignment(&self, id: String) -> Result<bool, StoreApiError> {
-        let uuid = parse_uuid(&id)?;
-        match self.store.get(uuid)? {
-            None => Ok(false),
-            Some(item) if item.schema != impress_core::schema::refs::IMBIB_ASSIGNMENT => Err(
-                StoreApiError::InvalidInput(format!("{id} is not an assignment")),
-            ),
-            Some(_) => {
-                self.store.delete(uuid)?;
-                Ok(true)
-            }
-        }
-    }
-
     pub fn list_assignments(
         &self,
         publication_id: Option<String>,
@@ -3640,27 +3625,6 @@ impl ImbibStore {
             .map(item_to_assignment_row)
             .map(|row| self.with_assignment_library(row))
             .collect()
-    }
-
-    pub fn publication_parent(
-        &self,
-        publication_id: &str,
-    ) -> Result<Option<String>, StoreApiError> {
-        let uuid = parse_uuid(publication_id)?;
-        Ok(self
-            .store
-            .get(uuid)?
-            .and_then(|item| item.parent.map(|parent| parent.to_string())))
-    }
-
-    fn with_assignment_library(
-        &self,
-        mut row: AssignmentRow,
-    ) -> Result<AssignmentRow, StoreApiError> {
-        if !row.publication_id.is_empty() {
-            row.library_id = self.publication_parent(&row.publication_id)?;
-        }
-        Ok(row)
     }
 
     // --- Activity record operations ---
@@ -4850,6 +4814,46 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Delete one assignment row. `Ok(false)` means no such row.
+    ///
+    /// Not a UniFFI export: the app deletes through `deleteItem`, and the
+    /// service verb is the agent contract.
+    pub fn delete_assignment(&self, id: String) -> Result<bool, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            None => Ok(false),
+            Some(item) if item.schema != impress_core::schema::refs::IMBIB_ASSIGNMENT => Err(
+                StoreApiError::InvalidInput(format!("{id} is not an assignment")),
+            ),
+            Some(_) => {
+                self.store.delete(uuid)?;
+                Ok(true)
+            }
+        }
+    }
+
+    /// The parent id of a store row, used to hydrate an assignment's library.
+    pub fn publication_parent(
+        &self,
+        publication_id: &str,
+    ) -> Result<Option<String>, StoreApiError> {
+        let uuid = parse_uuid(publication_id)?;
+        Ok(self
+            .store
+            .get(uuid)?
+            .and_then(|item| item.parent.map(|parent| parent.to_string())))
+    }
+
+    fn with_assignment_library(
+        &self,
+        mut row: AssignmentRow,
+    ) -> Result<AssignmentRow, StoreApiError> {
+        if !row.publication_id.is_empty() {
+            row.library_id = self.publication_parent(&row.publication_id)?;
+        }
+        Ok(row)
+    }
+
     /// Give one entry the `Bdsk-File-*` fields its attachments imply
     /// (ADR-0023 W5).
     ///
