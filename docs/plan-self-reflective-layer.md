@@ -3148,3 +3148,8 @@ with zero skips; version_moves ran through the interpreter. Native symbols
 passed and host PID 30217 exited. Evidence: `/tmp/impress-s2h-tests-final.log`,
 `/tmp/impress-s2h-final-*.log`, `/tmp/impress-s2h-frameworks.log`, and
 `/tmp/impress-g5-proof-gsvmopze/output/`.
+
+S2i native verification found that ChannelState serializes transparently: the
+HTTP path is `layout.channels.<number>.<kind>`, with no second channels wrapper.
+Corrected the scenario path; the failed proof is retained at
+`/tmp/impress-g5-proof-w4m628lv/output/`. Verification continues below.
