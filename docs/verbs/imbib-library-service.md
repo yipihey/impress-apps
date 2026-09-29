@@ -461,6 +461,32 @@ Export BibTeX entries for one or more papers. Useful for creating bibliography f
   {"ids":["G3Export2026"]}
   ```
 
+## `imbib-library-service_export-ris`
+
+Export selected papers as RIS, accepting UUIDs or cite keys in input order and omitting identifiers that do not resolve.
+
+- **safety**: `read_only`, idempotent
+- **reads**: "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"
+- **writes**: —
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `ids` | array | yes | Publication UUIDs or cite keys to export, in requested order. |
+
+**Examples**
+
+- `representative-ris-export` — Tier A:
+
+  ```json
+  {"ids":["G3RIS2026"]}
+  ```
+  expects:
+
+  ```json
+  "TY  - JOUR\nAU  - Doe, Jane\nTI  - RIS parity paper\nPY  - 2026\nJF  - Research Journal\nT2  - Research Journal\nVL  - 12\nIS  - 3\nSP  - 100\nEP  - 110\nDO  - 10.5555/g3-ris\nAB  - Representative abstract\nKW  - alpha\nKW  - beta\nUR  - https://example.org/g3-ris\nPB  - Example Press\nCY  - Boston\nSN  - 1234-5678\nN1  - G3 export note\nT3  - Research Series\nET  - 2\nLA  - en\nID  - G3RIS2026\nER  - "
+  ```
+
 ## `imbib-library-service_get-default-library`
 
 Get the library new papers are filed into by default, if one is set.

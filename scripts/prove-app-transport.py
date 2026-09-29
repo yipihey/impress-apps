@@ -23,6 +23,10 @@ APPS = ("imbib", "imprint", "impart", "implore", "impel")
 def selected_tests(app):
     target = app + "Tests"
     tests = [target + "/TransportProofTests"]
+    if app == "imbib":
+        tests.append(target + "/ImbibNativeContractProofTests")
+        tests.append(target + "/CollectionMembershipContractTests")
+        tests.append(target + "/LibraryDeletionContractTests")
     if app == "imprint":
         tests.append(target + "/ImprintNativeVerbProofTests")
     if app == "implore":

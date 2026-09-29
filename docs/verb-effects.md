@@ -170,6 +170,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_duplicate-publications` | "imbib/bibliography-entry", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/linked-file" | fs | — |
 | `imbib-library-service_export-all-bibtex` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_export-bibtex` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
+| `imbib-library-service_export-ris` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
 | `imbib-library-service_get-default-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_get-inbox-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_get-publication` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
@@ -193,7 +194,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
 | `imbib-library-service_remove-from-collection` | "imbib/collection" | "imbib/collection" | — | example ×1 |
 | `imbib-library-service_retention-cleanup` | "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper" | — | example ×2 |
-| `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library" | — | — | example ×1 |
+| `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×3 |
 | `imbib-library-service_set-flag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_set-library-default` | "imbib/library" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_set-read` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
@@ -265,7 +266,8 @@ catalogue, 300 on the exception table.
 | `impel-service_resolve-review` | "review-request@1.0.0", "task@1.0.0" | "review-request@1.0.0", "task@1.0.0" | — | example ×1 |
 | `impel-service_retention-status` | "task@1.0.0", "review-request@1.0.0", "core/operation" | — | — | — |
 | `impel-service_scheduler-status` | "task@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
-| `implore-service_create-figure` | — | — | app("implore") | — |
+| `implore-service_create-figure` | — | "figure" | app("implore") | — |
+| `implore-service_delete-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `implore-service_export-figure` | — | — | app("implore") | — |
 | `implore-service_export-figure-data` | — | — | app("implore") | — |
 | `implore-service_get-dataset` | — | — | app("implore") | — |
@@ -286,6 +288,7 @@ catalogue, 300 on the exception table.
 | `implore-service_rg-state` | — | — | app("implore") | — |
 | `implore-service_rg-statistics` | — | — | app("implore") | — |
 | `implore-service_status` | — | — | app("implore") | — |
+| `implore-service_update-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `impress-ai-service_ai-health` | — | — | network | — |
 | `impress-ai-service_ai-preferences` | — | — | fs | example ×1 |
 | `impress-ai-service_create-conversation` | "conversation@1.0.0" | "conversation@1.0.0" | — | example ×1 |
@@ -617,6 +620,7 @@ when one lands).
 | `impart-service_update-conversation` | needs a running app |
 | `impel-service_retention-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `implore-service_create-figure` | needs a running app |
+| `implore-service_delete-figure` | needs a running app |
 | `implore-service_export-figure` | needs a running app |
 | `implore-service_export-figure-data` | needs a running app |
 | `implore-service_get-dataset` | needs a running app |
@@ -637,6 +641,7 @@ when one lands).
 | `implore-service_rg-state` | needs a running app |
 | `implore-service_rg-statistics` | needs a running app |
 | `implore-service_status` | needs a running app |
+| `implore-service_update-figure` | needs a running app |
 | `impress-ai-service_ai-health` | leaves the process (network) |
 | `impress-ai-service_list-models` | leaves the process (provider) |
 | `impress-ai-service_list-providers` | leaves the process (provider, fs) |
