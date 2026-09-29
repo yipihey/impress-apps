@@ -2052,6 +2052,22 @@ No route removal or caller migration is part of this package.
   imbib remain for their separate packages. Focused DTO decoding and canonical
   transport fixtures were added; static review only, root verification pending.
 
+- 2026-09-29 — **P5c22 imprint domain-route retirement.** Removed only the
+  public `GET /api/documents`, `GET /api/documents/{id}`, and comment
+  list/create/update/delete/accept/reject registrations. P5c16 moved the
+  production document list/detail readers, including impart's ArtifactResolver,
+  to generated manuscript/content verbs; the comments caller audit found no
+  production Swift, CLI or scenario consumer. The hosted proof now expects
+  those old URLs to return 404 and exercises the same seeded reads, threaded
+  comments and suggestion effects through generated verbs. The earlier P5c7
+  and P5c10 entries record route parity before retirement, not current HTTP
+  availability. Private comment handlers remain reachable from native verb
+  callbacks. The manual `apps/imprint/test-imprint-api.sh` harness now uses the
+  generated document create/list/detail contracts, keeps checks for distinct
+  platform routes, and requires explicit isolated-host opt-in plus the
+  loopback bearer. It had no comment-route requests to migrate. Queued document
+  edits, metadata, caret citation, status/logs, compile, and other approved
+  platform routes remain registered.
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -2216,6 +2232,10 @@ only; root owns build and test verification.
   IDs and missing-row preflight. Evidence: `/tmp/impress-p5c14-touched-tests.log`,
   `/tmp/impress-p5c14-packages.log`, `/tmp/impress-p5c15-touched-tests-all.log`,
   and `/tmp/impress-p5c15-*.log`.
+
+### 2026-09-29 — P5c22 final native retirement proof
+
+With the final P5c15 archive cohort, the isolated imprint proof passed two XCTest cases and 14 shared transport calls. Retired document/comment URL checks, generated behavior and refusal snapshots passed; SQLite checks passed and owned PID 84629 exited. Evidence: `/tmp/impress-p5b-transport-y9waq_71/output/`, `/tmp/impress-p5c22-native-proof-final.log`. Generated Xcode path/ID churn was restored after the build.
 - 2026-09-29 — **P5c15 final Rust and quick-gate verification.** The final
   touched-package command passed 95 tests with zero failures and three
   ignored; all ten package gates passed, including native bindings and kit
@@ -2258,6 +2278,16 @@ only; root owns build and test verification.
   `/tmp/impress-p5c21-final-gates.log`, and the per-gate
   `/tmp/impress-p5c21-final-*.log` files. Native consumer proofs remain with
   root.
+- 2026-09-29 — **P5c22 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all 11 package gates passed, including native bindings and kit standalone
+  checks. The isolated imprint retirement proof passed two XCTest cases and
+  14 shared calls, with owned PID 84629 exited. Evidence:
+  `/tmp/impress-p5c22-final-verify.log`,
+  `/tmp/impress-p5c22-final-gates.log`, per-gate
+  `/tmp/impress-p5c22-final-*.log`, and
+  `/tmp/impress-p5b-transport-y9waq_71/output/`.
+
 
 
 

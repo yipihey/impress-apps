@@ -32,8 +32,6 @@ import AppKit
 /// API Endpoints:
 /// - `GET /api/status` - Server health
 /// - `GET /api/logs` - Query log entries
-/// - `GET /api/documents` - List open documents
-/// - `GET /api/documents/{id}` - Get document content/metadata
 /// - `GET /api/documents/{id}/content` - Get document source content
 /// - `GET /api/documents/{id}/outline` - Get document structure (headings)
 /// - `GET /api/documents/{id}/pdf` - Download compiled PDF
@@ -177,10 +175,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleListTasks()
             }
 
-            if pathLower == "/api/documents" {
-                return await handleListDocuments()
-            }
-
             if pathLower == "/api/latex/status" {
                 return await handleLaTeXStatus()
             }
@@ -251,17 +245,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
             if pathLower.hasPrefix("/api/operations/") {
                 let opID = String(path.dropFirst("/api/operations/".count))
                 return handleGetOperation(id: opID)
-            }
-
-            // GET /api/documents/{id}/comments — list comments for a document
-            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/comments") {
-                let remainder = String(path.dropFirst("/api/documents/".count))
-                let docId = String(remainder.dropLast("/comments".count))
-                return await handleListComments(
-                    docId: docId,
-                    filter: request.queryParams["filter"],
-                    authorAgentId: request.queryParams["authorAgentId"]
-                )
             }
 
             if pathLower.hasPrefix("/api/documents/") {
@@ -360,10 +343,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                     return await handleGetCitationUsages(id: docId)
                 }
 
-                // Just the document ID
-                if !remainder.contains("/") {
-                    return await handleGetDocument(id: remainder)
-                }
             }
 
             // GET /api/veusz/plots[?documentId=…]
@@ -440,27 +419,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let docId = String(remainder.dropLast("/sections".count))
                 return await handleCreateSection(docId: docId, request: request)
-            }
-
-            // POST /api/documents/{docId}/comments — create a comment
-            if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/comments") {
-                let remainder = String(path.dropFirst("/api/documents/".count))
-                let docId = String(remainder.dropLast("/comments".count))
-                return await handleCreateComment(docId: docId, request: request)
-            }
-
-            // POST /api/comments/{id}/accept — apply suggestion + resolve
-            if pathLower.hasPrefix("/api/comments/") && pathLower.hasSuffix("/accept") {
-                let remainder = String(path.dropFirst("/api/comments/".count))
-                let id = String(remainder.dropLast("/accept".count))
-                return await handleAcceptComment(id: id)
-            }
-
-            // POST /api/comments/{id}/reject — resolve without applying
-            if pathLower.hasPrefix("/api/comments/") && pathLower.hasSuffix("/reject") {
-                let remainder = String(path.dropFirst("/api/comments/".count))
-                let id = String(remainder.dropLast("/reject".count))
-                return await handleRejectComment(id: id)
             }
 
             // POST /api/documents/{docId}/sections/{sectionKey}/citations — insert @citeKey inside a section
@@ -580,12 +538,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         // PATCH endpoints
         if request.method == "PATCH" {
-            // PATCH /api/comments/{id} — edit content / resolve / unresolve
-            if pathLower.hasPrefix("/api/comments/") {
-                let id = String(path.dropFirst("/api/comments/".count))
-                return await handlePatchComment(id: id, request: request)
-            }
-
             // PATCH /api/documents/{id}/throughline/anchors — ledger mutations (ADR-0016)
             if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/throughline/anchors") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
@@ -607,12 +559,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
         // DELETE endpoints
         if request.method == "DELETE" {
-            // DELETE /api/comments/{id}
-            if pathLower.hasPrefix("/api/comments/") {
-                let id = String(path.dropFirst("/api/comments/".count))
-                return await handleDeleteComment(id: id)
-            }
-
             if pathLower.hasPrefix("/api/documents/") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
                 let remainderLower = remainder.lowercased()
@@ -678,8 +624,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             domain: ["openDocuments": manuscripts.count])
     }
 
-    /// GET /api/documents
-    /// List all manuscripts in the unified store.
+    /// Legacy list projection, retained as a private helper for parity context.
     private func handleListDocuments() async -> HTTPResponse {
         let manuscripts = await MainActor.run {
             ManuscriptStoreAdapter.shared.allManuscripts(limit: 1000)
@@ -704,8 +649,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ])
     }
 
-    /// GET /api/documents/{id}
-    /// Get document metadata.
+    /// Legacy detail projection, retained as a private helper for parity context.
     private func handleGetDocument(id: String) async -> HTTPResponse {
         guard let uuid = UUID(uuidString: id) else {
             return .badRequest("Invalid document ID format")
@@ -2849,7 +2793,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     // MARK: - Comment Handlers
 
-    /// GET /api/documents/{docId}/comments?filter=unresolved|resolved|all|mine&authorAgentId=...
+    /// Native callback handler for the generated list-comments verb.
     private func handleListComments(
         docId: String,
         filter: String?,
@@ -2882,7 +2826,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ])
     }
 
-    /// POST /api/documents/{docId}/comments
+    /// Native callback handler for the generated create-comment verb.
     /// Body: `{"content": "...", "start": int, "end": int, "parentId"?: "uuid",
     ///         "proposedText"?: "...", "authorAgentId"?: "...", "authorName"?: "..."}`
     private func handleCreateComment(docId: String, request: HTTPRequest) async -> HTTPResponse {
@@ -2926,7 +2870,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ], status: 201)
     }
 
-    /// PATCH /api/comments/{id}
+    /// Native callback handler for the generated update-comment verb.
     /// Body: any of `{"content": "...", "isResolved": bool, "proposedText": "..."}`.
     private func handlePatchComment(id: String, request: HTTPRequest) async -> HTTPResponse {
         guard let commentUUID = UUID(uuidString: id) else {
@@ -2974,7 +2918,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ])
     }
 
-    /// DELETE /api/comments/{id}
+    /// Native callback handler for the generated delete-comment verb.
     private func handleDeleteComment(id: String) async -> HTTPResponse {
         guard let commentUUID = UUID(uuidString: id) else {
             return .badRequest("Invalid comment ID format")
@@ -2993,7 +2937,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return .json(["status": "ok", "commentId": id, "deleted": true])
     }
 
-    /// POST /api/comments/{id}/accept — save the proposed replacement through
+    /// Native callback handler for the generated accept-comment-suggestion verb.
+    /// Save the proposed replacement through
     /// the live editor at the comment's UTF-16 range, then resolve the comment.
     private func handleAcceptComment(id: String) async -> HTTPResponse {
         guard let commentUUID = UUID(uuidString: id) else {
@@ -3072,7 +3017,8 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ])
     }
 
-    /// POST /api/comments/{id}/reject — resolve without applying the suggestion.
+    /// Native callback handler for the generated reject-comment-suggestion verb.
+    /// Resolve without applying the suggestion.
     private func handleRejectComment(id: String) async -> HTTPResponse {
         guard let commentUUID = UUID(uuidString: id) else {
             return .badRequest("Invalid comment ID format")
@@ -3190,8 +3136,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 "GET /api/logs": "Query log entries (params: limit, offset, level, category, search, after)",
                 "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
                 "GET /api/performance": "PerfMetrics snapshot — per-operation latency buckets, percentiles, budget breaches",
-                "GET /api/documents": "List open documents",
-                "GET /api/documents/{id}": "Get document metadata",
                 "GET /api/documents/{id}/content": "Get document source content",
                 "GET /api/documents/{id}/outline": "Get document structure (headings)",
                 "GET /api/documents/{id}/pdf": "Download compiled PDF",
