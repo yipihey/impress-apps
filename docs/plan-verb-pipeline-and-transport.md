@@ -2176,3 +2176,31 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c16-final-gates.log`, and the per-gate
   `/tmp/impress-p5c16-final-*.log` files. Native consumer proofs remain with
   root.
+
+
+- 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
+  (zero failures, three ignored), every quick gate, and full supported arm64
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi builds. The final owned
+  native proof passed three XCTest cases and 37 transport calls, including
+  stable tag path identity, hierarchy/counts, case-insensitive prefix filters
+  and limits. SQLite checks passed; owned PID 51204 exited. Evidence:
+  `/tmp/impress-p5b-transport-xz36o8we/output/` and
+  `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-verified.log`.
+  Native verification exposed a per-handle tag cache that hid generated writes
+  from Swift readers; it now checks SQLite's data version. A separate cold/warm
+  regression pins logical read evidence, and normal builds keep observation
+  disabled through the store wrapper. The newly observable reads are declared;
+  tables were regenerated from the tests' dump, including the newly verified
+  tag-count example. No user app or store was touched.
+
+- 2026-09-29 — **P5c15 native verification complete.** Full supported arm64
+  store-ffi, impel-tools and imbib-verbs-ffi rebuilds passed against the final
+  cache-coherent ImbibCore cohort. The isolated host passed all four XCTest
+  cases and 37 shared transport calls, including generated single/batch
+  deletion, duplicate IDs, unlink-only file preservation, scratch-file removal,
+  store readback and missing-row refusal before mutation. SQLite checks passed;
+  owned PID 57922 exited. Evidence:
+  `/tmp/impress-p5b-transport-xqt71k0m/output/` and
+  `/tmp/impress-p5c15-{frameworks,native-proof}-final.log`. The earlier host run
+  passed deletion but exposed the shared stale tag cache; this final run
+  includes P5c14's verified fix. No user files or running apps were touched.
