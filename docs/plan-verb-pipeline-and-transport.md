@@ -2117,6 +2117,21 @@ collection deletion; no unused bridge methods were added. Counsel's direct
 store and event paths are outside this caller inventory. Static diff review
 only; root owns build and test verification.
 
+- 2026-09-29 — **P5c21 imbib external search/import/resolve callers.** The
+  shared `ImbibBridge` now uses generated `search-sources`,
+  `import-identifiers`, and `resolve-citation` verbs for the existing imprint
+  citation picker, identifier importer and structured `CitationClient` flow.
+  It preserves source/limit, library/collection and PDF defaults, per-identifier
+  added/duplicate/failure outcomes, ranked candidate order/confidence, and open
+  paper/candidate dictionaries alongside the existing typed Swift convenience
+  models. Audited `apps/imprint/macOS/Services/ImbibIntegrationService.swift`
+  and `CitationClient.swift`; no ArtifactResolver/Counsel external-search,
+  identifier-import or citation-resolve caller exists. Counsel's separate
+  artifact capture route is unrelated and remains out of scope. The HTTP
+  `resolve-citation` free-text/BibTeX branches likewise have no cross-app
+  caller; no overload was added. Internal imbib route/MCP and smart-search
+  behavior remains unchanged. Root verification pending.
+
 - 2026-09-29 — **P5c8 verified.** Root passed 61 Rust tests (zero failures,
   three ignored), every quick gate and full supported arm64 store-ffi,
   impel-tools and implore-verbs-ffi builds. The isolated native run passed
@@ -2236,6 +2251,14 @@ only; root owns build and test verification.
   `/tmp/impress-p5c20-final-gates.log`, and the per-gate
   `/tmp/impress-p5c20-final-*.log` files. Native consumer proofs remain with
   root.
+- 2026-09-29 — **P5c21 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c21-final-verify.log`,
+  `/tmp/impress-p5c21-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c21-final-*.log` files. Native consumer proofs remain with
+  root.
+
 
 
 
