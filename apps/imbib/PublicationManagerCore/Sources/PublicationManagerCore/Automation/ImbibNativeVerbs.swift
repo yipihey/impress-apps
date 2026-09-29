@@ -36,7 +36,12 @@ public enum ImbibNativeVerbs {
             if (200..<300).contains(result.status), verbWritesStore(name: name) {
                 let targets = mutationTargets(argsJSON)
                 await MainActor.run {
-                    RustStoreAdapter.shared.notifyMutationFromBackground()
+                    // These callbacks already use the undo-aware adapter and
+                    // its one consolidated notification for a batch.
+                    if name != "imbib-library-service_delete-library-undoable",
+                       name != "imbib-library-service_delete-libraries" {
+                        RustStoreAdapter.shared.notifyMutationFromBackground()
+                    }
                     Logger.library.infoCapture("Native store verb saved: \(name) ids=\(targets.ids) count=\(targets.count)",
                                                category: "automation")
                     Logger.library.infoCapture("Native store display refreshed: \(name) dataVersion=\(RustStoreAdapter.shared.dataVersion)",
