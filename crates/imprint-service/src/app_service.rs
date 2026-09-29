@@ -35,14 +35,92 @@ pub struct CommentRecord {
     pub body: String,
     #[serde(default)]
     pub author: Option<String>,
-    /// `open`, `accepted`, `rejected`, …
+    #[serde(default, alias = "authorId", alias = "author_id")]
+    pub author_id: Option<String>,
+    /// The route's original field name, retained alongside `body` for parity.
+    #[serde(default)]
+    pub content: Option<String>,
+    /// `open` or `resolved`, matching the retained route's status projection.
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
+    #[serde(default, alias = "modifiedAt")]
+    pub modified_at: Option<String>,
+    #[serde(default, alias = "isResolved")]
+    pub is_resolved: Option<bool>,
+    #[serde(default, alias = "isSuggestion")]
+    pub is_suggestion: Option<bool>,
+    #[serde(default, alias = "parentId")]
+    pub parent_id: Option<String>,
+    #[serde(default, alias = "proposedText")]
+    pub proposed_text: Option<String>,
+    #[serde(default, alias = "authorAgentId")]
+    pub author_agent_id: Option<String>,
+    #[serde(default)]
+    pub range: Option<CommentRange>,
     /// Where in the source it is anchored, when it is anchored at all.
     #[serde(default)]
     pub anchor: Option<String>,
+}
+
+/// Live editor range in UTF-16 code units, matching Foundation's NSRange.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommentRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[cfg(test)]
+mod comment_contract_tests {
+    use super::CommentRecord;
+
+    #[test]
+    fn comment_record_reads_the_retained_route_metadata_and_utf16_range() {
+        let record: CommentRecord = serde_json::from_value(serde_json::json!({
+            "id": "comment-id",
+            "document_id": "document-id",
+            "body": "Reply text",
+            "content": "Reply text",
+            "author": "Review Agent",
+            "authorId": "agent:reviewer",
+            "status": "open",
+            "createdAt": "2026-09-29T12:00:00Z",
+            "modifiedAt": "2026-09-29T12:00:01Z",
+            "isResolved": false,
+            "isSuggestion": true,
+            "parentId": "parent-id",
+            "proposedText": "Revised text",
+            "authorAgentId": "reviewer",
+            "range": {"start": 12, "end": 19},
+            "anchor": "quoted"
+        }))
+        .expect("retained route comment fields deserialize");
+
+        assert_eq!(record.parent_id.as_deref(), Some("parent-id"));
+        assert_eq!(record.proposed_text.as_deref(), Some("Revised text"));
+        assert_eq!(record.author_agent_id.as_deref(), Some("reviewer"));
+        assert_eq!(record.author_id.as_deref(), Some("agent:reviewer"));
+        assert_eq!(record.content.as_deref(), Some("Reply text"));
+        assert_eq!(record.is_suggestion, Some(true));
+        let range = record.range.expect("route includes the live editor range");
+        assert_eq!((range.start, range.end), (12, 19));
+    }
+
+    #[test]
+    fn comment_record_keeps_older_native_responses_compatible() {
+        let record: CommentRecord = serde_json::from_value(serde_json::json!({
+            "id": "legacy-comment",
+            "body": "Existing comment"
+        }))
+        .expect("older native records remain valid");
+
+        assert_eq!(record.body, "Existing comment");
+        assert!(record.parent_id.is_none());
+        assert!(record.proposed_text.is_none());
+        assert!(record.author_agent_id.is_none());
+        assert!(record.range.is_none());
+    }
 }
 
 /// One line from imprint's in-memory log store.
@@ -227,14 +305,21 @@ pub trait ImprintAppService: Send + Sync + 'static {
     )]
     async fn get_bibliography(&self, document_id: String) -> Option<String>;
 
-    /// Review comments on a manuscript, newest first.
+    /// Review comments on a manuscript. `filter` accepts the same values as
+    /// the retained route (`all`, `unresolved`, `resolved`, `suggestions`);
+    /// `author_agent_id` further narrows to comments by that agent.
     #[impress_method]
     #[impress_example(
         name = "fixture_review_comments",
         tier = "b",
         args = r#"{"document_id":"5b000000-0000-4000-8000-000000000001"}"#
     )]
-    async fn list_comments(&self, document_id: String) -> Vec<CommentRecord>;
+    async fn list_comments(
+        &self,
+        document_id: String,
+        filter: Option<String>,
+        author_agent_id: Option<String>,
+    ) -> Vec<CommentRecord>;
 
     /// Add a review comment to a manuscript. Anchor it to a quoted snippet
     /// where you can — an unanchored comment is much harder to act on.
@@ -250,6 +335,10 @@ pub trait ImprintAppService: Send + Sync + 'static {
         document_id: String,
         body: String,
         anchor: Option<String>,
+        parent_id: Option<String>,
+        proposed_text: Option<String>,
+        author_agent_id: Option<String>,
+        author_name: Option<String>,
     ) -> Option<CommentRecord>;
 
     /// Edit a comment's body, or set its status to `open` or `resolved`.
@@ -368,7 +457,12 @@ impl ImprintAppService for DefaultImprintAppService {
         None
     }
 
-    async fn list_comments(&self, _document_id: String) -> Vec<CommentRecord> {
+    async fn list_comments(
+        &self,
+        _document_id: String,
+        _filter: Option<String>,
+        _author_agent_id: Option<String>,
+    ) -> Vec<CommentRecord> {
         refuse("list_comments");
         vec![]
     }
@@ -378,6 +472,10 @@ impl ImprintAppService for DefaultImprintAppService {
         _document_id: String,
         _body: String,
         _anchor: Option<String>,
+        _parent_id: Option<String>,
+        _proposed_text: Option<String>,
+        _author_agent_id: Option<String>,
+        _author_name: Option<String>,
     ) -> Option<CommentRecord> {
         refuse("create_comment");
         None
@@ -476,7 +574,10 @@ impress_service_impl! {
         ) -> Option<String>,
         list_comments(
             /// UUID of an open manuscript with a registered comment service.
-            document_id: String
+            document_id: String,
+            /// Route-compatible filter: all, unresolved, resolved, or suggestions.
+            filter: Option<String>,
+            author_agent_id: Option<String>
         ) -> Vec<CommentRecord>,
         create_comment(
             /// UUID of an open manuscript with a registered comment service.
@@ -484,7 +585,15 @@ impress_service_impl! {
             /// Review comment text; kept private in call logs.
             #[impress_private] body: String,
             /// Optional exact source snippet to anchor the comment.
-            anchor: Option<String>
+            anchor: Option<String>,
+            /// Optional parent UUID; replies inherit its live text range.
+            parent_id: Option<String>,
+            /// Proposed replacement text. Applying it remains a separate action.
+            proposed_text: Option<String>,
+            /// Agent identity used for comment attribution and author filtering.
+            author_agent_id: Option<String>,
+            /// Optional display name; defaults to the existing local/agent name.
+            author_name: Option<String>
         ) -> Option<CommentRecord>,
         update_comment(
             /// UUID of an existing comment in an open manuscript.
