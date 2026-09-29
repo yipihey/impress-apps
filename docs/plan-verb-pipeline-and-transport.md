@@ -2306,3 +2306,12 @@ With the final P5c15 archive cohort, the isolated imprint proof passed two XCTes
   `/tmp/impress-p5c22-final-gates.log`, per-gate
   `/tmp/impress-p5c22-final-*.log`, and
   `/tmp/impress-p5b-transport-y9waq_71/output/`.
+- 2026-09-29 — **P5c23 final Rust and quick-gate verification.** Isolated
+  service and capability tests passed 54 with zero failures and three ignored;
+  native FFI tests passed nine with zero failures. All 11 package gates passed,
+  including native bindings and kit standalone checks. The docs generator
+  refreshed `docs/verbs/implore-service.md` from the linked inventory. Native
+  app-host proof and full supported arm64 builds are recorded above. Evidence:
+  `/tmp/impress-p5c23-final-verify.log`,
+  `/tmp/impress-p5c23-final-gates.log`, per-gate
+  `/tmp/impress-p5c23-final-*.log`, and native/framework records above.
