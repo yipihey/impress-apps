@@ -5,7 +5,7 @@
   "tier": "b",
   "steps": [
     {
-      "call": "layout-service_apply-layout-by-ordinal",
+      "call": "layout-service_apply-layout",
       "args": { "ordinal": 1 },
       "as": "person",
       "expect": { "status": 200 }
