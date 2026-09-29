@@ -2996,6 +2996,40 @@ per-scenario cleanup without evaluating expressions.
   (`/tmp/impress-s3-host-context-push.log`), with installation disabled and
   worktree-owned derived data. No user's app or store was used.
 
+- 2026-09-28 — **S2f comparison expectations**, on
+  `claude/reflective-s2f-comparisons`: added closed `gt` and `not_equals` field
+  checks to the existing expectation DSL. Both accept literal JSON and typed
+  whole-capture references through normal expectation-template resolution.
+  `gt` rejects non-number operands and preserves exact integer ordering above
+  2^53; `not_equals` rejects missing paths. Focused interpreter tests cover
+  unchanged/increasing versions, distinct/equal session IDs, malformed operands
+  and missing references. Build and test gates remain with integration.
+
+- 2026-09-28 — **S2e: `layout.console_pane` converted to a stored scenario.**
+  The scenario preserves the default layout ordinal, detail-side vertical
+  split, `search: layout` and the info/warning/error level state. It captures
+  the server's `/api/logs/stream` cursor before splitting, captures the new
+  tile id from the gesture result, verifies the exact pane `view_state`, then
+  requires one fresh layout log message to contain the pane prefix, search
+  summary and level summary case-insensitively within 3 seconds. Required
+  scenario teardown closes the tile; global layout restoration remains in
+  the catalogue. The closed log-wait vocabulary now supports capture-templated
+  needles/cursors, server cursor capture and bounded 1–60-second waits, with no
+  expression language or verb signature changes. Added interpreter validation
+  and caller coverage. No build or test run was performed in this package;
+  verification remains with the parent task.
+- 2026-09-28 — **S2g: `layout.source_pane_session` converted to a stored scenario.**
+  The scenario captures the detail/source/copy/pdf tile IDs, checks copied query
+  and view kind, verifies source-session stability and a distinct session for a
+  copied source pane by explicitly passing the full source pane spec (including
+  its session), checks session IDs retain their `session-` string form and checks
+  the fresh session-open log after a pre-mutation cursor, then swaps panes and
+  restores the default layout while resolving detail by role and asserting its
+  original pane spec. To express the existing dynamic tile path without
+  adding selector logic, `CallStep.capture` paths now resolve prior `state`
+  captures as closed templates; validation rejects references not captured by
+  an earlier step, and captured values are not recursively templated. No build
+  or test run was performed; verification remains with the parent task.
 - 2026-09-28 — **W3 exploration identity verification completed.** Automatic
   retention can now discover the migrated internal settings pointer when the
   existing explicit argument is omitted; invalid explicit IDs do not silently

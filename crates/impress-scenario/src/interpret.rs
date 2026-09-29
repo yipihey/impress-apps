@@ -8,6 +8,7 @@
 //! this crate stays pure (no `impress-core`, no `tokio` runtime dependency
 //! beyond the trait's `async_trait` signature).
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -317,6 +318,14 @@ async fn run_call(
     }
 
     for (name, path) in &call_step.capture {
+        let resolved_path = template::resolve(&Value::String(path.clone()), captures_value)
+            .map_err(|e| format!("step {index} (`{}`) capture `{name}`: {e}", call_step.call))?;
+        let path = resolved_path.as_str().ok_or_else(|| {
+            format!(
+                "step {index} (`{}`) capture `{name}` path did not resolve to a string",
+                call_step.call
+            )
+        })?;
         let captured = json_path_get(&outcome.result, path).ok_or_else(|| {
             format!(
                 "step {index} (`{}`): capture `{name}` path `{path}` did not resolve",
@@ -458,6 +467,18 @@ fn check_field(field: &FieldExpect, result: &Value) -> Result<(), String> {
                 return Err(format!("{path}: expected {expected}, got {value:?}"));
             }
         }
+        Check::NotEquals(expected) => {
+            let Some(actual) = value else {
+                return Err(format!(
+                    "{path}: expected a value different from {expected}, got missing"
+                ));
+            };
+            if actual == expected {
+                return Err(format!(
+                    "{path}: expected a value different from {expected}, got {actual}"
+                ));
+            }
+        }
         Check::Contains(needle) => {
             let hay = value.and_then(Value::as_str).unwrap_or_default();
             if !hay.contains(needle.as_str()) {
@@ -476,6 +497,17 @@ fn check_field(field: &FieldExpect, result: &Value) -> Result<(), String> {
             let n = value.and_then(Value::as_f64);
             if n.is_none_or(|n| n > *max) {
                 return Err(format!("{path}: expected <= {max}, got {n:?}"));
+            }
+        }
+        Check::Gt(expected) => {
+            let actual_number = value.and_then(Value::as_number).ok_or_else(|| {
+                format!("{path}: expected a JSON number greater than {expected}, got {value:?}")
+            })?;
+            let expected_number = expected
+                .as_number()
+                .ok_or_else(|| format!("{path}: gt expects a JSON number, got {expected}"))?;
+            if exact_number_cmp(actual_number, expected_number) != Some(Ordering::Greater) {
+                return Err(format!("{path}: expected {value:?} > {expected}"));
             }
         }
         Check::Within { value: target, tol } => {
@@ -509,6 +541,47 @@ fn check_field(field: &FieldExpect, result: &Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Compare JSON numbers without routing integer values through `f64`.
+/// In particular, distinct `u64`s above 2^53 must remain ordered distinctly.
+fn exact_number_cmp(left: &serde_json::Number, right: &serde_json::Number) -> Option<Ordering> {
+    fn integer(number: &serde_json::Number) -> Option<i128> {
+        number
+            .as_u64()
+            .map(i128::from)
+            .or_else(|| number.as_i64().map(i128::from))
+    }
+
+    fn integer_float_cmp(integer: i128, float: f64) -> Option<Ordering> {
+        if !float.is_finite() {
+            return None;
+        }
+        let upper_bound = 2_f64.powi(127);
+        if float >= upper_bound {
+            return Some(Ordering::Less);
+        }
+        if float < -upper_bound {
+            return Some(Ordering::Greater);
+        }
+        if float == -upper_bound {
+            return Some(integer.cmp(&i128::MIN));
+        }
+
+        let truncated = float.trunc() as i128;
+        Some(match integer.cmp(&truncated) {
+            Ordering::Equal if float.fract() > 0.0 => Ordering::Less,
+            Ordering::Equal if float.fract() < 0.0 => Ordering::Greater,
+            ordering => ordering,
+        })
+    }
+
+    match (integer(left), integer(right)) {
+        (Some(left), Some(right)) => Some(left.cmp(&right)),
+        (Some(left), None) => integer_float_cmp(left, right.as_f64()?),
+        (None, Some(right)) => Some(integer_float_cmp(right, left.as_f64()?)?.reverse()),
+        (None, None) => left.as_f64()?.partial_cmp(&right.as_f64()?),
+    }
 }
 
 /// A minimal `$.a.b.0` walk, matching the plan's spelling for `capture` and
