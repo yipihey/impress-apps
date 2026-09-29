@@ -264,7 +264,7 @@ pub trait ImbibAppService: Send + Sync + 'static {
     ) -> Vec<ExternalPaper>;
 
     /// Resolve free text, BibTeX, or structured citation fields through the
-    /// running app's existing `/api/papers/resolve` cascade. Candidate order,
+    /// running app's local/import/search cascade. Candidate order,
     /// confidence, `via`, and reason values are preserved. The returned paper
     /// and candidate objects use the same open dictionary shape as HTTP.
     #[impress_method(safety = external, effects(reach = [app("imbib")]))]
