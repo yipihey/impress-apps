@@ -1388,9 +1388,7 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         };
 
         let rows = if query.is_empty() {
-            if let Some(collection_rows) = collection_rows.as_ref() {
-                Ok(collection_rows.clone())
-            } else if let Some(library_id) = library_id.as_ref() {
+            if let Some(library_id) = library_id.as_ref() {
                 self.store.query_publications(
                     library_id.clone(),
                     "date_added".into(),
@@ -1398,6 +1396,8 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                     None,
                     None,
                 )
+            } else if let Some(collection_rows) = collection_rows.as_ref() {
+                Ok(collection_rows.clone())
             } else {
                 match self.store.get_default_library() {
                     Ok(Some(default_library)) => self.store.query_publications(
@@ -2489,7 +2489,7 @@ mod tests {
                 "".into(),
                 50,
                 None,
-                filters(Some(second_library.id), Some(collection.id)),
+                filters(Some(second_library.id.clone()), Some(collection.id)),
             )
             .await;
         assert_eq!(collection_in_library.len(), 2);

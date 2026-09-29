@@ -216,8 +216,8 @@ public actor AutomationService: AutomationOperations {
                 return authors.contains { pubAuthors.contains($0.lowercased()) }
             }
         }
-        // Note: library/collection filtering requires detail lookups; skip for now
-        // since most callers filter by parentId at query time.
+        // Library scope is applied in the query; collection membership is
+        // resolved from detail rows before pagination in searchLibrary.
         if let tags = filters.tags, !tags.isEmpty {
             result = result.filter { pub in
                 let pubTagPaths = Set(pub.tagDisplays.map(\.path))

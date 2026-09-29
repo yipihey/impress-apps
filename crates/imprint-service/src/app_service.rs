@@ -631,6 +631,7 @@ impress_service_impl! {
             document_id: String,
             /// Route-compatible filter: all, unresolved, resolved, or suggestions.
             filter: Option<String>,
+            /// Only comments attributed to this agent identifier.
             author_agent_id: Option<String>
         ) -> Vec<CommentRecord>,
         create_comment(
