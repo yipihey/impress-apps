@@ -75,7 +75,7 @@ extension FigureInfo {
     init(record: VerbFigureRecord) {
         self.init(
             id: record.id,
-            title: record.title ?? (record.name.isEmpty ? nil : record.name),
+            title: record.title,
             datasetName: record.datasetName,
             format: nil,
             createdAt: BridgeDate.parse(record.createdAt),

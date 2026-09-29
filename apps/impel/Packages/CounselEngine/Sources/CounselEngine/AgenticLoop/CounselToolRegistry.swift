@@ -273,7 +273,7 @@ public actor CounselToolRegistry {
 
             case "impart_list_conversations":
                 let limit: Int = toolUse.input["limit"]?.get() ?? 20
-                let page = try await ImpartBridge.listConversations(limit: limit)
+                let page = try await ImpartBridge.listConversationsPage(limit: limit)
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(page)

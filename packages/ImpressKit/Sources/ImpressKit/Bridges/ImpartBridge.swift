@@ -3,16 +3,23 @@ import Foundation
 /// Typed bridge for communicating with impart (messaging) via canonical verbs.
 public struct ImpartBridge: Sendable {
 
-    /// List research conversations and preserve the generated page metadata.
-    public static func listConversations(limit: Int = 20) async throws -> ConversationListInfo {
+    /// List research conversations in the bridge's existing array shape.
+    public static func listConversations(limit: Int = 20) async throws -> [ConversationInfo] {
+        try await listConversationsPage(limit: limit).conversations
+    }
+
+    /// List research conversations and preserve pagination/filter metadata.
+    public static func listConversationsPage(
+        limit: Int = 20, offset: Int = 0, includeArchived: Bool = false, query: String? = nil
+    ) async throws -> ConversationListInfo {
         let page: VerbConversationList = try await SiblingBridge.shared.callVerb(
             "impart-service_list-conversations",
             on: .impart,
             arguments: [
                 "limit": min(max(limit, 0), Int(UInt32.max)),
-                "include_archived": false,
-                "offset": 0,
-                "query": NSNull(),
+                "include_archived": includeArchived,
+                "offset": min(max(offset, 0), Int(UInt32.max)),
+                "query": query as Any? ?? NSNull(),
             ]
         )
         return ConversationListInfo(page: page)
