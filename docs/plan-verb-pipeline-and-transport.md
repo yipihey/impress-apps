@@ -2204,3 +2204,7 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c15-{frameworks,native-proof}-final.log`. The earlier host run
   passed deletion but exposed the shared stale tag cache; this final run
   includes P5c14's verified fix. No user files or running apps were touched.
+
+### 2026-09-29 — P5c16 final native verification
+
+Merged verified main `16a0b7cc`; only appended session-log entries differed. The final P5c15 framework cohort passes the isolated impel proof at `/tmp/impress-p5b-transport-lu8quz0f/output/`: one XCTest, two shared transport calls, SQLite check green, owned PID 73083 exited. Focused bridge tests: 6 passed. Capabilities: 44 passed, 0 failed, 3 ignored. All quick gates passed (`/tmp/impress-p5c16-final-gates.log`). Impart's changed artifact consumer also compiled (`/tmp/impress-p5c16-build-impart.log`).
