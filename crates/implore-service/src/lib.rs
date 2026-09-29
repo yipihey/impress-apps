@@ -970,7 +970,10 @@ impress_service_impl! {
             /// Full JSON view-state replacement applied before other fields.
             view_state: Option<String>
         ) -> UpdateFigureOutcome,
-        delete_figure(figure_id: String) -> bool,
+        delete_figure(
+            /// UUID of the figure whose record and unreferenced files are removed.
+            figure_id: String
+        ) -> bool,
         export_figure(
             /// Figure ID to export from the running host.
             figure_id: String,
