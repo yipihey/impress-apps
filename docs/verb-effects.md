@@ -267,6 +267,7 @@ catalogue, 300 on the exception table.
 | `impel-service_scheduler-status` | "task@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
 | `implore-service_create-figure` | — | — | app("implore") | — |
 | `implore-service_export-figure` | — | — | app("implore") | — |
+| `implore-service_export-figure-data` | — | — | app("implore") | — |
 | `implore-service_get-dataset` | — | — | app("implore") | — |
 | `implore-service_get-figure` | — | — | app("implore") | — |
 | `implore-service_get-logs` | — | — | app("implore") | — |
@@ -617,6 +618,7 @@ when one lands).
 | `impel-service_retention-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `implore-service_create-figure` | needs a running app |
 | `implore-service_export-figure` | needs a running app |
+| `implore-service_export-figure-data` | needs a running app |
 | `implore-service_get-dataset` | needs a running app |
 | `implore-service_get-figure` | needs a running app |
 | `implore-service_get-logs` | needs a running app |
