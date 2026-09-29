@@ -588,8 +588,8 @@ impress_service_impl! {
             anchor: Option<String>,
             /// Optional parent UUID; replies inherit its live text range.
             parent_id: Option<String>,
-            /// Proposed replacement text. Applying it remains a separate action.
-            proposed_text: Option<String>,
+            /// Proposed replacement text; private in call logs. Applying it is separate.
+            #[impress_private] proposed_text: Option<String>,
             /// Agent identity used for comment attribution and author filtering.
             author_agent_id: Option<String>,
             /// Optional display name; defaults to the existing local/agent name.
