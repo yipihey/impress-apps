@@ -3058,3 +3058,14 @@ per-scenario cleanup without evaluating expressions.
   scenarios, all three surface and all fourteen layout entries, zero skips.
   The console entry ran through the interpreter. Native symbol checks passed
   and the owned host exited; no user app or store was used.
+
+- 2026-09-28 — **S2f comparison verification completed.** The final exact
+  scenario/capabilities run passed **67 tests, zero failed, three ignored**
+  (`/tmp/impress-s2f-tests-final.log`), including integer/float boundary cases
+  above 2^53 and u64 range, fractional negatives, equality and malformed
+  operands. Both clippy shards and all quick gates passed
+  (`/tmp/impress-s2f-final-*.log`); both affected native archives were rebuilt
+  for all supported arm64 slices (`/tmp/impress-s2f-frameworks.log`). The first
+  combined run hit the already observed all-zero import-summary flake; nine
+  diagnostic runs and this final run passed. Its cause remains unconfirmed,
+  as recorded in the S3 diagnosis above. No assertion or fixture was weakened.
