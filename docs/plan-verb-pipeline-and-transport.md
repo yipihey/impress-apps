@@ -1959,7 +1959,19 @@ Scratch Rust fixtures cover nested counts, case-insensitive prefix filtering,
 no-match behavior, limit/order and stable hierarchy identity. The opt-in hosted
 transport proof compares generated and HTTP rows for a nested path, count,
 case-insensitive prefix and limit using only the PID-owned scratch library.
-No builds/tests, route removal or caller migration were performed here.
+No route removal or caller migration is part of this package.
+
+- 2026-09-29 — **P5c14 Rust/gates verified.** The focused package run passed
+  90 tests with zero failures and three ignored across `imbib-service`,
+  `imbib-verbs-ffi` and `impress-capabilities`; every P5c14 quick gate passed
+  (fmt, both clippy scopes, coverage/docs, kit dependency/standalone/package
+  checks, UniFFI bindings, schema refs and hakari). The first clippy pass caught
+  the new prefix predicate's `map_or` lint; it was corrected to `is_none_or`
+  and the full gates passed. Tables and the tag reference page were regenerated
+  from the semantic-search inventory dump/default doc generator respectively.
+  Evidence: `/tmp/impress-p5c14-touched-tests.log`,
+  `/tmp/impress-p5c14-inventory-dump.log` and `/tmp/impress-p5c14-{fmt,clippy-rest,clippy-imprint,coverage,docs,deps,standalone,packages,bindings,schema,hakari}.log`.
+  Hosted transport verification and archive builds remain with root.
 
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
