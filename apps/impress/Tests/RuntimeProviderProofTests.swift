@@ -335,7 +335,8 @@ final class RuntimeProviderProofTests: XCTestCase {
     // capabilities-service is deliberately outside the store's kit image.
     // Native surface sources reach it through this same full-inventory host.
     private static func metadata(_ name: String, _ args: [String: Any]) throws -> [String: Any] {
-        try object(Data(ImpelToolsVerbHost().callVerb(name: name, argsJson: jsonString(args)).utf8))
+        try object(Data(ImpelToolsVerbHost().callVerb(
+            name: name, argsJson: jsonString(args), contextJson: "").utf8))
     }
 
     private static func provider(_ id: String, in list: [String: Any]) -> [String: Any]? {

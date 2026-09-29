@@ -1381,7 +1381,7 @@ beyond a plain `call` step.
 | 11 | layout `layout.version_moves` (`:512`) | tree; `verb split` on `{role: detail}`; tree; `verb resize` with shares read from the tree; `swap list/detail`; swap back; `close` | `version` strictly increases at each step | M, C | i | `capture` from the tree, `gte` on a captured value, a computed shares array (the one step that is not a literal) |
 | 12 | layout `layout.saved_round_trip` (`:601`) | `op save-layout`; `GET /api/layout/layouts`; `op apply-layout name`; `op delete-layout`; `GET layouts` | listed, then `version`, then gone | M, C | i | `capture`, `contains`/`absent` |
 | 13 | layout `layout.channel_selection` (`:660`) | tree; find the detail param sourced from a channel; `verb select` on the list with a fresh uuid; tree | that channel carries exactly `[uuid]` | M | i | a JSON-path lookup into the tree, `{{uuid}}` |
-| 14 | layout `surface.show_and_dispatch` (`:1434`) | `POST /api/surface`; `GET …/render`; `POST …/dispatch {bins change 17}`; render; `dispatch {choose click}`; `GET …/events?after_seq=0` | re-render shows 17; one effect ok; event `bins-chosen` | M, C (in #22) | i | `event` steps (already data) |
+| 14 | layout `surface.show_and_dispatch` (`tier_b.rs`) | stored scenario: create; render; dispatch `bins` change 17; render and state reread; dispatch `choose` click; events; required delete teardown | initial/re-rendered slider values 4/17; persisted state 17; successful effect; event `bins-chosen` payload 17 | M, C | i | `{{!…}}` literal escape, `capture`, exact render JSON path |
 | 15 | layout `layout.hidden_share` (`:1599`) | tree; `verb set-collapsed {role navigator}`; tree; same again; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `within` tolerance; a Rust constant → a literal in the document |
 | 16 | layout `layout.outline_collection_row` (`:762`) | tree; **in-process `outline_target` + `outline_verbs`** (what a click runs); POST each; tree; `wait_for_log "pane N display: 0 rows"`; `verb select` random item; wait for the detail line | list query = collection query; channel 1 carries the collection; the logs appear | M | ii | `gesture` step; `wait.log`. L |
 | 17 | layout `layout.reading_pdf_pane` (`:978`) | `apply-layout ordinal 1`; tree; `split` a pdf pane; `set-query` read filter; **`first_row_of` reads the shared store in-process** (`:1331-1362`); `select`; wait for `pane N pdf: publication`; `close` | the pdf pane logged the selected paper (note if none) | M, C | iv (+iii) | a read paper with a PDF on disk; depends on #16's leftovers (`:981`). L |
@@ -1389,7 +1389,7 @@ beyond a plain `call` step.
 | 19 | layout `layout.reading_preset` (`:913`) | `GET /api/status` (passes if not impress); `op apply-layout name Reading`; tree; `set-query`; `first_row_of` (direct store read, missing row **fails**); select; wait | detail pane is `pdf`; the log names the paper | M | iv (+iii) | `requires.app: impress`; a paper with a PDF. L |
 | 20 | layout `layout.console_pane` (`tier_b.rs`) | apply ordinal 1; capture server log cursor; split console after detail with `view_state`; read tree; bounded fresh log wait; required close teardown | exact `view_state` round-trips; one new `layout` message contains pane id, search and level summaries (case-insensitive) | M, C | i | capture-aware `wait.log`, `log_cursor` and gesture-result capture. L |
 | 21 | layout `layout.wire_contract` (`:1642`) | tree; raw `POST verb` with an unknown field; `focus` another pane; raw `close` with a stale `expected_revision`; tree; raw `set-view-kind editor` | `wire_version == 1`, no camelCase; 400 `invalid-argument` naming `targett`; 409 `conflict`, revision unchanged; 422 `unknown-view-kind` | M | i | `status`, `code`, `message contains` |
-| 22 | layout `layout.restored` (`:1738`) | `DELETE /api/surface/{id}` for each created surface; `op apply-layout name RESTORE`; `op delete-layout RESTORE` | no errors | C | i | a catalogue-level `teardown` (state shared across entries: the restore point, `created_surfaces`) |
+| 22 | layout `layout.restored` (`:1738`) | `op apply-layout name RESTORE`; `op delete-layout RESTORE` | no errors | C | i | catalogue-level restoration still closes over whether the live layout was parked |
 | 23 | surface `surface.http.routes` (`tier_b.rs:152`) | `POST /api/surface`; 12 table steps (list, schema, examples, validate, get, render, state, put state, dispatch click, events, wait, put `?expected_revision=1`); events; DELETE | each 200 with `wire_version: 1` and its key; event `chosen`; delete ok | M, C | i | already a table (`:168-211`) |
 | 24 | surface `surface.http.strict` (`:250`) | 3 raw calls against a nil uuid (`show` retired target, `events?after=`, `render?pane=`) | 400 `invalid-argument` naming the field | — | i | `status`, `message contains` |
 | 25 | surface `surface.http.invalid_spec` (`:286`) | `POST /api/surface` with an invalid spec; `GET /api/surface` | 422 `invalid-spec` with problems; not stored | — | i | `status`, `absent` |
@@ -2659,6 +2659,18 @@ per-scenario cleanup without evaluating expressions.
   `s3-record` / `claude/reflective-s3-record`; its implementation and live proof are not yet
   verified. The later packages remain unstarted.
 
+- 2026-09-28 — **W3 exploration identity follow-up**, commit `a3752f6b` plus the resolver-name
+  correction. `LibraryManager` now migrates its legacy `explorationLibraryID` pointer into the
+  existing Device settings file and mirrors subsequent setter changes. The setting is marked
+  internal and omitted from generated user panes; the existing settings registry remains the
+  persistence mechanism, with no new record kind, schema ref, or public verb argument. Retention
+  uses the stored UUID only when the explicit argument is absent, and ignores malformed IDs. The
+  stored workflow's 90-second delay and seed-if-missing behavior are unchanged. Startup now reads
+  the pointer from `LibraryManager.init`, ensuring migration completes before the retention
+  workflow's delayed first run even when no view opens the exploration library. Scratch-only Rust
+  and PMC tests cover migration, precedence and UUID handling. Shared gates and native builds are
+  pending the root review.
+
 - 2026-09-27 — **S3 implementation and first isolated native proof.** Added
   `impress-scenario-service_scenario-record` (trace, or inclusive time window with one exact
   caller), a pure capture matcher, and losslessness/output-ID metadata on the existing call row.
@@ -2890,6 +2902,17 @@ per-scenario cleanup without evaluating expressions.
   `/tmp/impress-retention-cutoff-repeat.log`. The first test build exhausted
   disk space before running; obsolete session caches were cleared before retry.
 
+- 2026-09-28 — **S3 nested host-context follow-up (implementation pending
+  verification)**: the surface FFI now carries the current pipeline caller,
+  trace and parent call in a separate, strictly parsed context value across
+  `SharedVerbHost` into `impel-tools`; domain arguments cannot set those fields.
+  `DefaultExecutor` re-enters that context around its `spawn_blocking` host
+  callback, and the existing app transport continues trace and parent
+  forwarding from the nested pipeline call. Added focused context round-trip,
+  malformed-context, argument-separation and Rust callback tests, plus an
+  owned native audit-lineage proof through the Swift ImpelTools callback. The
+  additive UniFFI export and callback signature require binding regeneration;
+  native builds/proof and workspace verification remain for integration.
 
 - 2026-09-28 — **S2c: surface HTTP catalogue converted to stored scenarios.**
   On `claude/reflective-s2c-surface`, all three `surface.http.*` entries now
@@ -2933,3 +2956,58 @@ per-scenario cleanup without evaluating expressions.
   expression language or verb signature changes. Added interpreter validation
   and caller coverage. No build or test run was performed in this package;
   verification remains with the parent task.
+
+- 2026-09-28 — **S2d: layout surface-dispatch capability stored as a scenario.**
+  `surface.show_and_dispatch` now embeds its surface spec in
+  `crates/impress-layout-service/scenarios/surface.show_and_dispatch.json`
+  and runs canonical `impress-surface-service_*` calls through the REST-route
+  projection. Its assertions cover the initial slider render, `change` to 17,
+  the fresh render and persisted-state reads, a successful click effect, the emitted
+  `bins-chosen` event with its payload, and required deletion in teardown.
+  `{{!state.bins}}` preserves the surface engine's payload template from
+  scenario interpolation. The Rust render contract supplies the exact
+  `tree.root.node.items.1.node.value` path. Inventory and structural checks
+  cover this embedded document. The combined Tier B catalogues now have thirteen
+  documents and twelve remaining code entries (ten layout/gate/restoration
+  entries and two platform imprint entries). This is an implementation
+  checkpoint; final tests and native gates are being run by the parent task.
+- 2026-09-28 — **S3 host-context verification completed.** The nested
+  callback now preserves the pipeline context across `spawn_blocking`, the
+  SharedVerbHost callback, Swift and ImpelTools. Separate trusted metadata
+  carries caller, trace and parent; domain arguments cannot choose them. The
+  generated bindings were rebuilt with all twelve supported full arm64
+  framework scripts (no swiftformat/fast mode). Both clippy shards and every
+  quick gate passed. The final combined native-feature Rust run passed
+  **367 tests, zero failed, four ignored** (`/tmp/impress-s3-combined-tests3.log`).
+  An earlier import-papers example readback failed once; the same graph passed
+  on retry and default capabilities passed separately. Its failure now includes
+  the complete ImportSummary for diagnosis; no assertion or fixture was weakened.
+
+  The owned native proof passed one XCTest with no skips, checking actual audit
+  rows for a human surface dispatch and its memory-service child: same trace,
+  exact parent call. Evidence: `/tmp/impress-s3-proof-gpaxukku/output/host-48118/`.
+  The first proof attempt stopped at the bootstrap ownership check because
+  Python resolved `/tmp` to `/private/tmp` while Foundation canonicalized only
+  the existing parent. The runner now keeps the consistent `/tmp` spelling;
+  the ownership checks remain unchanged. Native symbol checks passed and the
+  owned host exited. Reproduce with `scripts/test-s3-host-context-native.py`,
+  an owned `target-s3-*` build using bundle `com.impress.s3proof.impress`, and
+  the built CLI. Normal pre-push passed macOS and arm64 iOS simulator builds
+  (`/tmp/impress-s3-host-context-push.log`), with installation disabled and
+  worktree-owned derived data. No user's app or store was used.
+
+- 2026-09-28 — **W3 exploration identity verification completed.** Automatic
+  retention can now discover the migrated internal settings pointer when the
+  existing explicit argument is omitted; invalid explicit IDs do not silently
+  select another library. The setting stays out of generated preference panes.
+  The final touched-crate/capabilities run passed **340 tests, zero failed,
+  three ignored** (`/tmp/impress-w3-discovery-final-tests.log`). Both clippy
+  shards and all quick gates passed (`/tmp/impress-w3d-final-*.log`). All twelve
+  native frameworks were rebuilt for their full supported arm64 slices, without
+  swiftformat or fast mode (`/tmp/impress-w3-discovery-frameworks.log`). The
+  isolated LibraryManager suite passed **20 tests**, including migration before
+  any getter and authoritative settings/mirrored updates, using a scratch store
+  and unique defaults suites (`/tmp/impress-w3-discovery-swift-tests.log`). The
+  normal pre-push hook passed macOS and arm64 iOS simulator builds with owned
+  derived data and installation disabled (`/tmp/impress-w3-discovery-push.log`).
+  No running app, launcher or user store was touched.
