@@ -774,6 +774,16 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   `/tmp/impress-p5b-transport-mg52mt2s/output/`. Owned PID 32003 exited. No user
   app, launcher or real store was touched.
 
+- 2026-09-29 — **P5c6 RIS domain export.** Added the generated
+  `imbib-library-service_export-ris` selection verb with the existing BibTeX
+  UUID/cite-key resolution and ordering semantics. Its named compatibility
+  adapter reuses Rust's shared RIS types and formatter while matching the
+  current PublicationManagerCore tag order; existing Rust RIS conversion stays
+  unchanged for its other callers. The legacy HTTP route now uses its existing
+  Swift parser/converter/exporter path, with isolated transport parity coverage
+  and a Tier A representative record. Builds and tests remain in the parent
+  verification lane.
+
 - 2026-09-26 — Planned on a worktree of main at 3222f573, branch `claude/plan-auto-gui-self-docs`, from
   Tom's second and third addenda. Measured: the nine handler call sites and two bypasses; the concern ×
   path matrix; the automation servers' auth and CORS (`Access-Control-Allow-Origin: *`, loopback
@@ -1769,3 +1779,14 @@ Data warnings remain; no persistence schema was changed.
   evidence requires the native app, and a refusal is not claimed as byte
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
+
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
