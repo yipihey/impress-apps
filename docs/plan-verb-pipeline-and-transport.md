@@ -2218,3 +2218,10 @@ verification.
   `/tmp/impress-p5c16-final-gates.log`, and the per-gate
   `/tmp/impress-p5c16-final-*.log` files. Native consumer proofs remain with
   root.
+- 2026-09-29 — **P5c17 final Rust and quick-gate verification.** The
+  capabilities suite passed 44 tests with zero failures and three ignored;
+  all ten package gates passed, including native bindings and kit standalone
+  checks. Evidence: `/tmp/impress-p5c17-final-verify.log`,
+  `/tmp/impress-p5c17-final-gates.log`, and the per-gate
+  `/tmp/impress-p5c17-final-*.log` files. Native consumer proofs remain with
+  root.
