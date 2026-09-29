@@ -2983,6 +2983,17 @@ per-scenario cleanup without evaluating expressions.
   on retry and default capabilities passed separately. Its failure now includes
   the complete ImportSummary for diagnosis; no assertion or fixture was weakened.
 
+  Follow-up diagnosis on 2026-09-28 remains **unconfirmed**: the reported
+  all-zero `ImportSummary` recurred once in the combined run, but the isolated
+  capabilities effects target passed once and then five fresh-process repeats;
+  the final serial `impress-scenario` + `impress-capabilities` graph passed all
+  three attempts (`/tmp/impress-import-exact-repeat-{1,2,3}.log`). The effects
+  examples run sequentially through one `OnceLock`-owned scratch store, and the
+  G3 import input is static; no fixture-order or concurrent-test cause was
+  established. The current diagnostic exposes the returned summary, but does
+  not identify which import stage produced it. Preserve the assertion and
+  investigate only if the failure recurs with the richer diagnostic.
+
   The owned native proof passed one XCTest with no skips, checking actual audit
   rows for a human surface dispatch and its memory-service child: same trace,
   exact parent call. Evidence: `/tmp/impress-s3-proof-gpaxukku/output/host-48118/`.
@@ -3072,3 +3083,14 @@ per-scenario cleanup without evaluating expressions.
   scenarios, all three surface and all fourteen layout entries, zero skips.
   The console entry ran through the interpreter. Native symbol checks passed
   and the owned host exited; no user app or store was used.
+
+- 2026-09-28 — **S2f comparison verification completed.** The final exact
+  scenario/capabilities run passed **67 tests, zero failed, three ignored**
+  (`/tmp/impress-s2f-tests-final.log`), including integer/float boundary cases
+  above 2^53 and u64 range, fractional negatives, equality and malformed
+  operands. Both clippy shards and all quick gates passed
+  (`/tmp/impress-s2f-final-*.log`); both affected native archives were rebuilt
+  for all supported arm64 slices (`/tmp/impress-s2f-frameworks.log`). The first
+  combined run hit the already observed all-zero import-summary flake; nine
+  diagnostic runs and this final run passed. Its cause remains unconfirmed,
+  as recorded in the S3 diagnosis above. No assertion or fixture was weakened.
