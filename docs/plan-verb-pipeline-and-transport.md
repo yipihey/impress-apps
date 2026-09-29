@@ -1635,3 +1635,14 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   not a claimed physical click. Reproduce with the checked-in
   `scripts/test-runtime-provider-native.py` and the example README.
   P8 contains merged main `9d7ee7a4`; normal pre-push, PR and merge remain next.
+
+
+- 2026-09-29 — **P5c contract decisions authorized.** Tom explicitly overrode
+  the ask-first rule and delegated remaining implementation decisions, including
+  verb argument changes. The retained-route contract document now records the
+  implementation baseline. Begin with small read-contract packages for imprint
+  document metadata, imbib library metadata and implore figure metadata, then
+  complete the remaining domain contracts and migrate callers after native
+  parity. Queued UI operations, live editor/viewer and hardware routes retain
+  their recorded platform ownership. This authorization record changes no
+  runtime behavior and does not claim the implementation or parity complete.
