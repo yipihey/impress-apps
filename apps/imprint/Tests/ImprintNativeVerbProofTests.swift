@@ -150,7 +150,7 @@ final class ImprintNativeVerbProofTests: XCTestCase {
             ("title", "title"), ("authors", "authors"), ("format", "format"),
             ("status", "status"), ("modifiedAt", "last_modified"), ("createdAt", "created_at"),
         ] {
-            XCTAssertEqual(String(describing: legacyRow[legacyKey]), String(describing: generatedRow[generatedKey]),
+            XCTAssertEqual(legacyRow[legacyKey] as? NSObject, generatedRow[generatedKey] as? NSObject,
                            "Legacy and generated list field \(legacyKey) diverged")
         }
         XCTAssertEqual((legacyRow["id"] as? String)?.lowercased(),
@@ -178,8 +178,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
                                (generatedDetail[generatedKey] as? String)?.lowercased())
                 continue
             }
-            XCTAssertEqual(String(describing: legacyDetail[legacyKey]),
-                           String(describing: generatedDetail[generatedKey]),
+            XCTAssertEqual(legacyDetail[legacyKey] as? NSObject,
+                           generatedDetail[generatedKey] as? NSObject,
                            "Legacy and generated detail field \(legacyKey) diverged")
         }
         XCTAssertEqual(generatedDetail["word_count"] as? Int, 3)

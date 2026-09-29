@@ -1664,5 +1664,16 @@ implementation, so it needs no separate metadata source.
 Focused Rust contract coverage checks list/detail projection, exact stored
 timestamps and links, body-derived word count, and legacy deserialization.
 The isolated hosted XCTest compares legacy HTTP list/detail metadata against
-the generated verb responses on its PID-owned scratch store. Tests and builds
-remain for the root verification pass; this worker made static edits only.
+the generated verb responses on its PID-owned scratch store. Root verification
+passed 130 Rust tests (zero failures, three ignored), every quick gate, and all
+supported arm64 slices of store-ffi, impel-tools and imprint-verbs-ffi with
+swiftformat off PATH. Seven verb tables were regenerated from semantic-search
+test dumps and were unchanged. Logs: `/tmp/impress-p5c1-{tests,gates,frameworks}.log`.
+
+The hosted proof passed both XCTest cases and fourteen shared transport calls:
+`/tmp/impress-p5b-transport-uipdhngz/output/`. Native SQLite symbol checks passed;
+PID 86745 exited. The first proof exposed a test comparing NSArray descriptions
+containing allocation addresses; value equality fixes that test without changing
+production results. Failed evidence remains at
+`/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
+The existing debug linker unwind-size warning remains unchanged.
