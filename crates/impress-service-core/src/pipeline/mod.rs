@@ -53,7 +53,7 @@ use serde_json::Value;
 use crate::descriptor::{SafetyClass, VerbDescriptor};
 use crate::descriptor_handle::VerbHandle;
 use crate::BoxError;
-pub use context::CallContext;
+pub use context::{CallContext, TransportContext};
 pub use identity::CallerIdentity;
 use std::borrow::Cow;
 

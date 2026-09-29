@@ -17588,11 +17588,11 @@ public protocol SharedVerbHost : AnyObject {
     func hasVerb(name: String)  -> Bool
     
     /**
-     * Run the verb by name; `args_json` and the successful return are both
-     * `serde_json::Value` JSON, exactly as every other verb call in the
-     * suite (MCP, the CLI, the linked inventory) speaks it.
+     * Run the verb by name. Domain args and trusted pipeline context are
+     * separate JSON strings; the successful return is the same JSON value
+     * every other verb call in the suite (MCP, CLI, linked inventory) speaks.
      */
-    func callVerb(name: String, argsJson: String) throws  -> String
+    func callVerb(name: String, argsJson: String, contextJson: String) throws  -> String
     
 }
 
@@ -17654,6 +17654,7 @@ fileprivate struct UniffiCallbackInterfaceSharedVerbHost {
             uniffiHandle: UInt64,
             name: RustBuffer,
             argsJson: RustBuffer,
+            contextJson: RustBuffer,
             uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
@@ -17664,7 +17665,8 @@ fileprivate struct UniffiCallbackInterfaceSharedVerbHost {
                 }
                 return try uniffiObj.callVerb(
                      name: try FfiConverterString.lift(name),
-                     argsJson: try FfiConverterString.lift(argsJson)
+                     argsJson: try FfiConverterString.lift(argsJson),
+                     contextJson: try FfiConverterString.lift(contextJson)
                 )
             }
 
@@ -20512,7 +20514,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_has_verb() != 27085) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 54359) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 50589) {
         return InitializationResult.apiChecksumMismatch
     }
 

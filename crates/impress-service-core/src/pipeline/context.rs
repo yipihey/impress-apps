@@ -26,6 +26,8 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
+use serde::Deserialize;
+
 use super::identity::CallerIdentity;
 
 /// Created and deleted item ids observed while one handler runs. Each call
@@ -90,6 +92,90 @@ pub struct CallContext {
     pub store_override: Option<Arc<dyn Any + Send + Sync>>,
     /// Item creations and deletions observed during this call only.
     pub mutation_ids: MutationIds,
+}
+
+/// Trusted identity and parent metadata crossing a native callback boundary.
+/// The domain verb arguments remain a separate JSON value; callers must never
+/// be able to select this identity by putting fields in that object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransportContext {
+    pub caller: CallerIdentity,
+    pub trace_id: String,
+    pub parent_call: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransportContextWire {
+    kind: String,
+    name: Option<String>,
+    trace_id: String,
+    parent_call: String,
+}
+
+impl TransportContext {
+    /// Describe the current call as the trusted parent of a nested transport
+    /// call. This is the same wire shape consumed by `dispatch`'s caller
+    /// parser, with `person` as the transport spelling for the pipeline's
+    /// `human` identity kind.
+    pub fn from_parent(context: &CallContext) -> Self {
+        Self {
+            caller: context.caller.clone(),
+            trace_id: context.trace_id.clone(),
+            parent_call: context.call_id.clone(),
+        }
+    }
+
+    /// Strictly decode caller metadata received outside the verb's argument
+    /// object. Reject unknown/duplicate fields and malformed identities before
+    /// dispatch so a callback cannot quietly fall back to a different actor.
+    pub fn from_json(raw: &str) -> Result<Self, String> {
+        let wire: TransportContextWire = serde_json::from_str(raw)
+            .map_err(|error| format!("invalid caller context: {error}"))?;
+        let caller = match (wire.kind.as_str(), wire.name) {
+            ("person", None) => CallerIdentity::Person,
+            ("agent", Some(name)) if !name.trim().is_empty() => CallerIdentity::Agent(name),
+            ("app", Some(name)) if !name.trim().is_empty() => CallerIdentity::App(name),
+            ("provider", Some(name)) if !name.trim().is_empty() => CallerIdentity::Provider(name),
+            ("system", Some(name)) if !name.trim().is_empty() => CallerIdentity::System(name),
+            _ => return Err("invalid caller context identity".into()),
+        };
+        if wire.trace_id.trim().is_empty() || wire.parent_call.trim().is_empty() {
+            return Err("caller context requires non-empty trace_id and parent_call".into());
+        }
+        Ok(Self {
+            caller,
+            trace_id: wire.trace_id,
+            parent_call: wire.parent_call,
+        })
+    }
+
+    /// Encode this context using the established dispatch caller JSON shape.
+    pub fn to_json(&self) -> String {
+        let kind = match &self.caller {
+            CallerIdentity::Person => "person",
+            CallerIdentity::Agent(_) => "agent",
+            CallerIdentity::App(_) => "app",
+            CallerIdentity::Provider(_) => "provider",
+            CallerIdentity::System(_) => "system",
+        };
+        let mut value = serde_json::Map::new();
+        value.insert("kind".into(), serde_json::json!(kind));
+        if let Some(name) = self.caller.name() {
+            value.insert("name".into(), serde_json::json!(name));
+        }
+        value.insert("trace_id".into(), serde_json::json!(self.trace_id));
+        value.insert("parent_call".into(), serde_json::json!(self.parent_call));
+        serde_json::Value::Object(value).to_string()
+    }
+
+    /// Construct an entry call with the exact identity and lineage supplied
+    /// by the trusted transport context.
+    pub fn into_call(self, args: serde_json::Value) -> super::Call {
+        let mut call = super::Call::new(self.caller, args).with_trace(self.trace_id);
+        call.parent_call = Some(self.parent_call);
+        call
+    }
 }
 
 tokio::task_local! {
@@ -186,6 +272,33 @@ mod tests {
         let seen = sync_scope(context("c1"), current_call_id);
         assert_eq!(seen.as_deref(), Some("c1"));
         assert!(current_call_id().is_none());
+    }
+
+    #[test]
+    fn transport_context_round_trips_the_trusted_parent_identity_and_lineage() {
+        let mut parent = (*context("parent-call")).clone();
+        parent.caller = CallerIdentity::agent("surface-ffi");
+        parent.trace_id = "surface-trace".into();
+        let transported = TransportContext::from_parent(&parent);
+        let decoded = TransportContext::from_json(&transported.to_json()).unwrap();
+        let nested = decoded.into_call(serde_json::json!({"domain": "value"}));
+
+        assert_eq!(nested.caller, CallerIdentity::agent("surface-ffi"));
+        assert_eq!(nested.trace_id.as_deref(), Some("surface-trace"));
+        assert_eq!(nested.parent_call.as_deref(), Some("parent-call"));
+        assert_eq!(nested.args["domain"], "value");
+    }
+
+    #[test]
+    fn transport_context_refuses_ambiguous_or_malformed_identity() {
+        for raw in [
+            "not json",
+            r#"{"kind":"person","trace_id":"t","parent_call":"p","caller":"system"}"#,
+            r#"{"kind":"unknown","trace_id":"t","parent_call":"p"}"#,
+            r#"{"kind":"person","trace_id":"","parent_call":"p"}"#,
+        ] {
+            assert!(TransportContext::from_json(raw).is_err(), "accepted {raw}");
+        }
     }
 
     #[tokio::test]
