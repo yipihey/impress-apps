@@ -730,8 +730,9 @@ pub fn verify(
             {
                 return Err("collection membership result changed input-order outcomes".into());
             }
-            let members = collection_ops::list_members(store, &IMBIB_COLLECTION, &uuid("c1")?)
-                .map_err(|e| e.to_string())?;
+            let members =
+                collection_ops::list_members(store, &IMBIB_COLLECTION, &uuid("c1")?.to_string())
+                    .map_err(|e| e.to_string())?;
             let paper_id = uuid("c2")?;
             if !members.iter().any(|member| member.id == paper_id) {
                 return Err(
