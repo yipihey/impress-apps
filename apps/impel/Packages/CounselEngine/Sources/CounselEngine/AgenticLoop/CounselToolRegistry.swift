@@ -385,6 +385,8 @@ public actor CounselToolRegistry {
             return "Unknown tool: \(name)"
         case let .BadArguments(name, message):
             return "\(name): arguments were not a JSON object — \(message)"
+        case let .BadContext(message):
+            return "Invalid inherited tool context: \(message)"
         case let .Handler(name, message):
             return "\(name) failed: \(message)"
         case let .AppUnavailable(app, name):
