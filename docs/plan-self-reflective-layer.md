@@ -2983,6 +2983,17 @@ per-scenario cleanup without evaluating expressions.
   on retry and default capabilities passed separately. Its failure now includes
   the complete ImportSummary for diagnosis; no assertion or fixture was weakened.
 
+  Follow-up diagnosis on 2026-09-28 remains **unconfirmed**: the reported
+  all-zero `ImportSummary` recurred once in the combined run, but the isolated
+  capabilities effects target passed once and then five fresh-process repeats;
+  the final serial `impress-scenario` + `impress-capabilities` graph passed all
+  three attempts (`/tmp/impress-import-exact-repeat-{1,2,3}.log`). The effects
+  examples run sequentially through one `OnceLock`-owned scratch store, and the
+  G3 import input is static; no fixture-order or concurrent-test cause was
+  established. The current diagnostic exposes the returned summary, but does
+  not identify which import stage produced it. Preserve the assertion and
+  investigate only if the failure recurs with the richer diagnostic.
+
   The owned native proof passed one XCTest with no skips, checking actual audit
   rows for a human surface dispatch and its memory-service child: same trace,
   exact parent call. Evidence: `/tmp/impress-s3-proof-gpaxukku/output/host-48118/`.
