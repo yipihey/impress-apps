@@ -2497,9 +2497,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 }
             }
 
-            // Step 3: local text search — sometimes the query is a cite key
-            // or title and the paper is already imported.
+            // Step 3: resolve exact local cite keys before full-text search.
+            // Cite keys are not indexed as searchable publication text, so
+            // falling straight through could send an imported key to a network source.
             if !trimmed.isEmpty {
+                if let paper = try await automationService.getPaper(identifier: .citeKey(trimmed)) {
+                    return .json([
+                        "status": "ok",
+                        "via": "local-search",
+                        "paper": paperToDict(paper)
+                    ])
+                }
                 let filters = SearchFilters(limit: 5)
                 let hits = try await automationService.searchLibrary(query: trimmed, filters: filters)
                 if hits.count == 1 {
