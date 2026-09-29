@@ -2236,3 +2236,38 @@ only; root owns build and test verification.
   `/tmp/impress-p5c20-final-gates.log`, and the per-gate
   `/tmp/impress-p5c20-final-*.log` files. Native consumer proofs remain with
   root.
+
+
+
+
+
+- 2026-09-29 — **P5c14 verified.** Root passed 1,755 touched Rust tests
+  (zero failures, three ignored), every quick gate, and full supported arm64
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi builds. The final owned
+  native proof passed three XCTest cases and 37 transport calls, including
+  stable tag path identity, hierarchy/counts, case-insensitive prefix filters
+  and limits. SQLite checks passed; owned PID 51204 exited. Evidence:
+  `/tmp/impress-p5b-transport-xz36o8we/output/` and
+  `/tmp/impress-p5c14-{tests,gates,frameworks,native-proof}-verified.log`.
+  Native verification exposed a per-handle tag cache that hid generated writes
+  from Swift readers; it now checks SQLite's data version. A separate cold/warm
+  regression pins logical read evidence, and normal builds keep observation
+  disabled through the store wrapper. The newly observable reads are declared;
+  tables were regenerated from the tests' dump, including the newly verified
+  tag-count example. No user app or store was touched.
+
+- 2026-09-29 — **P5c15 native verification complete.** Full supported arm64
+  store-ffi, impel-tools and imbib-verbs-ffi rebuilds passed against the final
+  cache-coherent ImbibCore cohort. The isolated host passed all four XCTest
+  cases and 37 shared transport calls, including generated single/batch
+  deletion, duplicate IDs, unlink-only file preservation, scratch-file removal,
+  store readback and missing-row refusal before mutation. SQLite checks passed;
+  owned PID 57922 exited. Evidence:
+  `/tmp/impress-p5b-transport-xqt71k0m/output/` and
+  `/tmp/impress-p5c15-{frameworks,native-proof}-final.log`. The earlier host run
+  passed deletion but exposed the shared stale tag cache; this final run
+  includes P5c14's verified fix. No user files or running apps were touched.
+
+### 2026-09-29 — P5c16 final native verification
+
+Merged verified main `16a0b7cc`; only appended session-log entries differed. The final P5c15 framework cohort passes the isolated impel proof at `/tmp/impress-p5b-transport-lu8quz0f/output/`: one XCTest, two shared transport calls, SQLite check green, owned PID 73083 exited. Focused bridge tests: 6 passed. Capabilities: 44 passed, 0 failed, 3 ignored. All quick gates passed (`/tmp/impress-p5c16-final-gates.log`). Impart's changed artifact consumer also compiled (`/tmp/impress-p5c16-build-impart.log`).
