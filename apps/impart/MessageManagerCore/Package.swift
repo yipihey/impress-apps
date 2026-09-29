@@ -62,7 +62,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MessageManagerCoreTests",
-            dependencies: ["MessageManagerCore", "ImpartVerbsFFI"],
+            dependencies: ["MessageManagerCore", "ImpartVerbsFFI", "ImpressAutomation"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
