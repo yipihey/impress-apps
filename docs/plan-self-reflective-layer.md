@@ -3023,3 +3023,18 @@ per-scenario cleanup without evaluating expressions.
   with zero skips. `surface.show_and_dispatch` ran the document and verified
   its render/state/event/cleanup assertions. Native symbol checks passed and
   owned host PID 56685 exited. No user's app or store was used.
+
+- 2026-09-28 — **S2e verification completed.** Console playback now uses the
+  canonical apply-layout verb, captures its split result, and requires a fresh
+  scoped log line containing every expected fragment before required cleanup.
+  Integration caught and fixed two stale references to the renamed outcome
+  guard and the legacy projection-only apply-layout-by-ordinal name in the new
+  document. The final Rust run passed **197 tests, zero failed, three ignored**
+  (`/tmp/impress-s2e-tests3.log`). Both clippy shards and every quick gate passed
+  (`/tmp/impress-s2e-final-*.log`). Both affected archives were rebuilt again on
+  the final source for all supported arm64 slices, without swiftformat or fast
+  mode (`/tmp/impress-s2e-frameworks-final.log`). Owned imprint proof
+  `/tmp/impress-g5-proof-t85o2luc/output/` passed both XCTest cases, the stored
+  scenarios, all three surface and all fourteen layout entries, zero skips.
+  The console entry ran through the interpreter. Native symbol checks passed
+  and the owned host exited; no user app or store was used.
