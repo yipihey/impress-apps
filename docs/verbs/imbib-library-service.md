@@ -316,17 +316,45 @@ Merge duplicate papers within a library and hard-delete the duplicate rows (not 
   1
   ```
 
-## `imbib-library-service_delete-library-undoable`
+## `imbib-library-service_delete-libraries`
 
-Delete a library with its collections and memberships. The store hands back an undo snapshot that this verb drops (plan-auto-gui finding S-2), so on this path the deletion is not undoable: take a backup first.
+Delete a batch of existing libraries after validating every UUID and library before any filesystem or store mutation. Removed file bytes are not restored by store undo.
 
 - **safety**: `destructive`
-- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/collection"
-- **writes**: "imbib/library", "imbib/bibliography-entry", "imbib/collection"
-- **reach**: —
+- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **writes**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **reach**: app("imbib"), fs
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `delete_files` | boolean | yes | Whether to remove their shared and legacy library-file containers. |
+| `ids` | array | yes | UUIDs of libraries to delete; every UUID and row is preflighted. |
+
+**Examples**
+
+- `delete-library-batch` — Tier A:
+
+  ```json
+  {"ids":["5c000000-0000-4000-8000-00000000000d","5c000000-0000-4000-8000-00000000000e"],"delete_files":false}
+  ```
+  expects:
+
+  ```json
+  2
+  ```
+
+## `imbib-library-service_delete-library-undoable`
+
+Delete a library with its collections and memberships. `delete_files` also removes its shared and legacy file containers, which requires the running imbib app. Store undo does not restore removed file bytes.
+
+- **safety**: `destructive`
+- **reads**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **writes**: "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **reach**: app("imbib"), fs
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `delete_files` | boolean | yes | Whether to remove its shared and legacy library-file containers. |
 | `id` | string | yes | UUID of the library to delete with its collections. |
 
 **Examples**
@@ -334,7 +362,7 @@ Delete a library with its collections and memberships. The store hands back an u
 - `remove-empty-library` — Tier A:
 
   ```json
-  {"id":"5c000000-0000-4000-8000-00000000000a"}
+  {"id":"5c000000-0000-4000-8000-00000000000a","delete_files":false}
   ```
   expects:
 
@@ -1092,7 +1120,7 @@ Remove papers past their retention window (imbib CLAUDE.md "Background Services 
 Three sources, each independent and each reading its own threshold from the settings registry (R1) rather than an argument: - **Inbox**: `imbib.retention.inbox_days` (0 = keep forever) and `imbib.retention.auto_remove_read`. Every removed inbox paper is first recorded with `dismiss_paper` (by DOI/arXiv/bibcode/cite key) so a later import or feed refresh does not bring it back — "a dismissed paper must never re-enter the inbox" (imbib CLAUDE.md). - **Feed collections**: every `imbib/smart-search` row carrying its own per-collection `retention_days` and `auto_remove_read`. - **Exploration**: `imbib.retention.exploration_days`, applied to executed smart searches under the library pointer migrated from imbib's legacy `explorationLibraryID` setting. A valid explicit `exploration_library_id` takes precedence over that stored pointer.
 
 - **safety**: `destructive`
-- **reads**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper"
+- **reads**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper", "imbib/tag-definition"
 - **writes**: "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper"
 - **reach**: —
 
@@ -1292,7 +1320,7 @@ Takes no arguments.
 Add or remove existing papers by the same local identifiers accepted by the retained collection HTTP routes. Results preserve input order.
 
 - **safety**: `mutating`
-- **reads**: "imbib/collection", "imbib/library", "imbib/bibliography-entry"
+- **reads**: "imbib/collection", "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition"
 - **writes**: "imbib/collection"
 - **reach**: —
 

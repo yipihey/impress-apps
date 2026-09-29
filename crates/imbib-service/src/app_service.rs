@@ -223,6 +223,14 @@ pub struct IdentifierImportResult {
 
 #[impress_service]
 pub trait ImbibAppService: Send + Sync + 'static {
+    /// Internal bridge to the app's undo-aware library deletion path, including
+    /// its file-container cleanup when requested.
+    /// `id` is the library UUID; `delete_files` opts into removing its containers.
+    async fn delete_library(&self, id: String, delete_files: bool) -> bool;
+    /// Internal bridge to the app's validated, batched library deletion path.
+    /// `ids` are library UUIDs; `delete_files` opts into removing their containers.
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32;
+
     /// Internal bridge used by the generated library import verb. Kept out of
     /// the app-service inventory because identifier import is one public
     /// library capability, while the running app owns source lookup and PDF
@@ -256,7 +264,7 @@ pub trait ImbibAppService: Send + Sync + 'static {
     ) -> Vec<ExternalPaper>;
 
     /// Resolve free text, BibTeX, or structured citation fields through the
-    /// running app's existing `/api/papers/resolve` cascade. Candidate order,
+    /// running app's local/import/search cascade. Candidate order,
     /// confidence, `via`, and reason values are preserved. The returned paper
     /// and candidate objects use the same open dictionary shape as HTTP.
     #[impress_method(safety = external, effects(reach = [app("imbib")]))]
@@ -493,6 +501,24 @@ fn refuse(method: &str) {
 
 #[async_trait::async_trait]
 impl ImbibAppService for DefaultImbibAppService {
+    async fn delete_library(&self, _id: String, _delete_files: bool) -> bool {
+        refuse("delete_library");
+        impress_service_core::pipeline::context::report_refusal(
+            impress_service_core::refusal::codes::HOST_UNAVAILABLE,
+            "The app-owned library deletion path requires the running imbib app.",
+        );
+        false
+    }
+
+    async fn delete_libraries(&self, _ids: Vec<String>, _delete_files: bool) -> u32 {
+        refuse("delete_libraries");
+        impress_service_core::pipeline::context::report_refusal(
+            impress_service_core::refusal::codes::HOST_UNAVAILABLE,
+            "The app-owned library deletion path requires the running imbib app.",
+        );
+        0
+    }
+
     async fn import_identifiers(
         &self,
         identifiers: Vec<String>,
@@ -740,6 +766,25 @@ impress_service_impl! {
             library_id: String
         ) -> u32,
     ],
+}
+
+#[cfg(test)]
+mod library_file_cleanup_tests {
+    use super::{DefaultImbibAppService, ImbibAppService};
+
+    #[tokio::test]
+    async fn headless_backend_refuses_native_library_deletion() {
+        let app = DefaultImbibAppService::new();
+        assert!(
+            !app.delete_library("50000000-0000-4000-8000-000000000001".into(), true)
+                .await
+        );
+        assert_eq!(
+            app.delete_libraries(vec!["50000000-0000-4000-8000-000000000001".into()], true)
+                .await,
+            0
+        );
+    }
 }
 
 #[cfg(test)]

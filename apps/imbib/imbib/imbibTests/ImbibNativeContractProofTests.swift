@@ -25,6 +25,11 @@ final class ImbibNativeContractProofTests: XCTestCase {
             let collection = try XCTUnwrap(store.createCollection(name: "Import target \(suffix)", libraryId: library.id))
 
             let router = HTTPAutomationRouter()
+            let retiredIdentifierImport = await router.route(HTTPRequest(
+                method: "POST", path: "/api/papers/add",
+                body: "{\"identifiers\":[\"\(citeKey)\"],\"library\":\"\(library.id)\"}"
+            ))
+            XCTAssertEqual(retiredIdentifierImport.status, 404)
             let result = await router.invokeNativeVerb(
                 method: "import_identifiers",
                 argsJSON: """

@@ -179,9 +179,9 @@ public final class ImploreStoreAdapter {
     /// THE figure write: render the figure's artifact, store it, and upsert
     /// the `figure` row with `data_hash` pointing at it.
     ///
-    /// Every writer goes through here — `POST`/`PATCH /api/figures`, the
-    /// `create-figure` verb (which reaches implore over HTTP), and implore's
-    /// own "Save as Figure" — so a figure is never stored without the image
+    /// Every writer goes through here — the generated `create-figure` verb's
+    /// native app callback and implore's own "Save as Figure" — so a figure
+    /// is never stored without the image
     /// other apps draw. What the image IS is decided in Rust
     /// (`implore_core::figure_artifact`); this maps the answer into the row.
     ///

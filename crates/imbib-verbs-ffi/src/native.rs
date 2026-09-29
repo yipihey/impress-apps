@@ -57,6 +57,24 @@ impl NativeImbibAppService {
 
 #[async_trait::async_trait]
 impl ImbibAppService for NativeImbibAppService {
+    async fn delete_library(&self, id: String, delete_files: bool) -> bool {
+        self.invoke(
+            "delete_library",
+            json!({ "id": id, "delete_files": delete_files }),
+        )
+        .await
+        .unwrap_or(false)
+    }
+
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32 {
+        self.invoke(
+            "delete_libraries",
+            json!({ "ids": ids, "delete_files": delete_files }),
+        )
+        .await
+        .unwrap_or(0)
+    }
+
     async fn import_identifiers(
         &self,
         identifiers: Vec<String>,
@@ -568,5 +586,71 @@ mod tests {
         assert_eq!(args["collection_id"], "collection-id");
         assert_eq!(args["download_pdfs"], true);
         assert_eq!(args["identifiers"][0], "10.5555/example");
+    }
+    struct FileCleanupFixture {
+        response: NativeCallResult,
+        received: std::sync::Mutex<Option<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ImbibNativeCallbacks for FileCleanupFixture {
+        async fn invoke(&self, method: String, args_json: String) -> NativeCallResult {
+            *self.received.lock().unwrap() = Some((method, args_json));
+            self.response.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn library_deletion_uses_native_callback_and_propagates_failure() {
+        let callback = Arc::new(FileCleanupFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: "true".into(),
+            },
+            received: std::sync::Mutex::new(None),
+        });
+        let service = NativeImbibAppService {
+            callback: Arc::clone(&callback) as Arc<dyn ImbibNativeCallbacks>,
+        };
+
+        assert!(service.delete_library("library-a".into(), true).await);
+        let (method, args) = callback.received.lock().unwrap().clone().unwrap();
+        assert_eq!(method, "delete_library");
+        let args: Value = serde_json::from_str(&args).unwrap();
+        assert_eq!(args["id"], "library-a");
+        assert_eq!(args["delete_files"], true);
+
+        let batch_callback = Arc::new(FileCleanupFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: "2".into(),
+            },
+            received: std::sync::Mutex::new(None),
+        });
+        let batch = NativeImbibAppService {
+            callback: Arc::clone(&batch_callback) as Arc<dyn ImbibNativeCallbacks>,
+        };
+        assert_eq!(
+            batch
+                .delete_libraries(vec!["a".into(), "b".into()], false)
+                .await,
+            2
+        );
+        let (method, args) = batch_callback.received.lock().unwrap().clone().unwrap();
+        assert_eq!(method, "delete_libraries");
+        let args: Value = serde_json::from_str(&args).unwrap();
+        assert_eq!(args["ids"][0], "a");
+        assert_eq!(args["delete_files"], false);
+
+        let failed = NativeImbibAppService {
+            callback: Arc::new(Fixture {
+                response: NativeCallResult {
+                    status: 500,
+                    body_json: r#"{"code":"file-cleanup-failed","message":"partial cleanup"}"#
+                        .into(),
+                },
+            }),
+        };
+        assert!(!failed.delete_library("library-a".into(), true).await);
     }
 }

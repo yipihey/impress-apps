@@ -49,10 +49,11 @@ pub struct FigureRecord {
     pub name: String,
     #[serde(default, alias = "datasetId", alias = "datasetID")]
     pub dataset_id: Option<String>,
-    /// The plot kind (`type` in implore's HTTP figure response).
+    /// The plot kind (`type` in implore's former HTTP figure response).
     #[serde(default = "default_figure_type", alias = "figureType", alias = "type")]
     pub figure_type: String,
-    /// Not currently included by `/api/figures`; `None` preserves that absence.
+    /// Omitted by the former `/api/figures` formatter; `None` preserves that
+    /// absence for older/native records.
     #[serde(
         default,
         alias = "datasetName",
@@ -78,10 +79,12 @@ pub struct FigureRecord {
     pub title: Option<String>,
     #[serde(default, alias = "createdAt")]
     pub created_at: Option<String>,
-    /// The HTTP figure response includes `modifiedAt`; older/native fixtures may omit it.
+    /// The former HTTP figure response included `modifiedAt`; older/native
+    /// records may omit it.
     #[serde(default, alias = "modifiedAt", skip_serializing_if = "Option::is_none")]
     pub modified_at: Option<String>,
-    /// Not currently included by `/api/figures`; retained as optional structured state.
+    /// Omitted by the former `/api/figures` formatter; retained as optional
+    /// structured state.
     #[serde(default, alias = "viewState", skip_serializing_if = "Option::is_none")]
     pub view_state: Option<serde_json::Value>,
     /// HTTP omits empty tags and absent folders rather than returning null.
@@ -421,7 +424,7 @@ pub trait ImploreService: Send + Sync + 'static {
     /// `plot_type`, `x` and `y`. `dataset_id` is recorded on the figure; with
     /// inline data any short label for where the data came from will do.
     /// `name` is the figure's name in implore (default "Untitled Figure").
-    /// `title`, `color_column`, `width`, and `height` map the remaining
+    /// `title`, `color_column`, `width`, and `height` map the former
     /// `/api/figures` options. `view_state` is an optional complete JSON
     /// object for additional figure-view fields; explicit plot arguments
     /// override matching base fields.
@@ -465,9 +468,9 @@ pub trait ImploreService: Send + Sync + 'static {
         view_state: Option<String>,
     ) -> CreateFigureOutcome;
 
-    /// Update an existing figure using the same partial fields as PATCH
-    /// `/api/figures/{id}`. All fields are optional except the ID; dataset ID
-    /// is not patchable in the HTTP contract. `view_state`, when supplied,
+    /// Update an existing figure using the same partial fields as the former
+    /// PATCH `/api/figures/{id}`. All fields are optional except the ID;
+    /// dataset ID was not patchable in that HTTP contract. `view_state`, when supplied,
     /// replaces the stored snapshot before these fields are applied. A
     /// successful update is saved only if it can be rerendered; failed renders
     /// are rolled back. Success includes the updated figure and artifact;

@@ -248,8 +248,6 @@ struct AutomationSettingsView: View {
 
                     Group {
                         Text("GET /api/status").font(.system(.caption, design: .monospaced))
-                        Text("GET /api/documents").font(.system(.caption, design: .monospaced))
-                        Text("GET /api/documents/{id}").font(.system(.caption, design: .monospaced))
                         Text("POST /api/documents/{id}/compile").font(.system(.caption, design: .monospaced))
                         Text("POST /api/documents/{id}/insert-citation").font(.system(.caption, design: .monospaced))
                     }

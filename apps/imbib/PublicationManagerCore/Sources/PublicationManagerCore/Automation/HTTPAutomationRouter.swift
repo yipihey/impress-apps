@@ -26,13 +26,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 ///
 /// API Endpoints (GET):
 /// - `GET /api/status` - Server health and library statistics
-/// - `GET /api/search?q=...&limit=...` - Search library
-/// - `GET /api/papers/{citeKey}` - Get single paper with BibTeX
-/// - `GET /api/export?keys=a,b,c&format=ris` - Export RIS for multiple cite keys
-/// - `GET /api/collections` - List all collections
-/// - `GET /api/libraries` - List all libraries
-/// - `GET /api/collections/{id}/papers` - List papers in a collection
-/// - `GET /api/tags` - List tags
 /// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/sync/status` - CloudKit sync state (ADR-0007 Phase 3)
@@ -58,8 +51,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/templates/{id}/source` - Raw Typst style definition
 ///
 /// API Endpoints (POST):
-/// - `POST /api/papers/add` - Add papers by identifier
-/// - `POST /api/collections` - Create a collection
 /// - `POST /api/papers/download-pdfs` - Download PDFs
 /// - `GET /api/papers/{citeKey}/pdf` - The primary PDF's bytes
 /// - `POST /api/papers/{citeKey}/comments` - Add comment to a paper
@@ -117,13 +108,10 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `PUT /api/papers/tags` - Add/remove tags
 /// - `PUT /api/papers/flag` - Set/clear flags
 /// - `PUT /api/papers/{citeKey}/notes` - Update publication notes
-/// - `PUT /api/collections/{id}/papers` - Add/remove papers from collection
 /// - `PUT /api/artifacts/{id}/tags` - Add tag to artifact
 ///
 /// API Endpoints (DELETE):
 /// - `DELETE /api/papers` - Delete papers
-/// - `DELETE /api/libraries/{id}` - Delete a single library (papers unlinked, undoable)
-/// - `DELETE /api/libraries` - Batch delete libraries (body: `{"identifiers":[UUID,…],"deleteFiles":false}`)
 /// - `DELETE /api/smart-searches/{id}` - Delete a smart search (Exploration row); papers untouched
 /// - `DELETE /api/smart-searches` - Batch delete smart searches (body: `{"identifiers":[UUID,…]}`)
 /// - `DELETE /api/comments/{id}` - Delete a comment
@@ -195,12 +183,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/status" {
             return await handleStatus()
-        }
-
-        if path == "/api/search" {
-            return await PerfMetrics.shared.measureAsync(PerfBucket.search, detail: "http") {
-                await handleSearch(request)
-            }
         }
 
         // GET /api/manuscripts/{uuid}/changes — the document's per-change
@@ -347,10 +329,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
         }
 
-        if path == "/api/search/external" {
-            return await handleSearchExternal(request)
-        }
-
         // GET /api/papers/{citeKey}/comments
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/comments") {
             let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/comments".count))
@@ -452,11 +430,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleIsPaperDismissedByCiteKey(citeKey: citeKey)
         }
 
-        if path.hasPrefix("/api/papers/") {
-            let citeKey = String(originalPath.dropFirst("/api/papers/".count))
-            return await handleGetPaper(citeKey: citeKey)
-        }
-
         // ===== Phase D additions (continued, after /api/papers/* block) =====
 
         // GET /api/dismissed-papers
@@ -531,25 +504,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetArtifactRelations(id: artifactID)
         }
 
-        // RIS has no canonical verb. BibTeX export uses
-        // POST /api/verb/imbib-library-service_export-bibtex.
-        if path == "/api/export" && request.queryParams["format"] == "ris" {
-            return await handleExport(request)
-        }
-
-        if path == "/api/collections" {
-            return await handleCollections()
-        }
-
-        // GET /api/collections/{id}/papers
-        if path.hasPrefix("/api/collections/") && path.hasSuffix("/papers") {
-            let segment = String(originalPath.dropFirst("/api/collections/".count).dropLast("/papers".count))
-            guard let collectionID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid collection ID")
-            }
-            return await handleCollectionPapers(collectionID: collectionID, request: request)
-        }
-
         // GET /api/libraries/{id}/participants
         if path.hasPrefix("/api/libraries/") && path.hasSuffix("/participants") {
             let segment = String(originalPath.dropFirst("/api/libraries/".count).dropLast("/participants".count))
@@ -577,16 +531,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleListLibraryAssignments(libraryID: libraryID)
         }
 
-        if path == "/api/libraries" {
-            return await handleListLibraries()
-        }
-
         if path == "/api/tags/tree" {
             return await handleTagTree()
-        }
-
-        if path == "/api/tags" {
-            return await handleListTags(request)
         }
 
         // The GENERIC route group, mounted once: `/api/logs`,
@@ -698,10 +644,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         // `originalPath`, unlike GET/PUT/DELETE.
         if path == "/api/surface" || path.hasPrefix("/api/surface/") {
             return await handleSurfaceHTTP(method: "POST", path: request.path, request: request)
-        }
-
-        if path == "/api/papers/add" {
-            return await handleAddPapers(request)
         }
 
         // Native plotting (agent-drivable): render a spec to SVG.
@@ -918,10 +860,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSetAppearance(request)
         }
 
-        if path == "/api/papers/resolve" {
-            return await handleResolvePaper(request)
-        }
-
         if path == "/api/remarkable/connect" {
             return await handleRemarkableConnect(request)
         }
@@ -991,16 +929,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
             return await handleCreateAnnotationForFile(linkedFileID: fileID, request: request)
         }
-        if path == "/api/collections" {
-            return await handleCreateCollection(request)
-        }
-
         if path == "/api/libraries/add-papers" {
             return await handleAddToLibrary(request)
-        }
-
-        if path == "/api/collections/add-papers" {
-            return await handleAddToCollection(request)
         }
 
         if path == "/api/papers/download-pdfs" {
@@ -1102,15 +1032,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/notes") {
             let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/notes".count))
             return await handleUpdateNotes(citeKey: citeKey, request: request)
-        }
-
-        // PUT /api/collections/{id}/papers
-        if path.hasPrefix("/api/collections/") && path.hasSuffix("/papers") {
-            let segment = String(originalPath.dropFirst("/api/collections/".count).dropLast("/papers".count))
-            guard let collectionID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid collection ID")
-            }
-            return await handleUpdateCollectionPapers(collectionID: collectionID, request: request)
         }
 
         // PUT /api/comments/{id} — edit comment
@@ -1355,20 +1276,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid smart-search ID")
             }
             return await handleDeleteSmartSearch(id: searchID)
-        }
-
-        // DELETE /api/libraries (batch — must precede single-id route)
-        if path == "/api/libraries" {
-            return await handleDeleteLibrariesBatch(request)
-        }
-
-        // DELETE /api/libraries/{id}
-        if path.hasPrefix("/api/libraries/") {
-            let segment = String(originalPath.dropFirst("/api/libraries/".count))
-            guard let libraryID = UUID(uuidString: segment) else {
-                return .badRequest("Invalid library ID")
-            }
-            return await handleDeleteLibrary(libraryID: libraryID, request: request)
         }
 
         return .notFound("Unknown DELETE endpoint: \(path)")
@@ -2311,14 +2218,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             "endpoints": [
                 // GET endpoints
                 "GET /api/status": "Server health and library statistics",
-                "GET /api/search?q=...": "Search library (params: q, limit, offset, tag, flag, read, collection, library, addedAfter, addedBefore)",
-                "GET /api/search/external?q=...": "Search external sources like ADS, arXiv, Crossref (params: q, source, limit)",
-                "GET /api/papers/{citeKey}": "Get paper by cite key",
-                "GET /api/export?keys=...&format=ris": "Export RIS (BibTeX uses POST /api/verb/imbib-library-service_export-bibtex)",
-                "GET /api/collections": "List all collections",
-                "GET /api/collections/{id}/papers": "List papers in a collection (params: limit, offset)",
-                "GET /api/libraries": "List all libraries with sharing info",
-                "GET /api/tags": "List tags (params: prefix, limit)",
                 "GET /api/tags/tree": "Get formatted tag tree",
                 "GET /api/logs": "Query in-app log entries (params: limit, level, category, search, after)",
                 "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
@@ -2363,10 +2262,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/papers/{citeKey}/annotations": "List annotations for a paper (params: page)",
                 "GET /api/papers/{citeKey}/notes": "Get notes for a paper",
                 // POST endpoints
-                "POST /api/papers/add": "Add papers by identifier (body: identifiers, collection?, library?, downloadPDFs?)",
                 "POST /api/libraries/add-papers": "Add existing papers to a library (body: libraryID, identifiers)",
-                "POST /api/collections/add-papers": "Add existing papers to a collection (body: collectionID, identifiers)",
-                "POST /api/collections": "Create a collection (body: name, libraryID?, isSmartCollection?, predicate?)",
                 "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers); awaited, per-paper outcomes",
                 "GET /api/papers/{citeKey}/pdf": "The primary PDF as application/pdf (404 when none on this device, 422 when the one it holds is damaged)",
                 // reMarkable USB mirror (ADR-025)
@@ -2384,7 +2280,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "PUT /api/papers/star": "Toggle star (body: identifiers)",
                 "PUT /api/papers/tags": "Add/remove tags (body: identifiers, action, tag)",
                 "PUT /api/papers/flag": "Set/clear flag (body: identifiers, color|null, style?, length?)",
-                "PUT /api/collections/{id}/papers": "Add/remove papers (body: action, identifiers)",
                 "PUT /api/papers/{citeKey}/notes": "Update notes (body: notes)",
                 // DELETE endpoints
                 "DELETE /api/papers": "Delete papers (body: identifiers)",
@@ -3410,7 +3305,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
             let tags = try await automationService.listTags(matching: prefix, limit: limit)
             let tagDicts = tags.map { tag -> [String: Any] in
                 var dict: [String: Any] = [
-                    "id": tag.id.uuidString,
+                    "id": tag.id,
                     "name": tag.name,
                     "canonicalPath": tag.canonicalPath,
                     "useCount": tag.useCount,
@@ -5266,6 +5161,32 @@ extension HTTPAutomationRouter {
         var response: HTTPResponse
         var field: String?
         switch method {
+        case "delete_library":
+            guard let id = uuid("id") else {
+                return nativeFailure(400, "invalid-args", "Missing or invalid library UUID")
+            }
+            let deleteFiles = (args["delete_files"] as? Bool) ?? false
+            do {
+                let deleted = try await automationService.deleteLibrary(id: id, deleteFiles: deleteFiles)
+                return nativeSuccess(deleted)
+            } catch {
+                return nativeFailure(500, "library-deletion-failed", error.localizedDescription)
+            }
+        case "delete_libraries":
+            guard let rawIDs = strings("ids") else {
+                return nativeFailure(400, "invalid-args", "Missing ids")
+            }
+            let ids = rawIDs.compactMap(UUID.init(uuidString:))
+            guard ids.count == rawIDs.count else {
+                return nativeFailure(400, "invalid-args", "One or more library IDs are not UUIDs")
+            }
+            let deleteFiles = (args["delete_files"] as? Bool) ?? false
+            do {
+                let count = try await automationService.deleteLibraries(ids: ids, deleteFiles: deleteFiles)
+                return nativeSuccess(count)
+            } catch {
+                return nativeFailure(500, "library-deletion-failed", error.localizedDescription)
+            }
         case "import_identifiers":
             guard let identifiers = strings("identifiers") else {
                 return nativeFailure(400, "invalid-args", "Missing identifiers")

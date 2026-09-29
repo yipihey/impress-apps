@@ -165,7 +165,8 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_create-library` | "imbib/library", "imbib/collection" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_create-muted-item` | "imbib/muted-item" | "imbib/muted-item" | — | example ×1 |
 | `imbib-library-service_deduplicate-library` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
-| `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
+| `imbib-library-service_delete-libraries` | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), fs | — |
+| `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), fs | — |
 | `imbib-library-service_delete-publications-undoable` | "imbib/bibliography-entry", any("undo snapshots query all children of each publication, regardless of kind") | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_dismiss-paper` | "imbib/dismissed-paper" | "imbib/dismissed-paper" | — | example ×1 |
 | `imbib-library-service_duplicate-publications` | "imbib/bibliography-entry", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/linked-file" | fs | — |
@@ -195,14 +196,14 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_query-starred` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
 | `imbib-library-service_query-unread` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |
 | `imbib-library-service_remove-from-collection` | "imbib/collection" | "imbib/collection" | — | example ×1 |
-| `imbib-library-service_retention-cleanup` | "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper" | — | example ×2 |
+| `imbib-library-service_retention-cleanup` | "imbib/bibliography-entry", "imbib/smart-search", "imbib/library", "imbib/dismissed-paper", "imbib/tag-definition" | "imbib/bibliography-entry", "imbib/smart-search", "imbib/dismissed-paper" | — | example ×2 |
 | `imbib-library-service_search-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection" | — | — | example ×3 |
 | `imbib-library-service_set-flag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_set-library-default` | "imbib/library" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_set-read` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_set-starred` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_sidebar-view` | "imbib/library", "imbib/bibliography-entry", "imbib/smart-search", "imbib/collection", prefix("impress/artifact/") | — | — | example ×2 |
-| `imbib-library-service_update-collection-members` | "imbib/collection", "imbib/library", "imbib/bibliography-entry" | "imbib/collection" | — | example ×1 |
+| `imbib-library-service_update-collection-members` | "imbib/collection", "imbib/library", "imbib/bibliography-entry", "imbib/tag-definition" | "imbib/collection" | — | example ×1 |
 | `imbib-manuscripts-service_compile-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript` | — | — | app("imbib") | — |
 | `imbib-manuscripts-service_create-manuscript-from-template` | — | — | app("imbib") | — |
@@ -235,7 +236,7 @@ catalogue, 300 on the exception table.
 | `imbib-tags-service_create-tag` | "imbib/tag-definition" | "imbib/tag-definition" | — | example ×1 |
 | `imbib-tags-service_delete-tag-undoable` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-tags-service_list-tags` | "imbib/tag-definition" | — | — | example ×1 |
-| `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | — |
+| `imbib-tags-service_list-tags-with-counts` | "imbib/tag-definition", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-tags-service_query-by-tag` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-tags-service_remove-tag` | "imbib/bibliography-entry" | "imbib/bibliography-entry" | — | — |
 | `imbib-tags-service_rename-tag` | "imbib/tag-definition", "imbib/bibliography-entry" | "imbib/tag-definition", "imbib/bibliography-entry" | — | example ×1 |
@@ -599,6 +600,8 @@ when one lands).
 | `imbib-eink-service_eink-plan` | leaves the process (device) |
 | `imbib-eink-service_eink-reachable` | leaves the process (device) |
 | `imbib-eink-service_eink-sync` | leaves the process (device, fs) |
+| `imbib-library-service_delete-libraries` | needs a running app |
+| `imbib-library-service_delete-library-undoable` | needs a running app |
 | `imbib-library-service_duplicate-publications` | no example ran |
 | `imbib-library-service_import-identifiers` | needs a running app |
 | `imbib-manuscripts-service_compile-manuscript` | needs a running app |
@@ -612,7 +615,6 @@ when one lands).
 | `imbib-semantic-service_list-indexed-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-semantic-service_search-papers` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_add-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
-| `imbib-tags-service_list-tags-with-counts` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-tags-service_remove-tag` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `imbib-undo-service_recent-undo-groups` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `impart-service_add-message` | needs a running app |

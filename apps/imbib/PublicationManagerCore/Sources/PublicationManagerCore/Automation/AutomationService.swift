@@ -820,15 +820,21 @@ public actor AutomationService: AutomationOperations {
     public func deleteLibrary(id: UUID, deleteFiles: Bool = false) async throws -> Bool {
         try await checkAuthorization()
 
-        if deleteFiles {
-            let containerURLs = await MainActor.run { LibraryManager.allContainerURLs(for: id) }
-            for containerURL in containerURLs where FileManager.default.fileExists(atPath: containerURL.path) {
-                try? FileManager.default.removeItem(at: containerURL)
-            }
+        guard await MainActor.run(body: { RustStoreAdapter.shared.getLibrary(id: id) != nil }) else {
+            throw AutomationOperationError.operationFailed("Library \(id.uuidString) was not found")
         }
 
-        await withStore { store in
+        if deleteFiles {
+            try await removeLibraryFileContainers(ids: [id])
+        }
+
+        let removed = await withStore { store in
             store.deleteLibrary(id: id)
+            return store.getLibrary(id: id) == nil
+        }
+        guard removed else {
+            throw AutomationOperationError.operationFailed(
+                "Library deletion failed; requested file cleanup may already have completed")
         }
         return true
     }
@@ -838,21 +844,58 @@ public actor AutomationService: AutomationOperations {
     /// once. Matches the on-device `LibraryManager.deleteLibraries(ids:)` semantics.
     public func deleteLibraries(ids: [UUID], deleteFiles: Bool = false) async throws -> Int {
         try await checkAuthorization()
+        var seen = Set<UUID>()
+        let ids = ids.filter { seen.insert($0).inserted }
         guard !ids.isEmpty else { return 0 }
 
-        if deleteFiles {
-            let urls = await MainActor.run { ids.flatMap(LibraryManager.allContainerURLs(for:)) }
-            for url in urls where FileManager.default.fileExists(atPath: url.path) {
-                try? FileManager.default.removeItem(at: url)
-            }
+        // Validate every row before touching any file container or library.
+        let missingID = await MainActor.run {
+            ids.first { RustStoreAdapter.shared.getLibrary(id: $0) == nil }
+        }
+        if let missingID {
+            throw AutomationOperationError.operationFailed(
+                "Library \(missingID.uuidString) was not found; batch was not changed"
+            )
         }
 
-        await withStore { store in
-            store.beginBatchMutation()
-            for id in ids { store.deleteLibrary(id: id) }
-            store.endBatchMutation()
+        if deleteFiles {
+            try await removeLibraryFileContainers(ids: ids)
         }
-        return ids.count
+
+        let removed = await withStore { store in
+            store.beginBatchMutation()
+            defer { store.endBatchMutation() }
+            var removed = 0
+            for id in ids {
+                store.deleteLibrary(id: id)
+                guard store.getLibrary(id: id) == nil else { break }
+                removed += 1
+            }
+            return removed
+        }
+        guard removed == ids.count else {
+            throw AutomationOperationError.operationFailed(
+                "Deleted \(removed) libraries before a store failure; requested file cleanup may already have completed")
+        }
+        return removed
+    }
+
+    private func removeLibraryFileContainers(ids: [UUID]) async throws {
+        let urls = await MainActor.run { ids.flatMap(LibraryManager.allContainerURLs(for:)) }
+        var removedAny = false
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.removeItem(at: url)
+                removedAny = true
+            } catch {
+                let partial = removedAny
+                    ? " Some earlier library containers were already removed."
+                    : ""
+                throw AutomationOperationError.operationFailed(
+                    "Could not remove a library file container; no library rows were deleted.\(partial)"
+                )
+            }
+        }
     }
 
     public func addToCollection(papers: [PaperIdentifier], collectionID: UUID) async throws -> Int {
@@ -1731,7 +1774,7 @@ public actor AutomationService: AutomationOperations {
             : nil
 
         return TagResult(
-            id: UUID(),  // TagDefinition uses path as ID, generate UUID for TagResult
+            id: tag.path,
             name: tag.leafName,
             canonicalPath: tag.path,
             parentPath: parentPath,
