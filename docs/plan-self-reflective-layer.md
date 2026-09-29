@@ -2986,3 +2986,15 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   normal pre-push hook passed macOS and arm64 iOS simulator builds with owned
   derived data and installation disabled (`/tmp/impress-w3-discovery-push.log`).
   No running app, launcher or user store was touched.
+
+- 2026-09-28 — **S2d verification completed.** The final touched-crate and
+  capabilities run passed **146 tests, zero failed, three ignored**
+  (`/tmp/impress-s2d-final-tests.log`). Both clippy shards and all quick gates
+  passed (`/tmp/impress-s2d-final-*.log`). The two affected native archives,
+  impress-store-ffi and impel-tools, were rebuilt for all supported arm64
+  slices; unchanged coherent frameworks were copied with COW. Owned imprint
+  proof `/tmp/impress-g5-proof-6vwvm7kk/output/` passed both XCTest cases,
+  the stored scenarios, all three surface and all fourteen layout entries
+  with zero skips. `surface.show_and_dispatch` ran the document and verified
+  its render/state/event/cleanup assertions. Native symbol checks passed and
+  owned host PID 56685 exited. No user's app or store was used.
