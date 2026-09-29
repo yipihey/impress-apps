@@ -2019,3 +2019,82 @@ No builds/tests, route removal or caller migration were performed here.
   loopback bearer. It had no comment-route requests to migrate. Queued document
   edits, metadata, caret citation, status/logs, compile, and other approved
   platform routes remain registered.
+- 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
+  three ignored), every quick gate, and full supported arm64 builds of
+  ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
+  proof passed one XCTest and 13 shared transport calls, including RIS parity
+  against the retained route; SQLite symbol checks passed and owned PID 77670
+  exited. Evidence: `/tmp/impress-p5b-transport-m3ixws5a/output/` and
+  `/tmp/impress-p5c6-final-{tests,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. Root corrected the seeded
+  bibliography fixture, a module-qualified test helper and converter lint
+  findings before these runs. No user store or running app was touched.
+
+- 2026-09-29 — **P5c7 verified.** Root passed 132 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 builds of store-ffi,
+  impel-tools and imprint-verbs-ffi, alongside the final RIS archives.
+  The isolated native run passed both XCTest cases and 14 shared transport
+  calls, including threaded suggestion metadata/range parity and invalid-parent
+  and unsupported-status refusals. SQLite checks passed; owned PID 21487 exited.
+  Evidence: `/tmp/impress-p5b-transport-0kkhokqi/output/` and
+  `/tmp/impress-p5c7-{final-tests,gates,final-frameworks,native-proof-final}.log`.
+  The first native run caught an old snapshot taken before two successful
+  thread writes; the final test snapshots immediately before the refusal and
+  still requires equality of every stored comment afterward. Generated project
+  identifier/path churn was discarded. No real store or user app was touched.
+
+## P5c17 — ImpressKit imbib read and RIS consumers (2026-09-29)
+
+Migrated `ImbibBridge.searchLibrary` to the generated publication search verb
+and added optional offset plus the finalized local read/collection/library/tag/
+flag/date filters. The bridge hydrates each summary through exact publication
+detail and BibTeX export verbs, retaining its existing `[ImbibPaper]` result
+shape. `getPaper(citeKey:)` now uses exact `imbib-search-service_find-by-cite-key`
+followed by the same hydration path, so misses remain `nil` without fuzzy
+search. Added `exportRIS(citeKeys:)` over the generated RIS export verb. The
+transport fixtures verify filter wire names, exact lookup, summary/detail field
+mapping, result ordering under concurrent hydration, and RIS forwarding. HTTP
+routes and other callers remain in place until hosted parity and root
+verification.
+
+- 2026-09-29 — **P5c18 implore figure export consumer.** The ImpressKit bridge
+  now calls `implore-service_export-figure-data` for image bytes and metadata
+  while keeping `exportFigure(id:format:) -> Data`; the richer method retains
+  renderer path, SHA-256, MIME type and byte count. The previous implementation
+  returned the HTTP route's JSON envelope as `Data`, despite the method's image
+  export contract. A repository-wide Swift caller audit found no consumers, so
+  the canonical result now returns the rendered bytes. Create/update/delete
+  routes also have no Swift callers; leave them without parallel bridge methods
+  and consider them eligible for retirement after their native/HTTP contract
+  proof. Counsel has only a figure-list tool, owned by the metadata consumer
+  package. Added mocked generated-verb transport and DTO fixtures. Static
+  review only; root verification pending.
+
+## P5c20 — imbib container consumers (2026-09-29)
+
+Caller inventory found `ImprintIntegrationService.listDestinations()` as the
+only cross-app consumer of library/collection listing and its existing
+`createLibrary` call already uses `imbib-library-service_create-library`.
+Migrated list-library reads to `list-libraries` and all-library collection
+reads to the generated per-library `list-collections`, composing results in
+the same library then collection order as the retained route and preserving
+the bridge's DTO shape and library names. No cross-app callers currently use
+collection creation/membership/member reads, tag read/create, or library and
+collection deletion; no unused bridge methods were added. Counsel's direct
+store and event paths are outside this caller inventory. Static diff review
+only; root owns build and test verification.
+
+- 2026-09-29 — **P5c21 imbib external search/import/resolve callers.** The
+  shared `ImbibBridge` now uses generated `search-sources`,
+  `import-identifiers`, and `resolve-citation` verbs for the existing imprint
+  citation picker, identifier importer and structured `CitationClient` flow.
+  It preserves source/limit, library/collection and PDF defaults, per-identifier
+  added/duplicate/failure outcomes, ranked candidate order/confidence, and open
+  paper/candidate dictionaries alongside the existing typed Swift convenience
+  models. Audited `apps/imprint/macOS/Services/ImbibIntegrationService.swift`
+  and `CitationClient.swift`; no ArtifactResolver/Counsel external-search,
+  identifier-import or citation-resolve caller exists. Counsel's separate
+  artifact capture route is unrelated and remains out of scope. The HTTP
+  `resolve-citation` free-text/BibTeX branches likewise have no cross-app
+  caller; no overload was added. Internal imbib route/MCP and smart-search
+  behavior remains unchanged. Root verification pending.

@@ -919,7 +919,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]))]
     #[impress_example(
         name = "import-identifiers-native",
-        tier = B,
+        tier = "b",
         args = r#"{"identifiers":["Existing2026"],"library_id":null,"collection_id":null,"download_pdfs":false}"#
     )]
     async fn import_identifiers(
