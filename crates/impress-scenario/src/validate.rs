@@ -46,6 +46,14 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
                         crate::spec::CallCapture::Path(path) if path.trim().is_empty() => {
                             messages.push("capture path must be non-empty")
                         }
+                        crate::spec::CallCapture::Argument(spec) => {
+                            if spec.argument.trim().is_empty() {
+                                messages.push("argument capture path must be non-empty");
+                            }
+                            if spec.argument.contains("{{") {
+                                messages.push("argument capture path must be fixed");
+                            }
+                        }
                         crate::spec::CallCapture::SelectOne(spec) => {
                             let query = &spec.select_one;
                             if query.from.trim().is_empty() || query.path.trim().is_empty() {
@@ -75,6 +83,7 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
                         crate::spec::CallCapture::Path(path) => {
                             capture_references.push(serde_json::json!(path));
                         }
+                        crate::spec::CallCapture::Argument(_) => {}
                         crate::spec::CallCapture::SelectOne(spec) => {
                             let query = &spec.select_one;
                             capture_references.push(serde_json::json!(query.from));
@@ -328,7 +337,9 @@ mod tests {
                         "predicate": {"equals": "detail"},
                         "object_key_as": "integer"
                     }},
-                    "bad_array": {"fill_array": {"value": 1, "length_of": " "}}
+                    "bad_array": {"fill_array": {"value": 1, "length_of": " "}},
+                    "bad_argument": {"argument": " "},
+                    "dynamic_argument": {"argument": "$.{{state.path}}"}
                 }
             }]
         }))
@@ -344,6 +355,17 @@ mod tests {
         assert!(problems
             .iter()
             .any(|p| p.message.contains("fill_array length_of")));
+        assert!(problems.iter().any(|p| p
+            .message
+            .contains("argument capture path must be non-empty")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("argument capture path must be fixed")));
+        assert!(serde_json::from_value::<crate::spec::CallCapture>(json!({
+            "argument": "$.ids.0",
+            "unexpected": true
+        }))
+        .is_err());
         assert!(serde_json::from_value::<CallCapture>(json!({
             "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
         }))

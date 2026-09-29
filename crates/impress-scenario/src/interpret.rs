@@ -303,6 +303,30 @@ async fn run_call(
 ) -> Result<(), String> {
     let args = template::resolve(&call_step.args, captures_value)
         .map_err(|e| format!("step {index} (`{}`): {e}", call_step.call))?;
+
+    // Argument captures are evaluated from the exact typed JSON that will be
+    // sent. Resolve them before dispatch so a missing path cannot leave a
+    // mutation applied without the capture a later step depends on.
+    let argument_captures = call_step
+        .capture
+        .iter()
+        .filter_map(|(name, operation)| match operation {
+            CallCapture::Argument(spec) => Some((name, spec)),
+            _ => None,
+        })
+        .map(|(name, spec)| {
+            let captured = json_path_get(&args, &spec.argument)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "step {index} (`{}`) argument capture `{name}` path `{}` did not resolve",
+                        call_step.call, spec.argument
+                    )
+                })?;
+            Ok((name.clone(), captured))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
+
     let outcome = caller
         .call(&call_step.call, args, &call_step.r#as)
         .await
@@ -321,8 +345,15 @@ async fn run_call(
     }
 
     for (name, operation) in &call_step.capture {
-        let captured = capture_call_result(operation, &outcome.result, captures_value)
-            .map_err(|e| format!("step {index} (`{}`) capture `{name}`: {e}", call_step.call))?;
+        let captured = match operation {
+            CallCapture::Argument(_) => argument_captures
+                .get(name)
+                .cloned()
+                .expect("argument capture was extracted before dispatch"),
+            _ => capture_call_result(operation, &outcome.result, captures_value).map_err(|e| {
+                format!("step {index} (`{}`) capture `{name}`: {e}", call_step.call)
+            })?,
+        };
         captures.insert(name.clone(), captured);
     }
     Ok(())
@@ -342,6 +373,9 @@ fn capture_call_result(
             json_path_get(result, resolved)
                 .cloned()
                 .ok_or_else(|| format!("path `{resolved}` did not resolve"))
+        }
+        CallCapture::Argument(_) => {
+            Err("argument capture must read the resolved call arguments".to_string())
         }
         CallCapture::SelectOne(spec) => {
             let query = &spec.select_one;

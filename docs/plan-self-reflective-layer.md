@@ -1380,7 +1380,7 @@ beyond a plain `call` step.
 | 10 | layout `layout.apply_preset` (`:480`) | `op apply-layout ordinal 1`; `GET /api/layout/tree` | `version` present, panes non-empty | M | i | — |
 | 11 | layout `layout.version_moves` (`:512`) | tree; `verb split` on `{role: detail}`; tree; `verb resize` with shares read from the tree; `swap list/detail`; swap back; `close` | `version` strictly increases at each step | M, C | i | bounded `select_one` and `fill_array` call captures; `gt` on captured versions |
 | 12 | layout `layout.saved_round_trip` (`:601`) | `op save-layout`; `GET /api/layout/layouts`; `op apply-layout name`; `op delete-layout`; `GET layouts` | listed, then `version`, then gone | M, C | i | `capture`, `contains`/`absent` |
-| 13 | layout `layout.channel_selection` (`:660`) | tree; find the detail param sourced from a channel; `verb select` on the list with a fresh uuid; tree | that channel carries exactly `[uuid]` | M | i | a JSON-path lookup into the tree, `{{uuid}}` |
+| 13 | layout `layout.channel_selection` (`scenarios/layout.channel_selection.json`) | apply ordinal 1; select detail/list tiles by role; select the detail pane's channel-sourced param; `layout-service_select` with a fresh captured UUID; read the tree | that channel carries exactly the UUID sent to `select`; the detail param still names the same channel and kind | M | i | closed `select_one` and resolved-argument capture |
 | 14 | layout `surface.show_and_dispatch` (`tier_b.rs`) | stored scenario: create; render; dispatch `bins` change 17; render and state reread; dispatch `choose` click; events; required delete teardown | initial/re-rendered slider values 4/17; persisted state 17; successful effect; event `bins-chosen` payload 17 | M, C | i | `{{!…}}` literal escape, `capture`, exact render JSON path |
 | 15 | layout `layout.hidden_share` (`:1599`) | tree; `verb set-collapsed {role navigator}`; tree; same again; tree | share ≤ `HIDDEN_SHARE_CEILING`, then back within 1e-4 | M, C | i | `within` tolerance; a Rust constant → a literal in the document |
 | 16 | layout `layout.outline_collection_row` (`:762`) | tree; **in-process `outline_target` + `outline_verbs`** (what a click runs); POST each; tree; `wait_for_log "pane N display: 0 rows"`; `verb select` random item; wait for the detail line | list query = collection query; channel 1 carries the collection; the logs appear | M | ii | `gesture` step; `wait.log`. L |
@@ -3056,6 +3056,17 @@ per-scenario cleanup without evaluating expressions.
   No expression language, layout-specific code, verbs, schemas or dependencies
   were added. Focused operator tests and scenario inventory validation were
   added; build/test verification remains with the parent task.
+- 2026-09-28 — **S2i: `layout.channel_selection` converted to a stored scenario.**
+  The scenario resolves the detail and list tiles from their live roles, selects
+  the unique detail parameter whose source is a channel, and publishes one
+  fresh UUID on the list under that parameter's kind. The interpreter now has
+  a closed argument capture (`{"argument":"$.ids.0"}`) over the already
+  resolved call arguments, so the final tree assertion compares the channel's
+  exact selected-ID array with the UUID actually sent. Missing argument paths
+  fail before dispatch; captures retain typed JSON and are not re-templated.
+  The detail parameter's declared name, kind and channel number remain checked.
+  No service verb, store record kind/schema ref, widget/action kind or
+  dependency changed. Build and test verification remains with the parent task.
 - 2026-09-28 — **W3 exploration identity verification completed.** Automatic
   retention can now discover the migrated internal settings pointer when the
   existing explicit argument is omitted; invalid explicit IDs do not silently
@@ -3137,3 +3148,20 @@ with zero skips; version_moves ran through the interpreter. Native symbols
 passed and host PID 30217 exited. Evidence: `/tmp/impress-s2h-tests-final.log`,
 `/tmp/impress-s2h-final-*.log`, `/tmp/impress-s2h-frameworks.log`, and
 `/tmp/impress-g5-proof-gsvmopze/output/`.
+
+S2i native verification found that ChannelState serializes transparently: the
+HTTP path is `layout.channels.<number>.<kind>`, with no second channels wrapper.
+Corrected the scenario path; the failed proof is retained at
+`/tmp/impress-g5-proof-w4m628lv/output/`. Verification continues below.
+
+### 2026-09-28 — S2i verified against the owned native host
+
+The corrected channel document passed 189 Rust tests (zero failures, three
+ignored), both clippy shards and all quick gates. Tests that merely repeated
+the document were removed; identity, schema, inventory and executable argument
+capture tests remain. Both affected frameworks were rebuilt for all supported
+arm64 slices. `/tmp/impress-g5-proof-g7inzcpe/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries with zero skips;
+the channel entry ran through the interpreter. Native symbol checks passed,
+and owned host PID 78856 exited. Logs: `/tmp/impress-s2i-tests-final2.log`,
+`/tmp/impress-s2i-final-*.log`, `/tmp/impress-s2i-frameworks-final.log`.

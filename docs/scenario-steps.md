@@ -23,6 +23,22 @@ The resolved path is still the same literal dotted JSON path walk; it has no
 selectors or expressions. Capture references must come from an earlier step,
 and captured values are not interpreted recursively after insertion.
 
+A call may also capture one value from its arguments **after** scenario
+templates and `{{uuid}}` have been resolved. This lets a later assertion compare
+the observed state with the exact value sent, without re-generating it:
+
+```json
+{
+  "call": "layout-service_select",
+  "args": {"ids": ["{{uuid}}"]},
+  "capture": {"selected_id": {"argument": "$.ids.0"}}
+}
+```
+
+Argument capture paths are fixed JSON paths into the resolved arguments. A
+missing path fails before dispatch; captured JSON retains its type and is not
+templated again.
+
 Call captures also have two closed JSON operations for values that cannot be
 addressed by a fixed path. `select_one` scans an object or array at `from`
 (at most 10,000 candidates), checks a fixed relative `path` using `equals` or
