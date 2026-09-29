@@ -29,7 +29,8 @@ addressed by a fixed path. `select_one` scans an object or array at `from`
 `array_contains`, and refuses zero or multiple matches. It captures
 `{key, value}`; object keys stay strings, array keys are indices. An explicit
 `object_key_as: "u64"` additionally parses a decimal object key into
-`numeric_key`, failing if it is not an unsigned integer. A missing predicate
+`numeric_key`, failing unless the key is a canonical unsigned decimal (for
+example, `9`; `09`, `+9`, and overflow are refused). A missing predicate
 path on a candidate is a non-match. The `from` path and predicate values may
 use earlier captures; the relative candidate path stays fixed.
 
@@ -49,9 +50,11 @@ use earlier captures; the relative candidate path stays fixed.
 `fill_array` repeats one literal JSON `value` for the length of an earlier
 captured array. It accepts only a whole capture reference in `length_of`,
 requires the referenced value to be an array, and caps the result at 10,000
-items. Neither operation evaluates expressions, traverses arbitrary code, nor
-re-templates captured JSON. The `layout.version_moves` scenario uses these
-operations to find the split's linear parent and construct its equal shares.
+items and 1 MiB of compact JSON output. `value` remains literal, including
+strings that look like capture templates. Neither operation evaluates
+expressions, traverses arbitrary code, nor re-templates captured JSON. The
+`layout.version_moves` scenario uses these operations to find the split's
+linear parent and construct its equal shares.
 
 `wait.log_cursor` captures the current server timestamp for a later log wait.
 Capture it immediately before the mutation whose log line you need to observe:
