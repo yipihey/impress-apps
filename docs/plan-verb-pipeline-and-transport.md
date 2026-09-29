@@ -1624,3 +1624,21 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   not a claimed physical click. Reproduce with the checked-in
   `scripts/test-runtime-provider-native.py` and the example README.
   P8 contains merged main `9d7ee7a4`; normal pre-push, PR and merge remain next.
+
+## P5c4 — impart conversation read contract (2026-09-29)
+
+Conversation summaries now carry the route's participants, tags, parent ID,
+last activity and summary text; detail reads also carry ordered messages and
+the repository's computed statistics. List reads retain the route's most
+recent-first ordering, archived filter, total-before-pagination and page
+count. The baseline omitted the route envelope's `count` and applied
+`include_archived` value, so both are present in `ConversationList` alongside
+offset/limit. The delegated optional `query` is an additive case-insensitive
+title/summary filter (the existing HTTP route has no text-query parameter); its
+filtered total is computed before pagination and the query is echoed.
+
+Native callback tests exercise the new list/detail projection and an isolated
+hosted proof compares the actual legacy routes with generated Rust verbs on
+one in-memory Core Data fixture. No route or caller migration is part of this
+package. Root owns tests and builds; this worker performed static formatting
+and diff checks only.
