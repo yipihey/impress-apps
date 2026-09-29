@@ -3199,3 +3199,18 @@ the outline document proved the exact query, collection channel, fresh empty
 list display, and fresh selected-detail log. Native symbols passed and host
 PID 98570 exited. Logs: `/tmp/impress-s2j-tests-final2.log`,
 `/tmp/impress-s2j-final-*.log`, `/tmp/impress-s2j-frameworks-final.log`.
+
+### 2026-09-28 — S2k verified; literal-sequence conversions complete
+
+The hidden-share document and captured numeric tolerance passed 194 Rust
+tests (zero failures, three ignored), both clippy shards and every quick gate.
+Both affected frameworks were rebuilt for all supported arm64 slices. Owned
+imprint proof `/tmp/impress-g5-proof-05kcm8l_/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries, zero skips.
+The hidden-share document proved the collapse ceiling and restoration within
+the original tolerance. Native symbols passed and host PID 29328 exited.
+Logs: `/tmp/impress-s2k-tests-final.log`, `/tmp/impress-s2k-final-*.log`,
+`/tmp/impress-s2k-frameworks.log`. Nineteen of twenty-five catalogue entries
+now run as documents; four platform/live-state cases and the runner's
+reachability/restoration gate remain code. No assertion was weakened to force
+those remaining cases into the interpreter.
