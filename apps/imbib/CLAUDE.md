@@ -431,6 +431,11 @@ easy to get wrong in the generalized shape:
 
 ### Critical Invariants
 
+- **Citation resolution checks exact local cite keys before external search.**
+  Publication full-text search does not index cite keys. Both native generated
+  resolution and the HTTP handler must use `getPaper(.citeKey(...))` first so
+  an already-imported key is not sent to external sources or made to time out.
+
 **Test-store isolation includes derived indexes.** (2026-09-27.) A scratch
 SQLite path is not enough: `FullTextSearchService` can repair or rebuild its
 Tantivy directory at launch. Unit and UI test processes put that directory

@@ -225,10 +225,12 @@ final class ImprintNativeVerbProofTests: XCTestCase {
 
         // Compare the retained HTTP contract with the generated read using a
         // real suggestion rooted in the live UTF-16 editor buffer.
+        // The emoji occupies UTF-16 units 6..<8; a half-surrogate range
+        // cannot be used as the expected replacement span.
         let legacyCreateBody = try JSONSerialization.data(withJSONObject: [
             "content": "Thread root",
-            "start": 7,
-            "end": 9,
+            "start": 6,
+            "end": 8,
             "proposedText": "🧪",
             "authorAgentId": "legacy-reviewer",
             "authorName": "Legacy Reviewer",
@@ -241,8 +243,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
             JSONSerialization.jsonObject(with: legacyCreate.body) as? [String: Any])
         let legacyRoot = try XCTUnwrap(legacyCreatedObject["comment"] as? [String: Any])
         let legacyRootID = try XCTUnwrap(legacyRoot["id"] as? String)
-        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["start"], 7)
-        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["end"], 9)
+        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["start"], 6)
+        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["end"], 8)
         XCTAssertEqual(legacyRoot["authorAgentId"] as? String, "legacy-reviewer")
 
         let legacySuggestionList = await router.route(HTTPRequest(
@@ -310,8 +312,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(generatedReplyRecord["proposed_text"] as? String, "revised agent")
         XCTAssertEqual(generatedReplyRecord["author_agent_id"] as? String, "reply-agent")
         XCTAssertEqual(generatedReplyRecord["author"] as? String, "Reply Agent")
-        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["start"], 7)
-        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["end"], 9)
+        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["start"], 6)
+        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["end"], 8)
         XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRootID }?.textRange,
                        comments.comments.first {
                            $0.id.uuidString == generatedReplyRecord["id"] as? String
@@ -331,7 +333,7 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         // comment's UTF-16 range, returns its completed operation handle, and
         // resolves the comment only after the editor write succeeds.
         let rootRange = try XCTUnwrap(comments.comments.first { $0.id.uuidString == legacyRootID }?.textRange)
-        XCTAssertEqual(rootRange, TextRange(start: 7, end: 9))
+        XCTAssertEqual(rootRange, TextRange(start: 6, end: 8))
         let expectedAfterLegacyAccept = (session.source as NSString).replacingCharacters(
             in: NSRange(location: rootRange.start, length: rootRange.length),
             with: "🧪")

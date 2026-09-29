@@ -260,8 +260,8 @@ final class TransportProofTests: XCTestCase {
         try require(legacyVia == "local-search" && generatedVia == legacyVia,
                     "native citation resolution preserves the legacy local-search branch")
         try require(legacyResolvedPaper["id"] as? String == generatedResolvedPaper["id"] as? String &&
-                    legacyResolvedPaper["cite_key"] as? String == key &&
-                    generatedResolvedPaper["cite_key"] as? String == key &&
+                    legacyResolvedPaper["citeKey"] as? String == key &&
+                    generatedResolvedPaper["citeKey"] as? String == key &&
                     legacyResolvedPaper["title"] as? String == generatedResolvedPaper["title"] as? String,
                     "native citation resolution returns the same saved paper as HTTP")
 
