@@ -1677,3 +1677,24 @@ containing allocation addresses; value equality fixes that test without changing
 production results. Failed evidence remains at
 `/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
 The existing debug linker unwind-size warning remains unchanged.
+
+## P5c8 — implore figure mutation contracts (2026-09-29)
+
+Extended `implore-service_create-figure` with HTTP-compatible integer
+`width`/`height`, separate plot `title`/`color_column`, and an optional raw
+JSON `view_state`; explicit create fields overlay corresponding fields in that
+view state. Added generated `update-figure` and `delete-figure` callbacks that
+reuse `handleUpdateFigure`/`handleDeleteFigure` and `LibraryManager`'s existing
+store, rerender, rollback, export cleanup, and content-blob reference logic.
+Update accepts only the fields PATCH actually mutates; it deliberately has no
+`dataset_id` because the HTTP handler does not change a figure's dataset.
+Update returns a structured `{ok, error?, figure?, artifact?}` result and
+refused native responses remain refusals; delete keeps the approved `bool`
+result. Create/update/delete declare figure-record effects and app reach.
+
+Rust coverage checks generated schemas, effects, callback argument mapping,
+render/update and missing/delete failures. Hosted proof compares verb and HTTP
+create/update hashes on isolated figures, confirms a changed non-empty PNG,
+and tests shared-blob retention through update and the last delete. Root owns
+verification; no tests/builds, caller migrations, route removals, or real-store
+operations were performed here.

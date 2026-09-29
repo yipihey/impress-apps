@@ -225,6 +225,30 @@ impl CreateFigureOutcome {
     }
 }
 
+/// What `update-figure` answers: the updated figure and newly rendered
+/// artifact, or a structured refusal when no update was committed.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct UpdateFigureOutcome {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub figure: Option<FigureRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<FigureArtifactInfo>,
+}
+
+impl UpdateFigureOutcome {
+    pub fn refused(error: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            error: Some(error.into()),
+            figure: None,
+            artifact: None,
+        }
+    }
+}
+
 /// Check `create-figure`'s data arguments; `Ok(None)` is "no data".
 ///
 /// The rules are implore-core's ([`implore_core::figure_artifact::validate_figure_data`],
@@ -343,6 +367,10 @@ pub trait ImploreService: Send + Sync + 'static {
     /// `plot_type`, `x` and `y`. `dataset_id` is recorded on the figure; with
     /// inline data any short label for where the data came from will do.
     /// `name` is the figure's name in implore (default "Untitled Figure").
+    /// `title`, `color_column`, `width`, and `height` map the remaining
+    /// `/api/figures` options. `view_state` is an optional complete JSON
+    /// object for additional figure-view fields; explicit plot arguments
+    /// override matching base fields.
     ///
     /// Caps: 32 series and 50000 points in all; `svg` up to 2 MB and 4096
     /// points a side; `spec` width/height up to 4096. A refusal answers
@@ -358,7 +386,7 @@ pub trait ImploreService: Send + Sync + 'static {
     /// Example (CLI): impress create-figure --dataset-id inline --plot-type
     /// scatter --x 'time (s)' --y flux --name Decay --series
     /// '{"label":"run 1","x":[0,1,2,3],"y":[1.0,0.61,0.37,0.22]}'
-    #[impress_method]
+    #[impress_method(safety = external, effects(writes = ["figure"], reach = [app("implore")]))]
     #[impress_example(
         name = "host-inline-scatter",
         tier = "b",
@@ -376,7 +404,49 @@ pub trait ImploreService: Send + Sync + 'static {
         series: Option<FigureSeriesArg>,
         spec: Option<PlotSpecArg>,
         svg: Option<String>,
+        width: Option<i64>,
+        height: Option<i64>,
+        title: Option<String>,
+        color_column: Option<String>,
+        view_state: Option<String>,
     ) -> CreateFigureOutcome;
+
+    /// Update an existing figure using the same partial fields as PATCH
+    /// `/api/figures/{id}`. All fields are optional except the ID; dataset ID
+    /// is not patchable in the HTTP contract. `view_state`, when supplied,
+    /// replaces the stored snapshot before these fields are applied. A
+    /// successful update is saved only if it can be rerendered; failed renders
+    /// are rolled back. Success includes the updated figure and artifact;
+    /// missing figures and render failures are structured refusals.
+    #[impress_method(
+        safety = external,
+        effects(reads = [target(figure_id)], writes = ["figure"], reach = [app("implore")])
+    )]
+    #[allow(clippy::too_many_arguments)]
+    async fn update_figure(
+        &self,
+        figure_id: String,
+        name: Option<String>,
+        plot_type: Option<String>,
+        x: Option<String>,
+        y: Option<String>,
+        color_column: Option<String>,
+        title: Option<String>,
+        width: Option<i64>,
+        height: Option<i64>,
+        series: Option<FigureSeriesArg>,
+        spec: Option<PlotSpecArg>,
+        svg: Option<String>,
+        view_state: Option<String>,
+    ) -> UpdateFigureOutcome;
+
+    /// Delete a figure, its exported files and its stored image when no other
+    /// figure or record references that image. Returns false on refusal.
+    #[impress_method(
+        safety = external,
+        effects(reads = [target(figure_id)], writes = ["figure"], reach = [app("implore")])
+    )]
+    async fn delete_figure(&self, figure_id: String) -> bool;
 
     /// Export a figure to a file and return its path. `format` is `png`, `pdf`
     /// or `svg`. The path is what an agent on the user's Mac can open, or embed
@@ -542,6 +612,7 @@ impl ImploreService for DefaultImploreService {
         refuse("get_figure");
         None
     }
+    #[allow(clippy::too_many_arguments)]
     async fn create_figure(
         &self,
         _dataset_id: String,
@@ -552,6 +623,11 @@ impl ImploreService for DefaultImploreService {
         series: Option<FigureSeriesArg>,
         spec: Option<PlotSpecArg>,
         svg: Option<String>,
+        _width: Option<i64>,
+        _height: Option<i64>,
+        _title: Option<String>,
+        _color_column: Option<String>,
+        _view_state: Option<String>,
     ) -> CreateFigureOutcome {
         // A malformed call is named as such even with implore closed, so
         // the caller fixes it before opening the app, not after.
@@ -560,6 +636,33 @@ impl ImploreService for DefaultImploreService {
         }
         refuse("create_figure");
         CreateFigureOutcome::refused(NOT_RUNNING)
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn update_figure(
+        &self,
+        _figure_id: String,
+        _name: Option<String>,
+        _plot_type: Option<String>,
+        _x: Option<String>,
+        _y: Option<String>,
+        _color_column: Option<String>,
+        _title: Option<String>,
+        _width: Option<i64>,
+        _height: Option<i64>,
+        series: Option<FigureSeriesArg>,
+        spec: Option<PlotSpecArg>,
+        svg: Option<String>,
+        _view_state: Option<String>,
+    ) -> UpdateFigureOutcome {
+        if let Err(error) = validate_figure_data(series.as_ref(), spec.as_ref(), svg.as_deref()) {
+            return UpdateFigureOutcome::refused(error);
+        }
+        refuse("update_figure");
+        UpdateFigureOutcome::refused(NOT_RUNNING)
+    }
+    async fn delete_figure(&self, _figure_id: String) -> bool {
+        refuse("delete_figure");
+        false
     }
     async fn export_figure(&self, _figure_id: String, _format: String) -> Option<String> {
         refuse("export_figure");
@@ -722,8 +825,48 @@ impress_service_impl! {
             /// and svg.
             ///
             /// CLI: --svg "$(cat plot.svg)"
-            svg: Option<String>
+            svg: Option<String>,
+            /// Logical output width in points (defaults to 800).
+            width: Option<i64>,
+            /// Logical output height in points (defaults to 600).
+            height: Option<i64>,
+            /// Optional plot title separate from the library name.
+            title: Option<String>,
+            /// Optional colour grouping column.
+            color_column: Option<String>,
+            /// Optional complete view-state JSON; explicit plot arguments
+            /// override its corresponding base fields.
+            view_state: Option<String>
         ) -> CreateFigureOutcome,
+        update_figure(
+            /// Existing figure ID.
+            figure_id: String,
+            /// New library name, if changing it.
+            name: Option<String>,
+            /// Replacement plot type.
+            plot_type: Option<String>,
+            /// Replacement x-axis label.
+            x: Option<String>,
+            /// Replacement y-axis label.
+            y: Option<String>,
+            /// Replacement color grouping column.
+            color_column: Option<String>,
+            /// Replacement plot title.
+            title: Option<String>,
+            /// Replacement width in logical points.
+            width: Option<i64>,
+            /// Replacement height in logical points.
+            height: Option<i64>,
+            /// Replacement inline series, if supplied.
+            series: Option<FigureSeriesArg>,
+            /// Replacement whole plot spec, if supplied.
+            spec: Option<PlotSpecArg>,
+            /// Replacement SVG, if supplied.
+            svg: Option<String>,
+            /// Full JSON view-state replacement applied before other fields.
+            view_state: Option<String>
+        ) -> UpdateFigureOutcome,
+        delete_figure(figure_id: String) -> bool,
         export_figure(
             /// Figure ID to export from the running host.
             figure_id: String,
@@ -787,6 +930,12 @@ mod tests {
             .expect("create-figure is in the inventory")
     }
 
+    fn tool(name: &str) -> &'static impress_service_core::McpToolDescriptor {
+        impress_service_core::McpToolDescriptor::iter()
+            .find(|tool| tool.name == name)
+            .unwrap_or_else(|| panic!("{name} is in the generated inventory"))
+    }
+
     fn schema() -> Value {
         (create_figure_tool().input_schema)()
     }
@@ -848,6 +997,57 @@ mod tests {
             "the no-data behaviour is stated"
         );
         assert!(desc.contains("Example (CLI): impress create-figure"));
+    }
+
+    #[test]
+    fn figure_mutation_contracts_expose_configuration_and_effects() {
+        let create = create_figure_tool();
+        let create_schema = (create.input_schema)();
+        for field in ["width", "height"] {
+            assert_eq!(
+                create_schema["properties"][field]["type"],
+                json!(["integer", "null"])
+            );
+        }
+        assert_eq!(
+            create_schema["properties"]["view_state"]["type"],
+            json!(["string", "null"])
+        );
+        assert_eq!(
+            create.verb.effects.columns()[1],
+            "\"figure\"",
+            "create writes the figure schema"
+        );
+        assert_eq!(create.verb.effects.columns()[2], "app(\"implore\")");
+
+        let update = tool("implore-service_update-figure");
+        let update_schema = (update.input_schema)();
+        assert_eq!(update_schema["required"], json!(["figure_id"]));
+        assert_eq!(
+            update_schema["properties"]["view_state"]["type"],
+            json!(["string", "null"])
+        );
+        assert_eq!(
+            (update.verb.output_schema)()["properties"]["ok"]["type"],
+            "boolean"
+        );
+        assert_eq!(update.verb.effects.columns()[0], "target(figure_id)");
+        assert_eq!(update.verb.effects.columns()[1], "\"figure\"");
+        assert_eq!(update.verb.effects.columns()[2], "app(\"implore\")");
+        assert_eq!(
+            update.verb.safety,
+            impress_service_core::descriptor::SafetyClass::External
+        );
+
+        let delete = tool("implore-service_delete-figure");
+        assert_eq!(delete.verb.effects.columns()[0], "target(figure_id)");
+        assert_eq!(delete.verb.effects.columns()[1], "\"figure\"");
+        assert_eq!(delete.verb.effects.columns()[2], "app(\"implore\")");
+        assert_eq!(
+            delete.verb.safety,
+            impress_service_core::descriptor::SafetyClass::External
+        );
+        assert_eq!((delete.verb.output_schema)()["type"], "boolean");
     }
 
     /// Every example the descriptions show is one the validator accepts:
