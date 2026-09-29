@@ -10,7 +10,7 @@ All packages listed as merged in wave 9 remain merged.
 | Package | PR | Status |
 | --- | --- | --- |
 | S2c surface HTTP scenarios | #135 | Merged, `e6aa61d6` |
-| P5c contract proposal | #136 | Draft, approval pending; documentation only |
+| P5c contract decisions | #136 | Authorized 2026-09-29; implementation in progress |
 | S3 nested Swift callback context | #137 | Merged, `f2b2d757` |
 | W3 exploration identity discovery | #138 | Merged, `cc606597` |
 | S2d surface dispatch scenario | #139 | Merged, `fee1230b` |
@@ -89,12 +89,12 @@ The handoff branch also passed every quick gate and its capabilities suite
 (44 passed, zero failures, three ignored):
 `/tmp/impress-wave10-handoff-{gates,capabilities}.log`.
 
-## Remaining work and approval
+## Remaining work
 
-- P5c: [draft PR #136](https://github.com/yipihey/impress-apps/pull/136) contains
-  the concrete contract proposal in `docs/p5c-contract-proposal.md`. Approval
-  has not arrived. The user's ask-first rule covers these verb-argument
-  changes. After approval, implement the contracts, prove route/caller parity,
+- P5c: [PR #136](https://github.com/yipihey/impress-apps/pull/136) records the
+  contract decisions in `docs/p5c-contract-proposal.md`. On 2026-09-29 Tom
+  explicitly overrode the ask-first rule and delegated remaining decisions,
+  including verb arguments. Implement the contracts, prove route/caller parity,
   migrate consumers, and retire only routes with no remaining callers. Queued
   editor/conversation, caret, binary/viewer and hardware routes retain the
   separate owners and behavior identified in the proposal.
