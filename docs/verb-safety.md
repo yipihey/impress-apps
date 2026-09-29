@@ -208,7 +208,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_get-publication-detail` | read_only | name/doc |
 | `imbib-library-service_import-bibtex` | mutating | name/doc |
 | `imbib-library-service_import-bibtex-into-collection` | mutating | name/doc |
-| `imbib-library-service_import-identifiers` | mutating | name/doc |
+| `imbib-library-service_import-identifiers` | external | name/doc |
 | `imbib-library-service_import-papers` | mutating | crates/imbib-service/src/library_service.rs:1135 -> crates/imbib-core/src/unified/store_api.rs:1335-1499 batch_import_search_results: parses the BibTeX the CALLER supplies, dedups, insert_batch; NO network fetch in th… |
 | `imbib-library-service_is-paper-dismissed` | read_only | name/doc |
 | `imbib-library-service_list-collection-members` | read_only | name/doc |
