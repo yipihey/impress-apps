@@ -45,8 +45,10 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use impress_layout::PaneSpec;
 use impress_scenario::{CallOutcome, Caller, EventBody, WaitBody};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use uuid::Uuid;
 
 /// A loopback JSON client over one app's automation surface.
 pub struct LoopbackClient {
@@ -183,6 +185,104 @@ impl TierBCaller {
             ..Self::new(base_url)
         }
     }
+
+    /// Run the outline's existing Rust row decision for the one collection
+    /// gesture this catalogue proves. The scenario records the gesture as a
+    /// closed `{ "outline_collection": "<uuid>" }` value; app/layout
+    /// specifics are still derived from the live tree and the same functions
+    /// the host calls, never from a hand-written query or verb list.
+    async fn outline_collection_gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
+        let object = gesture
+            .as_object()
+            .filter(|object| object.len() == 1)
+            .ok_or_else(|| {
+                "outline collection gesture must contain exactly one field".to_string()
+            })?;
+        let collection_id = object
+            .get("outline_collection")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                "outline collection gesture needs a UUID outline_collection".to_string()
+            })?
+            .parse::<Uuid>()
+            .map_err(|_| "outline_collection is not a UUID".to_string())?;
+
+        let (tree_status, tree) = self.http.get("/api/layout/tree").await?;
+        if !(200..300).contains(&tree_status) {
+            return Err(format!("GET /api/layout/tree returned HTTP {tree_status}"));
+        }
+        let app = tree
+            .get("app")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "tree response names no `app`".to_string())?;
+        let list = pane_spec_for_role(&tree, "list")?
+            .ok_or_else(|| "no pane carries the `list` role".to_string())?;
+        let detail = pane_spec_for_role(&tree, "detail")?;
+
+        let node = crate::outline::OutlineNode::Collection { id: collection_id };
+        let target = crate::outline::outline_target(app, &node, &Default::default());
+        let crate::outline::OutlineTarget::Query { query } = &target else {
+            return Err(format!(
+                "a collection row must be a query, Rust said {target:?}"
+            ));
+        };
+        let kind = query
+            .kinds
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "publication".into());
+        let verbs = crate::outline::outline_verbs(
+            &node,
+            &target,
+            &crate::outline::OutlinePanes {
+                list: Some(list.1.clone()),
+                detail: detail.as_ref().map(|(_, spec)| spec.clone()),
+            },
+        );
+        if verbs.is_empty() {
+            return Err("the outline produced no verbs for a new collection".into());
+        }
+
+        let mut last = None;
+        for verb in &verbs {
+            let body = serde_json::to_value(verb).map_err(|error| error.to_string())?;
+            let outcome = self.verb(&body).await?;
+            if !outcome
+                .status
+                .is_some_and(|status| (200..300).contains(&status))
+                || outcome.result.get("ok").and_then(Value::as_bool) == Some(false)
+            {
+                let status = outcome.status.unwrap_or(0);
+                return Err(format!(
+                    "POST /api/layout/verb returned HTTP {status}: {}",
+                    outcome.result
+                ));
+            }
+            last = Some(outcome);
+        }
+        let mut outcome = last.expect("nonempty outline verbs checked above");
+        let result = outcome
+            .result
+            .as_object_mut()
+            .ok_or_else(|| "outline verb returned a non-object result".to_string())?;
+        result.insert("ok".into(), json!(true));
+        result.insert("collection_id".into(), json!(collection_id.to_string()));
+        result.insert("list_tile".into(), json!(list.0));
+        result.insert(
+            "query".into(),
+            serde_json::to_value(query).map_err(|e| e.to_string())?,
+        );
+        result.insert("kind".into(), json!(kind));
+        result.insert(
+            "detail".into(),
+            detail
+                .as_ref()
+                .map(|(tile, spec)| json!({"tile": tile, "view_kind": spec.view_kind}))
+                .unwrap_or(Value::Null),
+        );
+        self.wrote.insert("impress/ui/layout@1.0.0".into());
+        Ok(outcome)
+    }
 }
 
 /// Which `impress/ui/*` kind a recognized verb writes, for the effects
@@ -195,6 +295,33 @@ fn kind_for(verb: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// The lowest-id pane holding `role`, matching the catalogue's live-tree
+/// reader and keeping the outline gesture tied to the current layout.
+fn pane_spec_for_role(tree: &Value, role: &str) -> Result<Option<(u64, PaneSpec)>, String> {
+    let tiles = tree
+        .get("layout")
+        .and_then(|layout| layout.get("tiles"))
+        .and_then(Value::as_object)
+        .ok_or_else(|| "layout carried no `tiles`".to_string())?;
+    let mut matches = Vec::new();
+    for (tile, value) in tiles {
+        let Ok(tile) = tile.parse::<u64>() else {
+            continue;
+        };
+        let Some(pane) = value.get("pane") else {
+            continue;
+        };
+        if pane.get("role").and_then(Value::as_str) != Some(role) {
+            continue;
+        }
+        let spec = serde_json::from_value(pane.clone())
+            .map_err(|error| format!("the `{role}` pane does not decode as a PaneSpec: {error}"))?;
+        matches.push((tile, spec));
+    }
+    matches.sort_by_key(|(tile, _)| *tile);
+    Ok(matches.into_iter().next())
 }
 
 #[async_trait]
@@ -310,7 +437,11 @@ impl Caller for TierBCaller {
     }
 
     async fn gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
-        self.verb(gesture.clone()).await
+        if gesture.get("outline_collection").is_some() {
+            self.outline_collection_gesture(gesture).await
+        } else {
+            self.verb(gesture.clone()).await
+        }
     }
 
     async fn wait(&mut self, wait: &WaitBody) -> Result<(), String> {
@@ -636,6 +767,118 @@ mod tests {
             (headers.lines().next().unwrap().to_string(), body)
         });
         (base, thread)
+    }
+
+    fn mock_sequence(
+        responses: Vec<(u16, Value)>,
+    ) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("owned loopback port");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let thread = std::thread::spawn(move || {
+            responses
+                .into_iter()
+                .map(|(status, response)| {
+                    let (mut stream, _) = listener.accept().expect("next request");
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let header_end = loop {
+                        let mut chunk = [0u8; 1024];
+                        let n = stream.read(&mut chunk).expect("request bytes");
+                        assert!(n > 0, "request ended before headers");
+                        bytes.extend_from_slice(&chunk[..n]);
+                        if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break end + 4;
+                        }
+                    };
+                    let headers = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+                    let content_len: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.split_once(':').and_then(|(name, value)| {
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse().unwrap())
+                            })
+                        })
+                        .unwrap_or(0);
+                    while bytes.len() - header_end < content_len {
+                        let mut chunk = [0u8; 1024];
+                        let n = stream.read(&mut chunk).expect("request body");
+                        assert!(n > 0, "request ended before body");
+                        bytes.extend_from_slice(&chunk[..n]);
+                    }
+                    let body = if content_len == 0 {
+                        Value::Null
+                    } else {
+                        serde_json::from_slice(&bytes[header_end..header_end + content_len]).unwrap()
+                    };
+                    let wire = response.to_string();
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{wire}",
+                        wire.len()
+                    )
+                    .unwrap();
+                    (headers.lines().next().unwrap().to_string(), body)
+                })
+                .collect()
+        });
+        (base, thread)
+    }
+
+    #[tokio::test]
+    async fn outline_collection_gesture_uses_current_rust_decisions_with_or_without_detail() {
+        use impress_core::pane_query::PaneQuery;
+        use impress_layout::{PaneSpec, Role, ViewKindId};
+
+        for include_detail in [false, true] {
+            let list = PaneSpec::new(PaneQuery::default(), ViewKindId::LIST).with_role(Role::LIST);
+            let mut tiles = json!({"2":{"pane":list}});
+            if include_detail {
+                let detail =
+                    PaneSpec::new(PaneQuery::default(), ViewKindId::INFO).with_role(Role::DETAIL);
+                tiles["3"] = json!({"pane":detail});
+            }
+            let tree = json!({
+                "app":"impress",
+                "layout":{"channels":{},"tiles":tiles}
+            });
+            let replies = vec![
+                (200, tree),
+                (200, json!({"ok":true,"version":1})),
+                (200, json!({"ok":true,"version":2})),
+            ];
+            let (base, mock) = mock_sequence(replies);
+            let collection = Uuid::from_u128(17);
+            let mut caller = TierBCaller::new(&base);
+            let result = caller
+                .gesture(&json!({"outline_collection":collection.to_string()}))
+                .await
+                .unwrap();
+            assert_eq!(result.status, Some(200));
+            assert_eq!(result.result["ok"], true);
+            assert_eq!(result.result["collection_id"], collection.to_string());
+            assert_eq!(result.result["list_tile"], 2);
+            if include_detail {
+                assert_eq!(result.result["detail"]["tile"], 3);
+                assert_eq!(result.result["detail"]["view_kind"], "info");
+            } else {
+                assert!(result.result["detail"].is_null());
+            }
+
+            let requests = mock.join().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert!(requests[0].0.starts_with("GET /api/layout/tree"));
+            assert_eq!(requests[1].0, "POST /api/layout/verb HTTP/1.1");
+            assert_eq!(requests[1].1["verb"], "select");
+            assert_eq!(requests[1].1["target"]["role"], "navigator");
+            assert_eq!(requests[1].1["kind"], "collection");
+            assert_eq!(requests[1].1["ids"][0], collection.to_string());
+            assert_eq!(requests[2].0, "POST /api/layout/verb HTTP/1.1");
+            assert_eq!(requests[2].1["verb"], "set-query");
+            assert_eq!(requests[2].1["query"], result.result["query"]);
+        }
     }
 
     #[tokio::test]

@@ -131,6 +131,25 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
             }
         }
         if let Step::Wait(wait) = step {
+            if let Some(path) = &wait.when_present {
+                match capture_state_path_segments(path) {
+                    Ok(segments) => {
+                        if !known.contains(segments[0]) {
+                            problems.push(Problem {
+                                step: Some(index),
+                                message: format!(
+                                    "wait.when_present path `{path}` roots at capture `{}` that has not been set",
+                                    segments[0]
+                                ),
+                            });
+                        }
+                    }
+                    Err(message) => problems.push(Problem {
+                        step: Some(index),
+                        message: format!("wait.when_present path `{path}`: {message}"),
+                    }),
+                }
+            }
             match &wait.wait {
                 crate::spec::WaitBody::Log { log } => {
                     if !(1..=60_000).contains(&log.timeout_ms) {
@@ -178,6 +197,28 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
     }
 
     problems
+}
+
+/// Parse the closed `$.capture.field.0` path accepted by wait presence guards.
+/// Brackets, wildcards, filters and empty segments are intentionally unsupported.
+pub(crate) fn capture_state_path_segments(path: &str) -> Result<Vec<&str>, &'static str> {
+    let rest = path
+        .strip_prefix("$.")
+        .ok_or("must start with `$.<capture>`")?;
+    let segments: Vec<&str> = rest.split('.').collect();
+    if segments.is_empty()
+        || segments.iter().any(|segment| {
+            segment.is_empty()
+                || !segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        })
+    {
+        return Err(
+            "must contain non-empty dotted path segments using letters, digits, `_` or `-`",
+        );
+    }
+    Ok(segments)
 }
 
 /// Every `state.<name>` reference's first segment, anywhere inside `value`
@@ -285,9 +326,11 @@ mod tests {
     #[test]
     fn empty_steps_is_a_problem() {
         let problems = validate(&base(vec![]));
-        assert!(problems
-            .iter()
-            .any(|p| p.message.contains("at least one step")));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.contains("at least one step"))
+        );
     }
 
     #[test]
@@ -345,39 +388,54 @@ mod tests {
         }))
         .unwrap();
         let problems = validate(&scenario);
-        assert!(problems
-            .iter()
-            .any(|p| p.message.contains("select_one paths")));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.contains("select_one paths"))
+        );
         assert!(problems.iter().any(|p| p.message.contains("object_key_as")));
-        assert!(problems
-            .iter()
-            .any(|p| p.message.contains("candidate path must be fixed")));
-        assert!(problems
-            .iter()
-            .any(|p| p.message.contains("fill_array length_of")));
-        assert!(problems.iter().any(|p| p
-            .message
-            .contains("argument capture path must be non-empty")));
-        assert!(problems
-            .iter()
-            .any(|p| p.message.contains("argument capture path must be fixed")));
-        assert!(serde_json::from_value::<crate::spec::CallCapture>(json!({
-            "argument": "$.ids.0",
-            "unexpected": true
-        }))
-        .is_err());
-        assert!(serde_json::from_value::<CallCapture>(json!({
-            "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
-        }))
-        .is_err());
-        assert!(serde_json::from_value::<CallCapture>(json!({
-            "select_one": {
-                "from": "$.x",
-                "path": "$.y",
-                "predicate": {"equals": 1, "array_contains": 1}
-            }
-        }))
-        .is_err());
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.contains("candidate path must be fixed"))
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.contains("fill_array length_of"))
+        );
+        assert!(problems.iter().any(|p| {
+            p.message
+                .contains("argument capture path must be non-empty")
+        }));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.contains("argument capture path must be fixed"))
+        );
+        assert!(
+            serde_json::from_value::<crate::spec::CallCapture>(json!({
+                "argument": "$.ids.0",
+                "unexpected": true
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<CallCapture>(json!({
+                "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<CallCapture>(json!({
+                "select_one": {
+                    "from": "$.x",
+                    "path": "$.y",
+                    "predicate": {"equals": 1, "array_contains": 1}
+                }
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -445,8 +503,52 @@ mod tests {
         let problems = validate(&scenario);
         assert!(problems.iter().any(|p| p.message.contains("missing")));
         assert!(problems.iter().any(|p| p.message.contains("1..=60000")));
-        assert!(problems
-            .iter()
-            .any(|p| p.message.contains("non-empty message needles")));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.contains("non-empty message needles"))
+        );
+    }
+
+    #[test]
+    fn wait_presence_guard_requires_a_prior_capture_and_closed_path() {
+        let first = call(json!({}));
+        let wait = |path: &str| {
+            Step::Wait(crate::spec::WaitStep {
+                wait: crate::spec::WaitBody::Log {
+                    log: crate::spec::LogWait {
+                        category: "layout".into(),
+                        contains: "detail".into(),
+                        also_contains: vec![],
+                        after: None,
+                        timeout_ms: 100,
+                    },
+                },
+                when_present: Some(path.into()),
+            })
+        };
+        let mut captured = first;
+        if let Step::Call(c) = &mut captured {
+            c.capture.insert(
+                "detail".into(),
+                crate::spec::CallCapture::Path("$.detail".into()),
+            );
+        }
+        assert!(validate(&base(vec![captured, wait("$.detail.tile")])).is_empty());
+        for (path, expected) in [
+            ("$.missing.tile", "has not been set"),
+            ("$.detail..tile", "non-empty dotted path segments"),
+            ("$.detail[*]", "non-empty dotted path segments"),
+            ("detail.tile", "must start with"),
+            ("$", "must start with"),
+        ] {
+            let scenario = base(vec![wait(path)]);
+            assert!(
+                validate(&scenario)
+                    .iter()
+                    .any(|problem| problem.message.contains(expected)),
+                "{path}"
+            );
+        }
     }
 }

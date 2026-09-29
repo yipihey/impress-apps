@@ -297,6 +297,9 @@ pub struct GestureStep {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WaitStep {
     pub wait: WaitBody,
+    /// Run this wait only when a prior capture-state path exists and is not null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_present: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
