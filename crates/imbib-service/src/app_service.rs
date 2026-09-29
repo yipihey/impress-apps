@@ -123,8 +123,30 @@ pub struct PapersWindowResult {
     pub message: String,
 }
 
+/// Lossless result of the app-owned identifier import path. `added` retains
+/// the legacy `/api/papers/add` paper dictionaries; no store-only projection
+/// can reproduce the app's full PaperResult without losing fields.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct IdentifierImportResult {
+    pub added: Vec<serde_json::Value>,
+    pub duplicates: Vec<String>,
+    pub failed: std::collections::BTreeMap<String, String>,
+}
+
 #[impress_service]
 pub trait ImbibAppService: Send + Sync + 'static {
+    /// Internal bridge used by the generated library import verb. Kept out of
+    /// the app-service inventory because identifier import is one public
+    /// library capability, while the running app owns source lookup and PDF
+    /// acquisition.
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult;
+
     /// Search external academic sources — ADS, arXiv, Crossref and the rest —
     /// for papers NOT yet in the library. This is how you find new work; to
     /// search papers already saved use the library search tools instead.
@@ -364,6 +386,28 @@ fn refuse(method: &str) {
 
 #[async_trait::async_trait]
 impl ImbibAppService for DefaultImbibAppService {
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        _library_id: Option<String>,
+        _collection_id: Option<String>,
+        _download_pdfs: bool,
+    ) -> IdentifierImportResult {
+        refuse("import_identifiers");
+        impress_service_core::pipeline::context::report_refusal(
+            impress_service_core::refusal::codes::HOST_UNAVAILABLE,
+            NOT_RUNNING,
+        );
+        IdentifierImportResult {
+            added: vec![],
+            duplicates: vec![],
+            failed: identifiers
+                .into_iter()
+                .map(|id| (id, NOT_RUNNING.into()))
+                .collect(),
+        }
+    }
+
     async fn search_sources(
         &self,
         _query: String,
@@ -565,4 +609,42 @@ impress_service_impl! {
             library_id: String
         ) -> u32,
     ],
+}
+
+#[cfg(test)]
+mod identifier_import_contract_tests {
+    use super::IdentifierImportResult;
+    use serde_json::json;
+
+    #[test]
+    fn identifier_import_result_keeps_the_legacy_outcome_envelope_and_full_added_rows() {
+        let result: IdentifierImportResult = serde_json::from_value(json!({
+            "added": [{
+                "id": "paper-id",
+                "citeKey": "Example2026",
+                "title": "Example",
+                "authors": ["Doe, Jane"],
+                "bibtex": "@article{Example2026}",
+                "dateAdded": "2026-09-29T00:00:00Z",
+                "collectionIDs": ["collection-id"],
+                "libraryIDs": ["library-id"]
+            }],
+            "duplicates": ["Existing2026"],
+            "failed": {"invalid": "unsupported identifier"}
+        }))
+        .unwrap();
+
+        assert_eq!(result.added[0]["authors"][0], "Doe, Jane");
+        assert_eq!(result.added[0]["collectionIDs"][0], "collection-id");
+        assert_eq!(result.added[0]["dateAdded"], "2026-09-29T00:00:00Z");
+        assert_eq!(result.duplicates, vec!["Existing2026"]);
+        assert_eq!(result.failed["invalid"], "unsupported identifier");
+
+        let schema = schemars::schema_for!(IdentifierImportResult);
+        let schema = serde_json::to_value(schema).unwrap();
+        let fields = schema["properties"].as_object().unwrap();
+        assert!(fields.contains_key("added"));
+        assert!(fields.contains_key("duplicates"));
+        assert!(fields.contains_key("failed"));
+    }
 }

@@ -1740,3 +1740,21 @@ and the test diagnostic's Swift Testing comment before the successful runs.
 Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
+
+## P5c12 — imbib identifier import contract (2026-09-29)
+
+Added `imbib-library-service_import-identifiers` as the generated library
+capability while keeping identifier resolution, default-library selection,
+collection membership, duplicate lookup, recent-add activity and optional
+background PDF acquisition on the existing `AutomationService.addPapers`
+path. A private app-service callback seam lets the library verb reach that
+running-app behavior without creating a second public verb. The legacy paper
+dictionaries in `added` remain lossless JSON; `duplicates` and `failed` retain
+their exact per-identifier results. With imbib closed, the default callback
+reports `host-unavailable` instead of claiming that imports succeeded.
+
+The native XCTest fixture covers an already-local cite key and an unsupported
+identifier in a scratch library/collection; Rust schema/callback tests cover
+full added-row fields and optional target/PDF arguments. Build and test
+verification is owned by the root integrator; this package did not run builds,
+tests or framework generation.
