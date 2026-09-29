@@ -1,5 +1,7 @@
 # Pipeline, GUI and reflective-layer handoff (2026-09-28)
 
+For the current status, continue with [the wave-10 handoff](next-steps-after-wave-10.md).
+
 This succeeds [the wave-8 handoff](next-steps-after-wave-8.md). Read `CLAUDE.md`
 in full first. The three approved plans and ADRs 0034–0036 still govern scope;
 their dated session logs contain implementation and proof details.
@@ -83,8 +85,13 @@ required quick gate also passed (`/tmp/impress-wave9-handoff-*.log`).
   mechanisms are now available, but route-contract assertions, cross-case
   restoration and platform checks need deliberate treatment during conversion.
   Current catalogue IDs and assertions remain intact.
-- W3 cannot discover the exploration-library ID held only in legacy
-  UserDefaults; callers can supply `exploration_library_id` explicitly.
+- W3 follow-up (2026-09-28, `claude/reflective-w3-discovery`): imbib now
+  migrates the legacy exploration-library pointer into an internal Device
+  setting and mirrors `LibraryManager` changes; retention uses it when
+  `exploration_library_id` is omitted. An invalid explicit value disables
+  exploration cleanup instead of falling back. The 90-second workflow
+  guard and existing workflow spec remain unchanged. Focused scratch-state
+  tests are added; root owns the shared gates and native verification.
 - S3 nested Swift ImpelTools callbacks still lose parent identity/trace.
 - R3 command-palette overrides remain D-R13's later work; appearance/modal
   editing and app-specific LaTeX/export/AI preferences retain their owners.

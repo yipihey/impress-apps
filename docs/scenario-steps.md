@@ -4,6 +4,120 @@ Scenarios retain `wire_version: 1` and the `impress/scenario@1.0.0` record kind.
 The interpreter uses the same `Caller` for Tier A scratch stores and Tier B
 isolated native hosts. Call, event, gesture and wait steps keep their wire shapes.
 
+## Gesture results and fresh log waits
+
+A gesture can capture fields from its result with a JSON-path map, just like a
+call step. Refused gestures fail before captures are stored:
+
+```json
+{
+  "gesture": {"verb": "split", "target": {"role": "detail"}},
+  "capture": {"new_tile": "$.focused"}
+}
+```
+
+Call capture paths may include earlier captured values when a JSON object key
+is dynamic. For example, after capturing a tile ID from `$.focused`, a later
+`get-layout` call can capture `$.layout.tiles.{{state.tile}}.pane.session`.
+The resolved path is still the same literal dotted JSON path walk; it has no
+selectors or expressions. Capture references must come from an earlier step,
+and captured values are not interpreted recursively after insertion.
+
+A call may also capture one value from its arguments **after** scenario
+templates and `{{uuid}}` have been resolved. This lets a later assertion compare
+the observed state with the exact value sent, without re-generating it:
+
+```json
+{
+  "call": "layout-service_select",
+  "args": {"ids": ["{{uuid}}"]},
+  "capture": {"selected_id": {"argument": "$.ids.0"}}
+}
+```
+
+Argument capture paths are fixed JSON paths into the resolved arguments. A
+missing path fails before dispatch; captured JSON retains its type and is not
+templated again.
+
+Call captures also have two closed JSON operations for values that cannot be
+addressed by a fixed path. `select_one` scans an object or array at `from`
+(at most 10,000 candidates), checks a fixed relative `path` using `equals` or
+`array_contains`, and refuses zero or multiple matches. It captures
+`{key, value}`; object keys stay strings, array keys are indices. An explicit
+`object_key_as: "u64"` additionally parses a decimal object key into
+`numeric_key`, failing unless the key is a canonical unsigned decimal (for
+example, `9`; `09`, `+9`, and overflow are refused). A missing predicate
+path on a candidate is a non-match. The `from` path and predicate values may
+use earlier captures; the relative candidate path stays fixed.
+
+```json
+{
+  "capture": {
+    "parent": {"select_one": {
+      "from": "$.layout.tiles",
+      "path": "$.container.linear.children",
+      "predicate": {"array_contains": "{{state.tile}}"},
+      "object_key_as": "u64"
+    }}
+  }
+}
+```
+
+`fill_array` repeats one literal JSON `value` for the length of an earlier
+captured array. It accepts only a whole capture reference in `length_of`,
+requires the referenced value to be an array, and caps the result at 10,000
+items and 1 MiB of compact JSON output. `value` remains literal, including
+strings that look like capture templates. Neither operation evaluates
+expressions, traverses arbitrary code, nor re-templates captured JSON. The
+`layout.version_moves` scenario uses these operations to find the split's
+linear parent and construct its equal shares.
+
+The layout catalogue's closed collection-row gesture is
+`{"outline_collection":"{{uuid}}"}`. Its caller derives the app-specific
+query and exact verbs from the live tree using the same outline decision
+functions as a native row click. The result exposes the query, list tile, and
+optional detail metadata for later assertions; the scenario does not copy a
+query or verb sequence by hand.
+
+`wait.log_cursor` captures the current server timestamp for a later log wait.
+Capture it immediately before the mutation whose log line you need to observe:
+
+```json
+{"wait": {"log_cursor": {"capture": "before"}}}
+```
+
+`wait.log` requires `category`, `contains` and a `timeout_ms` from 1 through
+60,000. Optional `also_contains` needles must also occur in that same message;
+all message matches are case-insensitive. Optional `after` accepts a captured
+ISO-8601 cursor, so entries at or before it cannot satisfy the wait:
+
+```json
+{
+  "wait": {
+    "log": {
+      "category": "layout",
+      "contains": "pane {{state.new_tile}} console:",
+      "also_contains": ["search 'layout'", "levels info,warning,error"],
+      "after": "{{state.before}}",
+      "timeout_ms": 3000
+    }
+  }
+}
+```
+
+An optional `when_present` on a wait step guards that wait with a prior
+capture-state JSON path. Missing and `null` values skip the wait before its
+body is resolved; a malformed path or a path rooted at a capture that has not
+yet been set fails validation. This is a closed presence guard, not a general
+conditional or branch:
+
+```json
+{
+  "wait": {"log": {"category":"layout", "contains":"pane {{state.detail.tile}}"}},
+  "when_present": "$.detail"
+}
+```
+
 ## Comparing captured results and checking cleanup
 
 An expectation can compare a later response with captured JSON. For example,
@@ -13,6 +127,10 @@ The whole-string reference preserves the array/object type. Captured content is
 not interpreted again, so surface templates inside that content remain literal.
 References must name an earlier capture; use the literal escape below when the
 expectation itself contains a surface template.
+
+`within` accepts a fixed JSON number or a whole capture reference resolving to
+a JSON number. The tolerance remains an ordinary numeric value; nonnumeric
+captured targets fail the expectation.
 
 Every teardown step is attempted even after an earlier failure. A failed
 teardown call or assertion fails the scenario; use `best_effort` explicitly
@@ -38,9 +156,12 @@ its normal authorization. It does not access a second database directly.
 
 The candidate has an `item` envelope and a decoded `payload` object. All
 predicates must match. Predicates use the existing closed field checks:
-`equals`, `contains`, `gte`, `lte`, `within`, `len`, `present` and `absent`.
-No expression language or executable code is accepted. An empty predicate list
-selects the first row of the requested kind.
+`equals`, `not_equals`, `contains`, `gt`, `gte`, `lte`, `within`, `len`,
+`present` and `absent`. `gt` requires JSON numbers and compares integer values
+without floating-point rounding; `not_equals` requires the path to exist and
+compares JSON values. Literal JSON values and whole `{{state.capture}}`
+references are accepted. No expression language or executable code is
+accepted. An empty predicate list selects the first row of the requested kind.
 
 `max_rows` defaults to 100 and must be between 1 and 10,000. Paging is bounded;
 this is a live scan, not a snapshot across concurrent edits. No match, an

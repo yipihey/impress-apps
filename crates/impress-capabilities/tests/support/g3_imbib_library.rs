@@ -631,7 +631,9 @@ pub fn verify(
                 .as_array()
                 .ok_or("missing imported IDs")?;
             if ids.len() != 1 {
-                return Err("expected one imported search result".into());
+                return Err(format!(
+                    "expected one imported search result; ImportSummary was {result}"
+                ));
             }
             let row = load(store, ids[0].as_str().ok_or("import ID is not text")?)?
                 .ok_or("imported search result not persisted")?;

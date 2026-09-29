@@ -65,6 +65,8 @@ pub enum ToolError {
     UnknownTool { name: String },
     #[error("{name} arguments are not a JSON object: {message}")]
     BadArguments { name: String, message: String },
+    #[error("invalid trusted caller context: {message}")]
+    BadContext { message: String },
     #[error("{name} failed: {message}")]
     Handler { name: String, message: String },
     /// The owning app is not running. Deliberately distinct from `Handler` so
@@ -226,6 +228,28 @@ fn is_available_handle(handle: &VerbHandle, backends: &ToolBackends) -> bool {
 /// code. There is no second implementation to drift.
 #[uniffi::export]
 pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
+    call_tool_inner(name, args_json, None)
+}
+
+/// Invoke a tool with trusted caller lineage supplied separately from the
+/// tool's domain arguments. This is for native host callbacks that have
+/// captured a pipeline context; ordinary impel calls use [`call_tool`].
+#[uniffi::export]
+pub fn call_tool_with_context(
+    name: String,
+    args_json: String,
+    context_json: String,
+) -> Result<String, ToolError> {
+    let context = impress_service_core::pipeline::TransportContext::from_json(&context_json)
+        .map_err(|message| ToolError::BadContext { message })?;
+    call_tool_inner(name, args_json, Some(context))
+}
+
+fn call_tool_inner(
+    name: String,
+    args_json: String,
+    context: Option<impress_service_core::pipeline::TransportContext>,
+) -> Result<String, ToolError> {
     impress_capabilities::force_link();
     let descriptor =
         call::find(&name).ok_or_else(|| ToolError::UnknownTool { name: name.clone() })?;
@@ -261,13 +285,12 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
         })?
     };
 
-    // impel's tool loop is an agent (ADR-0034 D3); the surface runtime in
-    // the app reaches this through `ImpressVerbHost` and is one too.
-    let outcome =
-        impress_service_core::runtime::block_on(impress_service_core::pipeline::invoke_handle(
-            descriptor.clone(),
-            impress_service_core::pipeline::Call::agent("impel", args),
-        ));
+    // impel's tool loop is an agent (ADR-0034 D3). A native surface
+    // callback carries its trusted caller and lineage separately from args.
+    let call = invocation_call(args, context);
+    let outcome = impress_service_core::runtime::block_on(
+        impress_service_core::pipeline::invoke_handle(descriptor.clone(), call),
+    );
     match outcome {
         Ok(value)
             if value.get("code").and_then(serde_json::Value::as_str)
@@ -293,6 +316,16 @@ pub fn call_tool(name: String, args_json: String) -> Result<String, ToolError> {
             name,
             message: e.to_string(),
         }),
+    }
+}
+
+fn invocation_call(
+    args: serde_json::Value,
+    context: Option<impress_service_core::pipeline::TransportContext>,
+) -> impress_service_core::pipeline::Call {
+    match context {
+        Some(context) => context.into_call(args),
+        None => impress_service_core::pipeline::Call::agent("impel", args),
     }
 }
 
@@ -455,6 +488,43 @@ mod tests {
     fn unknown_tool_is_reported_as_such() {
         let err = call_tool("no-such-tool".into(), "{}".into()).unwrap_err();
         assert!(matches!(err, ToolError::UnknownTool { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn callback_context_inherits_identity_and_lineage_outside_domain_args() {
+        let context = impress_service_core::pipeline::TransportContext::from_json(
+            r#"{"kind":"person","trace_id":"surface-trace","parent_call":"surface-call"}"#,
+        )
+        .expect("valid host context");
+        let call = invocation_call(
+            serde_json::json!({
+                "kind": "system",
+                "trace_id": "forged-trace",
+                "parent_call": "forged-parent"
+            }),
+            Some(context),
+        );
+
+        assert_eq!(
+            call.caller,
+            impress_service_core::pipeline::CallerIdentity::Person
+        );
+        assert_eq!(call.trace_id.as_deref(), Some("surface-trace"));
+        assert_eq!(call.parent_call.as_deref(), Some("surface-call"));
+        assert_eq!(call.args["kind"], "system");
+        assert_eq!(call.args["trace_id"], "forged-trace");
+    }
+
+    #[test]
+    fn malformed_callback_context_is_refused_before_tool_dispatch() {
+        let err = call_tool_with_context(
+            "capabilities-service_list-verbs".into(),
+            "{}".into(),
+            r#"{"kind":"person","trace_id":"trace","parent_call":"parent","caller":"system"}"#
+                .into(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ToolError::BadContext { .. }), "got {err:?}");
     }
 
     /// The guard that matters: with no backend configured, a real tool must be

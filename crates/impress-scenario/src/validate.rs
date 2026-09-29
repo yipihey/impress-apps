@@ -1,8 +1,8 @@
 //! Structural validation of a [`Scenario`], independent of any caller.
 //!
 //! `validate` checks what a spec alone can prove: capture names referenced
-//! before they exist, an empty step list, a `wait.log`/`wait.job` timeout of
-//! zero. It cannot check that a `call` step names a real verb (this crate
+//! before they exist, an empty step list, and `wait.log` bounds/needles. It
+//! cannot check that a `call` step names a real verb (this crate
 //! has no inventory) — `impress-scenario-service`'s `validate` verb adds
 //! that check with the inventory it links.
 
@@ -38,7 +38,75 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
 
     for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
         let args = match step {
-            Step::Call(call) => serde_json::json!({"args": call.args, "expect": call.expect}),
+            Step::Call(call) => {
+                let mut capture_references = Vec::new();
+                for (name, capture) in &call.capture {
+                    let mut messages = Vec::new();
+                    match capture {
+                        crate::spec::CallCapture::Path(path) if path.trim().is_empty() => {
+                            messages.push("capture path must be non-empty")
+                        }
+                        crate::spec::CallCapture::Argument(spec) => {
+                            if spec.argument.trim().is_empty() {
+                                messages.push("argument capture path must be non-empty");
+                            }
+                            if spec.argument.contains("{{") {
+                                messages.push("argument capture path must be fixed");
+                            }
+                        }
+                        crate::spec::CallCapture::SelectOne(spec) => {
+                            let query = &spec.select_one;
+                            if query.from.trim().is_empty() || query.path.trim().is_empty() {
+                                messages.push("select_one paths must be non-empty");
+                            }
+                            if query.path.contains("{{") {
+                                messages.push("select_one candidate path must be fixed");
+                            }
+                            if query.object_key_as.as_deref().is_some_and(|v| v != "u64") {
+                                messages.push("select_one object_key_as only accepts `u64`");
+                            }
+                        }
+                        crate::spec::CallCapture::FillArray(spec)
+                            if spec.fill_array.length_of.trim().is_empty() =>
+                        {
+                            messages.push("fill_array length_of must be non-empty")
+                        }
+                        _ => {}
+                    }
+                    for message in messages {
+                        problems.push(Problem {
+                            step: Some(index),
+                            message: format!("capture `{name}`: {message}"),
+                        });
+                    }
+                    match capture {
+                        crate::spec::CallCapture::Path(path) => {
+                            capture_references.push(serde_json::json!(path));
+                        }
+                        crate::spec::CallCapture::Argument(_) => {}
+                        crate::spec::CallCapture::SelectOne(spec) => {
+                            let query = &spec.select_one;
+                            capture_references.push(serde_json::json!(query.from));
+                            match &query.predicate {
+                                crate::spec::SelectPredicate::Equals(predicate) => {
+                                    capture_references.push(predicate.equals.clone());
+                                }
+                                crate::spec::SelectPredicate::ArrayContains(predicate) => {
+                                    capture_references.push(predicate.array_contains.clone());
+                                }
+                            }
+                        }
+                        crate::spec::CallCapture::FillArray(spec) => {
+                            capture_references.push(serde_json::json!(spec.fill_array.length_of));
+                        }
+                    }
+                }
+                serde_json::json!({
+                    "args": call.args,
+                    "expect": call.expect,
+                    "capture_references": capture_references
+                })
+            }
             Step::BestEffort(step) => step.best_effort.args.clone(),
             Step::Store(step) => {
                 if step.store.schema_ref.trim().is_empty()
@@ -62,14 +130,95 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
                 ) });
             }
         }
+        if let Step::Wait(wait) = step {
+            if let Some(path) = &wait.when_present {
+                match capture_state_path_segments(path) {
+                    Ok(segments) => {
+                        if !known.contains(segments[0]) {
+                            problems.push(Problem {
+                                step: Some(index),
+                                message: format!(
+                                    "wait.when_present path `{path}` roots at capture `{}` that has not been set",
+                                    segments[0]
+                                ),
+                            });
+                        }
+                    }
+                    Err(message) => problems.push(Problem {
+                        step: Some(index),
+                        message: format!("wait.when_present path `{path}`: {message}"),
+                    }),
+                }
+            }
+            match &wait.wait {
+                crate::spec::WaitBody::Log { log } => {
+                    if !(1..=60_000).contains(&log.timeout_ms) {
+                        problems.push(Problem {
+                            step: Some(index),
+                            message: "wait.log timeout_ms must be in 1..=60000".into(),
+                        });
+                    }
+                    if log.contains.trim().is_empty()
+                        || log
+                            .also_contains
+                            .iter()
+                            .any(|needle| needle.trim().is_empty())
+                    {
+                        problems.push(Problem {
+                            step: Some(index),
+                            message: "wait.log requires non-empty message needles".into(),
+                        });
+                    }
+                }
+                crate::spec::WaitBody::LogCursor { log_cursor }
+                    if log_cursor.capture.trim().is_empty() =>
+                {
+                    problems.push(Problem {
+                        step: Some(index),
+                        message: "wait.log_cursor requires a capture name".into(),
+                    });
+                }
+                _ => {}
+            }
+        }
         match step {
             Step::Call(call) => known.extend(call.capture.keys().cloned()),
             Step::Store(step) => known.extend(step.capture.keys().cloned()),
+            Step::Gesture(step) => known.extend(step.capture.keys().cloned()),
+            Step::Wait(wait) => {
+                if let crate::spec::WaitBody::LogCursor { log_cursor } = &wait.wait {
+                    if !log_cursor.capture.trim().is_empty() {
+                        known.insert(log_cursor.capture.clone());
+                    }
+                }
+            }
             _ => {}
         }
     }
 
     problems
+}
+
+/// Parse the closed `$.capture.field.0` path accepted by wait presence guards.
+/// Brackets, wildcards, filters and empty segments are intentionally unsupported.
+pub(crate) fn capture_state_path_segments(path: &str) -> Result<Vec<&str>, &'static str> {
+    let rest = path
+        .strip_prefix("$.")
+        .ok_or("must start with `$.<capture>`")?;
+    let segments: Vec<&str> = rest.split('.').collect();
+    if segments.is_empty()
+        || segments.iter().any(|segment| {
+            segment.is_empty()
+                || !segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        })
+    {
+        return Err(
+            "must contain non-empty dotted path segments using letters, digits, `_` or `-`",
+        );
+    }
+    Ok(segments)
 }
 
 /// Every `state.<name>` reference's first segment, anywhere inside `value`
@@ -147,7 +296,7 @@ pub fn requires_ok(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::{CallStep, Scenario, SeedRecord, Step, Tier};
+    use crate::spec::{CallCapture, CallStep, Scenario, SeedRecord, Step, Tier};
     use serde_json::json;
 
     fn base(steps: Vec<Step>) -> Scenario {
@@ -205,10 +354,183 @@ mod tests {
     fn a_capture_from_an_earlier_step_is_known_to_a_later_one() {
         let mut first = call(json!({}));
         if let Step::Call(c) = &mut first {
-            c.capture.insert("name".to_string(), "$.name".to_string());
+            c.capture
+                .insert("name".to_string(), CallCapture::Path("$.name".to_string()));
         }
         let second = call(json!({"name": "{{state.name}}"}));
         let scenario = base(vec![first, second]);
         assert!(validate(&scenario).is_empty());
+    }
+
+    #[test]
+    fn malformed_capture_operations_are_rejected_structurally() {
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "malformed-capture",
+            "description": "invalid bounded capture",
+            "tier": "a",
+            "steps": [{
+                "call": "x",
+                "capture": {
+                    "bad_selector": {"select_one": {
+                        "from": " ",
+                        "path": "$.{{state.dynamic}}",
+                        "predicate": {"equals": "detail"},
+                        "object_key_as": "integer"
+                    }},
+                    "bad_array": {"fill_array": {"value": 1, "length_of": " "}},
+                    "bad_argument": {"argument": " "},
+                    "dynamic_argument": {"argument": "$.{{state.path}}"}
+                }
+            }]
+        }))
+        .unwrap();
+        let problems = validate(&scenario);
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("select_one paths")));
+        assert!(problems.iter().any(|p| p.message.contains("object_key_as")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("candidate path must be fixed")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("fill_array length_of")));
+        assert!(problems.iter().any(|p| {
+            p.message
+                .contains("argument capture path must be non-empty")
+        }));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("argument capture path must be fixed")));
+        assert!(serde_json::from_value::<crate::spec::CallCapture>(json!({
+            "argument": "$.ids.0",
+            "unexpected": true
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<CallCapture>(json!({
+            "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<CallCapture>(json!({
+            "select_one": {
+                "from": "$.x",
+                "path": "$.y",
+                "predicate": {"equals": 1, "array_contains": 1}
+            }
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn fill_array_value_is_literal_not_a_capture_reference() {
+        let first = call(json!({}));
+        let mut first = first;
+        if let Step::Call(call) = &mut first {
+            call.capture
+                .insert("items".into(), CallCapture::Path("$.items".into()));
+        }
+        let mut second = call(json!({}));
+        if let Step::Call(call) = &mut second {
+            call.capture.insert(
+                "literal_values".into(),
+                CallCapture::FillArray(crate::spec::FillArrayCapture {
+                    fill_array: crate::spec::FillArraySpec {
+                        value: json!("{{{{state.missing}}}}"),
+                        length_of: "{{state.items}}".into(),
+                    },
+                }),
+            );
+        }
+        assert!(validate(&base(vec![first, second])).is_empty());
+    }
+
+    #[test]
+    fn log_cursor_and_gesture_captures_are_known_to_later_steps() {
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "cursor",
+            "description": "captured cursors",
+            "tier": "b",
+            "steps": [
+                {"wait": {"log_cursor": {"capture": "before"}}},
+                {"gesture": {"verb": "split"}, "capture": {"tile": "$.focused"}},
+                {"wait": {"log": {
+                    "category": "layout",
+                    "contains": "pane {{state.tile}}",
+                    "also_contains": ["Console"],
+                    "after": "{{state.before}}",
+                    "timeout_ms": 3000
+                }}}
+            ]
+        }))
+        .unwrap();
+        assert!(validate(&scenario).is_empty());
+    }
+
+    #[test]
+    fn log_wait_requires_prior_cursor_and_a_bounded_nonempty_needle_set() {
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "bad-log-wait",
+            "description": "invalid log wait",
+            "tier": "b",
+            "steps": [{"wait": {"log": {
+                "category": "layout",
+                "contains": "",
+                "also_contains": [""],
+                "after": "{{state.missing}}",
+                "timeout_ms": 60001
+            }}}]
+        }))
+        .unwrap();
+        let problems = validate(&scenario);
+        assert!(problems.iter().any(|p| p.message.contains("missing")));
+        assert!(problems.iter().any(|p| p.message.contains("1..=60000")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("non-empty message needles")));
+    }
+
+    #[test]
+    fn wait_presence_guard_requires_a_prior_capture_and_closed_path() {
+        let first = call(json!({}));
+        let wait = |path: &str| {
+            Step::Wait(crate::spec::WaitStep {
+                wait: crate::spec::WaitBody::Log {
+                    log: crate::spec::LogWait {
+                        category: "layout".into(),
+                        contains: "detail".into(),
+                        also_contains: vec![],
+                        after: None,
+                        timeout_ms: 100,
+                    },
+                },
+                when_present: Some(path.into()),
+            })
+        };
+        let mut captured = first;
+        if let Step::Call(c) = &mut captured {
+            c.capture.insert(
+                "detail".into(),
+                crate::spec::CallCapture::Path("$.detail".into()),
+            );
+        }
+        assert!(validate(&base(vec![captured, wait("$.detail.tile")])).is_empty());
+        for (path, expected) in [
+            ("$.missing.tile", "has not been set"),
+            ("$.detail..tile", "non-empty dotted path segments"),
+            ("$.detail[*]", "non-empty dotted path segments"),
+            ("detail.tile", "must start with"),
+            ("$", "must start with"),
+        ] {
+            let scenario = base(vec![wait(path)]);
+            assert!(
+                validate(&scenario)
+                    .iter()
+                    .any(|problem| problem.message.contains(expected)),
+                "{path}"
+            );
+        }
     }
 }

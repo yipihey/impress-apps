@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(reset.source, "default");
         let listed: serde_json::Value =
             serde_json::from_str(&settings.list_json("imbib.retention".into()).unwrap()).unwrap();
-        assert_eq!(listed.as_array().unwrap().len(), 3);
+        assert_eq!(listed.as_array().unwrap().len(), 4);
     }
 
     #[test]

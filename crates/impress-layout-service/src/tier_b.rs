@@ -39,22 +39,26 @@
 //! entries that are literal call sequences. S2b converts three:
 //! `layout.apply_preset`, `layout.saved_round_trip`, `layout.wire_contract`
 //! — as `impress/scenario@1.0.0` documents under `scenarios/`, run through
-//! [`scenario_caller`](crate::scenario_caller)'s shared `TierBCaller`. The
-//! rest stay code, for reasons unchanged from S2's own account plus one new
-//! one this pass found:
+//! [`scenario_caller`](crate::scenario_caller)'s shared `TierBCaller`. Later
+//! packages also converted surface dispatch, version movement, source sessions,
+//! console panes and hidden shares. The remaining code entries have reasons
+//! unchanged from S2's own account plus one new one this pass found:
 //!
 //! 1. Almost every other entry here reads the live tree back and computes
 //!    its next call from what it finds — a tile id for a role, a
 //!    container's current child count to build an even `shares` array,
 //!    which pane's parameter reads a channel. A stored scenario document
-//!    has no expressions or loops (ADR-0033 D3, by design): its `call`/
-//!    `gesture` args are a literal or a `{{state.<capture>}}` reference to
-//!    an *earlier step's own result* — never a computed lookup into an
-//!    arbitrary JSON structure the way `tile_with_role`/`linear_parent`/
-//!    `channel_ids` below do. This is `layout.version_moves`,
-//!    `layout.channel_selection`, `layout.hidden_share`,
-//!    `layout.outline_collection_row`, `layout.source_pane_session` and
-//!    `layout.console_pane` — the six named in S2's own account, unchanged.
+//!    has no expressions or loops (ADR-0033 D3, by design), but its bounded
+//!    `select_one` and `fill_array` captures now cover the parent lookup and
+//!    even shares for `layout.version_moves`. S2i converts
+//!    `layout.channel_selection` with a role lookup, a channel-param selector
+//!    and a capture of the resolved selection argument. `layout.hidden_share`
+//!    is scenario-backed. S2e converts `layout.console_pane` using a role
+//!    target, captured split result and a pre-mutation log cursor; S2g adds
+//!    prior-capture interpolation to a closed JSON capture path, which also
+//!    lets `layout.source_pane_session` follow captured tile ids. S2j converts
+//!    the outline row with a narrow gesture that invokes the same
+//!    `outline_target` and `outline_verbs` UI decision functions.
 //! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
 //!    shape one level down: `first_row_of` is a live, filtered read of the
 //!    shared store (a read paper that already has its PDF) done in-process
@@ -74,25 +78,18 @@
 //! 4. `app.reachable` is the tier's own gate (`GET /api/status`, run before
 //!    any scenario would), not a capability a scenario step names.
 //!
-//! **A found blocker, not carried into this pass:** `surface.show_and_dispatch`
-//! (here) and all three of `impress-surface-service`'s catalogue
-//! (`surface.http.*`) build a surface spec whose OWN `bind`/`on_click` fields
-//! use the surface engine's `{{state.…}}` template syntax
-//! (`{"bind": "state.bins"}`, `{"payload": {"bins": "{{state.bins}}"}}`).
-//! `impress_scenario::template::resolve` walks every string in a `call`
-//! step's `args` and resolves `{{…}}` against the *scenario's own* captures
-//! before the step runs — so embedding such a spec as `args` fails immediately
-//! (`a missing capture is an error`, not a slow-burning wrong-but-passing
-//! bug) because the scenario has no `bins` capture. Converting either
-//! catalogue's surface-creating entries needs either an escape for a literal
-//! `{{…}}` the scenario interpreter should not touch, or moving the spec into
-//! a `seed`-like non-templated slot — neither exists yet; left for the
-//! interpreter's own next pass rather than guessed at here.
+//! **S2d resolves the literal-template blocker for one entry.**
+//! `surface.show_and_dispatch` now stores its surface spec in a scenario and
+//! uses the scenario interpreter's `{{!…}}` escape for the surface engine's
+//! own `{{state.bins}}` payload template. Its scenario caller retains
+//! canonical `impress-surface-service_*` names while projecting the calls to
+//! `/api/surface/*`. This converts only the layout catalogue entry; the three
+//! `impress-surface-service` `surface.http.*` scenarios remain outside this
+//! change.
 //!
-//! `layout.outline_collection_row` (class ii, "gesture") has the same
-//! dynamic-lookup shape as (1) above (`outline_target`, `first_row_of`) and
-//! stays code for the same reason, not because a `gesture` step could not
-//! carry it in principle.
+//! **S2e converts `layout.console_pane`.** Its scenario captures the server's
+//! log cursor immediately before the split, then checks the new pane and all
+//! required fragments of its fresh, case-insensitive scoped log line.
 
 use std::time::Duration;
 
@@ -107,7 +104,17 @@ use crate::{check, skipped, CapabilityResult, Tier};
 /// `imprint-selftest`'s own embedding).
 const APPLY_PRESET_SCENARIO: &str = include_str!("../scenarios/layout.apply_preset.json");
 const SAVED_ROUND_TRIP_SCENARIO: &str = include_str!("../scenarios/layout.saved_round_trip.json");
+const SURFACE_SHOW_AND_DISPATCH_SCENARIO: &str =
+    include_str!("../scenarios/surface.show_and_dispatch.json");
 const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
+const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pane.json");
+const VERSION_MOVES_SCENARIO: &str = include_str!("../scenarios/layout.version_moves.json");
+const HIDDEN_SHARE_SCENARIO: &str = include_str!("../scenarios/layout.hidden_share.json");
+const SOURCE_PANE_SESSION_SCENARIO: &str =
+    include_str!("../scenarios/layout.source_pane_session.json");
+const CHANNEL_SELECTION_SCENARIO: &str = include_str!("../scenarios/layout.channel_selection.json");
+const OUTLINE_COLLECTION_SCENARIO: &str =
+    include_str!("../scenarios/layout.outline_collection_row.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -154,9 +161,6 @@ pub fn base_url_from(override_value: Option<String>) -> String {
 /// anything. Deliberately unlikely to collide with a human's layout, and
 /// deleted again by the restore step.
 const RESTORE_LAYOUT: &str = "__tier-b-selftest-restore__";
-
-/// The name of the scratch surface the surface capability creates.
-const SCRATCH_SURFACE: &str = "__tier-b-selftest__";
 
 /// Every capability id this tier reports, in order. Written out so the
 /// skip-when-unreachable path and the live path cannot drift: the skip branch
@@ -280,17 +284,6 @@ impl Http {
         decode(path, response).await
     }
 
-    async fn delete(&self, path: &str) -> Result<Value, String> {
-        let url = format!("{}{path}", self.base);
-        let response = self
-            .client
-            .delete(&url)
-            .send()
-            .await
-            .map_err(|e| format!("DELETE {path}: {e}"))?;
-        decode(path, response).await
-    }
-
     /// `POST /api/layout/verb` with one `impress_layout::Verb` body.
     async fn verb(&self, verb: &Value) -> Result<Value, String> {
         self.post("/api/layout/verb", verb).await
@@ -304,15 +297,6 @@ impl Http {
     /// `GET /api/layout/tree`.
     async fn tree(&self) -> Result<Value, String> {
         self.get("/api/layout/tree").await
-    }
-
-    /// The tree's `version`, which is top-level beside `layout` (not inside
-    /// it) — `LayoutController.layoutTreeJSON` builds it that way.
-    async fn version(&self) -> Result<u64, String> {
-        let tree = self.tree().await?;
-        tree.get("version")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "tree response carried no `version`".to_string())
     }
 }
 
@@ -390,68 +374,6 @@ fn tile_with_role(tree: &Value, role: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("no pane carries the `{role}` role"))
 }
 
-/// The linear container holding `tile`, as `(container id, children, shares)`.
-///
-/// Shares live on the container as a parallel `shares` array — there is no
-/// per-tile `share` field (`impress_layout::Container::Linear`), so reading
-/// one pane's share means finding its index among its parent's children.
-fn linear_parent(tree: &Value, tile: u64) -> Result<(u64, Vec<u64>, Vec<f64>), String> {
-    let tiles = layout_of(tree)?
-        .get("tiles")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "layout carried no `tiles`".to_string())?;
-    for (id, value) in tiles {
-        let Some(linear) = value.get("container").and_then(|c| c.get("linear")) else {
-            continue;
-        };
-        let children: Vec<u64> = linear
-            .get("children")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_u64).collect())
-            .unwrap_or_default();
-        if !children.contains(&tile) {
-            continue;
-        }
-        let shares: Vec<f64> = linear
-            .get("shares")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_f64).collect())
-            .unwrap_or_default();
-        let container = id
-            .parse::<u64>()
-            .map_err(|_| format!("container id `{id}` is not a number"))?;
-        return Ok((container, children, shares));
-    }
-    Err(format!("tile {tile} has no linear parent"))
-}
-
-/// One pane's share, read through its parent container.
-fn share_of(tree: &Value, tile: u64) -> Result<f64, String> {
-    let (container, children, shares) = linear_parent(tree, tile)?;
-    let index = children
-        .iter()
-        .position(|c| *c == tile)
-        .ok_or_else(|| format!("tile {tile} vanished from container {container}"))?;
-    shares
-        .get(index)
-        .copied()
-        .ok_or_else(|| format!("container {container} has no share at index {index}"))
-}
-
-/// A minimal but valid `PaneQuery` — every field the algebra requires,
-/// spelled as `impress_core::pane_query::PaneQuery` serialises it.
-fn any_publication_query() -> Value {
-    json!({
-        "kinds": ["publication"],
-        "scope": { "scope": "all" },
-        "filters": [],
-        "text": null,
-        "relation": null,
-        "sort": [],
-        "limit": null
-    })
-}
-
 // ─── the catalogue ────────────────────────────────────────────────────────
 
 /// Run every Tier B capability against `base_url`, restoring what it changed.
@@ -461,7 +383,7 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     // loopback connection, separate from `http` above): nothing here
     // depends on it seeing the other capabilities' effects, so one per run
     // is simplicity over sharing a connection that buys nothing yet.
-    let mut scenario_caller = scenario_caller::TierBCaller::new(base_url);
+    let mut scenario_caller = scenario_caller::TierBCaller::for_surface_routes(base_url);
 
     // One probe gates the tier. `/api/status` is the shared automation
     // surface's own liveness route, answered by every app in the suite.
@@ -507,209 +429,32 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
         .await
         .is_ok();
 
-    // Surfaces this run created, deleted by the restore step whatever happens.
-    let mut created_surfaces: Vec<String> = Vec::new();
-
     out.push(scenario_caller::run_embedded(APPLY_PRESET_SCENARIO, &mut scenario_caller).await);
-    out.push(version_moves_capability(&http).await);
+    out.push(scenario_caller::run_embedded(VERSION_MOVES_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(SAVED_ROUND_TRIP_SCENARIO, &mut scenario_caller).await);
-    out.push(channel_selection_capability(&http).await);
-    out.push(surface_capability(&http, &mut created_surfaces).await);
-    out.push(hidden_share_capability(&http).await);
-    out.push(outline_collection_capability(&http).await);
+    out.push(scenario_caller::run_embedded(CHANNEL_SELECTION_SCENARIO, &mut scenario_caller).await);
+    out.push(
+        scenario_caller::run_embedded(SURFACE_SHOW_AND_DISPATCH_SCENARIO, &mut scenario_caller)
+            .await,
+    );
+    out.push(scenario_caller::run_embedded(HIDDEN_SHARE_SCENARIO, &mut scenario_caller).await);
+    out.push(
+        scenario_caller::run_embedded(OUTLINE_COLLECTION_SCENARIO, &mut scenario_caller).await,
+    );
     out.push(reading_pdf_pane_capability(&http).await);
-    out.push(source_pane_session_capability(&http).await);
+    out.push(
+        scenario_caller::run_embedded(SOURCE_PANE_SESSION_SCENARIO, &mut scenario_caller).await,
+    );
     out.push(reading_preset_capability(&http).await);
-    out.push(console_pane_capability(&http).await);
+    out.push(scenario_caller::run_embedded(CONSOLE_PANE_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(WIRE_CONTRACT_SCENARIO, &mut scenario_caller).await);
 
     // The `finally`. Nothing above uses `?` at this level, so control always
     // arrives here — a failed capability leaves the tree dirty for exactly as
     // long as it takes to get to this line.
-    out.push(restore_capability(&http, parked, &created_surfaces).await);
+    out.push(restore_capability(&http, parked).await);
 
     out
-}
-
-/// 2. Split / resize / swap / close, each advancing `version`.
-///
-/// Strictly increasing, checked between every step: a verb the host accepted
-/// but did not apply would leave the version still and is the failure this
-/// capability exists to catch.
-async fn version_moves_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[2];
-    check(id, description, Tier::B, || async {
-        let mut steps: Vec<String> = Vec::new();
-        let mut version = http.version().await?;
-
-        let mut advanced = |label: &str, before: u64, after: u64| -> Result<(), String> {
-            if after <= before {
-                return Err(format!(
-                    "{label} did not advance `version` ({before} → {after})"
-                ));
-            }
-            steps.push(format!("{label} {before}→{after}"));
-            Ok(())
-        };
-
-        // Split the detail pane. Focus follows the new pane, and the response
-        // names the tiles it changed — we take the new tile from the tree
-        // rather than the response so the reader is the same one a person's
-        // app uses.
-        let before = version;
-        let detail = tile_with_role(&http.tree().await?, "detail")?;
-        let split = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "horizontal",
-                "after": true,
-                "new": {
-                    "query": any_publication_query(),
-                    "view_kind": "info",
-                    "channel": { "number": 1 }
-                }
-            }))
-            .await?;
-        version = http.version().await?;
-        advanced("split", before, version)?;
-        let new_tile = split
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "split did not report a focused tile".to_string())?;
-
-        // Resize the container the split produced, through `Verb::Resize`
-        // (the whole-container form; `resize-share` is capability 6).
-        let before = version;
-        let tree = http.tree().await?;
-        let (container, children, _) = linear_parent(&tree, new_tile)?;
-        let even: Vec<f64> = children.iter().map(|_| 1.0).collect();
-        http.verb(&json!({
-            "verb": "resize",
-            "container": container,
-            "shares": even
-        }))
-        .await?;
-        version = http.version().await?;
-        advanced("resize", before, version)?;
-
-        // Swap two roles and swap them straight back, so the capability's own
-        // arrangement change nets out even before the restore step.
-        let before = version;
-        let swap = json!({
-            "verb": "swap",
-            "a": {"role": "list"},
-            "b": {"role": "detail"}
-        });
-        http.verb(&swap).await?;
-        version = http.version().await?;
-        advanced("swap", before, version)?;
-        let before = version;
-        http.verb(&swap).await?;
-        version = http.version().await?;
-        advanced("swap-back", before, version)?;
-
-        // Close the pane the split created, leaving the tree as it was found.
-        let before = version;
-        http.verb(&json!({
-            "verb": "close",
-            "target": {"id": new_tile}
-        }))
-        .await?;
-        version = http.version().await?;
-        advanced("close", before, version)?;
-
-        Ok(steps.join(", "))
-    })
-    .await
-}
-
-/// 4. A selection published in the list pane reaches the info pane's channel.
-///
-/// The info pane declares an `item` parameter sourced from a channel
-/// (`ParamSource::Channel`); the tree's `channels` map is where a published
-/// selection lands. So the end-to-end assertion is: the detail pane's param
-/// reads channel N, and after a `select` on the list pane, channel N carries
-/// exactly the ids that were selected under the kind that was published. That
-/// is the whole path the pane's `single_item` resolves through, observed at
-/// the one point the tree actually exposes.
-async fn channel_selection_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[4];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let panes = panes(&tree)?;
-        let detail_pane = panes
-            .iter()
-            .find(|(t, _)| *t == detail)
-            .map(|(_, p)| *p)
-            .ok_or_else(|| format!("tile {detail} is not a pane"))?;
-
-        // Which channel does the detail pane's `item` parameter read?
-        let params = detail_pane
-            .get("params")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "the detail pane declares no params".to_string())?;
-        let (param_name, channel, kind) = params
-            .iter()
-            .find_map(|p| {
-                let source = p.get("source")?;
-                if source.get("source")?.as_str()? != "channel" {
-                    return None;
-                }
-                let channel = source.get("channel")?.get("number")?.as_u64()?;
-                let decl = p.get("decl")?;
-                Some((
-                    decl.get("name")?.as_str()?.to_string(),
-                    channel,
-                    decl.get("kind")?.as_str()?.to_string(),
-                ))
-            })
-            .ok_or_else(|| {
-                "the detail pane has no parameter sourced from a channel — this preset \
-                 cannot carry a selection from a list to an info pane"
-                    .to_string()
-            })?;
-
-        // Publish a selection from the list pane on that channel.
-        let list = tile_with_role(&tree, "list")?;
-        let selected = uuid::Uuid::new_v4().to_string();
-        http.verb(&json!({
-            "verb": "select",
-            "target": {"id": list},
-            "kind": kind,
-            "ids": [selected]
-        }))
-        .await?;
-
-        // …and read it back where the detail pane looks for it.
-        let after = http.tree().await?;
-        let carried = layout_of(&after)?
-            .get("channels")
-            .and_then(|c| c.get("channels").unwrap_or(c).get(channel.to_string()))
-            .and_then(|k| k.get(&kind))
-            .and_then(Value::as_array)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        if carried != vec![selected.clone()] {
-            return Err(format!(
-                "selected {selected} on tile {list}, but channel {channel}'s `{kind}` \
-                 carries {carried:?} — the detail pane's `{param_name}` would not follow"
-            ));
-        }
-
-        Ok(format!(
-            "tile {list} (list) published `{kind}` on channel {channel}; the detail pane \
-             (tile {detail}) reads `{param_name}` from that channel, which now carries {selected}"
-        ))
-    })
-    .await
 }
 
 /// 7. The outline sidebar (plan wave 6, W3).
@@ -735,126 +480,6 @@ async fn channel_selection_capability(http: &Http) -> CapabilityResult {
 /// after the verb (it re-ran its query); after a `select` in the list, the
 /// detail pane logged `pane <n> <view kind>: … <id>` (it followed) — `info`
 /// in impress, `source` in imprint.
-async fn outline_collection_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[7];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        let app = tree
-            .get("app")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "tree response names no `app`".to_string())?
-            .to_string();
-        let spec_of = |role: &str| -> Result<Option<(u64, impress_layout::PaneSpec)>, String> {
-            let Ok(tile) = tile_with_role(&tree, role) else {
-                return Ok(None);
-            };
-            let pane = panes(&tree)?
-                .into_iter()
-                .find(|(t, _)| *t == tile)
-                .map(|(_, p)| p.clone())
-                .ok_or_else(|| format!("tile {tile} is not a pane"))?;
-            let spec: impress_layout::PaneSpec = serde_json::from_value(pane)
-                .map_err(|e| format!("the `{role}` pane does not decode as a PaneSpec: {e}"))?;
-            Ok(Some((tile, spec)))
-        };
-        let (list_tile, list_spec) =
-            spec_of("list")?.ok_or_else(|| "no pane carries the `list` role".to_string())?;
-        let detail = spec_of("detail")?;
-
-        let collection = uuid::Uuid::new_v4();
-        let node = crate::outline::OutlineNode::Collection { id: collection };
-        let target = crate::outline::outline_target(&app, &node, &Default::default());
-        let crate::outline::OutlineTarget::Query { query } = &target else {
-            return Err(format!("a collection row must be a query, Rust said {target:?}"));
-        };
-        let verbs = crate::outline::outline_verbs(
-            &node,
-            &target,
-            &crate::outline::OutlinePanes {
-                list: Some(list_spec),
-                detail: detail.as_ref().map(|(_, s)| s.clone()),
-            },
-        );
-        if verbs.is_empty() {
-            return Err("the outline produced no verbs for a new collection".into());
-        }
-
-        let before_verbs = log_cursor();
-        for verb in &verbs {
-            let body = serde_json::to_value(verb).map_err(|e| e.to_string())?;
-            http.verb(&body).await?;
-        }
-
-        // 1. The list pane's query IS the collection now.
-        let after = http.tree().await?;
-        let list_query = panes(&after)?
-            .into_iter()
-            .find(|(t, _)| *t == list_tile)
-            .and_then(|(_, p)| p.get("query").cloned())
-            .ok_or_else(|| format!("tile {list_tile} lost its query"))?;
-        let expected = serde_json::to_value(query).map_err(|e| e.to_string())?;
-        if list_query != expected {
-            return Err(format!(
-                "the list pane's query is {list_query}, not the collection's {expected}"
-            ));
-        }
-        // 2. The navigator published the collection on channel 1.
-        let carried = channel_ids(&after, 1, "collection");
-        if carried != vec![collection.to_string()] {
-            return Err(format!(
-                "channel 1 carries collection {carried:?}, not {collection}"
-            ));
-        }
-        // 3. The list re-ran THE NEW query. The collection is fresh, so the
-        // query matches nothing and the pane's own display line says 0 rows.
-        // Any other count is the list re-running its OLD query on the
-        // `select`'s refresh — seen on impel, where that line read "500 rows"
-        // and would have passed as evidence had only the prefix been matched.
-        let display = wait_for_log(
-            http,
-            &before_verbs,
-            &[&format!("pane {list_tile} display: 0 rows")],
-        )
-        .await?;
-
-        // 4. Select in the list; the detail pane follows — `info` in
-        // impress, `source` in imprint: each view kind logs
-        // `pane <n> <kind>: … <id>` when it resolves its item.
-        let Some((detail_tile, detail_spec)) = detail else {
-            return Ok(format!(
-                "list tile {list_tile} re-queried to collection {collection} ({display}); no detail pane in this layout, so `info` was not checked"
-            ));
-        };
-        let kind = query.kinds.first().cloned().unwrap_or_else(|| "publication".into());
-        let item = uuid::Uuid::new_v4();
-        let before_select = log_cursor();
-        http.verb(&json!({
-            "verb": "select",
-            "target": {"id": list_tile},
-            "kind": kind,
-            "ids": [item.to_string()]
-        }))
-        .await?;
-        // The line must name THIS item: an earlier capability's selection
-        // logged the same `pane N <kind>:` prefix moments ago.
-        let followed = wait_for_log(
-            http,
-            &before_select,
-            &[
-                &format!("pane {detail_tile} {}: ", detail_spec.view_kind),
-                &item.to_string(),
-            ],
-        )
-        .await?;
-
-        Ok(format!(
-            "{} verb(s) from the outline; list tile {list_tile} now queries collection {collection} and logged `{display}`; channel 1 carries it; a `{kind}` select in the list reached tile {detail_tile}: `{followed}`",
-            verbs.len()
-        ))
-    })
-    .await
-}
-
 /// 8. The reading arrangement (plan wave 6, W4).
 ///
 /// impress ships only its Default preset, and imbib's Reading preset is app
@@ -1063,234 +688,6 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
     .await
 }
 
-/// The `console` view kind in the running app: a pane whose spec is only
-/// `view_kind: console` plus the console's own two controls in `view_state`
-/// (`search`, `levels` — what `ImpressLogging.ConsoleView` already has; the
-/// query is left at its default because a log is not store items). The pane
-/// logs `pane N console: <app> log, search 'layout', levels …` when it
-/// renders — a `layout`-category line, so it is one of the lines its own
-/// search matches, i.e. the pane is seen showing its own log line. The spec
-/// is read back from the tree to prove `view_state` survived the split
-/// untouched (the tree never interprets it), then the pane is closed.
-async fn console_pane_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[11];
-    check(id, description, Tier::B, || async {
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let view_state = json!({ "search": "layout", "levels": ["info", "warning", "error"] });
-        let before = log_cursor();
-        let split = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "vertical",
-                "after": true,
-                "new": { "view_kind": "console", "view_state": view_state }
-            }))
-            .await?;
-        let console = split
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "the split did not report the new tile".to_string())?;
-
-        let checked = async {
-            let pane = pane_of_tree(&http.tree().await?, console)?;
-            if pane.get("view_kind").and_then(Value::as_str) != Some("console") {
-                return Err(format!("tile {console} is not a console pane: {pane}"));
-            }
-            if pane.get("view_state") != Some(&view_state) {
-                return Err(format!(
-                    "the console pane's view_state changed on the way in: {pane}"
-                ));
-            }
-            wait_for_log(
-                http,
-                &before,
-                &[
-                    &format!("pane {console} console: "),
-                    "search 'layout'",
-                    "levels info,warning,error",
-                ],
-            )
-            .await
-        }
-        .await;
-
-        // Tidy up even when the log never came.
-        http.verb(&json!({ "verb": "close", "target": {"id": console} }))
-            .await?;
-        checked.map(|line| {
-            format!(
-                "`console` pane tile {console} split below detail tile {detail}, view_state kept; \
-                 the pane logged `{line}`"
-            )
-        })
-    })
-    .await
-}
-
-/// ADR-0031 D6 in the running app: the session id Rust gives a `source` pane
-/// is the pane's for good. A `source` pane is split in beside the detail
-/// pane (whatever that pane shows — over publications the pane renders its
-/// "edits manuscripts" state, but the session is the tree's either way), the
-/// app is seen to open the editor session under that id, and then:
-///
-/// * a split whose new spec is a COPY of the source pane, session included,
-///   leaves the source pane its id and gives the copy a different one;
-/// * a split with a `pdf` pane (which wraps the source pane in a new
-///   container) and a swap with its sibling change nothing;
-/// * re-applying preset 1 keeps the detail pane's session when the detail
-///   pane is itself `source` (imprint's Default), by role.
-///
-/// Everything it split is closed again; the restore step re-applies the
-/// arrangement that was live.
-async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[9];
-    check(id, description, Tier::B, || async {
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let detail_pane = pane_of_tree(&tree, detail)?;
-        let session_at = |tree: &Value, tile: u64| -> Option<String> {
-            pane_of_tree(tree, tile)
-                .ok()?
-                .get("session")?
-                .as_str()
-                .map(str::to_string)
-        };
-        let detail_session = session_at(&tree, detail);
-
-        // 1. A source pane beside the detail pane, from the detail pane's spec.
-        let mut spec = detail_pane.clone();
-        let object = spec
-            .as_object_mut()
-            .ok_or_else(|| "the detail pane is not an object".to_string())?;
-        object.insert("view_kind".into(), json!("source"));
-        object.remove("role");
-        object.remove("session");
-        let before = log_cursor();
-        let source = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "horizontal",
-                "after": true,
-                "new": spec
-            }))
-            .await?
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "the split did not report the new tile".to_string())?;
-        let tree = http.tree().await?;
-        let session = session_at(&tree, source)
-            .ok_or_else(|| format!("the new source pane {source} was given no session"))?;
-        let opened = wait_for_log(http, &before, &["source session", &session, "opened"]).await?;
-
-        let mut made = vec![source];
-        let outcome = async {
-            // 2. A copy of the source pane, session and all.
-            let copy_spec = pane_of_tree(&tree, source)?;
-            let copy = http
-                .verb(&json!({
-                    "verb": "split",
-                    "target": {"id": source},
-                    "dir": "vertical",
-                    "after": true,
-                    "new": copy_spec
-                }))
-                .await?
-                .get("focused")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| "the second split did not report its tile".to_string())?;
-            made.push(copy);
-            let tree = http.tree().await?;
-            let copy_session = session_at(&tree, copy)
-                .ok_or_else(|| format!("the copied source pane {copy} has no session"))?;
-            if session_at(&tree, source).as_deref() != Some(session.as_str()) {
-                return Err(format!(
-                    "the split source pane {source} lost session {session}"
-                ));
-            }
-            if copy_session == session {
-                return Err(format!(
-                    "the copy {copy} shares session {session} with the pane it was split from"
-                ));
-            }
-
-            // 3. Wrap it in a new container with a `pdf` pane, then swap.
-            let mut pdf_spec = detail_pane.clone();
-            if let Some(o) = pdf_spec.as_object_mut() {
-                o.insert("view_kind".into(), json!("pdf"));
-                o.remove("role");
-                o.remove("session");
-            }
-            let pdf = http
-                .verb(&json!({
-                    "verb": "split",
-                    "target": {"id": source},
-                    "dir": "horizontal",
-                    "after": true,
-                    "new": pdf_spec
-                }))
-                .await?
-                .get("focused")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| "the pdf split did not report its tile".to_string())?;
-            made.push(pdf);
-            http.verb(&json!({
-                "verb": "swap",
-                "a": {"id": source},
-                "b": {"id": copy}
-            }))
-            .await?;
-            let tree = http.tree().await?;
-            if session_at(&tree, source).as_deref() != Some(session.as_str())
-                || session_at(&tree, copy).as_deref() != Some(copy_session.as_str())
-            {
-                return Err("a wrap or a swap changed a pane's session".to_string());
-            }
-            if session_at(&tree, pdf).is_some() {
-                return Err(format!("the `pdf` pane {pdf} was given a session"));
-            }
-            Ok((copy, copy_session, pdf))
-        }
-        .await;
-
-        // Tidy up whatever was made, newest first, even after a failure.
-        for tile in made.iter().rev() {
-            let _ = http
-                .verb(&json!({ "verb": "close", "target": {"id": tile} }))
-                .await;
-        }
-        let (copy, copy_session, pdf) = outcome?;
-
-        // 4. The preset again: the detail pane keeps its own session.
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail_after = session_at(&tree, tile_with_role(&tree, "detail")?);
-        let preset_note = match (&detail_session, &detail_after) {
-            (Some(before), Some(after)) if before == after => {
-                format!("preset 1 re-applied, detail editor kept {before}")
-            }
-            (Some(before), after) => {
-                return Err(format!(
-                    "re-applying preset 1 changed the detail editor's session {before} → {after:?}"
-                ))
-            }
-            (None, _) => "the detail pane is not a source pane here".to_string(),
-        };
-        Ok(format!(
-            "source tile {source} kept {session} (app: `{opened}`); its copy {copy} got \
-             {copy_session}; wrapped with pdf tile {pdf} and swapped, unchanged; {preset_note}"
-        ))
-    })
-    .await
-}
-
 /// A pane of a tree response, by tile.
 fn pane_of_tree(tree: &Value, tile: u64) -> Result<Value, String> {
     panes(tree)?
@@ -1338,26 +735,6 @@ fn first_row_of(list_pane: &Value) -> Result<String, String> {
 }
 
 /// The ids channel `n` carries for `kind`, read from a tree response.
-fn channel_ids(tree: &Value, n: u64, kind: &str) -> Vec<String> {
-    layout_of(tree)
-        .ok()
-        .and_then(|l| l.get("channels"))
-        .and_then(|c| c.get("channels").unwrap_or(c).get(n.to_string()))
-        .and_then(|k| k.get(kind))
-        .and_then(Value::as_array)
-        .map(|ids| {
-            ids.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Now, as the `after` cursor `/api/logs` takes. The app and this process
-/// share a clock (it is a loopback call), so the slack is only the
-/// millisecond truncation on either side — a whole second of it let the
-/// previous capability's `pane N info:` line answer for this one.
 fn log_cursor() -> String {
     (chrono::Utc::now() - chrono::Duration::milliseconds(5))
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -1401,239 +778,19 @@ async fn wait_for_log(http: &Http, after: &str, needles: &[&str]) -> Result<Stri
     ))
 }
 
-/// 5. Create a surface, render it, dispatch an event, see the state change.
-///
-/// The spec is written here rather than taken from `surface_examples` so the
-/// widget ids are author-given and the capability does not depend on the demo
-/// verbs (`surface-demo-service_*`) being linked into whichever app is
-/// answering. The event is `impress_surface::Event`'s own shape.
-async fn surface_capability(http: &Http, created: &mut Vec<String>) -> CapabilityResult {
-    let (id, description) = CATALOGUE[5];
-
-    let spec = json!({
-        "surface": "1.0",
-        "name": SCRATCH_SURFACE,
-        "state": { "bins": 4 },
-        "root": {
-            "column": [
-                { "text": "tier-b self-test" },
-                {
-                    "id": "bins",
-                    "field": { "slider": { "min": 1, "max": 64, "step": 1 } },
-                    "label": "Bins",
-                    "bind": "state.bins"
-                },
-                {
-                    "id": "choose",
-                    "button": {
-                        "label": "Use these bins",
-                        "on_click": [
-                            { "emit": { "name": "bins-chosen",
-                                        "payload": { "bins": "{{state.bins}}" } } }
-                        ]
-                    }
-                }
-            ]
-        }
-    });
-
-    // The surface id has to escape the closure so the restore step can delete
-    // it even when a later assertion fails.
-    let surface_id = match http.post("/api/surface", &spec).await {
-        Ok(created_row) => created_row
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        Err(reason) => {
-            return check(id, description, Tier::B, || async move {
-                Err(format!("creating the scratch surface failed: {reason}"))
-            })
-            .await
-        }
-    };
-    let Some(surface_id) = surface_id else {
-        return check(id, description, Tier::B, || async {
-            Err("POST /api/surface returned no `id`".to_string())
-        })
-        .await;
-    };
-    created.push(surface_id.clone());
-
-    check(id, description, Tier::B, || async {
-        /// The value of the widget bound to `state.bins` in a render — the
-        /// wire's render envelope (`{"ok", "tree", …}`, wave 7 T6a) or a bare
-        /// tree.
-        fn bins_value(rendered: &Value) -> Option<f64> {
-            let tree = rendered.get("tree").unwrap_or(rendered);
-            fn walk(node: &Value) -> Option<f64> {
-                if node.get("id").and_then(Value::as_str) == Some("bins") {
-                    return node.get("node")?.get("value")?.as_f64();
-                }
-                if let Some(items) = node
-                    .get("node")
-                    .and_then(|n| n.get("items"))
-                    .and_then(Value::as_array)
-                {
-                    return items.iter().find_map(walk);
-                }
-                None
-            }
-            walk(tree.get("root")?)
-        }
-
-        let rendered = http
-            .get(&format!("/api/surface/{surface_id}/render"))
-            .await?;
-        let before = bins_value(&rendered)
-            .ok_or_else(|| "the render tree has no `bins` widget".to_string())?;
-
-        // A `change` on the slider must move the bound state…
-        let changed = http
-            .post(
-                &format!("/api/surface/{surface_id}/dispatch"),
-                &json!({ "widget": "bins", "kind": "change", "value": 17 }),
-            )
-            .await?;
-        if changed.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(format!(
-                "dispatching `change` was refused: {}",
-                changed
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("no message")
-            ));
-        }
-
-        // …as seen by a fresh render, not just by the dispatch's own reply.
-        let rerendered = http
-            .get(&format!("/api/surface/{surface_id}/render"))
-            .await?;
-        let after = bins_value(&rerendered)
-            .ok_or_else(|| "the re-render has no `bins` widget".to_string())?;
-        if after != 17.0 {
-            return Err(format!(
-                "dispatched bins=17 but the re-render shows {after} (was {before})"
-            ));
-        }
-
-        // A `click` must run the button's effect and emit a named event.
-        let clicked = http
-            .post(
-                &format!("/api/surface/{surface_id}/dispatch"),
-                &json!({ "widget": "choose", "kind": "click" }),
-            )
-            .await?;
-        let emitted = clicked
-            .get("effects")
-            .and_then(Value::as_array)
-            .map(|effects| {
-                effects
-                    .iter()
-                    .any(|e| e.get("ok").and_then(Value::as_bool) == Some(true))
-            })
-            .unwrap_or(false);
-        if !emitted {
-            return Err(format!(
-                "clicking `choose` ran no successful effect: {:?}",
-                clicked.get("effects")
-            ));
-        }
-
-        let events = http
-            .get(&format!("/api/surface/{surface_id}/events?after_seq=0"))
-            .await?;
-        let names: Vec<&str> = events
-            .get("events")
-            .and_then(Value::as_array)
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|r| r.get("name").and_then(Value::as_str))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !names.contains(&"bins-chosen") {
-            return Err(format!(
-                "the click emitted no `bins-chosen` event; the feed carries {names:?}"
-            ));
-        }
-
-        Ok(format!(
-            "surface {surface_id} rendered (bins={before}), `change` moved it to {after}, \
-             and `click` emitted bins-chosen"
-        ))
-    })
-    .await
-}
-
-/// 6. ⌃⌘S-style: resize a pane to `HIDDEN_SHARE` and bring it back.
-///
-/// `resize-share` is the operation the chord routes through, and the store
-/// clamps with `share.max(HIDDEN_SHARE)` — so asking for the constant is
-/// asking for the floor. "Back" is checked as *above the hidden ceiling*
-/// rather than as an exact number: un-collapsing restores the sibling
-/// average, which is a value the tree computes, not one the caller names.
-async fn hidden_share_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[6];
-    check(id, description, Tier::B, || async {
-        let tree = http.tree().await?;
-        let navigator = tile_with_role(&tree, "navigator")?;
-        let original = share_of(&tree, navigator)?;
-        let toggle = json!({"verb": "set-collapsed", "target": {"role": "navigator"}});
-
-        // ⌃⌘S as the tree's own verb (review RL-L13): the decision to hide
-        // or show is taken under the verb's lock, from the tree.
-        http.verb(&toggle).await?;
-        let hidden = share_of(&http.tree().await?, navigator)?;
-        if hidden > f64::from(impress_layout::HIDDEN_SHARE_CEILING) {
-            return Err(format!(
-                "set-collapsed left the navigator at {hidden}, above the {} ceiling — it \
-                 would still be visible",
-                impress_layout::HIDDEN_SHARE_CEILING
-            ));
-        }
-
-        // Showing it again restores EXACTLY the share it had — not the
-        // siblings' average, which is what the Swift toggle used to compute.
-        http.verb(&toggle).await?;
-        let restored = share_of(&http.tree().await?, navigator)?;
-        if (restored - original).abs() > 1e-4 {
-            return Err(format!(
-                "the navigator came back at {restored}, not the {original} it had"
-            ));
-        }
-
-        Ok(format!(
-            "tile {navigator}: {original} → {hidden} (≤ {}) → {restored}",
-            impress_layout::HIDDEN_SHARE_CEILING
-        ))
-    })
-    .await
-}
-
-/// The `finally`: put the tree back and delete everything this run created.
+/// The `finally`: put the tree back after the catalogue run.
 ///
 /// Reported as its own capability so a failed cleanup is a failed self-test.
 /// A catalogue that quietly left a scratch layout behind would be a worse
 /// neighbour than one that says it could not tidy up.
-async fn restore_capability(
-    http: &Http,
-    parked: bool,
-    created_surfaces: &[String],
-) -> CapabilityResult {
+async fn restore_capability(http: &Http, parked: bool) -> CapabilityResult {
     check(
         "layout.restored",
-        "The live arrangement and surfaces are left as they were found",
+        "The live arrangement is left as it was found",
         Tier::B,
         || async {
             let mut notes: Vec<String> = Vec::new();
             let mut problems: Vec<String> = Vec::new();
-
-            for id in created_surfaces {
-                match http.delete(&format!("/api/surface/{id}")).await {
-                    Ok(_) => notes.push(format!("deleted surface {id}")),
-                    Err(e) => problems.push(format!("surface {id} not deleted: {e}")),
-                }
-            }
 
             if parked {
                 // Applied by NAME: the `apply-layout` ordinal space is the
@@ -1676,6 +833,130 @@ async fn restore_capability(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_moves_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(VERSION_MOVES_SCENARIO).expect("version moves scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[2].0);
+        assert_eq!(scenario.description, CATALOGUE[2].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hidden_share_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(HIDDEN_SHARE_SCENARIO).expect("hidden share scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[6].0);
+        assert_eq!(scenario.description, CATALOGUE[6].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn console_pane_scenario_checks_scoped_fresh_log_and_required_close() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(CONSOLE_PANE_SCENARIO).expect("console scenario parses");
+        assert_eq!(scenario.id, "layout.console_pane");
+        assert_eq!(scenario.description, CATALOGUE[11].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn source_pane_session_scenario_checks_sessions_logs_and_restoration() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(SOURCE_PANE_SESSION_SCENARIO)
+                .expect("source session scenario parses");
+        assert_eq!(scenario.id, "layout.source_pane_session");
+        assert_eq!(scenario.description, CATALOGUE[9].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn channel_selection_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(CHANNEL_SELECTION_SCENARIO).expect("scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[4].0);
+        assert_eq!(scenario.description, CATALOGUE[4].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn outline_collection_scenario_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(OUTLINE_COLLECTION_SCENARIO).expect("scenario parses");
+        assert_eq!(scenario.id, CATALOGUE[7].0);
+        assert_eq!(scenario.description, CATALOGUE[7].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn surface_dispatch_document_validates_and_preserves_catalogue_identity() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(SURFACE_SHOW_AND_DISPATCH_SCENARIO)
+                .expect("embedded surface scenario parses");
+        assert_eq!(scenario.id, "surface.show_and_dispatch");
+        assert_eq!(
+            scenario.description,
+            "A surface renders and a dispatched event changes its state"
+        );
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        assert_eq!(scenario.steps.len(), 7);
+        assert_eq!(scenario.teardown.len(), 1);
+    }
 
     /// The skip path is the one a headless box takes, so it is the one that
     /// must be tested without an app: an unreachable port skips every
@@ -1742,29 +1023,6 @@ mod tests {
         ids.dedup();
         assert_eq!(before, ids.len(), "duplicate capability id in CATALOGUE");
         assert!(CATALOGUE.iter().all(|(_, d)| !d.is_empty()));
-    }
-
-    /// `share_of` reads a pane's share through its parent's parallel array —
-    /// the shape `impress_layout::Container::Linear` actually serialises.
-    #[test]
-    fn share_of_reads_the_parallel_shares_array() {
-        let tree = json!({
-            "layout": {
-                "tiles": {
-                    "1": { "pane": { "role": "navigator" } },
-                    "2": { "pane": { "role": "list" } },
-                    "3": { "container": { "linear": {
-                        "dir": "horizontal",
-                        "children": [1, 2],
-                        "shares": [0.0001, 3.0]
-                    } } }
-                }
-            }
-        });
-        assert_eq!(share_of(&tree, 1).unwrap(), 0.0001);
-        assert_eq!(share_of(&tree, 2).unwrap(), 3.0);
-        assert_eq!(tile_with_role(&tree, "list").unwrap(), 2);
-        assert!(share_of(&tree, 99).is_err());
     }
 }
 

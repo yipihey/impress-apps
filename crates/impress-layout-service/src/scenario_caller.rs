@@ -45,8 +45,10 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use impress_layout::PaneSpec;
 use impress_scenario::{CallOutcome, Caller, EventBody, WaitBody};
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 /// A loopback JSON client over one app's automation surface.
 pub struct LoopbackClient {
@@ -85,6 +87,22 @@ impl LoopbackClient {
         let response = self
             .client
             .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("GET {path}: {e}"))?;
+        read(path, response).await
+    }
+
+    pub async fn get_query(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .get(&url)
+            .query(query)
             .send()
             .await
             .map_err(|e| format!("GET {path}: {e}"))?;
@@ -167,6 +185,104 @@ impl TierBCaller {
             ..Self::new(base_url)
         }
     }
+
+    /// Run the outline's existing Rust row decision for the one collection
+    /// gesture this catalogue proves. The scenario records the gesture as a
+    /// closed `{ "outline_collection": "<uuid>" }` value; app/layout
+    /// specifics are still derived from the live tree and the same functions
+    /// the host calls, never from a hand-written query or verb list.
+    async fn outline_collection_gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
+        let object = gesture
+            .as_object()
+            .filter(|object| object.len() == 1)
+            .ok_or_else(|| {
+                "outline collection gesture must contain exactly one field".to_string()
+            })?;
+        let collection_id = object
+            .get("outline_collection")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                "outline collection gesture needs a UUID outline_collection".to_string()
+            })?
+            .parse::<Uuid>()
+            .map_err(|_| "outline_collection is not a UUID".to_string())?;
+
+        let (tree_status, tree) = self.http.get("/api/layout/tree").await?;
+        if !(200..300).contains(&tree_status) {
+            return Err(format!("GET /api/layout/tree returned HTTP {tree_status}"));
+        }
+        let app = tree
+            .get("app")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "tree response names no `app`".to_string())?;
+        let list = pane_spec_for_role(&tree, "list")?
+            .ok_or_else(|| "no pane carries the `list` role".to_string())?;
+        let detail = pane_spec_for_role(&tree, "detail")?;
+
+        let node = crate::outline::OutlineNode::Collection { id: collection_id };
+        let target = crate::outline::outline_target(app, &node, &Default::default());
+        let crate::outline::OutlineTarget::Query { query } = &target else {
+            return Err(format!(
+                "a collection row must be a query, Rust said {target:?}"
+            ));
+        };
+        let kind = query
+            .kinds
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "publication".into());
+        let verbs = crate::outline::outline_verbs(
+            &node,
+            &target,
+            &crate::outline::OutlinePanes {
+                list: Some(list.1.clone()),
+                detail: detail.as_ref().map(|(_, spec)| spec.clone()),
+            },
+        );
+        if verbs.is_empty() {
+            return Err("the outline produced no verbs for a new collection".into());
+        }
+
+        let mut last = None;
+        for verb in &verbs {
+            let body = serde_json::to_value(verb).map_err(|error| error.to_string())?;
+            let outcome = self.verb(body).await?;
+            if !outcome
+                .status
+                .is_some_and(|status| (200..300).contains(&status))
+                || outcome.result.get("ok").and_then(Value::as_bool) == Some(false)
+            {
+                let status = outcome.status.unwrap_or(0);
+                return Err(format!(
+                    "POST /api/layout/verb returned HTTP {status}: {}",
+                    outcome.result
+                ));
+            }
+            last = Some(outcome);
+        }
+        let mut outcome = last.expect("nonempty outline verbs checked above");
+        let result = outcome
+            .result
+            .as_object_mut()
+            .ok_or_else(|| "outline verb returned a non-object result".to_string())?;
+        result.insert("ok".into(), json!(true));
+        result.insert("collection_id".into(), json!(collection_id.to_string()));
+        result.insert("list_tile".into(), json!(list.0));
+        result.insert(
+            "query".into(),
+            serde_json::to_value(query).map_err(|e| e.to_string())?,
+        );
+        result.insert("kind".into(), json!(kind));
+        result.insert(
+            "detail".into(),
+            detail
+                .as_ref()
+                .map(|(tile, spec)| json!({"tile": tile, "view_kind": spec.view_kind}))
+                .unwrap_or(Value::Null),
+        );
+        self.wrote.insert("impress/ui/layout@1.0.0".into());
+        Ok(outcome)
+    }
 }
 
 /// Which `impress/ui/*` kind a recognized verb writes, for the effects
@@ -179,6 +295,33 @@ fn kind_for(verb: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// The lowest-id pane holding `role`, matching the catalogue's live-tree
+/// reader and keeping the outline gesture tied to the current layout.
+fn pane_spec_for_role(tree: &Value, role: &str) -> Result<Option<(u64, PaneSpec)>, String> {
+    let tiles = tree
+        .get("layout")
+        .and_then(|layout| layout.get("tiles"))
+        .and_then(Value::as_object)
+        .ok_or_else(|| "layout carried no `tiles`".to_string())?;
+    let mut matches = Vec::new();
+    for (tile, value) in tiles {
+        let Ok(tile) = tile.parse::<u64>() else {
+            continue;
+        };
+        let Some(pane) = value.get("pane") else {
+            continue;
+        };
+        if pane.get("role").and_then(Value::as_str) != Some(role) {
+            continue;
+        }
+        let spec = serde_json::from_value(pane.clone())
+            .map_err(|error| format!("the `{role}` pane does not decode as a PaneSpec: {error}"))?;
+        matches.push((tile, spec));
+    }
+    matches.sort_by_key(|(tile, _)| *tile);
+    Ok(matches.into_iter().next())
 }
 
 #[async_trait]
@@ -294,7 +437,11 @@ impl Caller for TierBCaller {
     }
 
     async fn gesture(&mut self, gesture: &Value) -> Result<CallOutcome, String> {
-        self.verb(gesture.clone()).await
+        if gesture.get("outline_collection").is_some() {
+            self.outline_collection_gesture(gesture).await
+        } else {
+            self.verb(gesture.clone()).await
+        }
     }
 
     async fn wait(&mut self, wait: &WaitBody) -> Result<(), String> {
@@ -302,31 +449,61 @@ impl Caller for TierBCaller {
             WaitBody::Log { log } => {
                 let deadline =
                     tokio::time::Instant::now() + std::time::Duration::from_millis(log.timeout_ms);
+                let after = log
+                    .after
+                    .as_deref()
+                    .map(chrono::DateTime::parse_from_rfc3339)
+                    .transpose()
+                    .map_err(|_| "wait.log after is not an ISO-8601 timestamp".to_string())?;
+                let needles = std::iter::once(log.contains.as_str())
+                    .chain(log.also_contains.iter().map(String::as_str))
+                    .map(str::to_lowercase)
+                    .collect::<Vec<_>>();
                 loop {
-                    let (status, value) = self
-                        .http
-                        .get(&format!("/api/logs?category={}", log.category))
-                        .await?;
+                    let mut query = vec![("category", log.category.as_str()), ("limit", "500")];
+                    if let Some(after) = log.after.as_deref() {
+                        query.push(("after", after));
+                    }
+                    let response =
+                        tokio::time::timeout_at(deadline, self.http.get_query("/api/logs", &query))
+                            .await;
+                    let (status, value) = match response {
+                        Ok(response) => response?,
+                        Err(_) => {
+                            return Err(format!(
+                                "no log line under `{}` containing all {:?} within {}ms",
+                                log.category, needles, log.timeout_ms
+                            ));
+                        }
+                    };
                     if status == 200 {
-                        if let Some(entries) = value.get("entries").and_then(Value::as_array) {
-                            if entries.iter().any(|e| {
-                                e.get("message")
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|m| m.contains(&log.contains))
-                            }) {
-                                return Ok(());
-                            }
+                        let entries = value
+                            .get("data")
+                            .and_then(|data| data.get("entries"))
+                            .or_else(|| value.get("entries"))
+                            .and_then(Value::as_array);
+                        if entries.is_some_and(|entries| {
+                            entries
+                                .iter()
+                                .any(|entry| log_entry_matches(entry, &needles, after))
+                        }) {
+                            return Ok(());
                         }
                     }
                     if tokio::time::Instant::now() >= deadline {
                         return Err(format!(
-                            "no log line under `{}` containing \"{}\" within {}ms",
-                            log.category, log.contains, log.timeout_ms
+                            "no log line under `{}` containing all {:?} within {}ms",
+                            log.category, needles, log.timeout_ms
                         ));
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let remaining = deadline - tokio::time::Instant::now();
+                    tokio::time::sleep(std::time::Duration::from_millis(250).min(remaining)).await;
                 }
             }
+            WaitBody::LogCursor { log_cursor } => Err(format!(
+                "log cursor `{}` must be captured as a scenario step",
+                log_cursor.capture
+            )),
             WaitBody::Job {
                 job,
                 state,
@@ -336,6 +513,24 @@ impl Caller for TierBCaller {
                  job={job} state={state} timeout_ms={timeout_ms}"
             )),
         }
+    }
+
+    async fn log_cursor(&mut self) -> Result<String, String> {
+        let query = [("category", "layout"), ("limit", "500")];
+        let (status, value) = self.http.get_query("/api/logs/stream", &query).await?;
+        if status != 200 {
+            return Err(format!("GET /api/logs/stream returned HTTP {status}"));
+        }
+        value
+            .get("data")
+            .and_then(|data| data.get("nextCursor"))
+            .and_then(Value::as_str)
+            .filter(|cursor| chrono::DateTime::parse_from_rfc3339(cursor).is_ok())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                "/api/logs/stream returned a missing or invalid ISO-8601 data.nextCursor"
+                    .to_string()
+            })
     }
 
     async fn seed(&mut self, kind: &str, _payload: &Value) -> Result<Value, String> {
@@ -348,6 +543,29 @@ impl Caller for TierBCaller {
     fn wrote(&self, kind: &str) -> bool {
         self.wrote.contains(kind)
     }
+}
+
+fn log_entry_matches(
+    entry: &Value,
+    needles: &[String],
+    after: Option<chrono::DateTime<chrono::FixedOffset>>,
+) -> bool {
+    if let Some(after) = after {
+        let timestamp = entry
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+        if !timestamp.is_some_and(|timestamp| timestamp > after) {
+            return false;
+        }
+    }
+    entry
+        .get("message")
+        .and_then(Value::as_str)
+        .is_some_and(|message| {
+            let message = message.to_lowercase();
+            needles.iter().all(|needle| message.contains(needle))
+        })
 }
 
 impl TierBCaller {
@@ -551,6 +769,118 @@ mod tests {
         (base, thread)
     }
 
+    fn mock_sequence(
+        responses: Vec<(u16, Value)>,
+    ) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("owned loopback port");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let thread = std::thread::spawn(move || {
+            responses
+                .into_iter()
+                .map(|(status, response)| {
+                    let (mut stream, _) = listener.accept().expect("next request");
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let header_end = loop {
+                        let mut chunk = [0u8; 1024];
+                        let n = stream.read(&mut chunk).expect("request bytes");
+                        assert!(n > 0, "request ended before headers");
+                        bytes.extend_from_slice(&chunk[..n]);
+                        if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break end + 4;
+                        }
+                    };
+                    let headers = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+                    let content_len: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.split_once(':').and_then(|(name, value)| {
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse().unwrap())
+                            })
+                        })
+                        .unwrap_or(0);
+                    while bytes.len() - header_end < content_len {
+                        let mut chunk = [0u8; 1024];
+                        let n = stream.read(&mut chunk).expect("request body");
+                        assert!(n > 0, "request ended before body");
+                        bytes.extend_from_slice(&chunk[..n]);
+                    }
+                    let body = if content_len == 0 {
+                        Value::Null
+                    } else {
+                        serde_json::from_slice(&bytes[header_end..header_end + content_len]).unwrap()
+                    };
+                    let wire = response.to_string();
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{wire}",
+                        wire.len()
+                    )
+                    .unwrap();
+                    (headers.lines().next().unwrap().to_string(), body)
+                })
+                .collect()
+        });
+        (base, thread)
+    }
+
+    #[tokio::test]
+    async fn outline_collection_gesture_uses_current_rust_decisions_with_or_without_detail() {
+        use impress_core::pane_query::PaneQuery;
+        use impress_layout::{PaneSpec, Role, ViewKindId};
+
+        for include_detail in [false, true] {
+            let list = PaneSpec::new(PaneQuery::default(), ViewKindId::LIST).with_role(Role::LIST);
+            let mut tiles = json!({"2":{"pane":list}});
+            if include_detail {
+                let detail =
+                    PaneSpec::new(PaneQuery::default(), ViewKindId::INFO).with_role(Role::DETAIL);
+                tiles["3"] = json!({"pane":detail});
+            }
+            let tree = json!({
+                "app":"impress",
+                "layout":{"channels":{},"tiles":tiles}
+            });
+            let replies = vec![
+                (200, tree),
+                (200, json!({"ok":true,"version":1})),
+                (200, json!({"ok":true,"version":2})),
+            ];
+            let (base, mock) = mock_sequence(replies);
+            let collection = Uuid::from_u128(17);
+            let mut caller = TierBCaller::new(&base);
+            let result = caller
+                .gesture(&json!({"outline_collection":collection.to_string()}))
+                .await
+                .unwrap();
+            assert_eq!(result.status, Some(200));
+            assert_eq!(result.result["ok"], true);
+            assert_eq!(result.result["collection_id"], collection.to_string());
+            assert_eq!(result.result["list_tile"], 2);
+            if include_detail {
+                assert_eq!(result.result["detail"]["tile"], 3);
+                assert_eq!(result.result["detail"]["view_kind"], "info");
+            } else {
+                assert!(result.result["detail"].is_null());
+            }
+
+            let requests = mock.join().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert!(requests[0].0.starts_with("GET /api/layout/tree"));
+            assert_eq!(requests[1].0, "POST /api/layout/verb HTTP/1.1");
+            assert_eq!(requests[1].1["verb"], "select");
+            assert_eq!(requests[1].1["target"]["role"], "navigator");
+            assert_eq!(requests[1].1["kind"], "collection");
+            assert_eq!(requests[1].1["ids"][0], collection.to_string());
+            assert_eq!(requests[2].0, "POST /api/layout/verb HTTP/1.1");
+            assert_eq!(requests[2].1["verb"], "set-query");
+            assert_eq!(requests[2].1["query"], result.result["query"]);
+        }
+    }
+
     #[tokio::test]
     async fn surface_routes_preserve_method_query_refusals_and_body() {
         for (verb, args, request, body) in [
@@ -662,6 +992,96 @@ mod tests {
             "POST /api/verb/imbib-triage-service_set-starred HTTP/1.1"
         );
         assert_eq!(body, json!({"id": "paper-1", "starred": true}));
+    }
+
+    #[tokio::test]
+    async fn log_wait_uses_a_cursor_and_matches_every_needle_case_insensitively() {
+        let (base, mock) = mock_once(
+            200,
+            json!({"data":{"entries":[
+                {"timestamp":"2026-09-28T11:59:59.999Z","message":"PANE 7 CONSOLE: stale SEARCH 'layout' LEVELS info,warning,error"},
+                {"timestamp":"2026-09-28T12:00:00.001Z","message":"PANE 7 CONSOLE: Impress log, SEARCH 'layout', LEVELS info,warning,error"}
+            ]}}),
+        );
+        let mut caller = TierBCaller::new(&base);
+        caller
+            .wait(&WaitBody::Log {
+                log: impress_scenario::LogWait {
+                    category: "layout".into(),
+                    contains: "pane 7 console: ".into(),
+                    also_contains: vec![
+                        "search 'layout'".into(),
+                        "levels info,warning,error".into(),
+                    ],
+                    after: Some("2026-09-28T12:00:00.000Z".into()),
+                    timeout_ms: 3000,
+                },
+            })
+            .await
+            .unwrap();
+        let (request, body) = mock.join().unwrap();
+        assert!(request.starts_with("GET /api/logs?"), "{request}");
+        assert!(request.contains("category=layout"), "{request}");
+        assert!(request.contains("limit=500"), "{request}");
+        assert!(
+            request.contains("after=2026-09-28T12%3A00%3A00.000Z"),
+            "{request}"
+        );
+        assert!(body.is_null());
+    }
+
+    #[test]
+    fn log_wait_never_accepts_a_matching_pre_cursor_entry() {
+        let after = chrono::DateTime::parse_from_rfc3339("2026-09-28T12:00:00.000Z").unwrap();
+        let needles = vec!["pane 7 console:".to_string(), "search 'layout'".to_string()];
+        let stale = json!({
+            "timestamp":"2026-09-28T11:59:59.999Z",
+            "message":"PANE 7 CONSOLE: SEARCH 'layout'"
+        });
+        let fresh = json!({
+            "timestamp":"2026-09-28T12:00:00.001Z",
+            "message":"PANE 7 CONSOLE: SEARCH 'layout'"
+        });
+        assert!(!log_entry_matches(&stale, &needles, Some(after)));
+        assert!(log_entry_matches(&fresh, &needles, Some(after)));
+    }
+
+    #[tokio::test]
+    async fn log_cursor_uses_the_server_stream_cursor_before_mutation() {
+        let (base, mock) = mock_once(
+            200,
+            json!({"data":{"nextCursor":"2026-09-28T12:00:00.000Z"}}),
+        );
+        let mut caller = TierBCaller::new(&base);
+        assert_eq!(
+            caller.log_cursor().await.unwrap(),
+            "2026-09-28T12:00:00.000Z"
+        );
+        let (request, body) = mock.join().unwrap();
+        assert_eq!(
+            request,
+            "GET /api/logs/stream?category=layout&limit=500 HTTP/1.1"
+        );
+        assert!(body.is_null());
+    }
+
+    #[tokio::test]
+    async fn log_cursor_refusal_or_non_string_cursor_fails_closed() {
+        for (status, response) in [
+            (503, json!({"message":"stream unavailable"})),
+            (200, json!({"data":{"nextCursor":17}})),
+            (200, json!({"data":{"nextCursor":"not-a-timestamp"}})),
+        ] {
+            let (base, mock) = mock_once(status, response);
+            let mut caller = TierBCaller::new(&base);
+            assert!(caller.log_cursor().await.is_err());
+            let (request, body) = mock.join().unwrap();
+            assert_eq!(
+                request,
+                "GET /api/logs/stream?category=layout&limit=500 HTTP/1.1"
+            );
+            assert!(body.is_null());
+        }
     }
 
     #[tokio::test]

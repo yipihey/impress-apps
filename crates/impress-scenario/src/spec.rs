@@ -116,10 +116,94 @@ pub struct CallStep {
     pub r#as: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Expect>,
-    /// Named JSON-path captures out of this step's result, e.g.
-    /// `{"name": "$.name"}` — later steps reference `{{state.name}}`.
+    /// Named captures out of this step's resolved arguments or result. A
+    /// string is a result JSON path; closed object forms provide argument
+    /// capture and the bounded `select_one`/`fill_array` operations. Later
+    /// steps reference captures as `{{state.name}}`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub capture: std::collections::BTreeMap<String, String>,
+    pub capture: std::collections::BTreeMap<String, CallCapture>,
+}
+
+/// A closed capture operation on one call's resolved arguments or result. A
+/// string keeps the original result JSON-path spelling; tagged forms capture
+/// one argument, select one unique result member, or build a bounded constant
+/// array from an earlier capture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum CallCapture {
+    Path(String),
+    Argument(ArgumentCapture),
+    SelectOne(SelectOneCapture),
+    FillArray(FillArrayCapture),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ArgumentCapture {
+    /// Fixed JSON path into the arguments after template and UUID resolution.
+    pub argument: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SelectOneCapture {
+    pub select_one: SelectOneQuery,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct SelectOneQuery {
+    /// Fixed JSON path to an object or array in this call result.
+    pub from: String,
+    /// Fixed path relative to each candidate value.
+    pub path: String,
+    pub predicate: SelectPredicate,
+    /// Convert a decimal object key to a JSON u64 as `numeric_key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_key_as: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum SelectPredicate {
+    Equals(EqualsPredicate),
+    ArrayContains(ArrayContainsPredicate),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct EqualsPredicate {
+    pub equals: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ArrayContainsPredicate {
+    pub array_contains: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct FillArrayCapture {
+    pub fill_array: FillArraySpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct FillArraySpec {
+    /// JSON value repeated in the result array.
+    pub value: serde_json::Value,
+    /// Whole capture reference ending at an array, e.g. `{{state.parent.value.children}}`.
+    pub length_of: String,
 }
 
 /// Select the first stored item satisfying every predicate. Reads use the
@@ -203,6 +287,9 @@ pub struct EventBody {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GestureStep {
     pub gesture: serde_json::Value,
+    /// Capture fields from a gesture result for later steps or cleanup.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub capture: std::collections::BTreeMap<String, String>,
 }
 
 /// Wait for a job to reach a state, or for a log line to appear.
@@ -210,6 +297,9 @@ pub struct GestureStep {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WaitStep {
     pub wait: WaitBody,
+    /// Run this wait only when a prior capture-state path exists and is not null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_present: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -224,6 +314,17 @@ pub enum WaitBody {
     Log {
         log: LogWait,
     },
+    /// Capture a Tier B log timestamp immediately before a later mutation.
+    /// Its value is available to `LogWait::after` as a normal capture.
+    LogCursor {
+        log_cursor: LogCursorCapture,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct LogCursorCapture {
+    pub capture: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -231,6 +332,13 @@ pub enum WaitBody {
 pub struct LogWait {
     pub category: String,
     pub contains: String,
+    /// Additional required substrings in the same message. All needles are
+    /// matched case-insensitively.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_contains: Vec<String>,
+    /// Only consider lines newer than this captured cursor, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
     pub timeout_ms: u64,
 }
 
@@ -267,10 +375,12 @@ pub struct FieldExpect {
 #[serde(rename_all = "snake_case")]
 pub enum Check {
     Equals(serde_json::Value),
+    NotEquals(serde_json::Value),
     Contains(String),
+    Gt(serde_json::Value),
     Gte(f64),
     Lte(f64),
-    Within { value: f64, tol: f64 },
+    Within { value: serde_json::Value, tol: f64 },
     Len(usize),
     Present(bool),
     Absent(bool),
