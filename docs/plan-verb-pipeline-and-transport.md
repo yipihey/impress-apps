@@ -1973,6 +1973,22 @@ No route removal or caller migration is part of this package.
   `/tmp/impress-p5c14-inventory-dump.log` and `/tmp/impress-p5c14-{fmt,clippy-rest,clippy-imprint,coverage,docs,deps,standalone,packages,bindings,schema,hakari}.log`.
   Hosted transport verification and archive builds remain with root.
 
+- 2026-09-29 — **P5c14 native follow-up: cross-handle tag cache.** The hosted
+  proof failed because generated tag reads returned the two seeded paths while
+  legacy `/api/tags` returned an empty list. Both Swift and Rust prefix
+  predicates are case-insensitive, so the fixture's uppercase prefix was
+  valid; the underlying issue is that the app's Swift FFI handle and generated
+  service handle cache tag definitions independently. A handle's cache was
+  not invalidated when the other connection committed. `ImbibStore` now keys
+  its tag-definition cache by SQLite `data_version` and avoids caching a
+  snapshot if another handle writes during the read. A focused two-handle
+  regression covers an initially empty reader followed by a tag written
+  through a second store handle. This source change is not yet Rust-verified;
+  it requires fresh imbib-core-dependent native archives before the hosted
+  proof can be rerun. Failure evidence:
+  `/tmp/impress-p5b-transport-44jczzva/test.log` and
+  `/tmp/impress-p5b-transport-44jczzva/output/calls.json`.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
