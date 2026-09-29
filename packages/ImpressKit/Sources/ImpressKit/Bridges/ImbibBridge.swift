@@ -47,7 +47,7 @@ public struct ImbibBridge: Sendable {
             on: .imbib,
             arguments: [
                 "query": query,
-                "limit": limit,
+                "limit": min(max(limit, 0), Int(UInt32.max)),
                 "offset": offset,
                 "filters": filters.map { $0.wireValue as Any } ?? NSNull(),
             ]
@@ -138,7 +138,8 @@ public struct ImbibBridge: Sendable {
             arguments: ["ids": [summary.id]]
         )
         let (record, exportedBibTeX) = try await (detail, bibtex)
-        let fields = record?.fields ?? [:]
+        guard let record else { throw SiblingBridgeError.httpError(statusCode: 404) }
+        let fields = record.fields
         return ImbibPaper(
             id: summary.id,
             citeKey: summary.citeKey,
