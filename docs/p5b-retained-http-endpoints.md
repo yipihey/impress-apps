@@ -37,10 +37,12 @@ Imprint also retired `GET /api/documents`, `GET /api/documents/{id}`, and the
 comment list/create/update/delete/accept/reject registrations after moving
 their production reads and writes to generated verbs. The hosted fixture keeps
 the seeded behavior on those verbs and asserts the retired HTTP paths return
-404. Their private handlers remain for the native verb callbacks. The shell
-`apps/imprint/test-imprint-api.sh` is a legacy HTTP integration script and still
-expects the retired document list/detail URLs; it is not a production caller
-and must be revised before using that script as a current API check.
+404. Their private handlers remain for the native verb callbacks. The manual
+`apps/imprint/test-imprint-api.sh` harness now uses generated document
+create/list/detail contracts and retains checks for distinct platform routes.
+It requires explicit isolated-host opt-in and the loopback bearer; the target
+must use a PID-owned scratch workspace. It has no comment-route requests;
+comment lifecycle and retired-path checks remain in the hosted proof.
 The shared `SiblingBridge` reads the per-launch token for POST and decodes the
 raw result. Keep private Swift handlers invoked by native callbacks even when
 the corresponding HTTP `if` arm is removed.

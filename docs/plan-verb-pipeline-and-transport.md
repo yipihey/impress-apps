@@ -2013,8 +2013,9 @@ No builds/tests, route removal or caller migration were performed here.
   comments and suggestion effects through generated verbs. The earlier P5c7
   and P5c10 entries record route parity before retirement, not current HTTP
   availability. Private comment handlers remain reachable from native verb
-  callbacks. The legacy `apps/imprint/test-imprint-api.sh` still expects the
-  retired document list/detail routes and is not a current caller; revise that
-  integration script before running it as an API check. Queued document edits,
-  metadata, caret citation, status/logs, compile, and other approved platform
-  routes remain registered.
+  callbacks. The manual `apps/imprint/test-imprint-api.sh` harness now uses the
+  generated document create/list/detail contracts, keeps checks for distinct
+  platform routes, and requires explicit isolated-host opt-in plus the
+  loopback bearer. It had no comment-route requests to migrate. Queued document
+  edits, metadata, caret citation, status/logs, compile, and other approved
+  platform routes remain registered.
