@@ -12,6 +12,8 @@ use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub use crate::app_service::IdentifierImportResult;
+
 /// Accept `authors` as either a `String` (`/api/papers/recent` shape) or a
 /// `Vec<String>` (`/api/search` shape) and produce a "; "-joined display
 /// string. Returns an empty string for null / missing.
@@ -880,6 +882,21 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         args = r#"{"papers":[{"bibtex":"@article{G3SearchRecord2026, title={G3 search record}, author={Doe, Jane}, year={2026}}","doi":"10.5555/g3-search-record","arxiv_id":null,"bibcode":null}],"library_id":"5c000000-0000-4000-8000-000000000085"}"#
     )]
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
+    /// Resolve each identifier in the running app, importing fetched records
+    /// and preserving per-identifier duplicate/failure outcomes.
+    #[impress_method(safety = external, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]))]
+    #[impress_example(
+        name = "import-identifiers-native",
+        tier = "b",
+        args = r#"{"identifiers":["Existing2026"],"library_id":null,"collection_id":null,"download_pdfs":false}"#
+    )]
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult;
     /// Parse BibTeX and add each entry to a library as a paper; returns the
     /// ids of the papers created.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library"], writes = ["imbib/bibliography-entry"]))]
@@ -1670,6 +1687,18 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             }
         }
     }
+
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult {
+        crate::backend::app_service_instance()
+            .import_identifiers(identifiers, library_id, collection_id, download_pdfs)
+            .await
+    }
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String> {
         self.store
             .import_bibtex(bibtex, library_id)
@@ -2318,6 +2347,16 @@ impress_service_impl! {
             /// UUID of the library receiving new papers.
             library_id: String
         ) -> ImportSummary,
+        import_identifiers(
+            /// Paper identifiers accepted by imbib, in caller order.
+            identifiers: Vec<String>,
+            /// UUID of the target library; omit to use imbib's default.
+            library_id: Option<String>,
+            /// UUID of a collection to receive added and duplicate papers.
+            collection_id: Option<String>,
+            /// Whether to start background PDF acquisition for newly fetched papers.
+            download_pdfs: bool
+        ) -> IdentifierImportResult,
         import_bibtex(
             /// BibTeX source containing one or more entries.
             bibtex: String,
@@ -2375,6 +2414,23 @@ impress_service_impl! {
             exploration_library_id: Option<String>
         ) -> RetentionCleanupReport,
     ],
+}
+
+#[cfg(test)]
+mod identifier_import_schema_tests {
+    #[test]
+    fn identifier_import_is_a_single_library_verb_with_the_approved_arguments() {
+        let verb =
+            impress_service_core::VerbDescriptor::find("imbib-library-service_import-identifiers")
+                .expect("identifier import verb is registered");
+        let schema = (verb.input_schema)();
+        let properties = schema["properties"].as_object().unwrap();
+        assert!(properties.contains_key("identifiers"));
+        assert!(properties.contains_key("library_id"));
+        assert!(properties.contains_key("collection_id"));
+        assert!(properties.contains_key("download_pdfs"));
+        assert_eq!(verb.service, "imbib-library-service");
+    }
 }
 
 // Legacy compatibility — bin crates that used the old singleton-init can keep working.

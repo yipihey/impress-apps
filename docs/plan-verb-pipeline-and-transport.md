@@ -1904,6 +1904,24 @@ mapping is covered by the deterministic Rust native-response fixture; no live
 source credentials or network search are required. No builds/tests, route
 removal, or caller migration were performed in this package.
 
+## P5c12 — imbib identifier import contract (2026-09-29)
+
+Added `imbib-library-service_import-identifiers` as the generated library
+capability while keeping identifier resolution, default-library selection,
+collection membership, duplicate lookup, recent-add activity and optional
+background PDF acquisition on the existing `AutomationService.addPapers`
+path. A private app-service callback seam lets the library verb reach that
+running-app behavior without creating a second public verb. The legacy paper
+dictionaries in `added` remain lossless JSON; `duplicates` and `failed` retain
+their exact per-identifier results. With imbib closed, the default callback
+reports `host-unavailable` instead of claiming that imports succeeded.
+
+The native XCTest fixture covers an already-local cite key and an unsupported
+identifier in a scratch library/collection; Rust schema/callback tests cover
+full added-row fields and optional target/PDF arguments. Build and test
+verification is owned by the root integrator; this package did not run builds,
+tests or framework generation.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -1975,3 +1993,18 @@ removal, or caller migration were performed in this package.
   refusal category and became HTTP 502. Both paths are fixed and documented
   as invariants. The open paper result retains its original `citeKey` spelling;
   the fixture now checks that exact wire field. No user app/store was touched.
+
+- 2026-09-29 — **P5c12 verified.** Touched Rust crates and capabilities passed
+  after correcting import's external safety class and regenerating its tables.
+  The final broad run had 84 passed, three ignored and one stale safety-table
+  failure; after regeneration all eight descriptor checks passed. Every quick
+  gate and full supported arm64 store-ffi, impel-tools and imbib-verbs-ffi build
+  passed. The final isolated host passed both XCTest cases and 30 transport
+  calls, including duplicate and unsupported-identifier outcomes and collection
+  membership. SQLite checks passed; owned PID 61838 exited. Evidence:
+  `/tmp/impress-p5b-transport-uo8c1zjy/output/`,
+  `/tmp/impress-p5c12-tests-final.log`,
+  `/tmp/impress-p5c12-descriptor-final.log`, and
+  `/tmp/impress-p5c12-{gates,frameworks,native-proof-final}.log`.
+  The first native run retained the older shared citation refusal behavior;
+  the final build includes P5c11's verified canonical error mapping.

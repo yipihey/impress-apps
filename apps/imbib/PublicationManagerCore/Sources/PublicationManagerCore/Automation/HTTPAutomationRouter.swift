@@ -5266,6 +5266,25 @@ extension HTTPAutomationRouter {
         var response: HTTPResponse
         var field: String?
         switch method {
+        case "import_identifiers":
+            guard let identifiers = strings("identifiers") else {
+                return nativeFailure(400, "invalid-args", "Missing identifiers")
+            }
+            var body: [String: Any] = [
+                "identifiers": identifiers,
+                "downloadPDFs": (args["download_pdfs"] as? Bool) ?? false
+            ]
+            // Match POST /api/papers/add: malformed optional UUIDs are omitted,
+            // causing AutomationService to use its existing default behavior.
+            if let library = uuid("library_id") { body["library"] = library.uuidString }
+            if let collection = uuid("collection_id") { body["collection"] = collection.uuidString }
+            response = await handleAddPapers(request("POST", body))
+            return nativeMapped(response) { value in
+                guard let added = value["added"] as? [[String: Any]],
+                      let duplicates = value["duplicates"] as? [String],
+                      let failed = value["failed"] as? [String: String] else { return nil }
+                return ["added": added, "duplicates": duplicates, "failed": failed]
+            }
         case "search_sources":
             guard let query = string("query") else { return nativeFailure(400, "invalid-args", "Missing query") }
             var q = ["q": query, "limit": String((args["limit"] as? Int) ?? 20)]

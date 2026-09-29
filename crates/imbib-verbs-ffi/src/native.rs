@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, CitationInput, CitationResolution, ExternalPaper, ImbibAppService,
-    LogEntry, PapersWindowResult, SyncNudgeResult,
+    ActivityEntry, AppStatus, CitationInput, CitationResolution, ExternalPaper,
+    IdentifierImportResult, ImbibAppService, LogEntry, PapersWindowResult, SyncNudgeResult,
 };
 use imbib_service::manuscripts_service::{
     CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
@@ -57,6 +57,26 @@ impl NativeImbibAppService {
 
 #[async_trait::async_trait]
 impl ImbibAppService for NativeImbibAppService {
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult {
+        self.invoke(
+            "import_identifiers",
+            json!({
+                "identifiers": identifiers,
+                "library_id": library_id,
+                "collection_id": collection_id,
+                "download_pdfs": download_pdfs
+            }),
+        )
+        .await
+        .unwrap_or_default()
+    }
+
     async fn search_sources(
         &self,
         query: String,
@@ -496,5 +516,57 @@ mod tests {
             Some("/scratch/manuscripts/result.pdf")
         );
         assert_eq!(result.page_count, Some(3));
+    }
+
+    struct ImportFixture {
+        response: NativeCallResult,
+        received: std::sync::Mutex<Option<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ImbibNativeCallbacks for ImportFixture {
+        async fn invoke(&self, method: String, args_json: String) -> NativeCallResult {
+            *self.received.lock().unwrap() = Some((method, args_json));
+            self.response.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn identifier_import_forwards_options_and_preserves_full_added_dictionary() {
+        let callback = Arc::new(ImportFixture {
+            response: NativeCallResult {
+                status: 200,
+                body_json: r#"{"added":[{"id":"paper-id","citeKey":"Example2026","title":"Example","authors":["Doe, Jane"],"year":2026,"bibtex":"@article{Example2026}","dateAdded":"2026-09-29T00:00:00Z","collectionIDs":["collection-id"],"libraryIDs":["library-id"]}],"duplicates":["Existing2026"],"failed":{"bad-key":"unsupported identifier"}}"#.into(),
+            },
+            received: std::sync::Mutex::new(None),
+        });
+        let service = NativeImbibAppService {
+            callback: Arc::clone(&callback) as Arc<dyn ImbibNativeCallbacks>,
+        };
+
+        let result = service
+            .import_identifiers(
+                vec!["10.5555/example".into(), "Existing2026".into()],
+                Some("library-id".into()),
+                Some("collection-id".into()),
+                true,
+            )
+            .await;
+
+        assert_eq!(result.duplicates, vec!["Existing2026"]);
+        assert_eq!(
+            result.failed.get("bad-key").map(String::as_str),
+            Some("unsupported identifier")
+        );
+        assert_eq!(result.added[0]["title"], "Example");
+        assert_eq!(result.added[0]["collectionIDs"][0], "collection-id");
+        assert_eq!(result.added[0]["dateAdded"], "2026-09-29T00:00:00Z");
+        let (method, args) = callback.received.lock().unwrap().clone().unwrap();
+        assert_eq!(method, "import_identifiers");
+        let args: Value = serde_json::from_str(&args).unwrap();
+        assert_eq!(args["library_id"], "library-id");
+        assert_eq!(args["collection_id"], "collection-id");
+        assert_eq!(args["download_pdfs"], true);
+        assert_eq!(args["identifiers"][0], "10.5555/example");
     }
 }

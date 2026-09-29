@@ -90,7 +90,8 @@ use serde_json::Value;
 // comment state proofs require a host, so their headless gap stays explicit.
 // P5c11 citation resolution uses the native source/import cascade. Local
 // resolution parity is hosted; external candidates use a deterministic callback fixture.
-const EXCEPTION_CEILING: usize = 151;
+// P5c12 identifier import is app-owned; its positive fixture exercises the native host.
+const EXCEPTION_CEILING: usize = 152;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
