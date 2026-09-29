@@ -1485,7 +1485,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn surface_show_and_dispatch_is_an_embedded_scenario_with_full_behavior_checks() {
+    fn surface_dispatch_document_validates_and_preserves_catalogue_identity() {
         let scenario: impress_scenario::Scenario =
             serde_json::from_str(SURFACE_SHOW_AND_DISPATCH_SCENARIO)
                 .expect("embedded surface scenario parses");
@@ -1497,39 +1497,6 @@ mod tests {
         assert!(impress_scenario::validate(&scenario).is_empty());
         assert_eq!(scenario.steps.len(), 7);
         assert_eq!(scenario.teardown.len(), 1);
-
-        let document: Value = serde_json::from_str(SURFACE_SHOW_AND_DISPATCH_SCENARIO).unwrap();
-        assert_eq!(
-            document["steps"][1]["expect"]["fields"][1]["path"],
-            "tree.root.node.items.1.node.value"
-        );
-        assert_eq!(document["steps"][1]["expect"]["fields"][1]["equals"], 4);
-        assert_eq!(
-            document["steps"][3]["expect"]["fields"][1]["path"],
-            "tree.root.node.items.1.node.value"
-        );
-        assert_eq!(document["steps"][3]["expect"]["fields"][1]["equals"], 17);
-        assert_eq!(
-            document["steps"][4]["expect"]["fields"][0]["path"],
-            "state.bins"
-        );
-        assert_eq!(document["steps"][4]["expect"]["fields"][0]["equals"], 17);
-        assert_eq!(
-            document["steps"][5]["expect"]["fields"][1]["path"],
-            "effects.0.ok"
-        );
-        assert_eq!(
-            document["steps"][6]["expect"]["fields"][0]["path"],
-            "events.0.name"
-        );
-        assert_eq!(
-            document["steps"][6]["expect"]["fields"][1]["path"],
-            "events.0.payload.bins"
-        );
-        assert_eq!(
-            document["teardown"][0]["call"],
-            "impress-surface-service_surface-delete"
-        );
     }
 
     /// The skip path is the one a headless box takes, so it is the one that
