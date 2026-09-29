@@ -431,6 +431,16 @@ easy to get wrong in the generalized shape:
 
 ### Critical Invariants
 
+- **Native callbacks preserve canonical refusal codes.** When adapting a
+  legacy HTTP failure, map its status to the shared refusal code rather than
+  treating every failure as `verb-failed` (which dispatches as HTTP 502).
+  Invalid citation input must remain HTTP 400 through generated dispatch.
+
+- **Citation resolution checks exact local cite keys before external search.**
+  Publication full-text search does not index cite keys. Both native generated
+  resolution and the HTTP handler must use `getPaper(.citeKey(...))` first so
+  an already-imported key is not sent to external sources or made to time out.
+
 **Test-store isolation includes derived indexes.** (2026-09-27.) A scratch
 SQLite path is not enough: `FullTextSearchService` can repair or rebuild its
 Tantivy directory at launch. Unit and UI test processes put that directory
@@ -457,6 +467,8 @@ field gathered in BOTH maintainer paths, not a new query in the builder.
 **Feed retention selects smart-search members, never its whole library.** (2026-09-27.) The library is the search's owner, not its result set. Retention uses the search's `Contains` edges, skips starred papers, records dismissal before deletion, and counts only successful deletes. A failed dismissal must leave the paper in place. `retention_cleanup_only_removes_eligible_papers_in_each_source` pins this against unrelated papers in the same library.
 
 **Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.
+
+**Tag-definition caches must detect writes through other store handles.** The Swift store adapter and generated verb service can hold distinct Rust `ImbibStore` handles to the same SQLite file. Local mutation invalidation does not reach the other handle, so `load_tag_definitions()` keys its cache to the writer connection's `PRAGMA data_version`. Keep that external-write check whenever changing tag-definition caching; the two-handle regression in `imbib-core` pins it.
 
 **Collection tree parent is payload `parent_id`, never `item.parent`.** For every collection, `item.parent` is the owning LIBRARY (that's what `list_collections` filters on via `HasParent`); the sub-collection tree lives in payload `parent_id` (written by `handleReparent`/`createInboxCollection`) and manuscript folders in payload `parent_collection_ref`. c902a22f briefly returned `item.parent` from `item_to_collection_row`, which made every collection's `parentID` equal its library UUID and flattened the sidebar tree (root filter `parentID == nil` matched nothing). Guarded by `collection_parent_id_is_payload_not_owning_library` in `imbib-core/tests/manuscript_unification.rs`.
 

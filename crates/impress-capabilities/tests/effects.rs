@@ -91,12 +91,16 @@ use serde_json::Value;
 // P5c11 citation resolution uses the native source/import cascade. Local
 // resolution parity is hosted; external candidates use a deterministic callback fixture.
 // P5c12 identifier import is app-owned; its positive fixture exercises the native host.
-const EXCEPTION_CEILING: usize = 152;
+// P5c15 library deletion keeps seeded headless examples for unlink-only
+// deletion; the optional file-container cleanup path needs the native imbib
+// host. Its isolated scratch proof is covered by LibraryDeletionContractTests
+// in the hosted transport suite, not by a headless store example.
+const EXCEPTION_CEILING: usize = 154;
 
-/// Read-only verbs whose reach leaves the process, by P1's evidence in
-/// `docs/verb-safety.md`, and are classed read-only because they write
-/// nothing the suite tracks. The consistency rule (`external reach ⇒
-/// external class`) holds for every other verb.
+/// Narrow exceptions whose declared external reach does not change their
+/// primary safety class: two read-only verbs have P1 evidence that they leave
+/// the process without touching the store, and library deletion is destructive
+/// regardless of whether its optional native file cleanup runs.
 /// Qualified-name prefixes of verbs whose service crate carries the
 /// `optional-feature` verdict in `docs/verb-coverage.md`'s crate table
 /// (P3c step 2) — this build's `full` may not link them, in which case the
@@ -118,6 +122,14 @@ const REACH_ALLOWLIST: &[(&str, &str)] = &[
     (
         "parsers-service_resolve-publisher-pdf",
         "one GET against the publisher's landing page; nothing in the store",
+    ),
+    (
+        "imbib-library-service_delete-library-undoable",
+        "library deletion is destructive; optional file-container cleanup uses the native imbib host",
+    ),
+    (
+        "imbib-library-service_delete-libraries",
+        "batch library deletion is destructive; optional file-container cleanup uses the native imbib host",
     ),
 ];
 
