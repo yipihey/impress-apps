@@ -33,19 +33,19 @@ private final class VerbRequestProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
-private func verbArguments(_ request: URLRequest) -> [String: Any]? {
-    var data = request.httpBody ?? Data()
-    if data.isEmpty, let stream = request.httpBodyStream {
-        stream.open()
-        defer { stream.close() }
-        var buffer = [UInt8](repeating: 0, count: 1024)
-        while stream.hasBytesAvailable {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count <= 0 { break }
-            data.append(contentsOf: buffer.prefix(count))
-        }
+private func requestBodyData(_ request: URLRequest) -> Data {
+    if let bytes = request.httpBody { return bytes }
+    guard let stream = request.httpBodyStream else { return Data() }
+    stream.open()
+    defer { stream.close() }
+    var bytes = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while stream.hasBytesAvailable {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count <= 0 { break }
+        bytes.append(contentsOf: buffer.prefix(count))
     }
-    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    return bytes
 }
 
 final class SiblingVerbBridgeTests: XCTestCase {
@@ -57,23 +57,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/api/verb/imbib-library-service_export-bibtex")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer scratch-token")
-            let bodyData: Data
-            if let bytes = request.httpBody {
-                bodyData = bytes
-            } else if let stream = request.httpBodyStream {
-                stream.open()
-                defer { stream.close() }
-                var bytes = Data()
-                var buffer = [UInt8](repeating: 0, count: 1024)
-                while stream.hasBytesAvailable {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    if count <= 0 { break }
-                    bytes.append(contentsOf: buffer.prefix(count))
-                }
-                bodyData = bytes
-            } else {
-                bodyData = Data()
-            }
+            let bodyData = requestBodyData(request)
             let body = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any]
             XCTAssertEqual(body?["ids"] as? [String], ["Key2026"])
             return (200, Data("\"@article{Key2026}\"".utf8))
@@ -99,7 +83,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
             case "/api/verb/imbib-library-service_list-libraries":
                 return (200, Data(librariesJSON.utf8))
             case "/api/verb/imbib-library-service_list-collections":
-                let arguments = verbArguments(request)
+                let arguments = try? JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any]
                 switch arguments?["library_id"] as? String {
                 case "library-a":
                     return (200, Data("""
@@ -263,21 +247,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
     }
 
     private static func arguments(_ request: URLRequest) -> [String: Any] {
-        var data = request.httpBody
-        if data == nil, let stream = request.httpBodyStream {
-            stream.open()
-            defer { stream.close() }
-            var bytes = Data()
-            var buffer = [UInt8](repeating: 0, count: 1024)
-            while stream.hasBytesAvailable {
-                let count = stream.read(&buffer, maxLength: buffer.count)
-                if count <= 0 { break }
-                bytes.append(contentsOf: buffer.prefix(count))
-            }
-            data = bytes
-        }
-        guard let data,
-              let arguments = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let arguments = try? JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any] else {
             XCTFail("Generated verb request had no JSON argument object")
             return [:]
         }
@@ -357,7 +327,7 @@ final class SiblingVerbBridgeTests: XCTestCase {
         VerbRequestProtocol.respond { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/api/verb/impart-service_list-conversations")
-            let data = request.httpBody ?? Data()
+            let data = requestBodyData(request)
             let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             XCTAssertEqual(args?["limit"] as? Int, 13)
             XCTAssertEqual(args?["offset"] as? Int, 7)
