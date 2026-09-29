@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub use imbib_core::unified::shaped_queries::BibtexImportOutcome;
 use imbib_core::unified::store_api::ImbibStore;
 use impress_service_core::async_trait;
+use impress_service_core::pipeline::context::report_refusal;
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -124,6 +125,13 @@ impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for Publication
 pub struct MutationResult {
     pub affected_count: u32,
     pub ok: bool,
+}
+
+/// Per-identifier outcome for a collection membership update.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CollectionMembershipResult {
+    pub assigned: Vec<String>,
+    pub not_found: Vec<String>,
 }
 
 /// What `retention_cleanup` removed, per source (plan W3 / D-R10). Each
@@ -564,6 +572,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         publication_ids: Vec<String>,
         collection_id: String,
     ) -> MutationResult;
+    /// Add or remove existing papers by the same local identifiers accepted
+    /// by the retained collection HTTP routes. Results preserve input order.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "imbib/library", "imbib/bibliography-entry"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "file-existing-paper",
+        args = r#"{"collection_id":"5c000000-0000-4000-8000-0000000000c1","identifiers":["G3Membership2026","missing-G3"],"action":"add"}"#,
+        expect = r#"{"assigned":["G3Membership2026"],"not_found":["missing-G3"]}"#
+    )]
+    async fn update_collection_members(
+        &self,
+        collection_id: String,
+        identifiers: Vec<String>,
+        action: String,
+    ) -> CollectionMembershipResult;
     /// List all papers in a specific collection.
     #[impress_method(effects(reads = ["imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"]))]
     #[impress_example(
@@ -985,6 +1007,158 @@ impl DefaultImbibLibraryService {
         let collection_count = self.store.list_collections(row.id.clone())?.len();
         Ok(LibraryRecord::from_row(row, collection_count))
     }
+
+    fn collection_exists(
+        &self,
+        collection_id: &str,
+    ) -> Result<bool, imbib_core::unified::store_api::StoreApiError> {
+        for library in self.store.list_libraries()? {
+            if self
+                .store
+                .list_collections(library.id)?
+                .iter()
+                .any(|collection| collection.id == collection_id)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn publication_id_for_local_identifier(
+        &self,
+        identifier: &LocalPaperIdentifier,
+    ) -> Result<Option<String>, imbib_core::unified::store_api::StoreApiError> {
+        use LocalPaperIdentifier as Id;
+        let publication = match identifier {
+            Id::Uuid(value, _) => self.store.get_publication(value.to_string())?,
+            Id::Doi(value, _) => self.store.find_by_doi(value.clone())?.into_iter().next(),
+            Id::Arxiv(value, _) => self.store.find_by_arxiv(value.clone())?.into_iter().next(),
+            Id::Bibcode(value, _) => self
+                .store
+                .find_by_bibcode(value.clone())?
+                .into_iter()
+                .next(),
+            Id::Pmid(value, _) => self
+                .store
+                .find_by_identifiers(None, None, None, Some(value.clone()))?
+                .into_iter()
+                .next(),
+            Id::CiteKey(value, _) => self.store.find_by_cite_key(value.clone(), None)?,
+            Id::Unsupported(_) => None,
+        };
+        Ok(publication.map(|row| row.id))
+    }
+}
+
+/// The retained `PaperIdentifier.fromString` behavior, limited to local lookup
+/// forms. Semantic Scholar and OpenAlex identifiers are recognized by that
+/// parser but intentionally have no local lookup path.
+enum LocalPaperIdentifier {
+    Uuid(uuid::Uuid, String),
+    Doi(String, String),
+    Arxiv(String, String),
+    Bibcode(String, String),
+    Pmid(String, String),
+    CiteKey(String, String),
+    Unsupported(String),
+}
+
+impl LocalPaperIdentifier {
+    fn parse(input: &str) -> Self {
+        use LocalPaperIdentifier as Id;
+        let trimmed = input.trim();
+        if let Ok(uuid) = uuid::Uuid::parse_str(trimmed) {
+            return Id::Uuid(uuid, uuid.hyphenated().to_string().to_ascii_uppercase());
+        }
+        if trimmed.starts_with("10.") || trimmed.to_ascii_lowercase().starts_with("doi:") {
+            // Match `PaperIdentifier.fromString`'s case-sensitive prefix
+            // removal: unusual `DOI:` input is classified as a DOI but keeps
+            // the prefix in its value and therefore remains a local miss.
+            let value = if trimmed.starts_with("doi:") {
+                trimmed.get(4..).unwrap_or_default().trim()
+            } else {
+                trimmed
+            };
+            return Id::Doi(value.to_string(), value.to_string());
+        }
+        let arxiv = if trimmed.starts_with("arXiv:") {
+            trimmed.get(6..).unwrap_or_default()
+        } else {
+            trimmed
+        };
+        if is_modern_arxiv_id(arxiv) || is_legacy_arxiv_id(trimmed) {
+            return Id::Arxiv(arxiv.to_string(), arxiv.to_string());
+        }
+        if trimmed.chars().count() == 19 {
+            let year = trimmed.get(..4).and_then(|value| value.parse::<u16>().ok());
+            if year.is_some_and(|year| (1800..=2100).contains(&year)) {
+                return Id::Bibcode(trimmed.to_string(), trimmed.to_string());
+            }
+        }
+        let character_count = trimmed.chars().count();
+        if (5..=10).contains(&character_count) && trimmed.chars().all(char::is_numeric) {
+            return Id::Pmid(trimmed.to_string(), trimmed.to_string());
+        }
+        if (trimmed.len() == 40 && trimmed.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            || trimmed
+                .strip_prefix('W')
+                .is_some_and(|rest| rest.bytes().all(|byte| byte.is_ascii_digit()))
+        {
+            return Id::Unsupported(trimmed.to_string());
+        }
+        Id::CiteKey(trimmed.to_string(), trimmed.to_string())
+    }
+
+    fn value(&self) -> &str {
+        match self {
+            Self::Uuid(_, value)
+            | Self::Doi(_, value)
+            | Self::Arxiv(_, value)
+            | Self::Bibcode(_, value)
+            | Self::Pmid(_, value)
+            | Self::CiteKey(_, value)
+            | Self::Unsupported(value) => value,
+        }
+    }
+}
+
+fn is_modern_arxiv_id(value: &str) -> bool {
+    let base = match value.rsplit_once('v') {
+        Some((base, suffix))
+            if !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            base
+        }
+        _ => value,
+    };
+    let Some((year_month, paper)) = base.split_once('.') else {
+        return false;
+    };
+    year_month.len() == 4
+        && year_month.bytes().all(|byte| byte.is_ascii_digit())
+        && (4..=5).contains(&paper.len())
+        && paper.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn is_legacy_arxiv_id(value: &str) -> bool {
+    let Some((archive, number)) = value.split_once('/') else {
+        return false;
+    };
+    let base = match number.rsplit_once('v') {
+        Some((base, suffix))
+            if !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            base
+        }
+        _ => number,
+    };
+    !archive.is_empty()
+        && archive
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        && base.len() == 7
+        && base.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn ok_n(n: u32) -> MutationResult {
@@ -1189,6 +1363,97 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                 fail()
             }
         }
+    }
+    async fn update_collection_members(
+        &self,
+        collection_id: String,
+        identifiers: Vec<String>,
+        action: String,
+    ) -> CollectionMembershipResult {
+        if !matches!(action.as_str(), "add" | "remove") {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "action must be 'add' or 'remove'",
+            );
+            return CollectionMembershipResult::default();
+        }
+        let Ok(collection_uuid) = uuid::Uuid::parse_str(&collection_id) else {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "collection_id must be a UUID",
+            );
+            return CollectionMembershipResult::default();
+        };
+        if identifiers.is_empty() {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "identifiers must contain at least one value",
+            );
+            return CollectionMembershipResult::default();
+        }
+        match self.collection_exists(&collection_uuid.to_string()) {
+            Ok(true) => {}
+            Ok(false) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Collection not found: {collection_uuid}"),
+                );
+                return CollectionMembershipResult::default();
+            }
+            Err(error) => {
+                log("update_collection_members.validate_collection", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::INTERNAL,
+                    "Unable to validate collection",
+                );
+                return CollectionMembershipResult::default();
+            }
+        }
+
+        let parsed: Vec<LocalPaperIdentifier> = identifiers
+            .iter()
+            .map(|value| LocalPaperIdentifier::parse(value))
+            .collect();
+        let mut resolved = Vec::new();
+        let mut result = CollectionMembershipResult::default();
+        for identifier in parsed {
+            match self.publication_id_for_local_identifier(&identifier) {
+                Ok(Some(publication_id)) => {
+                    resolved.push(publication_id);
+                    result.assigned.push(identifier.value().to_string());
+                }
+                Ok(None) => result.not_found.push(identifier.value().to_string()),
+                Err(error) => {
+                    log("update_collection_members.resolve_identifier", &error);
+                    report_refusal(
+                        impress_service_core::refusal::codes::INTERNAL,
+                        "Unable to resolve local publication identifier",
+                    );
+                    return CollectionMembershipResult::default();
+                }
+            }
+        }
+        if resolved.is_empty() {
+            return result;
+        }
+        let mutation = match action.as_str() {
+            "add" => self
+                .store
+                .add_to_collection(resolved, collection_uuid.to_string()),
+            "remove" => self
+                .store
+                .remove_from_collection(resolved, collection_uuid.to_string()),
+            _ => unreachable!("action was validated above"),
+        };
+        if let Err(error) = mutation {
+            log("update_collection_members.mutate", &error);
+            report_refusal(
+                impress_service_core::refusal::codes::VERB_FAILED,
+                "Collection membership update failed",
+            );
+            return CollectionMembershipResult::default();
+        }
+        result
     }
     async fn list_collection_members(
         &self,
@@ -1938,6 +2203,14 @@ impress_service_impl! {
             /// UUID of the collection to remove them from.
             collection_id: String
         ) -> MutationResult,
+        update_collection_members(
+            /// UUID of the collection to update.
+            collection_id: String,
+            /// Existing local cite keys, identifiers, or publication UUIDs.
+            identifiers: Vec<String>,
+            /// Add memberships or remove them (`add` or `remove`).
+            action: String
+        ) -> CollectionMembershipResult,
         list_collection_members(
             /// UUID of the collection to inspect.
             collection_id: String,
@@ -2168,8 +2441,151 @@ pub fn init_imbib_library_service(store_path: std::path::PathBuf) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::ImbibLibraryService;
+    use super::{CollectionMembershipResult, ImbibLibraryService, LocalPaperIdentifier};
     use impress_service_core::McpToolDescriptor;
+
+    #[tokio::test]
+    async fn collection_membership_resolves_route_identifiers_in_order_and_mutates_exact_rows() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Membership contract".into()).unwrap();
+        let library_id = library.id.clone();
+        let collection = store
+            .create_collection("Membership target".into(), library_id.clone(), false, None)
+            .unwrap();
+        let ids = store
+            .import_bibtex(
+                "@article{Member2026, title={Collection member}, doi={10.1234/member}}".into(),
+                library_id,
+            )
+            .unwrap();
+        let publication_id = ids[0].clone();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let added = service
+            .update_collection_members(
+                collection.id.clone(),
+                vec![
+                    " Member2026 ".into(),
+                    format!("doi:{}", "10.1234/member"),
+                    publication_id.to_ascii_uppercase(),
+                    "missing-key".into(),
+                    "Member2026".into(),
+                ],
+                "add".into(),
+            )
+            .await;
+        assert_eq!(
+            added,
+            CollectionMembershipResult {
+                assigned: vec![
+                    "Member2026".into(),
+                    "10.1234/member".into(),
+                    publication_id.to_ascii_uppercase(),
+                    "Member2026".into(),
+                ],
+                not_found: vec!["missing-key".into()],
+            }
+        );
+        let members = store
+            .list_collection_members(collection.id.clone(), "title".into(), true, None, None)
+            .unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].id, publication_id);
+
+        let removed = service
+            .update_collection_members(
+                collection.id.clone(),
+                vec!["Member2026".into(), "not-present".into()],
+                "remove".into(),
+            )
+            .await;
+        assert_eq!(removed.assigned, vec![String::from("Member2026")]);
+        assert_eq!(removed.not_found, vec![String::from("not-present")]);
+        assert!(store
+            .list_collection_members(collection.id, "title".into(), true, None, None)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn collection_membership_refuses_invalid_action_and_missing_collection_without_writes() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Membership errors".into()).unwrap();
+        let collection = store
+            .create_collection("Existing target".into(), library.id.clone(), false, None)
+            .unwrap();
+        let publication_id = store
+            .import_bibtex(
+                "@article{StillUnfiled2026, title={Must stay unfiled}}".into(),
+                library.id,
+            )
+            .unwrap()
+            .remove(0);
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let invalid_action = service
+            .update_collection_members(
+                collection.id.clone(),
+                vec!["StillUnfiled2026".into()],
+                "replace".into(),
+            )
+            .await;
+        assert!(invalid_action.assigned.is_empty());
+        assert!(invalid_action.not_found.is_empty());
+
+        let missing_collection = service
+            .update_collection_members(
+                uuid::Uuid::new_v4().to_string(),
+                vec!["StillUnfiled2026".into()],
+                "add".into(),
+            )
+            .await;
+        assert!(missing_collection.assigned.is_empty());
+        assert!(missing_collection.not_found.is_empty());
+        assert!(store
+            .list_collection_members(collection.id, "title".into(), true, None, None)
+            .unwrap()
+            .is_empty());
+        assert!(store.get_publication(publication_id).unwrap().is_some());
+    }
+
+    #[test]
+    fn paper_identifier_parser_matches_route_local_forms() {
+        assert!(matches!(
+            LocalPaperIdentifier::parse(" doi:10.1234/example "),
+            LocalPaperIdentifier::Doi(value, normalized)
+                if value == "10.1234/example" && normalized == value
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("DOI:10.1234/example"),
+            LocalPaperIdentifier::Doi(value, normalized)
+                if value == "DOI:10.1234/example" && normalized == value
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("arXiv:2401.12345v2"),
+            LocalPaperIdentifier::Arxiv(value, _) if value == "2401.12345v2"
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("hep-th/9901001v2"),
+            LocalPaperIdentifier::Arxiv(value, _) if value == "hep-th/9901001v2"
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("2401.12345"),
+            LocalPaperIdentifier::Arxiv(_, _)
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("2023ApJ...950L..22A"),
+            LocalPaperIdentifier::Bibcode(_, _)
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("123456"),
+            LocalPaperIdentifier::Pmid(_, _)
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("W123"),
+            LocalPaperIdentifier::Unsupported(_)
+        ));
+    }
 
     #[tokio::test]
     async fn bibtex_export_accepts_http_cite_keys_and_store_ids() {

@@ -1769,3 +1769,24 @@ Data warnings remain; no persistence schema was changed.
   evidence requires the native app, and a refusal is not claimed as byte
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
+
+## P5c13 — imbib collection membership (2026-09-29)
+
+Added `imbib-library-service_update-collection-members(collection_id,
+identifiers, action)` with ordered `assigned` and `not_found` outcomes for
+`add`/`remove`. Resolution follows `PaperIdentifier.fromString` for local UUID,
+citation key, DOI, arXiv, bibcode and PMID lookups; recognized external-only
+Semantic Scholar/OpenAlex identifiers remain misses, with no fuzzy search.
+Generated writes use the library service's store-backed mutation path and its
+declared collection write effect, so the imbib domain dispatcher posts its
+normal store-mutation/display refresh after success.
+
+Route review found both retained membership paths could report papers as
+assigned even when a valid UUID named no collection: `AutomationService` ignored
+the adapter's logged `addToCollection`/`removeFromCollection` failure. The
+shared collection operations now perform exact existing-collection lookup
+before membership work, making both routes return their existing 404 mapping;
+the generated verb refuses the same missing target. Tests cover ordered local
+identifier outcomes, add/remove persisted edges, invalid action/missing target,
+and an isolated route-versus-generated callback fixture. Root owns tests and
+native verification; no callers or routes are removed here.
