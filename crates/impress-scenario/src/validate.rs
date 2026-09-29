@@ -326,11 +326,9 @@ mod tests {
     #[test]
     fn empty_steps_is_a_problem() {
         let problems = validate(&base(vec![]));
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.message.contains("at least one step"))
-        );
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("at least one step")));
     }
 
     #[test]
@@ -388,54 +386,40 @@ mod tests {
         }))
         .unwrap();
         let problems = validate(&scenario);
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.message.contains("select_one paths"))
-        );
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("select_one paths")));
         assert!(problems.iter().any(|p| p.message.contains("object_key_as")));
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.message.contains("candidate path must be fixed"))
-        );
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.message.contains("fill_array length_of"))
-        );
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("candidate path must be fixed")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("fill_array length_of")));
         assert!(problems.iter().any(|p| {
             p.message
                 .contains("argument capture path must be non-empty")
         }));
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.message.contains("argument capture path must be fixed"))
-        );
-        assert!(
-            serde_json::from_value::<crate::spec::CallCapture>(json!({
-                "argument": "$.ids.0",
-                "unexpected": true
-            }))
-            .is_err()
-        );
-        assert!(
-            serde_json::from_value::<CallCapture>(json!({
-                "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
-            }))
-            .is_err()
-        );
-        assert!(
-            serde_json::from_value::<CallCapture>(json!({
-                "select_one": {
-                    "from": "$.x",
-                    "path": "$.y",
-                    "predicate": {"equals": 1, "array_contains": 1}
-                }
-            }))
-            .is_err()
-        );
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("argument capture path must be fixed")));
+        assert!(serde_json::from_value::<crate::spec::CallCapture>(json!({
+            "argument": "$.ids.0",
+            "unexpected": true
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<CallCapture>(json!({
+            "select_one": {"from": "$.x", "path": "$.y", "predicate": {"regex": ".*"}}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<CallCapture>(json!({
+            "select_one": {
+                "from": "$.x",
+                "path": "$.y",
+                "predicate": {"equals": 1, "array_contains": 1}
+            }
+        }))
+        .is_err());
     }
 
     #[test]
@@ -503,11 +487,9 @@ mod tests {
         let problems = validate(&scenario);
         assert!(problems.iter().any(|p| p.message.contains("missing")));
         assert!(problems.iter().any(|p| p.message.contains("1..=60000")));
-        assert!(
-            problems
-                .iter()
-                .any(|p| p.message.contains("non-empty message needles"))
-        );
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("non-empty message needles")));
     }
 
     #[test]

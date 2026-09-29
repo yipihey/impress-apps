@@ -850,13 +850,11 @@ mod tests {
         ] {
             assert!(check_action_outcome(&outcome).is_err(), "{outcome:?}");
         }
-        assert!(
-            check_action_outcome(&CallOutcome {
-                result: json!({"ok": true}),
-                status: Some(200),
-            })
-            .is_ok()
-        );
+        assert!(check_action_outcome(&CallOutcome {
+            result: json!({"ok": true}),
+            status: Some(200),
+        })
+        .is_ok());
     }
 
     #[test]
@@ -919,11 +917,9 @@ mod tests {
             let mut tiles = serde_json::Map::new();
             tiles.insert(key.to_string(), json!({"children": [7]}));
             let result = json!({"tiles": tiles});
-            assert!(
-                capture_call_result(&operation, &result, &json!({}))
-                    .unwrap_err()
-                    .contains("object key")
-            );
+            assert!(capture_call_result(&operation, &result, &json!({}))
+                .unwrap_err()
+                .contains("object key"));
         }
     }
 
@@ -955,11 +951,9 @@ mod tests {
                 "exceeds 10000",
             ),
         ] {
-            assert!(
-                capture_call_result(&operation, &result, &json!({}))
-                    .unwrap_err()
-                    .contains(expected)
-            );
+            assert!(capture_call_result(&operation, &result, &json!({}))
+                .unwrap_err()
+                .contains(expected));
         }
         let contains: CallCapture = serde_json::from_value(json!({
             "select_one": {
@@ -976,11 +970,9 @@ mod tests {
                 "predicate array exceeds 10000",
             ),
         ] {
-            assert!(
-                capture_call_result(&contains, &result, &json!({}))
-                    .unwrap_err()
-                    .contains(expected)
-            );
+            assert!(capture_call_result(&contains, &result, &json!({}))
+                .unwrap_err()
+                .contains(expected));
         }
     }
 
@@ -1132,7 +1124,7 @@ mod tests {
     #[tokio::test]
     async fn guarded_wait_skips_missing_or_null_capture_before_template_resolution() {
         struct Fixture {
-            detail: Option<Value>,
+            detail: Value,
             waits: usize,
         }
         #[async_trait::async_trait]
@@ -1143,13 +1135,8 @@ mod tests {
                 _args: Value,
                 _as_ident: &str,
             ) -> Result<CallOutcome, String> {
-                let result = self
-                    .detail
-                    .as_ref()
-                    .map(|detail| json!({"detail": detail}))
-                    .unwrap_or_else(|| json!({}));
                 Ok(CallOutcome {
-                    result,
+                    result: json!({"detail": self.detail}),
                     status: None,
                 })
             }
@@ -1177,17 +1164,17 @@ mod tests {
             "tier": "b",
             "steps": [
                 {"call": "read-detail", "capture": {"detail": "$.detail"}},
-                {"wait": {"log": {"category": "layout", "contains": "{{state.detail.tile}}", "timeout_ms": 100}}, "when_present": "$.detail"}
+                {"wait": {"log": {"category": "layout", "contains": "{{state.detail.tile}}", "timeout_ms": 100}}, "when_present": "$.detail.tile"}
             ]
         })).unwrap();
-        for detail in [None, Some(Value::Null)] {
+        for detail in [Value::Null, json!({})] {
             let mut caller = Fixture { detail, waits: 0 };
             let result = run(&scenario, &mut caller).await;
             assert!(result.pass, "{}", result.detail);
             assert_eq!(caller.waits, 0);
         }
         let mut caller = Fixture {
-            detail: Some(json!({"tile": 9})),
+            detail: json!({"tile": 9}),
             waits: 0,
         };
         let result = run(&scenario, &mut caller).await;

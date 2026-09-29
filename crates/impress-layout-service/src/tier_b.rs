@@ -92,10 +92,10 @@
 
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::scenario_caller;
-use crate::{CapabilityResult, Tier, check, skipped};
+use crate::{check, skipped, CapabilityResult, Tier};
 
 /// S2b: the three catalogue entries converted to stored
 /// `impress/scenario@1.0.0` documents, `include_str!`'d at compile time so a
@@ -748,7 +748,7 @@ fn pane_of_tree(tree: &Value, tile: u64) -> Result<Value, String> {
 /// is the pane's own JSON, compiled with no bindings; an unbound parameter is
 /// reported rather than guessed.
 fn first_row_of(list_pane: &Value) -> Result<String, String> {
-    use impress_core::pane_query::{Bindings, PaneQuery, builtin_manifest, compile};
+    use impress_core::pane_query::{builtin_manifest, compile, Bindings, PaneQuery};
     use impress_core::store::ItemStore;
 
     let query: PaneQuery = serde_json::from_value(
@@ -781,26 +781,6 @@ fn first_row_of(list_pane: &Value) -> Result<String, String> {
 }
 
 /// The ids channel `n` carries for `kind`, read from a tree response.
-fn channel_ids(tree: &Value, n: u64, kind: &str) -> Vec<String> {
-    layout_of(tree)
-        .ok()
-        .and_then(|l| l.get("channels"))
-        .and_then(|c| c.get("channels").unwrap_or(c).get(n.to_string()))
-        .and_then(|k| k.get(kind))
-        .and_then(Value::as_array)
-        .map(|ids| {
-            ids.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Now, as the `after` cursor `/api/logs` takes. The app and this process
-/// share a clock (it is a loopback call), so the slack is only the
-/// millisecond truncation on either side — a whole second of it let the
-/// previous capability's `pane N info:` line answer for this one.
 fn log_cursor() -> String {
     (chrono::Utc::now() - chrono::Duration::milliseconds(5))
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")

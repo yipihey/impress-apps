@@ -47,7 +47,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use impress_layout::PaneSpec;
 use impress_scenario::{CallOutcome, Caller, EventBody, WaitBody};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 /// A loopback JSON client over one app's automation surface.
@@ -246,7 +246,7 @@ impl TierBCaller {
         let mut last = None;
         for verb in &verbs {
             let body = serde_json::to_value(verb).map_err(|error| error.to_string())?;
-            let outcome = self.verb(&body).await?;
+            let outcome = self.verb(body).await?;
             if !outcome
                 .status
                 .is_some_and(|status| (200..300).contains(&status))
