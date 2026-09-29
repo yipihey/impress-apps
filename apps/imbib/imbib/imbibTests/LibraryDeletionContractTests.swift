@@ -32,6 +32,8 @@ final class LibraryDeletionContractTests: XCTestCase {
                 queryParams: ["deleteFiles": "false"]
             ))
             XCTAssertTrue(unlink.status == 200)
+            XCTAssertNil(store.getLibrary(id: unlinkLibrary.id),
+                         "unlink-only deletion removes the library row")
             XCTAssertTrue(unlinkContainers.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
 
             let cleanupLibrary = try XCTUnwrap(store.createLibrary(name: "Cleanup-only \(suffix)"))
@@ -63,7 +65,9 @@ final class LibraryDeletionContractTests: XCTestCase {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try Data("scratch".utf8).write(to: directory.appendingPathComponent("fixture.txt"))
             }
-            let ids = batchLibraries.map { "\"\($0.id.uuidString)\"" }.joined(separator: ",")
+            let ids = (batchLibraries + [batchLibraries[0]])
+                .map { "\"\($0.id.uuidString)\"" }
+                .joined(separator: ",")
             let batch = await router.invokeNativeVerb(
                 method: "delete_libraries",
                 argsJSON: "{\"ids\":[\(ids)],\"delete_files\":true}"
