@@ -2001,3 +2001,31 @@ native verification; no callers or routes are removed here.
   `/tmp/impress-p5c10-{tests,gates,frameworks,native-proof-final}.log`.
   The first native run exposed a fixture range inside an emoji's surrogate
   pair; the final fixture anchors the complete emoji at UTF-16 units 6..<8.
+
+- 2026-09-29 — **P5c11 verified.** Root passed 82 Rust tests (zero failures,
+  three ignored), every quick gate and full supported arm64 store-ffi,
+  impel-tools and imbib-verbs-ffi builds. Final native proof passed one XCTest
+  and 30 transport calls, preserving saved citation paper fields and HTTP 400
+  for missing input. SQLite checks passed; owned PID 50026 exited. Evidence:
+  `/tmp/impress-p5b-transport-6ug2aw1f/output/` and
+  `/tmp/impress-p5c11-{tests,gates,frameworks,native-proof-refusals}.log`.
+  Earlier proofs exposed two real native bugs: cite keys bypassed exact local
+  lookup and fell into network search, and generic handler errors lost their
+  refusal category and became HTTP 502. Both paths are fixed and documented
+  as invariants. The open paper result retains its original `citeKey` spelling;
+  the fixture now checks that exact wire field. No user app/store was touched.
+
+- 2026-09-29 — **P5c12 verified.** Touched Rust crates and capabilities passed
+  after correcting import's external safety class and regenerating its tables.
+  The final broad run had 84 passed, three ignored and one stale safety-table
+  failure; after regeneration all eight descriptor checks passed. Every quick
+  gate and full supported arm64 store-ffi, impel-tools and imbib-verbs-ffi build
+  passed. The final isolated host passed both XCTest cases and 30 transport
+  calls, including duplicate and unsupported-identifier outcomes and collection
+  membership. SQLite checks passed; owned PID 61838 exited. Evidence:
+  `/tmp/impress-p5b-transport-uo8c1zjy/output/`,
+  `/tmp/impress-p5c12-tests-final.log`,
+  `/tmp/impress-p5c12-descriptor-final.log`, and
+  `/tmp/impress-p5c12-{gates,frameworks,native-proof-final}.log`.
+  The first native run retained the older shared citation refusal behavior;
+  the final build includes P5c11's verified canonical error mapping.
