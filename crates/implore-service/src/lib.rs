@@ -1272,7 +1272,7 @@ mod tests {
         assert_eq!(update.verb.effects.columns()[1], "\"figure\"");
         assert_eq!(update.verb.effects.columns()[2], "app(\"implore\")");
         assert_eq!(
-            update.verb.safety,
+            update.verb.safety.class,
             impress_service_core::descriptor::SafetyClass::External
         );
 
@@ -1281,7 +1281,7 @@ mod tests {
         assert_eq!(delete.verb.effects.columns()[1], "\"figure\"");
         assert_eq!(delete.verb.effects.columns()[2], "app(\"implore\")");
         assert_eq!(
-            delete.verb.safety,
+            delete.verb.safety.class,
             impress_service_core::descriptor::SafetyClass::External
         );
         assert_eq!((delete.verb.output_schema)()["type"], "boolean");
