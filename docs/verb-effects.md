@@ -165,7 +165,8 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_create-library` | "imbib/library", "imbib/collection" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_create-muted-item` | "imbib/muted-item" | "imbib/muted-item" | — | example ×1 |
 | `imbib-library-service_deduplicate-library` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
-| `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
+| `imbib-library-service_delete-libraries` | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), fs | — |
+| `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | "imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), fs | — |
 | `imbib-library-service_delete-publications-undoable` | "imbib/bibliography-entry", any("undo snapshots query all children of each publication, regardless of kind") | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_dismiss-paper` | "imbib/dismissed-paper" | "imbib/dismissed-paper" | — | example ×1 |
 | `imbib-library-service_duplicate-publications` | "imbib/bibliography-entry", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/linked-file" | fs | — |
@@ -599,6 +600,8 @@ when one lands).
 | `imbib-eink-service_eink-plan` | leaves the process (device) |
 | `imbib-eink-service_eink-reachable` | leaves the process (device) |
 | `imbib-eink-service_eink-sync` | leaves the process (device, fs) |
+| `imbib-library-service_delete-libraries` | needs a running app |
+| `imbib-library-service_delete-library-undoable` | needs a running app |
 | `imbib-library-service_duplicate-publications` | no example ran |
 | `imbib-library-service_import-identifiers` | needs a running app |
 | `imbib-manuscripts-service_compile-manuscript` | needs a running app |
