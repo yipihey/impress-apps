@@ -46,10 +46,11 @@ use crate::sections::{SectionMetadata, SectionRecord, SectionStore};
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
-/// Short summary of a document (id + title + format).
+/// Document metadata projected from the shared manuscript row.
 ///
-/// Document-level metadata lives in the Swift `ManuscriptStoreAdapter`; this
-/// DTO is named here so the Swift bridge has a Rust target type.
+/// This mirrors the stable metadata exposed by imprint's document list/detail
+/// routes. Defaults keep older serialized clients readable as fields are
+/// added to the Rust service surface.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DocumentSummary {
     pub id: Uuid,
@@ -59,6 +60,24 @@ pub struct DocumentSummary {
     // client can decode real responses instead of erroring on a missing key.
     #[serde(default)]
     pub format: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default = "default_manuscript_status")]
+    pub status: String,
+    #[serde(default)]
+    pub word_count: u32,
+    #[serde(default)]
+    pub last_modified: Option<String>,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub linked_imbib_manuscript_id: Option<Uuid>,
+    #[serde(default)]
+    pub linked_imbib_library_id: Option<String>,
+}
+
+fn default_manuscript_status() -> String {
+    "draft".to_owned()
 }
 
 /// Output format for `export_document`.
@@ -361,15 +380,69 @@ impl DefaultImprintHttpHandlers {
     }
 }
 
-fn document_summary(item: &Item) -> DocumentSummary {
+fn document_summary(item: &Item, use_created_as_modified_fallback: bool) -> DocumentSummary {
     let text = |key: &str, fallback: &str| match item.payload.get(key) {
         Some(Value::String(value)) => value.clone(),
         _ => fallback.to_owned(),
     };
+    let authors = match item.payload.get("authors") {
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| match value {
+                Value::String(value) => Some(value.clone()),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let body = text("body_content", "");
+    let title = text("title", "Untitled");
+    let format = match item.payload.get("format") {
+        Some(Value::String(value))
+            if matches!(value.as_str(), "typst" | "latex" | "markdown" | "plaintext") =>
+        {
+            value.clone()
+        }
+        _ => impress_core::manuscript_format::detect_manuscript_format(&body, Some(&title))
+            .to_owned(),
+    };
+    let stored_last_modified = match item.payload.get("body_modified_at") {
+        Some(Value::String(value)) => {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .ok()
+                .map(|date| {
+                    date.with_timezone(&chrono::Utc)
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                })
+        }
+        _ => None,
+    };
+    let last_modified = stored_last_modified.or_else(|| {
+        use_created_as_modified_fallback.then(|| {
+            item.created
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        })
+    });
     DocumentSummary {
         id: item.id,
-        title: text("title", "Untitled"),
-        format: text("format", "typst"),
+        title,
+        format,
+        authors,
+        status: text("status", "draft"),
+        word_count: body.split_whitespace().count().min(u32::MAX as usize) as u32,
+        last_modified,
+        created_at: item
+            .created
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        linked_imbib_manuscript_id: match item.payload.get("linked_imbib_manuscript_id") {
+            Some(Value::String(value)) => Uuid::parse_str(value).ok(),
+            _ => None,
+        },
+        linked_imbib_library_id: match item.payload.get("linked_imbib_library_id") {
+            Some(Value::String(value)) => Some(value.clone()),
+            _ => None,
+        },
     }
 }
 
@@ -385,7 +458,10 @@ impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
             include_references: false,
             ..Default::default()
         })?;
-        Ok(rows.iter().map(document_summary).collect())
+        Ok(rows
+            .iter()
+            .map(|item| document_summary(item, true))
+            .collect())
     }
 
     async fn get_document(&self, id: Uuid) -> Result<DocumentSummary, ServiceError> {
@@ -395,7 +471,7 @@ impl ImprintHttpHandlers for DefaultImprintHttpHandlers {
             .get(id)?
             .filter(|item| item.schema == impress_core::schema::refs::MANUSCRIPT)
             .ok_or_else(|| ServiceError::NotFound(format!("manuscript {id}")))?;
-        Ok(document_summary(&item))
+        Ok(document_summary(&item, false))
     }
 
     async fn export_document(
@@ -1042,6 +1118,155 @@ mod tests {
             h.export_document(manuscript.id, ExportFormat::Typst).await,
             Err(ServiceError::InvalidArgument(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn document_read_contract_projects_shared_manuscript_metadata() {
+        use impress_core::item::ActorKind;
+        use impress_core::manuscript_project::{create_manuscript, Author, NewManuscript};
+        use impress_core::store::FieldMutation;
+
+        let (h, _dir) = handlers();
+        let store = h.sections().shared_store();
+        let linked_id = Uuid::new_v4();
+        let manuscript = create_manuscript(
+            store,
+            NewManuscript {
+                title: "Metadata parity",
+                format: "typst",
+                body: "= A title\n\n  two   words ",
+                entry_path: None,
+                collection_ref: None,
+            },
+            &Author {
+                name: "test-author".into(),
+                kind: ActorKind::Human,
+            },
+        )
+        .unwrap();
+        store
+            .update(
+                manuscript.id,
+                vec![
+                    FieldMutation::SetPayload(
+                        "authors".into(),
+                        Value::Array(vec![
+                            Value::String("Ada Lovelace".into()),
+                            Value::String("Grace Hopper".into()),
+                        ]),
+                    ),
+                    FieldMutation::SetPayload("status".into(), Value::String("in-review".into())),
+                    FieldMutation::SetPayload(
+                        "body_modified_at".into(),
+                        Value::String("2026-09-28T20:30:00.987+02:00".into()),
+                    ),
+                    FieldMutation::SetPayload(
+                        "linked_imbib_manuscript_id".into(),
+                        Value::String(linked_id.to_string()),
+                    ),
+                    FieldMutation::SetPayload(
+                        "linked_imbib_library_id".into(),
+                        Value::String("main-library".into()),
+                    ),
+                ],
+            )
+            .unwrap();
+
+        let listed = h.list_documents().await.unwrap();
+        let listed = listed.iter().find(|row| row.id == manuscript.id).unwrap();
+        let fetched = h.get_document(manuscript.id).await.unwrap();
+        for row in [listed, &fetched] {
+            assert_eq!(row.title, "Metadata parity");
+            assert_eq!(row.format, "typst");
+            assert_eq!(
+                row.authors,
+                vec!["Ada Lovelace".to_owned(), "Grace Hopper".to_owned()]
+            );
+            assert_eq!(row.status, "in-review");
+            assert_eq!(row.word_count, 5);
+            assert_eq!(
+                row.created_at,
+                manuscript
+                    .created
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            );
+            assert_eq!(row.linked_imbib_manuscript_id, Some(linked_id));
+            assert_eq!(row.linked_imbib_library_id.as_deref(), Some("main-library"));
+        }
+        assert_eq!(
+            listed.last_modified.as_deref(),
+            Some("2026-09-28T18:30:00Z")
+        );
+        assert_eq!(
+            fetched.last_modified.as_deref(),
+            Some("2026-09-28T18:30:00Z")
+        );
+
+        let legacy = create_manuscript(
+            store,
+            NewManuscript {
+                title: "Legacy note.md",
+                format: "unknown",
+                body: "# Markdown heading",
+                entry_path: None,
+                collection_ref: None,
+            },
+            &Author {
+                name: "test-author".into(),
+                kind: ActorKind::Human,
+            },
+        )
+        .unwrap();
+        store
+            .update(
+                legacy.id,
+                vec![
+                    FieldMutation::RemovePayload("format".into()),
+                    FieldMutation::SetPayload(
+                        "authors".into(),
+                        Value::Array(vec![Value::String("Valid name".into()), Value::Bool(true)]),
+                    ),
+                    FieldMutation::SetPayload(
+                        "body_modified_at".into(),
+                        Value::String("not-an-ISO-date".into()),
+                    ),
+                ],
+            )
+            .unwrap();
+        let listed_legacy = h
+            .list_documents()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == legacy.id)
+            .unwrap();
+        assert_eq!(listed_legacy.format, "markdown");
+        assert!(listed_legacy.authors.is_empty());
+        assert_eq!(
+            listed_legacy.last_modified.as_deref(),
+            Some(listed_legacy.created_at.as_str())
+        );
+        let fetched_legacy = h.get_document(legacy.id).await.unwrap();
+        assert_eq!(fetched_legacy.format, "markdown");
+        assert!(fetched_legacy.authors.is_empty());
+        assert_eq!(fetched_legacy.last_modified, None);
+    }
+
+    #[test]
+    fn document_summary_deserializes_legacy_payloads_with_defaults() {
+        let summary: DocumentSummary = serde_json::from_value(serde_json::json!({
+            "id": Uuid::nil(),
+            "title": "Legacy",
+            "format": "typst"
+        }))
+        .unwrap();
+        assert_eq!(summary.status, "draft");
+        assert!(summary.authors.is_empty());
+        assert_eq!(summary.word_count, 0);
+        assert_eq!(summary.last_modified, None);
+        assert!(summary.created_at.is_empty());
+        assert_eq!(summary.linked_imbib_manuscript_id, None);
+        assert_eq!(summary.linked_imbib_library_id, None);
     }
 
     /// Without `typst-render` the method still answers — with a reason.

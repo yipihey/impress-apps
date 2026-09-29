@@ -160,16 +160,31 @@ pub struct LibraryRecord {
     pub is_inbox: bool,
     #[serde(alias = "paperCount", default)]
     pub publication_count: i32,
+    #[serde(alias = "collectionCount", default)]
+    pub collection_count: u64,
+    /// Local imbib libraries are editable. Read-only SciX libraries use a
+    /// separate schema and are not returned by this local-library service.
+    #[serde(alias = "canEdit", default = "default_can_edit")]
+    pub can_edit: bool,
 }
 
-impl From<&imbib_core::unified::shaped_queries::LibraryRow> for LibraryRecord {
-    fn from(r: &imbib_core::unified::shaped_queries::LibraryRow) -> Self {
+fn default_can_edit() -> bool {
+    true
+}
+
+impl LibraryRecord {
+    fn from_row(
+        r: &imbib_core::unified::shaped_queries::LibraryRow,
+        collection_count: usize,
+    ) -> Self {
         Self {
             id: r.id.clone(),
             name: r.name.clone(),
             is_default: r.is_default,
             is_inbox: r.is_inbox,
             publication_count: r.publication_count,
+            collection_count: collection_count as u64,
+            can_edit: true,
         }
     }
 }
@@ -443,7 +458,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     // ---- Library lifecycle ----
     /// List all libraries in imbib. Libraries are top-level containers for
     /// papers.
-    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(name = "reading-library-list", args = r#"{}"#)]
     async fn list_libraries(&self) -> Vec<LibraryRecord>;
@@ -457,7 +472,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// Create a new library in imbib. Libraries are top-level containers
     /// for papers, separate from collections. Use this when asked to create
     /// a new library for a topic or project.
-    #[impress_method(safety = mutating, effects(reads = ["imbib/library"], writes = ["imbib/library"]))]
+    #[impress_method(safety = mutating, effects(reads = ["imbib/library", "imbib/collection"], writes = ["imbib/library"]))]
     #[impress_example(
         name = "new-project-library",
         args = r#"{"name":"G3 reading project"}"#,
@@ -475,7 +490,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     )]
     async fn delete_library_undoable(&self, id: String) -> MutationResult;
     /// Get the library new papers are filed into by default, if one is set.
-    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(
         name = "project-default",
@@ -492,7 +507,7 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     )]
     async fn set_library_default(&self, id: String) -> MutationResult;
     /// Get the Inbox library, where incoming papers land before filing.
-    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry"]))]
+    #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
     #[impress_example(
         name = "inbox-library",
@@ -971,6 +986,14 @@ impl DefaultImbibLibraryService {
     pub fn new(store: Arc<ImbibStore>) -> Self {
         Self { store }
     }
+
+    fn library_record(
+        &self,
+        row: &imbib_core::unified::shaped_queries::LibraryRow,
+    ) -> Result<LibraryRecord, imbib_core::unified::store_api::StoreApiError> {
+        let collection_count = self.store.list_collections(row.id.clone())?.len();
+        Ok(LibraryRecord::from_row(row, collection_count))
+    }
 }
 
 fn ok_n(n: u32) -> MutationResult {
@@ -1069,7 +1092,7 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
     async fn list_libraries(&self) -> Vec<LibraryRecord> {
         self.store
             .list_libraries()
-            .map(|rs| rs.iter().map(LibraryRecord::from).collect::<Vec<_>>())
+            .and_then(|rows| rows.iter().map(|row| self.library_record(row)).collect())
             .unwrap_or_else(|e| {
                 log("list_libraries", e);
                 vec![]
@@ -1078,7 +1101,7 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
     async fn create_library(&self, name: String) -> Option<LibraryRecord> {
         self.store
             .create_library(name)
-            .map(|r| LibraryRecord::from(&r))
+            .and_then(|r| self.library_record(&r))
             .map_err(|e| log("create_library", e))
             .ok()
     }
@@ -1096,8 +1119,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .get_default_library()
             .ok()
             .flatten()
-            .as_ref()
-            .map(LibraryRecord::from)
+            .and_then(|row| {
+                self.library_record(&row)
+                    .map_err(|e| log("get_default_library", e))
+                    .ok()
+            })
     }
     async fn set_library_default(&self, id: String) -> MutationResult {
         match self.store.set_library_default(id) {
@@ -1113,8 +1139,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .get_inbox_library()
             .ok()
             .flatten()
-            .as_ref()
-            .map(LibraryRecord::from)
+            .and_then(|row| {
+                self.library_record(&row)
+                    .map_err(|e| log("get_inbox_library", e))
+                    .ok()
+            })
     }
 
     async fn list_collections(&self, library_id: String) -> Vec<CollectionRecord> {

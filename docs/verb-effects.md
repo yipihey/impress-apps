@@ -161,7 +161,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_count-starred` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_count-unread` | "imbib/bibliography-entry" | — | — | example ×2 |
 | `imbib-library-service_create-collection` | "imbib/library" | "imbib/collection" | — | example ×1 |
-| `imbib-library-service_create-library` | "imbib/library" | "imbib/library" | — | example ×1 |
+| `imbib-library-service_create-library` | "imbib/library", "imbib/collection" | "imbib/library" | — | example ×1 |
 | `imbib-library-service_create-muted-item` | "imbib/muted-item" | "imbib/muted-item" | — | example ×1 |
 | `imbib-library-service_deduplicate-library` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_delete-library-undoable` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
@@ -170,8 +170,8 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_duplicate-publications` | "imbib/bibliography-entry", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/linked-file" | fs | — |
 | `imbib-library-service_export-all-bibtex` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_export-bibtex` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
-| `imbib-library-service_get-default-library` | "imbib/library", "imbib/bibliography-entry" | — | — | example ×2 |
-| `imbib-library-service_get-inbox-library` | "imbib/library", "imbib/bibliography-entry" | — | — | example ×2 |
+| `imbib-library-service_get-default-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
+| `imbib-library-service_get-inbox-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_get-publication` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_get-publication-detail` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/collection" | — | — | example ×1 |
 | `imbib-library-service_import-bibtex` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
@@ -181,7 +181,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
 | `imbib-library-service_list-collections` | "imbib/collection", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_list-dismissed-papers` | "imbib/dismissed-paper" | — | — | example ×1 |
-| `imbib-library-service_list-libraries` | "imbib/library", "imbib/bibliography-entry" | — | — | example ×2 |
+| `imbib-library-service_list-libraries` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_list-linked-files` | "imbib/linked-file" | — | — | example ×1 |
 | `imbib-library-service_list-muted-items` | "imbib/muted-item" | — | — | example ×2 |
 | `imbib-library-service_list-publications` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×2 |

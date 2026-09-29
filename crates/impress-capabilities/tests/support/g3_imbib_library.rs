@@ -30,6 +30,24 @@ pub async fn prepare(
     match (verb, example) {
         ("imbib-library-service_list-libraries", "reading-library-list") => {
             library(store, "67", "G3 listed library", false, false)?;
+            collection(store, "b1", "G3 listed collection one", "67")?;
+            collection(store, "b2", "G3 listed collection two", "67")?;
+            // This read-only remote library has a distinct schema and must
+            // not leak into the local-library list.
+            let item_id = uuid("b3")?;
+            reset(store, item_id)?;
+            let mut remote = super::seed_item(item_id, refs::IMBIB_SCIX_LIBRARY.as_str(), None);
+            remote.payload.insert(
+                "remote_id".into(),
+                ItemValue::String("g3-read-only-remote".into()),
+            );
+            remote
+                .payload
+                .insert("name".into(), ItemValue::String("G3 read-only SciX".into()));
+            remote
+                .payload
+                .insert("permission_level".into(), ItemValue::String("read".into()));
+            store.insert(remote).map_err(|e| e.to_string())?;
         }
         ("imbib-library-service_export-ris", "representative-ris-export") => {
             library(store, "c1", "G3 RIS export library", false, false)?;
@@ -571,7 +589,40 @@ pub fn verify(
 ) -> Result<(), String> {
     match (verb, example) {
         ("imbib-library-service_list-libraries", "reading-library-list") => {
-            require_row(result, &id("67"))?;
+            let rows = result.as_array().ok_or("expected a list of libraries")?;
+            let row = rows
+                .iter()
+                .find(|row| row["id"] == id("67"))
+                .ok_or("result omitted scratch library")?;
+            let stored = load(store, &id("67"))?.ok_or("scratch library disappeared")?;
+            let actual_collection_count =
+                collection_ops::list_tree_in(store, &IMBIB_COLLECTION, Some(&id("67")))
+                    .map_err(|e| e.to_string())?
+                    .len();
+            if stored.payload.get("name")
+                != Some(&ItemValue::String(
+                    row["name"].as_str().unwrap_or_default().into(),
+                ))
+                || row["collection_count"].as_u64() != Some(actual_collection_count as u64)
+                || actual_collection_count != 2
+                || row["is_default"] != false
+                || row["is_inbox"] != false
+                || row["publication_count"] != 0
+                || row["can_edit"] != true
+            {
+                return Err(format!(
+                    "generated library metadata did not match scratch store: {row}"
+                ));
+            }
+            if rows.iter().any(|row| row["id"] == id("b3")) {
+                return Err("read-only SciX library leaked into local library list".into());
+            }
+            let remote = load(store, &id("b3"))?.ok_or("read-only SciX fixture disappeared")?;
+            if remote.schema != refs::IMBIB_SCIX_LIBRARY
+                || remote.payload.get("permission_level") != Some(&ItemValue::String("read".into()))
+            {
+                return Err("read-only SciX permission fixture was not persisted".into());
+            }
         }
         ("imbib-library-service_export-ris", "representative-ris-export") => {
             let rows = store

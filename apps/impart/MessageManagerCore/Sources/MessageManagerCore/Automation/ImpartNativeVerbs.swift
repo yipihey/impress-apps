@@ -48,17 +48,40 @@ final class NativeImpartHost: ImpartNativeCallbacks, @unchecked Sendable {
             case "list_conversations":
                 let requested = args["limit"] as? Int ?? 20
                 let limit = max(1, min(requested == 0 ? 20 : requested, 1_000))
+                let requestedOffset = args["offset"] as? Int ?? 0
+                let offset = max(0, requestedOffset)
                 let includeArchived = args["include_archived"] as? Bool ?? false
-                let records = try await repository.fetchConversations(includeArchived: includeArchived)
-                    .prefix(limit).map(conversationRecord)
-                return success(records)
+                let query = (args["query"] as? String)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .flatMap { $0.isEmpty ? nil : $0 }
+                let all = try await repository.fetchConversations(includeArchived: includeArchived)
+                let matching = query.map { term in
+                    all.filter { conversation in
+                        conversation.title.localizedStandardContains(term)
+                            || (conversation.summaryText?.localizedStandardContains(term) ?? false)
+                    }
+                } ?? all
+                let page = Array(matching.dropFirst(offset).prefix(limit))
+                let records = page.map { conversationRecord($0) }
+                return success([
+                    "conversations": records,
+                    "count": records.count,
+                    "total": matching.count,
+                    "offset": offset,
+                    "limit": limit,
+                    "include_archived": includeArchived,
+                    "query": query as Any? ?? NSNull(),
+                ])
 
             case "get_conversation":
                 let id = try requiredUUID(args, "conversation_id")
-                if let conversation = try await repository.fetchConversation(id: id) {
-                    return success(conversationRecord(conversation))
+                guard let conversation = try await repository.fetchConversation(id: id) else {
+                    return failure(404, "not-found", "Research conversation was not found")
                 }
-                return success(NSNull())
+                let messages = try await repository.fetchMessages(for: id)
+                let statistics = try await repository.getStatistics(for: id)
+                return success(conversationRecord(
+                    conversation, messages: messages, statistics: statistics))
 
             case "create_conversation":
                 let title = try requiredString(args, "title")
@@ -207,14 +230,59 @@ private func requiredUUID(_ args: [String: Any], _ key: String) throws -> UUID {
     return id
 }
 
-private func conversationRecord(_ conversation: ResearchConversation) -> [String: Any] {
+private func conversationRecord(
+    _ conversation: ResearchConversation,
+    messages: [ResearchMessage]? = nil,
+    statistics: ResearchConversationSummary? = nil
+) -> [String: Any] {
     let formatter = ISO8601DateFormatter()
-    return ["id": conversation.id.uuidString, "title": conversation.title,
-            "summary": conversation.summaryText ?? NSNull(),
-            "message_count": conversation.messageCount,
-            "created_at": formatter.string(from: conversation.createdAt),
-            "updated_at": formatter.string(from: conversation.lastActivityAt),
-            "archived": conversation.isArchived]
+    var record: [String: Any] = [
+        "id": conversation.id.uuidString,
+        "title": conversation.title,
+        "summary": conversation.summaryText as Any? ?? NSNull(),
+        "message_count": conversation.messageCount,
+        "created_at": formatter.string(from: conversation.createdAt),
+        "updated_at": formatter.string(from: conversation.lastActivityAt),
+        "archived": conversation.isArchived,
+        "participants": conversation.participants,
+        "tags": conversation.tags,
+        "parent_conversation_id": conversation.parentConversationId?.uuidString as Any? ?? NSNull(),
+        "last_activity_at": formatter.string(from: conversation.lastActivityAt),
+        "summary_text": conversation.summaryText ?? "",
+    ]
+    if let messages {
+        record["messages"] = messages.map(detailMessageRecord)
+    }
+    if let statistics {
+        record["statistics"] = [
+            "message_count": statistics.messageCount,
+            "human_message_count": statistics.humanMessageCount,
+            "counsel_message_count": statistics.counselMessageCount,
+            "artifact_count": statistics.artifactCount,
+            "paper_count": statistics.paperCount,
+            "repository_count": statistics.repositoryCount,
+            "total_tokens": statistics.totalTokens,
+            "duration": statistics.duration,
+            "branch_count": statistics.branchCount,
+        ]
+    }
+    return record
+}
+
+private func detailMessageRecord(_ message: ResearchMessage) -> [String: Any] {
+    let record: [String: Any] = [
+        "id": message.id.uuidString,
+        "sequence": message.sequence,
+        "sender_role": message.senderRole.rawValue,
+        "sender_id": message.senderId,
+        "model_used": message.modelUsed as Any? ?? NSNull(),
+        "content_markdown": message.contentMarkdown,
+        "sent_at": ISO8601DateFormatter().string(from: message.sentAt),
+        "token_count": message.tokenCount as Any? ?? NSNull(),
+        "processing_duration_ms": message.processingDurationMs as Any? ?? NSNull(),
+        "mentioned_artifact_uris": message.mentionedArtifactURIs,
+    ]
+    return record
 }
 
 private func messageRecord(_ message: ResearchMessage) -> [String: Any] {
