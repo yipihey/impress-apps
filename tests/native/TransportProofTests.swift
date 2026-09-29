@@ -244,11 +244,6 @@ final class TransportProofTests: XCTestCase {
                                          "fractional date papers")
         try require(generatedFuture.isEmpty && legacyFutureRows.isEmpty,
                     "both transports apply fractional timestamp bounds")
-    }
-
-    private func searchResultIDs(_ values: [Any]) -> [String] {
-        values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
-
         let legacyResolution = try await request(base, bearer, "/api/papers/resolve", [
             "query": key, "library": libraryID, "download_pdfs": false
         ])
@@ -332,6 +327,10 @@ final class TransportProofTests: XCTestCase {
         try require(generatedLimited.count == 1 && legacyLimited.status == 200 &&
                     legacyLimitedTags.count == 1 && generatedLimitedPath == legacyLimitedPath,
                     "both surfaces apply the same limit without reordering")
+    }
+
+    private func searchResultIDs(_ values: [Any]) -> [String] {
+        values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
     }
 
     private func proveImprint(_ base: String, _ bearer: String) async throws {

@@ -109,6 +109,7 @@ catalogue, 300 on the exception table.
 | `imbib-app-service_get-notes` | — | — | app("imbib") | — |
 | `imbib-app-service_open-manuscript-papers` | — | — | app("imbib") | — |
 | `imbib-app-service_recent-activity` | — | — | app("imbib") | — |
+| `imbib-app-service_resolve-citation` | — | — | app("imbib") | — |
 | `imbib-app-service_resolve-identifier` | — | — | app("imbib") | — |
 | `imbib-app-service_search-sources` | — | — | app("imbib") | — |
 | `imbib-app-service_status` | — | — | app("imbib") | — |
@@ -351,6 +352,7 @@ catalogue, 300 on the exception table.
 | `impress-workflow-service_workflow-get` | "impress/workflow@1.0.0" | — | — | example ×1 |
 | `impress-workflow-service_workflow-list` | "impress/workflow@1.0.0" | — | — | example ×1 |
 | `impress-workflow-service_workflow-validate` | — | — | — | example ×1 |
+| `imprint-app-service_accept-comment-suggestion` | — | — | app("imprint") | — |
 | `imprint-app-service_create-comment` | — | — | app("imprint") | — |
 | `imprint-app-service_create-document` | — | — | app("imprint") | — |
 | `imprint-app-service_delete-comment` | — | — | app("imprint") | — |
@@ -361,6 +363,7 @@ catalogue, 300 on the exception table.
 | `imprint-app-service_get-pdf` | — | — | app("imprint") | — |
 | `imprint-app-service_insert-text` | — | — | app("imprint") | — |
 | `imprint-app-service_list-comments` | — | — | app("imprint") | — |
+| `imprint-app-service_reject-comment-suggestion` | — | — | app("imprint") | — |
 | `imprint-app-service_replace` | — | — | app("imprint") | — |
 | `imprint-app-service_status` | — | — | app("imprint") | — |
 | `imprint-app-service_update-comment` | — | — | app("imprint") | — |
@@ -578,6 +581,7 @@ when one lands).
 | `imbib-app-service_get-notes` | needs a running app |
 | `imbib-app-service_open-manuscript-papers` | needs a running app |
 | `imbib-app-service_recent-activity` | needs a running app |
+| `imbib-app-service_resolve-citation` | needs a running app |
 | `imbib-app-service_resolve-identifier` | needs a running app |
 | `imbib-app-service_search-sources` | needs a running app |
 | `imbib-app-service_status` | needs a running app |
@@ -660,6 +664,7 @@ when one lands).
 | `impress-bridges-service_list-available-figures` | needs a running app |
 | `impress-bridges-service_sync-figure` | needs a running app |
 | `impress-scenario-service_scenario-run` | leaves the process (network) |
+| `imprint-app-service_accept-comment-suggestion` | needs a running app |
 | `imprint-app-service_create-comment` | needs a running app |
 | `imprint-app-service_create-document` | needs a running app |
 | `imprint-app-service_delete-comment` | needs a running app |
@@ -670,6 +675,7 @@ when one lands).
 | `imprint-app-service_get-pdf` | needs a running app |
 | `imprint-app-service_insert-text` | needs a running app |
 | `imprint-app-service_list-comments` | needs a running app |
+| `imprint-app-service_reject-comment-suggestion` | needs a running app |
 | `imprint-app-service_replace` | needs a running app |
 | `imprint-app-service_status` | needs a running app |
 | `imprint-app-service_update-comment` | needs a running app |
