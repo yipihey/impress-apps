@@ -318,6 +318,14 @@ async fn run_call(
     }
 
     for (name, path) in &call_step.capture {
+        let resolved_path = template::resolve(&Value::String(path.clone()), captures_value)
+            .map_err(|e| format!("step {index} (`{}`) capture `{name}`: {e}", call_step.call))?;
+        let path = resolved_path.as_str().ok_or_else(|| {
+            format!(
+                "step {index} (`{}`) capture `{name}` path did not resolve to a string",
+                call_step.call
+            )
+        })?;
         let captured = json_path_get(&outcome.result, path).ok_or_else(|| {
             format!(
                 "step {index} (`{}`): capture `{name}` path `{path}` did not resolve",

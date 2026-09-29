@@ -20,6 +20,9 @@ impl Caller for Fixture {
         let result = match verb {
             "unavailable" => return Err("owned host unavailable".into()),
             "refusal" => json!({"ok":false,"code":"forbidden"}),
+            "tree" => {
+                json!({"layout":{"tiles":{"42":{"pane":{"session":"{{state.unresolved}}"}}}}})
+            }
             "store-query-service_list-items" => {
                 let start = args["offset"].as_u64().unwrap();
                 let end = (start + args["limit"].as_u64().unwrap()).min(102);
@@ -350,6 +353,37 @@ fn gt_preserves_order_between_integer_and_float_representations() {
             report.detail
         );
     }
+}
+
+#[test]
+fn capture_paths_resolve_prior_tile_ids_without_retemplating_captured_values() {
+    let s = scenario(json!([
+        {"call":"echo","args":{"focused":42},"capture":{"tile":"$.focused"}},
+        {"call":"tree","capture":{"session":"$.layout.tiles.{{state.tile}}.pane.session"}},
+        {"call":"echo","args":{"session":"{{!state.unresolved}}"},
+            "expect":{"fields":[{"path":"session","equals":"{{state.session}}"}]}}
+    ]));
+    assert!(validate(&s).is_empty());
+    let report = execute(&s, &mut Fixture::default());
+    assert!(report.pass, "{}", report.detail);
+}
+
+#[test]
+fn capture_path_references_must_precede_the_capture_step() {
+    let s = scenario(json!([{"call":"echo","args":{"focused":42},
+        "capture":{"tile":"$.focused",
+            "session":"$.layout.tiles.{{state.tile}}.pane.session"}}]));
+    let problems = validate(&s);
+    assert!(problems
+        .iter()
+        .any(|problem| problem.message.contains("state.tile")));
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(!report.pass);
+    assert!(
+        f.calls.is_empty(),
+        "current-step captures are not prior state"
+    );
 }
 
 #[test]

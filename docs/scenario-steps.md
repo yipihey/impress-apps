@@ -16,6 +16,13 @@ call step. Refused gestures fail before captures are stored:
 }
 ```
 
+Call capture paths may include earlier captured values when a JSON object key
+is dynamic. For example, after capturing a tile ID from `$.focused`, a later
+`get-layout` call can capture `$.layout.tiles.{{state.tile}}.pane.session`.
+The resolved path is still the same literal dotted JSON path walk; it has no
+selectors or expressions. Capture references must come from an earlier step,
+and captured values are not interpreted recursively after insertion.
+
 `wait.log_cursor` captures the current server timestamp for a later log wait.
 Capture it immediately before the mutation whose log line you need to observe:
 
