@@ -15,12 +15,10 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 | imbib | `POST /api/papers/add`, `POST /api/papers/resolve` in `ImbibBridge` | `import-papers` accepts BibTeX-backed `PaperImport`, not arbitrary identifiers plus target collection/PDF preference or per-paper failures. `resolve-identifier` accepts a string, not the bridge's structured citation and ranked candidates. |
 | imbib | `GET /api/libraries`, `GET /api/collections` in `ImbibBridge` | `list-libraries` omits collection count and sharing; `list-collections` requires a library ID while the HTTP route lists across libraries with names. |
 | imbib | `GET /api/export?keys=...&format=ris` | The canonical `export-bibtex` verb cannot produce RIS. The old route now accepts only explicit `format=ris`; BibTeX uses the verb. |
-| imprint | `GET /api/documents` and `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | `list-documents` omits word count and last modification; no verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
+| imprint | `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | No verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
 | imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers acknowledge queued editor operations and return an `operationId`. `/update` also accepts full source, and `/replace` supports replacing only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. Keep them pending the caller and contract decision. |
-| imprint | `GET/POST /api/documents/{id}/comments`, `PATCH/DELETE /api/comments/{id}`, and `POST /api/comments/{id}/accept|reject` | The HTTP comment routes carry filters, threaded replies, proposed text, agent attribution, and suggestion actions that the present comment verbs do not all represent. In particular, `update-comment` explicitly refuses accepted/rejected status rather than claiming a suggestion was applied. |
 | implore | `GET /api/rg/slice/png`, `/api/rg/cascade_plot`, `/api/plot/svg`, and `/api/plot/histogram` | These routes accept viewer query/body options or return raw image/SVG data. A string result does not preserve binary HTTP response behavior. |
 | impart | `POST /api/research/conversations`, `/{id}/messages`, `/{id}/branch`, `/{id}/artifacts`, `/{id}/decisions`; `PATCH /api/research/conversations/{id}`, `/{id}/archive` | These legacy routes queue UI operations and return queue acknowledgements. The native verbs perform writes before returning. The HTTP routes also accept fields absent from the verb signatures: participants, sender ID/causation ID, branch message ID, artifact URI/type/display name, tags, and archive. No verb represents archive. |
-| imprint | `GET /api/documents/{id}` in impart's `ArtifactResolver` | `get-document` returns id/title/format, but the resolver's `DocumentArtifactData` requires lastModified and can carry version/preview text. Retaining the route is necessary until that read is represented. |
 
 The exact equivalent bridge operations now use verbs: imbib BibTeX export and
 library creation, imprint document content composed from `get-document` plus
@@ -36,6 +34,16 @@ record CRUD, membership, and counts.
 Imprint's `POST /api/documents/create` arm was also removed: it returned a
 new UUID without persisting a manuscript, while the native `create-document`
 verb commits one to the shared store. No production Swift caller used that URL.
+Imprint also retired `GET /api/documents`, `GET /api/documents/{id}`, and the
+comment list/create/update/delete/accept/reject registrations after moving
+their production reads and writes to generated verbs. The hosted fixture keeps
+the seeded behavior on those verbs and asserts the retired HTTP paths return
+404. Their private handlers remain for the native verb callbacks. The manual
+`apps/imprint/test-imprint-api.sh` harness now uses generated document
+create/list/detail contracts and retains checks for distinct platform routes.
+It requires explicit isolated-host opt-in and the loopback bearer; the target
+must use a PID-owned scratch workspace. It has no comment-route requests;
+comment lifecycle and retired-path checks remain in the hosted proof.
 The shared `SiblingBridge` reads the per-launch token for POST and decodes the
 raw result. Keep private Swift handlers invoked by native callbacks even when
 the corresponding HTTP `if` arm is removed.

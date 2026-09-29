@@ -25,8 +25,6 @@ import OSLog
 /// Runs on `127.0.0.1:23121` (localhost only for security).
 /// Provides endpoints for:
 /// - `GET /api/status` - Server health
-/// - `GET /api/documents` - List open documents
-/// - `GET /api/documents/{id}` - Get document content/metadata
 /// - `POST /api/documents/{id}/compile` - Compile to PDF
 /// - `POST /api/documents/{id}/insert-citation` - Insert citation
 ///

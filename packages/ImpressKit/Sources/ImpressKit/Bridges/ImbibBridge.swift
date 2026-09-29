@@ -1,12 +1,10 @@
 import Foundation
 
-/// Typed bridge for communicating with imbib (bibliography manager) via its HTTP API.
+/// Typed bridge for communicating with imbib (bibliography manager).
 ///
-/// All methods use `SiblingBridge.shared` to send HTTP requests to imbib's
-/// automation server on `localhost:23120` (see `/api/status` for health).
-///
-/// Response bodies are wrapped in `{status, ...}` envelopes on the server side;
-/// this bridge unwraps them so callers see plain result types.
+/// Methods backed by generated service capabilities use `SiblingBridge`'s
+/// authenticated loopback verb transport. Remaining legacy reads are being
+/// migrated separately.
 public struct ImbibBridge: Sendable {
 
     // MARK: - Availability
@@ -86,14 +84,21 @@ public struct ImbibBridge: Sendable {
     /// Search external sources (ADS, arXiv, Crossref, PubMed, OpenAlex, …) for papers
     /// not already in the library. `source` restricts to a single provider when non-nil.
     public static func searchExternal(query: String, source: String? = nil, limit: Int = 20) async throws -> [ImbibExternalCandidate] {
-        var q = ["q": query, "limit": String(limit)]
-        if let source { q["source"] = source }
-        let env: ExternalSearchEnvelope = try await SiblingBridge.shared.get(
-            "/api/search/external",
-            from: .imbib,
-            query: q
+        try await searchExternal(query: query, source: source, limit: limit, using: .shared)
+    }
+
+    static func searchExternal(
+        query: String,
+        source: String?,
+        limit: Int,
+        using bridge: SiblingBridge
+    ) async throws -> [ImbibExternalCandidate] {
+        let papers: [ExternalPaperVerbResult] = try await bridge.callVerb(
+            "imbib-app-service_search-sources",
+            on: .imbib,
+            arguments: ["query": query, "sources": source.map { $0 as Any } ?? NSNull(), "limit": limit]
         )
-        return env.results
+        return papers.map(\.candidate)
     }
 
     // MARK: - BibTeX export
@@ -174,21 +179,46 @@ public struct ImbibBridge: Sendable {
         collection: UUID? = nil,
         downloadPDFs: Bool = false
     ) async throws -> AddPapersResult {
-        let body = AddPapersRequest(
+        try await addPapers(
             identifiers: identifiers,
-            library: library?.uuidString,
-            collection: collection?.uuidString,
-            downloadPDFs: downloadPDFs
+            library: library,
+            collection: collection,
+            downloadPDFs: downloadPDFs,
+            using: .shared
         )
-        return try await SiblingBridge.shared.post("/api/papers/add", to: .imbib, body: body)
+    }
+
+    static func addPapers(
+        identifiers: [String],
+        library: UUID?,
+        collection: UUID?,
+        downloadPDFs: Bool,
+        using bridge: SiblingBridge
+    ) async throws -> AddPapersResult {
+        let wire: IdentifierImportVerbResult = try await bridge.callVerb(
+            "imbib-library-service_import-identifiers",
+            on: .imbib,
+            arguments: [
+                "identifiers": identifiers,
+                "library_id": library.map { $0.uuidString as Any } ?? NSNull(),
+                "collection_id": collection.map { $0.uuidString as Any } ?? NSNull(),
+                "download_pdfs": downloadPDFs
+            ]
+        )
+        return AddPapersResult(
+            added: wire.added,
+            rawAddedRecords: wire.rawAddedRecords,
+            duplicates: wire.duplicates,
+            failed: wire.failed.map { AddPapersResult.Failed(identifier: $0.key, error: $0.value) }
+        )
     }
 
     // MARK: - Structured citation resolve
 
     /// Resolve a structured citation (typed input) via imbib's search stack.
     ///
-    /// Delegates to `POST /api/papers/resolve` with the `citation` JSON field
-    /// set. Imbib handles LaTeX decoding, identifier extraction, local
+    /// Delegates to imbib's generated app-service capability with the
+    /// structured `citation` field set. Imbib handles LaTeX decoding, identifier extraction, local
     /// lookup, identifier-based import, and a ranked ADS-first / all-sources
     /// fallback search — the caller just hands over structured fields and
     /// receives either a single paper or a ranked candidate list.
@@ -199,15 +229,26 @@ public struct ImbibBridge: Sendable {
         library: UUID? = nil,
         downloadPDFs: Bool = false
     ) async throws -> ImbibResolveResponse {
-        let body = ResolveRequest(
-            citation: input,
-            library: library?.uuidString,
-            downloadPDFs: downloadPDFs
-        )
-        return try await SiblingBridge.shared.post(
-            "/api/papers/resolve",
-            to: .imbib,
-            body: body
+        try await resolveCitation(input, library: library, downloadPDFs: downloadPDFs, using: .shared)
+    }
+
+    static func resolveCitation(
+        _ input: ImbibCitationInput,
+        library: UUID?,
+        downloadPDFs: Bool,
+        using bridge: SiblingBridge
+    ) async throws -> ImbibResolveResponse {
+        let citation = try JSONSerialization.jsonObject(with: JSONEncoder().encode(input))
+        return try await bridge.callVerb(
+            "imbib-app-service_resolve-citation",
+            on: .imbib,
+            arguments: [
+                "query": NSNull(),
+                "bibtex": NSNull(),
+                "citation": citation,
+                "library_id": library.map { $0.uuidString as Any } ?? NSNull(),
+                "download_pdfs": downloadPDFs
+            ]
         )
     }
 
@@ -216,20 +257,12 @@ public struct ImbibBridge: Sendable {
     /// List all libraries. `isInbox`-flagged libraries are included — filter client-side
     /// if you want to hide them from a picker.
     public static func listLibraries() async throws -> [ImbibLibrary] {
-        let env: LibrariesEnvelope = try await SiblingBridge.shared.get(
-            "/api/libraries",
-            from: .imbib
-        )
-        return env.libraries
+        try await ImbibContainerVerbBridge(bridge: .shared).listLibraries()
     }
 
     /// List all collections. Smart-collections are included; filter client-side if needed.
     public static func listCollections() async throws -> [ImbibCollection] {
-        let env: CollectionsEnvelope = try await SiblingBridge.shared.get(
-            "/api/collections",
-            from: .imbib
-        )
-        return env.collections
+        try await ImbibContainerVerbBridge(bridge: .shared).listCollections()
     }
 
     /// Create a new library and return its id.
@@ -248,6 +281,85 @@ public struct ImbibBridge: Sendable {
 
 private struct CreatedLibraryID: Decodable, Sendable {
     let id: String
+}
+
+struct ImbibContainerVerbBridge: Sendable {
+    let bridge: SiblingBridge
+
+    func listLibraries() async throws -> [ImbibLibrary] {
+        let rows: [VerbLibraryRecord] = try await bridge.callVerb(
+            "imbib-library-service_list-libraries", on: .imbib)
+        return rows.map(\.publicValue)
+    }
+
+    /// The generated list verb is scoped to one library. Compose the historical
+    /// all-libraries result in the same library/collection order as the route.
+    func listCollections() async throws -> [ImbibCollection] {
+        let libraries: [VerbLibraryRecord] = try await bridge.callVerb(
+            "imbib-library-service_list-libraries", on: .imbib)
+        var collections: [ImbibCollection] = []
+        for library in libraries {
+            let rows: [VerbCollectionRecord] = try await bridge.callVerb(
+                "imbib-library-service_list-collections",
+                on: .imbib,
+                arguments: ["library_id": library.id])
+            collections.append(contentsOf: rows.map { $0.publicValue(library: library) })
+        }
+        return collections
+    }
+}
+
+private struct VerbLibraryRecord: Decodable, Sendable {
+    let id: String
+    let name: String
+    let isDefault: Bool
+    let isInbox: Bool
+    let publicationCount: Int32
+    let collectionCount: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case isDefault = "is_default"
+        case isInbox = "is_inbox"
+        case publicationCount = "publication_count"
+        case collectionCount = "collection_count"
+    }
+
+    var publicValue: ImbibLibrary {
+        ImbibLibrary(
+            id: id,
+            name: name,
+            paperCount: Int(publicationCount),
+            collectionCount: Int(collectionCount),
+            isDefault: isDefault,
+            isInbox: isInbox,
+            isShared: nil)
+    }
+}
+
+private struct VerbCollectionRecord: Decodable, Sendable {
+    let id: String
+    let name: String
+    let libraryID: String?
+    let isSmart: Bool
+    let publicationCount: Int32
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case libraryID = "library_id"
+        case isSmart = "is_smart"
+        case publicationCount = "publication_count"
+    }
+
+    func publicValue(library: VerbLibraryRecord) -> ImbibCollection {
+        ImbibCollection(
+            id: id,
+            name: name,
+            paperCount: Int(publicationCount),
+            isSmartCollection: isSmart,
+            libraryID: libraryID ?? library.id,
+            libraryName: library.name)
+    }
 }
 
 /// Optional local publication filters accepted by imbib's generated search
@@ -414,9 +526,8 @@ public struct ImbibPaper: Codable, Sendable, Identifiable, Hashable {
 /// not yet in the imbib library. Feed `identifier` to `addPapers` to import it.
 ///
 /// The decoder tolerates two server response shapes:
-///   - `authors`: a single joined string (what `/api/search` returns for
-///     library hits), OR an array of strings (what `/api/search/external`
-///     returns for ADS / Crossref / OpenAlex results).
+///   - `authors`: a single joined string (what the library search returns), OR
+///     an array of strings (what the generated external search returns).
 ///   - `identifier`: optional, since some sources don't produce a clean
 ///     `bestIdentifier` (e.g. a hit with no DOI/arXiv/bibcode). Falls back
 ///     to the sourceID + title when absent.
@@ -509,9 +620,12 @@ public struct ImbibCollection: Codable, Sendable, Identifiable, Hashable {
     public let libraryName: String?
 }
 
-/// Result of a `POST /api/papers/add` call.
+/// Result of imbib's identifier-import capability.
 public struct AddPapersResult: Codable, Sendable {
     public let added: [ImbibPaper]
+    /// Complete result dictionaries returned by imbib, including fields that
+    /// the stable `ImbibPaper` convenience model does not currently expose.
+    public let rawAddedRecords: [ImbibRawJSON]
     public let duplicates: [String]
     public let failed: [Failed]
 
@@ -524,11 +638,19 @@ public struct AddPapersResult: Codable, Sendable {
     public var duplicateCount: Int { duplicates.count }
     public var failedCount: Int { failed.count }
 
+    init(added: [ImbibPaper], rawAddedRecords: [ImbibRawJSON], duplicates: [String], failed: [Failed]) {
+        self.added = added
+        self.rawAddedRecords = rawAddedRecords
+        self.duplicates = duplicates
+        self.failed = failed
+    }
+
     private enum CodingKeys: String, CodingKey { case added, duplicates, failed }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.added = try c.decodeIfPresent([ImbibPaper].self, forKey: .added) ?? []
+        self.rawAddedRecords = try c.decodeIfPresent([ImbibRawJSON].self, forKey: .added) ?? []
         // `duplicates` may be a bare [String] of cite keys or [dict]; tolerate both.
         if let s = try? c.decodeIfPresent([String].self, forKey: .duplicates) {
             self.duplicates = s
@@ -549,7 +671,11 @@ public struct AddPapersResult: Codable, Sendable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(added, forKey: .added)
+        if rawAddedRecords.isEmpty {
+            try c.encode(added.map { try ImbibRawJSON.paper($0) }, forKey: .added)
+        } else {
+            try c.encode(rawAddedRecords, forKey: .added)
+        }
         try c.encode(duplicates, forKey: .duplicates)
         try c.encode(failed, forKey: .failed)
     }
@@ -696,6 +822,10 @@ public struct ImbibResolveResponse: Decodable, Sendable {
     public let via: String
     public let paper: ImbibPaper?
     public let candidates: [ImbibRankedCandidate]?
+    /// Complete server dictionaries. The typed fields above remain convenient
+    /// for existing UI callers; these preserve route-specific metadata.
+    public let rawPaper: ImbibRawJSON?
+    public let rawCandidates: [ImbibRawJSON]?
     public let reason: String?
 
     public init(
@@ -703,48 +833,147 @@ public struct ImbibResolveResponse: Decodable, Sendable {
         via: String,
         paper: ImbibPaper? = nil,
         candidates: [ImbibRankedCandidate]? = nil,
+        rawPaper: ImbibRawJSON? = nil,
+        rawCandidates: [ImbibRawJSON]? = nil,
         reason: String? = nil
     ) {
         self.status = status
         self.via = via
         self.paper = paper
         self.candidates = candidates
+        self.rawPaper = rawPaper
+        self.rawCandidates = rawCandidates
         self.reason = reason
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "ok"
+        via = try container.decode(String.self, forKey: .via)
+        rawPaper = try container.decodeIfPresent(ImbibRawJSON.self, forKey: .paper)
+        rawCandidates = try container.decodeIfPresent([ImbibRawJSON].self, forKey: .candidates)
+        paper = try container.decodeIfPresent(ImbibPaper.self, forKey: .paper)
+        candidates = try container.decodeIfPresent([ImbibRankedCandidate].self, forKey: .candidates)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+    }
+
+    private enum CodingKeys: String, CodingKey { case status, via, paper, candidates, reason }
 }
 
-// MARK: - Request bodies
+/// JSON value used where generated service results intentionally preserve an
+/// open dictionary. This keeps newer server fields available without forcing
+/// every caller to understand their shape.
+public enum ImbibRawJSON: Codable, Sendable, Hashable {
+    case object([String: ImbibRawJSON])
+    case array([ImbibRawJSON])
+    case string(String)
+    case integer(Int64)
+    case number(Double)
+    case bool(Bool)
+    case null
 
-private struct ResolveRequest: Encodable, Sendable {
-    let citation: ImbibCitationInput
-    let library: String?
-    let downloadPDFs: Bool
+    public init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: DynamicKey.self) {
+            var object: [String: ImbibRawJSON] = [:]
+            for key in container.allKeys {
+                object[key.stringValue] = try container.decode(ImbibRawJSON.self, forKey: key)
+            }
+            self = .object(object)
+        } else if var container = try? decoder.unkeyedContainer() {
+            var values: [ImbibRawJSON] = []
+            while !container.isAtEnd { values.append(try container.decode(ImbibRawJSON.self)) }
+            self = .array(values)
+        } else {
+            let container = try decoder.singleValueContainer()
+            if container.decodeNil() { self = .null }
+            else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+            else if let value = try? container.decode(Int64.self) { self = .integer(value) }
+            else if let value = try? container.decode(Double.self) { self = .number(value) }
+            else { self = .string(try container.decode(String.self)) }
+        }
+    }
 
-    private enum CodingKeys: String, CodingKey {
-        case citation, library
-        case downloadPDFs = "download_pdfs"
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .object(let values):
+            var container = encoder.container(keyedBy: DynamicKey.self)
+            for (key, value) in values {
+                try container.encode(value, forKey: DynamicKey(stringValue: key)!)
+            }
+        case .array(let values):
+            var container = encoder.unkeyedContainer()
+            for value in values { try container.encode(value) }
+        case .string(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+        case .integer(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+        case .number(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+        case .bool(let value): var container = encoder.singleValueContainer(); try container.encode(value)
+        case .null: var container = encoder.singleValueContainer(); try container.encodeNil()
+        }
+    }
+
+    fileprivate static func paper(_ paper: ImbibPaper) throws -> ImbibRawJSON {
+        try JSONDecoder().decode(ImbibRawJSON.self, from: JSONEncoder().encode(paper))
     }
 }
 
-private struct AddPapersRequest: Encodable, Sendable {
-    let identifiers: [String]
-    let library: String?
-    let collection: String?
-    let downloadPDFs: Bool
+private struct DynamicKey: CodingKey, Hashable {
+    let stringValue: String
+    let intValue: Int?
+    init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+    init?(intValue: Int) { self.stringValue = String(intValue); self.intValue = intValue }
 }
 
 // MARK: - Response envelopes (internal)
 
-private struct ExternalSearchEnvelope: Decodable, Sendable {
-    let results: [ImbibExternalCandidate]
+private struct ExternalPaperVerbResult: Decodable, Sendable {
+    let title: String
+    let identifier: String?
+    let authors: [String]
+    let year: Int?
+    let venue: String?
+    let doi: String?
+    let arxivID: String?
+    let bibcode: String?
+    let abstractText: String?
+    let source: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case title, identifier, authors, year, venue, doi, bibcode, source
+        case arxivID = "arxiv_id"
+        case abstractText = "abstract_text"
+    }
+
+    var candidate: ImbibExternalCandidate {
+        ImbibExternalCandidate(
+            title: title,
+            authors: authors.joined(separator: ", "),
+            venue: venue,
+            abstract: abstractText,
+            year: year,
+            sourceID: source ?? "",
+            identifier: identifier ?? "",
+            doi: doi,
+            arxivID: arxivID,
+            bibcode: bibcode
+        )
+    }
 }
 
-private struct LibrariesEnvelope: Decodable, Sendable {
-    let libraries: [ImbibLibrary]
-}
+private struct IdentifierImportVerbResult: Decodable, Sendable {
+    let added: [ImbibPaper]
+    let rawAddedRecords: [ImbibRawJSON]
+    let duplicates: [String]
+    let failed: [String: String]
 
-private struct CollectionsEnvelope: Decodable, Sendable {
-    let collections: [ImbibCollection]
+    private enum CodingKeys: String, CodingKey { case added, duplicates, failed }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rawAddedRecords = try container.decodeIfPresent([ImbibRawJSON].self, forKey: .added) ?? []
+        added = try container.decodeIfPresent([ImbibPaper].self, forKey: .added) ?? []
+        duplicates = try container.decodeIfPresent([String].self, forKey: .duplicates) ?? []
+        failed = try container.decodeIfPresent([String: String].self, forKey: .failed) ?? [:]
+    }
 }
 
 private struct ImbibPublicationSummary: Decodable, Sendable {

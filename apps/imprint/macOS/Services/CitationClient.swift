@@ -3,7 +3,7 @@
 //  imprint
 //
 //  Thin adapter that delegates citation resolution to imbib's structured
-//  `/api/papers/resolve` endpoint via `ImbibBridge.resolveCitation`.
+//  generated `resolve-citation` capability via `ImbibBridge.resolveCitation`.
 //
 //  Replaces the old `CitationResolver` + ~400 lines of ad-hoc LaTeX /
 //  query-syntax / identifier-extraction code that used to live in imprint.
