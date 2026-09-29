@@ -193,6 +193,18 @@ pub struct FigureArtifactInfo {
     pub height: u32,
 }
 
+/// Rendered bytes for a figure export. The file path remains available for
+/// local callers that can open it; `data` carries the actual PNG or SVG to
+/// remote/generated callers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FigureExport {
+    pub path: String,
+    pub sha256: String,
+    #[serde(alias = "mimeType")]
+    pub mime_type: String,
+    pub data: Vec<u8>,
+}
+
 /// What `create-figure` answers: the figure and its stored artifact, or
 /// `ok: false` and an `error` saying why nothing was created.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -389,6 +401,20 @@ pub trait ImploreService: Send + Sync + 'static {
     )]
     async fn export_figure(&self, figure_id: String, format: String) -> Option<String>;
 
+    /// Render a figure and return both its local artifact path and bytes.
+    /// Width and height override the figure's logical size; scale is pixels
+    /// per point for PNG output. A supplied view state is rendered directly.
+    #[impress_method]
+    async fn export_figure_data(
+        &self,
+        figure_id: String,
+        format: String,
+        width: Option<u32>,
+        height: Option<u32>,
+        scale: Option<f64>,
+        view_state: Option<String>,
+    ) -> FigureExport;
+
     /// Plot one or more named series and return the rendered SVG.
     #[impress_method]
     #[impress_example(
@@ -565,6 +591,23 @@ impl ImploreService for DefaultImploreService {
         refuse("export_figure");
         None
     }
+    async fn export_figure_data(
+        &self,
+        _figure_id: String,
+        _format: String,
+        _width: Option<u32>,
+        _height: Option<u32>,
+        _scale: Option<f64>,
+        _view_state: Option<String>,
+    ) -> FigureExport {
+        refuse("export_figure_data");
+        FigureExport {
+            path: String::new(),
+            sha256: String::new(),
+            mime_type: String::new(),
+            data: Vec::new(),
+        }
+    }
     async fn plot_series(&self, _series: Vec<String>, _title: Option<String>) -> Option<String> {
         refuse("plot_series");
         None
@@ -730,6 +773,20 @@ impress_service_impl! {
             /// Output format: `png`, `pdf`, or `svg`.
             format: String
         ) -> Option<String>,
+        export_figure_data(
+            /// Figure ID to export from the running host.
+            figure_id: String,
+            /// Output format: `png` or `svg`.
+            format: String,
+            /// Logical output width in points, or the figure's current width.
+            width: Option<u32>,
+            /// Logical output height in points, or the figure's current height.
+            height: Option<u32>,
+            /// Raster pixels per point; ignored for SVG. Defaults to 2.
+            scale: Option<f64>,
+            /// Optional complete figure view-state JSON to render.
+            view_state: Option<String>
+        ) -> FigureExport,
         plot_series(
             /// Names of the series to render from the current dataset.
             series: Vec<String>,
@@ -787,8 +844,33 @@ mod tests {
             .expect("create-figure is in the inventory")
     }
 
+    fn export_figure_data_tool() -> &'static impress_service_core::McpToolDescriptor {
+        impress_service_core::McpToolDescriptor::iter()
+            .find(|tool| tool.name == "implore-service_export-figure-data")
+            .expect("binary figure export is in the generated inventory")
+    }
+
     fn schema() -> Value {
         (create_figure_tool().input_schema)()
+    }
+
+    #[test]
+    fn binary_export_schema_keeps_render_options_optional_and_returns_bytes() {
+        let schema = (export_figure_data_tool().input_schema)();
+        let properties = &schema["properties"];
+        assert_eq!(properties["figure_id"]["type"], "string");
+        assert_eq!(properties["format"]["type"], "string");
+        assert_eq!(properties["width"]["type"], json!(["integer", "null"]));
+        assert_eq!(properties["height"]["type"], json!(["integer", "null"]));
+        assert_eq!(properties["scale"]["type"], json!(["number", "null"]));
+        assert_eq!(properties["view_state"]["type"], json!(["string", "null"]));
+        assert_eq!(schema["required"], json!(["figure_id", "format"]));
+        let output_schema = (export_figure_data_tool().verb.output_schema)();
+        assert_eq!(output_schema["properties"]["data"]["type"], "array");
+        assert_eq!(
+            output_schema["properties"]["data"]["items"]["type"],
+            "integer"
+        );
     }
 
     fn call(args: Value) -> Value {
