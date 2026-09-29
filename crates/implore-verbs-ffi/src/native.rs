@@ -431,7 +431,10 @@ mod tests {
     impl ImploreVerbHost for FixtureHost {
         async fn invoke(&self, method: String, args_json: String) -> NativeReply {
             let args: Value = serde_json::from_str(&args_json).unwrap();
-            self.seen.lock().unwrap().push((method.clone(), args));
+            self.seen
+                .lock()
+                .unwrap()
+                .push((method.clone(), args.clone()));
             let body = match method.as_str() {
                 "plot_series" => json!({"svg":"<svg>series</svg>"}),
                 "plot_histogram" => json!({"svg":"<svg>histogram</svg>"}),
@@ -453,6 +456,39 @@ mod tests {
                     "status":"ok", "path":"/tmp/export.png", "sha256":"abc123",
                     "mimeType":"image/png", "data":"iVBORw0KGgo="
                 }),
+                "list_figures" => json!({
+                    "status":"ok",
+                    "count":1,
+                    "figures":[{
+                        "id":"figure-1",
+                        "name":"Figure One",
+                        "datasetId":"dataset-1",
+                        "type":"scatter",
+                        "width":800,
+                        "height":600,
+                        "xColumn":"time",
+                        "yColumn":"value",
+                        "createdAt":"2026-09-29T12:00:00Z",
+                        "modifiedAt":"2026-09-29T12:30:00Z"
+                    }]
+                }),
+                "get_figure" => json!({
+                    "status":"ok",
+                    "figure":{
+                        "id":"figure-1",
+                        "name":"Figure One",
+                        "datasetId":"dataset-1",
+                        "type":"scatter",
+                        "width":800,
+                        "height":600,
+                        "xColumn":"time",
+                        "yColumn":"value",
+                        "createdAt":"2026-09-29T12:00:00Z",
+                        "modifiedAt":"2026-09-29T12:30:00Z",
+                        "datasetName":null,
+                        "viewState":null
+                    }
+                }),
                 _ => json!({"error":"unexpected method"}),
             };
             NativeReply {
@@ -461,6 +497,8 @@ mod tests {
                 } else if method.starts_with("rg_")
                     || method.starts_with("plot_")
                     || method == "export_figure_data"
+                    || method == "list_figures"
+                    || method == "get_figure"
                 {
                     200
                 } else {
@@ -554,6 +592,56 @@ mod tests {
             .await;
         assert!(refused.data.is_empty());
         assert!(refused.path.is_empty());
+    }
+
+    #[tokio::test]
+    async fn native_figure_reads_decode_http_metadata_and_keep_absent_fields_empty() {
+        let host = Arc::new(FixtureHost::default());
+        let service = NativeService { host: host.clone() };
+
+        let listed = service.list_figures(Some("dataset-1".into())).await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "figure-1");
+        assert_eq!(listed[0].dataset_id.as_deref(), Some("dataset-1"));
+        assert_eq!(listed[0].figure_type, "scatter");
+        assert_eq!(listed[0].width, Some(800));
+        assert_eq!(listed[0].height, Some(600));
+        assert_eq!(listed[0].x_column.as_deref(), Some("time"));
+        assert_eq!(listed[0].y_column.as_deref(), Some("value"));
+        assert_eq!(listed[0].color_column, None);
+        assert_eq!(listed[0].title, None);
+        assert_eq!(listed[0].tags, None);
+        assert_eq!(listed[0].folder_id, None);
+        assert_eq!(
+            listed[0].modified_at.as_deref(),
+            Some("2026-09-29T12:30:00Z")
+        );
+        assert_eq!(listed[0].dataset_name, None);
+        assert_eq!(listed[0].view_state, None);
+
+        let figure = service.get_figure("figure-1".into()).await.unwrap();
+        assert_eq!(figure.figure_type, "scatter");
+        assert_eq!(figure.width, Some(800));
+        assert_eq!(figure.height, Some(600));
+        assert_eq!(figure.x_column.as_deref(), Some("time"));
+        assert_eq!(figure.y_column.as_deref(), Some("value"));
+        assert_eq!(figure.color_column, None);
+        assert_eq!(figure.title, None);
+        assert_eq!(figure.tags, None);
+        assert_eq!(figure.folder_id, None);
+        assert_eq!(figure.modified_at.as_deref(), Some("2026-09-29T12:30:00Z"));
+        assert_eq!(figure.dataset_name, None);
+        assert_eq!(figure.view_state, None);
+
+        let seen = host.seen.lock().unwrap();
+        assert_eq!(
+            seen[0],
+            ("list_figures".into(), json!({"dataset_id":"dataset-1"}))
+        );
+        assert_eq!(
+            seen[1],
+            ("get_figure".into(), json!({"figure_id":"figure-1"}))
+        );
     }
 
     #[test]
