@@ -298,15 +298,6 @@ impl Http {
     async fn tree(&self) -> Result<Value, String> {
         self.get("/api/layout/tree").await
     }
-
-    /// The tree's `version`, which is top-level beside `layout` (not inside
-    /// it) — `LayoutController.layoutTreeJSON` builds it that way.
-    async fn version(&self) -> Result<u64, String> {
-        let tree = self.tree().await?;
-        tree.get("version")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "tree response carried no `version`".to_string())
-    }
 }
 
 /// Read one response: non-2xx, or an `{"ok": false}` envelope, is an error
