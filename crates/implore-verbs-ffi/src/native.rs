@@ -5,10 +5,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use implore_service::{
     register_backend, validate_figure_data, AppStatus, CreateFigureOutcome, DatasetRecord,
-    FigureArtifactInfo, FigureRecord, FigureSeriesArg, ImploreBackend, ImploreService, LogEntry,
-    PlotSpecArg,
+    FigureArtifactInfo, FigureExport, FigureRecord, FigureSeriesArg, ImploreBackend,
+    ImploreService, LogEntry, PlotSpecArg, UpdateFigureOutcome,
 };
 use impress_service_core::refusal::codes;
 use serde_json::{json, Value};
@@ -109,6 +111,17 @@ impl NativeService {
                 .get("png_base64")
                 .and_then(Value::as_str)
                 .is_some_and(|png| !png.is_empty()),
+            "export_figure_data" => {
+                ["path", "sha256", "mimeType", "data"].iter().all(|key| {
+                    value
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|field| !field.is_empty())
+                }) && value
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .is_some_and(|encoded| !encoded.is_empty())
+            }
             _ => true,
         };
         if !valid {
@@ -132,6 +145,15 @@ fn invalid_result(method: &str, field: &str) {
         codes::INTERNAL,
         format!("{method}: native response omitted or invalid {field}"),
     );
+}
+
+fn empty_figure_export() -> FigureExport {
+    FigureExport {
+        path: String::new(),
+        sha256: String::new(),
+        mime_type: String::new(),
+        data: Vec::new(),
+    }
 }
 
 fn array<T: serde::de::DeserializeOwned>(value: &Value, key: &str) -> Option<Vec<T>> {
@@ -236,6 +258,7 @@ impl ImploreService for NativeService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_figure(
         &self,
         dataset_id: String,
@@ -246,13 +269,20 @@ impl ImploreService for NativeService {
         series: Option<FigureSeriesArg>,
         spec: Option<PlotSpecArg>,
         svg: Option<String>,
+        width: Option<i64>,
+        height: Option<i64>,
+        title: Option<String>,
+        color_column: Option<String>,
+        view_state: Option<String>,
     ) -> CreateFigureOutcome {
         let data = match validate_figure_data(series.as_ref(), spec.as_ref(), svg.as_deref()) {
             Ok(data) => data,
             Err(error) => return CreateFigureOutcome::refused(error),
         };
         let mut args = json!({
-            "datasetId":dataset_id,"plotType":plot_type,"x":x,"y":y,"name":name
+            "datasetId":dataset_id,"plotType":plot_type,"x":x,"y":y,"name":name,
+            "width":width,"height":height,"title":title,
+            "colorColumn":color_column,"view_state":view_state
         });
         let mut drawn_from = "none";
         if let Some(data) = data {
@@ -277,6 +307,70 @@ impl ImploreService for NativeService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn update_figure(
+        &self,
+        figure_id: String,
+        name: Option<String>,
+        plot_type: Option<String>,
+        x: Option<String>,
+        y: Option<String>,
+        color_column: Option<String>,
+        title: Option<String>,
+        width: Option<i64>,
+        height: Option<i64>,
+        series: Option<FigureSeriesArg>,
+        spec: Option<PlotSpecArg>,
+        svg: Option<String>,
+        view_state: Option<String>,
+    ) -> UpdateFigureOutcome {
+        let data = match validate_figure_data(series.as_ref(), spec.as_ref(), svg.as_deref()) {
+            Ok(data) => data,
+            Err(error) => return UpdateFigureOutcome::refused(error),
+        };
+        let mut args = json!({
+            "name":name,"plotType":plot_type,"x":x,"y":y,
+            "colorColumn":color_column,"title":title,"width":width,
+            "height":height,"view_state":view_state
+        });
+        if let Some(data) = data {
+            let key = data.key();
+            args[key] = data.into_json();
+        }
+        args["figure_id"] = json!(figure_id);
+        match self.call("update_figure", args).await {
+            Ok(value) => match object::<FigureRecord>(&value, "figure") {
+                Some(figure) => UpdateFigureOutcome {
+                    ok: true,
+                    error: None,
+                    figure: Some(figure),
+                    artifact: object::<FigureArtifactInfo>(&value, "artifact"),
+                },
+                None => {
+                    invalid_result("update_figure", "figure");
+                    UpdateFigureOutcome::refused("native response omitted figure")
+                }
+            },
+            Err(error) => UpdateFigureOutcome::refused(error),
+        }
+    }
+
+    async fn delete_figure(&self, figure_id: String) -> bool {
+        match self
+            .call("delete_figure", json!({"figure_id":figure_id}))
+            .await
+        {
+            Ok(value) => value
+                .get("deleted")
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| {
+                    invalid_result("delete_figure", "deleted");
+                    false
+                }),
+            Err(_) => false,
+        }
+    }
+
     async fn export_figure(&self, figure_id: String, format: String) -> Option<String> {
         match self
             .call(
@@ -294,6 +388,54 @@ impl ImploreService for NativeService {
                     None
                 }),
             Err(_) => None,
+        }
+    }
+
+    async fn export_figure_data(
+        &self,
+        figure_id: String,
+        format: String,
+        width: Option<f64>,
+        height: Option<f64>,
+        scale: Option<f64>,
+        view_state: Option<String>,
+    ) -> FigureExport {
+        let value = match self
+            .call(
+                "export_figure_data",
+                json!({
+                    "figure_id": figure_id,
+                    "format": format,
+                    "width": width,
+                    "height": height,
+                    "scale": scale,
+                    "view_state": view_state
+                }),
+            )
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => return empty_figure_export(),
+        };
+        let decoded = value
+            .get("data")
+            .and_then(Value::as_str)
+            .and_then(|encoded| BASE64.decode(encoded).ok());
+        match decoded {
+            Some(data) if !data.is_empty() => FigureExport {
+                path: value["path"].as_str().unwrap_or_default().to_string(),
+                sha256: value["sha256"].as_str().unwrap_or_default().to_string(),
+                mime_type: value["mimeType"]
+                    .as_str()
+                    .or_else(|| value["mime_type"].as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                data,
+            },
+            _ => {
+                invalid_result("export_figure_data", "base64 data");
+                empty_figure_export()
+            }
         }
     }
 
@@ -361,7 +503,10 @@ mod tests {
     impl ImploreVerbHost for FixtureHost {
         async fn invoke(&self, method: String, args_json: String) -> NativeReply {
             let args: Value = serde_json::from_str(&args_json).unwrap();
-            self.seen.lock().unwrap().push((method.clone(), args));
+            self.seen
+                .lock()
+                .unwrap()
+                .push((method.clone(), args.clone()));
             let body = match method.as_str() {
                 "plot_series" => json!({"svg":"<svg>series</svg>"}),
                 "plot_histogram" => json!({"svg":"<svg>histogram</svg>"}),
@@ -372,6 +517,37 @@ mod tests {
                 "rg_slice_png" => {
                     json!({"status":"ok","width":2,"height":1,"png_base64":"iVBORw0K"})
                 }
+                "update_figure" if args["name"] == "missing" => {
+                    json!({"error":"Figure not found"})
+                }
+                "update_figure" if args["name"] == "bad" => {
+                    json!({"error":"Figure not updated: render failed"})
+                }
+                "create_figure" if args["name"] == "bad" => {
+                    json!({"error":"Figure not created: render failed"})
+                }
+                "create_figure" | "update_figure" => json!({
+                    "figure": {
+                        "id":"5f000000-0000-4000-8000-000000000001",
+                        "name":"Figure", "datasetId":"inline", "createdAt":"now"
+                    },
+                    "artifact":{"dataHash":"abcd", "format":"png", "width":640, "height":400}
+                }),
+                "delete_figure" if args["figure_id"] == "missing" => {
+                    json!({"error":"Figure not found"})
+                }
+                "delete_figure" => json!({"deleted":args["figure_id"] != "missing"}),
+                "export_figure_data" if args["format"] == "malformed" => json!({
+                    "status":"ok", "path":"/tmp/export.png", "sha256":"hash",
+                    "mimeType":"image/png", "data":"not base64!"
+                }),
+                "export_figure_data" if args["format"] == "missing" => {
+                    json!({"error":"Figure not found"})
+                }
+                "export_figure_data" => json!({
+                    "status":"ok", "path":"/tmp/export.png", "sha256":"abc123",
+                    "mimeType":"image/png", "data":"iVBORw0KGgo="
+                }),
                 "list_figures" => json!({
                     "status":"ok",
                     "count":1,
@@ -408,8 +584,21 @@ mod tests {
                 _ => json!({"error":"unexpected method"}),
             };
             NativeReply {
-                status: if method.starts_with("rg_")
+                status: if (method == "export_figure_data" && args["format"] == "missing")
+                    || (method == "delete_figure" && args["figure_id"] == "missing")
+                    || (method == "update_figure" && args["name"] == "missing")
+                {
+                    404
+                } else if (method == "create_figure" && args["name"] == "bad")
+                    || (method == "update_figure" && args["name"] == "bad")
+                {
+                    400
+                } else if method.starts_with("rg_")
                     || method.starts_with("plot_")
+                    || method == "create_figure"
+                    || method == "update_figure"
+                    || method == "delete_figure"
+                    || method == "export_figure_data"
                     || method == "list_figures"
                     || method == "get_figure"
                 {
@@ -454,6 +643,210 @@ mod tests {
         let seen = host.seen.lock().unwrap();
         assert_eq!(seen[0].1["series"], json!(["energy"]));
         assert_eq!(seen[4].1["format"], "base64");
+    }
+
+    #[tokio::test]
+    async fn native_backend_forwards_figure_configuration_and_mutations() {
+        let host = Arc::new(FixtureHost::default());
+        let service = NativeService { host: host.clone() };
+        let series = FigureSeriesArg(json!([{"x":[1,2],"y":[3,4]}]));
+        let created = service
+            .create_figure(
+                "inline".into(),
+                "line".into(),
+                "time".into(),
+                Some("flux".into()),
+                Some("Mutation proof".into()),
+                Some(series.clone()),
+                None,
+                None,
+                Some(640),
+                Some(400),
+                Some("Flux over time".into()),
+                Some("instrument".into()),
+                Some(r#"{"annotations":[]}"#.into()),
+            )
+            .await;
+        assert!(created.ok);
+        assert_eq!(
+            created
+                .artifact
+                .as_ref()
+                .map(|artifact| artifact.data_hash.as_str()),
+            Some("abcd")
+        );
+        let refused_create = service
+            .create_figure(
+                "inline".into(),
+                "line".into(),
+                "time".into(),
+                None,
+                Some("bad".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(!refused_create.ok);
+        assert_eq!(
+            refused_create.error.as_deref(),
+            Some("Figure not created: render failed")
+        );
+
+        let updated = service
+            .update_figure(
+                "5f000000-0000-4000-8000-000000000001".into(),
+                Some("Renamed".into()),
+                Some("scatter".into()),
+                Some("time".into()),
+                Some("flux".into()),
+                Some("instrument".into()),
+                Some("New title".into()),
+                Some(800),
+                Some(500),
+                Some(series),
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(updated.ok);
+        assert_eq!(
+            updated
+                .artifact
+                .as_ref()
+                .map(|artifact| artifact.data_hash.as_str()),
+            Some("abcd")
+        );
+        let refused_update = service
+            .update_figure(
+                "missing".into(),
+                Some("missing".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(!refused_update.ok);
+        assert_eq!(refused_update.error.as_deref(), Some("Figure not found"));
+        let refused_rerender = service
+            .update_figure(
+                "figure-id".into(),
+                Some("bad".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(!refused_rerender.ok);
+        assert_eq!(
+            refused_rerender.error.as_deref(),
+            Some("Figure not updated: render failed")
+        );
+        assert!(
+            service
+                .delete_figure("5f000000-0000-4000-8000-000000000001".into())
+                .await
+        );
+        assert!(!service.delete_figure("missing".into()).await);
+
+        let seen = host.seen.lock().unwrap();
+        assert_eq!(seen[0].0, "create_figure");
+        assert_eq!(seen[0].1["datasetId"], "inline");
+        assert_eq!(seen[0].1["plotType"], "line");
+        assert_eq!(seen[0].1["width"], 640);
+        assert_eq!(seen[0].1["height"], 400);
+        assert_eq!(seen[0].1["title"], "Flux over time");
+        assert_eq!(seen[0].1["colorColumn"], "instrument");
+        assert_eq!(seen[0].1["view_state"], r#"{"annotations":[]}"#);
+        assert_eq!(seen[0].1["series"], json!([{"x":[1,2],"y":[3,4]}]));
+        assert_eq!(seen[1].0, "create_figure");
+        assert_eq!(seen[1].1["name"], "bad");
+        assert_eq!(seen[2].0, "update_figure");
+        assert_eq!(
+            seen[2].1["figure_id"],
+            "5f000000-0000-4000-8000-000000000001"
+        );
+        assert_eq!(seen[2].1["plotType"], "scatter");
+        assert_eq!(seen[2].1["width"], 800);
+        assert_eq!(seen[2].1["series"], json!([{"x":[1,2],"y":[3,4]}]));
+        assert_eq!(seen[3].0, "update_figure");
+        assert_eq!(seen[3].1["name"], "missing");
+        assert_eq!(seen[4].1["name"], "bad");
+        assert_eq!(seen[5].0, "delete_figure");
+        assert_eq!(seen[6].1["figure_id"], "missing");
+    }
+
+    #[tokio::test]
+    async fn native_backend_decodes_export_bytes_and_forwards_render_options() {
+        let host = Arc::new(FixtureHost::default());
+        let service = NativeService { host: host.clone() };
+        let exported = service
+            .export_figure_data(
+                "figure-1".into(),
+                "png".into(),
+                Some(320.5),
+                Some(200.25),
+                Some(1.5),
+                Some(r#"{"title":"custom"}"#.into()),
+            )
+            .await;
+        assert_eq!(exported.path, "/tmp/export.png");
+        assert_eq!(exported.sha256, "abc123");
+        assert_eq!(exported.mime_type, "image/png");
+        assert_eq!(exported.data, b"\x89PNG\r\n\x1a\n");
+        let seen = host.seen.lock().unwrap();
+        assert_eq!(seen[0].0, "export_figure_data");
+        assert_eq!(seen[0].1["figure_id"], "figure-1");
+        assert_eq!(seen[0].1["format"], "png");
+        assert_eq!(seen[0].1["width"], 320.5);
+        assert_eq!(seen[0].1["height"], 200.25);
+        assert_eq!(seen[0].1["scale"], 1.5);
+        assert_eq!(seen[0].1["view_state"], r#"{"title":"custom"}"#);
+    }
+
+    #[tokio::test]
+    async fn native_backend_does_not_return_malformed_or_refused_export_as_success() {
+        let host = Arc::new(FixtureHost::default());
+        let service = NativeService { host };
+        let malformed = service
+            .export_figure_data(
+                "figure-1".into(),
+                "malformed".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(malformed.data.is_empty());
+        assert!(malformed.path.is_empty());
+        let refused = service
+            .export_figure_data("missing".into(), "missing".into(), None, None, None, None)
+            .await;
+        assert!(refused.data.is_empty());
+        assert!(refused.path.is_empty());
     }
 
     #[tokio::test]

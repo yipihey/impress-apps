@@ -118,16 +118,41 @@ public actor AutomationService: AutomationOperations {
 
         let publications: [PublicationRowData]
         if query.isEmpty {
-            // Fetch all from default library
+            // An explicit container filter selects that container. Without
+            // one, preserve the existing empty-query default-library scope.
             publications = await withStore { store in
+                if let libraryID = filters?.libraries?.first {
+                    return store.queryPublications(
+                        parentId: libraryID,
+                        sort: "created",
+                        ascending: false,
+                        limit: nil,
+                        offset: nil
+                    )
+                }
+                if let collectionID = filters?.collections?.first {
+                    return store.listCollectionMembers(
+                        collectionId: collectionID,
+                        sort: "created",
+                        ascending: false,
+                        limit: nil,
+                        offset: nil
+                    )
+                }
                 if let lib = store.getDefaultLibrary() {
-                    return store.queryPublications(parentId: lib.id)
+                    return store.queryPublications(
+                        parentId: lib.id,
+                        sort: "created",
+                        ascending: false,
+                        limit: nil,
+                        offset: nil
+                    )
                 }
                 return []
             }
         } else {
             publications = await withStore { store in
-                store.searchPublications(query: query)
+                store.searchPublications(query: query, parentId: filters?.libraries?.first)
             }
         }
 
@@ -135,6 +160,28 @@ public actor AutomationService: AutomationOperations {
         var filtered = publications
         if let filters = filters {
             filtered = applyFilters(to: filtered, filters: filters)
+        }
+
+        // Library scope is pushed into the store query above because detail
+        // rows expose only the home library, not secondary Contains members.
+        // Collection identity is absent from row data, so resolve it from
+        // exact detail membership before pagination.
+        let needsMembershipFilter = !(filters?.collections?.isEmpty ?? true)
+        var membershipDetails: [UUID: PublicationModel] = [:]
+        if let filters, needsMembershipFilter {
+            let membershipCandidates = filtered
+            let resolved = await withStore { store in
+                membershipCandidates.compactMap { publication -> (PublicationRowData, PublicationModel)? in
+                    guard let detail = store.getPublicationDetail(id: publication.id) else { return nil }
+                    if let collections = filters.collections, !collections.isEmpty,
+                       !collections.contains(where: detail.collectionIDs.contains) {
+                        return nil
+                    }
+                    return (publication, detail)
+                }
+            }
+            filtered = resolved.map(\.0)
+            membershipDetails = Dictionary(uniqueKeysWithValues: resolved.map { ($0.0.id, $0.1) })
         }
 
         // Apply limit/offset
@@ -145,7 +192,7 @@ public actor AutomationService: AutomationOperations {
             filtered = Array(filtered.prefix(limit))
         }
 
-        return await paperResults(for: filtered)
+        return await paperResults(for: filtered, detailOverrides: membershipDetails)
     }
 
     private func applyFilters(to publications: [PublicationRowData], filters: SearchFilters) -> [PublicationRowData] {
@@ -169,8 +216,8 @@ public actor AutomationService: AutomationOperations {
                 return authors.contains { pubAuthors.contains($0.lowercased()) }
             }
         }
-        // Note: library/collection filtering requires detail lookups; skip for now
-        // since most callers filter by parentId at query time.
+        // Library scope is applied in the query; collection membership is
+        // resolved from detail rows before pagination in searchLibrary.
         if let tags = filters.tags, !tags.isEmpty {
             result = result.filter { pub in
                 let pubTagPaths = Set(pub.tagDisplays.map(\.path))
@@ -917,8 +964,39 @@ public actor AutomationService: AutomationOperations {
     public func exportRIS(identifiers: [PaperIdentifier]?) async throws -> ExportResult {
         try await checkAuthorization()
 
-        // RIS export not yet available in Rust store
-        throw AutomationOperationError.operationFailed("RIS export not yet available with Rust store. Use BibTeX export instead.")
+        if let identifiers {
+            var ids: [UUID] = []
+            for identifier in identifiers {
+                if let publication = await findPublication(by: identifier) {
+                    ids.append(publication.id)
+                }
+            }
+            let bibtex = await withStore { $0.exportBibTeX(ids: ids) }
+            return ExportResult(format: "ris", content: formatRIS(bibtex), paperCount: ids.count)
+        }
+
+        guard let defaultLibrary = await withStore({ $0.getDefaultLibrary() }) else {
+            return ExportResult(format: "ris", content: "", paperCount: 0)
+        }
+        let bibtex = await withStore { $0.exportAllBibTeX(libraryId: defaultLibrary.id) }
+        return ExportResult(
+            format: "ris",
+            content: formatRIS(bibtex),
+            paperCount: defaultLibrary.publicationCount
+        )
+    }
+
+    /// Keep the legacy HTTP path on the same parser, converter and formatter
+    /// used by the in-app RIS export action while the generated Rust verb is
+    /// introduced alongside it.
+    private func formatRIS(_ bibtex: String) -> String {
+        let parser = BibTeXParserFactory.createParser()
+        let items = (try? parser.parse(bibtex)) ?? []
+        let entries = items.compactMap { item -> BibTeXEntry? in
+            if case .entry(let entry) = item { return entry }
+            return nil
+        }
+        return RISExporter().export(RISBibTeXConverter.toRIS(entries))
     }
 
     // MARK: - PDF Operations
@@ -1523,13 +1601,21 @@ public actor AutomationService: AutomationOperations {
     /// came back `[]` for every paper — so each row is paired with its detail,
     /// the read that knows the paper's store parent (its library) and the
     /// collections that contain it. One main-actor hop for the whole page.
-    private func paperResults(for rows: [PublicationRowData]) async -> [PaperResult] {
+    private func paperResults(
+        for rows: [PublicationRowData],
+        detailOverrides: [UUID: PublicationModel] = [:]
+    ) async -> [PaperResult] {
         guard !rows.isEmpty else { return [] }
         let ids = rows.map(\.id)
-        let details = await withStore { store in
-            ids.map { store.getPublicationDetail(id: $0) }
+        let missingIDs = ids.filter { detailOverrides[$0] == nil }
+        let fetchedDetails = await withStore { store in
+            Dictionary(uniqueKeysWithValues: missingIDs.compactMap { id in
+                store.getPublicationDetail(id: id).map { (id, $0) }
+            })
         }
-        return zip(rows, details).map { Self.toPaperResult($0, detail: $1) }
+        return rows.map { row in
+            Self.toPaperResult(row, detail: detailOverrides[row.id] ?? fetchedDetails[row.id])
+        }
     }
 
     /// `detail` is `nil` only when the paper vanished between the two reads;

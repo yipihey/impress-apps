@@ -774,6 +774,16 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   `/tmp/impress-p5b-transport-mg52mt2s/output/`. Owned PID 32003 exited. No user
   app, launcher or real store was touched.
 
+- 2026-09-29 — **P5c6 RIS domain export.** Added the generated
+  `imbib-library-service_export-ris` selection verb with the existing BibTeX
+  UUID/cite-key resolution and ordering semantics. Its named compatibility
+  adapter reuses Rust's shared RIS types and formatter while matching the
+  current PublicationManagerCore tag order; existing Rust RIS conversion stays
+  unchanged for its other callers. The legacy HTTP route now uses its existing
+  Swift parser/converter/exporter path, with isolated transport parity coverage
+  and a Tier A representative record. Builds and tests remain in the parent
+  verification lane.
+
 - 2026-09-26 — Planned on a worktree of main at 3222f573, branch `claude/plan-auto-gui-self-docs`, from
   Tom's second and third addenda. Measured: the nine handler call sites and two bypasses; the concern ×
   path matrix; the automation servers' auth and CORS (`Access-Control-Allow-Origin: *`, loopback
@@ -1740,6 +1750,133 @@ and the test diagnostic's Swift Testing comment before the successful runs.
 Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
 `/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
 Data warnings remain; no persistence schema was changed.
+
+- 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
+  `implore-service_export-figure-data` with fractional width/height,
+  scale and optional view-state arguments. The native callback reuses the HTTP
+  export handler and `ImploreStoreAdapter.exportFigure`, then returns the
+  renderer's path/hash/MIME plus the rendered file bytes decoded from the HTTP
+  base64 envelope. It verifies byte count and SHA-256 against the renderer
+  result before replying, so a concurrent or stale file cannot be reported as
+  the requested render. Legacy `export-figure(figure_id, format)` remains
+  unchanged. Evidence refinement: the route and verb both accept fractional
+  `f64` dimensions; zero, negative, and non-finite overrides fall back to the
+  current logical size via the renderer's existing `positive_or` rule. Hosted
+  proof compares generated PNG/SVG bytes, including a fractional-size case,
+  with the actual route. Rust callback tests cover fractional argument
+  forwarding, decoding, malformed data and HTTP refusal. Root verification is
+  pending; no caller or route was migrated.
+
+- 2026-09-29 — **P5c5 verified.** Root passed 59 Rust tests (zero failures,
+  three ignored), every quick gate and all supported arm64 slices of store-ffi,
+  impel-tools and implore-verbs-ffi. The hosted proof passed both XCTest cases,
+  five shared transport calls and PNG/SVG byte-for-byte parity, including
+  fractional dimensions; SQLite symbols passed and owned PID 10562 exited.
+  Evidence: `/tmp/impress-p5b-transport-9jpsnn14/output/` and
+  `/tmp/impress-p5c5-{tests-final,gates,frameworks,native-proof}.log`.
+  Tables and reference pages were regenerated. The new renderer verb increases
+  the documented headless exception ceiling from 145 to 146: its positive
+  evidence requires the native app, and a refusal is not claimed as byte
+  coverage. Root corrected a merged test fixture's moved JSON value before
+  verification. No user app, launcher or real store was used.
+
+## P5c7 — imprint threaded comment metadata (2026-09-29)
+
+Extended `imprint-app-service_list-comments` with optional route-compatible
+`filter` and `author_agent_id`, and `create-comment` with optional parent,
+suggestion, agent identity, and display name. `CommentRecord` now retains the
+actual route fields: author identifier, duplicate `content`/`body`, live
+UTF-16 range, modified time, resolved/suggestion flags, parent, proposed text,
+and agent identity. These are existing `Comment` values, not synthesized
+metadata. Native create continues to call `CommentService.addComment`; anchors
+are located in the current source and converted from UTF-16 to the store's
+UTF-8 anchor through the existing comment store, while replies inherit their
+parent's current range. A malformed or cross-document parent is refused.
+
+The route source showed that its documented `mine` filter currently falls
+through to the unfiltered result; this package preserves the handler's actual
+behavior and does not silently change a retained HTTP route. Unknown filters
+also retain that existing all-comments behavior. Accept/reject remain separate
+actions; update-comment still only accepts open/resolved status.
+
+Rust record coverage checks all newly projected fields and route camel-case
+aliases. The hosted `ImprintNativeVerbProofTests.testNativeGenericRouteAndAppRefusalUseTheScratchWorkspace`
+compares a direct legacy suggestion/read and a generated filtered read on the
+same PID-owned scratch manuscript, then creates a generated threaded suggestion
+and verifies parent identity and inherited UTF-16 offsets. Root owns running
+the Rust/native verification and regenerating any generated assets.
+
+## P5c8 — implore figure mutation contracts (2026-09-29)
+
+Extended `implore-service_create-figure` with HTTP-compatible integer
+`width`/`height`, separate plot `title`/`color_column`, and an optional raw
+JSON `view_state`; explicit create fields overlay corresponding fields in that
+view state. Added generated `update-figure` and `delete-figure` callbacks that
+reuse `handleUpdateFigure`/`handleDeleteFigure` and `LibraryManager`'s existing
+store, rerender, rollback, export cleanup, and content-blob reference logic.
+Update accepts only the fields PATCH actually mutates; it deliberately has no
+`dataset_id` because the HTTP handler does not change a figure's dataset.
+Update returns a structured `{ok, error?, figure?, artifact?}` result and
+refused native responses remain refusals; delete keeps the approved `bool`
+result. Create/update/delete declare figure-record effects and app reach.
+
+Rust coverage checks generated schemas, effects, callback argument mapping,
+render/update and missing/delete failures. Hosted proof compares verb and HTTP
+create/update hashes on isolated figures, confirms a changed non-empty PNG,
+and tests shared-blob retention through update and the last delete. Root owns
+verification; no tests/builds, caller migrations, route removals, or real-store
+operations were performed here.
+
+## P5c9 — imbib publication search contract (2026-09-29)
+
+Extended `imbib-library-service_search-publications` with optional offset and
+the approved read/collection/library/tags/flag/added-after/added-before
+filters. The generated service evaluates membership and metadata filters on
+the complete ordered match set before applying pagination; exact library and
+collection UUID membership comes from the existing store queries, not names
+or a capped result page. Empty queries retain the default-library scope unless
+an explicit library or collection selects its own scope.
+
+Inspection found that the legacy `GET /api/search` parsed library and
+collection UUIDs but `AutomationService.applyFilters` explicitly skipped both
+filters. This package fixes that parity gap without changing the route shape:
+empty-query container selection now uses the selected container; exact
+library membership uses the existing store query, and exact collection
+membership uses the existing detail relationship before pagination. Focused
+Rust coverage checks same-named libraries, collection/library intersection,
+read/tag/flag filters, post-filter offset behavior and strict date boundaries.
+The hosted transport fixture compares generated and legacy IDs/order for
+library/read, collection (including empty-query selection), and offset cases on
+its isolated papers. Verification remains pending with root; no builds/tests
+were run in this package.
+
+## P5c10 — imprint suggestion actions (2026-09-29)
+
+Added generated accept/reject suggestion actions by routing the native callback
+through the retained HTTP handlers. Inspection found `DocumentRegistry` has no
+imprint operation consumer after the editor migration; the old accept handler
+queued `replaceRange` but therefore did not apply or save it. Acceptance now
+validates the comment and proposed text, replaces the comment's UTF-16 range in
+the live editor session through the existing native save/readback path, registers
+and returns a completed operation ID, refreshes comment anchors against the new
+source, and then resolves only that comment. Rejection resolves without editing
+the manuscript. Failures remain explicit: malformed IDs are bad requests,
+missing comments are not found, non-suggestions cannot be accepted, and a failed
+live edit leaves the comment unresolved. `update-comment` still refuses
+accepted/rejected status values.
+
+`SuggestionApplyResult` retains the route's accepted flag, comment/document IDs,
+and operation ID. Rust coverage checks its route-response aliases. The hosted
+proof exercises direct HTTP and generated acceptance, verifies live-buffer and
+store readback at the expected UTF-16 replacement, and checks rejection leaves
+source unchanged. Root owns builds, tests, framework/binding regeneration, and
+final native verification.
+
+- 2026-09-29 — **P5c10 review refinement.** Accepting a suggestion captures
+  its synchronized range and source together. The edit checks that source
+  again on MainActor before applying the range, returning conflict if typing
+  intervened. A native fixture covers a stale range that remains numerically
+  valid, preserving both the live edits and the previously saved manuscript.
 
 
 ## P5c11 — imbib citation resolution (2026-09-29)

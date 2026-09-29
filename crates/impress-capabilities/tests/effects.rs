@@ -81,7 +81,14 @@ use serde_json::Value;
 /// the spy observes nothing — the same "exercised, unobserved" shape as
 /// `history-service_save-macro` beside it.
 // G3: seeded examples reduced the reviewed exception set from 300 to 145.
-const EXCEPTION_CEILING: usize = 145;
+// P5c5 adds export-figure-data, a native renderer operation. Its Tier B
+// example and isolated hosted PNG/SVG parity proof require a running implore;
+// keep that headless gap explicit rather than count a refusal as byte coverage.
+// P5c8 adds native figure update/delete. Their Tier B examples and hosted
+// rerender/cleanup proof require the app; neither is headless positive evidence.
+// P5c10 adds native suggestion apply/reject; the live-editor save and
+// comment state proofs require a host, so their headless gap stays explicit.
+const EXCEPTION_CEILING: usize = 150;
 
 /// Read-only verbs whose reach leaves the process, by P1's evidence in
 /// `docs/verb-safety.md`, and are classed read-only because they write
