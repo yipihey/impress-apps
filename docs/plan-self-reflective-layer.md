@@ -2956,3 +2956,19 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   the built CLI. Normal pre-push passed macOS and arm64 iOS simulator builds
   (`/tmp/impress-s3-host-context-push.log`), with installation disabled and
   worktree-owned derived data. No user's app or store was used.
+
+- 2026-09-28 — **W3 exploration identity verification completed.** Automatic
+  retention can now discover the migrated internal settings pointer when the
+  existing explicit argument is omitted; invalid explicit IDs do not silently
+  select another library. The setting stays out of generated preference panes.
+  The final touched-crate/capabilities run passed **340 tests, zero failed,
+  three ignored** (`/tmp/impress-w3-discovery-final-tests.log`). Both clippy
+  shards and all quick gates passed (`/tmp/impress-w3d-final-*.log`). All twelve
+  native frameworks were rebuilt for their full supported arm64 slices, without
+  swiftformat or fast mode (`/tmp/impress-w3-discovery-frameworks.log`). The
+  isolated LibraryManager suite passed **20 tests**, including migration before
+  any getter and authoritative settings/mirrored updates, using a scratch store
+  and unique defaults suites (`/tmp/impress-w3-discovery-swift-tests.log`). The
+  normal pre-push hook passed macOS and arm64 iOS simulator builds with owned
+  derived data and installation disabled (`/tmp/impress-w3-discovery-push.log`).
+  No running app, launcher or user store was touched.
