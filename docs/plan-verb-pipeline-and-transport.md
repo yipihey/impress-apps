@@ -1770,13 +1770,15 @@ Data warnings remain; no persistence schema was changed.
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
 
-- 2026-09-29 — **P5c18 implore figure write/export consumers.** The ImpressKit
-  bridge now calls `implore-service_export-figure-data` for image bytes and
-  metadata while keeping `exportFigure(id:format:) -> Data`; the richer method
-  retains renderer path, SHA-256, MIME type and byte count. Added bridge methods
-  for generated create/update/delete, forwarding all route configuration and
-  render inputs, preserving structured refusal values, and requiring successful
-  writes to include the stored artifact. No other Swift call sites used these
-  mutation routes; Counsel has only a figure-list tool, left to the metadata
-  consumer package. Added mocked generated-verb transport and DTO fixtures.
-  Static review only; root verification pending.
+- 2026-09-29 — **P5c18 implore figure export consumer.** The ImpressKit bridge
+  now calls `implore-service_export-figure-data` for image bytes and metadata
+  while keeping `exportFigure(id:format:) -> Data`; the richer method retains
+  renderer path, SHA-256, MIME type and byte count. The previous implementation
+  returned the HTTP route's JSON envelope as `Data`, despite the method's image
+  export contract. A repository-wide Swift caller audit found no consumers, so
+  the canonical result now returns the rendered bytes. Create/update/delete
+  routes also have no Swift callers; leave them without parallel bridge methods
+  and consider them eligible for retirement after their native/HTTP contract
+  proof. Counsel has only a figure-list tool, owned by the metadata consumer
+  package. Added mocked generated-verb transport and DTO fixtures. Static
+  review only; root verification pending.

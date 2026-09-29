@@ -61,65 +61,6 @@ final class ImploreFigureVerbBridgeTests: XCTestCase {
         XCTAssertEqual(result.byteCount, 5)
     }
 
-    func testCreateFigureForwardsAllRenderConfigurationAndMapsArtifact() async throws {
-        let bridge = makeBridge()
-        FigureRequestProtocol.respond { request in
-            XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/api/verb/implore-service_create-figure")
-            let args = Self.arguments(request)
-            XCTAssertEqual(args["dataset_id"] as? String, "inline")
-            XCTAssertEqual(args["plot_type"] as? String, "scatter")
-            XCTAssertEqual(args["x"] as? String, "time")
-            XCTAssertEqual(args["y"] as? String, "flux")
-            XCTAssertEqual(args["width"] as? Int, 640)
-            XCTAssertEqual(args["height"] as? Int, 480)
-            XCTAssertEqual(args["title"] as? String, "Flux")
-            XCTAssertEqual(args["color_column"] as? String, "group")
-            XCTAssertEqual(args["view_state"] as? String, #"{"legend":true}"#)
-            let series = args["series"] as? [[String: Any]]
-            XCTAssertEqual(series?.first?["label"] as? String, "run")
-            XCTAssertTrue(args["spec"] is NSNull)
-            return (200, Data(#"{"ok":true,"id":"figure-2","name":"Flux plot","dataset_id":"inline","figure_type":"scatter","title":"Flux","width":640,"height":480,"x_column":"time","y_column":"flux","color_column":"group","created_at":"2026-09-29T10:00:00Z","modified_at":"2026-09-29T10:00:00Z","artifact":{"data_hash":"deadbeef","format":"png","width":640,"height":480},"drawn_from":"series"}"#.utf8))
-        }
-
-        let result = try await ImploreBridge.createFigure(
-            datasetID: "inline", plotType: "scatter", x: "time", y: "flux",
-            name: "Flux plot", series: Data(#"[{"label":"run","x":[1,2],"y":[3,4]}]"#.utf8),
-            spec: nil, width: 640, height: 480,
-            title: "Flux", colorColumn: "group", viewState: #"{"legend":true}"#,
-            using: bridge)
-        XCTAssertTrue(result.ok)
-        XCTAssertNil(result.error)
-        XCTAssertEqual(result.figure?.id, "figure-2")
-        XCTAssertEqual(result.figure?.figureType, "scatter")
-        XCTAssertEqual(result.artifact?.dataHash, "deadbeef")
-        XCTAssertEqual(result.artifact?.width, 640)
-        XCTAssertEqual(result.drawnFrom, "series")
-    }
-
-    func testUpdateRefusalAndDeleteFalseRemainStructured() async throws {
-        let bridge = makeBridge()
-        FigureRequestProtocol.respond { request in
-            XCTAssertEqual(request.url?.path, "/api/verb/implore-service_update-figure")
-            return (200, Data(#"{"ok":false,"error":"Figure not updated: render failed"}"#.utf8))
-        }
-        let refused = try await ImploreBridge.updateFigure(
-            id: "figure-3", name: nil, plotType: nil, x: nil, y: nil, colorColumn: nil,
-            title: "Updated", width: nil, height: nil, series: nil, spec: nil, svg: nil,
-            viewState: nil, using: bridge)
-        XCTAssertFalse(refused.ok)
-        XCTAssertEqual(refused.error, "Figure not updated: render failed")
-        XCTAssertNil(refused.figure)
-
-        FigureRequestProtocol.respond { request in
-            XCTAssertEqual(request.url?.path, "/api/verb/implore-service_delete-figure")
-            XCTAssertEqual(Self.arguments(request)["figure_id"] as? String, "figure-3")
-            return (200, Data("false".utf8))
-        }
-        let deleted = try await ImploreBridge.deleteFigure(id: "figure-3", using: bridge)
-        XCTAssertFalse(deleted)
-    }
-
     func testExportCannotReportEmptyRenderAsSuccess() async throws {
         let bridge = makeBridge()
         FigureRequestProtocol.respond { _ in
@@ -131,7 +72,7 @@ final class ImploreFigureVerbBridgeTests: XCTestCase {
                 scale: nil, viewState: nil, using: bridge)
             XCTFail("empty renderer output must not be reported as an export")
         } catch SiblingBridgeError.invalidResponse {
-            // Structured empty/refusal response is not a successful binary render.
+            // An empty/refusal response is not a successful binary render.
         }
     }
 
