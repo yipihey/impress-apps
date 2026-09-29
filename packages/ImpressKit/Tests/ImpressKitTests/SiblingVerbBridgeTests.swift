@@ -102,7 +102,8 @@ final class SiblingVerbBridgeTests: XCTestCase {
         let figure = FigureInfo(record: record)
 
         XCTAssertEqual(figure.id, "fig-1")
-        XCTAssertEqual(figure.title, "Figure one")
+        XCTAssertNil(figure.title)
+        XCTAssertEqual(figure.name, "Figure one")
         XCTAssertEqual(figure.figureType, "scatter")
         XCTAssertEqual(figure.width, 800)
         XCTAssertEqual(figure.xColumn, "time")
