@@ -3214,3 +3214,14 @@ Logs: `/tmp/impress-s2k-tests-final.log`, `/tmp/impress-s2k-final-*.log`,
 now run as documents; four platform/live-state cases and the runner's
 reachability/restoration gate remain code. No assertion was weakened to force
 those remaining cases into the interpreter.
+
+### 2026-09-28 — Wave 10 integrated verification and handoff
+
+After PRs #135 and #137–#146 merged, main at `3c56dfbb` passed the full native
+workspace run: 4,478 passed, zero failures, 26 ignored across 223 result groups
+(`/tmp/impress-wave10-main-workspace.log`). Test threads were serial and all
+store/workspace/device/compiler-cache paths were owned scratch paths. The
+known import effects flake did not recur; its cause remains unconfirmed.
+The successor `docs/next-steps-after-wave-10.md` records verification, retained
+proofs, coherent framework bundles, remaining platform cases and P5c's pending
+contract approval. Its quick gates and 44-test capabilities run also passed.
