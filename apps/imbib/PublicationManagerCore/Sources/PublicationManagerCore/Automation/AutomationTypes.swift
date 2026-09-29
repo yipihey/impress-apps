@@ -134,7 +134,8 @@ public struct FlagResult: Codable, Sendable, Hashable {
 
 /// Serializable representation of a tag.
 public struct TagResult: Codable, Sendable, Identifiable, Hashable {
-    public let id: UUID
+    /// Stable path identity, consistent with the tag definition record.
+    public let id: String
     public let name: String           // leaf segment
     public let canonicalPath: String  // full path e.g. "methods/sims"
     public let parentPath: String?
@@ -142,7 +143,7 @@ public struct TagResult: Codable, Sendable, Identifiable, Hashable {
     public let publicationCount: Int
 
     public init(
-        id: UUID,
+        id: String,
         name: String,
         canonicalPath: String,
         parentPath: String? = nil,

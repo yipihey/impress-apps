@@ -200,6 +200,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_duplicate-publications` | mutating | name/doc |
 | `imbib-library-service_export-all-bibtex` | read_only | name/doc |
 | `imbib-library-service_export-bibtex` | read_only | name/doc |
+| `imbib-library-service_export-ris` | read_only | name/doc |
 | `imbib-library-service_get-default-library` | read_only | name/doc |
 | `imbib-library-service_get-inbox-library` | read_only | name/doc |
 | `imbib-library-service_get-publication` | read_only | name/doc |
@@ -296,6 +297,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `impel-service_retention-status` | read_only | name/doc |
 | `impel-service_scheduler-status` | read_only | name/doc |
 | `implore-service_create-figure` | external | E/M: name/doc |
+| `implore-service_delete-figure` | external | name/doc |
 | `implore-service_export-figure` | external | E/M: name/doc |
 | `implore-service_export-figure-data` | external | name/doc |
 | `implore-service_get-dataset` | external | name/doc |
@@ -316,6 +318,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `implore-service_rg-state` | external | name/doc |
 | `implore-service_rg-statistics` | external | crates/implore-service-http/src/lib.rs:391 POST /api/rg/statistics, but ImploreHTTPRouter.swift:132 routes it GET-only (POST -> 404 at :185) so the verb returns {error}; handler :820 is pure in-memory stats; default l… |
 | `implore-service_status` | external | name/doc |
+| `implore-service_update-figure` | external | name/doc |
 | `impress-ai-service_ai-health` | external | crates/impress-ai-service/src/lib.rs:660 reqwest GET http://127.0.0.1:8787/api/health with 3 s timeout against the impress-ai daemon; returns daemon_reachable:false rather than an error when it is down; no store acces… |
 | `impress-ai-service_ai-preferences` | read_only | name/doc |
 | `impress-ai-service_create-conversation` | mutating | name/doc |
