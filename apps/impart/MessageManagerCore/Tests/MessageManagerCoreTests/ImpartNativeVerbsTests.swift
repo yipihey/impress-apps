@@ -221,7 +221,7 @@ struct ImpartNativeVerbsTests {
                 name: "impart-service_\(verb)",
                 argsJson: String(decoding: argsData, as: UTF8.self),
                 callerJson: #"{"kind":"app","name":"impart"}"#)
-            #expect(result.status == 200, result.bodyJson)
+            #expect(result.status == 200, "Response: \(result.bodyJson)")
             return try JSONSerialization.jsonObject(
                 with: Data(result.bodyJson.utf8), options: [.fragmentsAllowed])
         }
