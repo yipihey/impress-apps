@@ -1769,3 +1769,21 @@ Data warnings remain; no persistence schema was changed.
   evidence requires the native app, and a refusal is not claimed as byte
   coverage. Root corrected a merged test fixture's moved JSON value before
   verification. No user app, launcher or real store was used.
+
+
+## P5c14 — imbib tag-count reads (2026-09-29)
+
+Extended `imbib-tags-service_list-tags-with-counts` with optional case-
+insensitive `prefix` and optional `limit` (default 100), applied after the
+shared store's full hierarchical count projection and preserving its existing
+order. `TagWithCount` now includes `id = path` and the parent path derived from
+the last `/`. The native HTTP `/api/tags` projection now returns this stable
+path as `id`; this intentionally replaces the old freshly-generated UUID,
+which changed on every read and could not identify a tag across calls. Existing
+name/path/count, prefix, hierarchy and `/tags/tree` behavior remain intact.
+
+Scratch Rust fixtures cover nested counts, case-insensitive prefix filtering,
+no-match behavior, limit/order and stable hierarchy identity. The opt-in hosted
+transport proof compares generated and HTTP rows for a nested path, count,
+case-insensitive prefix and limit using only the PID-owned scratch library.
+No builds/tests, route removal or caller migration were performed here.
