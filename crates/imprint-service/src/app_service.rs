@@ -401,11 +401,23 @@ pub trait ImprintAppService: Send + Sync + 'static {
     /// Accept a proposed replacement. The live editor applies and saves it at
     /// the comment's UTF-16 range and returns its completed operation handle.
     #[impress_method]
+    #[impress_example(
+        name = "host-apply-suggestion",
+        tier = "b",
+        args = r#"{"comment_id":"{{state.comment_id}}"}"#,
+        expect = r#"{"accepted":true}"#
+    )]
     async fn accept_comment_suggestion(&self, comment_id: String) -> SuggestionApplyResult;
 
     /// Reject a proposed replacement by resolving the comment without editing
     /// the manuscript.
     #[impress_method]
+    #[impress_example(
+        name = "host-reject-suggestion",
+        tier = "b",
+        args = r#"{"comment_id":"{{state.comment_id}}"}"#,
+        expect = "true"
+    )]
     async fn reject_comment_suggestion(&self, comment_id: String) -> bool;
 }
 
