@@ -131,7 +131,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-annotations-service_update-comment` | destructive | crates/imbib-service/src/annotations_service.rs:318 -> crates/imbib-core/src/unified/store_api.rs:3278-3288 store.update (NOT update_with_undo) overwrites the comment's `text` wholesale; prior text is gone and nothing… |
 | `imbib-app-service_add-to-library` | external | E/M: name/doc |
 | `imbib-app-service_delete-annotation` | external | E/D: crates/imbib-service/src/app_service.rs:349 default refuses; HTTP DELETE /api/annotations/{id} -> apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/AutomationService.swift:1476 store.deleteIt… |
-| `imbib-app-service_delete-collection` | external | E/D: crates/imbib-service/src/app_service.rs:357 default refuses; former HTTP DELETE /api/collections/{id} (route retired P5c24) -> apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/AutomationService.swift:758 store.deleteIte… |
+| `imbib-app-service_delete-collection` | external | E/D: crates/imbib-service/src/app_service.rs:357 default refuses; HTTP DELETE /api/collections/{id} -> apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/AutomationService.swift:758 store.deleteIte… |
 | `imbib-app-service_delete-comment` | external | E/D: crates/imbib-service/src/app_service.rs:353 default refuses; HTTP DELETE /api/comments/{id} -> apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/AutomationService.swift:1235 -> crates/imbib-c… |
 | `imbib-app-service_delete-smart-searches` | external | E/D: crates/imbib-service/src/app_service.rs:361 default refuses; HTTP DELETE /api/smart-searches (apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/HTTPAutomationRouter.swift:5001-5013) -> RustSt… |
 | `imbib-app-service_download-pdfs` | external | E/M: name/doc |
@@ -140,7 +140,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-app-service_open-manuscript-papers` | external | E/M: name/doc |
 | `imbib-app-service_recent-activity` | external | E/R: name/doc |
 | `imbib-app-service_resolve-citation` | external | name/doc |
-| `imbib-app-service_resolve-identifier` | external | E/M: crates/imbib-service/src/app_service.rs:369 default refuses; former HTTP POST /api/papers/resolve (route retired P5c24; apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/HTTPAutomationRouter.swift:2564-2585 handleResolv…) |
+| `imbib-app-service_resolve-identifier` | external | E/M: crates/imbib-service/src/app_service.rs:369 default refuses; HTTP POST /api/papers/resolve (apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/HTTPAutomationRouter.swift:2564-2585 handleResolv… |
 | `imbib-app-service_search-sources` | external | E/R: name/doc |
 | `imbib-app-service_status` | external | E/R: name/doc |
 | `imbib-app-service_sync-nudge` | external | E/M: name/doc |

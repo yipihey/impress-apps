@@ -261,7 +261,7 @@ What the USER was recently working on: papers they viewed or added by hand, most
 
 ## `imbib-app-service_resolve-citation`
 
-Resolve free text, BibTeX, or structured citation fields through the running app's local/import/search cascade. Candidate order, confidence, `via`, and reason values are preserved. The returned paper and candidate objects use the same open dictionary shape as HTTP.
+Resolve free text, BibTeX, or structured citation fields through the running app's existing `/api/papers/resolve` cascade. Candidate order, confidence, `via`, and reason values are preserved. The returned paper and candidate objects use the same open dictionary shape as HTTP.
 
 - **safety**: `external`
 - **reads**: —
