@@ -2002,3 +2002,19 @@ No builds/tests, route removal or caller migration were performed here.
   this package adds no new agent tools. Route arms, binary export, writes and
   imbib remain for their separate packages. Focused DTO decoding and canonical
   transport fixtures were added; static review only, root verification pending.
+
+- 2026-09-29 — **P5c22 imprint domain-route retirement.** Removed only the
+  public `GET /api/documents`, `GET /api/documents/{id}`, and comment
+  list/create/update/delete/accept/reject registrations. P5c16 moved the
+  production document list/detail readers, including impart's ArtifactResolver,
+  to generated manuscript/content verbs; the comments caller audit found no
+  production Swift, CLI or scenario consumer. The hosted proof now expects
+  those old URLs to return 404 and exercises the same seeded reads, threaded
+  comments and suggestion effects through generated verbs. The earlier P5c7
+  and P5c10 entries record route parity before retirement, not current HTTP
+  availability. Private comment handlers remain reachable from native verb
+  callbacks. The legacy `apps/imprint/test-imprint-api.sh` still expects the
+  retired document list/detail routes and is not a current caller; revise that
+  integration script before running it as an API check. Queued document edits,
+  metadata, caret citation, status/logs, compile, and other approved platform
+  routes remain registered.

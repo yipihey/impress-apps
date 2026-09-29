@@ -132,13 +132,8 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         try ManuscriptStoreAdapter.shared.updateMetadata(
             id: id, linkedImbibManuscriptID: linkedManuscriptID,
             linkedImbibLibraryID: "linked-library-proof")
-        let legacyList = await router.route(HTTPRequest(method: "GET", path: "/api/documents"))
-        XCTAssertEqual(legacyList.status, 200)
-        let legacyListBody = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyList.body) as? [String: Any])
-        let legacyRows = try XCTUnwrap(legacyListBody["documents"] as? [[String: Any]])
-        let legacyRow = try XCTUnwrap(legacyRows.first {
-            ($0["id"] as? String)?.lowercased() == id.uuidString.lowercased()
-        })
+        let retiredList = await router.route(HTTPRequest(method: "GET", path: "/api/documents"))
+        XCTAssertEqual(retiredList.status, 404)
         let generatedList = await router.route(HTTPRequest(
             method: "POST", path: "/api/verb/imprint-manuscript-service_list-documents", body: "{}"))
         XCTAssertEqual(generatedList.status, 200, String(decoding: generatedList.body, as: UTF8.self))
@@ -146,42 +141,27 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         let generatedRow = try XCTUnwrap(generatedRows.first {
             ($0["id"] as? String)?.lowercased() == id.uuidString.lowercased()
         })
-        for (legacyKey, generatedKey) in [
-            ("title", "title"), ("authors", "authors"), ("format", "format"),
-            ("status", "status"), ("modifiedAt", "last_modified"), ("createdAt", "created_at"),
-        ] {
-            XCTAssertEqual(legacyRow[legacyKey] as? NSObject, generatedRow[generatedKey] as? NSObject,
-                           "Legacy and generated list field \(legacyKey) diverged")
-        }
-        XCTAssertEqual((legacyRow["id"] as? String)?.lowercased(),
-                       (generatedRow["id"] as? String)?.lowercased())
+        XCTAssertEqual(generatedRow["title"] as? String, "Renamed proof")
+        XCTAssertEqual(generatedRow["authors"] as? [String], ["Human Author"])
+        XCTAssertEqual(generatedRow["format"] as? String, "typst")
+        XCTAssertEqual(generatedRow["status"] as? String, "in-review")
         XCTAssertEqual(generatedRow["word_count"] as? Int, 3)
+        XCTAssertEqual((generatedRow["id"] as? String)?.lowercased(), id.uuidString.lowercased())
 
-        let legacyDetailResponse = await router.route(HTTPRequest(
+        let retiredDetailResponse = await router.route(HTTPRequest(
             method: "GET", path: "/api/documents/\(id.uuidString)"))
-        XCTAssertEqual(legacyDetailResponse.status, 200)
-        let legacyDetailBody = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyDetailResponse.body) as? [String: Any])
-        let legacyDetail = try XCTUnwrap(legacyDetailBody["document"] as? [String: Any])
+        XCTAssertEqual(retiredDetailResponse.status, 404)
         let generatedDetailResponse = await router.route(HTTPRequest(
             method: "POST", path: "/api/verb/imprint-manuscript-service_get-document",
             body: #"{"id":"\#(id.uuidString)"}"#))
         XCTAssertEqual(generatedDetailResponse.status, 200, String(decoding: generatedDetailResponse.body, as: UTF8.self))
         let generatedDetail = try XCTUnwrap(JSONSerialization.jsonObject(with: generatedDetailResponse.body) as? [String: Any])
-        for (legacyKey, generatedKey) in [
-            ("title", "title"), ("authors", "authors"), ("format", "format"),
-            ("status", "status"), ("modifiedAt", "last_modified"), ("createdAt", "created_at"),
-            ("linkedImbibManuscriptID", "linked_imbib_manuscript_id"),
-            ("linkedImbibLibraryID", "linked_imbib_library_id"),
-        ] {
-            if legacyKey == "linkedImbibManuscriptID" {
-                XCTAssertEqual((legacyDetail[legacyKey] as? String)?.lowercased(),
-                               (generatedDetail[generatedKey] as? String)?.lowercased())
-                continue
-            }
-            XCTAssertEqual(legacyDetail[legacyKey] as? NSObject,
-                           generatedDetail[generatedKey] as? NSObject,
-                           "Legacy and generated detail field \(legacyKey) diverged")
-        }
+        XCTAssertEqual(generatedDetail["title"] as? String, "Renamed proof")
+        XCTAssertEqual(generatedDetail["authors"] as? [String], ["Human Author"])
+        XCTAssertEqual(generatedDetail["format"] as? String, "typst")
+        XCTAssertEqual(generatedDetail["status"] as? String, "in-review")
+        XCTAssertEqual(generatedDetail["linked_imbib_manuscript_id"] as? String, linkedManuscriptID.uuidString)
+        XCTAssertEqual(generatedDetail["linked_imbib_library_id"] as? String, "linked-library-proof")
         XCTAssertEqual(generatedDetail["word_count"] as? Int, 3)
 
         // A local editor change has not yet passed its debounce. Native insert
@@ -223,38 +203,36 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(listedComment["document_id"] as? String, id.uuidString)
         XCTAssertEqual(listedComment["anchor"] as? String, "agent")
 
-        // Compare the retained HTTP contract with the generated read using a
-        // real suggestion rooted in the live UTF-16 editor buffer.
-        let legacyCreateBody = try JSONSerialization.data(withJSONObject: [
-            "content": "Thread root",
+        // Retired comment routes return 404. The generated contract retains the
+        // same seeded create, filtered-list, threading and suggestion behavior.
+        let retiredCreateBody = try JSONSerialization.data(withJSONObject: [
+            "content": "must not be stored through retired route",
             "start": 7,
             "end": 9,
-            "proposedText": "🧪",
-            "authorAgentId": "legacy-reviewer",
-            "authorName": "Legacy Reviewer",
         ])
-        let legacyCreate = await router.route(HTTPRequest(
+        let retiredCreate = await router.route(HTTPRequest(
             method: "POST", path: "/api/documents/\(id.uuidString)/comments",
-            body: String(decoding: legacyCreateBody, as: UTF8.self)))
-        XCTAssertEqual(legacyCreate.status, 201, String(decoding: legacyCreate.body, as: UTF8.self))
-        let legacyCreatedObject = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: legacyCreate.body) as? [String: Any])
-        let legacyRoot = try XCTUnwrap(legacyCreatedObject["comment"] as? [String: Any])
-        let legacyRootID = try XCTUnwrap(legacyRoot["id"] as? String)
-        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["start"], 7)
-        XCTAssertEqual((legacyRoot["range"] as? [String: Int])?["end"], 9)
-        XCTAssertEqual(legacyRoot["authorAgentId"] as? String, "legacy-reviewer")
+            body: String(decoding: retiredCreateBody, as: UTF8.self)))
+        XCTAssertEqual(retiredCreate.status, 404)
 
-        let legacySuggestionList = await router.route(HTTPRequest(
+        let generatedRootResponse = try await call("create-comment", [
+            "document_id": id.uuidString,
+            "body": "Thread root",
+            "anchor": "😀",
+            "proposed_text": "🧪",
+            "author_agent_id": "legacy-reviewer",
+            "author_name": "Legacy Reviewer",
+        ])
+        XCTAssertEqual(generatedRootResponse.status, 200, String(decoding: generatedRootResponse.body, as: UTF8.self))
+        let generatedRoot = try XCTUnwrap(value(generatedRootResponse) as? [String: Any])
+        let generatedRootID = try XCTUnwrap(generatedRoot["id"] as? String)
+        XCTAssertEqual(generatedRoot["author_agent_id"] as? String, "legacy-reviewer")
+        XCTAssertEqual(generatedRoot["proposed_text"] as? String, "🧪")
+
+        let retiredSuggestionList = await router.route(HTTPRequest(
             method: "GET", path: "/api/documents/\(id.uuidString)/comments",
             queryParams: ["filter": "suggestions", "authorAgentId": "legacy-reviewer"]))
-        XCTAssertEqual(legacySuggestionList.status, 200)
-        let legacySuggestionBody = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: legacySuggestionList.body) as? [String: Any])
-        let legacySuggestions = try XCTUnwrap(legacySuggestionBody["comments"] as? [[String: Any]])
-        XCTAssertEqual(legacySuggestions.count, 1)
-        let legacySuggestion = try XCTUnwrap(legacySuggestions.first)
-
+        XCTAssertEqual(retiredSuggestionList.status, 404)
         let generatedSuggestionList = try await call("list-comments", [
             "document_id": id.uuidString,
             "filter": "suggestions",
@@ -262,32 +240,14 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         ])
         XCTAssertEqual(generatedSuggestionList.status, 200,
                        String(decoding: generatedSuggestionList.body, as: UTF8.self))
-        let generatedSuggestions = try XCTUnwrap(
-            value(generatedSuggestionList) as? [[String: Any]])
+        let generatedSuggestions = try XCTUnwrap(value(generatedSuggestionList) as? [[String: Any]])
         XCTAssertEqual(generatedSuggestions.count, 1)
         let generatedSuggestion = try XCTUnwrap(generatedSuggestions.first)
-        XCTAssertEqual(generatedSuggestion["id"] as? String, legacySuggestion["id"] as? String)
-        XCTAssertEqual(generatedSuggestion["author"] as? String, legacySuggestion["author"] as? String)
-        XCTAssertEqual(generatedSuggestion["author_id"] as? String, legacySuggestion["authorId"] as? String)
-        XCTAssertEqual(generatedSuggestion["body"] as? String, legacySuggestion["content"] as? String)
-        XCTAssertEqual(generatedSuggestion["content"] as? String, legacySuggestion["content"] as? String)
-        XCTAssertEqual(generatedSuggestion["status"] as? String, "open")
-        XCTAssertEqual(generatedSuggestion["created_at"] as? String,
-                       legacySuggestion["createdAt"] as? String)
-        XCTAssertEqual(generatedSuggestion["modified_at"] as? String,
-                       legacySuggestion["modifiedAt"] as? String)
-        XCTAssertEqual(generatedSuggestion["proposed_text"] as? String,
-                       legacySuggestion["proposedText"] as? String)
-        XCTAssertEqual(generatedSuggestion["author_agent_id"] as? String,
-                       legacySuggestion["authorAgentId"] as? String)
-        XCTAssertEqual(generatedSuggestion["is_resolved"] as? Bool,
-                       legacySuggestion["isResolved"] as? Bool)
-        XCTAssertEqual(generatedSuggestion["is_suggestion"] as? Bool,
-                       legacySuggestion["isSuggestion"] as? Bool)
-        XCTAssertEqual((generatedSuggestion["range"] as? [String: Int])?["start"],
-                       (legacySuggestion["range"] as? [String: Int])?["start"])
-        XCTAssertEqual((generatedSuggestion["range"] as? [String: Int])?["end"],
-                       (legacySuggestion["range"] as? [String: Int])?["end"])
+        XCTAssertEqual(generatedSuggestion["id"] as? String, generatedRootID)
+        XCTAssertEqual(generatedSuggestion["author_agent_id"] as? String, "legacy-reviewer")
+        XCTAssertEqual(generatedSuggestion["body"] as? String, "Thread root")
+        XCTAssertEqual(generatedSuggestion["proposed_text"] as? String, "🧪")
+        XCTAssertEqual(generatedSuggestion["is_suggestion"] as? Bool, true)
 
         let countBeforeInvalidParent = comments.comments.count
         let invalidParent = try await call("create-comment", [
@@ -299,88 +259,58 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         let generatedReply = try await call("create-comment", [
             "document_id": id.uuidString,
             "body": "Thread reply",
-            "parent_id": legacyRootID,
+            "parent_id": generatedRootID,
             "proposed_text": "revised agent",
             "author_agent_id": "reply-agent",
             "author_name": "Reply Agent",
         ])
         XCTAssertEqual(generatedReply.status, 200, String(decoding: generatedReply.body, as: UTF8.self))
         let generatedReplyRecord = try XCTUnwrap(value(generatedReply) as? [String: Any])
-        XCTAssertEqual(generatedReplyRecord["parent_id"] as? String, legacyRootID)
+        XCTAssertEqual(generatedReplyRecord["parent_id"] as? String, generatedRootID)
         XCTAssertEqual(generatedReplyRecord["proposed_text"] as? String, "revised agent")
         XCTAssertEqual(generatedReplyRecord["author_agent_id"] as? String, "reply-agent")
         XCTAssertEqual(generatedReplyRecord["author"] as? String, "Reply Agent")
-        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["start"], 7)
-        XCTAssertEqual((generatedReplyRecord["range"] as? [String: Int])?["end"], 9)
-        XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRootID }?.textRange,
+        XCTAssertEqual(generatedReplyRecord["range"] as? [String: Int],
+                       generatedRoot["range"] as? [String: Int])
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == generatedRootID }?.textRange,
                        comments.comments.first {
                            $0.id.uuidString == generatedReplyRecord["id"] as? String
                        }?.textRange,
                        "Replies must keep the root's live UTF-16 range")
 
-        let legacyAgentList = await router.route(HTTPRequest(
+        let retiredAgentList = await router.route(HTTPRequest(
             method: "GET", path: "/api/documents/\(id.uuidString)/comments",
             queryParams: ["authorAgentId": "reply-agent"]))
-        let legacyAgentBody = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: legacyAgentList.body) as? [String: Any])
-        let legacyAgentRows = try XCTUnwrap(legacyAgentBody["comments"] as? [[String: Any]])
-        XCTAssertEqual(legacyAgentRows.count, 1)
-        XCTAssertEqual(legacyAgentRows.first?["parentId"] as? String, legacyRootID)
-
-        // The legacy accept route applies and saves the replacement at the
-        // comment's UTF-16 range, returns its completed operation handle, and
-        // resolves the comment only after the editor write succeeds.
-        let rootRange = try XCTUnwrap(comments.comments.first { $0.id.uuidString == legacyRootID }?.textRange)
-        XCTAssertEqual(rootRange, TextRange(start: 7, end: 9))
-        let expectedAfterLegacyAccept = (session.source as NSString).replacingCharacters(
-            in: NSRange(location: rootRange.start, length: rootRange.length),
-            with: "🧪")
-        let legacyAccept = await router.route(HTTPRequest(
-            method: "POST", path: "/api/comments/\(legacyRootID)/accept"))
-        XCTAssertEqual(legacyAccept.status, 200, String(decoding: legacyAccept.body, as: UTF8.self))
-        let legacyAcceptBody = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: legacyAccept.body) as? [String: Any])
-        XCTAssertEqual(legacyAcceptBody["accepted"] as? Bool, true)
-        XCTAssertEqual(legacyAcceptBody["commentId"] as? String, legacyRootID)
-        XCTAssertEqual(legacyAcceptBody["documentId"] as? String, id.uuidString)
-        let legacyOperationID = try XCTUnwrap(
-            UUID(uuidString: try XCTUnwrap(legacyAcceptBody["operationId"] as? String)))
-        XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRootID }?.isResolved, true)
-        XCTAssertEqual(session.source, expectedAfterLegacyAccept)
-        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, expectedAfterLegacyAccept)
-        XCTAssertEqual(OperationTracker.shared.get(id: legacyOperationID)?.kind, "acceptSuggestion")
-        XCTAssertEqual(OperationTracker.shared.get(id: legacyOperationID)?.status.rawValue, "completed")
-
-        // The generated accept verb follows the same native route and exposes
-        // its camel-case HTTP result as a typed Rust record.
-        let generatedAcceptSuggestion = try await call("create-comment", [
-            "document_id": id.uuidString,
-            "body": "Apply this generated suggestion",
-            "proposed_text": "delta",
-            "anchor": "gamma",
+        XCTAssertEqual(retiredAgentList.status, 404)
+        let generatedAgentList = try await call("list-comments", [
+            "document_id": id.uuidString, "author_agent_id": "reply-agent",
         ])
-        XCTAssertEqual(generatedAcceptSuggestion.status, 200)
-        let generatedAcceptComment = try XCTUnwrap(value(generatedAcceptSuggestion) as? [String: Any])
-        let generatedAcceptID = try XCTUnwrap(generatedAcceptComment["id"] as? String)
-        let generatedRange = try XCTUnwrap(generatedAcceptComment["range"] as? [String: Int])
-        let expectedGammaRange = (session.source as NSString).range(of: "gamma")
-        XCTAssertEqual(generatedRange["start"], expectedGammaRange.location)
-        XCTAssertEqual(generatedRange["end"], expectedGammaRange.location + expectedGammaRange.length)
-        let expectedAfterGeneratedAccept = (session.source as NSString).replacingCharacters(
-            in: expectedGammaRange, with: "delta")
-        let generatedAccept = try await call("accept-comment-suggestion", ["comment_id": generatedAcceptID])
-        XCTAssertEqual(generatedAccept.status, 200, String(decoding: generatedAccept.body, as: UTF8.self))
-        let generatedAcceptBody = try XCTUnwrap(value(generatedAccept) as? [String: Any])
-        XCTAssertEqual(generatedAcceptBody["accepted"] as? Bool, true)
-        XCTAssertEqual(generatedAcceptBody["comment_id"] as? String, generatedAcceptID)
-        XCTAssertEqual(generatedAcceptBody["document_id"] as? String, id.uuidString)
-        let generatedOperationID = try XCTUnwrap(
-            UUID(uuidString: try XCTUnwrap(generatedAcceptBody["operation_id"] as? String)))
-        XCTAssertEqual(comments.comments.first { $0.id.uuidString == generatedAcceptID }?.isResolved, true)
-        XCTAssertEqual(session.source, expectedAfterGeneratedAccept)
-        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, expectedAfterGeneratedAccept)
-        XCTAssertEqual(OperationTracker.shared.get(id: generatedOperationID)?.kind, "acceptSuggestion")
-        XCTAssertEqual(OperationTracker.shared.get(id: generatedOperationID)?.status.rawValue, "completed")
+        XCTAssertEqual(generatedAgentList.status, 200)
+        let generatedAgentRows = try XCTUnwrap(value(generatedAgentList) as? [[String: Any]])
+        XCTAssertEqual(generatedAgentRows.count, 1)
+        XCTAssertEqual(generatedAgentRows.first?["parent_id"] as? String, generatedRootID)
+
+        // Acceptance stays available through the generated verb; the HTTP
+        // registration is retired while preserving the same live-editor effect.
+        let rootRange = try XCTUnwrap(comments.comments.first { $0.id.uuidString == generatedRootID }?.textRange)
+        let expectedAfterRootAccept = (session.source as NSString).replacingCharacters(
+            in: NSRange(location: rootRange.start, length: rootRange.length), with: "🧪")
+        let retiredAccept = await router.route(HTTPRequest(
+            method: "POST", path: "/api/comments/\(generatedRootID)/accept"))
+        XCTAssertEqual(retiredAccept.status, 404)
+        let generatedRootAccept = try await call("accept-comment-suggestion", ["comment_id": generatedRootID])
+        XCTAssertEqual(generatedRootAccept.status, 200, String(decoding: generatedRootAccept.body, as: UTF8.self))
+        let generatedRootAcceptBody = try XCTUnwrap(value(generatedRootAccept) as? [String: Any])
+        XCTAssertEqual(generatedRootAcceptBody["accepted"] as? Bool, true)
+        XCTAssertEqual(generatedRootAcceptBody["comment_id"] as? String, generatedRootID)
+        XCTAssertEqual(generatedRootAcceptBody["document_id"] as? String, id.uuidString)
+        let rootOperationID = try XCTUnwrap(
+            UUID(uuidString: try XCTUnwrap(generatedRootAcceptBody["operation_id"] as? String)))
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == generatedRootID }?.isResolved, true)
+        XCTAssertEqual(session.source, expectedAfterRootAccept)
+        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, expectedAfterRootAccept)
+        XCTAssertEqual(OperationTracker.shared.get(id: rootOperationID)?.kind, "acceptSuggestion")
+        XCTAssertEqual(OperationTracker.shared.get(id: rootOperationID)?.status.rawValue, "completed")
 
         // A stale suggestion range must fail against the latest live buffer,
         // leave the comment unresolved, and never overwrite the saved body.
@@ -419,45 +349,24 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, savedBeforeStaleAccept)
         session.source = savedBeforeStaleAccept
 
-        // The retained reject route resolves without changing source.
-        let legacyRejectCreateBody = try JSONSerialization.data(withJSONObject: [
-            "content": "Legacy reject",
-            "start": 0,
-            "end": 0,
-            "proposedText": "unused replacement",
-        ])
-        let legacyRejectCreate = await router.route(HTTPRequest(
-            method: "POST", path: "/api/documents/\(id.uuidString)/comments",
-            body: String(decoding: legacyRejectCreateBody, as: UTF8.self)))
-        XCTAssertEqual(legacyRejectCreate.status, 201)
-        let legacyRejectObject = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: legacyRejectCreate.body) as? [String: Any])
-        let legacyRejectComment = try XCTUnwrap(legacyRejectObject["comment"] as? [String: Any])
-        let legacyRejectID = try XCTUnwrap(legacyRejectComment["id"] as? String)
-        let sourceBeforeLegacyReject = session.source
-        let legacyReject = await router.route(HTTPRequest(
-            method: "POST", path: "/api/comments/\(legacyRejectID)/reject"))
-        XCTAssertEqual(legacyReject.status, 200)
-        XCTAssertEqual(comments.comments.first { $0.id.uuidString == legacyRejectID }?.isResolved, true)
-        XCTAssertEqual(session.source, sourceBeforeLegacyReject)
-
-        let rejectedSuggestion = try await call("create-comment", [
+        // Rejecting also resolves without editing, via the generated verb.
+        let rejectRootResponse = try await call("create-comment", [
             "document_id": id.uuidString,
-            "body": "No need to apply this",
-            "proposed_text": "discard me",
-            "anchor": "beta",
+            "body": "Reject this suggestion",
+            "proposed_text": "unused replacement",
         ])
-        XCTAssertEqual(rejectedSuggestion.status, 200)
-        let rejectedSuggestionRecord = try XCTUnwrap(value(rejectedSuggestion) as? [String: Any])
-        let rejectedSuggestionID = try XCTUnwrap(rejectedSuggestionRecord["id"] as? String)
-        let sourceBeforeReject = session.source
-        let storedBodyBeforeReject = ManuscriptStoreAdapter.shared.manuscript(id: id)?.body
-        let rejected = try await call("reject-comment-suggestion", ["comment_id": rejectedSuggestionID])
-        XCTAssertEqual(rejected.status, 200, String(decoding: rejected.body, as: UTF8.self))
-        XCTAssertEqual(try value(rejected) as? Bool, true)
-        XCTAssertEqual(comments.comments.first { $0.id.uuidString == rejectedSuggestionID }?.isResolved, true)
-        XCTAssertEqual(session.source, sourceBeforeReject)
-        XCTAssertEqual(ManuscriptStoreAdapter.shared.manuscript(id: id)?.body, storedBodyBeforeReject)
+        XCTAssertEqual(rejectRootResponse.status, 200)
+        let rejectRoot = try XCTUnwrap(value(rejectRootResponse) as? [String: Any])
+        let rejectRootID = try XCTUnwrap(rejectRoot["id"] as? String)
+        let sourceBeforeRejectRoot = session.source
+        let retiredReject = await router.route(HTTPRequest(
+            method: "POST", path: "/api/comments/\(rejectRootID)/reject"))
+        XCTAssertEqual(retiredReject.status, 404)
+        let generatedReject = try await call("reject-comment-suggestion", ["comment_id": rejectRootID])
+        XCTAssertEqual(generatedReject.status, 200)
+        XCTAssertEqual(try value(generatedReject) as? Bool, true)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == rejectRootID }?.isResolved, true)
+        XCTAssertEqual(session.source, sourceBeforeRejectRoot)
 
         // Acceptance refuses ordinary comments and unknown IDs; neither case
         // changes review state or the live/saved manuscript.
@@ -498,6 +407,17 @@ final class ImprintNativeVerbProofTests: XCTestCase {
         let reopened = try await call("update-comment", ["comment_id": commentID, "status": "open"])
         XCTAssertEqual(reopened.status, 200)
         XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.isResolved, false)
+        let retiredPatch = await router.route(HTTPRequest(
+            method: "PATCH", path: "/api/comments/\(commentID)", body: #"{"content":"retired"}"#))
+        XCTAssertEqual(retiredPatch.status, 404)
+        XCTAssertEqual(comments.comments.first { $0.id.uuidString == commentID }?.content, "Check this phrase")
+        let retiredDelete = await router.route(HTTPRequest(
+            method: "DELETE", path: "/api/comments/\(commentID)"))
+        XCTAssertEqual(retiredDelete.status, 404)
+        let generatedDelete = try await call("delete-comment", ["comment_id": commentID])
+        XCTAssertEqual(generatedDelete.status, 200)
+        XCTAssertEqual(try value(generatedDelete) as? Bool, true)
+        XCTAssertFalse(comments.comments.contains { $0.id.uuidString == commentID })
     }
 
     private func requireIsolation(_ condition: Bool, _ message: String) throws {
