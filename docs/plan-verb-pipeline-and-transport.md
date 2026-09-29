@@ -1806,6 +1806,27 @@ same PID-owned scratch manuscript, then creates a generated threaded suggestion
 and verifies parent identity and inherited UTF-16 offsets. Root owns running
 the Rust/native verification and regenerating any generated assets.
 
+## P5c8 — implore figure mutation contracts (2026-09-29)
+
+Extended `implore-service_create-figure` with HTTP-compatible integer
+`width`/`height`, separate plot `title`/`color_column`, and an optional raw
+JSON `view_state`; explicit create fields overlay corresponding fields in that
+view state. Added generated `update-figure` and `delete-figure` callbacks that
+reuse `handleUpdateFigure`/`handleDeleteFigure` and `LibraryManager`'s existing
+store, rerender, rollback, export cleanup, and content-blob reference logic.
+Update accepts only the fields PATCH actually mutates; it deliberately has no
+`dataset_id` because the HTTP handler does not change a figure's dataset.
+Update returns a structured `{ok, error?, figure?, artifact?}` result and
+refused native responses remain refusals; delete keeps the approved `bool`
+result. Create/update/delete declare figure-record effects and app reach.
+
+Rust coverage checks generated schemas, effects, callback argument mapping,
+render/update and missing/delete failures. Hosted proof compares verb and HTTP
+create/update hashes on isolated figures, confirms a changed non-empty PNG,
+and tests shared-blob retention through update and the last delete. Root owns
+verification; no tests/builds, caller migrations, route removals, or real-store
+operations were performed here.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -1829,3 +1850,16 @@ the Rust/native verification and regenerating any generated assets.
   thread writes; the final test snapshots immediately before the refusal and
   still requires equality of every stored comment afterward. Generated project
   identifier/path churn was discarded. No real store or user app was touched.
+
+- 2026-09-29 — **P5c8 verified.** Root passed 61 Rust tests (zero failures,
+  three ignored), every quick gate and full supported arm64 store-ffi,
+  impel-tools and implore-verbs-ffi builds. The isolated native run passed
+  both XCTest cases and five shared transport calls, including route/verb
+  render hashes, non-empty changed PNG bytes and shared blob/export cleanup.
+  SQLite checks passed; owned PID 48130 exited. Evidence:
+  `/tmp/impress-p5b-transport-xgsqb5h4/output/` and
+  `/tmp/impress-p5c8-{tests,gates,frameworks,native-proof}.log`.
+  Tables/reference pages were regenerated. Root corrected fixture safety-class
+  comparisons and retained the preceding threaded-comment refusal snapshot.
+  The documented exception ceiling increases 146→148 for the two new native
+  callbacks; positive evidence comes from the app proof, not headless refusal.

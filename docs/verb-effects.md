@@ -266,7 +266,8 @@ catalogue, 300 on the exception table.
 | `impel-service_resolve-review` | "review-request@1.0.0", "task@1.0.0" | "review-request@1.0.0", "task@1.0.0" | — | example ×1 |
 | `impel-service_retention-status` | "task@1.0.0", "review-request@1.0.0", "core/operation" | — | — | — |
 | `impel-service_scheduler-status` | "task@1.0.0", "review-request@1.0.0" | — | — | example ×1 |
-| `implore-service_create-figure` | — | — | app("implore") | — |
+| `implore-service_create-figure` | — | "figure" | app("implore") | — |
+| `implore-service_delete-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `implore-service_export-figure` | — | — | app("implore") | — |
 | `implore-service_export-figure-data` | — | — | app("implore") | — |
 | `implore-service_get-dataset` | — | — | app("implore") | — |
@@ -287,6 +288,7 @@ catalogue, 300 on the exception table.
 | `implore-service_rg-state` | — | — | app("implore") | — |
 | `implore-service_rg-statistics` | — | — | app("implore") | — |
 | `implore-service_status` | — | — | app("implore") | — |
+| `implore-service_update-figure` | target(figure_id) | "figure" | app("implore") | — |
 | `impress-ai-service_ai-health` | — | — | network | — |
 | `impress-ai-service_ai-preferences` | — | — | fs | example ×1 |
 | `impress-ai-service_create-conversation` | "conversation@1.0.0" | "conversation@1.0.0" | — | example ×1 |
@@ -618,6 +620,7 @@ when one lands).
 | `impart-service_update-conversation` | needs a running app |
 | `impel-service_retention-status` | exercised, unobserved (example ran, spy saw no declared read or write) |
 | `implore-service_create-figure` | needs a running app |
+| `implore-service_delete-figure` | needs a running app |
 | `implore-service_export-figure` | needs a running app |
 | `implore-service_export-figure-data` | needs a running app |
 | `implore-service_get-dataset` | needs a running app |
@@ -638,6 +641,7 @@ when one lands).
 | `implore-service_rg-state` | needs a running app |
 | `implore-service_rg-statistics` | needs a running app |
 | `implore-service_status` | needs a running app |
+| `implore-service_update-figure` | needs a running app |
 | `impress-ai-service_ai-health` | leaves the process (network) |
 | `impress-ai-service_list-models` | leaves the process (provider) |
 | `impress-ai-service_list-providers` | leaves the process (provider, fs) |
