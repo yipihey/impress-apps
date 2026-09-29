@@ -94,6 +94,7 @@ catalogue, 300 on the exception table.
 | `imbib-annotations-service_create-annotation` | "imbib/linked-file" | "imbib/annotation" | — | example ×1 |
 | `imbib-annotations-service_create-comment` | "imbib/bibliography-entry" | "imbib/comment" | — | example ×1 |
 | `imbib-annotations-service_create-comment-on-item` | target(item_id) | "imbib/comment" | — | example ×1 |
+| `imbib-annotations-service_delete-comment` | "imbib/comment" | "imbib/comment" | — | example ×1 |
 | `imbib-annotations-service_list-annotations` | "imbib/annotation" | — | — | example ×1 |
 | `imbib-annotations-service_list-comments` | "imbib/comment", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-annotations-service_list-comments-for-item` | "imbib/comment", target(item_id) | — | — | example ×1 |
@@ -183,6 +184,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_import-bibtex-into-collection` | "imbib/bibliography-entry", "imbib/library", "imbib/collection" | "imbib/bibliography-entry", "imbib/collection" | — | example ×1 |
 | `imbib-library-service_import-identifiers` | "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file" | app("imbib"), network, fs | — |
 | `imbib-library-service_import-papers` | "imbib/bibliography-entry", "imbib/library", "imbib/dismissed-paper" | "imbib/bibliography-entry" | — | example ×1 |
+| `imbib-library-service_import-ris` | "imbib/bibliography-entry", "imbib/library" | "imbib/bibliography-entry" | — | example ×1 |
 | `imbib-library-service_is-paper-dismissed` | "imbib/dismissed-paper" | — | — | example ×2 |
 | `imbib-library-service_list-assignments` | "imbib/assignment", "imbib/bibliography-entry" | — | — | example ×1 |
 | `imbib-library-service_list-collection-members` | "imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |

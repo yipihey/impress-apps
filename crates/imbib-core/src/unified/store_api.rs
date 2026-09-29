@@ -4814,6 +4814,30 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Parse RIS and add each entry to a library. Duplicates already in that
+    /// library are skipped. The returned ids are only the rows this call created.
+    pub fn import_ris(
+        &self,
+        ris: String,
+        library_id: String,
+    ) -> Result<Vec<String>, StoreApiError> {
+        let parent_uuid = parse_uuid(&library_id)?;
+        let parsed = crate::import::import_ris_internal(ris)
+            .map_err(|error| StoreApiError::InvalidInput(format!("RIS parse error: {error}")))?;
+        let mut imported = Vec::new();
+        for publication in &parsed.publications {
+            if self
+                .find_existing_publication(publication, Some(parent_uuid))?
+                .is_some()
+            {
+                continue;
+            }
+            let item = conversion::publication_to_item(publication, Some(parent_uuid));
+            imported.push(self.store.insert(item)?.to_string());
+        }
+        Ok(imported)
+    }
+
     /// Delete one assignment row. `Ok(false)` means no such row.
     ///
     /// Not a UniFFI export: the app deletes through `deleteItem`, and the
@@ -8216,6 +8240,19 @@ mod tests {
         assert_eq!(result.imported_ids.len(), 0);
         assert_eq!(result.existing_ids.len(), 1);
         assert_eq!(result.failed_count, 0);
+    }
+
+    #[test]
+    fn import_ris_creates_one_paper_and_skips_the_same_record() {
+        let store = make_store();
+        let lib = store.create_library("RIS".into()).unwrap();
+        let ris = "TY  - JOUR\nAU  - Doe, Jane\nTI  - Imported RIS record\nPY  - 2026\nER  - \n";
+        let first = store.import_ris(ris.into(), lib.id.clone()).unwrap();
+        assert_eq!(first.len(), 1);
+        let paper = store.get_publication(first[0].clone()).unwrap().unwrap();
+        assert_eq!(paper.cite_key, "Doe2026Imported");
+        let second = store.import_ris(ris.into(), lib.id).unwrap();
+        assert!(second.is_empty());
     }
 
     #[test]

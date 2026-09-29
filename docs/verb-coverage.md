@@ -36,12 +36,12 @@ read.
 | `collection-service` | impress-store-service | 12 | 12 | 25 (22) | 25 | 12 |
 | `docs-import-service` | impress-store-service | 10 | 10 | 38 (22) | 38 | 10 |
 | `history-service` | impress-store-service | 7 | 7 | 15 (9) | 15 | 7 |
-| `imbib-annotations-service` | imbib-service | 9 | 9 | 27 (15) | 27 | 9 |
+| `imbib-annotations-service` | imbib-service | 10 | 10 | 28 (16) | 28 | 10 |
 | `imbib-app-service` | imbib-service | 18 | 18 | 29 (20) | 29 | 18 |
 | `imbib-artifacts-service` | imbib-service | 9 | 9 | 36 (14) | 36 | 9 |
 | `imbib-backup-service` | imbib-service | 6 | 6 | 8 (7) | 8 | 6 |
 | `imbib-eink-service` | imbib-service | 22 | 22 | 35 (15) | 35 | 22 |
-| `imbib-library-service` | imbib-service | 55 | 55 | 112 (82) | 112 | 55 |
+| `imbib-library-service` | imbib-service | 56 | 56 | 114 (84) | 114 | 56 |
 | `imbib-manuscripts-service` | imbib-service | 7 | 7 | 9 (8) | 9 | 7 |
 | `imbib-scix-service` | imbib-service | 7 | 7 | 17 (15) | 17 | 7 |
 | `imbib-search-service` | imbib-service | 10 | 10 | 23 (18) | 23 | 10 |
@@ -78,7 +78,7 @@ read.
 | `surface-selftest-service` | impress-surface-service | 1 | 1 | 1 (1) | 1 | 1 |
 | `triage-service` | impress-store-service | 5 | 5 | 10 (8) | 10 | 5 |
 | `vw-diagnostic-service` | vw-impress-adapter | 15 | 15 | 24 (20) | 24 | 15 |
-| **Total** | 21 crates, 46 services | **489** | **489** | **1123 (725)** | **1123** | **489** |
+| **Total** | 21 crates, 46 services | **491** | **491** | **1126 (728)** | **1126** | **491** |
 <!-- verb-coverage-services:end -->
 
 The *Crate* column is the crate holding the service's `impress_service_impl!`

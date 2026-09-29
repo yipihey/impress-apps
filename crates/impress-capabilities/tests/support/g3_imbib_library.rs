@@ -429,6 +429,16 @@ pub async fn prepare(
             )?;
             library(store, "30", "G3 BibTeX library", false, false)?;
         }
+        ("imbib-library-service_import-ris", "import-one-ris-record") => {
+            reset_matching(
+                store,
+                refs::IMBIB_BIBLIOGRAPHY_ENTRY,
+                "cite_key",
+                "Doe2026Imported",
+                None,
+            )?;
+            library(store, "e4", "G3 RIS library", false, false)?;
+        }
         ("imbib-library-service_export-bibtex", "export-cite-key") => {
             library(store, "31", "G3 export library", false, false)?;
             paper(store, "33", "31", "G3Export2026", "G3 exported paper", None)?;
@@ -1024,6 +1034,21 @@ pub fn verify(
                 || imported.schema != refs::IMBIB_BIBLIOGRAPHY_ENTRY
             {
                 return Err("BibTeX paper was not saved in the target library".into());
+            }
+        }
+        ("imbib-library-service_import-ris", "import-one-ris-record") => {
+            let ids = result.as_array().ok_or("import result was not an array")?;
+            if ids.len() != 1 {
+                return Err("RIS import did not create one paper".into());
+            }
+            let imported = load(store, ids[0].as_str().ok_or("import ID was not text")?)?
+                .ok_or("imported paper not persisted")?;
+            if imported.parent != Some(uuid("e4")?)
+                || imported.schema != refs::IMBIB_BIBLIOGRAPHY_ENTRY
+                || imported.payload.get("cite_key")
+                    != Some(&ItemValue::String("Doe2026Imported".into()))
+            {
+                return Err("RIS paper was not saved in the target library".into());
             }
         }
         ("imbib-library-service_export-bibtex", "export-cite-key") => {

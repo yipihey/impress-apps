@@ -2416,3 +2416,8 @@ P5c1–18 and P5c20–24 are merged as PRs #148–170. P5c19 is the audit-only e
   The example scratch binds that path before verbs run. Live editor queues,
   citation caret insertion, implore binary routes, sharing stubs, scenario
   class iii/iv cases, and D-R13 chord overrides remain platform work.
+- 2026-09-29 — **Headless gaps after the store contracts.** Added
+  `imbib-library-service_import-ris` and
+  `imbib-annotations-service_delete-comment`. BibTeX and RIS import, and a
+  tag-tree read, refuse when the store errors instead of returning an empty
+  success. Removed `implore-core`'s dead `default_shortcuts` table (RG-6).

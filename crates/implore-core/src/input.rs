@@ -513,71 +513,6 @@ impl Shortcut {
     }
 }
 
-/// Default keyboard shortcuts
-pub fn default_shortcuts() -> Vec<Shortcut> {
-    vec![
-        // Mode switching
-        Shortcut::new(Key::Tab, Modifiers::new(), Command::CycleRenderMode),
-        Shortcut::new(
-            Key::Tab,
-            Modifiers::new().with_shift(),
-            Command::CycleRenderModeReverse,
-        ),
-        // Camera
-        Shortcut::new(Key::R, Modifiers::new(), Command::ResetCamera),
-        Shortcut::new(Key::F, Modifiers::new(), Command::FitToData),
-        Shortcut::new(Key::O, Modifiers::new(), Command::ToggleOrthographic),
-        // View
-        Shortcut::new(Key::A, Modifiers::new(), Command::ToggleAxes),
-        Shortcut::new(Key::G, Modifiers::new(), Command::ToggleGrid),
-        Shortcut::new(Key::C, Modifiers::new(), Command::ToggleColorbar),
-        Shortcut::new(Key::M, Modifiers::new(), Command::ToggleMarginals),
-        // Selection
-        Shortcut::new(Key::A, Modifiers::new().with_meta(), Command::SelectAll),
-        Shortcut::new(Key::D, Modifiers::new().with_meta(), Command::SelectNone),
-        Shortcut::new(
-            Key::I,
-            Modifiers::new().with_meta(),
-            Command::InvertSelection,
-        ),
-        Shortcut::new(Key::Backspace, Modifiers::new(), Command::DeleteSelection),
-        // Data
-        Shortcut::new(Key::BracketLeft, Modifiers::new(), Command::PreviousField),
-        Shortcut::new(Key::BracketRight, Modifiers::new(), Command::NextField),
-        Shortcut::new(Key::L, Modifiers::new(), Command::ToggleLogScale),
-        // Export
-        Shortcut::new(Key::E, Modifiers::new().with_meta(), Command::ExportDialog),
-        Shortcut::new(
-            Key::E,
-            Modifiers::new().with_meta().with_shift(),
-            Command::QuickExport,
-        ),
-        // Session
-        Shortcut::new(Key::S, Modifiers::new().with_meta(), Command::Save),
-        Shortcut::new(
-            Key::S,
-            Modifiers::new().with_meta().with_shift(),
-            Command::SaveAs,
-        ),
-        Shortcut::new(Key::O, Modifiers::new().with_meta(), Command::Open),
-        Shortcut::new(Key::Z, Modifiers::new().with_meta(), Command::Undo),
-        Shortcut::new(
-            Key::Z,
-            Modifiers::new().with_meta().with_shift(),
-            Command::Redo,
-        ),
-        // Help
-        Shortcut::new(Key::Slash, Modifiers::new(), Command::ShowHelp),
-        Shortcut::new(
-            Key::Slash,
-            Modifiers::new().with_shift(),
-            Command::ShowShortcuts,
-        ),
-        // Quit
-        Shortcut::new(Key::Q, Modifiers::new().with_meta(), Command::Quit),
-    ]
-}
-
 /// Find command for a key event
 pub fn find_command(event: &KeyEvent, shortcuts: &[Shortcut]) -> Option<Command> {
     shortcuts
@@ -671,7 +606,14 @@ mod tests {
 
     #[test]
     fn test_find_command() {
-        let shortcuts = default_shortcuts();
+        let shortcuts = vec![
+            Shortcut::new(Key::Tab, Modifiers::new(), Command::CycleRenderMode),
+            Shortcut::new(
+                Key::Tab,
+                Modifiers::new().with_shift(),
+                Command::CycleRenderModeReverse,
+            ),
+        ];
 
         let event = KeyEvent::pressed(Key::Tab, Modifiers::new());
         let cmd = find_command(&event, &shortcuts);
@@ -680,20 +622,5 @@ mod tests {
         let event_shift = KeyEvent::pressed(Key::Tab, Modifiers::new().with_shift());
         let cmd = find_command(&event_shift, &shortcuts);
         assert_eq!(cmd, Some(Command::CycleRenderModeReverse));
-    }
-
-    #[test]
-    fn test_default_shortcuts() {
-        let shortcuts = default_shortcuts();
-
-        // Should have reasonable number of shortcuts
-        assert!(shortcuts.len() > 15);
-
-        // Check some specific shortcuts exist
-        let has_save = shortcuts.iter().any(|s| s.command == Command::Save);
-        assert!(has_save);
-
-        let has_quit = shortcuts.iter().any(|s| s.command == Command::Quit);
-        assert!(has_quit);
     }
 }
