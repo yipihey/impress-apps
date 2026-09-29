@@ -1624,3 +1624,14 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   not a claimed physical click. Reproduce with the checked-in
   `scripts/test-runtime-provider-native.py` and the example README.
   P8 contains merged main `9d7ee7a4`; normal pre-push, PR and merge remain next.
+
+- 2026-09-29 — **P5c3 implore figure read DTO parity.** `FigureRecord` now
+  decodes the full legacy figure dictionary: type, dimensions, optional axis
+  columns/title, timestamps, tags and folder ID. The current handler omits
+  `datasetName` and `viewState`; their optional DTO fields preserve absence and
+  accept null, while a Rust fixture exercises populated values from an enriched
+  host. The `custom` type fallback and HTTP 800×600 dimension defaults remain
+  intact. Native adapter and headless refusal tests cover the mapping, and the
+  isolated native proof compares generated list/get output with actual HTTP
+  fields and absent keys. No build, tests or framework proof was run in this
+  package; root owns verification.
