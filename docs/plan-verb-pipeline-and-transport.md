@@ -1759,5 +1759,10 @@ title fallback when no DOI, arXiv ID, or bibcode is present.
 Focused Rust fixtures cover HTTP-compatible structured input conversion,
 callback argument forwarding, candidate order/confidence/reason preservation,
 external import identifiers, generated private-field schema, and honest
-headless refusal. No live network, builds, tests, route removal, or caller
-migration were performed in this package.
+headless refusal. The hosted transport proof now resolves a paper it imported
+into its PID-owned scratch library through both `/api/papers/resolve` and the
+generated verb, compares the local-search `via` and paper identity/content, and
+checks missing-input refusals on both surfaces. External search identifier
+mapping is covered by the deterministic Rust native-response fixture; no live
+source credentials or network search are required. No builds/tests, route
+removal, or caller migration were performed in this package.
