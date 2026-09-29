@@ -3904,9 +3904,8 @@ impl ImbibStore {
         // `query_raw` is intentionally a narrow SQL escape hatch and does not
         // carry schema metadata for the effects recorder. Record the logical
         // bibliography-entry read here at the query site.
-        impress_core::effects_spy::note_read(Some(
-            impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY.as_str(),
-        ));
+        self.store
+            .record_logical_read(&impress_core::schema::refs::IMBIB_BIBLIOGRAPHY_ENTRY);
         let pairs: Vec<(String, String)> = self.store.query_raw(
             "SELECT t.tag_path, t.item_id FROM item_tags t
               WHERE EXISTS (SELECT 1 FROM items i
@@ -5241,9 +5240,8 @@ impl ImbibStore {
                 // without this, the Tier A store spy sees whichever example
                 // happened to populate the cache first, rather than the
                 // operation's actual dependency.
-                impress_core::effects_spy::note_read(Some(
-                    impress_core::schema::refs::IMBIB_TAG_DEFINITION.as_str(),
-                ));
+                self.store
+                    .record_logical_read(&impress_core::schema::refs::IMBIB_TAG_DEFINITION);
                 return Ok(cached.clone());
             }
         }
@@ -6194,22 +6192,14 @@ mod tests {
         let warm_rows = store.list_tags_with_counts().unwrap();
         let warm = impress_core::effects_spy::stop();
 
-        fn summary(
-            rows: &[TagWithCountRow],
-        ) -> Vec<(String, String, Option<String>, Option<String>, i32)> {
-            rows.iter()
-                .map(|row| {
-                    (
-                        row.path.clone(),
-                        row.leaf_name.clone(),
-                        row.color_light.clone(),
-                        row.color_dark.clone(),
-                        row.publication_count,
-                    )
-                })
-                .collect::<Vec<_>>()
+        assert_eq!(cold_rows.len(), warm_rows.len());
+        for (cold, warm) in cold_rows.iter().zip(&warm_rows) {
+            assert_eq!(cold.path, warm.path);
+            assert_eq!(cold.leaf_name, warm.leaf_name);
+            assert_eq!(cold.color_light, warm.color_light);
+            assert_eq!(cold.color_dark, warm.color_dark);
+            assert_eq!(cold.publication_count, warm.publication_count);
         }
-        assert_eq!(summary(&cold_rows), summary(&warm_rows));
         assert!(cold.reads.contains("imbib/tag-definition"));
         assert!(cold.reads.contains("imbib/bibliography-entry"));
         assert_eq!(cold.reads, warm.reads);
