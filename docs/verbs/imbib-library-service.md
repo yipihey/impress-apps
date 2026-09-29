@@ -644,6 +644,30 @@ Import BibTeX and file every resulting paper into a collection. Papers that alre
   {"bibtex":"@article{P5bEffects2026, title={P5b Effects Paper}, author={Doe, Jane}, year={2026}}","library_id":"56000000-0000-4000-8000-000000000041","collection_id":"56000000-0000-4000-8000-000000000042"}
   ```
 
+## `imbib-library-service_import-identifiers`
+
+Resolve each identifier in the running app, importing fetched records and preserving per-identifier duplicate/failure outcomes.
+
+- **safety**: `external`
+- **reads**: "imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"
+- **writes**: "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"
+- **reach**: app("imbib"), network, fs
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `collection_id` | — | no | UUID of a collection to receive added and duplicate papers. |
+| `download_pdfs` | boolean | yes | Whether to start background PDF acquisition for newly fetched papers. |
+| `identifiers` | array | yes | Paper identifiers accepted by imbib, in caller order. |
+| `library_id` | — | no | UUID of the target library; omit to use imbib's default. |
+
+**Examples**
+
+- `import-identifiers-native` — Tier B (explicit isolated run):
+
+  ```json
+  {"identifiers":["Existing2026"],"library_id":null,"collection_id":null,"download_pdfs":false}
+  ```
+
 ## `imbib-library-service_import-papers`
 
 Import already-fetched paper records into a library from their BibTeX and DOI, arXiv ID, or bibcode identifiers. This method parses the supplied BibTeX locally; the caller fetches metadata beforehand.
@@ -1261,5 +1285,33 @@ Takes no arguments.
 
   ```json
   {}
+  ```
+
+## `imbib-library-service_update-collection-members`
+
+Add or remove existing papers by the same local identifiers accepted by the retained collection HTTP routes. Results preserve input order.
+
+- **safety**: `mutating`
+- **reads**: "imbib/collection", "imbib/library", "imbib/bibliography-entry"
+- **writes**: "imbib/collection"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | yes | Add memberships or remove them (`add` or `remove`). |
+| `collection_id` | string | yes | UUID of the collection to update. |
+| `identifiers` | array | yes | Existing local cite keys, identifiers, or publication UUIDs. |
+
+**Examples**
+
+- `file-existing-paper` — Tier A:
+
+  ```json
+  {"collection_id":"5c000000-0000-4000-8000-0000000000c1","identifiers":["G3Membership2026","missing-G3"],"action":"add"}
+  ```
+  expects:
+
+  ```json
+  {"assigned":["G3Membership2026"],"not_found":["missing-G3"]}
   ```
 
