@@ -285,8 +285,8 @@ fn call_tool_inner(
         })?
     };
 
-    // impel's tool loop is an agent (ADR-0034 D3); the surface runtime in
-    // the app reaches this through `ImpressVerbHost` and is one too.
+    // impel's tool loop is an agent (ADR-0034 D3). A native surface
+    // callback carries its trusted caller and lineage separately from args.
     let call = invocation_call(args, context);
     let outcome = impress_service_core::runtime::block_on(
         impress_service_core::pipeline::invoke_handle(descriptor.clone(), call),
