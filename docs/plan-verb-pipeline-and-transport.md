@@ -774,6 +774,16 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   `/tmp/impress-p5b-transport-mg52mt2s/output/`. Owned PID 32003 exited. No user
   app, launcher or real store was touched.
 
+- 2026-09-29 — **P5c6 RIS domain export.** Added the generated
+  `imbib-library-service_export-ris` selection verb with the existing BibTeX
+  UUID/cite-key resolution and ordering semantics. Its named compatibility
+  adapter reuses Rust's shared RIS types and formatter while matching the
+  current PublicationManagerCore tag order; existing Rust RIS conversion stays
+  unchanged for its other callers. The legacy HTTP route now uses its existing
+  Swift parser/converter/exporter path, with isolated transport parity coverage
+  and a Tier A representative record. Builds and tests remain in the parent
+  verification lane.
+
 - 2026-09-26 — Planned on a worktree of main at 3222f573, branch `claude/plan-auto-gui-self-docs`, from
   Tom's second and third addenda. Measured: the nine handler call sites and two bypasses; the concern ×
   path matrix; the automation servers' auth and CORS (`Access-Control-Allow-Origin: *`, loopback
@@ -1696,6 +1706,67 @@ production results. Failed evidence remains at
 `/tmp/impress-p5b-transport-fi4dwz5b/`. No user app, launcher or real store was used.
 The existing debug linker unwind-size warning remains unchanged.
 
+- 2026-09-29 — **P5c3 implore figure read DTO parity.** `FigureRecord` now
+  decodes the full legacy figure dictionary: type, dimensions, optional axis
+  columns/title, timestamps, tags and folder ID. The current handler omits
+  `datasetName` and `viewState`; their optional DTO fields preserve absence and
+  accept null, while a Rust fixture exercises populated values from an enriched
+  host. The `custom` type fallback and HTTP 800×600 dimension defaults remain
+  intact. Native adapter and headless refusal tests cover the mapping, and the
+  isolated native proof compares generated list/get output with actual HTTP
+  fields and absent keys. Root verification passed 56 Rust tests (zero failures,
+  three ignored) and every quick gate after integrating merged library reads.
+  Store-ffi, impel-tools and implore-verbs-ffi were rebuilt for all supported
+  arm64 slices with swiftformat off PATH. Seven semantic-search dump tables
+  were regenerated unchanged. Both hosted XCTest cases and five shared
+  transport calls passed at `/tmp/impress-p5b-transport-xaasbfub/output/`;
+  SQLite symbol checks passed and owned PID 50195 exited. Logs are
+  `/tmp/impress-p5c3-final-{tests,gates}.log`,
+  `/tmp/impress-p5c3-frameworks.log` and `/tmp/impress-p5c3-native-proof.log`.
+
+## P5c4 — impart conversation read contract (2026-09-29)
+
+Conversation summaries now carry the route's participants, tags, parent ID,
+last activity and summary text; detail reads also carry ordered messages and
+the repository's computed statistics. List reads retain the route's most
+recent-first ordering, archived filter, total-before-pagination and page
+count. The baseline omitted the route envelope's `count` and applied
+`include_archived` value, so both are present in `ConversationList` alongside
+offset/limit. The delegated optional `query` is an additive case-insensitive
+title/summary filter (the existing HTTP route has no text-query parameter); its
+filtered total is computed before pagination and the query is echoed.
+
+Native callback tests exercise the new list/detail projection and an isolated
+hosted proof compares the actual legacy routes with generated Rust verbs on
+one in-memory Core Data fixture. No route or caller migration is part of this
+package. Root verification passed 46 Rust tests (zero failures, three ignored),
+all quick gates and all supported arm64 slices of store-ffi, impel-tools and
+impart-verbs-ffi. Three isolated Swift tests passed, including actual HTTP vs
+generated list/detail paging, archive filtering, messages and statistics. The
+native host proof passed one XCTest and eight shared transport calls, with
+SQLite symbol verification: `/tmp/impress-p5b-transport-uc2k9anm/output/`.
+Owned PID 78083 exited. Root fixed the list mapper's default-argument closure
+and the test diagnostic's Swift Testing comment before the successful runs.
+Logs: `/tmp/impress-p5c4-{tests,gates,frameworks,native-proof}.log` and
+`/tmp/impress-p5c4-swift-tests-verified.log`. Existing Swift concurrency/Core
+Data warnings remain; no persistence schema was changed.
+
+- 2026-09-29 — **P5c5 binary figure export implementation.** Added generated
+  `implore-service_export-figure-data` with fractional width/height,
+  scale and optional view-state arguments. The native callback reuses the HTTP
+  export handler and `ImploreStoreAdapter.exportFigure`, then returns the
+  renderer's path/hash/MIME plus the rendered file bytes decoded from the HTTP
+  base64 envelope. It verifies byte count and SHA-256 against the renderer
+  result before replying, so a concurrent or stale file cannot be reported as
+  the requested render. Legacy `export-figure(figure_id, format)` remains
+  unchanged. Evidence refinement: the route and verb both accept fractional
+  `f64` dimensions; zero, negative, and non-finite overrides fall back to the
+  current logical size via the renderer's existing `positive_or` rule. Hosted
+  proof compares generated PNG/SVG bytes, including a fractional-size case,
+  with the actual route. Rust callback tests cover fractional argument
+  forwarding, decoding, malformed data and HTTP refusal. Root verification is
+  pending; no caller or route was migrated.
+
 ## P5c7 — imprint threaded comment metadata (2026-09-29)
 
 Extended `imprint-app-service_list-comments` with optional route-compatible
@@ -1721,6 +1792,50 @@ compares a direct legacy suggestion/read and a generated filtered read on the
 same PID-owned scratch manuscript, then creates a generated threaded suggestion
 and verifies parent identity and inherited UTF-16 offsets. Root owns running
 the Rust/native verification and regenerating any generated assets.
+
+## P5c8 — implore figure mutation contracts (2026-09-29)
+
+Extended `implore-service_create-figure` with HTTP-compatible integer
+`width`/`height`, separate plot `title`/`color_column`, and an optional raw
+JSON `view_state`; explicit create fields overlay corresponding fields in that
+view state. Added generated `update-figure` and `delete-figure` callbacks that
+reuse `handleUpdateFigure`/`handleDeleteFigure` and `LibraryManager`'s existing
+store, rerender, rollback, export cleanup, and content-blob reference logic.
+Update accepts only the fields PATCH actually mutates; it deliberately has no
+`dataset_id` because the HTTP handler does not change a figure's dataset.
+Update returns a structured `{ok, error?, figure?, artifact?}` result and
+refused native responses remain refusals; delete keeps the approved `bool`
+result. Create/update/delete declare figure-record effects and app reach.
+
+Rust coverage checks generated schemas, effects, callback argument mapping,
+render/update and missing/delete failures. Hosted proof compares verb and HTTP
+create/update hashes on isolated figures, confirms a changed non-empty PNG,
+and tests shared-blob retention through update and the last delete. Root owns
+verification; no tests/builds, caller migrations, route removals, or real-store
+operations were performed here.
+
+## P5c9 — imbib publication search contract (2026-09-29)
+
+Extended `imbib-library-service_search-publications` with optional offset and
+the approved read/collection/library/tags/flag/added-after/added-before
+filters. The generated service evaluates membership and metadata filters on
+the complete ordered match set before applying pagination; exact library and
+collection UUID membership comes from the existing store queries, not names
+or a capped result page. Empty queries retain the default-library scope unless
+an explicit library or collection selects its own scope.
+
+Inspection found that the legacy `GET /api/search` parsed library and
+collection UUIDs but `AutomationService.applyFilters` explicitly skipped both
+filters. This package fixes that parity gap without changing the route shape:
+empty-query container selection now uses the selected container; exact
+library membership uses the existing store query, and exact collection
+membership uses the existing detail relationship before pagination. Focused
+Rust coverage checks same-named libraries, collection/library intersection,
+read/tag/flag filters, post-filter offset behavior and strict date boundaries.
+The hosted transport fixture compares generated and legacy IDs/order for
+library/read, collection (including empty-query selection), and offset cases on
+its isolated papers. Verification remains pending with root; no builds/tests
+were run in this package.
 
 ## P5c10 — imprint suggestion actions (2026-09-29)
 

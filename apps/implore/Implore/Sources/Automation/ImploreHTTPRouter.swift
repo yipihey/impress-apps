@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import CryptoKit
 import Foundation
 import ImploreCore
 import ImploreRustCore
@@ -104,7 +105,16 @@ public actor ImploreHTTPRouter: HTTPRouter {
             guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
             return await handleGetFigure(id: id)
         case "create_figure": return await handleCreateFigure(request("POST", "/api/figures"))
+        case "update_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleUpdateFigure(id: id, request: request("PATCH", "/api/figures/\(id)"))
+        case "delete_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleDeleteFigure(id: id)
         case "export_figure":
+            guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
+            return await handleExportFigure(id: id, request: request("POST", "/api/figures/\(id)/export"))
+        case "export_figure_data":
             guard let id = string("figure_id") else { return .badRequest("Missing figure_id") }
             return await handleExportFigure(id: id, request: request("POST", "/api/figures/\(id)/export"))
         case "rg_load": return await handleRgLoad(request("POST", "/api/rg/load"))
@@ -339,7 +349,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
             return .badRequest("Invalid JSON body")
         }
 
-        guard let datasetId = json["datasetId"] as? String else {
+        guard let datasetId = (json["datasetId"] ?? json["dataset_id"]) as? String else {
             return .badRequest("Missing required field: datasetId")
         }
 
@@ -347,7 +357,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         // (implore-service-http posts them); the router's own are
         // `type`/`xColumn`/`yColumn`. Before both were read, the verb always
         // got "Missing required field: type".
-        guard let typeString = (json["type"] ?? json["plotType"]) as? String else {
+        guard let typeString = (json["type"] ?? json["plotType"] ?? json["plot_type"]) as? String else {
             return .badRequest("Missing required field: type")
         }
 
@@ -359,17 +369,29 @@ public actor ImploreHTTPRouter: HTTPRouter {
         let width = json["width"] as? Int ?? 800
         let height = json["height"] as? Int ?? 600
 
-        // Create a minimal view state JSON
-        var viewState: [String: Any] = [
-            "type": typeString,
-            "width": width,
-            "height": height
-        ]
+        // A native caller may supply additional figure-view fields as JSON.
+        // The route's explicit fields keep their existing precedence.
+        var viewState: [String: Any]
+        if let rawViewState = json["view_state"] as? String {
+            guard let data = rawViewState.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .badRequest("view_state must be a JSON object")
+            }
+            viewState = parsed
+        } else {
+            viewState = ["width": width, "height": height]
+        }
+        viewState["type"] = typeString
+        if let widthValue = json["width"] as? Int { viewState["width"] = widthValue }
+        else if viewState["width"] == nil { viewState["width"] = width }
+        if let heightValue = json["height"] as? Int { viewState["height"] = heightValue }
+        else if viewState["height"] == nil { viewState["height"] = height }
         if let x = xColumn { viewState["xColumn"] = x }
         if let y = yColumn { viewState["yColumn"] = y }
         if let color = colorColumn { viewState["colorColumn"] = color }
         if let t = title { viewState["title"] = t }
-        Self.copyArtifactData(from: json, into: &viewState)
+        Self.copyArtifactData(
+            from: json, into: &viewState, replacingExistingData: json["view_state"] is String)
 
         guard let viewStateData = try? JSONSerialization.data(withJSONObject: viewState),
               let viewStateJson = String(data: viewStateData, encoding: .utf8) else {
@@ -429,11 +451,21 @@ public actor ImploreHTTPRouter: HTTPRouter {
             figure.title = name
         }
 
-        // Parse and update view state if needed
-        if var viewState = try? JSONSerialization.jsonObject(with: Data(figure.viewStateSnapshot.utf8)) as? [String: Any] {
-            var updated = false
+        // A generated caller may replace the snapshot, while ordinary HTTP
+        // PATCH requests continue to start from the stored state.
+        var replacementViewState: [String: Any]?
+        if let rawViewState = json["view_state"] as? String {
+            guard let data = rawViewState.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .badRequest("view_state must be a JSON object")
+            }
+            replacementViewState = parsed
+        }
+        if var viewState = replacementViewState ??
+            (try? JSONSerialization.jsonObject(with: Data(figure.viewStateSnapshot.utf8)) as? [String: Any]) {
+            var updated = replacementViewState != nil
 
-            if let type = (json["type"] ?? json["plotType"]) as? String {
+            if let type = (json["type"] ?? json["plotType"] ?? json["plot_type"]) as? String {
                 viewState["type"] = type
                 updated = true
             }
@@ -445,10 +477,11 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 viewState["yColumn"] = yColumn
                 updated = true
             }
-            if Self.copyArtifactData(from: json, into: &viewState) {
+            if Self.copyArtifactData(
+                from: json, into: &viewState, replacingExistingData: replacementViewState != nil) {
                 updated = true
             }
-            if let colorColumn = json["colorColumn"] as? String {
+            if let colorColumn = (json["colorColumn"] ?? json["color_column"]) as? String {
                 viewState["colorColumn"] = colorColumn
                 updated = true
             }
@@ -545,13 +578,17 @@ public actor ImploreHTTPRouter: HTTPRouter {
         do {
             let out = try ImploreStoreAdapter.shared.exportFigure(
                 figureID: figure.id,
-                viewStateJSON: figure.viewStateSnapshot,
+                viewStateJSON: body["view_state"] as? String ?? figure.viewStateSnapshot,
                 format: format,
                 width: number("width"),
                 height: number("height"),
                 scale: number("scale")
             )
             let data = try Data(contentsOf: URL(fileURLWithPath: out.path))
+            let writtenHash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            guard UInt64(data.count) == out.byteCount, writtenHash == out.sha256 else {
+                return .serverError("Rendered figure export changed before it could be returned")
+            }
             logInfo(
                 "figure export \(figure.id): \(out.format) \(out.width)x\(out.height) → \(out.path) (\(out.byteCount) B)",
                 category: "figure-api")
@@ -581,10 +618,20 @@ public actor ImploreHTTPRouter: HTTPRouter {
     /// carries them. Returns whether any were present.
     @discardableResult
     nonisolated private static func copyArtifactData(
-        from json: [String: Any], into viewState: inout [String: Any]
+        from json: [String: Any],
+        into viewState: inout [String: Any],
+        replacingExistingData: Bool = false
     ) -> Bool {
+        let keys = ["series", "spec", "svg"]
+        let supplied = keys.filter { key in
+            guard let value = json[key] else { return false }
+            return !(value is NSNull)
+        }
+        if replacingExistingData, !supplied.isEmpty {
+            for key in keys { viewState.removeValue(forKey: key) }
+        }
         var copied = false
-        for key in ["series", "spec", "svg"] {
+        for key in keys {
             if let value = json[key], !(value is NSNull) {
                 viewState[key] = value
                 copied = true
