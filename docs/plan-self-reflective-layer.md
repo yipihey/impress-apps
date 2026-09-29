@@ -3173,3 +3173,29 @@ S2i native verification found that ChannelState serializes transparently: the
 HTTP path is `layout.channels.<number>.<kind>`, with no second channels wrapper.
 Corrected the scenario path; the failed proof is retained at
 `/tmp/impress-g5-proof-w4m628lv/output/`. Verification continues below.
+
+### 2026-09-28 — S2i verified against the owned native host
+
+The corrected channel document passed 189 Rust tests (zero failures, three
+ignored), both clippy shards and all quick gates. Tests that merely repeated
+the document were removed; identity, schema, inventory and executable argument
+capture tests remain. Both affected frameworks were rebuilt for all supported
+arm64 slices. `/tmp/impress-g5-proof-g7inzcpe/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries with zero skips;
+the channel entry ran through the interpreter. Native symbol checks passed,
+and owned host PID 78856 exited. Logs: `/tmp/impress-s2i-tests-final2.log`,
+`/tmp/impress-s2i-final-*.log`, `/tmp/impress-s2i-frameworks-final.log`.
+
+### 2026-09-28 — S2j native outline verification
+
+Final tests passed 193 Rust cases (zero failures, three ignored), both clippy
+shards and all quick gates. Root review corrected the transparent channel
+path, retained the exact catalogue identity, removed duplicate-document
+assertions, and fixed the guarded-wait fixture's textual needle. The two
+affected frameworks were rebuilt for all supported arm64 slices. The owned
+imprint proof `/tmp/impress-g5-proof-p2tr6x4n/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries with zero skips;
+the outline document proved the exact query, collection channel, fresh empty
+list display, and fresh selected-detail log. Native symbols passed and host
+PID 98570 exited. Logs: `/tmp/impress-s2j-tests-final2.log`,
+`/tmp/impress-s2j-final-*.log`, `/tmp/impress-s2j-frameworks-final.log`.
