@@ -203,6 +203,9 @@ pub struct EventBody {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GestureStep {
     pub gesture: serde_json::Value,
+    /// Capture fields from a gesture result for later steps or cleanup.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub capture: std::collections::BTreeMap<String, String>,
 }
 
 /// Wait for a job to reach a state, or for a log line to appear.
@@ -224,6 +227,17 @@ pub enum WaitBody {
     Log {
         log: LogWait,
     },
+    /// Capture a Tier B log timestamp immediately before a later mutation.
+    /// Its value is available to `LogWait::after` as a normal capture.
+    LogCursor {
+        log_cursor: LogCursorCapture,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct LogCursorCapture {
+    pub capture: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -231,6 +245,13 @@ pub enum WaitBody {
 pub struct LogWait {
     pub category: String,
     pub contains: String,
+    /// Additional required substrings in the same message. All needles are
+    /// matched case-insensitively.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_contains: Vec<String>,
+    /// Only consider lines newer than this captured cursor, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
     pub timeout_ms: u64,
 }
 
