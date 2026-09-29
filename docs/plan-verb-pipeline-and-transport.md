@@ -1987,3 +1987,17 @@ no-match behavior, limit/order and stable hierarchy identity. The opt-in hosted
 transport proof compares generated and HTTP rows for a nested path, count,
 case-insensitive prefix and limit using only the PID-owned scratch library.
 No builds/tests, route removal or caller migration were performed here.
+
+## P5c20 — imbib container consumers (2026-09-29)
+
+Caller inventory found `ImprintIntegrationService.listDestinations()` as the
+only cross-app consumer of library/collection listing and its existing
+`createLibrary` call already uses `imbib-library-service_create-library`.
+Migrated list-library reads to `list-libraries` and all-library collection
+reads to the generated per-library `list-collections`, composing results in
+the same library then collection order as the retained route and preserving
+the bridge's DTO shape and library names. No cross-app callers currently use
+collection creation/membership/member reads, tag read/create, or library and
+collection deletion; no unused bridge methods were added. Counsel's direct
+store and event paths are outside this caller inventory. Static diff review
+only; root owns build and test verification.

@@ -1,12 +1,9 @@
 import Foundation
 
-/// Typed bridge for communicating with imbib (bibliography manager) via its HTTP API.
+/// Typed bridge for communicating with imbib (bibliography manager).
 ///
-/// All methods use `SiblingBridge.shared` to send HTTP requests to imbib's
-/// automation server on `localhost:23120` (see `/api/status` for health).
-///
-/// Response bodies are wrapped in `{status, ...}` envelopes on the server side;
-/// this bridge unwraps them so callers see plain result types.
+/// Domain capabilities with generated contracts use `/api/verb`; retained
+/// routes remain for operations whose response shape has not migrated.
 public struct ImbibBridge: Sendable {
 
     // MARK: - Availability
@@ -130,20 +127,12 @@ public struct ImbibBridge: Sendable {
     /// List all libraries. `isInbox`-flagged libraries are included — filter client-side
     /// if you want to hide them from a picker.
     public static func listLibraries() async throws -> [ImbibLibrary] {
-        let env: LibrariesEnvelope = try await SiblingBridge.shared.get(
-            "/api/libraries",
-            from: .imbib
-        )
-        return env.libraries
+        try await ImbibContainerVerbBridge(bridge: .shared).listLibraries()
     }
 
     /// List all collections. Smart-collections are included; filter client-side if needed.
     public static func listCollections() async throws -> [ImbibCollection] {
-        let env: CollectionsEnvelope = try await SiblingBridge.shared.get(
-            "/api/collections",
-            from: .imbib
-        )
-        return env.collections
+        try await ImbibContainerVerbBridge(bridge: .shared).listCollections()
     }
 
     /// Create a new library and return its id.
@@ -162,6 +151,85 @@ public struct ImbibBridge: Sendable {
 
 private struct CreatedLibraryID: Decodable, Sendable {
     let id: String
+}
+
+struct ImbibContainerVerbBridge: Sendable {
+    let bridge: SiblingBridge
+
+    func listLibraries() async throws -> [ImbibLibrary] {
+        let rows: [VerbLibraryRecord] = try await bridge.callVerb(
+            "imbib-library-service_list-libraries", on: .imbib)
+        return rows.map(\.publicValue)
+    }
+
+    /// The generated list verb is scoped to one library. Compose the historical
+    /// all-libraries result in the same library/collection order as the route.
+    func listCollections() async throws -> [ImbibCollection] {
+        let libraries: [VerbLibraryRecord] = try await bridge.callVerb(
+            "imbib-library-service_list-libraries", on: .imbib)
+        var collections: [ImbibCollection] = []
+        for library in libraries {
+            let rows: [VerbCollectionRecord] = try await bridge.callVerb(
+                "imbib-library-service_list-collections",
+                on: .imbib,
+                arguments: ["library_id": library.id])
+            collections.append(contentsOf: rows.map { $0.publicValue(library: library) })
+        }
+        return collections
+    }
+}
+
+private struct VerbLibraryRecord: Decodable, Sendable {
+    let id: String
+    let name: String
+    let isDefault: Bool
+    let isInbox: Bool
+    let publicationCount: Int32
+    let collectionCount: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case isDefault = "is_default"
+        case isInbox = "is_inbox"
+        case publicationCount = "publication_count"
+        case collectionCount = "collection_count"
+    }
+
+    var publicValue: ImbibLibrary {
+        ImbibLibrary(
+            id: id,
+            name: name,
+            paperCount: Int(publicationCount),
+            collectionCount: Int(collectionCount),
+            isDefault: isDefault,
+            isInbox: isInbox,
+            isShared: nil)
+    }
+}
+
+private struct VerbCollectionRecord: Decodable, Sendable {
+    let id: String
+    let name: String
+    let libraryID: String?
+    let isSmart: Bool
+    let publicationCount: Int32
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case libraryID = "library_id"
+        case isSmart = "is_smart"
+        case publicationCount = "publication_count"
+    }
+
+    func publicValue(library: VerbLibraryRecord) -> ImbibCollection {
+        ImbibCollection(
+            id: id,
+            name: name,
+            paperCount: Int(publicationCount),
+            isSmartCollection: isSmart,
+            libraryID: libraryID ?? library.id,
+            libraryName: library.name)
+    }
 }
 
 // MARK: - Public result types
@@ -617,12 +685,4 @@ private struct PaperEnvelope: Decodable, Sendable {
 
 private struct ExternalSearchEnvelope: Decodable, Sendable {
     let results: [ImbibExternalCandidate]
-}
-
-private struct LibrariesEnvelope: Decodable, Sendable {
-    let libraries: [ImbibLibrary]
-}
-
-private struct CollectionsEnvelope: Decodable, Sendable {
-    let collections: [ImbibCollection]
 }
