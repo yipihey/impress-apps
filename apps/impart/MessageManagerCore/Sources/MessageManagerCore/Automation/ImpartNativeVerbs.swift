@@ -62,7 +62,7 @@ final class NativeImpartHost: ImpartNativeCallbacks, @unchecked Sendable {
                     }
                 } ?? all
                 let page = Array(matching.dropFirst(offset).prefix(limit))
-                let records = page.map(conversationRecord)
+                let records = page.map { conversationRecord($0) }
                 return success([
                     "conversations": records,
                     "count": records.count,
