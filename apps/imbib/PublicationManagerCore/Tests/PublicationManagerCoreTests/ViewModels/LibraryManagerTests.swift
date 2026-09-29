@@ -7,10 +7,11 @@
 
 import Testing
 import Foundation
+import ImpressKit
 @testable import PublicationManagerCore
 
 @MainActor
-@Suite("LibraryManager with Mock Store")
+@Suite("LibraryManager with Mock Store", .serialized)
 struct LibraryManagerTests {
 
     // MARK: - Initialization
@@ -236,6 +237,86 @@ struct LibraryManagerTests {
         let exploration = manager.getOrCreateExplorationLibrary()
 
         #expect(exploration.name == "Exploration")
+    }
+
+    @Test("Legacy exploration library ID migrates to settings and remains authoritative")
+    func explorationLibraryIDMigratesAndMirrors() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("imbib-exploration-settings-\(UUID().uuidString)")
+        let suiteName = "imbib-exploration-settings-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let settings = ImpressSettings.shared
+        settings._resetForTesting()
+        settings.workspaceDirectory = scratch
+        settings.legacyStores = [defaults]
+        defer {
+            settings._resetForTesting()
+            settings.workspaceDirectory = SharedWorkspace.workspaceDirectory
+            settings.legacyStores = [.standard, SharedDefaults.suite]
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: scratch)
+        }
+
+        let store = MockPublicationStore()
+        store.seedLibrary(name: "Default", isDefault: true)
+        let exploration = store.seedLibrary(name: "Exploration")
+        defaults.set(exploration.id.uuidString, forKey: "explorationLibraryID")
+        let manager = LibraryManager(store: store, explorationDefaults: defaults)
+
+        let migratedRecord = try #require(
+            settings.record("imbib.internal.exploration_library_id"))
+        #expect(migratedRecord.source == "stored")
+        #expect(try JSONDecoder().decode(String.self, from: Data(migratedRecord.valueJson.utf8))
+            == exploration.id.uuidString)
+
+        #expect(manager.explorationLibrary?.id == exploration.id)
+        #expect(settings.value(
+            "imbib.internal.exploration_library_id", as: String.self
+        ) == exploration.id.uuidString)
+        #expect(defaults.string(forKey: "explorationLibraryID") == exploration.id.uuidString)
+    }
+
+    @Test("A newer settings ID wins, and manager changes mirror both stores")
+    func explorationLibraryIDPrefersSettingsAndMirrorsChanges() {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("imbib-exploration-settings-\(UUID().uuidString)")
+        let suiteName = "imbib-exploration-settings-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let settings = ImpressSettings.shared
+        settings._resetForTesting()
+        settings.workspaceDirectory = scratch
+        settings.legacyStores = [defaults]
+        defer {
+            settings._resetForTesting()
+            settings.workspaceDirectory = SharedWorkspace.workspaceDirectory
+            settings.legacyStores = [.standard, SharedDefaults.suite]
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: scratch)
+        }
+
+        let store = MockPublicationStore()
+        store.seedLibrary(name: "Default", isDefault: true)
+        let legacy = store.seedLibrary(name: "Legacy Exploration")
+        let current = store.seedLibrary(name: "Current Exploration")
+        defaults.set(legacy.id.uuidString, forKey: "explorationLibraryID")
+        settings.set("imbib.internal.exploration_library_id", current.id.uuidString)
+        let manager = LibraryManager(store: store, explorationDefaults: defaults)
+
+        #expect(manager.explorationLibrary?.id == current.id)
+        #expect(defaults.string(forKey: "explorationLibraryID") == legacy.id.uuidString)
+
+        settings.set("imbib.internal.exploration_library_id", "not-a-uuid")
+        #expect(manager.explorationLibrary == nil)
+
+        settings.reset("imbib.internal.exploration_library_id")
+        defaults.removeObject(forKey: "explorationLibraryID")
+        let created = manager.getOrCreateExplorationLibrary()
+        #expect(defaults.string(forKey: "explorationLibraryID") == created.id.uuidString)
+        #expect(settings.value(
+            "imbib.internal.exploration_library_id", as: String.self
+        ) == created.id.uuidString)
     }
 
     // MARK: - Cache Invalidation

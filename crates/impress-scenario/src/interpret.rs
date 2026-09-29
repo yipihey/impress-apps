@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::spec::{
-    CallStep, Check, EventBody, Expect, ExpectEffects, FieldExpect, GestureStep, Scenario, Step,
-    StoreStep, WaitBody,
+    CallStep, Check, EventBody, Expect, ExpectEffects, FieldExpect, Scenario, Step, StoreStep,
+    WaitBody,
 };
 use crate::{template, validate};
 use impress_service_core::report::{CapabilityResult, Tier};
@@ -361,7 +361,7 @@ async fn run_store(
                 "agent:scenario",
             )
             .await?;
-        check_event_outcome(&page).map_err(|e| format!("step {index} (store list): {e}"))?;
+        check_action_outcome(&page).map_err(|e| format!("step {index} (store list): {e}"))?;
         let rows = page.result["items"]
             .as_array()
             .ok_or("store list omitted items")?;
@@ -374,7 +374,7 @@ async fn run_store(
                     "agent:scenario",
                 )
                 .await?;
-            check_event_outcome(&record)
+            check_action_outcome(&record)
                 .map_err(|e| format!("step {index} (store get {id}): {e}"))?;
             if record.result["truncated"] == true {
                 return Err(format!("step {index} (store): payload for {id} is truncated; predicate cannot be checked"));

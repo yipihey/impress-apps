@@ -90,6 +90,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn layout_surface_scenario_uses_registered_inventory_verbs() {
+        let document =
+            include_str!("../../impress-layout-service/scenarios/surface.show_and_dispatch.json");
+        let scenario: Scenario = serde_json::from_str(document).unwrap();
+        assert_eq!(scenario.id, "surface.show_and_dispatch");
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn unreachable_host_skips_all_three_cases() {
         let results = run_at("http://127.0.0.1:1").await;

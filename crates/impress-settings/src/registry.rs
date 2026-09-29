@@ -159,6 +159,10 @@ pub struct SettingDef {
     pub legacy: Vec<String>,
     /// The section whose surface shows it (`imbib.retention`).
     pub section: String,
+    /// Internal bookkeeping remains readable through the registry but is not
+    /// rendered as a field in generated user settings panes.
+    #[serde(default)]
+    pub internal: bool,
     /// The field label in the generated surface.
     pub label: String,
     /// One sentence for the agent and the help text.
@@ -218,6 +222,7 @@ macro_rules! setting {
             scope: $scope,
             legacy: vec![$($(($legacy).to_string()),*)?],
             section: ($section).to_string(),
+            internal: false,
             label: ($label).to_string(),
             doc: ($doc).to_string(),
             choices: vec![$($($crate::registry::Choice {
@@ -311,6 +316,16 @@ fn build_registry() -> Vec<SettingDef> {
                 legacy = ["inbox.retentionDays"]
             };
             def.choices = choices(retention_choices());
+            def
+        },
+        {
+            let mut def = setting! {
+                key = "imbib.internal.exploration_library_id", ty = String, default = "",
+                scope = Scope::Device, section = "imbib.retention", label = "Exploration library ID",
+                doc = "Internal pointer to the library used for exploration retention.",
+                legacy = ["explorationLibraryID"]
+            };
+            def.internal = true;
             def
         },
         setting! {
@@ -533,9 +548,12 @@ mod tests {
             }
             assert_eq!(def.since, SETTINGS_SINCE);
         }
-        assert_eq!(registry().len(), 3 + 5 * APP_PORTS.len() + 13);
+        assert_eq!(registry().len(), 4 + 5 * APP_PORTS.len() + 13);
         assert!(lookup("imbib.retention.inbox_days").is_some());
         assert!(lookup("imbib.retention.inboxDays").is_none());
+        assert!(
+            lookup("imbib.internal.exploration_library_id").is_some_and(|setting| setting.internal)
+        );
     }
 
     #[test]
