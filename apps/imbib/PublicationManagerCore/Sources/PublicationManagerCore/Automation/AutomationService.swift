@@ -828,8 +828,13 @@ public actor AutomationService: AutomationOperations {
             try await removeLibraryFileContainers(ids: [id])
         }
 
-        await withStore { store in
+        let removed = await withStore { store in
             store.deleteLibrary(id: id)
+            return store.getLibrary(id: id) == nil
+        }
+        guard removed else {
+            throw AutomationOperationError.operationFailed(
+                "Library deletion failed; requested file cleanup may already have completed")
         }
         return true
     }
@@ -839,6 +844,8 @@ public actor AutomationService: AutomationOperations {
     /// once. Matches the on-device `LibraryManager.deleteLibraries(ids:)` semantics.
     public func deleteLibraries(ids: [UUID], deleteFiles: Bool = false) async throws -> Int {
         try await checkAuthorization()
+        var seen = Set<UUID>()
+        let ids = ids.filter { seen.insert($0).inserted }
         guard !ids.isEmpty else { return 0 }
 
         // Validate every row before touching any file container or library.
@@ -855,12 +862,22 @@ public actor AutomationService: AutomationOperations {
             try await removeLibraryFileContainers(ids: ids)
         }
 
-        await withStore { store in
+        let removed = await withStore { store in
             store.beginBatchMutation()
-            for id in ids { store.deleteLibrary(id: id) }
-            store.endBatchMutation()
+            defer { store.endBatchMutation() }
+            var removed = 0
+            for id in ids {
+                store.deleteLibrary(id: id)
+                guard store.getLibrary(id: id) == nil else { break }
+                removed += 1
+            }
+            return removed
         }
-        return ids.count
+        guard removed == ids.count else {
+            throw AutomationOperationError.operationFailed(
+                "Deleted \(removed) libraries before a store failure; requested file cleanup may already have completed")
+        }
+        return removed
     }
 
     private func removeLibraryFileContainers(ids: [UUID]) async throws {

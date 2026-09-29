@@ -1395,7 +1395,7 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         }
     }
     async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32 {
-        let parsed = match ids
+        let mut parsed = match ids
             .iter()
             .map(|id| uuid::Uuid::parse_str(id).map(|uuid| uuid.to_string()))
             .collect::<Result<Vec<_>, _>>()
@@ -1409,6 +1409,9 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                 return 0;
             }
         };
+        // A library is deleted and counted once even when an ID is repeated.
+        let mut seen = std::collections::HashSet::new();
+        parsed.retain(|id| seen.insert(id.clone()));
         if parsed.is_empty() {
             return 0;
         }
@@ -3475,6 +3478,22 @@ mod tests {
         assert_eq!(deleted, 0);
         assert!(store.get_library(first.id).unwrap().is_some());
         assert!(store.get_library(missing).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn repeated_library_ids_are_deleted_and_counted_once() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store
+            .create_library("Duplicate deletion fixture".into())
+            .unwrap();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+        assert_eq!(
+            service
+                .delete_libraries(vec![library.id.clone(), library.id.clone()], false)
+                .await,
+            1
+        );
+        assert!(store.get_library(library.id).unwrap().is_none());
     }
 
     #[test]
