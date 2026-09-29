@@ -3153,3 +3153,15 @@ S2i native verification found that ChannelState serializes transparently: the
 HTTP path is `layout.channels.<number>.<kind>`, with no second channels wrapper.
 Corrected the scenario path; the failed proof is retained at
 `/tmp/impress-g5-proof-w4m628lv/output/`. Verification continues below.
+
+### 2026-09-28 — S2i verified against the owned native host
+
+The corrected channel document passed 189 Rust tests (zero failures, three
+ignored), both clippy shards and all quick gates. Tests that merely repeated
+the document were removed; identity, schema, inventory and executable argument
+capture tests remain. Both affected frameworks were rebuilt for all supported
+arm64 slices. `/tmp/impress-g5-proof-g7inzcpe/output/` passed two XCTests, two
+stored scenarios, three surface and fourteen layout entries with zero skips;
+the channel entry ran through the interpreter. Native symbol checks passed,
+and owned host PID 78856 exited. Logs: `/tmp/impress-s2i-tests-final2.log`,
+`/tmp/impress-s2i-final-*.log`, `/tmp/impress-s2i-frameworks-final.log`.
