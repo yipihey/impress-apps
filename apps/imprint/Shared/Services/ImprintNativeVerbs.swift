@@ -99,11 +99,28 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
             }
             path = "/api/documents/\(id)/export/\(format)"
             query["format"] = format
-        case "list_comments": path = documentPath("/comments")
+        case "list_comments":
+            path = documentPath("/comments")
+            query["filter"] = string("filter")
+            query["authorAgentId"] = string("author_agent_id")
         case "create_comment":
             verb = "POST"; path = documentPath("/comments")
             guard let id = string("document_id"), let content = string("body") else {
                 return failure(400, "Missing document or comment body")
+            }
+            let parentID = string("parent_id")
+            if let parentID {
+                guard let parentUUID = UUID(uuidString: parentID) else {
+                    return failure(400, "Invalid parent comment ID")
+                }
+                let belongsToDocument = await MainActor.run {
+                    guard let documentUUID = UUID(uuidString: id),
+                          let service = CommentRegistry.shared.service(for: documentUUID) else { return false }
+                    return service.comments.contains { $0.id == parentUUID }
+                }
+                guard belongsToDocument else {
+                    return failure(404, "Parent comment not found for document")
+                }
             }
             var start = 0
             var end = 0
@@ -122,7 +139,16 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
                 start = source[..<range.lowerBound].utf16.count
                 end = start + anchor.utf16.count
             }
-            body = ["content": content, "start": start, "end": end]
+            var commentBody: [String: Any] = [
+                "content": content,
+                "start": start,
+                "end": end,
+            ]
+            if let parentID { commentBody["parentId"] = parentID }
+            if let proposedText = string("proposed_text") { commentBody["proposedText"] = proposedText }
+            if let agentID = string("author_agent_id") { commentBody["authorAgentId"] = agentID }
+            if let authorName = string("author_name") { commentBody["authorName"] = authorName }
+            body = commentBody
         case "update_comment":
             verb = "PATCH"; path = commentPath(); body = [:]
             if let text = string("body") { body?["content"] = text }
@@ -136,6 +162,12 @@ private final class NativeImprintHost: ImprintVerbHost, @unchecked Sendable {
                 }
             }
         case "delete_comment": verb = "DELETE"; path = commentPath()
+        case "accept_comment_suggestion":
+            verb = "POST"
+            path = commentPath().map { $0 + "/accept" }
+        case "reject_comment_suggestion":
+            verb = "POST"
+            path = commentPath().map { $0 + "/reject" }
         default: return failure(404, "Unknown imprint native method")
         }
         guard let path else { return failure(400, "Invalid identifier") }

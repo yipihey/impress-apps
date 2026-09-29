@@ -124,7 +124,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
             }
         case "list_comments":
             guard let id else { return .badRequest("Missing document ID") }
-            return await handleListComments(docId: id, filter: nil, authorAgentId: nil)
+            return await handleListComments(
+                docId: id,
+                filter: request.queryParams["filter"],
+                authorAgentId: request.queryParams["authorAgentId"])
         case "create_comment":
             guard let id else { return .badRequest("Missing document ID") }
             return await handleCreateComment(docId: id, request: request)
@@ -134,6 +137,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
         case "delete_comment":
             guard let id else { return .badRequest("Missing comment ID") }
             return await handleDeleteComment(id: id)
+        case "accept_comment_suggestion":
+            guard let id else { return .badRequest("Missing comment ID") }
+            return await handleAcceptComment(id: id)
+        case "reject_comment_suggestion":
+            guard let id else { return .badRequest("Missing comment ID") }
+            return await handleRejectComment(id: id)
         default: return .notFound("Unknown imprint native method")
         }
     }
@@ -2984,40 +2993,76 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return .json(["status": "ok", "commentId": id, "deleted": true])
     }
 
-    /// POST /api/comments/{id}/accept — apply the suggestion's `proposedText`,
-    /// then resolve the comment. No-op if the comment isn't a suggestion.
+    /// POST /api/comments/{id}/accept — save the proposed replacement through
+    /// the live editor at the comment's UTF-16 range, then resolve the comment.
     private func handleAcceptComment(id: String) async -> HTTPResponse {
         guard let commentUUID = UUID(uuidString: id) else {
             return .badRequest("Invalid comment ID format")
         }
-        let (docID, comment) = await MainActor.run { () -> (UUID?, Comment?) in
+        let (docID, service) = await MainActor.run { () -> (UUID?, CommentService?) in
             guard let docID = CommentRegistry.shared.documentID(forComment: commentUUID),
-                  let service = CommentRegistry.shared.service(for: docID),
-                  let c = service.comments.first(where: { $0.id == commentUUID }) else {
+                  let service = CommentRegistry.shared.service(for: docID) else {
                 return (nil, nil)
             }
-            return (docID, c)
+            return (docID, service)
         }
-        guard let docID, let comment else {
+        guard let docID, let service else {
+            return .notFound("Comment not found: \(id)")
+        }
+        let (comment, expectedSource) = await MainActor.run { () -> (Comment?, String?) in
+            guard let liveSource = ManuscriptSessionRegistry.shared.session(for: docID)?.source else {
+                return (nil, nil)
+            }
+            service.syncBody(liveSource)
+            return (service.comments.first(where: { $0.id == commentUUID }), liveSource)
+        }
+        guard let expectedSource else {
+            return .serverError("Editor session unavailable")
+        }
+        guard let comment else {
             return .notFound("Comment not found: \(id)")
         }
         guard let proposed = comment.proposedText else {
             return .badRequest("Comment is not a suggestion (no 'proposedText')")
         }
+        guard !comment.isOrphaned else {
+            return .badRequest("Suggestion anchor no longer resolves in the live source")
+        }
         let opID = UUID()
         OperationTracker.shared.registerPending(id: opID, documentID: docID, kind: "acceptSuggestion")
-        await MainActor.run {
-            DocumentRegistry.shared.queueOperation(
-                .replaceRange(
-                    operationID: opID,
-                    start: comment.textRange.start,
-                    end: comment.textRange.end,
-                    text: proposed
-                ),
-                for: docID
-            )
-            CommentRegistry.shared.service(for: docID)?.resolve(commentUUID, includeReplies: false)
+        logInfo("Accepting suggestion \(commentUUID) in manuscript \(docID)", category: "comments")
+        let bodyData = try? JSONSerialization.data(withJSONObject: [
+            "start": comment.textRange.start,
+            "end": comment.textRange.end,
+            "text": proposed,
+            "expected_source": expectedSource,
+        ])
+        guard let bodyData, let body = String(data: bodyData, encoding: .utf8) else {
+            OperationTracker.shared.markFailed(id: opID, reason: "Could not encode suggestion replacement")
+            return .serverError("Could not encode suggestion replacement")
         }
+        let edit = await ImprintNativeEdits.apply(
+            method: "replace_range",
+            id: docID.uuidString,
+            request: HTTPRequest(
+                method: "POST",
+                path: "/api/documents/\(docID.uuidString)/replace-range",
+                body: body))
+        guard (200..<300).contains(edit.status) else {
+            let error = (try? JSONSerialization.jsonObject(with: edit.body) as? [String: Any])?["error"] as? String
+                ?? "Editor rejected suggestion replacement"
+            OperationTracker.shared.markFailed(id: opID, reason: error)
+            return edit
+        }
+        logInfo("Accepted suggestion \(commentUUID) saved for manuscript \(docID)", category: "comments")
+        await MainActor.run {
+            if let liveSource = ManuscriptSessionRegistry.shared.session(for: docID)?.source {
+                service.syncBody(liveSource)
+            }
+            service.resolve(commentUUID, includeReplies: false)
+        }
+        logInfo("Accepted suggestion \(commentUUID) resolved and displayed", category: "comments")
+        OperationTracker.shared.markCompleted(id: opID)
         return .json([
             "status": "ok",
             "commentId": id,
@@ -3032,6 +3077,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         guard let commentUUID = UUID(uuidString: id) else {
             return .badRequest("Invalid comment ID format")
         }
+        logInfo("Rejecting suggestion \(commentUUID)", category: "comments")
         let resolved = await MainActor.run { () -> Bool in
             guard let docID = CommentRegistry.shared.documentID(forComment: commentUUID),
                   let service = CommentRegistry.shared.service(for: docID) else {
@@ -3043,6 +3089,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         if !resolved {
             return .notFound("Comment not found: \(id)")
         }
+        logInfo("Rejected suggestion \(commentUUID) resolved and displayed", category: "comments")
         return .json(["status": "ok", "commentId": id, "rejected": true])
     }
 

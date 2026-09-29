@@ -9,8 +9,11 @@ use std::sync::Arc;
 pub use imbib_core::unified::shaped_queries::BibtexImportOutcome;
 use imbib_core::unified::store_api::ImbibStore;
 use impress_service_core::async_trait;
+use impress_service_core::pipeline::context::report_refusal;
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Deserializer, Serialize};
+
+pub use crate::app_service::IdentifierImportResult;
 
 /// Accept `authors` as either a `String` (`/api/papers/recent` shape) or a
 /// `Vec<String>` (`/api/search` shape) and produce a "; "-joined display
@@ -120,10 +123,31 @@ impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for Publication
     }
 }
 
+/// Optional filters for the local publication search. Library and collection
+/// are UUID strings because those are the identifiers accepted by imbib's
+/// HTTP search route.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PublicationSearchFilters {
+    pub read: Option<bool>,
+    pub collection: Option<String>,
+    pub library: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub flag: Option<String>,
+    pub added_after: Option<String>,
+    pub added_before: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MutationResult {
     pub affected_count: u32,
     pub ok: bool,
+}
+
+/// Per-identifier outcome for a collection membership update.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CollectionMembershipResult {
+    pub assigned: Vec<String>,
+    pub not_found: Vec<String>,
 }
 
 /// What `retention_cleanup` removed, per source (plan W3 / D-R10). Each
@@ -479,16 +503,26 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         expect = r#"{"name":"G3 reading project","is_default":false}"#
     )]
     async fn create_library(&self, name: String) -> Option<LibraryRecord>;
-    /// Delete a library with its collections and memberships. The store hands
-    /// back an undo snapshot that this verb drops (plan-auto-gui finding S-2),
-    /// so on this path the deletion is not undoable: take a backup first.
-    #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
+    /// Delete a library with its collections and memberships. `delete_files`
+    /// also removes its shared and legacy file containers, which requires the
+    /// running imbib app. Store undo does not restore removed file bytes.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), fs]))]
     #[impress_example(
         name = "remove-empty-library",
-        args = r#"{"id":"5c000000-0000-4000-8000-00000000000a"}"#,
+        args = r#"{"id":"5c000000-0000-4000-8000-00000000000a","delete_files":false}"#,
         expect = r#"{"ok":true,"affected_count":1}"#
     )]
-    async fn delete_library_undoable(&self, id: String) -> MutationResult;
+    async fn delete_library_undoable(&self, id: String, delete_files: bool) -> MutationResult;
+    /// Delete a batch of existing libraries after validating every UUID and
+    /// library before any filesystem or store mutation. Removed file bytes are
+    /// not restored by store undo.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], writes = ["imbib/library", "imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), fs]))]
+    #[impress_example(
+        name = "delete-library-batch",
+        args = r#"{"ids":["5c000000-0000-4000-8000-00000000000d","5c000000-0000-4000-8000-00000000000e"],"delete_files":false}"#,
+        expect = r#"2"#
+    )]
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32;
     /// Get the library new papers are filed into by default, if one is set.
     #[impress_method(effects(reads = ["imbib/library", "imbib/bibliography-entry", "imbib/collection"]))]
     #[impress_example(name = "default", args = r#"{}"#)]
@@ -564,6 +598,20 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         publication_ids: Vec<String>,
         collection_id: String,
     ) -> MutationResult;
+    /// Add or remove existing papers by the same local identifiers accepted
+    /// by the retained collection HTTP routes. Results preserve input order.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "imbib/library", "imbib/bibliography-entry"], writes = ["imbib/collection"]))]
+    #[impress_example(
+        name = "file-existing-paper",
+        args = r#"{"collection_id":"5c000000-0000-4000-8000-0000000000c1","identifiers":["G3Membership2026","missing-G3"],"action":"add"}"#,
+        expect = r#"{"assigned":["G3Membership2026"],"not_found":["missing-G3"]}"#
+    )]
+    async fn update_collection_members(
+        &self,
+        collection_id: String,
+        identifiers: Vec<String>,
+        action: String,
+    ) -> CollectionMembershipResult;
     /// List all papers in a specific collection.
     #[impress_method(effects(reads = ["imbib/collection", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror"]))]
     #[impress_example(
@@ -655,14 +703,30 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         args = r#"{"limit":10,"parent_id":"5c000000-0000-4000-8000-000000000074"}"#
     )]
     async fn query_recent(&self, limit: u32, parent_id: Option<String>) -> Vec<PublicationSummary>;
-    /// Search paper metadata by free text, newest-added first, up to `limit`
-    /// results (0 means 50).
-    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library"]))]
+    /// Search paper metadata by free text, newest-added first, applying
+    /// optional state, membership, tag, flag, and date filters before paging.
+    /// An empty query lists the selected library or collection; with no
+    /// membership filter it lists the default library. A zero limit means 50.
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection"]))]
     #[impress_example(
         name = "find-unique-spectrum",
         args = r#"{"query":"G3 Unique Spectrum","limit":10}"#
     )]
-    async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary>;
+    #[impress_example(
+        name = "filtered-project-spectrum",
+        args = r#"{"query":"G3 Unique Spectrum","limit":10,"filters":{"read":false,"library":"5c000000-0000-4000-8000-000000000088"}}"#
+    )]
+    #[impress_example(
+        name = "filtered-collection-spectrum",
+        args = r#"{"query":"G3 Unique Spectrum","limit":10,"filters":{"read":false,"collection":"5c000000-0000-4000-8000-000000000089"}}"#
+    )]
+    async fn search_publications(
+        &self,
+        query: String,
+        limit: u32,
+        offset: Option<u32>,
+        filters: Option<PublicationSearchFilters>,
+    ) -> Vec<PublicationSummary>;
     /// Get one paper's summary by id; null when there is no such paper.
     #[impress_method]
     #[impress_example(
@@ -850,6 +914,21 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         args = r#"{"papers":[{"bibtex":"@article{G3SearchRecord2026, title={G3 search record}, author={Doe, Jane}, year={2026}}","doi":"10.5555/g3-search-record","arxiv_id":null,"bibcode":null}],"library_id":"5c000000-0000-4000-8000-000000000085"}"#
     )]
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
+    /// Resolve each identifier in the running app, importing fetched records
+    /// and preserving per-identifier duplicate/failure outcomes.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library", "imbib/collection", "imbib/dismissed-paper", "imbib/linked-file"], writes = ["imbib/bibliography-entry", "imbib/collection", "imbib/linked-file"], reach = [app("imbib"), network, fs]))]
+    #[impress_example(
+        name = "import-identifiers-native",
+        tier = B,
+        args = r#"{"identifiers":["Existing2026"],"library_id":null,"collection_id":null,"download_pdfs":false}"#
+    )]
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult;
     /// Parse BibTeX and add each entry to a library as a paper; returns the
     /// ids of the papers created.
     #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library"], writes = ["imbib/bibliography-entry"]))]
@@ -880,6 +959,15 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     #[impress_method(effects(reads = ["imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
     #[impress_example(name = "export-cite-key", args = r#"{"ids":["G3Export2026"]}"#)]
     async fn export_bibtex(&self, ids: Vec<String>) -> String;
+    /// Export selected papers as RIS, accepting UUIDs or cite keys in input
+    /// order and omitting identifiers that do not resolve.
+    #[impress_method(effects(reads = ["imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition"]))]
+    #[impress_example(
+        name = "representative-ris-export",
+        args = r#"{"ids":["G3RIS2026"]}"#,
+        expect = r#""TY  - JOUR\nAU  - Doe, Jane\nTI  - RIS parity paper\nPY  - 2026\nJF  - Research Journal\nT2  - Research Journal\nVL  - 12\nIS  - 3\nSP  - 100\nEP  - 110\nDO  - 10.5555/g3-ris\nAB  - Representative abstract\nKW  - alpha\nKW  - beta\nUR  - https://example.org/g3-ris\nPB  - Example Press\nCY  - Boston\nSN  - 1234-5678\nN1  - G3 export note\nT3  - Research Series\nET  - 2\nLA  - en\nID  - G3RIS2026\nER  - ""#
+    )]
+    async fn export_ris(&self, ids: Vec<String>) -> String;
     /// Export every paper in a library as one BibTeX string.
     #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/library"]))]
     #[impress_example(
@@ -985,6 +1073,158 @@ impl DefaultImbibLibraryService {
         let collection_count = self.store.list_collections(row.id.clone())?.len();
         Ok(LibraryRecord::from_row(row, collection_count))
     }
+
+    fn collection_exists(
+        &self,
+        collection_id: &str,
+    ) -> Result<bool, imbib_core::unified::store_api::StoreApiError> {
+        for library in self.store.list_libraries()? {
+            if self
+                .store
+                .list_collections(library.id)?
+                .iter()
+                .any(|collection| collection.id == collection_id)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn publication_id_for_local_identifier(
+        &self,
+        identifier: &LocalPaperIdentifier,
+    ) -> Result<Option<String>, imbib_core::unified::store_api::StoreApiError> {
+        use LocalPaperIdentifier as Id;
+        let publication = match identifier {
+            Id::Uuid(value, _) => self.store.get_publication(value.to_string())?,
+            Id::Doi(value, _) => self.store.find_by_doi(value.clone())?.into_iter().next(),
+            Id::Arxiv(value, _) => self.store.find_by_arxiv(value.clone())?.into_iter().next(),
+            Id::Bibcode(value, _) => self
+                .store
+                .find_by_bibcode(value.clone())?
+                .into_iter()
+                .next(),
+            Id::Pmid(value, _) => self
+                .store
+                .find_by_identifiers(None, None, None, Some(value.clone()))?
+                .into_iter()
+                .next(),
+            Id::CiteKey(value, _) => self.store.find_by_cite_key(value.clone(), None)?,
+            Id::Unsupported(_) => None,
+        };
+        Ok(publication.map(|row| row.id))
+    }
+}
+
+/// The retained `PaperIdentifier.fromString` behavior, limited to local lookup
+/// forms. Semantic Scholar and OpenAlex identifiers are recognized by that
+/// parser but intentionally have no local lookup path.
+enum LocalPaperIdentifier {
+    Uuid(uuid::Uuid, String),
+    Doi(String, String),
+    Arxiv(String, String),
+    Bibcode(String, String),
+    Pmid(String, String),
+    CiteKey(String, String),
+    Unsupported(String),
+}
+
+impl LocalPaperIdentifier {
+    fn parse(input: &str) -> Self {
+        use LocalPaperIdentifier as Id;
+        let trimmed = input.trim();
+        if let Ok(uuid) = uuid::Uuid::parse_str(trimmed) {
+            return Id::Uuid(uuid, uuid.hyphenated().to_string().to_ascii_uppercase());
+        }
+        if trimmed.starts_with("10.") || trimmed.to_ascii_lowercase().starts_with("doi:") {
+            // Match `PaperIdentifier.fromString`'s case-sensitive prefix
+            // removal: unusual `DOI:` input is classified as a DOI but keeps
+            // the prefix in its value and therefore remains a local miss.
+            let value = if trimmed.starts_with("doi:") {
+                trimmed.get(4..).unwrap_or_default().trim()
+            } else {
+                trimmed
+            };
+            return Id::Doi(value.to_string(), value.to_string());
+        }
+        let arxiv = if trimmed.starts_with("arXiv:") {
+            trimmed.get(6..).unwrap_or_default()
+        } else {
+            trimmed
+        };
+        if is_modern_arxiv_id(arxiv) || is_legacy_arxiv_id(trimmed) {
+            return Id::Arxiv(arxiv.to_string(), arxiv.to_string());
+        }
+        if trimmed.chars().count() == 19 {
+            let year = trimmed.get(..4).and_then(|value| value.parse::<u16>().ok());
+            if year.is_some_and(|year| (1800..=2100).contains(&year)) {
+                return Id::Bibcode(trimmed.to_string(), trimmed.to_string());
+            }
+        }
+        let character_count = trimmed.chars().count();
+        if (5..=10).contains(&character_count) && trimmed.chars().all(char::is_numeric) {
+            return Id::Pmid(trimmed.to_string(), trimmed.to_string());
+        }
+        if (trimmed.len() == 40 && trimmed.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            || trimmed
+                .strip_prefix('W')
+                .is_some_and(|rest| rest.bytes().all(|byte| byte.is_ascii_digit()))
+        {
+            return Id::Unsupported(trimmed.to_string());
+        }
+        Id::CiteKey(trimmed.to_string(), trimmed.to_string())
+    }
+
+    fn value(&self) -> &str {
+        match self {
+            Self::Uuid(_, value)
+            | Self::Doi(_, value)
+            | Self::Arxiv(_, value)
+            | Self::Bibcode(_, value)
+            | Self::Pmid(_, value)
+            | Self::CiteKey(_, value)
+            | Self::Unsupported(value) => value,
+        }
+    }
+}
+
+fn is_modern_arxiv_id(value: &str) -> bool {
+    let base = match value.rsplit_once('v') {
+        Some((base, suffix))
+            if !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            base
+        }
+        _ => value,
+    };
+    let Some((year_month, paper)) = base.split_once('.') else {
+        return false;
+    };
+    year_month.len() == 4
+        && year_month.bytes().all(|byte| byte.is_ascii_digit())
+        && (4..=5).contains(&paper.len())
+        && paper.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn is_legacy_arxiv_id(value: &str) -> bool {
+    let Some((archive, number)) = value.split_once('/') else {
+        return false;
+    };
+    let base = match number.rsplit_once('v') {
+        Some((base, suffix))
+            if !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            base
+        }
+        _ => number,
+    };
+    !archive.is_empty()
+        && archive
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        && base.len() == 7
+        && base.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn ok_n(n: u32) -> MutationResult {
@@ -1096,14 +1336,136 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .map_err(|e| log("create_library", e))
             .ok()
     }
-    async fn delete_library_undoable(&self, id: String) -> MutationResult {
-        match self.store.delete_library_undoable(id) {
+    async fn delete_library_undoable(&self, id: String, delete_files: bool) -> MutationResult {
+        let library_id = match uuid::Uuid::parse_str(&id) {
+            Ok(id) => id.to_string(),
+            Err(error) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                    format!("Invalid library UUID: {error}"),
+                );
+                return fail();
+            }
+        };
+        match self.store.get_library(library_id.clone()) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Library {library_id} was not found"),
+                );
+                return fail();
+            }
+            Err(error) => {
+                log("delete_library_undoable/preflight", &error);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    error.to_string(),
+                );
+                return fail();
+            }
+        }
+        if crate::backend::has_app_service_backend() {
+            return if crate::backend::app_service_instance()
+                .delete_library(library_id, delete_files)
+                .await
+            {
+                ok_n(1)
+            } else {
+                fail()
+            };
+        }
+        if delete_files {
+            // The headless backend cannot safely locate or remove native file containers.
+            let _ = crate::backend::app_service_instance()
+                .delete_library(library_id, true)
+                .await;
+            return fail();
+        }
+        match self.store.delete_library_undoable(library_id) {
             Ok(_) => ok_n(1),
             Err(e) => {
                 log("delete_library_undoable", e);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    "Library deletion failed after preflight",
+                );
                 fail()
             }
         }
+    }
+    async fn delete_libraries(&self, ids: Vec<String>, delete_files: bool) -> u32 {
+        let mut parsed = match ids
+            .iter()
+            .map(|id| uuid::Uuid::parse_str(id).map(|uuid| uuid.to_string()))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(ids) => ids,
+            Err(error) => {
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                    format!("One or more library IDs are invalid UUIDs: {error}"),
+                );
+                return 0;
+            }
+        };
+        // A library is deleted and counted once even when an ID is repeated.
+        let mut seen = std::collections::HashSet::new();
+        parsed.retain(|id| seen.insert(id.clone()));
+        if parsed.is_empty() {
+            return 0;
+        }
+
+        // Preflight every row before cleanup or deletion so an unknown later
+        // ID cannot leave an earlier library half-deleted.
+        for id in &parsed {
+            match self.store.get_library(id.clone()) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::NOT_FOUND,
+                        format!("Library {id} was not found; batch was not changed"),
+                    );
+                    return 0;
+                }
+                Err(error) => {
+                    log("delete_libraries/preflight", &error);
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::STORE_ERROR,
+                        error.to_string(),
+                    );
+                    return 0;
+                }
+            }
+        }
+        if crate::backend::has_app_service_backend() {
+            return crate::backend::app_service_instance()
+                .delete_libraries(parsed, delete_files)
+                .await;
+        }
+        if delete_files {
+            // Refuse before mutation when running without the app-owned file service.
+            let _ = crate::backend::app_service_instance()
+                .delete_libraries(parsed, true)
+                .await;
+            return 0;
+        }
+
+        let mut deleted = 0;
+        for id in parsed {
+            match self.store.delete_library_undoable(id) {
+                Ok(_) => deleted += 1,
+                Err(error) => {
+                    log("delete_libraries", &error);
+                    impress_service_core::pipeline::context::report_refusal(
+                        impress_service_core::refusal::codes::STORE_ERROR,
+                        format!("Batch deleted {deleted} libraries before a store error: {error}"),
+                    );
+                    break;
+                }
+            }
+        }
+        deleted
     }
     async fn get_default_library(&self) -> Option<LibraryRecord> {
         self.store
@@ -1189,6 +1551,97 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                 fail()
             }
         }
+    }
+    async fn update_collection_members(
+        &self,
+        collection_id: String,
+        identifiers: Vec<String>,
+        action: String,
+    ) -> CollectionMembershipResult {
+        if !matches!(action.as_str(), "add" | "remove") {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "action must be 'add' or 'remove'",
+            );
+            return CollectionMembershipResult::default();
+        }
+        let Ok(collection_uuid) = uuid::Uuid::parse_str(&collection_id) else {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "collection_id must be a UUID",
+            );
+            return CollectionMembershipResult::default();
+        };
+        if identifiers.is_empty() {
+            report_refusal(
+                impress_service_core::refusal::codes::INVALID_ARGUMENT,
+                "identifiers must contain at least one value",
+            );
+            return CollectionMembershipResult::default();
+        }
+        match self.collection_exists(&collection_uuid.to_string()) {
+            Ok(true) => {}
+            Ok(false) => {
+                report_refusal(
+                    impress_service_core::refusal::codes::NOT_FOUND,
+                    format!("Collection not found: {collection_uuid}"),
+                );
+                return CollectionMembershipResult::default();
+            }
+            Err(error) => {
+                log("update_collection_members.validate_collection", &error);
+                report_refusal(
+                    impress_service_core::refusal::codes::INTERNAL,
+                    "Unable to validate collection",
+                );
+                return CollectionMembershipResult::default();
+            }
+        }
+
+        let parsed: Vec<LocalPaperIdentifier> = identifiers
+            .iter()
+            .map(|value| LocalPaperIdentifier::parse(value))
+            .collect();
+        let mut resolved = Vec::new();
+        let mut result = CollectionMembershipResult::default();
+        for identifier in parsed {
+            match self.publication_id_for_local_identifier(&identifier) {
+                Ok(Some(publication_id)) => {
+                    resolved.push(publication_id);
+                    result.assigned.push(identifier.value().to_string());
+                }
+                Ok(None) => result.not_found.push(identifier.value().to_string()),
+                Err(error) => {
+                    log("update_collection_members.resolve_identifier", &error);
+                    report_refusal(
+                        impress_service_core::refusal::codes::INTERNAL,
+                        "Unable to resolve local publication identifier",
+                    );
+                    return CollectionMembershipResult::default();
+                }
+            }
+        }
+        if resolved.is_empty() {
+            return result;
+        }
+        let mutation = match action.as_str() {
+            "add" => self
+                .store
+                .add_to_collection(resolved, collection_uuid.to_string()),
+            "remove" => self
+                .store
+                .remove_from_collection(resolved, collection_uuid.to_string()),
+            _ => unreachable!("action was validated above"),
+        };
+        if let Err(error) = mutation {
+            log("update_collection_members.mutate", &error);
+            report_refusal(
+                impress_service_core::refusal::codes::VERB_FAILED,
+                "Collection membership update failed",
+            );
+            return CollectionMembershipResult::default();
+        }
+        result
     }
     async fn list_collection_members(
         &self,
@@ -1308,15 +1761,147 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                 vec![]
             })
     }
-    async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary> {
-        let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        self.store
-            .search_publications(query, None, "date_added".into(), false, lim, None)
-            .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| {
-                log("search_publications", e);
-                vec![]
-            })
+    async fn search_publications(
+        &self,
+        query: String,
+        limit: u32,
+        offset: Option<u32>,
+        filters: Option<PublicationSearchFilters>,
+    ) -> Vec<PublicationSummary> {
+        use std::collections::HashSet;
+
+        let filters = filters.unwrap_or_default();
+        // The HTTP route treats an invalid UUID filter as absent. Keep that
+        // behavior at the generated boundary rather than returning a partial
+        // result or changing the endpoint's accepted inputs.
+        let library_id = filters
+            .library
+            .as_deref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .map(|id| id.to_string());
+        let collection_id = filters
+            .collection
+            .as_deref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .map(|id| id.to_string());
+        let collection_rows = match collection_id.as_ref() {
+            Some(id) => match self.store.list_collection_members(
+                id.clone(),
+                "date_added".into(),
+                false,
+                Some(u32::MAX),
+                Some(0),
+            ) {
+                Ok(rows) => Some(rows),
+                Err(error) => {
+                    log("search_publications", error);
+                    return Vec::new();
+                }
+            },
+            None => None,
+        };
+
+        let rows = if query.is_empty() {
+            if let Some(library_id) = library_id.as_ref() {
+                self.store.query_publications(
+                    library_id.clone(),
+                    "date_added".into(),
+                    false,
+                    None,
+                    None,
+                )
+            } else if let Some(collection_rows) = collection_rows.as_ref() {
+                Ok(collection_rows.clone())
+            } else {
+                match self.store.get_default_library() {
+                    Ok(Some(default_library)) => self.store.query_publications(
+                        default_library.id,
+                        "date_added".into(),
+                        false,
+                        None,
+                        None,
+                    ),
+                    Ok(None) => Ok(Vec::new()),
+                    Err(error) => Err(error),
+                }
+            }
+        } else {
+            self.store.search_publications(
+                query,
+                library_id.clone(),
+                "date_added".into(),
+                false,
+                None,
+                None,
+            )
+        };
+
+        let mut rows = match rows {
+            Ok(rows) => rows,
+            Err(error) => {
+                log("search_publications", error);
+                return Vec::new();
+            }
+        };
+
+        // Library membership is pushed into the core query (which includes
+        // both home-library and Contains membership). Collection membership
+        // is checked against exact IDs, never names or a limited result page.
+        let collection_members: Option<HashSet<String>> =
+            collection_rows.map(|members| members.into_iter().map(|row| row.id).collect());
+        let added_after = filters
+            .added_after
+            .as_deref()
+            .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+            .map(|date| date.timestamp_millis());
+        let added_before = filters
+            .added_before
+            .as_deref()
+            .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+            .map(|date| date.timestamp_millis());
+
+        rows.retain(|row| {
+            if filters.read.is_some_and(|read| row.is_read != read) {
+                return false;
+            }
+            if !filters.tags.as_ref().is_none_or(|tags| {
+                tags.is_empty()
+                    || tags.iter().any(|tag| {
+                        let tag = tag.trim();
+                        row.tags.iter().any(|item| item.path == tag)
+                    })
+            }) {
+                return false;
+            }
+            if filters
+                .flag
+                .as_ref()
+                .is_some_and(|flag| row.flag_color.as_ref() != Some(flag))
+            {
+                return false;
+            }
+            if added_after.is_some_and(|after| row.date_added <= after)
+                || added_before.is_some_and(|before| row.date_added >= before)
+            {
+                return false;
+            }
+            if collection_members
+                .as_ref()
+                .is_some_and(|members| !members.contains(&row.id))
+            {
+                return false;
+            }
+            true
+        });
+
+        let start = offset.unwrap_or(0) as usize;
+        let page_limit = if limit == 0 { 50 } else { limit } as usize;
+        let end = start.saturating_add(page_limit).min(rows.len());
+        rows.into_iter()
+            .skip(start.min(end))
+            .take(end.saturating_sub(start))
+            .map(|row| PublicationSummary::from(&row))
+            .collect()
     }
     async fn get_publication(&self, id: String) -> Option<PublicationSummary> {
         self.store
@@ -1499,6 +2084,18 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             }
         }
     }
+
+    async fn import_identifiers(
+        &self,
+        identifiers: Vec<String>,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        download_pdfs: bool,
+    ) -> IdentifierImportResult {
+        crate::backend::app_service_instance()
+            .import_identifiers(identifiers, library_id, collection_id, download_pdfs)
+            .await
+    }
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String> {
         self.store
             .import_bibtex(bibtex, library_id)
@@ -1551,6 +2148,43 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             );
             String::new()
         })
+    }
+    async fn export_ris(&self, ids: Vec<String>) -> String {
+        // Share the exact UUID/cite-key resolution and input-order behavior
+        // with BibTeX export, then use the existing Rust parser, legacy
+        // compatibility converter, and shared RIS formatter.
+        let bibtex = self.export_bibtex(ids).await;
+        let parsed = match imbib_core::bibtex::parse(bibtex) {
+            Ok(parsed) if parsed.errors.is_empty() => parsed,
+            Ok(parsed) => {
+                let message = format!(
+                    "RIS export could not parse canonical BibTeX: {:?}",
+                    parsed.errors
+                );
+                log("export_ris/parse", &message);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    message,
+                );
+                return String::new();
+            }
+            Err(error) => {
+                log("export_ris/parse", &error);
+                impress_service_core::pipeline::context::report_refusal(
+                    impress_service_core::refusal::codes::STORE_ERROR,
+                    error.to_string(),
+                );
+                return String::new();
+            }
+        };
+
+        parsed
+            .entries
+            .into_iter()
+            .map(imbib_core::ris::from_bibtex_legacy_export)
+            .map(imbib_core::ris_format_entry)
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
     async fn export_all_bibtex(&self, library_id: String) -> String {
         self.store
@@ -1903,8 +2537,16 @@ impress_service_impl! {
         ) -> Option<LibraryRecord>,
         delete_library_undoable(
             /// UUID of the library to delete with its collections.
-            id: String
+            id: String,
+            /// Whether to remove its shared and legacy library-file containers.
+            delete_files: bool
         ) -> MutationResult,
+        delete_libraries(
+            /// UUIDs of libraries to delete; every UUID and row is preflighted.
+            ids: Vec<String>,
+            /// Whether to remove their shared and legacy library-file containers.
+            delete_files: bool
+        ) -> u32,
         get_default_library() -> Option<LibraryRecord>,
         set_library_default(
             /// UUID of the library that should receive new papers by default.
@@ -1938,6 +2580,14 @@ impress_service_impl! {
             /// UUID of the collection to remove them from.
             collection_id: String
         ) -> MutationResult,
+        update_collection_members(
+            /// UUID of the collection to update.
+            collection_id: String,
+            /// Existing local cite keys, identifiers, or publication UUIDs.
+            identifiers: Vec<String>,
+            /// Add memberships or remove them (`add` or `remove`).
+            action: String
+        ) -> CollectionMembershipResult,
         list_collection_members(
             /// UUID of the collection to inspect.
             collection_id: String,
@@ -2003,7 +2653,11 @@ impress_service_impl! {
             /// Text to find in paper titles, authors, abstracts, or notes.
             query: String,
             /// Maximum number of papers, with zero selecting the default of 50.
-            limit: u32
+            limit: u32,
+            /// Number of matching papers to skip after filtering.
+            offset: Option<u32>,
+            /// Optional local-state, membership, tag, flag, and added-date filters.
+            filters: Option<PublicationSearchFilters>
         ) -> Vec<PublicationSummary>,
         get_publication(
             /// UUID of the publication to summarize.
@@ -2106,6 +2760,16 @@ impress_service_impl! {
             /// UUID of the library receiving new papers.
             library_id: String
         ) -> ImportSummary,
+        import_identifiers(
+            /// Paper identifiers accepted by imbib, in caller order.
+            identifiers: Vec<String>,
+            /// UUID of the target library; omit to use imbib's default.
+            library_id: Option<String>,
+            /// UUID of a collection to receive added and duplicate papers.
+            collection_id: Option<String>,
+            /// Whether to start background PDF acquisition for newly fetched papers.
+            download_pdfs: bool
+        ) -> IdentifierImportResult,
         import_bibtex(
             /// BibTeX source containing one or more entries.
             bibtex: String,
@@ -2121,6 +2785,10 @@ impress_service_impl! {
             collection_id: String
         ) -> BibtexImportOutcome,
         export_bibtex(
+            /// Publication UUIDs or cite keys to export, in requested order.
+            ids: Vec<String>
+        ) -> String,
+        export_ris(
             /// Publication UUIDs or cite keys to export, in requested order.
             ids: Vec<String>
         ) -> String,
@@ -2161,6 +2829,23 @@ impress_service_impl! {
     ],
 }
 
+#[cfg(test)]
+mod identifier_import_schema_tests {
+    #[test]
+    fn identifier_import_is_a_single_library_verb_with_the_approved_arguments() {
+        let verb =
+            impress_service_core::VerbDescriptor::find("imbib-library-service_import-identifiers")
+                .expect("identifier import verb is registered");
+        let schema = (verb.input_schema)();
+        let properties = schema["properties"].as_object().unwrap();
+        assert!(properties.contains_key("identifiers"));
+        assert!(properties.contains_key("library_id"));
+        assert!(properties.contains_key("collection_id"));
+        assert!(properties.contains_key("download_pdfs"));
+        assert_eq!(verb.service, "imbib-library-service");
+    }
+}
+
 // Legacy compatibility — bin crates that used the old singleton-init can keep working.
 pub fn init_imbib_library_service(store_path: std::path::PathBuf) -> Result<(), String> {
     crate::store_singleton::init_imbib_store(store_path)
@@ -2168,8 +2853,151 @@ pub fn init_imbib_library_service(store_path: std::path::PathBuf) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::ImbibLibraryService;
+    use super::{CollectionMembershipResult, ImbibLibraryService, LocalPaperIdentifier};
     use impress_service_core::McpToolDescriptor;
+
+    #[tokio::test]
+    async fn collection_membership_resolves_route_identifiers_in_order_and_mutates_exact_rows() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Membership contract".into()).unwrap();
+        let library_id = library.id.clone();
+        let collection = store
+            .create_collection("Membership target".into(), library_id.clone(), false, None)
+            .unwrap();
+        let ids = store
+            .import_bibtex(
+                "@article{Member2026, title={Collection member}, doi={10.1234/member}}".into(),
+                library_id,
+            )
+            .unwrap();
+        let publication_id = ids[0].clone();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let added = service
+            .update_collection_members(
+                collection.id.clone(),
+                vec![
+                    " Member2026 ".into(),
+                    format!("doi:{}", "10.1234/member"),
+                    publication_id.to_ascii_uppercase(),
+                    "missing-key".into(),
+                    "Member2026".into(),
+                ],
+                "add".into(),
+            )
+            .await;
+        assert_eq!(
+            added,
+            CollectionMembershipResult {
+                assigned: vec![
+                    "Member2026".into(),
+                    "10.1234/member".into(),
+                    publication_id.to_ascii_uppercase(),
+                    "Member2026".into(),
+                ],
+                not_found: vec!["missing-key".into()],
+            }
+        );
+        let members = store
+            .list_collection_members(collection.id.clone(), "title".into(), true, None, None)
+            .unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].id, publication_id);
+
+        let removed = service
+            .update_collection_members(
+                collection.id.clone(),
+                vec!["Member2026".into(), "not-present".into()],
+                "remove".into(),
+            )
+            .await;
+        assert_eq!(removed.assigned, vec![String::from("Member2026")]);
+        assert_eq!(removed.not_found, vec![String::from("not-present")]);
+        assert!(store
+            .list_collection_members(collection.id, "title".into(), true, None, None)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn collection_membership_refuses_invalid_action_and_missing_collection_without_writes() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("Membership errors".into()).unwrap();
+        let collection = store
+            .create_collection("Existing target".into(), library.id.clone(), false, None)
+            .unwrap();
+        let publication_id = store
+            .import_bibtex(
+                "@article{StillUnfiled2026, title={Must stay unfiled}}".into(),
+                library.id,
+            )
+            .unwrap()
+            .remove(0);
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let invalid_action = service
+            .update_collection_members(
+                collection.id.clone(),
+                vec!["StillUnfiled2026".into()],
+                "replace".into(),
+            )
+            .await;
+        assert!(invalid_action.assigned.is_empty());
+        assert!(invalid_action.not_found.is_empty());
+
+        let missing_collection = service
+            .update_collection_members(
+                uuid::Uuid::new_v4().to_string(),
+                vec!["StillUnfiled2026".into()],
+                "add".into(),
+            )
+            .await;
+        assert!(missing_collection.assigned.is_empty());
+        assert!(missing_collection.not_found.is_empty());
+        assert!(store
+            .list_collection_members(collection.id, "title".into(), true, None, None)
+            .unwrap()
+            .is_empty());
+        assert!(store.get_publication(publication_id).unwrap().is_some());
+    }
+
+    #[test]
+    fn paper_identifier_parser_matches_route_local_forms() {
+        assert!(matches!(
+            LocalPaperIdentifier::parse(" doi:10.1234/example "),
+            LocalPaperIdentifier::Doi(value, normalized)
+                if value == "10.1234/example" && normalized == value
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("DOI:10.1234/example"),
+            LocalPaperIdentifier::Doi(value, normalized)
+                if value == "DOI:10.1234/example" && normalized == value
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("arXiv:2401.12345v2"),
+            LocalPaperIdentifier::Arxiv(value, _) if value == "2401.12345v2"
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("hep-th/9901001v2"),
+            LocalPaperIdentifier::Arxiv(value, _) if value == "hep-th/9901001v2"
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("2401.12345"),
+            LocalPaperIdentifier::Arxiv(_, _)
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("2023ApJ...950L..22A"),
+            LocalPaperIdentifier::Bibcode(_, _)
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("123456"),
+            LocalPaperIdentifier::Pmid(_, _)
+        ));
+        assert!(matches!(
+            LocalPaperIdentifier::parse("W123"),
+            LocalPaperIdentifier::Unsupported(_)
+        ));
+    }
 
     #[tokio::test]
     async fn bibtex_export_accepts_http_cite_keys_and_store_ids() {
@@ -2189,13 +3017,219 @@ mod tests {
         assert_eq!(by_key, by_id);
     }
 
+    #[tokio::test]
+    async fn publication_search_filters_membership_before_pagination() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let first_library = store.create_library("Same name".into()).unwrap();
+        let second_library = store.create_library("Same name".into()).unwrap();
+        let first = store
+            .import_bibtex(
+                "@article{First2026, title={P5c9 Shared term alpha}}".into(),
+                first_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let second = store
+            .import_bibtex(
+                "@article{Second2026, title={P5c9 Shared term beta}}".into(),
+                second_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let third = store
+            .import_bibtex(
+                "@article{Third2026, title={P5c9 Shared term gamma}}".into(),
+                second_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let collection = store
+            .create_collection("P5c9 subset".into(), first_library.id.clone(), false, None)
+            .unwrap();
+        store
+            .add_to_collection(
+                vec![first.clone(), second.clone(), third.clone()],
+                collection.id.clone(),
+            )
+            .unwrap();
+        store
+            .create_tag("methods/query".into(), None, None)
+            .unwrap();
+        store
+            .add_tag(vec![second.clone()], "methods/query".into())
+            .unwrap();
+        store.set_read(vec![second.clone()], true).unwrap();
+        store
+            .set_flag(vec![second.clone()], Some("red".into()), None, None)
+            .unwrap();
+
+        let service = super::DefaultImbibLibraryService::new(store);
+        let filters = |library: Option<String>, collection: Option<String>| {
+            Some(super::PublicationSearchFilters {
+                library,
+                collection,
+                ..Default::default()
+            })
+        };
+        let same_named_library = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                filters(Some(second_library.id.clone()), None),
+            )
+            .await;
+        let second_and_third: std::collections::HashSet<_> = same_named_library
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(same_named_library.len(), 2);
+        assert!(second_and_third.contains(second.as_str()));
+        assert!(second_and_third.contains(third.as_str()));
+
+        let collection_only = service
+            .search_publications(
+                "".into(),
+                50,
+                None,
+                filters(None, Some(collection.id.clone())),
+            )
+            .await;
+        assert_eq!(collection_only.len(), 3);
+        let collection_in_library = service
+            .search_publications(
+                "".into(),
+                50,
+                None,
+                filters(Some(second_library.id.clone()), Some(collection.id)),
+            )
+            .await;
+        assert_eq!(collection_in_library.len(), 2);
+        assert!(collection_in_library.iter().all(|row| row.id != first));
+
+        let filtered_page = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                1,
+                Some(1),
+                Some(super::PublicationSearchFilters {
+                    library: Some(second_library.id.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert_eq!(filtered_page.len(), 1);
+        assert_ne!(filtered_page[0].id, first);
+
+        let state_filtered = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    read: Some(true),
+                    tags: Some(vec!["methods/query".into()]),
+                    flag: Some("red".into()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert_eq!(state_filtered.len(), 1);
+        assert_eq!(state_filtered[0].id, second);
+
+        let second_added_at = service
+            .get_publication_detail(second.clone())
+            .await
+            .unwrap()
+            .date_added;
+        let exact_boundary = chrono::DateTime::from_timestamp_millis(second_added_at)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let after_exact_boundary = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    added_after: Some(exact_boundary.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert!(after_exact_boundary.iter().all(|row| row.id != second));
+        let before_exact_boundary = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    added_before: Some(exact_boundary),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert!(before_exact_boundary.iter().all(|row| row.id != second));
+
+        let after_future = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    added_after: Some("2999-01-01T00:00:00Z".into()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert!(after_future.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ris_export_preserves_identifier_order_and_omits_unknown_keys() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store.create_library("RIS export scratch".into()).unwrap();
+        let first_id = store
+            .import_bibtex(
+                "@article{FirstRIS2026, title={First RIS paper}, author={Doe, Jane}}".into(),
+                library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        store
+            .import_bibtex(
+                "@article{SecondRIS2026, title={Second RIS paper}, author={Roe, John}}".into(),
+                library.id,
+            )
+            .unwrap();
+        let service = super::DefaultImbibLibraryService::new(store);
+
+        let ris = service
+            .export_ris(vec![
+                "SecondRIS2026".into(),
+                "NoSuchRISKey".into(),
+                first_id.clone(),
+            ])
+            .await;
+        let second = ris.find("TI  - Second RIS paper").unwrap();
+        let first = ris.find("TI  - First RIS paper").unwrap();
+        assert!(
+            second < first,
+            "RIS entries did not preserve request order: {ris}"
+        );
+        assert!(!ris.contains("NoSuchRISKey"));
+
+        let by_key = service.export_ris(vec!["FirstRIS2026".into()]).await;
+        let by_id = service.export_ris(vec![first_id]).await;
+        assert_eq!(by_key, by_id);
+    }
+
     #[test]
     fn library_service_methods_registered() {
         let names: Vec<&str> = McpToolDescriptor::iter()
             .filter(|d| d.name.starts_with("imbib-library-service_"))
             .map(|d| d.name)
             .collect();
-        // 44 methods registered (see methods = [...] above)
+        // 45 methods registered (see methods = [...] above)
         assert!(
             names.len() >= 40,
             "expected >=40 library-service methods, got {}: {names:?}",
@@ -2426,5 +3460,57 @@ mod tests {
         assert!(!store
             .is_paper_dismissed(None, None, None, Some("ExplorationPaper2024".into()))
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_libraries_preflights_every_existing_row_before_mutating() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let first = store
+            .create_library("First scratch library".into())
+            .unwrap();
+        let missing = "50000000-0000-4000-8000-000000000001".to_string();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+
+        let deleted = service
+            .delete_libraries(vec![first.id.clone(), missing.clone()], false)
+            .await;
+
+        assert_eq!(deleted, 0);
+        assert!(store.get_library(first.id).unwrap().is_some());
+        assert!(store.get_library(missing).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn repeated_library_ids_are_deleted_and_counted_once() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let library = store
+            .create_library("Duplicate deletion fixture".into())
+            .unwrap();
+        let service = super::DefaultImbibLibraryService::new(store.clone());
+        assert_eq!(
+            service
+                .delete_libraries(vec![library.id.clone(), library.id.clone()], false)
+                .await,
+            1
+        );
+        assert!(store.get_library(library.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_verbs_publish_the_filesystem_choice_and_batch_signature() {
+        let single = impress_service_core::VerbDescriptor::find(
+            "imbib-library-service_delete-library-undoable",
+        )
+        .unwrap();
+        let single_schema = (single.input_schema)();
+        assert!(single_schema["properties"].get("delete_files").is_some());
+
+        let batch =
+            impress_service_core::VerbDescriptor::find("imbib-library-service_delete-libraries")
+                .unwrap();
+        let batch_schema = (batch.input_schema)();
+        assert!(batch_schema["properties"].get("ids").is_some());
+        assert!(batch_schema["properties"].get("delete_files").is_some());
+        assert_eq!(batch.service, "imbib-library-service");
     }
 }
