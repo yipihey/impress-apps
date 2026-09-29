@@ -120,6 +120,20 @@ impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for Publication
     }
 }
 
+/// Optional filters for the local publication search. Library and collection
+/// are UUID strings because those are the identifiers accepted by imbib's
+/// HTTP search route.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PublicationSearchFilters {
+    pub read: Option<bool>,
+    pub collection: Option<String>,
+    pub library: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub flag: Option<String>,
+    pub added_after: Option<String>,
+    pub added_before: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MutationResult {
     pub affected_count: u32,
@@ -655,14 +669,30 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         args = r#"{"limit":10,"parent_id":"5c000000-0000-4000-8000-000000000074"}"#
     )]
     async fn query_recent(&self, limit: u32, parent_id: Option<String>) -> Vec<PublicationSummary>;
-    /// Search paper metadata by free text, newest-added first, up to `limit`
-    /// results (0 means 50).
-    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library"]))]
+    /// Search paper metadata by free text, newest-added first, applying
+    /// optional state, membership, tag, flag, and date filters before paging.
+    /// An empty query lists the selected library or collection; with no
+    /// membership filter it lists the default library. A zero limit means 50.
+    #[impress_method(effects(reads = ["imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror", "imbib/library", "imbib/collection"]))]
     #[impress_example(
         name = "find-unique-spectrum",
         args = r#"{"query":"G3 Unique Spectrum","limit":10}"#
     )]
-    async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary>;
+    #[impress_example(
+        name = "filtered-project-spectrum",
+        args = r#"{"query":"G3 Unique Spectrum","limit":10,"filters":{"read":false,"library":"5c000000-0000-4000-8000-000000000088"}}"#
+    )]
+    #[impress_example(
+        name = "filtered-collection-spectrum",
+        args = r#"{"query":"G3 Unique Spectrum","limit":10,"filters":{"read":false,"collection":"5c000000-0000-4000-8000-000000000089"}}"#
+    )]
+    async fn search_publications(
+        &self,
+        query: String,
+        limit: u32,
+        offset: Option<u32>,
+        filters: Option<PublicationSearchFilters>,
+    ) -> Vec<PublicationSummary>;
     /// Get one paper's summary by id; null when there is no such paper.
     #[impress_method]
     #[impress_example(
@@ -1317,15 +1347,147 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
                 vec![]
             })
     }
-    async fn search_publications(&self, query: String, limit: u32) -> Vec<PublicationSummary> {
-        let lim = if limit == 0 { Some(50) } else { Some(limit) };
-        self.store
-            .search_publications(query, None, "date_added".into(), false, lim, None)
-            .map(|rs| rs.iter().map(PublicationSummary::from).collect::<Vec<_>>())
-            .unwrap_or_else(|e| {
-                log("search_publications", e);
-                vec![]
-            })
+    async fn search_publications(
+        &self,
+        query: String,
+        limit: u32,
+        offset: Option<u32>,
+        filters: Option<PublicationSearchFilters>,
+    ) -> Vec<PublicationSummary> {
+        use std::collections::HashSet;
+
+        let filters = filters.unwrap_or_default();
+        // The HTTP route treats an invalid UUID filter as absent. Keep that
+        // behavior at the generated boundary rather than returning a partial
+        // result or changing the endpoint's accepted inputs.
+        let library_id = filters
+            .library
+            .as_deref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .map(|id| id.to_string());
+        let collection_id = filters
+            .collection
+            .as_deref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .map(|id| id.to_string());
+        let collection_rows = match collection_id.as_ref() {
+            Some(id) => match self.store.list_collection_members(
+                id.clone(),
+                "date_added".into(),
+                false,
+                Some(u32::MAX),
+                Some(0),
+            ) {
+                Ok(rows) => Some(rows),
+                Err(error) => {
+                    log("search_publications", error);
+                    return Vec::new();
+                }
+            },
+            None => None,
+        };
+
+        let rows = if query.is_empty() {
+            if let Some(library_id) = library_id.as_ref() {
+                self.store.query_publications(
+                    library_id.clone(),
+                    "date_added".into(),
+                    false,
+                    None,
+                    None,
+                )
+            } else if let Some(collection_rows) = collection_rows.as_ref() {
+                Ok(collection_rows.clone())
+            } else {
+                match self.store.get_default_library() {
+                    Ok(Some(default_library)) => self.store.query_publications(
+                        default_library.id,
+                        "date_added".into(),
+                        false,
+                        None,
+                        None,
+                    ),
+                    Ok(None) => Ok(Vec::new()),
+                    Err(error) => Err(error),
+                }
+            }
+        } else {
+            self.store.search_publications(
+                query,
+                library_id.clone(),
+                "date_added".into(),
+                false,
+                None,
+                None,
+            )
+        };
+
+        let mut rows = match rows {
+            Ok(rows) => rows,
+            Err(error) => {
+                log("search_publications", error);
+                return Vec::new();
+            }
+        };
+
+        // Library membership is pushed into the core query (which includes
+        // both home-library and Contains membership). Collection membership
+        // is checked against exact IDs, never names or a limited result page.
+        let collection_members: Option<HashSet<String>> =
+            collection_rows.map(|members| members.into_iter().map(|row| row.id).collect());
+        let added_after = filters
+            .added_after
+            .as_deref()
+            .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+            .map(|date| date.timestamp_millis());
+        let added_before = filters
+            .added_before
+            .as_deref()
+            .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+            .map(|date| date.timestamp_millis());
+
+        rows.retain(|row| {
+            if filters.read.is_some_and(|read| row.is_read != read) {
+                return false;
+            }
+            if !filters.tags.as_ref().is_none_or(|tags| {
+                tags.is_empty()
+                    || tags.iter().any(|tag| {
+                        let tag = tag.trim();
+                        row.tags.iter().any(|item| item.path == tag)
+                    })
+            }) {
+                return false;
+            }
+            if filters
+                .flag
+                .as_ref()
+                .is_some_and(|flag| row.flag_color.as_ref() != Some(flag))
+            {
+                return false;
+            }
+            if added_after.is_some_and(|after| row.date_added <= after)
+                || added_before.is_some_and(|before| row.date_added >= before)
+            {
+                return false;
+            }
+            if collection_members
+                .as_ref()
+                .is_some_and(|members| !members.contains(&row.id))
+            {
+                return false;
+            }
+            true
+        });
+
+        let start = offset.unwrap_or(0) as usize;
+        let page_limit = if limit == 0 { 50 } else { limit } as usize;
+        let end = start.saturating_add(page_limit).min(rows.len());
+        rows.into_iter()
+            .skip(start.min(end))
+            .take(end.saturating_sub(start))
+            .map(|row| PublicationSummary::from(&row))
+            .collect()
     }
     async fn get_publication(&self, id: String) -> Option<PublicationSummary> {
         self.store
@@ -2049,7 +2211,11 @@ impress_service_impl! {
             /// Text to find in paper titles, authors, abstracts, or notes.
             query: String,
             /// Maximum number of papers, with zero selecting the default of 50.
-            limit: u32
+            limit: u32,
+            /// Number of matching papers to skip after filtering.
+            offset: Option<u32>,
+            /// Optional local-state, membership, tag, flag, and added-date filters.
+            filters: Option<PublicationSearchFilters>
         ) -> Vec<PublicationSummary>,
         get_publication(
             /// UUID of the publication to summarize.
@@ -2237,6 +2403,173 @@ mod tests {
         let by_id = service.export_bibtex(vec![id]).await;
         assert!(by_key.contains("Key2026"), "{by_key}");
         assert_eq!(by_key, by_id);
+    }
+
+    #[tokio::test]
+    async fn publication_search_filters_membership_before_pagination() {
+        let store = imbib_core::unified::store_api::ImbibStore::open_in_memory().unwrap();
+        let first_library = store.create_library("Same name".into()).unwrap();
+        let second_library = store.create_library("Same name".into()).unwrap();
+        let first = store
+            .import_bibtex(
+                "@article{First2026, title={P5c9 Shared term alpha}}".into(),
+                first_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let second = store
+            .import_bibtex(
+                "@article{Second2026, title={P5c9 Shared term beta}}".into(),
+                second_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let third = store
+            .import_bibtex(
+                "@article{Third2026, title={P5c9 Shared term gamma}}".into(),
+                second_library.id.clone(),
+            )
+            .unwrap()
+            .remove(0);
+        let collection = store
+            .create_collection("P5c9 subset".into(), first_library.id.clone(), false, None)
+            .unwrap();
+        store
+            .add_to_collection(
+                vec![first.clone(), second.clone(), third.clone()],
+                collection.id.clone(),
+            )
+            .unwrap();
+        store
+            .create_tag("methods/query".into(), None, None)
+            .unwrap();
+        store
+            .add_tag(vec![second.clone()], "methods/query".into())
+            .unwrap();
+        store.set_read(vec![second.clone()], true).unwrap();
+        store
+            .set_flag(vec![second.clone()], Some("red".into()), None, None)
+            .unwrap();
+
+        let service = super::DefaultImbibLibraryService::new(store);
+        let filters = |library: Option<String>, collection: Option<String>| {
+            Some(super::PublicationSearchFilters {
+                library,
+                collection,
+                ..Default::default()
+            })
+        };
+        let same_named_library = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                filters(Some(second_library.id.clone()), None),
+            )
+            .await;
+        let second_and_third: std::collections::HashSet<_> = same_named_library
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(same_named_library.len(), 2);
+        assert!(second_and_third.contains(second.as_str()));
+        assert!(second_and_third.contains(third.as_str()));
+
+        let collection_only = service
+            .search_publications(
+                "".into(),
+                50,
+                None,
+                filters(None, Some(collection.id.clone())),
+            )
+            .await;
+        assert_eq!(collection_only.len(), 3);
+        let collection_in_library = service
+            .search_publications(
+                "".into(),
+                50,
+                None,
+                filters(Some(second_library.id.clone()), Some(collection.id)),
+            )
+            .await;
+        assert_eq!(collection_in_library.len(), 2);
+        assert!(collection_in_library.iter().all(|row| row.id != first));
+
+        let filtered_page = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                1,
+                Some(1),
+                Some(super::PublicationSearchFilters {
+                    library: Some(second_library.id.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert_eq!(filtered_page.len(), 1);
+        assert_ne!(filtered_page[0].id, first);
+
+        let state_filtered = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    read: Some(true),
+                    tags: Some(vec!["methods/query".into()]),
+                    flag: Some("red".into()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert_eq!(state_filtered.len(), 1);
+        assert_eq!(state_filtered[0].id, second);
+
+        let second_added_at = service
+            .get_publication_detail(second.clone())
+            .await
+            .unwrap()
+            .date_added;
+        let exact_boundary = chrono::DateTime::from_timestamp_millis(second_added_at)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let after_exact_boundary = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    added_after: Some(exact_boundary.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert!(after_exact_boundary.iter().all(|row| row.id != second));
+        let before_exact_boundary = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    added_before: Some(exact_boundary),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert!(before_exact_boundary.iter().all(|row| row.id != second));
+
+        let after_future = service
+            .search_publications(
+                "P5c9 Shared term".into(),
+                50,
+                None,
+                Some(super::PublicationSearchFilters {
+                    added_after: Some("2999-01-01T00:00:00Z".into()),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        assert!(after_future.is_empty());
     }
 
     #[tokio::test]

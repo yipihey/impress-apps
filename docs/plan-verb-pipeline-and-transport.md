@@ -1827,6 +1827,29 @@ and tests shared-blob retention through update and the last delete. Root owns
 verification; no tests/builds, caller migrations, route removals, or real-store
 operations were performed here.
 
+## P5c9 — imbib publication search contract (2026-09-29)
+
+Extended `imbib-library-service_search-publications` with optional offset and
+the approved read/collection/library/tags/flag/added-after/added-before
+filters. The generated service evaluates membership and metadata filters on
+the complete ordered match set before applying pagination; exact library and
+collection UUID membership comes from the existing store queries, not names
+or a capped result page. Empty queries retain the default-library scope unless
+an explicit library or collection selects its own scope.
+
+Inspection found that the legacy `GET /api/search` parsed library and
+collection UUIDs but `AutomationService.applyFilters` explicitly skipped both
+filters. This package fixes that parity gap without changing the route shape:
+empty-query container selection now uses the selected container; exact
+library membership uses the existing store query, and exact collection
+membership uses the existing detail relationship before pagination. Focused
+Rust coverage checks same-named libraries, collection/library intersection,
+read/tag/flag filters, post-filter offset behavior and strict date boundaries.
+The hosted transport fixture compares generated and legacy IDs/order for
+library/read, collection (including empty-query selection), and offset cases on
+its isolated papers. Verification remains pending with root; no builds/tests
+were run in this package.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -1863,3 +1886,13 @@ operations were performed here.
   comparisons and retained the preceding threaded-comment refusal snapshot.
   The documented exception ceiling increases 146→148 for the two new native
   callbacks; positive evidence comes from the app proof, not headless refusal.
+
+- 2026-09-29 — **P5c9 verified.** Root passed 77 Rust tests (zero failures,
+  three ignored), all quick gates and full supported arm64 store-ffi,
+  impel-tools and imbib-verbs-ffi builds. The isolated native proof passed one
+  XCTest and 26 transport calls with exact filtered IDs/order, empty-query
+  collection membership, paging and fractional timestamp bounds. SQLite checks
+  passed; owned PID 79456 exited. Evidence:
+  `/tmp/impress-p5b-transport-y9st8dhc/output/` and
+  `/tmp/impress-p5c9-{tests,gates,frameworks,native-proof-final}.log`.
+  Root corrected the nested-array proof decoder before the passing run.

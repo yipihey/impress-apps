@@ -156,6 +156,102 @@ final class TransportProofTests: XCTestCase {
         let exported = try string(try await verb(base, bearer,
             "imbib-library-service_export-bibtex", ["ids": [paperID]]), "BibTeX export")
         try require(exported.contains(paperTitle), "imported BibTeX exports from the store")
+
+        // The generated search contract and retained legacy route must select
+        // the same scratch papers, in the same order, with container/read
+        // filters applied before limit/offset.
+        let searchLibrary = try object(try await verb(base, bearer,
+            "imbib-library-service_create-library",
+            ["name": "P5c9 search \(UUID().uuidString)"]), "search library")
+        let searchLibraryID = try XCTUnwrap(searchLibrary["id"] as? String)
+        let searchCollection = try object(try await verb(base, bearer,
+            "imbib-library-service_create-collection",
+            ["name": "P5c9 collection", "library_id": searchLibraryID,
+             "is_smart": false, "query": NSNull()]), "search collection")
+        let searchCollectionID = try XCTUnwrap(searchCollection["id"] as? String)
+        let searchKeys = ["p5c9alpha" + UUID().uuidString.replacingOccurrences(of: "-", with: ""),
+                          "p5c9beta" + UUID().uuidString.replacingOccurrences(of: "-", with: "")]
+        let searchBibTeX = """
+        @article{\(searchKeys[0]), title={P5c9SearchAlpha}, author={Doe, Jane}, year={2026}}
+        @article{\(searchKeys[1]), title={P5c9SearchBeta}, author={Roe, John}, year={2026}}
+        """
+        let searchPaperIDs = try array(try await verb(base, bearer,
+            "imbib-library-service_import-bibtex",
+            ["bibtex": searchBibTeX, "library_id": searchLibraryID]), "search imports")
+            .compactMap { $0 as? String }
+        try require(searchPaperIDs.count == 2, "search fixture contains two papers")
+        _ = try await verb(base, bearer, "imbib-library-service_add-to-collection",
+                           ["publication_ids": [searchPaperIDs[0]],
+                            "collection_id": searchCollectionID])
+        _ = try await verb(base, bearer, "imbib-library-service_set-read",
+                           ["ids": [searchPaperIDs[0]], "read": true])
+
+        let libraryArgs: [String: Any] = [
+            "query": "P5c9Search", "limit": 10, "offset": 0,
+            "filters": ["library": searchLibraryID, "read": true],
+        ]
+        let generatedLibraryRows = try array(try await verb(base, bearer,
+            "imbib-library-service_search-publications", libraryArgs), "filtered search verb")
+        let legacyLibrary = try await request(base, bearer,
+            "/api/search?q=P5c9Search&limit=10&offset=0&read=true&library=\(searchLibraryID)", nil)
+        try require(legacyLibrary.status == 200, "filtered legacy search HTTP \(legacyLibrary.status)")
+        let legacyLibraryRows = try array(object(legacyLibrary, "filtered legacy search")["papers"] ?? NSNull(),
+                                         "filtered legacy papers")
+        try require(searchResultIDs(generatedLibraryRows) == searchResultIDs(legacyLibraryRows),
+                    "library and read filters match between generated and legacy search")
+        try require(searchResultIDs(generatedLibraryRows) == [searchPaperIDs[0]],
+                    "library/read filters select only the read fixture paper")
+
+        let collectionArgs: [String: Any] = [
+            "query": "", "limit": 10, "offset": 0,
+            "filters": ["collection": searchCollectionID],
+        ]
+        let generatedCollectionRows = try array(try await verb(base, bearer,
+            "imbib-library-service_search-publications", collectionArgs), "collection search verb")
+        let legacyCollection = try await request(base, bearer,
+            "/api/search?q=&limit=10&offset=0&collection=\(searchCollectionID)", nil)
+        try require(legacyCollection.status == 200,
+                    "collection legacy search HTTP \(legacyCollection.status)")
+        let legacyCollectionRows = try array(object(legacyCollection, "collection legacy search")["papers"] ?? NSNull(),
+                                             "collection legacy papers")
+        try require(searchResultIDs(generatedCollectionRows) == searchResultIDs(legacyCollectionRows),
+                    "empty-query collection selection matches between generated and legacy search")
+        try require(searchResultIDs(generatedCollectionRows) == [searchPaperIDs[0]],
+                    "empty-query collection search selects its exact member")
+
+        let offsetArgs: [String: Any] = [
+            "query": "P5c9Search", "limit": 1, "offset": 1,
+            "filters": ["library": searchLibraryID],
+        ]
+        let generatedOffsetRows = try array(try await verb(base, bearer,
+            "imbib-library-service_search-publications", offsetArgs), "offset search verb")
+        let legacyOffset = try await request(base, bearer,
+            "/api/search?q=P5c9Search&limit=1&offset=1&library=\(searchLibraryID)", nil)
+        try require(legacyOffset.status == 200, "offset legacy search HTTP \(legacyOffset.status)")
+        let legacyOffsetRows = try array(object(legacyOffset, "offset legacy search")["papers"] ?? NSNull(),
+                                         "offset legacy papers")
+        try require(searchResultIDs(generatedOffsetRows) == searchResultIDs(legacyOffsetRows),
+                    "offset is applied after the same library filter")
+        let future = "2999-01-01T00:00:00.000Z"
+        let generatedFuture = try array(try await verb(base, bearer,
+            "imbib-library-service_search-publications",
+            ["query": "P5c9Search", "limit": 10, "filters": ["added_after": future]]),
+            "fractional date search")
+        let legacyFuture = try await request(base, bearer,
+            "/api/search?q=P5c9Search&addedAfter=\(future)", nil)
+        try require(legacyFuture.status == 200, "fractional date HTTP succeeded")
+        let legacyFutureRows = try array(object(legacyFuture, "fractional date HTTP")["papers"] ?? NSNull(),
+                                         "fractional date papers")
+        try require(generatedFuture.isEmpty && legacyFutureRows.isEmpty,
+                    "both transports apply fractional timestamp bounds")
+    }
+
+    private func array(_ value: Any, _ label: String) throws -> [Any] {
+        try XCTUnwrap(value as? [Any], "\(label) did not return an array")
+    }
+
+    private func searchResultIDs(_ values: [Any]) -> [String] {
+        values.compactMap { (($0 as? [String: Any])?["id"] as? String)?.lowercased() }
     }
 
     private func proveImprint(_ base: String, _ bearer: String) async throws {
