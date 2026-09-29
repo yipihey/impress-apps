@@ -2497,9 +2497,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 }
             }
 
-            // Step 3: local text search — sometimes the query is a cite key
-            // or title and the paper is already imported.
+            // Step 3: resolve exact local cite keys before full-text search.
+            // Cite keys are not indexed as searchable publication text, so
+            // falling straight through could send an imported key to a network source.
             if !trimmed.isEmpty {
+                if let paper = try await automationService.getPaper(identifier: .citeKey(trimmed)) {
+                    return .json([
+                        "status": "ok",
+                        "via": "local-search",
+                        "paper": paperToDict(paper)
+                    ])
+                }
                 let filters = SearchFilters(limit: 5)
                 let hits = try await automationService.searchLibrary(query: trimmed, filters: filters)
                 if hits.count == 1 {
@@ -5337,6 +5345,21 @@ extension HTTPAutomationRouter {
             response = await handleResolvePaper(request("POST", [
                 "query": identifier, "download_pdfs": (args["download_pdfs"] as? Bool) ?? false]))
             return Self.nativeResolveIdentifierResult(response)
+        case "resolve_citation":
+            var body: [String: Any] = ["download_pdfs": (args["download_pdfs"] as? Bool) ?? false]
+            if let query = string("query") { body["query"] = query }
+            if let bibtex = string("bibtex") { body["bibtex"] = bibtex }
+            if let library = string("library_id") { body["library"] = library }
+            if let citation = args["citation"] as? [String: Any] { body["citation"] = citation }
+            response = await handleResolvePaper(request("POST", body))
+            return nativeMapped(response) { body in
+                guard let via = body["via"] as? String else { return nil }
+                var result: [String: Any] = ["via": via]
+                for key in ["paper", "candidates", "reason"] {
+                    if let value = body[key] { result[key] = value }
+                }
+                return result
+            }
         case "add_to_library":
             guard let ids = strings("publication_ids"), let library = string("library_id") else {
                 return nativeFailure(400, "invalid-args", "Missing publication_ids or library_id")
@@ -5518,8 +5541,20 @@ private func nativeMapped(_ response: HTTPResponse, extract: ([String: Any]) -> 
         return nativeFailure(500, "internal", "Native handler returned invalid JSON")
     }
     if !(200..<300).contains(response.status) || (body["status"] as? String) == "error" {
+        // The Rust dispatcher maps canonical refusal codes back to HTTP.
+        // Preserve input/not-found/conflict failures instead of recoding all
+        // legacy handler errors as a 502 backend failure.
+        let fallbackCode: String
+        switch response.status {
+        case 400: fallbackCode = "invalid-argument"
+        case 404: fallbackCode = "not-found"
+        case 409: fallbackCode = "conflict"
+        case 500: fallbackCode = "internal"
+        case 503: fallbackCode = "host-unavailable"
+        default: fallbackCode = "verb-failed"
+        }
         return nativeFailure(UInt16(clamping: response.status == 200 ? 422 : response.status),
-                             body["code"] as? String ?? "verb-failed",
+                             body["code"] as? String ?? fallbackCode,
                              body["error"] as? String ?? body["message"] as? String ?? "imbib operation failed")
     }
     guard let value = extract(body) else { return nativeFailure(500, "internal", "Native handler omitted required result") }

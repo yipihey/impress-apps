@@ -431,6 +431,16 @@ easy to get wrong in the generalized shape:
 
 ### Critical Invariants
 
+- **Native callbacks preserve canonical refusal codes.** When adapting a
+  legacy HTTP failure, map its status to the shared refusal code rather than
+  treating every failure as `verb-failed` (which dispatches as HTTP 502).
+  Invalid citation input must remain HTTP 400 through generated dispatch.
+
+- **Citation resolution checks exact local cite keys before external search.**
+  Publication full-text search does not index cite keys. Both native generated
+  resolution and the HTTP handler must use `getPaper(.citeKey(...))` first so
+  an already-imported key is not sent to external sources or made to time out.
+
 **Test-store isolation includes derived indexes.** (2026-09-27.) A scratch
 SQLite path is not enough: `FullTextSearchService` can repair or rebuild its
 Tantivy directory at launch. Unit and UI test processes put that directory

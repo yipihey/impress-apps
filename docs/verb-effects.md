@@ -109,6 +109,7 @@ catalogue, 300 on the exception table.
 | `imbib-app-service_get-notes` | — | — | app("imbib") | — |
 | `imbib-app-service_open-manuscript-papers` | — | — | app("imbib") | — |
 | `imbib-app-service_recent-activity` | — | — | app("imbib") | — |
+| `imbib-app-service_resolve-citation` | — | — | app("imbib") | — |
 | `imbib-app-service_resolve-identifier` | — | — | app("imbib") | — |
 | `imbib-app-service_search-sources` | — | — | app("imbib") | — |
 | `imbib-app-service_status` | — | — | app("imbib") | — |
@@ -580,6 +581,7 @@ when one lands).
 | `imbib-app-service_get-notes` | needs a running app |
 | `imbib-app-service_open-manuscript-papers` | needs a running app |
 | `imbib-app-service_recent-activity` | needs a running app |
+| `imbib-app-service_resolve-citation` | needs a running app |
 | `imbib-app-service_resolve-identifier` | needs a running app |
 | `imbib-app-service_search-sources` | needs a running app |
 | `imbib-app-service_status` | needs a running app |

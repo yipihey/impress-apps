@@ -1878,6 +1878,32 @@ final native verification.
   intervened. A native fixture covers a stale range that remains numerically
   valid, preserving both the live edits and the previously saved manuscript.
 
+
+## P5c11 — imbib citation resolution (2026-09-29)
+
+Added `imbib-app-service_resolve-citation` with optional free-text, BibTeX,
+structured citation, target library, and PDF-download inputs. Its native
+callback dispatches to the existing `handleResolvePaper`, preserving the
+legacy identifier/local-search/external-search cascade and the structured ADS
+resolution path. The output preserves `via`, open paper/candidate objects,
+ranked confidence, and reason without flattening the distinct HTTP candidate
+shapes. Citation text, BibTeX, and structured citation arguments are marked
+private in generated call audit metadata. The headless backend explicitly
+returns `via: unavailable` rather than reporting a false miss. `ExternalPaper`
+now carries the HTTP candidate's selected import `identifier`, including its
+title fallback when no DOI, arXiv ID, or bibcode is present.
+
+Focused Rust fixtures cover HTTP-compatible structured input conversion,
+callback argument forwarding, candidate order/confidence/reason preservation,
+external import identifiers, generated private-field schema, and honest
+headless refusal. The hosted transport proof now resolves a paper it imported
+into its PID-owned scratch library through both `/api/papers/resolve` and the
+generated verb, compares the local-search `via` and paper identity/content, and
+checks missing-input refusals on both surfaces. External search identifier
+mapping is covered by the deterministic Rust native-response fixture; no live
+source credentials or network search are required. No builds/tests, route
+removal, or caller migration were performed in this package.
+
 - 2026-09-29 — **P5c6 verified.** Root passed 1,053 Rust tests (zero failures,
   three ignored), every quick gate, and full supported arm64 builds of
   ImbibCore, store-ffi, impel-tools and imbib-verbs-ffi. Final linked native
@@ -1936,3 +1962,16 @@ final native verification.
   `/tmp/impress-p5c10-{tests,gates,frameworks,native-proof-final}.log`.
   The first native run exposed a fixture range inside an emoji's surrogate
   pair; the final fixture anchors the complete emoji at UTF-16 units 6..<8.
+
+- 2026-09-29 — **P5c11 verified.** Root passed 82 Rust tests (zero failures,
+  three ignored), every quick gate and full supported arm64 store-ffi,
+  impel-tools and imbib-verbs-ffi builds. Final native proof passed one XCTest
+  and 30 transport calls, preserving saved citation paper fields and HTTP 400
+  for missing input. SQLite checks passed; owned PID 50026 exited. Evidence:
+  `/tmp/impress-p5b-transport-6ug2aw1f/output/` and
+  `/tmp/impress-p5c11-{tests,gates,frameworks,native-proof-refusals}.log`.
+  Earlier proofs exposed two real native bugs: cite keys bypassed exact local
+  lookup and fell into network search, and generic handler errors lost their
+  refusal category and became HTTP 502. Both paths are fixed and documented
+  as invariants. The open paper result retains its original `citeKey` spelling;
+  the fixture now checks that exact wire field. No user app/store was touched.

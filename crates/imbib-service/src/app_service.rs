@@ -42,6 +42,10 @@ use impress_service_macros::impress_method;
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ExternalPaper {
     pub title: String,
+    /// Importable identifier selected by the same source-priority rule as the
+    /// HTTP candidate (`doi`, arXiv ID, bibcode, then title fallback).
+    #[serde(default, alias = "bestIdentifier", alias = "best_identifier")]
+    pub identifier: Option<String>,
     #[serde(default)]
     pub authors: Vec<String>,
     #[serde(default)]
@@ -59,6 +63,90 @@ pub struct ExternalPaper {
     /// Which source returned it (`ads`, `arxiv`, `crossref`, …).
     #[serde(default, alias = "sourceID", alias = "source_id")]
     pub source: Option<String>,
+}
+
+/// Structured bibliographic fields accepted by `/api/papers/resolve`.
+/// `raw_bibtex`, `free_text`, and `preferred_database` serialize using the
+/// legacy endpoint's camel-case member names inside this nested object.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationInput {
+    /// A list of authors, or the comma/semicolon/newline separated string the
+    /// HTTP handler also accepts.
+    #[serde(default, deserialize_with = "deserialize_citation_authors")]
+    #[schemars(with = "CitationAuthorsInput")]
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub year: Option<i64>,
+    #[serde(default)]
+    pub journal: Option<String>,
+    #[serde(default)]
+    pub volume: Option<String>,
+    #[serde(default)]
+    pub pages: Option<String>,
+    #[serde(default)]
+    pub doi: Option<String>,
+    #[serde(default)]
+    pub arxiv: Option<String>,
+    #[serde(default)]
+    pub bibcode: Option<String>,
+    #[serde(default, alias = "raw_bibtex", alias = "bibtex")]
+    pub raw_bibtex: Option<String>,
+    #[serde(default, alias = "free_text")]
+    pub free_text: Option<String>,
+    #[serde(default, alias = "preferred_database")]
+    pub preferred_database: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+enum CitationAuthorsInput {
+    List(Vec<String>),
+    Text(String),
+    Empty(()),
+}
+
+fn deserialize_citation_authors<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match CitationAuthorsInput::deserialize(deserializer)? {
+        CitationAuthorsInput::List(values) => Ok(values),
+        CitationAuthorsInput::Text(value) => Ok(value
+            .split([',', ';', '&', '\n'])
+            .map(str::trim)
+            .filter(|author| !author.is_empty())
+            .map(str::to_owned)
+            .collect()),
+        CitationAuthorsInput::Empty(()) => Ok(Vec::new()),
+    }
+}
+
+/// Shape returned by `/api/papers/resolve`. Paper and candidate dictionaries
+/// remain open JSON because the HTTP route returns different paper/candidate
+/// shapes for local, imported, and external branches.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CitationResolution {
+    pub via: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paper: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl CitationResolution {
+    pub fn unavailable(reason: impl Into<String>) -> Self {
+        Self {
+            via: "unavailable".into(),
+            paper: None,
+            candidates: None,
+            reason: Some(reason.into()),
+        }
+    }
 }
 
 /// A paper the user themselves touched, with what they did and when.
@@ -144,6 +232,25 @@ pub trait ImbibAppService: Send + Sync + 'static {
         sources: Option<String>,
         limit: u32,
     ) -> Vec<ExternalPaper>;
+
+    /// Resolve free text, BibTeX, or structured citation fields through the
+    /// running app's existing `/api/papers/resolve` cascade. Candidate order,
+    /// confidence, `via`, and reason values are preserved. The returned paper
+    /// and candidate objects use the same open dictionary shape as HTTP.
+    #[impress_method(safety = external, effects(reach = [app("imbib")]))]
+    #[impress_example(
+        name = "host-resolve-local-citation",
+        tier = "b",
+        args = r#"{"query":"{{state.cite_key}}","download_pdfs":false}"#
+    )]
+    async fn resolve_citation(
+        &self,
+        query: Option<String>,
+        bibtex: Option<String>,
+        citation: Option<CitationInput>,
+        library_id: Option<String>,
+        download_pdfs: bool,
+    ) -> CitationResolution;
 
     /// What the USER was recently working on: papers they viewed or added by
     /// hand, most recent first, each carrying `activity_kind` and
@@ -374,6 +481,18 @@ impl ImbibAppService for DefaultImbibAppService {
         vec![]
     }
 
+    async fn resolve_citation(
+        &self,
+        _query: Option<String>,
+        _bibtex: Option<String>,
+        _citation: Option<CitationInput>,
+        _library_id: Option<String>,
+        _download_pdfs: bool,
+    ) -> CitationResolution {
+        refuse("resolve_citation");
+        CitationResolution::unavailable(NOT_RUNNING)
+    }
+
     async fn recent_activity(&self, _limit: u32, _parent_id: Option<String>) -> Vec<ActivityEntry> {
         refuse("recent_activity");
         vec![]
@@ -493,6 +612,18 @@ impress_service_impl! {
             /// Maximum number of results to return.
             limit: u32
         ) -> Vec<ExternalPaper>,
+        resolve_citation(
+            /// Free-text citation query (kept private because it may contain manuscript text).
+            #[impress_private] query: Option<String>,
+            /// BibTeX fragment, kept private because it may contain unpublished citation data.
+            #[impress_private] bibtex: Option<String>,
+            /// Structured fields; kept private for the same reason as the raw citation.
+            #[impress_private] citation: Option<CitationInput>,
+            /// Destination library UUID; omit to use the default library.
+            library_id: Option<String>,
+            /// Whether to fetch a PDF after automatic import.
+            download_pdfs: bool
+        ) -> CitationResolution,
         recent_activity(
             /// Maximum number of results to return.
             limit: u32,
@@ -565,4 +696,38 @@ impress_service_impl! {
             library_id: String
         ) -> u32,
     ],
+}
+
+#[cfg(test)]
+mod citation_contract_tests {
+    use super::*;
+    use impress_service_core::McpToolDescriptor;
+    use serde_json::json;
+
+    #[test]
+    fn citation_inputs_accept_http_author_forms_and_keep_http_member_names() {
+        let input: CitationInput = serde_json::from_value(json!({
+            "authors": "Ada; Charles\nGrace",
+            "rawBibtex": "@article{x}",
+            "freeText": "citation query",
+            "preferredDatabase": "physics"
+        }))
+        .unwrap();
+        assert_eq!(input.authors, vec!["Ada", "Charles", "Grace"]);
+        let encoded = serde_json::to_value(input).unwrap();
+        assert_eq!(encoded["rawBibtex"], "@article{x}");
+        assert_eq!(encoded["freeText"], "citation query");
+        assert_eq!(encoded["preferredDatabase"], "physics");
+    }
+
+    #[test]
+    fn resolve_citation_marks_citation_material_private_in_generated_schema() {
+        let tool = McpToolDescriptor::iter()
+            .find(|tool| tool.name == "imbib-app-service_resolve-citation")
+            .expect("resolve-citation is registered");
+        let schema = (tool.input_schema)();
+        for field in ["query", "bibtex", "citation"] {
+            assert_eq!(schema["properties"][field]["x-private"], true, "{field}");
+        }
+    }
 }

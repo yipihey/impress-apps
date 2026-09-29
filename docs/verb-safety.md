@@ -139,6 +139,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-app-service_get-notes` | external | E/R: name/doc |
 | `imbib-app-service_open-manuscript-papers` | external | E/M: name/doc |
 | `imbib-app-service_recent-activity` | external | E/R: name/doc |
+| `imbib-app-service_resolve-citation` | external | name/doc |
 | `imbib-app-service_resolve-identifier` | external | E/M: crates/imbib-service/src/app_service.rs:369 default refuses; HTTP POST /api/papers/resolve (apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Automation/HTTPAutomationRouter.swift:2564-2585 handleResolv… |
 | `imbib-app-service_search-sources` | external | E/R: name/doc |
 | `imbib-app-service_status` | external | E/R: name/doc |
