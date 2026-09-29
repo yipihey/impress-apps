@@ -23,8 +23,6 @@ private let routerLogger = Logger(subsystem: "com.imbib.impart", category: "http
 /// - `GET /api/mailboxes` - List mailboxes
 /// - `GET /api/messages` - List messages in mailbox
 /// - `GET /api/messages/{id}` - Get message detail
-/// - `GET /api/research/conversations` - List research conversations
-/// - `GET /api/research/conversations/{id}` - Get conversation with messages
 /// - `GET /api/artifacts/{encodedUri}` - Resolve artifact reference
 /// - `GET /api/provenance/trace/{messageId}` - Trace provenance chain
 /// - `GET /api/logs` - Query in-app log entries
@@ -123,16 +121,6 @@ public actor ImpartHTTPRouter: HTTPRouter {
             if path.hasPrefix("/api/messages/") {
                 let messageId = String(path.dropFirst("/api/messages/".count))
                 return await handleGetMessage(id: messageId)
-            }
-
-            // Research conversation endpoints
-            if path == "/api/research/conversations" {
-                return await handleListResearchConversations(request)
-            }
-
-            if path.hasPrefix("/api/research/conversations/") {
-                let conversationId = String(path.dropFirst("/api/research/conversations/".count))
-                return await handleGetResearchConversation(id: conversationId)
             }
 
             if path.hasPrefix("/api/artifacts/") {
@@ -1065,8 +1053,6 @@ public actor ImpartHTTPRouter: HTTPRouter {
                 "GET /api/mailboxes?account={id}": "List mailboxes for account",
                 "GET /api/messages?mailbox={id}&limit={n}&offset={n}": "List messages in mailbox",
                 "GET /api/messages/{id}": "Get message detail",
-                "GET /api/research/conversations": "List research conversations (params: limit, offset, includeArchived)",
-                "GET /api/research/conversations/{id}": "Get conversation with messages and statistics",
                 "GET /api/artifacts/{encodedUri}": "Resolve artifact reference",
                 "GET /api/provenance/trace/{eventId}": "Trace provenance chain",
                 "GET /api/logs?limit=&level=&category=&search=&after=": "Query in-app log entries",

@@ -426,14 +426,16 @@ final class TransportProofTests: XCTestCase {
             "conversation readback")
         try require(read["id"] as? String == id && (read["message_count"] as? Int ?? 0) >= 1,
                     "conversation and message count read back")
-        let detail = try object(try await request(base, bearer,
-            "/api/research/conversations/\(id)", nil), "conversation detail")
-        let messages = detail["messages"] as? [[String: Any]] ?? []
-        let stats = detail["statistics"] as? [String: Any] ?? [:]
+        let messages = read["messages"] as? [[String: Any]] ?? []
+        let stats = read["statistics"] as? [String: Any] ?? [:]
         try require(messages.contains { $0["id"] as? String == messageID &&
-            $0["contentMarkdown"] as? String == content }, "message reads back in detail")
-        try require((stats["artifactCount"] as? Int ?? 0) >= 1,
+            $0["content_markdown"] as? String == content }, "message reads back in generated detail")
+        try require((stats["artifact_count"] as? Int ?? 0) >= 1,
                     "recorded artifact reads back in statistics")
+        let retiredDetail = try await request(base, bearer,
+            "/api/research/conversations/\(id)", nil)
+        try require(retiredDetail.status == 404,
+                    "conversation detail HTTP route is retired after generated read migration")
     }
 
     private func proveImplore(_ base: String, _ bearer: String) async throws {

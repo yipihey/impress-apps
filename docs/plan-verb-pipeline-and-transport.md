@@ -2119,6 +2119,22 @@ verification.
   package. Added mocked generated-verb transport and DTO fixtures. Static
   review only; root verification pending.
 
+## P5c23 — retire migrated figure and conversation reads (2026-09-29)
+
+Caller audit found Counsel's figure-list and conversation-list cases now use
+the generated bridge methods introduced in P5c16; no application caller remains
+for the former HTTP figure list/detail/export/create/update/delete routes or
+conversation list/detail routes. Removed those router registrations and API
+info entries while retaining implore's private figure handlers reachable from
+its native callback switch. Raw RG/plot viewer routes and all impart queued
+conversation writes remain registered. Native proof fixtures now expect 404
+from the retired routes and still check seeded generated list/detail/export,
+mutation and conversation results. Before retirement, the hosted figure proof
+compared generated list/detail fields and export bytes with the old routes and
+checked shared-artifact update/delete behavior; the conversation proof compared
+page/archived results plus detail messages and statistics. Those historical
+parity checks remain recorded here alongside the P5c8/P5c16 entries. No
+builds/tests were run; root owns verification.
 ## P5c20 — imbib container consumers (2026-09-29)
 
 Caller inventory found `ImprintIntegrationService.listDestinations()` as the
@@ -2233,6 +2249,9 @@ only; root owns build and test verification.
   `/tmp/impress-p5c14-packages.log`, `/tmp/impress-p5c15-touched-tests-all.log`,
   and `/tmp/impress-p5c15-*.log`.
 
+### 2026-09-29 — P5c23 final native retirement proofs
+
+Full supported arm64 store-ffi, impel-tools, implore-verbs-ffi and impart-verbs-ffi builds passed (`/tmp/impress-p5c23-frameworks.log`). Isolated implore proof: two XCTest cases, five shared transport calls, `/tmp/impress-p5b-transport-z9kipzlz/output/`, owned PID 90865 exited. Isolated impart proof: one XCTest, eight shared transport calls, `/tmp/impress-p5b-transport-au01yhmg/output/`, owned PID 90909 exited. SQLite checks, retired URL refusals and generated behavior passed in both apps.
 ### 2026-09-29 — P5c22 final native retirement proof
 
 With the final P5c15 archive cohort, the isolated imprint proof passed two XCTest cases and 14 shared transport calls. Retired document/comment URL checks, generated behavior and refusal snapshots passed; SQLite checks passed and owned PID 84629 exited. Evidence: `/tmp/impress-p5b-transport-y9waq_71/output/`, `/tmp/impress-p5c22-native-proof-final.log`. Generated Xcode path/ID churn was restored after the build.
@@ -2287,6 +2306,16 @@ With the final P5c15 archive cohort, the isolated imprint proof passed two XCTes
   `/tmp/impress-p5c22-final-gates.log`, per-gate
   `/tmp/impress-p5c22-final-*.log`, and
   `/tmp/impress-p5b-transport-y9waq_71/output/`.
+- 2026-09-29 — **P5c23 final Rust and quick-gate verification.** Isolated
+  service and capability tests passed 54 with zero failures and three ignored;
+  native FFI tests passed nine with zero failures. All 11 package gates passed,
+  including native bindings and kit standalone checks. The docs generator
+  refreshed `docs/verbs/implore-service.md` from the linked inventory. Native
+  app-host proof and full supported arm64 builds are recorded above. Evidence:
+  `/tmp/impress-p5c23-final-verify.log`,
+  `/tmp/impress-p5c23-final-gates.log`, per-gate
+  `/tmp/impress-p5c23-final-*.log`, and native/framework records above.
+
 
 
 

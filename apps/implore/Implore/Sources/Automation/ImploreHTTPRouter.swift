@@ -21,23 +21,10 @@ import ImpressLogging
 ///
 /// API Endpoints (GET):
 /// - `GET /api/status` - Server health and app state
-/// - `GET /api/figures` - List all figures
-/// - `GET /api/figures/{id}` - Get figure details
-/// - `GET /api/figures/{id}/export` - Export figure to a file (params: format png|svg, width, height, scale)
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/logs/stream` - Cursor-based incremental log feed
 /// - `GET /api/performance` - PerfMetrics snapshot (+ `POST /api/performance/reset`)
 /// - `GET /api/store-timings` - StoreTimings snapshot (+ `POST /api/store-timings/reset`)
-///
-/// API Endpoints (POST):
-/// - `POST /api/figures` - Create a new figure (stores its rendered artifact)
-/// - `POST /api/figures/{id}/export` - Same as GET; params in the JSON body
-///
-/// API Endpoints (PATCH):
-/// - `PATCH /api/figures/{id}` - Update a figure
-///
-/// API Endpoints (DELETE):
-/// - `DELETE /api/figures/{id}` - Delete a figure
 ///
 /// - `OPTIONS /*` - CORS preflight
 public actor ImploreHTTPRouter: HTTPRouter {
@@ -145,17 +132,16 @@ public actor ImploreHTTPRouter: HTTPRouter {
         }
 
         let path = request.path.lowercased()
-        let originalPath = request.path
 
         switch request.method {
         case "GET":
-            return await routeGET(path: path, originalPath: originalPath, request: request)
+            return await routeGET(path: path, request: request)
         case "POST":
-            return await routePOST(path: path, request: request)
+            return await routePOST(path: path)
         case "PATCH":
-            return await routePATCH(path: path, originalPath: originalPath, request: request)
+            return await routePATCH(path: path)
         case "DELETE":
-            return await routeDELETE(path: path, originalPath: originalPath, request: request)
+            return await routeDELETE(path: path)
         default:
             return .badRequest("Method not allowed: \(request.method)")
         }
@@ -163,25 +149,9 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     // MARK: - GET Routes
 
-    private func routeGET(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
+    private func routeGET(path: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/status" {
             return await handleStatus()
-        }
-
-        if path == "/api/figures" {
-            return await handleListFigures(request)
-        }
-
-        // GET /api/figures/{id}/export
-        if path.hasPrefix("/api/figures/") && path.hasSuffix("/export") {
-            let id = String(originalPath.dropFirst("/api/figures/".count).dropLast("/export".count))
-            return await handleExportFigure(id: id, request: request)
-        }
-
-        // GET /api/figures/{id}
-        if path.hasPrefix("/api/figures/") {
-            let id = String(originalPath.dropFirst("/api/figures/".count))
-            return await handleGetFigure(id: id)
         }
 
         // RG viewer endpoints
@@ -210,17 +180,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     // MARK: - POST Routes
 
-    private func routePOST(path: String, request: HTTPRequest) async -> HTTPResponse {
-        if path == "/api/figures" {
-            return await handleCreateFigure(request)
-        }
-
-        // POST /api/figures/{id}/export: the `export-figure` verb's spelling
-        if path.hasPrefix("/api/figures/") && path.hasSuffix("/export") {
-            let id = String(request.path.dropFirst("/api/figures/".count).dropLast("/export".count))
-            return await handleExportFigure(id: id, request: request)
-        }
-
+    private func routePOST(path: String) async -> HTTPResponse {
         // RG viewer POST endpoints
 
         return .notFound("Unknown POST endpoint: \(path)")
@@ -228,25 +188,13 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     // MARK: - PATCH Routes
 
-    private func routePATCH(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
-        // PATCH /api/figures/{id}
-        if path.hasPrefix("/api/figures/") {
-            let id = String(originalPath.dropFirst("/api/figures/".count))
-            return await handleUpdateFigure(id: id, request: request)
-        }
-
+    private func routePATCH(path: String) async -> HTTPResponse {
         return .notFound("Unknown PATCH endpoint: \(path)")
     }
 
     // MARK: - DELETE Routes
 
-    private func routeDELETE(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
-        // DELETE /api/figures/{id}
-        if path.hasPrefix("/api/figures/") {
-            let id = String(originalPath.dropFirst("/api/figures/".count))
-            return await handleDeleteFigure(id: id)
-        }
-
+    private func routeDELETE(path: String) async -> HTTPResponse {
         return .notFound("Unknown DELETE endpoint: \(path)")
     }
 
@@ -301,7 +249,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     // MARK: - Figure Handlers
 
-    /// GET /api/figures
+    /// Native callback for the generated `list-figures` operation.
     @MainActor
     private func handleListFigures(_ request: HTTPRequest) async -> HTTPResponse {
         let datasetFilter = request.queryParams["dataset"]
@@ -325,7 +273,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         return .json(response)
     }
 
-    /// GET /api/figures/{id}
+    /// Native callback for the generated `get-figure` operation.
     @MainActor
     private func handleGetFigure(id: String) async -> HTTPResponse {
         let figure = LibraryManager.shared.figure(id: id)
@@ -342,7 +290,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         return .json(response)
     }
 
-    /// POST /api/figures
+    /// Native callback for the generated `create-figure` operation.
     @MainActor
     private func handleCreateFigure(_ request: HTTPRequest) async -> HTTPResponse {
         guard let json = parseJSONBody(request) else {
@@ -435,7 +383,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         return .json(response, status: 201)
     }
 
-    /// PATCH /api/figures/{id}
+    /// Native callback for the generated `update-figure` operation.
     @MainActor
     private func handleUpdateFigure(id: String, request: HTTPRequest) async -> HTTPResponse {
         guard let json = parseJSONBody(request) else {
@@ -527,7 +475,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         return .json(response)
     }
 
-    /// DELETE /api/figures/{id}
+    /// Native callback for the generated `delete-figure` operation.
     @MainActor
     private func handleDeleteFigure(id: String) async -> HTTPResponse {
         let exists = LibraryManager.shared.figure(id: id) != nil
@@ -548,7 +496,7 @@ public actor ImploreHTTPRouter: HTTPRouter {
         return .json(response)
     }
 
-    /// GET|POST /api/figures/{id}/export
+    /// Native callback for the generated figure export operations.
     ///
     /// Renders the figure through the same Rust path as its stored artifact
     /// and writes `<workspace>/exports/figures/<id>.<png|svg>`. The response
@@ -1153,9 +1101,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
             "endpoints": [
                 // GET endpoints
                 "GET /api/status": "Server health and app state (includes RG viewer state if loaded)",
-                "GET /api/figures": "List all figures (params: dataset)",
-                "GET /api/figures/{id}": "Get figure configuration",
-                "GET /api/figures/{id}/export": "Export to <workspace>/exports/figures/<id>.<png|svg>; returns path, sha256, base64 data (params: format, width, height, scale)",
                 "GET /api/rg/slice/png": "Export current slice as PNG (?format=base64 for JSON)",
                 "GET /api/rg/cascade_plot": "Canonical mu-vs-level cascade statistics SVG",
                 "GET /api/plot/svg": "Render data series as SVG (?series=a,b&title=...)",
@@ -1166,13 +1111,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 "POST /api/performance/reset": "Clear PerfMetrics samples (budgets preserved)",
                 "GET /api/store-timings": "StoreTimings snapshot (params: top)",
                 "POST /api/store-timings/reset": "Reset StoreTimings counters",
-                // POST endpoints
-                "POST /api/figures": "Create a figure and store its rendered PNG as data_hash (body: datasetId, type|plotType, xColumn|x?, yColumn|y?, title?, width?, height?, and data as series [{label?, x, y}] | spec (implore PlotSpec) | svg)",
-                "POST /api/figures/{id}/export": "Same as GET /api/figures/{id}/export, params in the body",
-                // PATCH endpoints
-                "PATCH /api/figures/{id}": "Update a figure (same fields as POST); re-renders its artifact",
-                // DELETE endpoints
-                "DELETE /api/figures/{id}": "Delete a figure, its store row, its exports, and its artifact blob unless another row references it"
             ],
             "documentation": "https://github.com/yipihey/impress-apps/wiki/implore-HTTP-API"
         ]

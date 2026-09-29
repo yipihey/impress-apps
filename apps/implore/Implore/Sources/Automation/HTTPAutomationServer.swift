@@ -2,8 +2,8 @@
 //  HTTPAutomationServer.swift
 //  implore
 //
-//  Local HTTP server for MCP integration and browser extension support.
-//  Provides JSON REST API for figure management and export.
+//  Local HTTP server for viewer requests and browser extension support.
+//  Provides viewer exports, plots and the shared automation endpoints.
 //
 
 import Foundation
@@ -18,9 +18,7 @@ import ImpressLogging
 /// Runs on `127.0.0.1:23123` (localhost only for security).
 /// Provides endpoints for:
 /// - `GET /api/status` - Server health and app stats
-/// - `GET /api/figures` - List figures
-/// - `GET /api/figures/{id}/export` - Export figure as PNG/SVG/PDF
-/// - `POST /api/figures` - Create a figure
+/// - `GET /api/rg/slice/png` and `/api/plot/*` - Viewer exports and plots
 ///
 /// Usage:
 /// ```swift

@@ -8,7 +8,7 @@ Create a figure in implore and store its rendered image (a PNG in the shared con
 
 Data: give AT MOST ONE of `series` (inline x/y lists; the usual choice), `spec` (a whole implore plot spec: error bars, log axes, axis ranges, per-series style) or `svg` (a finished SVG). With none of them the figure is labelled EMPTY AXES: `x` and `y` become axis labels and nothing is plotted (implore cannot load a dataset by id).
 
-`plot_type` styles `series`: scatter, line, line-scatter, bar (or histogram), step; anything else draws lines. `x`/`y` are the axis labels (the dataset's column names). `spec` and `svg` replace `plot_type`, `x` and `y`. `dataset_id` is recorded on the figure; with inline data any short label for where the data came from will do. `name` is the figure's name in implore (default "Untitled Figure"). `title`, `color_column`, `width`, and `height` map the remaining `/api/figures` options. `view_state` is an optional complete JSON object for additional figure-view fields; explicit plot arguments override matching base fields.
+`plot_type` styles `series`: scatter, line, line-scatter, bar (or histogram), step; anything else draws lines. `x`/`y` are the axis labels (the dataset's column names). `spec` and `svg` replace `plot_type`, `x` and `y`. `dataset_id` is recorded on the figure; with inline data any short label for where the data came from will do. `name` is the figure's name in implore (default "Untitled Figure"). `title`, `color_column`, `width`, and `height` map the former `/api/figures` options. `view_state` is an optional complete JSON object for additional figure-view fields; explicit plot arguments override matching base fields.
 
 Caps: 32 series and 50000 points in all; `svg` up to 2 MB and 4096 points a side; `spec` width/height up to 4096. A refusal answers `ok: false` with an `error` naming the argument (and index), e.g. "create-figure refused: series[1]: x has 4 values but y has 3". Success answers `ok: true`, the figure's `id`, the `artifact` (`data_hash`, `width`, `height`) and `drawn_from`.
 
@@ -507,7 +507,7 @@ Takes no arguments.
 
 ## `implore-service_update-figure`
 
-Update an existing figure using the same partial fields as PATCH `/api/figures/{id}`. All fields are optional except the ID; dataset ID is not patchable in the HTTP contract. `view_state`, when supplied, replaces the stored snapshot before these fields are applied. A successful update is saved only if it can be rerendered; failed renders are rolled back. Success includes the updated figure and artifact; missing figures and render failures are structured refusals.
+Update an existing figure using the same partial fields as the former PATCH `/api/figures/{id}`. All fields are optional except the ID; dataset ID was not patchable in that HTTP contract. `view_state`, when supplied, replaces the stored snapshot before these fields are applied. A successful update is saved only if it can be rerendered; failed renders are rolled back. Success includes the updated figure and artifact; missing figures and render failures are structured refusals.
 
 - **safety**: `external`
 - **reads**: target(figure_id)
