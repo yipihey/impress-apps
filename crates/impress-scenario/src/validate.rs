@@ -1,8 +1,8 @@
 //! Structural validation of a [`Scenario`], independent of any caller.
 //!
 //! `validate` checks what a spec alone can prove: capture names referenced
-//! before they exist, an empty step list, a `wait.log`/`wait.job` timeout of
-//! zero. It cannot check that a `call` step names a real verb (this crate
+//! before they exist, an empty step list, and `wait.log` bounds/needles. It
+//! cannot check that a `call` step names a real verb (this crate
 //! has no inventory) — `impress-scenario-service`'s `validate` verb adds
 //! that check with the inventory it links.
 
@@ -62,9 +62,49 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
                 ) });
             }
         }
+        if let Step::Wait(wait) = step {
+            match &wait.wait {
+                crate::spec::WaitBody::Log { log } => {
+                    if !(1..=60_000).contains(&log.timeout_ms) {
+                        problems.push(Problem {
+                            step: Some(index),
+                            message: "wait.log timeout_ms must be in 1..=60000".into(),
+                        });
+                    }
+                    if log.contains.trim().is_empty()
+                        || log
+                            .also_contains
+                            .iter()
+                            .any(|needle| needle.trim().is_empty())
+                    {
+                        problems.push(Problem {
+                            step: Some(index),
+                            message: "wait.log requires non-empty message needles".into(),
+                        });
+                    }
+                }
+                crate::spec::WaitBody::LogCursor { log_cursor }
+                    if log_cursor.capture.trim().is_empty() =>
+                {
+                    problems.push(Problem {
+                        step: Some(index),
+                        message: "wait.log_cursor requires a capture name".into(),
+                    });
+                }
+                _ => {}
+            }
+        }
         match step {
             Step::Call(call) => known.extend(call.capture.keys().cloned()),
             Step::Store(step) => known.extend(step.capture.keys().cloned()),
+            Step::Gesture(step) => known.extend(step.capture.keys().cloned()),
+            Step::Wait(wait) => {
+                if let crate::spec::WaitBody::LogCursor { log_cursor } = &wait.wait {
+                    if !log_cursor.capture.trim().is_empty() {
+                        known.insert(log_cursor.capture.clone());
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -210,5 +250,52 @@ mod tests {
         let second = call(json!({"name": "{{state.name}}"}));
         let scenario = base(vec![first, second]);
         assert!(validate(&scenario).is_empty());
+    }
+
+    #[test]
+    fn log_cursor_and_gesture_captures_are_known_to_later_steps() {
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "cursor",
+            "description": "captured cursors",
+            "tier": "b",
+            "steps": [
+                {"wait": {"log_cursor": {"capture": "before"}}},
+                {"gesture": {"verb": "split"}, "capture": {"tile": "$.focused"}},
+                {"wait": {"log": {
+                    "category": "layout",
+                    "contains": "pane {{state.tile}}",
+                    "also_contains": ["Console"],
+                    "after": "{{state.before}}",
+                    "timeout_ms": 3000
+                }}}
+            ]
+        }))
+        .unwrap();
+        assert!(validate(&scenario).is_empty());
+    }
+
+    #[test]
+    fn log_wait_requires_prior_cursor_and_a_bounded_nonempty_needle_set() {
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "bad-log-wait",
+            "description": "invalid log wait",
+            "tier": "b",
+            "steps": [{"wait": {"log": {
+                "category": "layout",
+                "contains": "",
+                "also_contains": [""],
+                "after": "{{state.missing}}",
+                "timeout_ms": 60001
+            }}}]
+        }))
+        .unwrap();
+        let problems = validate(&scenario);
+        assert!(problems.iter().any(|p| p.message.contains("missing")));
+        assert!(problems.iter().any(|p| p.message.contains("1..=60000")));
+        assert!(problems
+            .iter()
+            .any(|p| p.message.contains("non-empty message needles")));
     }
 }

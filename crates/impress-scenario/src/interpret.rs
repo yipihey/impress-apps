@@ -49,6 +49,12 @@ pub trait Caller: Send {
     /// `timeout_ms`. Returns an error naming what did not happen in time.
     async fn wait(&mut self, wait: &WaitBody) -> Result<(), String>;
 
+    /// Capture the caller's current log timestamp. Tier B can use this to
+    /// anchor a later `wait.log` before a mutation; other callers refuse it.
+    async fn log_cursor(&mut self) -> Result<String, String> {
+        Err("capturing a log cursor is not supported by this caller".to_string())
+    }
+
     /// Insert one seed record before the first step runs (Tier A: a row in
     /// the scratch store; Tier B: unsupported today — seeding a live app's
     /// store is out of S1's scope, and `run` refuses naming that before any
@@ -220,19 +226,51 @@ async fn run_step(
                 .map_err(|e| format!("step {index} (event): {e}"))?;
             check_event_outcome(&outcome).map_err(|e| format!("step {index} (event): {e}"))
         }
-        Step::Gesture(GestureStep { gesture }) => {
-            let resolved = template::resolve(gesture, &captures_value)
+        Step::Gesture(gesture_step) => {
+            let resolved = template::resolve(&gesture_step.gesture, &captures_value)
                 .map_err(|e| format!("step {index} (gesture): {e}"))?;
-            caller
+            let outcome = caller
                 .gesture(&resolved)
                 .await
-                .map(|_| ())
-                .map_err(|e| format!("step {index} (gesture): {e}"))
+                .map_err(|e| format!("step {index} (gesture): {e}"))?;
+            for (name, path) in &gesture_step.capture {
+                let captured = json_path_get(&outcome.result, path).ok_or_else(|| {
+                    format!(
+                        "step {index} (gesture): capture `{name}` path `{path}` did not resolve"
+                    )
+                })?;
+                captures.insert(name.clone(), captured.clone());
+            }
+            Ok(())
         }
-        Step::Wait(wait_step) => caller
-            .wait(&wait_step.wait)
-            .await
-            .map_err(|e| format!("step {index} (wait): {e}")),
+        Step::Wait(wait_step) => {
+            let resolved = template::resolve(
+                &serde_json::to_value(&wait_step.wait).map_err(|e| e.to_string())?,
+                &captures_value,
+            )
+            .map_err(|e| format!("step {index} (wait): {e}"))?;
+            let wait: WaitBody = serde_json::from_value(resolved)
+                .map_err(|e| format!("step {index} (wait): {e}"))?;
+            match &wait {
+                WaitBody::LogCursor { log_cursor } => {
+                    if log_cursor.capture.trim().is_empty() {
+                        return Err(format!(
+                            "step {index} (wait): log cursor capture name is empty"
+                        ));
+                    }
+                    let cursor = caller
+                        .log_cursor()
+                        .await
+                        .map_err(|e| format!("step {index} (wait): {e}"))?;
+                    captures.insert(log_cursor.capture.clone(), Value::String(cursor));
+                    Ok(())
+                }
+                _ => caller
+                    .wait(&wait)
+                    .await
+                    .map_err(|e| format!("step {index} (wait): {e}")),
+            }
+        }
     }
 }
 

@@ -16,7 +16,7 @@ pub mod validate;
 pub use interpret::{run, CallOutcome, Caller};
 pub use spec::{
     BestEffortCall, BestEffortStep, CallStep, Check, EventBody, EventStep, Expect, ExpectEffects,
-    FieldExpect, GestureStep, LogWait, Requires, Scenario, SeedRecord, Step, StorePredicate,
-    StoreStep, Tier, WaitBody, WaitStep,
+    FieldExpect, GestureStep, LogCursorCapture, LogWait, Requires, Scenario, SeedRecord, Step,
+    StorePredicate, StoreStep, Tier, WaitBody, WaitStep,
 };
 pub use validate::{validate, Problem};

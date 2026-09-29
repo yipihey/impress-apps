@@ -91,6 +91,22 @@ impl LoopbackClient {
         read(path, response).await
     }
 
+    pub async fn get_query(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        let url = format!("{}{path}", self.base);
+        let response = self
+            .client
+            .get(&url)
+            .query(query)
+            .send()
+            .await
+            .map_err(|e| format!("GET {path}: {e}"))?;
+        read(path, response).await
+    }
+
     pub async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), String> {
         let url = format!("{}{path}", self.base);
         let response = self
@@ -302,31 +318,61 @@ impl Caller for TierBCaller {
             WaitBody::Log { log } => {
                 let deadline =
                     tokio::time::Instant::now() + std::time::Duration::from_millis(log.timeout_ms);
+                let after = log
+                    .after
+                    .as_deref()
+                    .map(chrono::DateTime::parse_from_rfc3339)
+                    .transpose()
+                    .map_err(|_| "wait.log after is not an ISO-8601 timestamp".to_string())?;
+                let needles = std::iter::once(log.contains.as_str())
+                    .chain(log.also_contains.iter().map(String::as_str))
+                    .map(str::to_lowercase)
+                    .collect::<Vec<_>>();
                 loop {
-                    let (status, value) = self
-                        .http
-                        .get(&format!("/api/logs?category={}", log.category))
-                        .await?;
+                    let mut query = vec![("category", log.category.as_str()), ("limit", "500")];
+                    if let Some(after) = log.after.as_deref() {
+                        query.push(("after", after));
+                    }
+                    let response =
+                        tokio::time::timeout_at(deadline, self.http.get_query("/api/logs", &query))
+                            .await;
+                    let (status, value) = match response {
+                        Ok(response) => response?,
+                        Err(_) => {
+                            return Err(format!(
+                                "no log line under `{}` containing all {:?} within {}ms",
+                                log.category, needles, log.timeout_ms
+                            ));
+                        }
+                    };
                     if status == 200 {
-                        if let Some(entries) = value.get("entries").and_then(Value::as_array) {
-                            if entries.iter().any(|e| {
-                                e.get("message")
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|m| m.contains(&log.contains))
-                            }) {
-                                return Ok(());
-                            }
+                        let entries = value
+                            .get("data")
+                            .and_then(|data| data.get("entries"))
+                            .or_else(|| value.get("entries"))
+                            .and_then(Value::as_array);
+                        if entries.is_some_and(|entries| {
+                            entries
+                                .iter()
+                                .any(|entry| log_entry_matches(entry, &needles, after))
+                        }) {
+                            return Ok(());
                         }
                     }
                     if tokio::time::Instant::now() >= deadline {
                         return Err(format!(
-                            "no log line under `{}` containing \"{}\" within {}ms",
-                            log.category, log.contains, log.timeout_ms
+                            "no log line under `{}` containing all {:?} within {}ms",
+                            log.category, needles, log.timeout_ms
                         ));
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let remaining = deadline - tokio::time::Instant::now();
+                    tokio::time::sleep(std::time::Duration::from_millis(250).min(remaining)).await;
                 }
             }
+            WaitBody::LogCursor { log_cursor } => Err(format!(
+                "log cursor `{}` must be captured as a scenario step",
+                log_cursor.capture
+            )),
             WaitBody::Job {
                 job,
                 state,
@@ -336,6 +382,24 @@ impl Caller for TierBCaller {
                  job={job} state={state} timeout_ms={timeout_ms}"
             )),
         }
+    }
+
+    async fn log_cursor(&mut self) -> Result<String, String> {
+        let query = [("category", "layout"), ("limit", "500")];
+        let (status, value) = self.http.get_query("/api/logs/stream", &query).await?;
+        if status != 200 {
+            return Err(format!("GET /api/logs/stream returned HTTP {status}"));
+        }
+        value
+            .get("data")
+            .and_then(|data| data.get("nextCursor"))
+            .and_then(Value::as_str)
+            .filter(|cursor| chrono::DateTime::parse_from_rfc3339(cursor).is_ok())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                "/api/logs/stream returned a missing or invalid ISO-8601 data.nextCursor"
+                    .to_string()
+            })
     }
 
     async fn seed(&mut self, kind: &str, _payload: &Value) -> Result<Value, String> {
@@ -348,6 +412,29 @@ impl Caller for TierBCaller {
     fn wrote(&self, kind: &str) -> bool {
         self.wrote.contains(kind)
     }
+}
+
+fn log_entry_matches(
+    entry: &Value,
+    needles: &[String],
+    after: Option<chrono::DateTime<chrono::FixedOffset>>,
+) -> bool {
+    if let Some(after) = after {
+        let timestamp = entry
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+        if !timestamp.is_some_and(|timestamp| timestamp > after) {
+            return false;
+        }
+    }
+    entry
+        .get("message")
+        .and_then(Value::as_str)
+        .is_some_and(|message| {
+            let message = message.to_lowercase();
+            needles.iter().all(|needle| message.contains(needle))
+        })
 }
 
 impl TierBCaller {
@@ -662,6 +749,96 @@ mod tests {
             "POST /api/verb/imbib-triage-service_set-starred HTTP/1.1"
         );
         assert_eq!(body, json!({"id": "paper-1", "starred": true}));
+    }
+
+    #[tokio::test]
+    async fn log_wait_uses_a_cursor_and_matches_every_needle_case_insensitively() {
+        let (base, mock) = mock_once(
+            200,
+            json!({"data":{"entries":[
+                {"timestamp":"2026-09-28T11:59:59.999Z","message":"PANE 7 CONSOLE: stale SEARCH 'layout' LEVELS info,warning,error"},
+                {"timestamp":"2026-09-28T12:00:00.001Z","message":"PANE 7 CONSOLE: Impress log, SEARCH 'layout', LEVELS info,warning,error"}
+            ]}}),
+        );
+        let mut caller = TierBCaller::new(&base);
+        caller
+            .wait(&WaitBody::Log {
+                log: impress_scenario::LogWait {
+                    category: "layout".into(),
+                    contains: "pane 7 console: ".into(),
+                    also_contains: vec![
+                        "search 'layout'".into(),
+                        "levels info,warning,error".into(),
+                    ],
+                    after: Some("2026-09-28T12:00:00.000Z".into()),
+                    timeout_ms: 3000,
+                },
+            })
+            .await
+            .unwrap();
+        let (request, body) = mock.join().unwrap();
+        assert!(request.starts_with("GET /api/logs?"), "{request}");
+        assert!(request.contains("category=layout"), "{request}");
+        assert!(request.contains("limit=500"), "{request}");
+        assert!(
+            request.contains("after=2026-09-28T12%3A00%3A00.000Z"),
+            "{request}"
+        );
+        assert!(body.is_null());
+    }
+
+    #[test]
+    fn log_wait_never_accepts_a_matching_pre_cursor_entry() {
+        let after = chrono::DateTime::parse_from_rfc3339("2026-09-28T12:00:00.000Z").unwrap();
+        let needles = vec!["pane 7 console:".to_string(), "search 'layout'".to_string()];
+        let stale = json!({
+            "timestamp":"2026-09-28T11:59:59.999Z",
+            "message":"PANE 7 CONSOLE: SEARCH 'layout'"
+        });
+        let fresh = json!({
+            "timestamp":"2026-09-28T12:00:00.001Z",
+            "message":"PANE 7 CONSOLE: SEARCH 'layout'"
+        });
+        assert!(!log_entry_matches(&stale, &needles, Some(after)));
+        assert!(log_entry_matches(&fresh, &needles, Some(after)));
+    }
+
+    #[tokio::test]
+    async fn log_cursor_uses_the_server_stream_cursor_before_mutation() {
+        let (base, mock) = mock_once(
+            200,
+            json!({"data":{"nextCursor":"2026-09-28T12:00:00.000Z"}}),
+        );
+        let mut caller = TierBCaller::new(&base);
+        assert_eq!(
+            caller.log_cursor().await.unwrap(),
+            "2026-09-28T12:00:00.000Z"
+        );
+        let (request, body) = mock.join().unwrap();
+        assert_eq!(
+            request,
+            "GET /api/logs/stream?category=layout&limit=500 HTTP/1.1"
+        );
+        assert!(body.is_null());
+    }
+
+    #[tokio::test]
+    async fn log_cursor_refusal_or_non_string_cursor_fails_closed() {
+        for (status, response) in [
+            (503, json!({"message":"stream unavailable"})),
+            (200, json!({"data":{"nextCursor":17}})),
+            (200, json!({"data":{"nextCursor":"not-a-timestamp"}})),
+        ] {
+            let (base, mock) = mock_once(status, response);
+            let mut caller = TierBCaller::new(&base);
+            assert!(caller.log_cursor().await.is_err());
+            let (request, body) = mock.join().unwrap();
+            assert_eq!(
+                request,
+                "GET /api/logs/stream?category=layout&limit=500 HTTP/1.1"
+            );
+            assert!(body.is_null());
+        }
     }
 
     #[tokio::test]

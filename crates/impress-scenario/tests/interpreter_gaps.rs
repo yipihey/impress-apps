@@ -8,10 +8,13 @@ use serde_json::{json, Value};
 struct Fixture {
     calls: Vec<(String, Value)>,
     truncated: bool,
+    timeline: Vec<&'static str>,
+    waits: Vec<WaitBody>,
 }
 #[async_trait]
 impl Caller for Fixture {
     async fn call(&mut self, verb: &str, args: Value, _: &str) -> Result<CallOutcome, String> {
+        self.timeline.push("call");
         self.calls.push((verb.into(), args.clone()));
         let result = match verb {
             "unavailable" => return Err("owned host unavailable".into()),
@@ -36,10 +39,20 @@ impl Caller for Fixture {
         Err("unused".into())
     }
     async fn gesture(&mut self, _: &Value) -> Result<CallOutcome, String> {
-        Err("unused".into())
+        self.timeline.push("gesture");
+        Ok(CallOutcome {
+            result: json!({"focused": 7}),
+            status: Some(200),
+        })
     }
-    async fn wait(&mut self, _: &WaitBody) -> Result<(), String> {
-        Err("unused".into())
+    async fn wait(&mut self, wait: &WaitBody) -> Result<(), String> {
+        self.timeline.push("wait");
+        self.waits.push(wait.clone());
+        Ok(())
+    }
+    async fn log_cursor(&mut self) -> Result<String, String> {
+        self.timeline.push("cursor");
+        Ok("2026-09-28T12:00:00.000Z".into())
     }
     async fn seed(&mut self, _: &str, _: &Value) -> Result<Value, String> {
         Err("unused".into())
@@ -95,6 +108,41 @@ fn optional_operational_failures_are_reported_and_later_assertions_still_run() {
     assert!(f.calls.is_empty());
     let asserted = json!({"wire_version":1,"id":"bad","description":"bad","tier":"a","steps":[{"best_effort":{"call":"echo","expect":{"ok":true}}}]});
     assert!(serde_json::from_value::<Scenario>(asserted).is_err());
+}
+
+#[test]
+fn a_log_wait_uses_a_pre_mutation_cursor_and_capture_aware_case_insensitive_needles() {
+    let s = scenario(json!([
+        {"wait": {"log_cursor": {"capture": "before"}}},
+        {"gesture": {"verb": "split"}, "capture": {"console": "$.focused"}},
+        {"wait": {"log": {
+            "category": "layout",
+            "contains": "pane {{state.console}} console: ",
+            "also_contains": ["search 'layout'", "levels info,warning,error"],
+            "after": "{{state.before}}",
+            "timeout_ms": 3000
+        }}},
+        {"call": "layout-service_close", "args": {"target": {"id": "{{state.console}}"}}}
+    ]));
+    let mut f = Fixture::default();
+    let report = execute(&s, &mut f);
+    assert!(report.pass, "{}", report.detail);
+    assert_eq!(f.timeline, vec!["cursor", "gesture", "wait", "call"]);
+    assert_eq!(f.calls[0].1, json!({"target": {"id": 7}}));
+    let [WaitBody::Log { log }] = f.waits.as_slice() else {
+        panic!("expected one resolved log wait: {:?}", f.waits);
+    };
+    assert_eq!(log.category, "layout");
+    assert_eq!(log.contains, "pane 7 console: ");
+    assert_eq!(
+        log.also_contains,
+        vec![
+            "search 'layout'".to_string(),
+            "levels info,warning,error".to_string()
+        ]
+    );
+    assert_eq!(log.after.as_deref(), Some("2026-09-28T12:00:00.000Z"));
+    assert_eq!(log.timeout_ms, 3000);
 }
 #[test]
 fn store_predicate_pages_and_captures_a_real_payload_match() {
