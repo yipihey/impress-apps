@@ -2883,8 +2883,10 @@ Every one of these is in § Scenarios' closed set; nothing needs an expression.
   verification)**: the surface FFI now carries the current pipeline caller,
   trace and parent call in a separate, strictly parsed context value across
   `SharedVerbHost` into `impel-tools`; domain arguments cannot set those fields.
-  Existing app transport continues the trace and parent forwarding from the
-  nested pipeline call. Added focused context round-trip, malformed-context,
-  argument-separation and Rust callback tests. The additive UniFFI export and
-  callback signature require binding regeneration; native builds/proof and
-  workspace verification remain for integration.
+  `DefaultExecutor` re-enters that context around its `spawn_blocking` host
+  callback, and the existing app transport continues trace and parent
+  forwarding from the nested pipeline call. Added focused context round-trip,
+  malformed-context, argument-separation and Rust callback tests, plus an
+  owned native audit-lineage proof through the Swift ImpelTools callback. The
+  additive UniFFI export and callback signature require binding regeneration;
+  native builds/proof and workspace verification remain for integration.

@@ -289,6 +289,84 @@ final class ScenarioRecordingProofTests: XCTestCase {
             to: context.output.appendingPathComponent("s3-surface-proof-\(runID).json"))
     }
 
+    /// This host-only memory verb is present in ImpelToolsFFI's full
+    /// inventory, but absent from impress-store-ffi's kit inventory. The
+    /// audit rows therefore prove the native SharedVerbHost -> Swift ->
+    /// ImpelTools callback preserved the actual dispatch caller and lineage.
+    @MainActor
+    func testNativeSurfaceHostCallbackPreservesAuditLineage() async throws {
+        guard let context = try await proofContext() else { return }
+        let runID = UUID().uuidString.lowercased()
+        let title = "S3 callback lineage \(runID)"
+        let args: [String: Any] = [
+            "kind": "claim",
+            "title": title,
+            "body": "S3 callback context proof \(runID)",
+            "claim_type": "fact",
+            "confidence": 0.9,
+            "subject_refs": [String](),
+            "evidence_refs": [String](),
+        ]
+        let spec: [String: Any] = [
+            "surface": "1.0",
+            "name": "S3 host callback lineage \(runID)",
+            "state": [:],
+            "root": ["column": [[
+                "id": "remember",
+                "button": ["label": "Remember", "on_click": [[
+                    "call": ["verb": "memory-service_remember", "args": args],
+                ]]],
+            ]]],
+        ]
+        let surface = SharedSurface.open(store: context.store, host: "", appId: "impress")
+        let creation = await surface.surfaceHttp(
+            method: "POST", path: "/api/surface", body: try Self.jsonString(spec))
+        XCTAssertEqual(creation.status, 200, creation.body)
+        let created = try Self.object(Data(creation.body.utf8))
+        let surfaceID = try XCTUnwrap(created["id"] as? String)
+        let rendered = try Self.object(Data(try await surface.render(surfaceId: surfaceID, pane: nil).utf8))
+        XCTAssertEqual(rendered["ok"] as? Bool, true)
+
+        // Exclude creation and render from the query window. The click should
+        // create exactly one parent dispatch row and one host-only child row.
+        try await Task.sleep(for: .milliseconds(5))
+        let since = Self.timestamp(Date())
+        let event = try Self.jsonString(["widget": "remember", "kind": "click", "value": NSNull()])
+        let replyJSON = try await surface.dispatch(
+            surfaceId: surfaceID, pane: nil, eventJson: event, actor: "human")
+        let reply = try Self.object(Data(replyJSON.utf8))
+        XCTAssertEqual(reply["ok"] as? Bool, true, replyJSON)
+        XCTAssertEqual(reply["effects_failed"] as? Int, 0, replyJSON)
+        let until = Self.timestamp(Date())
+
+        var history = [String: Any]()
+        for _ in 0..<40 {
+            history = try await context.cli.call("host-callback-lineage", [
+                "calls", "--since", since, "--until", until, "--caller", "human", "--limit", "20",
+            ])
+            let rows = history["calls"] as? [[String: Any]] ?? []
+            if rows.contains(where: { $0["verb"] as? String == "memory-service_remember" }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let calls = try XCTUnwrap(history["calls"] as? [[String: Any]])
+        XCTAssertEqual(calls.count, 2, "surface dispatch and its ImpelTools child: \(calls)")
+        let parent = try XCTUnwrap(calls.first {
+            $0["verb"] as? String == "impress-surface-service_surface-dispatch"
+        })
+        let child = try XCTUnwrap(calls.first {
+            $0["verb"] as? String == "memory-service_remember"
+        })
+        XCTAssertEqual((parent["caller"] as? [String: Any])?["kind"] as? String, "human")
+        XCTAssertEqual((child["caller"] as? [String: Any])?["kind"] as? String, "human")
+        XCTAssertEqual(child["trace_id"] as? String, parent["trace_id"] as? String)
+        XCTAssertEqual(child["parent_call"] as? String, parent["call_id"] as? String)
+        try Self.writeJSON(
+            ["surface_id": surfaceID, "history": history, "reply": reply],
+            to: context.output.appendingPathComponent("s3-host-callback-lineage-\(runID).json"))
+    }
+
     @MainActor
     private func proofContext() async throws -> ProofContext? {
         let env = ProcessInfo.processInfo.environment
