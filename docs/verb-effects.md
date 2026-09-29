@@ -170,6 +170,7 @@ catalogue, 300 on the exception table.
 | `imbib-library-service_duplicate-publications` | "imbib/bibliography-entry", "imbib/linked-file" | "imbib/bibliography-entry", "imbib/linked-file" | fs | — |
 | `imbib-library-service_export-all-bibtex` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/library" | — | — | example ×1 |
 | `imbib-library-service_export-bibtex` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
+| `imbib-library-service_export-ris` | "imbib/eink-device", "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition" | — | — | example ×1 |
 | `imbib-library-service_get-default-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_get-inbox-library` | "imbib/library", "imbib/bibliography-entry", "imbib/collection" | — | — | example ×2 |
 | `imbib-library-service_get-publication` | "imbib/bibliography-entry", "imbib/linked-file", "imbib/tag-definition", "imbib/eink-mirror" | — | — | example ×1 |
