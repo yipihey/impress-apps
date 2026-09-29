@@ -764,7 +764,15 @@ it is what Python and runtime providers both ride on. **First work package: P0.*
   fixture checks two persisted collections, the actual library metadata, and
   excludes a read-only SciX-schema record. The isolated native transport proof
   compares generated metadata with `/api/libraries` for two scratch
-  collections. Builds and tests are left to the parent verification lane.
+  collections. Root verification passed 75 Rust tests (zero failures, three
+  ignored), all quick gates, and full supported arm64 slices for store-ffi,
+  impel-tools and imbib-verbs-ffi. The four collection-read effect declarations
+  and reference pages were regenerated from test dumps/the inventory.
+  Logs: `/tmp/impress-p5c2-{tests,gates,frameworks}.log`. The isolated imbib proof
+  passed its XCTest and eleven transport calls, including actual HTTP/generated
+  collection counts and editability; native SQLite checks passed. Evidence:
+  `/tmp/impress-p5b-transport-mg52mt2s/output/`. Owned PID 32003 exited. No user
+  app, launcher or real store was touched.
 
 - 2026-09-26 — Planned on a worktree of main at 3222f573, branch `claude/plan-auto-gui-self-docs`, from
   Tom's second and third addenda. Measured: the nine handler call sites and two bypasses; the concern ×
@@ -1696,8 +1704,15 @@ The existing debug linker unwind-size warning remains unchanged.
   host. The `custom` type fallback and HTTP 800×600 dimension defaults remain
   intact. Native adapter and headless refusal tests cover the mapping, and the
   isolated native proof compares generated list/get output with actual HTTP
-  fields and absent keys. No build, tests or framework proof was run in this
-  package; root owns verification.
+  fields and absent keys. Root verification passed 56 Rust tests (zero failures,
+  three ignored) and every quick gate after integrating merged library reads.
+  Store-ffi, impel-tools and implore-verbs-ffi were rebuilt for all supported
+  arm64 slices with swiftformat off PATH. Seven semantic-search dump tables
+  were regenerated unchanged. Both hosted XCTest cases and five shared
+  transport calls passed at `/tmp/impress-p5b-transport-xaasbfub/output/`;
+  SQLite symbol checks passed and owned PID 50195 exited. Logs are
+  `/tmp/impress-p5c3-final-{tests,gates}.log`,
+  `/tmp/impress-p5c3-frameworks.log` and `/tmp/impress-p5c3-native-proof.log`.
 
 ## P5c4 — impart conversation read contract (2026-09-29)
 
