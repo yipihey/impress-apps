@@ -52,10 +52,11 @@
 //!    an *earlier step's own result* — never a computed lookup into an
 //!    arbitrary JSON structure the way `tile_with_role`/`linear_parent`/
 //!    `channel_ids` below do. This is `layout.version_moves`,
-//!    `layout.channel_selection`, `layout.hidden_share`,
-//!    `layout.outline_collection_row` and `layout.source_pane_session` — five
-//!    of the six named in S2's own account. S2e converts `layout.console_pane`
-//!    using a role target, captured split result and a pre-mutation log cursor.
+//!    `layout.channel_selection`, `layout.hidden_share` and
+//!    `layout.outline_collection_row`. S2e converts `layout.console_pane`
+//!    using a role target, captured split result and a pre-mutation log cursor;
+//!    S2g adds prior-capture interpolation to a closed JSON capture path, which
+//!    also lets `layout.source_pane_session` follow captured tile ids.
 //! 2. `layout.reading_pdf_pane` and `layout.reading_preset` have the same
 //!    shape one level down: `first_row_of` is a live, filtered read of the
 //!    shared store (a read paper that already has its PDF) done in-process
@@ -110,6 +111,8 @@ const SURFACE_SHOW_AND_DISPATCH_SCENARIO: &str =
     include_str!("../scenarios/surface.show_and_dispatch.json");
 const WIRE_CONTRACT_SCENARIO: &str = include_str!("../scenarios/layout.wire_contract.json");
 const CONSOLE_PANE_SCENARIO: &str = include_str!("../scenarios/layout.console_pane.json");
+const SOURCE_PANE_SESSION_SCENARIO: &str =
+    include_str!("../scenarios/layout.source_pane_session.json");
 
 /// Where impress listens: `SiblingApp.impress`'s `httpPort`. The table in
 /// `ImpressKit/SiblingApp.swift` assigns the port and servers align to it, so
@@ -506,7 +509,9 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(hidden_share_capability(&http).await);
     out.push(outline_collection_capability(&http).await);
     out.push(reading_pdf_pane_capability(&http).await);
-    out.push(source_pane_session_capability(&http).await);
+    out.push(
+        scenario_caller::run_embedded(SOURCE_PANE_SESSION_SCENARIO, &mut scenario_caller).await,
+    );
     out.push(reading_preset_capability(&http).await);
     out.push(scenario_caller::run_embedded(CONSOLE_PANE_SCENARIO, &mut scenario_caller).await);
     out.push(scenario_caller::run_embedded(WIRE_CONTRACT_SCENARIO, &mut scenario_caller).await);
@@ -1051,166 +1056,6 @@ async fn reading_pdf_pane_capability(http: &Http) -> CapabilityResult {
     .await
 }
 
-/// ADR-0031 D6 in the running app: the session id Rust gives a `source` pane
-/// is the pane's for good. A `source` pane is split in beside the detail
-/// pane (whatever that pane shows — over publications the pane renders its
-/// "edits manuscripts" state, but the session is the tree's either way), the
-/// app is seen to open the editor session under that id, and then:
-///
-/// * a split whose new spec is a COPY of the source pane, session included,
-///   leaves the source pane its id and gives the copy a different one;
-/// * a split with a `pdf` pane (which wraps the source pane in a new
-///   container) and a swap with its sibling change nothing;
-/// * re-applying preset 1 keeps the detail pane's session when the detail
-///   pane is itself `source` (imprint's Default), by role.
-///
-/// Everything it split is closed again; the restore step re-applies the
-/// arrangement that was live.
-async fn source_pane_session_capability(http: &Http) -> CapabilityResult {
-    let (id, description) = CATALOGUE[9];
-    check(id, description, Tier::B, || async {
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail = tile_with_role(&tree, "detail")?;
-        let detail_pane = pane_of_tree(&tree, detail)?;
-        let session_at = |tree: &Value, tile: u64| -> Option<String> {
-            pane_of_tree(tree, tile)
-                .ok()?
-                .get("session")?
-                .as_str()
-                .map(str::to_string)
-        };
-        let detail_session = session_at(&tree, detail);
-
-        // 1. A source pane beside the detail pane, from the detail pane's spec.
-        let mut spec = detail_pane.clone();
-        let object = spec
-            .as_object_mut()
-            .ok_or_else(|| "the detail pane is not an object".to_string())?;
-        object.insert("view_kind".into(), json!("source"));
-        object.remove("role");
-        object.remove("session");
-        let before = log_cursor();
-        let source = http
-            .verb(&json!({
-                "verb": "split",
-                "target": {"id": detail},
-                "dir": "horizontal",
-                "after": true,
-                "new": spec
-            }))
-            .await?
-            .get("focused")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "the split did not report the new tile".to_string())?;
-        let tree = http.tree().await?;
-        let session = session_at(&tree, source)
-            .ok_or_else(|| format!("the new source pane {source} was given no session"))?;
-        let opened = wait_for_log(http, &before, &["source session", &session, "opened"]).await?;
-
-        let mut made = vec![source];
-        let outcome = async {
-            // 2. A copy of the source pane, session and all.
-            let copy_spec = pane_of_tree(&tree, source)?;
-            let copy = http
-                .verb(&json!({
-                    "verb": "split",
-                    "target": {"id": source},
-                    "dir": "vertical",
-                    "after": true,
-                    "new": copy_spec
-                }))
-                .await?
-                .get("focused")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| "the second split did not report its tile".to_string())?;
-            made.push(copy);
-            let tree = http.tree().await?;
-            let copy_session = session_at(&tree, copy)
-                .ok_or_else(|| format!("the copied source pane {copy} has no session"))?;
-            if session_at(&tree, source).as_deref() != Some(session.as_str()) {
-                return Err(format!(
-                    "the split source pane {source} lost session {session}"
-                ));
-            }
-            if copy_session == session {
-                return Err(format!(
-                    "the copy {copy} shares session {session} with the pane it was split from"
-                ));
-            }
-
-            // 3. Wrap it in a new container with a `pdf` pane, then swap.
-            let mut pdf_spec = detail_pane.clone();
-            if let Some(o) = pdf_spec.as_object_mut() {
-                o.insert("view_kind".into(), json!("pdf"));
-                o.remove("role");
-                o.remove("session");
-            }
-            let pdf = http
-                .verb(&json!({
-                    "verb": "split",
-                    "target": {"id": source},
-                    "dir": "horizontal",
-                    "after": true,
-                    "new": pdf_spec
-                }))
-                .await?
-                .get("focused")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| "the pdf split did not report its tile".to_string())?;
-            made.push(pdf);
-            http.verb(&json!({
-                "verb": "swap",
-                "a": {"id": source},
-                "b": {"id": copy}
-            }))
-            .await?;
-            let tree = http.tree().await?;
-            if session_at(&tree, source).as_deref() != Some(session.as_str())
-                || session_at(&tree, copy).as_deref() != Some(copy_session.as_str())
-            {
-                return Err("a wrap or a swap changed a pane's session".to_string());
-            }
-            if session_at(&tree, pdf).is_some() {
-                return Err(format!("the `pdf` pane {pdf} was given a session"));
-            }
-            Ok((copy, copy_session, pdf))
-        }
-        .await;
-
-        // Tidy up whatever was made, newest first, even after a failure.
-        for tile in made.iter().rev() {
-            let _ = http
-                .verb(&json!({ "verb": "close", "target": {"id": tile} }))
-                .await;
-        }
-        let (copy, copy_session, pdf) = outcome?;
-
-        // 4. The preset again: the detail pane keeps its own session.
-        http.op(&json!({ "op": "apply-layout", "ordinal": 1 }))
-            .await?;
-        let tree = http.tree().await?;
-        let detail_after = session_at(&tree, tile_with_role(&tree, "detail")?);
-        let preset_note = match (&detail_session, &detail_after) {
-            (Some(before), Some(after)) if before == after => {
-                format!("preset 1 re-applied, detail editor kept {before}")
-            }
-            (Some(before), after) => {
-                return Err(format!(
-                    "re-applying preset 1 changed the detail editor's session {before} → {after:?}"
-                ))
-            }
-            (None, _) => "the detail pane is not a source pane here".to_string(),
-        };
-        Ok(format!(
-            "source tile {source} kept {session} (app: `{opened}`); its copy {copy} got \
-             {copy_session}; wrapped with pdf tile {pdf} and swapped, unchanged; {preset_note}"
-        ))
-    })
-    .await
-}
-
 /// A pane of a tree response, by tile.
 fn pane_of_tree(tree: &Value, tile: u64) -> Result<Value, String> {
     panes(tree)?
@@ -1438,6 +1283,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn source_pane_session_scenario_checks_sessions_logs_and_restoration() {
+        let scenario: impress_scenario::Scenario =
+            serde_json::from_str(SOURCE_PANE_SESSION_SCENARIO)
+                .expect("source session scenario parses");
+        assert_eq!(scenario.id, "layout.source_pane_session");
+        assert_eq!(scenario.description, CATALOGUE[9].1);
+        assert!(impress_scenario::validate(&scenario).is_empty());
+        for step in scenario.steps.iter().chain(&scenario.teardown) {
+            if let impress_scenario::Step::Call(call) = step {
+                assert!(
+                    impress_service_core::call::find(&call.call).is_some(),
+                    "{}",
+                    call.call
+                );
+            }
+        }
+        assert_eq!(scenario.teardown.len(), 5);
     }
 
     #[test]

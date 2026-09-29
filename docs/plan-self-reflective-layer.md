@@ -3018,6 +3018,16 @@ per-scenario cleanup without evaluating expressions.
   expression language or verb signature changes. Added interpreter validation
   and caller coverage. No build or test run was performed in this package;
   verification remains with the parent task.
+- 2026-09-28 — **S2g: `layout.source_pane_session` converted to a stored scenario.**
+  The scenario captures the detail/source/copy/pdf tile IDs, checks copied query
+  and view kind, verifies source-session stability and a distinct session for a
+  copied source pane, checks the fresh session-open log after a pre-mutation
+  cursor, then swaps panes and restores the default layout while asserting the
+  original detail pane spec. To express the existing dynamic tile path without
+  adding selector logic, `CallStep.capture` paths now resolve prior `state`
+  captures as closed templates; validation rejects references not captured by
+  an earlier step, and captured values are not recursively templated. No build
+  or test run was performed; verification remains with the parent task.
 - 2026-09-28 — **W3 exploration identity verification completed.** Automatic
   retention can now discover the migrated internal settings pointer when the
   existing explicit argument is omitted; invalid explicit IDs do not silently
