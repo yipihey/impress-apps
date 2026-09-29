@@ -1,6 +1,7 @@
 # Pipeline, GUI and reflective-layer handoff (2026-09-28)
 
-This succeeds [the wave-9 handoff](next-steps-after-wave-9.md). Read CLAUDE.md
+This succeeds [the wave-9 handoff](next-steps-after-wave-9.md) and is followed by the
+[Wave 11 handoff](next-steps-after-wave-11.md). Read CLAUDE.md
 in full first. The three approved plans and ADRs 0034–0036 govern the work;
 their dated session logs contain detailed verification and known limitations.
 All packages listed as merged in wave 9 remain merged.
