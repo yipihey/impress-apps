@@ -23,11 +23,10 @@
 //  ## The only chassis root
 //
 //  Since plan wave 6 W5 this is what `ChassisRootView` renders for every
-//  chassis app (impress, impel, implore, impart, imprint's main window) —
-//  there is no switch. The `impress.layoutTree.enabled` defaults key and
+//  app window, imbib's included — there is no switch. The
+//  `impress.layoutTree.enabled` defaults key and
 //  `AppShellConfiguration.usesLayoutTree` that gated it through L6–L8 are
-//  gone. imbib's own window is its pre-chassis `ContentView`, which never
-//  rendered this tree and is out of W5's scope.
+//  gone.
 //
 //  ## Why the split primitive is not `ImpressSplitView`
 //

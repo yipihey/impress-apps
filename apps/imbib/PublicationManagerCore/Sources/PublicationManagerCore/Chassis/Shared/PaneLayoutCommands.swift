@@ -9,10 +9,10 @@
 //
 //  ADR-0022 D9 finding 4, closed. The three pane toggles — ⌘0 / ⌥⌘0 / ⌃⌘S —
 //  are published in a chassis-wide keyboard grammar (docs/keyboard-grammar.md).
-//  In a chassis window they resize a ROLE in the layout tree; in imbib's
-//  pre-chassis window they flip that window's own pane model, which lives in
-//  imbib's app target and reaches here as `HostWindowPanes` (see
-//  `PaneLayoutChordTarget`).
+//  In every window they resize a ROLE in the layout tree. imbib's window
+//  hosts that tree too (`ContentView` is the chrome around `ChassisRootView`).
+//  `PaneLayoutChordTarget.imbibPreChassisWindow` remains for the pane-model
+//  unit test; no app passes it.
 //  What they did NOT have was a chassis `Commands` value, so imbib, imprint,
 //  impart and finally impress each re-typed the same three buttons — the
 //  fourth adopter retyping is what turned a duplication into a finding.
@@ -28,10 +28,10 @@
 //  environment injection, no host parameter beyond the one label below.
 //
 //  ⌃⌘1…9 is `ImpressLayoutOrdinalButtons` below: the tree's ordinals, in every
-//  chassis window. What stays OUTSIDE it: imbib's pre-chassis View ▸ Layouts
-//  menu (over its own app-target layout model) and imprint's editor-window
-//  layouts (an app-local `LayoutStore` with different fields — `showOutline`,
-//  `showComments`, `splitEditor`, … — and its own `imprint.layout.*` keys). imprint's Layouts menu gives ⌃⌘N to the editor
+//  window, imbib's View ▸ Layouts included. What stays OUTSIDE it: imprint's
+//  editor-window layouts (an app-local `LayoutStore` with different fields —
+//  `showOutline`, `showComments`, `splitEditor`, … — and its own
+//  `imprint.layout.*` keys). imprint's Layouts menu gives ⌃⌘N to the editor
 //  layouts only while a manuscript editor window is key, and to this value
 //  otherwise (plan wave 6 W5). See ADR-0022 D9.
 //
@@ -42,20 +42,18 @@ import SwiftUI
 
 /// Which window model a chord drives.
 ///
-/// Two, and the split is by WINDOW, never by a runtime guess: every chassis
-/// app's window is the ADR-0031 layout tree (plan wave 6 W5 removed the flag
-/// that made it optional), and imbib's own window is its pre-chassis
-/// `ContentView`, which draws its own pane model. Before W5 the router asked
-/// "is a tree rendering?" and fell back to that model when not —
-/// so a chassis app whose tree had not opened yet flipped a Boolean nothing
-/// drew, and reported nothing.
+/// Two, and the split is by WINDOW, never by a runtime guess. Every app's
+/// window is the ADR-0031 layout tree, imbib's included. The pre-chassis
+/// case stays so the pane-model mapping still has a unit test; no app
+/// passes it. Before W5 the router asked "is a tree rendering?" and fell
+/// back to that model when not — so a window whose tree had not opened yet
+/// flipped a Boolean nothing was drawing.
 public enum PaneLayoutChordTarget: Sendable {
     /// A chassis window: the chord is a verb on `LayoutController`, and
     /// nothing else. No tree open yet → nothing happens, and the log says so.
     case layoutTree
-    /// imbib's pre-chassis `ContentView` (`imbibApp.swift` only): the chord
-    /// flips the pane that window's own model shows. The model is imbib's
-    /// (its app target), handed over as `HostWindowPanes`.
+    /// The pane-model mapping, kept for its unit test. No app passes it:
+    /// imbib's window is the layout tree.
     case imbibPreChassisWindow(any HostWindowPanes)
 }
 
@@ -122,9 +120,8 @@ enum PaneLayoutChordRouter {
 /// as the ordinal); nothing here knows which name N carries, and the titles say
 /// so.
 ///
-/// Tree only (plan wave 6 W5): a chassis window's ⌃⌘N is always a layout
-/// verb. imbib's pre-chassis window keeps its own View ▸ Layouts menu over its
-/// own layout model and does not embed this.
+/// Tree only: ⌃⌘N is a layout verb in every window, imbib's View ▸ Layouts
+/// included.
 public struct ImpressLayoutOrdinalButtons: View {
     private let appID: String?
 
@@ -144,6 +141,22 @@ public struct ImpressLayoutOrdinalButtons: View {
                 appID.flatMap { KeymapRegistry.shared.shortcut(for: "\($0).layout.chassis_\(ordinal)") }
                     ?? KeyboardShortcut(KeyEquivalent(Character("\(ordinal)")), modifiers: [.control, .command]))
         }
+    }
+}
+
+/// Menu actions on the live layout tree that are not one of the three pane chords.
+@MainActor
+public enum LayoutTreeCommands {
+    /// Save the key window's live tree under `name`. False when no tree is open.
+    @discardableResult
+    public static func saveCurrentLayout(named name: String) -> Bool {
+        #if os(macOS)
+        guard let controller = LayoutTreeRuntime.shared.controller else { return false }
+        return controller.apply(.saveLayout(name: name, purpose: nil))
+        #else
+        _ = name
+        return false
+        #endif
     }
 }
 
@@ -200,8 +213,8 @@ public struct ImpressPaneLayoutButtons: View {
     private let listTitle: String
     private let appID: String
 
-    /// Which window model the chords drive. `.layoutTree` for every chassis
-    /// app; only imbib's `imbibApp.swift` passes `.imbibPreChassisWindow`.
+    /// Which window model the chords drive. The default is `.layoutTree`.
+    /// `.imbibPreChassisWindow` is the pane-model unit test; no app passes it.
     private let target: PaneLayoutChordTarget
 
     public init(

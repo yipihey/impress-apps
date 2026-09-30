@@ -60,6 +60,21 @@ public final class ChassisViewModels {
         self.libraryViewModel = libraryViewModel
         self.searchViewModel = searchViewModel
     }
+
+    /// The models imbib's app already built. A second set would split the
+    /// active library from the sheets that read the app's own instances.
+    /// Search still needs the library, the same wiring the default init does,
+    /// so Cmd+S imports land in the active library.
+    public init(
+        libraryManager: LibraryManager,
+        libraryViewModel: LibraryViewModel,
+        searchViewModel: SearchViewModel
+    ) {
+        searchViewModel.setLibraryManager(libraryManager)
+        self.libraryManager = libraryManager
+        self.libraryViewModel = libraryViewModel
+        self.searchViewModel = searchViewModel
+    }
 }
 
 // MARK: - Store warm-up
@@ -138,16 +153,22 @@ public struct ChassisRootView: View {
     /// acquire a group tier.
     private let sidebarComposition: SidebarComposition?
 
+    /// Models the host already owns. Nil for every shell except imbib, which
+    /// builds them in `imbibApp` and must not grow a second set inside this root.
+    private let adoptedModels: ChassisViewModels?
+
     @State private var models: ChassisViewModels?
 
     public init(
         configuration: AppShellConfiguration,
         readyLogMessage: String,
-        sidebarComposition: SidebarComposition? = nil
+        sidebarComposition: SidebarComposition? = nil,
+        adoptedModels: ChassisViewModels? = nil
     ) {
         self.configuration = configuration
         self.readyLogMessage = readyLogMessage
         self.sidebarComposition = sidebarComposition
+        self.adoptedModels = adoptedModels
         // The kit renders `placeholder`, `surface` and `console` alone; every chassis
         // view kind is registered here, in `init`, so it is in the registry
         // before this root's body — and so before any pane — renders (plan
@@ -164,13 +185,8 @@ public struct ChassisRootView: View {
         LayoutTreeHost(appID: configuration.appID, services: Self.layoutServices)
             // h / l pressed INSIDE a pane that claims them first. `DetailView`
             // (the `info` pane) and the publication list (in a `legacy` pane)
-            // answer h/l as `.handled` and post `.cycleFocusLeft/Right` for
-            // imbib's pre-chassis `ContentView` to cycle its own pane focus.
-            // In a chassis window nobody else observes them, so before W5 the
-            // key was swallowed there and focus never moved. The tree is the
-            // only root now, so they route to the one place focus lives. (In
-            // `LayoutWindowView` until W6 moved it to the kit, which cannot
-            // see PMC's notification names.)
+            // answer h/l as `.handled` and post `.cycleFocusLeft/Right`. The
+            // tree is the window root, including imbib's, so they route here.
             .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
                 LayoutTreeRuntime.shared.controller?.apply(.focusDirection(.left))
             }
@@ -221,7 +237,9 @@ public struct ChassisRootView: View {
             await RustStoreAdapter.warmOffMain()
             // Now safe: the store is open, so the view models' default
             // `RustStoreAdapter.shared` references resolve without blocking.
-            models = ChassisViewModels()
+            // imbib passes the models its app already built; every other shell
+            // constructs them here, after the warm.
+            models = adoptedModels ?? ChassisViewModels()
             logInfo(readyLogMessage, category: "app")
         }
     }

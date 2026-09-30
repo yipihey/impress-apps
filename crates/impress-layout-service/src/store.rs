@@ -75,7 +75,7 @@ use impress_core::pane_query::PaneQuery;
 use impress_core::query::ItemQuery;
 use impress_core::schemas::LAYOUT_SCHEMA_REF;
 use impress_core::sqlite_store::{GuardedWrite, SqliteItemStore};
-use impress_core::store::ItemStore;
+use impress_core::store::AttributedStore;
 use impress_layout::{preset, Layout, ViewKindId};
 use impress_service_core::Refusal;
 
@@ -145,17 +145,28 @@ pub struct LayoutRow {
 }
 
 /// Store-backed access to the layout rows.
-#[derive(Clone)]
-pub struct LayoutStore {
-    store: Arc<SqliteItemStore>,
+///
+/// `S` defaults to [`SqliteItemStore`]. The methods below call
+/// [`AttributedStore`], so a test or a future backend can host the same rows
+/// without this service naming sqlite (`docs/plan-koine-separation.md`, K1).
+pub struct LayoutStore<S: AttributedStore = SqliteItemStore> {
+    store: Arc<S>,
 }
 
-impl LayoutStore {
-    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+impl<S: AttributedStore> Clone for LayoutStore<S> {
+    fn clone(&self) -> Self {
+        Self {
+            store: Arc::clone(&self.store),
+        }
+    }
+}
+
+impl<S: AttributedStore> LayoutStore<S> {
+    pub fn new(store: Arc<S>) -> Self {
         Self { store }
     }
 
-    pub fn store(&self) -> &Arc<SqliteItemStore> {
+    pub fn store(&self) -> &Arc<S> {
         &self.store
     }
 
@@ -678,6 +689,34 @@ pub fn layout_of(item: &Item) -> Result<Layout> {
     let json = serde_json::to_value(value)
         .map_err(|e| Refusal::store(format!("read layout tree: {e}")))?;
     serde_json::from_value(json).map_err(|e| Refusal::store(format!("read layout tree: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use impress_core::item::ActorKind;
+    use impress_core::store::AttributedStore;
+
+    /// The layout rows are generic over [`AttributedStore`]. `SqliteItemStore`
+    /// is one implementation; this is the call a second backend would make.
+    #[test]
+    fn layout_store_speaks_the_attributed_port() {
+        fn host<S: AttributedStore>(store: Arc<S>) -> LayoutStore<S> {
+            LayoutStore::new(store)
+        }
+
+        let store = Arc::new(SqliteItemStore::open_in_memory().expect("memory store"));
+        let layouts = host(store);
+        let loaded = layouts
+            .load_live("koine", "test-device", ActorKind::System)
+            .expect("cold start");
+        assert!(loaded.revision >= 1);
+        assert!(loaded.note.is_none());
+        let again = layouts
+            .load_live("koine", "test-device", ActorKind::System)
+            .expect("reload");
+        assert_eq!(again.item_id, loaded.item_id);
+    }
 }
 
 /// `pub(crate)`: [`crate::rename`]'s pass reuses this instead of a second

@@ -5783,6 +5783,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine"
+version = "0.1.0"
+dependencies = [
+ "impress-layout",
+ "impress-pane-query",
+ "impress-surface",
+ "impress-verb-surface",
+ "impress-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
+name = "koine-tui"
+version = "0.1.0"
+dependencies = [
+ "impress-workspace-hack",
+ "koine",
+ "serde_json",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

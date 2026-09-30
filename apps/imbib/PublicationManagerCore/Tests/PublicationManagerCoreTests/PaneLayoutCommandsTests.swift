@@ -95,16 +95,15 @@ final class PaneLayoutCommandsTests: XCTestCase {
         ])
     }
 
-    /// Only imbib's pre-chassis window may route the chords to its own pane
-    /// model; every chassis app's are the tree's. A chassis host passing
-    /// `.imbibPreChassisWindow` would flip a Boolean nothing draws.
-    func testOnlyImbibsOwnWindowRoutesToItsOwnPanes() throws {
+    /// Every app window, imbib included, routes the chords to the layout tree.
+    /// `.imbibPreChassisWindow` remains on the router for the pane-model unit
+    /// test below; no app target passes it.
+    func testNoAppWindowRoutesToItsOwnPanes() throws {
         for path in Self.migratedAppFiles {
             let source = try Self.source(of: path)
-            let preChassis = source.contains("target: .imbibPreChassisWindow")
-            XCTAssertEqual(
-                preChassis, path == "apps/imbib/imbib/imbib/imbibApp.swift",
-                "\(path): only imbib's pre-chassis ContentView draws its own pane model")
+            XCTAssertFalse(
+                source.contains("target: .imbibPreChassisWindow"),
+                "\(path): the window is the layout tree")
         }
     }
 
@@ -171,13 +170,14 @@ final class PaneLayoutCommandsTests: XCTestCase {
         "apps/implore/Implore/Sources/App/ImploreApp.swift",
     ]
 
-    /// Where each chassis app mounts ⌃⌘1–9 (`ImpressLayoutOrdinalButtons`).
-    /// imprint's sits in its Layouts menu; everyone else's is in the app file.
-    /// imbib is absent by design: its own window is not a chassis root and
-    /// keeps View ▸ Layouts over its own model. impart mounted the pane
-    /// toggles and not these until 2026-09-24.
+    /// Where each app mounts ⌃⌘1–9 (`ImpressLayoutOrdinalButtons`).
+    /// imprint's sits in its Layouts menu; imbib's is View ▸ Layouts with
+    /// its app id; everyone else's is in the app file. impart mounted the
+    /// pane toggles and not these until 2026-09-24. imbib joined when its
+    /// window became a chassis root.
     private static let ordinalButtonFiles = [
         "apps/imprint/Shared/Layout/PaneLayout.swift",
+        "apps/imbib/imbib/imbib/imbibApp.swift",
         "apps/impart/macOS/ImpartApp.swift",
         "apps/impress/macOS/ImpressApp.swift",
         "apps/impel/Shared/ImpelApp.swift",
@@ -186,17 +186,18 @@ final class PaneLayoutCommandsTests: XCTestCase {
 
     func testEveryChassisAppMountsTheLayoutOrdinals() throws {
         for path in Self.ordinalButtonFiles {
+            let expected: String
+            if path == "apps/imprint/Shared/Layout/PaneLayout.swift" {
+                expected = "ImpressLayoutOrdinalButtons(appID: \"imprint\")"
+            } else if path == "apps/imbib/imbib/imbib/imbibApp.swift" {
+                expected = "ImpressLayoutOrdinalButtons(appID: \"imbib\")"
+            } else {
+                expected = "ImpressLayoutOrdinalButtons()"
+            }
             XCTAssertTrue(
-                try Self.source(of: path).contains(
-                    path == "apps/imprint/Shared/Layout/PaneLayout.swift"
-                        ? "ImpressLayoutOrdinalButtons(appID: \"imprint\")"
-                        : "ImpressLayoutOrdinalButtons()"),
+                try Self.source(of: path).contains(expected),
                 "\(path) must mount the chassis's ⌃⌘1–9 (ImpressLayoutOrdinalButtons)")
         }
-        XCTAssertFalse(
-            try Self.source(of: "apps/imbib/imbib/imbib/imbibApp.swift")
-                .contains("ImpressLayoutOrdinalButtons()"),
-            "imbib's own window has no tree; its ⌃⌘1–9 are View ▸ Layouts")
     }
 
     private static let repoRoot: URL = {

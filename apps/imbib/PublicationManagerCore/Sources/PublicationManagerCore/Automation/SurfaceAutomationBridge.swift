@@ -56,18 +56,17 @@ final class SurfaceAutomationBridge: SurfaceAutomationHost {
                 #"{"ok": false, "code": "store-unavailable", "message": "the shared store is not open", "wire_version": 1}"#
             )
         }
-        // imbib's own window renders no layout tree, so this is where its
-        // process first touches the store FFI: bridge Rust's `surface` and
-        // `layout` lines into the Console here too (wave 7 T5).
+        // The process's first touch of the store FFI installs the Console
+        // bridge for Rust's `surface` and `layout` lines (wave 7 T5).
         #if os(macOS)
         RustLogBridge.installOnce()
         #endif
         // `host: ""` is the process-wide host, the same one `surface_show`
         // binds a pane under: a surface created by an agent and a surface
-        // rendered in this window are one row, not two. `appId`: the app
+        // rendered in this window are one row, not two. `appId` is the app
         // whose layout tree this process draws, so `POST …/show` with no
-        // `app_id` shows the surface HERE; empty in a process with no tree
-        // (imbib's own window), where Rust looks in every app's layout for
+        // `app_id` shows the surface here. Empty only while no tree has
+        // registered, in which case Rust looks in every app's layout for
         // the pane that shows a surface (review RS-S4, AC-F6).
         let appID = LayoutAutomation.shared.host?.layoutAppID ?? ""
         let surface: SharedSurface

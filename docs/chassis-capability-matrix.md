@@ -216,7 +216,7 @@ place; the parity tests still freeze every value:
 | defaultSection / defaultDetailTab | inbox / info | manuscripts / source | figures / info | mail / info | agents / info (lands on the Tasks leaf) | inbox / info |
 | custom surfaces | — | — | generate, analyze (registered app-side via `withCustomSurfaces`); canvas = figure open window | chat, **category**, research, development (registered app-side via `withCustomSurfaces` in ImpartChassisRoot). `category` landed with the Stage-4c flip: it was the one classic view mode (⌘3) the chassis could not reach | dashboard, **threads**, **roster**, escalations, suggestions, counsel (registered app-side via `withCustomSurfaces` in ImpelChassisRoot; escalations keeps its 1-9/j/k keys INSIDE the surface, suggestions its ⏎/⎋ + j/k, both keyboardGuarded). `threads` and `roster` landed with the Stage-4c flip: the Agents SECTION reads the same `task@1.0.0` rows but renders them as tasks (losing impel's temperature / claimedBy) and has no surface for `ImpelClient.state.agents` / `.personas` at all | — none app-registered, and now that an app target EXISTS that is a positive result rather than a vacancy: `ImpressChassisRoot` deliberately calls no `withCustomSurfaces`. The chassis-builtin store-search surface arrives anyway (`CustomSurfaceRegistry.builtin`; `StoreSearchSurfaceTests` enumerates impress), and registering a copy of it app-side would REPLACE the builtin with an identical view. ⌘⇧F is bound by `ImpressStoreSearchCommands` in the menu tree, which is the only part an app owes. **iOS: none, and the builtin is empty there** — `StoreSearchSurface` is the one AppKit-linking builtin, so grouped search, impress's showcase, is macOS-only until a UIKit-clean version exists |
 | default window | chassis | chassis | chassis | **chassis (Stage 4c, 2026-07-30).** `impart.useChassisWindow`, the classic three-column `ContentView`, `EmailListView`, `ImpartSidebarView`/`FolderTreeRow` and the "Mail (Unified)" secondary window are DELETED (1719 lines). The flag is not kept as a kill switch because it could only restore a strictly poorer window: the classic mail lists were permanently EMPTY on macOS — `InboxViewModel.loadMessages()` has no macOS caller (only `IOSContentView` assigns `selectedMailbox`), `accounts` is `private(set)` and assigned nowhere, `loadFolders(for:)` has no caller at all — and its detail pane was unreachable (it read `AppState.selectedMessageIds` while the list wrote `InboxViewModel.selectedMessageIds`). Compose, reply/forward, mark-read-on-select and check-mail moved to `MailChassisHost` over the new `RecordHostVerbs` seam; `ComposeView` and the whole Settings scene were EXTRACTED from the deleted file first | **chassis (Stage 4c, 2026-07-30).** `impel.useChassisWindow`, the classic `ContentView` and the "impel (Unified)" secondary window are DELETED (320 lines). Flag not kept, same reasoning: every surface the classic dashboard rendered is registered here over the same views. Closed first: suggestion ⏎/⎋ keys, the threads list and agent/persona roster (as surfaces), ⌘/ keyboard help (now a menu command), `wireUndo`, the two toolbar status indicators, and `impel://navigate/...` (which set a `DashboardTab` only the classic window observed) | **chassis (ADR-0022 D9, 2026-07-30).** `ImpressChassisRoot` is 79 lines, 14 of them code — `ChassisRootView(configuration: .impress)` plus `.withAppearance()`. The ~120-line estimate predates `ChassisRootView` (Stage 4b), which took the rest. The signing decision this cell demanded was made: the ADS/SciX read now sits behind `CredentialManager.itemsAreReadableWithoutPrompting` (a bundle-identity reachability check), NOT a shared keychain access group — a group would need imbib re-signed and every already-stored item migrated into it. impress still permits and renders `.search`; it just does not read credentials it provably cannot open |
-| window root (W5) | imbib's pre-chassis `ContentView`, hosting `TabContentView` directly — not a chassis root, out of W5's scope | the layout tree (`ChassisRootView` → `LayoutTreeHost`), no switch | the layout tree | the layout tree | the layout tree | the layout tree |
+| window root (W5) | the layout tree. `ContentView` stays as the chrome (sheets, search, onboarding, startup dedup) and hosts `ChassisRootView(configuration: .imbib, adoptedModels:)` so the tree and the sheets share the app's view models | the layout tree (`ChassisRootView` → `LayoutTreeHost`), no switch | the layout tree | the layout tree | the layout tree | the layout tree |
 | sectionBindings source (W5) | Rust `section_bindings("imbib")`, read by the preset (`ShippedSectionBindings`) | Rust, same | Rust, same | Rust, same | Rust, same | Rust, same |
 
 **What `AppShellConfiguration` still carries after W5, and why.** W5 moved
@@ -437,7 +437,7 @@ split and is listed here so the reach table stays complete.
 | `Chassis/RecordKind/RecordViewerRegistry+Builtin.swift` | macOS | SPLIT out: the four builtin factories, each constructing an AppKit-adjacent section view (`FigureSectionView` / `MessageSectionView` / `AgentSectionView`) |
 | `Chassis/RecordKind/AnyRecordListWrapper.swift` | ✅ both | the mixed-kind list over `KindTaggedRow` — plain SwiftUI `List` |
 | `Chassis/TabSidebar/TabSidebarTypes.swift` | ✅ both | 345 lines of route enums (`ImbibTab`, `ImbibContentRoute`, journal/figure/mail/agent routes) + notification names. The chassis's ROUTE vocabulary, which iOS had to re-encode as literals |
-| `Chassis/Shared/HostWindowPanes.swift` | ✅ both | a host window's pane model as a protocol plus an environment value (`hostWindowPanes`). imbib's pre-chassis window injects its app-target `PaneLayoutStore`; inside the layout tree it is nil and a hosted `TabContentView` keeps its own panes (`OwnWindowPanes`). Replaced `FocusedPane.swift` in this table: `FocusedPane` and `PaneLayoutState` moved to imbib's app target in plan wave 6 W5 pass B |
+| `Chassis/Shared/HostWindowPanes.swift` | ✅ both | a host window's pane model as a protocol plus an environment value (`hostWindowPanes`). imbib's window no longer injects `PaneLayoutStore`; inside the layout tree the value is nil and a hosted `TabContentView` keeps its own panes (`OwnWindowPanes`). `PaneLayoutChordTarget.imbibPreChassisWindow` still accepts the protocol, and no app passes that target. Replaced `FocusedPane.swift` in this table: `FocusedPane` and `PaneLayoutState` moved to imbib's app target in plan wave 6 W5 pass B |
 | `ImpressChassis/Manuscripts/FocusedManuscript.swift` | ✅ both | a `FocusedValueKey` — pure SwiftUI focus plumbing. **Lifted out of PMC into `packages/ImpressChassis` by C5** (ADR-0021 D5); PMC re-exports the module, so the import that reaches it is unchanged |
 | `Chassis/Shared/FindCoordinator.swift` | ✅ both | ⌘F / ⌘⇧F `Commands`, the `listFilterFocusAction` focused value, and the store-search notification names. `Commands` is SwiftUI, not AppKit. ISLAND: `ImpressStoreSearchCommands` contributes nothing on iOS — the surface it opens (`StoreSearchSurface`) is the one AppKit-linking builtin, so the chord would open nothing (the `RecordTriageNewTagPrompt` "omit the affordance" rule) |
 | `Chassis/Manuscripts/ManuscriptRowData.swift` | ✅ both | display-ready row snapshot (Foundation + ImpressFTUI/ImpressMailStyle value types) |
@@ -3071,19 +3071,20 @@ There is no switch: the `impress.layoutTree.enabled` defaults key,
 through L6–L8 were removed in W5. `TabContentView` is still reachable, but
 only as a `legacy` pane (whole, or scoped to one route by the outline).
 
-**imbib's own window is not a chassis root.** It is imbib's pre-chassis
-`ContentView`, which hosts `TabContentView` directly and still reads
-`PaneLayoutState`; it never rendered the tree and is out of W5's scope.
-Since W5 pass B that model (and `FocusedPane`) lives in imbib's app target
-(`apps/imbib/imbib/imbib/`), not in PublicationManagerCore. The shared views
-reach it only through `HostWindowPanes` (the environment, injected by
-`ContentView`: list / detail visibility and the detail tab of
-`SectionContentView` and the figure / mail / agent / manuscript section
-views, the sidebar column and list toggle of `TabContentView`) and the chords
-through `PaneLayoutChordTarget.imbibPreChassisWindow(_:)`. Inside the tree
-nothing is injected: a scoped section view shows its list and its detail
-(the tree decides what is on screen), and a whole hosted `TabContentView`
-keeps its own panes in memory.
+**imbib's window is a chassis root.** `ContentView` remains the chrome —
+import and export sheets, search, onboarding, the startup dedup — and its
+content is `ChassisRootView` with `adoptedModels` set to the app's own
+`LibraryManager` / `LibraryViewModel` / `SearchViewModel`, so the tree does
+not construct a second set. ⌘0 / ⌥⌘0 / ⌃⌘S and ⌃⌘1–9 are the tree's chords
+(`ImpressPaneLayoutButtons()`, `ImpressLayoutOrdinalButtons`). h/l are the
+tree's focus. `PaneLayoutStore` remains the appearance mirror (PDF dark mode,
+app appearance) and is no longer injected as `hostWindowPanes`.
+`PaneLayoutChordTarget.imbibPreChassisWindow` stays on the router so its
+pane-model mapping still has a unit test; no app passes it.
+Since W5 pass B the old pane model (and `FocusedPane`) lives in imbib's app
+target (`apps/imbib/imbib/imbib/`). Inside the tree nothing is injected: a
+scoped section view shows its list and its detail (the tree decides what is
+on screen), and a whole hosted `TabContentView` keeps its own panes in memory.
 
 ### HTTP automation (the tree's agent surface, 2026-09-21)
 
@@ -3384,13 +3385,13 @@ mutation reverted.
 
 ### Chords
 
-| Chord | Chassis window (the tree, since W5 the only root) | imbib's pre-chassis window |
+| Chord | Chassis window (the tree, since W5 the only root) | imbib |
 |---|---|---|
-| ⌃⌘S / ⌥⌘0 / ⌘0 | Bound in all five chassis apps (impel and implore since 2026-09-24, `ImpressPaneLayoutButtons`; live in both: navigator / detail / list 1 / 2 / 3 → ⌃⌘S 0.0001 → 2.5, ⌘0 0.0001 → 2.25, ⌥⌘0 0.0001 → 2.375, and ⌃⌘1 `chord: apply layout 1 → layout tree` back to 1 / 2 / 3). `resizeShare` on whichever pane carries the `navigator` / `list` / `detail` ROLE (D5), through `LayoutController` only — a chord before the tree opens is logged and ignored, never redirected. Un-collapsing restores the **sibling average** — the remembered width lives in the tree, never in a Swift value | flips `PaneLayoutState.sidebarVisible` / `listPaneVisible` / `detailPaneVisible` — ⌃⌘S only that since 2026-09-24, when Paper ▸ Save to Library gave up the same chord (live: `sidebarVisible` true → false → true on two ⌃⌘S) (imbib's app target, reached as `HostWindowPanes` through `PaneLayoutChordTarget.imbibPreChassisWindow(_:)`, `imbibApp.swift` only) |
-| ⌃⌘1–9 | `apply-layout` ordinal N (`ImpressLayoutOrdinalButtons`: the app's presets, then its saved layouts) — all five chassis apps; impart, impel and implore gained it 2026-09-24. imprint: the tree's ordinal in its chassis window, its editor-window layouts while a manuscript editor window is key (`ImprintLayoutsMenu`) | View ▸ Layouts, the N-th saved `PaneLayoutState` |
-| h / l | `focus_direction` left/right over the tree's leaves (`TriageKeyGrammar.focusPaneLeft/Right`), including when the info pane or a hosted list claimed the key and posted `.cycleFocusLeft/Right` | `PaneFocusCycler` over `FocusedPane` |
-| ⌘Z / ⇧⌘Z | `undo`/`redo` on the focused pane's **exploration** ring — unless the focused pane is session-bearing, when the chord is left to the responder chain (D7 stack 1) | the responder chain |
-| ⌥⌘Z / ⌥⇧⌘Z | `undo`/`redo` on the **arrangement** ring (`UniversalShortcut.undoArrangement` / `.redoArrangement`, new in L6) | unbound |
+| ⌃⌘S / ⌥⌘0 / ⌘0 | Bound in all five chassis apps (impel and implore since 2026-09-24, `ImpressPaneLayoutButtons`; live in both: navigator / detail / list 1 / 2 / 3 → ⌃⌘S 0.0001 → 2.5, ⌘0 0.0001 → 2.25, ⌥⌘0 0.0001 → 2.375, and ⌃⌘1 `chord: apply layout 1 → layout tree` back to 1 / 2 / 3). `resizeShare` on whichever pane carries the `navigator` / `list` / `detail` ROLE (D5), through `LayoutController` only — a chord before the tree opens is logged and ignored, never redirected. Un-collapsing restores the **sibling average** — the remembered width lives in the tree, never in a Swift value | the same tree chords (`ImpressPaneLayoutButtons()`). The pre-chassis `HostWindowPanes` path remains only as `PaneLayoutChordTarget.imbibPreChassisWindow`, which no app passes |
+| ⌃⌘1–9 | `apply-layout` ordinal N (`ImpressLayoutOrdinalButtons`: the app's presets, then its saved layouts) — all five chassis apps; impart, impel and implore gained it 2026-09-24. imprint: the tree's ordinal in its chassis window, its editor-window layouts while a manuscript editor window is key (`ImprintLayoutsMenu`) | View ▸ Layouts is `ImpressLayoutOrdinalButtons`; Save Current Layout writes the live tree |
+| h / l | `focus_direction` left/right over the tree's leaves (`TriageKeyGrammar.focusPaneLeft/Right`), including when the info pane or a hosted list claimed the key and posted `.cycleFocusLeft/Right` | the same. `ContentView` no longer cycles `FocusedPane` |
+| ⌘Z / ⇧⌘Z | `undo`/`redo` on the focused pane's **exploration** ring — unless the focused pane is session-bearing, when the chord is left to the responder chain (D7 stack 1) | the same, via the tree the window now hosts |
+| ⌥⌘Z / ⌥⇧⌘Z | `undo`/`redo` on the **arrangement** ring (`UniversalShortcut.undoArrangement` / `.redoArrangement`, new in L6) | the same, via the tree the window now hosts |
 
 Both new chords are in `docs/keyboard-grammar.md`'s universal table, per its
 rule 2.

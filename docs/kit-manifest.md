@@ -29,6 +29,8 @@ change with it. They do not keep a second list.
 | `impress-layout` | pure | The layout tree as pure values: panes, containers, channels, the D8 verbs, patches and undo rings. |
 | `impress-surface` | pure | Surfaces as pure values: spec, JSON schema, plan / resolve / reduce, `RenderTree`. |
 | `impress-verb-surface` | pure | `verb_surface(&VerbDescriptor) -> SurfaceSpec` and `catalogue()`: the generated form, Run button, review step and result view for every linked verb (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4). Depends on `impress-service-core` (the descriptor) and `impress-surface` (the vocabulary) alone. |
+| `koine` | pure | The public name of the grammar: re-exports `impress-layout`, `impress-pane-query`, `impress-surface` and `impress-verb-surface`. No new behaviour. |
+| `koine-tui` | pure | A text performance of `RenderTree`. j/k/Enter become events; `reduce` still decides what they mean. |
 | `impress-fs-lock` | pure | The advisory `flock` for the suite's device-local files, lifted out of `impress-ai` (ADR-0036 D-R8, plan-self-reflective-layer R1) so `impress-settings` can lock its files without a store-tier dependency. No dependencies. |
 | `impress-settings` | pure | The settings registry as data (key, type, default, scope, legacy keys, doc), its per-scope files under `<workspace>/settings/`, and the generated settings pane per section (ADR-0036 D5). Reaches `impress-fs-lock` and `impress-surface` only. |
 | `surface-demo-service` | pure | The D8 demo capability, the scaffold's output and the worked example. A member of `impress-capabilities`. |
@@ -177,7 +179,9 @@ one surface pane.
    `impress-capabilities` depends on the kit's inventory crate.
 
 Steps 1–4 are exactly what `scripts/check-kit-standalone.sh` does in a scratch directory
-on every CI run, so "can leave" is a command. Until the store trait is generic,
+on every CI run, so "can leave" is a command. Layout and surface persistence
+now speak `AttributedStore` (`docs/plan-koine-separation.md`, K1). Until the
+item, query and operation types themselves move out of `impress-core` (K1b),
 impress-core goes along and is the kit's one vendored dependency.
 
 ## How each check enforces it

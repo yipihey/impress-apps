@@ -106,12 +106,12 @@ struct LayoutAutomationRoutesTests {
             #expect(payload["ok"] as? Bool == false)
             #expect(payload["code"] as? String == "no-layout-tree")
             #expect(payload["wire_version"] as? Int == LayoutAutomationRoutes.wireVersion)
-            // The 409 must say why (no flag exists any more: a chassis window
-            // IS the tree, imbib's own window has none) and name the headless
-            // path that needs no app at all.
+            // The 409 must say why (the window has not opened its tree yet;
+            // every app's window, imbib included, is that tree) and name the
+            // headless path that needs no app at all.
             let detail = payload["detail"] as? String ?? ""
             #expect(!detail.contains("layoutTree.enabled"))
-            #expect(detail.contains("pre-chassis"))
+            #expect(detail.contains("has not opened its tree"))
             #expect(detail.contains("layout-service_"))
         }
     }

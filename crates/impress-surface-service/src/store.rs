@@ -53,7 +53,7 @@ use impress_core::schemas::{
     SURFACE_EVENT_SCHEMA_REF, SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF,
 };
 use impress_core::sqlite_store::{GuardedBatch, SqliteItemStore};
-use impress_core::store::ItemStore;
+use impress_core::store::AttributedStore;
 use impress_core::store::StoreError;
 pub use impress_layout_service::authorship::actor_from;
 use impress_layout_service::authorship::{author_for_service, Ephemerality};
@@ -134,17 +134,27 @@ pub struct EventRow {
 }
 
 /// Store-backed access to a surface's three record kinds.
-#[derive(Clone)]
-pub struct SurfaceStore {
-    store: Arc<SqliteItemStore>,
+///
+/// `S` defaults to [`SqliteItemStore`]. Writes go through [`AttributedStore`],
+/// the same port [`impress_layout_service::store::LayoutStore`] uses.
+pub struct SurfaceStore<S: AttributedStore = SqliteItemStore> {
+    store: Arc<S>,
 }
 
-impl SurfaceStore {
-    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+impl<S: AttributedStore> Clone for SurfaceStore<S> {
+    fn clone(&self) -> Self {
+        Self {
+            store: Arc::clone(&self.store),
+        }
+    }
+}
+
+impl<S: AttributedStore> SurfaceStore<S> {
+    pub fn new(store: Arc<S>) -> Self {
         Self { store }
     }
 
-    pub fn store(&self) -> &Arc<SqliteItemStore> {
+    pub fn store(&self) -> &Arc<S> {
         &self.store
     }
 

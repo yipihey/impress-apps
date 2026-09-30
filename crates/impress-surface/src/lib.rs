@@ -23,8 +23,9 @@
 //! mapping. The thing that runs verbs, holds the source cache across turns, and
 //! talks to the store is `impress-surface-service` (S4), a sibling crate; the thing
 //! that turns a [`resolve::RenderTree`] into pixels is a renderer (Swift today,
-//! egui or HTML tomorrow) that holds no logic of its own (D2) — it is a mapping over
-//! what this crate already computed.
+//! plain text in `koine-tui`) that holds no logic of its own (D2) — it is a mapping over
+//! what this crate already computed. The public name of this layer is **koine**
+//! (`crates/koine`); this crate remains the grammar.
 //!
 //! # Where the vocabulary is silent
 //!
@@ -62,7 +63,7 @@ mod example;
 pub use example::{example_job_monitor, example_paper_triage, example_signal_explorer};
 pub use plan::{plan, CachedSource, SourceCache, SourceRequest, SourceRequestKind};
 pub use reduce::{reduce, Effect, ReduceError};
-pub use resolve::{resolve, resolve_with_source_errors, RenderNode, RenderTree};
+pub use resolve::{resolve, resolve_with_source_errors, RenderKind, RenderNode, RenderTree};
 pub use spec::{
     child_pointers, handler_pointers, walk_actions, walk_with_pointers, Action, Button, Event,
     EventKind, FieldKind, Grid, Image, ListWidget, Node, NodeKind, PaneQuery, ParamDecl, Plot,

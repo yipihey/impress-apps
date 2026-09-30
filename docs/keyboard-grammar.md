@@ -17,10 +17,10 @@ them.
 | ⌘\ | Split editor | — | Two views of the same document |
 | ⌃⌘P | Open on second display | Detached PDF window (also Shift+P, guarded) | Detached PDF window |
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
-| ⌃⌘1…9 | Apply layout N — N spans the app's layout-tree presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number). imbib's own pre-chassis window keeps its View ▸ Layouts menu: the N-th saved `PaneLayoutState` | View ▸ Layouts (its own window's saved arrangements); every chassis app: View ▸ Apply Layout N (`ImpressLayoutOrdinalButtons`) | Layouts menu: the tree's ordinal N in the chassis window; the editor window's N-th saved layout while a manuscript editor window is key (`ImprintLayoutsMenu`) |
+| ⌃⌘1…9 | Apply layout N — N spans the app's layout-tree presets first, then its saved layouts (⌃⌘1 is the app's default arrangement; a `save-layout` takes the next number). Every app's window, imbib included, applies that ordinal through `ImpressLayoutOrdinalButtons` | View ▸ Layouts (`ImpressLayoutOrdinalButtons(appID: "imbib")`, plus Save Current Layout of the live tree) | Layouts menu: the tree's ordinal N in the chassis window; the editor window's N-th saved layout while a manuscript editor window is key (`ImprintLayoutsMenu`) |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
-| ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): while a text view has focus, or when the focused pane is session-bearing (`source` / `editor`), the chord is the first responder's own undo manager; any other focused pane undoes on its **exploration** ring (parameter bindings + view state), and when that ring has nothing, the window's own undo manager answers (an app-level undo such as a deleted row). Edit ▸ Undo / Redo and their key equivalents route the same way: the kit puts a responder into each tree window's chain (`LayoutWindowResponder`) — no app mounts a command for it | the responder chain (imbib's own window has no tree) | every chassis window (the tree) |
-| ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | — (no tree in imbib's own window) | every chassis window (the tree) |
+| ⌘Z ⇧⌘Z | Undo / redo — routed by the FOCUSED PANE (ADR-0031 D7): while a text view has focus, or when the focused pane is session-bearing (`source` / `editor`), the chord is the first responder's own undo manager; any other focused pane undoes on its **exploration** ring (parameter bindings + view state), and when that ring has nothing, the window's own undo manager answers (an app-level undo such as a deleted row). Edit ▸ Undo / Redo and their key equivalents route the same way: the kit puts a responder into each tree window's chain (`LayoutWindowResponder`) — no app mounts a command for it | the tree the window hosts | every chassis window (the tree) |
+| ⌥⌘Z ⌥⇧⌘Z | Undo / redo the window's **arrangement** (split / move / close / resize) — its own ring, so undoing a split never undoes typing | the tree the window hosts | every chassis window (the tree) |
 | ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
 
@@ -119,18 +119,15 @@ Tom made it: they mount `ImpressPaneLayoutButtons` and
 the pane toggles and not the ordinals; it mounts both now.
 `PaneLayoutCommandsTests.testEveryChassisAppMountsTheLayoutOrdinals` pins it.
 
-**⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every chassis window —
-the layout tree, the only chassis root since plan wave 6 W5 — they resize
-whichever pane carries `navigator` / `list` / `detail`, wherever the user has
-moved it, through `LayoutController` and nothing else (a chord that arrives
-before the tree has opened is logged and ignored). The routing is in
-`PaneLayoutChordRouter`, in the same file as the buttons. imbib's own window
-is its pre-chassis `ContentView`, not a chassis root: there the same three
-chords flip the `PaneLayoutState` Booleans that window reads — a model in
-imbib's app target, handed to the chassis as `HostWindowPanes`
-(`PaneLayoutChordTarget.imbibPreChassisWindow(_:)`, passed by `imbibApp.swift`
-alone). h / l follow the same split: `focus_direction` over the tree in a
-chassis window, `PaneFocusCycler` in imbib's own.
+**⌃⌘S / ⌥⌘0 / ⌘0 act on ROLES** (ADR-0031 D5): in every window — the layout
+tree, the only chassis root since plan wave 6 W5, and imbib's window since
+it hosts that same root — they resize whichever pane carries `navigator` /
+`list` / `detail`, wherever the user has moved it, through `LayoutController`
+and nothing else (a chord that arrives before the tree has opened is logged
+and ignored). The routing is in `PaneLayoutChordRouter`, in the same file as
+the buttons. `PaneLayoutChordTarget.imbibPreChassisWindow` remains so the
+pane-model mapping still has a unit test; no app passes it. h / l are
+`focus_direction` over the tree in every window, imbib included.
 
 **The three pane toggles are one shared value.** ⌘0 / ⌥⌘0 / ⌃⌘S are
 `ImpressPaneLayoutButtons` (`Chassis/Shared/PaneLayoutCommands.swift`), not four

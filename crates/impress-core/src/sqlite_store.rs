@@ -18,7 +18,7 @@ use crate::operation::{
 use crate::query::ItemQuery;
 use crate::reference::{EdgeType, TypedReference};
 use crate::sql_query::compile_query;
-use crate::store::{FieldMutation, ItemStore, StoreError};
+use crate::store::{AttributedStore, FieldMutation, ItemStore, StoreError};
 
 /// Number of reader connections in the pool for file-backed stores.
 /// In-memory stores fall back to using the writer connection directly
@@ -241,30 +241,7 @@ impl Default for StoreConfig {
     }
 }
 
-/// What [`SqliteItemStore::apply_operation_if_clock`] did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GuardedWrite {
-    /// The clock matched; the operation is written. `clock` is the row's
-    /// new `logical_clock` — the revision the writer now holds.
-    Applied { operation_id: ItemId, clock: u64 },
-    /// The row moved (or is gone, `None`) since the caller read it. Nothing
-    /// was written.
-    Moved { clock: Option<u64> },
-}
-
-/// What [`SqliteItemStore::apply_operations_if_clock`] did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GuardedBatch {
-    /// The guard row's clock matched; every operation is written, in order.
-    /// `clock` is the guard row's new `logical_clock`.
-    Applied {
-        operation_ids: Vec<ItemId>,
-        clock: u64,
-    },
-    /// The guard row moved (or is gone, `None`) since the caller read it.
-    /// Nothing was written.
-    Moved { clock: Option<u64> },
-}
+pub use crate::store::{GuardedBatch, GuardedWrite};
 
 /// One applied operation, between the write and its announcement.
 struct AppliedOperation {
@@ -5256,6 +5233,33 @@ impl SqliteItemStore {
         }
 
         Ok(())
+    }
+}
+
+impl AttributedStore for SqliteItemStore {
+    fn apply_operation(&self, spec: OperationSpec) -> Result<ItemId, StoreError> {
+        SqliteItemStore::apply_operation(self, spec)
+    }
+
+    fn apply_operation_if_clock(
+        &self,
+        spec: OperationSpec,
+        expected_clock: u64,
+    ) -> Result<GuardedWrite, StoreError> {
+        SqliteItemStore::apply_operation_if_clock(self, spec, expected_clock)
+    }
+
+    fn apply_operations_if_clock(
+        &self,
+        specs: Vec<OperationSpec>,
+        guard: ItemId,
+        expected_clock: u64,
+    ) -> Result<GuardedBatch, StoreError> {
+        SqliteItemStore::apply_operations_if_clock(self, specs, guard, expected_clock)
+    }
+
+    fn logical_clock_of(&self, id: ItemId) -> Result<Option<u64>, StoreError> {
+        SqliteItemStore::logical_clock_of(self, id)
     }
 }
 

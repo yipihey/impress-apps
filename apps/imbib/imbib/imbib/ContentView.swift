@@ -50,10 +50,6 @@ struct ContentView: View {
     /// "Import from reMarkable…" (ADR-025): the tablet-authored documents browser.
     @State private var showEInkImportBrowser = false
 
-    /// Centralized focus tracking for vim-style pane navigation (h/l cycling, j/k per-pane)
-    /// Using @State instead of @FocusState because we're tracking logical pane focus, not SwiftUI keyboard focus
-    @State private var focusedPane: FocusedPane?
-
     /// Whether to show the stale search index alert
     @State private var showStaleIndexAlert = false
 
@@ -160,12 +156,19 @@ struct ContentView: View {
             }
     }
 
-    /// Tab sidebar content — the sole sidebar implementation
+    /// The window's content: the layout tree, with this view's sheets and
+    /// search chrome around it. The tree uses the app's own view models
+    /// (`adoptedModels`), so a sheet and the sidebar share one library.
     private var tabSidebarContent: some View {
-        TabContentView()
-            // This window's panes are its own layout model (⌘0 / ⌥⌘0 / ⌃⌘S,
-            // saved layouts, /api/layout); the shared views read it here.
-            .environment(\.hostWindowPanes, PaneLayoutStore.shared)
+        ChassisRootView(
+            configuration: .imbib,
+            readyLogMessage: "ImbibChassisRoot: chassis environment ready (Papers facet)",
+            adoptedModels: ChassisViewModels(
+                libraryManager: libraryManager,
+                libraryViewModel: libraryViewModel,
+                searchViewModel: searchViewModel
+            )
+        )
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
             }
@@ -220,12 +223,6 @@ struct ContentView: View {
                 EInkImportBrowserView(isPresented: $showEInkImportBrowser)
             }
             // Vim-style pane focus cycling (h/l keys)
-            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
-                cycleFocusLeft()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .cycleFocusRight)) { _ in
-                cycleFocusRight()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .showCommandPalette)) { _ in
                 showCommandPalette = true
             }
@@ -322,41 +319,6 @@ struct ContentView: View {
         }
 
         // Shared libraries not yet tracked in Rust store
-    }
-
-    // MARK: - Pane Focus Cycling (Vim-style h/l)
-
-    /// Cycle focus to the right (l key): sidebar → list → info → pdf → notes → bibtex → sidebar
-    private func cycleFocusRight() {
-        guard let current = focusedPane,
-              let idx = FocusedPane.allPanes.firstIndex(of: current) else {
-            focusedPane = .sidebar
-            return
-        }
-        let nextPane = FocusedPane.allPanes[(idx + 1) % FocusedPane.allPanes.count]
-        setFocusedPane(nextPane)
-    }
-
-    /// Cycle focus to the left (h key): bibtex → notes → pdf → info → list → sidebar → bibtex
-    private func cycleFocusLeft() {
-        guard let current = focusedPane,
-              let idx = FocusedPane.allPanes.firstIndex(of: current) else {
-            focusedPane = .bibtex
-            selectedDetailTab = .bibtex
-            return
-        }
-        let prevPane = FocusedPane.allPanes[(idx - 1 + FocusedPane.allPanes.count) % FocusedPane.allPanes.count]
-        setFocusedPane(prevPane)
-    }
-
-    /// Set focused pane and switch detail tab if needed (like clicking toolbar button)
-    private func setFocusedPane(_ pane: FocusedPane) {
-        focusedPane = pane
-
-        // When focusing a detail tab, switch to that tab (same as toolbar buttons)
-        if let detailTab = pane.asDetailTab {
-            selectedDetailTab = detailTab
-        }
     }
 
     /// Handle PDF search - triggers in-PDF search with highlighting.

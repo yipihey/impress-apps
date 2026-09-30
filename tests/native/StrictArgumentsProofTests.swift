@@ -145,16 +145,12 @@ final class StrictArgumentsProofTests: XCTestCase {
             XCTAssertTrue((results.first?["detail"] as? String)?.contains("best_effort") == true)
         }
 
-        // The shared surface catalogue is reachable in every shell. The
-        // layout-tree catalogue applies to chassis shells; imbib still owns
-        // its separate pre-chassis pane layout (its briefing documents why).
+        // The shared surface catalogue and the layout-tree catalogue are
+        // reachable in every shell, imbib included: its window hosts the tree.
         let surface = try await cli.call("surface", ["surface-selftest-service_run-selftest", "--tier", "b"])
         try assertPassed(surface)
-        var layout: [String: Any] = [:]
-        if app != "imbib" {
-            layout = try await cli.call("layout", ["layout-selftest-service_run-selftest", "--tier", "b"])
-            try assertPassed(layout)
-        }
+        let layout = try await cli.call("layout", ["layout-selftest-service_run-selftest", "--tier", "b"])
+        try assertPassed(layout)
         let logs = try await request(base + "/api/logs?limit=200", body: nil, bearer: bearer)
         XCTAssertEqual(logs.status, 200)
         try JSONSerialization.data(withJSONObject: [

@@ -104,6 +104,10 @@ members = [
     "crates/impress-workflow-service",
     # ADR-0035 D2: verb_surface(&VerbDescriptor) -> SurfaceSpec + catalogue(), pure (plan G4)
     "crates/impress-verb-surface",
+    # Koine: the public name of the pure grammar (layout, surface, pane query,
+    # verb surface). The repository cut is docs/plan-koine-separation.md.
+    "crates/koine",
+    "crates/koine-tui",
     "crates/impress-scenario",
     "crates/impress-scenario-service",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
@@ -249,6 +253,8 @@ impress-surface = { path = "crates/impress-surface" }
 impress-workflow = { path = "crates/impress-workflow" }
 impress-workflow-service = { path = "crates/impress-workflow-service" }
 impress-verb-surface = { path = "crates/impress-verb-surface" }
+koine = { path = "crates/koine" }
+koine-tui = { path = "crates/koine-tui" }
 impress-scenario = { path = "crates/impress-scenario" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
 impress-capabilities = { path = "crates/impress-capabilities", default-features = false }

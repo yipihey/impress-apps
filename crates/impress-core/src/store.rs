@@ -3,6 +3,7 @@ use std::sync::mpsc::Receiver;
 
 use crate::event::ItemEvent;
 use crate::item::{FlagState, Item, ItemId, Value};
+use crate::operation::OperationSpec;
 use crate::query::ItemQuery;
 use crate::reference::{EdgeType, TypedReference};
 use crate::schema::SchemaRef;
@@ -56,6 +57,70 @@ pub trait ItemStore: Send + Sync {
 
     /// Subscribe to changes matching a query. Returns a channel of events.
     fn subscribe(&self, q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError>;
+}
+
+/// What [`AttributedStore::apply_operation_if_clock`] did.
+///
+/// The clock check and the write are one transaction. `Moved` means another
+/// writer committed first and this call wrote nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuardedWrite {
+    /// The clock matched; the operation is written. `clock` is the row's
+    /// new `logical_clock` — the revision the writer now holds.
+    Applied { operation_id: ItemId, clock: u64 },
+    /// The row moved (or is gone, `None`) since the caller read it. Nothing
+    /// was written.
+    Moved { clock: Option<u64> },
+}
+
+/// What [`AttributedStore::apply_operations_if_clock`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuardedBatch {
+    /// The guard row's clock matched; every operation is written, in order.
+    /// `clock` is the guard row's new `logical_clock`.
+    Applied {
+        operation_ids: Vec<ItemId>,
+        clock: u64,
+    },
+    /// The guard row moved (or is gone, `None`) since the caller read it.
+    /// Nothing was written.
+    Moved { clock: Option<u64> },
+}
+
+/// The store port koine's layout and surface records speak.
+///
+/// [`ItemStore`] is the item CRUD. This adds the attributed operation and the
+/// compare-and-swap the live layout row and a surface's spec revision require.
+/// `SqliteItemStore` is the implementation in this crate. Layout and surface
+/// persistence are generic over this trait, so a second backend can host those
+/// rows without those services naming sqlite.
+///
+/// The item, query and operation *types* still live in this crate. Moving them
+/// out, so this crate can stay in impress-apps when koine leaves, is the
+/// remaining half of that cut (`docs/plan-koine-separation.md`, K1b).
+pub trait AttributedStore: ItemStore {
+    /// Apply one attributed operation and materialize it on the target.
+    fn apply_operation(&self, spec: OperationSpec) -> Result<ItemId, StoreError>;
+
+    /// Apply `spec` only if the target row's `logical_clock` is still
+    /// `expected_clock`.
+    fn apply_operation_if_clock(
+        &self,
+        spec: OperationSpec,
+        expected_clock: u64,
+    ) -> Result<GuardedWrite, StoreError>;
+
+    /// Apply every spec, sharing one batch, only if `guard`'s `logical_clock`
+    /// is still `expected_clock`. An empty batch is refused.
+    fn apply_operations_if_clock(
+        &self,
+        specs: Vec<OperationSpec>,
+        guard: ItemId,
+        expected_clock: u64,
+    ) -> Result<GuardedBatch, StoreError>;
+
+    /// The row's `logical_clock`, or `None` when the row does not exist.
+    fn logical_clock_of(&self, id: ItemId) -> Result<Option<u64>, StoreError>;
 }
 
 /// Errors from the item store.

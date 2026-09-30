@@ -344,10 +344,6 @@ struct imbibApp: App {
         isEditingDefaultSet = Self.setupDevelopmentModeFlags()
         appLogger.info("imbib app initializing...")
 
-        // `/api/layout`, `/apply`, `/save` drive this window's own layout
-        // model, which lives in this target; the router forwards to it.
-        PreChassisLayoutRoutes.shared.host = PaneLayoutStore.shared
-
         // Phase 2: Data layer setup (migrations, Core Data, shared services)
         let deps = Self.setupDataLayer()
 
@@ -919,35 +915,17 @@ struct AppCommands: Commands {
         CommandLine.arguments.contains("--edit-default-set")
     }
 
-    /// View ▸ Layouts — user-named pane arrangements (PaneLayoutStore, same
-    /// system as imprint). First nine get ⌃⌘1-9 (universal grammar).
+    /// View ▸ Layouts — the layout tree's ordinals (⌃⌘1–9) plus a save of
+    /// the live tree. The pre-chassis `PaneLayoutStore` menu is gone with
+    /// the window that drew it.
     private var layoutsMenu: some View {
         Menu("Layouts") {
-            ForEach(Array(PaneLayoutStore.shared.layouts.enumerated()), id: \.element.id) { index, layout in
-                let button = Button(layout.name) {
-                    PaneLayoutStore.shared.apply(layout)
-                }
-                if index < 9 {
-                    button.keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .control])
-                } else {
-                    button
-                }
-            }
+            ImpressLayoutOrdinalButtons(appID: "imbib")
 
             Divider()
 
             Button("Save Current Layout…") {
                 promptForLayoutName()
-            }
-
-            if !PaneLayoutStore.shared.layouts.isEmpty {
-                Menu("Delete Layout") {
-                    ForEach(PaneLayoutStore.shared.layouts) { layout in
-                        Button(layout.name) {
-                            PaneLayoutStore.shared.delete(layout)
-                        }
-                    }
-                }
             }
         }
     }
@@ -1000,7 +978,9 @@ struct AppCommands: Commands {
         if alert.runModal() == .alertFirstButtonReturn {
             let name = field.stringValue.trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty else { return }
-            PaneLayoutStore.shared.saveCurrent(named: name)
+            if !LayoutTreeCommands.saveCurrentLayout(named: name) {
+                appLogger.warning("Save Current Layout ignored — no layout tree is open yet")
+            }
         }
     }
 
@@ -1175,10 +1155,8 @@ struct AppCommands: Commands {
             // included) and is the shortcut advertised by TabContentView's list
             // toolbar button ("Show/Hide the list ⌥⌘0").
             //
-            // `.imbibPreChassisWindow`: this window is imbib's own
-            // `ContentView`, which draws `PaneLayoutState` (this target). Every
-            // chassis app passes nothing and gets `.layoutTree` (plan wave 6 W5).
-            ImpressPaneLayoutButtons(target: .imbibPreChassisWindow(PaneLayoutStore.shared))
+            // The window is the layout tree, same as the other apps.
+            ImpressPaneLayoutButtons()
 
             layoutsMenu
 

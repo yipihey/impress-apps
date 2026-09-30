@@ -58,6 +58,12 @@ These generated verbs cover the retained imbib store behavior. Their HTTP regist
 
 `import-fetched-record` still requires one imported id. A cite-key duplicate is now an `existing_ids` hit instead of an all-zero summary, and `import_papers` refuses when the store returns an error. An explicit `IMBIB_STORE_PATH` that fails to open does not fall back to `:memory:`. The example scratch binds that path before any imbib verb runs.
 
+## Cite keys, and the name koine
+
+`search_publications` matches `cite_key` with a LIKE beside title, author, abstract, and note. The full-text index still has no cite-key field. An exact key is placed first in the citation palette. A key the library does not have, one edit away from a key it does, is `CiteKeyNearMiss`: the palette and the compile diagnostic name that neighbour.
+
+The UI grammar's name is koine. `docs/plan-koine-separation.md` is the cut. K0–K3 are in this tree: the `koine` re-export, `AttributedStore` for layout and surface rows, imbib's window hosting `ChassisRootView`, and `koine-tui` rendering the same `RenderTree`. K1b, moving the item and operation types out of `impress-core`, is what has to happen before a second repository. The HTTP arms for library membership and the formatted tag tree stay, as the table above says, until a hosted proof.
+
 ## Still platform-owned
 
 These stay as they are. The plans keep them out of generated store verbs:

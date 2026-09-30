@@ -261,10 +261,9 @@ public enum LayoutAutomationRoutes {
                     status: 409,
                     extra: [
                         "detail":
-                            "Every chassis app's window is the ADR-0031 layout tree (impress, impel, "
-                            + "implore, impart, imprint), so there this answer means the window has not "
-                            + "opened its tree yet. imbib's own window is its pre-chassis ContentView "
-                            + "and has no tree. Headless callers do not need the app at all — "
+                            "Every app's window is the ADR-0031 layout tree, imbib included, so "
+                            + "this answer means the window has not opened its tree yet. "
+                            + "Headless callers do not need the app at all — "
                             + "the same verbs are `layout-service_*` over MCP and `impress <verb>` in the CLI."
                     ])
             }
