@@ -453,99 +453,18 @@ struct SectionContentView: View {
 
     @ViewBuilder
     private func contentBody(_ route: ImbibContentRoute) -> some View {
-        // Declarative pane layout: the list and detail panes' visibility is
-        // the host window's (`HostWindowPanes`: ⌘0, saved layouts, HTTP
-        // /api/layout in imbib's own window). The toolbar stays attached to
-        // the Group so its fragile positioning (see CLAUDE.md "macOS Detail
-        // Pane Layout") is untouched when the pane is visible.
-        Group {
-            let listVisible = hostPanes?.listPaneVisible ?? true
-            let detailVisible = hostPanes?.detailPaneVisible ?? true
-            if listVisible && detailVisible {
-                ImpressSplitView(
-                    listMinWidth: 200,
-                    fractionStorageKey: "impress.split.publications",
-                    detailMinWidth: 300
-                ) {
-                    leftPane(route)
-                } detail: {
-                    detailView
-                }
-            } else if detailVisible {
-                detailView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
-            } else {
-                leftPane(route)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        // Split so Xcode 26 can type-check each piece. One expression here
+        // exceeds its budget (SectionContentView; impart-apps.yml).
+        contentOverlays(contentNavigation(publicationPanes(route), route: route))
+    }
+
+    @ViewBuilder
+    private func contentNavigation<V: View>(_ panes: V, route: ImbibContentRoute) -> some View {
+        panes
         #if os(macOS)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if let pub = displayedPublication {
-                    HStack(spacing: 6) {
-                        Picker("Tab", selection: $selectedDetailTab) {
-                            ForEach(availableDetailTabs, id: \.self) { tab in
-                                Label(tab.label, systemImage: tab.icon).tag(tab)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .fixedSize()
-
-                        Divider()
-                            .frame(height: 16)
-
-                        Button {
-                            copyBibTeX()
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .help("Copy BibTeX to clipboard")
-
-                        if let webURL = webURL(for: pub) {
-                            Link(destination: webURL) {
-                                Image(systemName: "link")
-                            }
-                            .help("Open paper's web page")
-                        }
-
-                        shareMenu(for: pub)
-
-                        Divider()
-                            .frame(height: 16)
-
-                        Button { showRAGPanel.toggle() } label: {
-                            Image(systemName: "text.bubble")
-                                .symbolVariant(showRAGPanel ? .fill : .none)
-                        }
-                        .help("Ask about papers (⌥⌘A)")
-
-                        // reMarkable status (ADR-025): connected / syncing /
-                        // error. Inside THIS cluster — the fragile-toolbar
-                        // rule forbids a new placement. Empty until a device
-                        // is configured.
-                        EInkToolbarStatusGlyph()
-
-                        if selectedPublicationIDs.count >= 2 {
-                            Button { showComparisonSheet = true } label: {
-                                Image(systemName: "arrow.left.arrow.right")
-                            }
-                            .help("Compare \(selectedPublicationIDs.count) papers")
-                        }
-
-                        Button {
-                            openInSeparateWindow(pub)
-                        } label: {
-                            Image(systemName: ScreenConfigurationObserver.shared.hasSecondaryScreen
-                                  ? "rectangle.portrait.on.rectangle.portrait.angled"
-                                  : "uiwindow.split.2x1")
-                        }
-                        .help(ScreenConfigurationObserver.shared.hasSecondaryScreen
-                              ? "Open \(selectedDetailTab.rawValue) on secondary display"
-                              : "Open \(selectedDetailTab.rawValue) in new window")
-                    }
-                }
+                publicationToolbar
             }
         }
         #endif
@@ -612,6 +531,11 @@ struct SectionContentView: View {
             else { return }
             navigateToPublication(first)
         }
+    }
+
+    @ViewBuilder
+    private func contentOverlays<V: View>(_ view: V) -> some View {
+        view
         #if os(macOS)
         // Window management: open detail tabs in separate windows (Shift+P/N/I/B)
         .onReceive(NotificationCenter.default.publisher(for: .detachPDFTab)) { _ in
@@ -664,6 +588,104 @@ struct SectionContentView: View {
             }
         }
     }
+
+    /// List and detail visibility for the host window. The toolbar stays on
+    /// the caller, attached to this group, so the fragile positioning in
+    /// CLAUDE.md "macOS Detail Pane Layout" is unchanged.
+    @ViewBuilder
+    private func publicationPanes(_ route: ImbibContentRoute) -> some View {
+        let listVisible = hostPanes?.listPaneVisible ?? true
+        let detailVisible = hostPanes?.detailPaneVisible ?? true
+        Group {
+        if listVisible && detailVisible {
+            ImpressSplitView(
+                listMinWidth: 200,
+                fractionStorageKey: "impress.split.publications",
+                detailMinWidth: 300
+            ) {
+                leftPane(route)
+            } detail: {
+                detailView
+            }
+        } else if detailVisible {
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(.container, edges: .top)
+        } else {
+            leftPane(route)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        }
+    }
+
+    #if os(macOS)
+    @ViewBuilder
+    private var publicationToolbar: some View {
+        if let pub = displayedPublication {
+            HStack(spacing: 6) {
+                Picker("Tab", selection: $selectedDetailTab) {
+                    ForEach(availableDetailTabs, id: \.self) { tab in
+                        Label(tab.label, systemImage: tab.icon).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+
+                Divider()
+                    .frame(height: 16)
+
+                Button {
+                    copyBibTeX()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .help("Copy BibTeX to clipboard")
+
+                if let webURL = webURL(for: pub) {
+                    Link(destination: webURL) {
+                        Image(systemName: "link")
+                    }
+                    .help("Open paper's web page")
+                }
+
+                shareMenu(for: pub)
+
+                Divider()
+                    .frame(height: 16)
+
+                Button { showRAGPanel.toggle() } label: {
+                    Image(systemName: "text.bubble")
+                        .symbolVariant(showRAGPanel ? .fill : .none)
+                }
+                .help("Ask about papers (⌥⌘A)")
+
+                // reMarkable status (ADR-025): connected / syncing /
+                // error. Inside THIS cluster — the fragile-toolbar
+                // rule forbids a new placement. Empty until a device
+                // is configured.
+                EInkToolbarStatusGlyph()
+
+                if selectedPublicationIDs.count >= 2 {
+                    Button { showComparisonSheet = true } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                    }
+                    .help("Compare \(selectedPublicationIDs.count) papers")
+                }
+
+                Button {
+                    openInSeparateWindow(pub)
+                } label: {
+                    Image(systemName: ScreenConfigurationObserver.shared.hasSecondaryScreen
+                          ? "rectangle.portrait.on.rectangle.portrait.angled"
+                          : "uiwindow.split.2x1")
+                }
+                .help(ScreenConfigurationObserver.shared.hasSecondaryScreen
+                      ? "Open \(selectedDetailTab.rawValue) on secondary display"
+                      : "Open \(selectedDetailTab.rawValue) in new window")
+            }
+        }
+    }
+    #endif
 
     // MARK: - Left Pane
 
