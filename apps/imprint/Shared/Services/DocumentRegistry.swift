@@ -35,6 +35,11 @@ final class DocumentRegistry: OperationRegistry<UUID, DocumentOperation, Imprint
         super.init(subsystem: "com.imprint.app", category: "registry")
     }
 
+    override func queueOperation(_ operation: DocumentOperation, for entityId: UUID) {
+        super.queueOperation(operation, for: entityId)
+        DocumentOperationConsumer.scheduleDrain()
+    }
+
     /// Register a document with optional file URL.
     func register(_ document: ImprintDocument, fileURL: URL?) {
         super.register(document, id: document.id)

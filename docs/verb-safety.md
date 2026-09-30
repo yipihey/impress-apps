@@ -124,6 +124,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-annotations-service_create-annotation` | mutating | name/doc |
 | `imbib-annotations-service_create-comment` | mutating | name/doc |
 | `imbib-annotations-service_create-comment-on-item` | mutating | name/doc |
+| `imbib-annotations-service_delete-comment` | destructive | name/doc |
 | `imbib-annotations-service_list-annotations` | read_only | name/doc |
 | `imbib-annotations-service_list-comments` | read_only | name/doc |
 | `imbib-annotations-service_list-comments-for-item` | read_only | name/doc |
@@ -213,6 +214,7 @@ per-method overrides. Derived from the table below, recorded here for reading.
 | `imbib-library-service_import-bibtex-into-collection` | mutating | name/doc |
 | `imbib-library-service_import-identifiers` | external | name/doc |
 | `imbib-library-service_import-papers` | mutating | crates/imbib-service/src/library_service.rs:1135 -> crates/imbib-core/src/unified/store_api.rs:1335-1499 batch_import_search_results: parses the BibTeX the CALLER supplies, dedups, insert_batch; NO network fetch in th… |
+| `imbib-library-service_import-ris` | mutating | name/doc |
 | `imbib-library-service_is-paper-dismissed` | read_only | name/doc |
 | `imbib-library-service_list-assignments` | read_only | name/doc |
 | `imbib-library-service_list-collection-members` | read_only | name/doc |

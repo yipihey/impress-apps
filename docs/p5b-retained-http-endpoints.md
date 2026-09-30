@@ -12,9 +12,9 @@ replace them. `GET /api/status`, `GET /api/logs`, and app-only routes also remai
 | --- | --- | --- |
 | imbib | `POST /api/libraries/add-papers` | `imbib-library-service_update-library-members` now resolves the same local identifiers and returns ordered `assigned`/`not_found`. The HTTP arm stays until a hosted proof shows envelope parity; `add-to-library` still returns only a count. |
 | imprint | `POST /api/documents/{id}/insert-citation` in `ImprintBridge` | No verb inserts a citation into the live editor at the caret or returns the route's conflict when that editor is absent. |
-| imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers acknowledge queued editor operations and return an `operationId`. `/update` also accepts full source, and `/replace` supports replacing only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. Keep them pending the caller and contract decision. |
+| imprint | `POST /api/documents/{id}/update`, `/replace`, `/insert`, `/delete`, and `PUT /api/documents/{id}/metadata` | These legacy handlers enqueue an editor operation, return an `operationId`, and `DocumentOperationConsumer` applies it through the live session and `OperationTracker`. `/update` accepts full source, and `/replace` can replace only the first match. Native verbs commit and read back immediately, so the route responses and some arguments are not equivalent. |
 | implore | `GET /api/rg/slice/png`, `/api/rg/cascade_plot`, `/api/plot/svg`, and `/api/plot/histogram` | These routes accept viewer query/body options or return raw image/SVG data. A string result does not preserve binary HTTP response behavior. |
-| impart | `POST /api/research/conversations`, `/{id}/messages`, `/{id}/branch`, `/{id}/artifacts`, `/{id}/decisions`; `PATCH /api/research/conversations/{id}`, `/{id}/archive` | These legacy routes queue UI operations and return queue acknowledgements. The native verbs perform writes before returning. The HTTP routes also accept fields absent from the verb signatures: participants, sender ID/causation ID, branch message ID, artifact URI/type/display name, tags, and archive. No verb represents archive. |
+| impart | `POST /api/research/conversations`, `/{id}/messages`, `/{id}/branch`, `/{id}/artifacts`, `/{id}/decisions`; `PATCH /api/research/conversations/{id}`, `/{id}/archive` | These legacy routes enqueue an operation, return a queue acknowledgement, and `ConversationOperationConsumer` persists it, including the reserved conversation id. The native verbs write before returning and do not use that queue. The HTTP routes also accept fields absent from the verb signatures: participants, sender ID/causation ID, branch message ID, artifact URI/type/display name, tags, and archive. No verb represents archive. |
 
 The exact equivalent bridge operations now use verbs: imbib BibTeX export and
 library creation, imprint document content composed from `get-document` plus
@@ -22,7 +22,7 @@ library creation, imprint document content composed from `get-document` plus
 impart conversation list/detail. The implore figure domain route registrations
 and impart conversation read registrations were removed after their bridge and
 Counsel consumers moved to generated verbs. The raw implore RG/plot viewer
-routes and all impart queued conversation writes remain. The imbib BibTeX
+routes remain, and impart's queued conversation writes now drain into the research repository. The imbib BibTeX
 export and library creation route arms were removed after hosted parity; the
 three old undo and seven local SciX routing arms also moved to verbs. No Swift
 caller uses those SciX URLs; the seven existing SciX descriptors cover local

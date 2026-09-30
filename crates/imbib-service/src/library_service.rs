@@ -1053,6 +1053,14 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
         args = r#"{"bibtex":"@article{G3Imported2026, title={G3 imported result}, author={Doe, Jane}, year={2026}}","library_id":"5c000000-0000-4000-8000-000000000030"}"#
     )]
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String>;
+    /// Parse RIS and add each entry to a library. Returns the ids of the papers
+    /// created. A record already in that library is skipped.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/bibliography-entry", "imbib/library"], writes = ["imbib/bibliography-entry"]))]
+    #[impress_example(
+        name = "import-one-ris-record",
+        args = r#"{"ris":"TY  - JOUR\nAU  - Doe, Jane\nTI  - Imported RIS record\nPY  - 2026\nER  - \n","library_id":"5c000000-0000-4000-8000-0000000000e4"}"#
+    )]
+    async fn import_ris(&self, ris: String, library_id: String) -> Vec<String>;
     /// Import BibTeX and file every resulting paper into a collection. Papers
     /// that already exist — including ones filed in a different library — are
     /// added to the collection rather than skipped, so dropping a .bib on a
@@ -2504,9 +2512,23 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         self.store
             .import_bibtex(bibtex, library_id)
             .unwrap_or_else(|e| {
-                log("import_bibtex", e);
+                log("import_bibtex", &e);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    format!("import_bibtex: {e}"),
+                );
                 vec![]
             })
+    }
+    async fn import_ris(&self, ris: String, library_id: String) -> Vec<String> {
+        self.store.import_ris(ris, library_id).unwrap_or_else(|e| {
+            log("import_ris", &e);
+            report_refusal(
+                impress_service_core::refusal::codes::VERB_FAILED,
+                format!("import_ris: {e}"),
+            );
+            vec![]
+        })
     }
     async fn import_bibtex_into_collection(
         &self,
@@ -2517,7 +2539,11 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
         self.store
             .import_bibtex_into(bibtex, library_id, Some(collection_id))
             .unwrap_or_else(|e| {
-                log("import_bibtex_into_collection", e);
+                log("import_bibtex_into_collection", &e);
+                report_refusal(
+                    impress_service_core::refusal::codes::VERB_FAILED,
+                    format!("import_bibtex_into_collection: {e}"),
+                );
                 BibtexImportOutcome::default()
             })
     }
@@ -3215,6 +3241,12 @@ impress_service_impl! {
         import_bibtex(
             /// BibTeX source containing one or more entries.
             bibtex: String,
+            /// UUID of the target library.
+            library_id: String
+        ) -> Vec<String>,
+        import_ris(
+            /// RIS source containing one or more records.
+            ris: String,
             /// UUID of the target library.
             library_id: String
         ) -> Vec<String>,

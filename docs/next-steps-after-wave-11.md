@@ -52,7 +52,9 @@ These generated verbs cover the retained imbib store behavior. Their HTTP regist
 | `imbib-library-service_update-library-members` | `POST /api/libraries/add-papers`: ordered local identifier resolution and `assigned` / `not_found` |
 | `imbib-library-service_list-assignments`, `_create-assignment`, `_delete-assignment` | Library and paper assignment routes. `library_id` is the publication's owning library. |
 | `imbib-library-service_list-library-activity` | `GET /api/libraries/{id}/activity`. This is the library log, distinct from `imbib-app-service_recent-activity`. |
-| `imbib-tags-service_formatted-tag-tree` | `GET /api/tags/tree`: the indented `tagTree()` text, `(no tags)` when empty |
+| `imbib-tags-service_formatted-tag-tree` | `GET /api/tags/tree`: the indented `tagTree()` text, `(no tags)` when empty. A store error refuses instead of looking like an empty tree. |
+| `imbib-library-service_import-ris` | RIS text into a library, the same created-id result as `import-bibtex`. |
+| `imbib-annotations-service_delete-comment` | `DELETE /api/comments/{id}`: one comment, refused when the id is missing or another kind. The app-only `imbib-app-service_delete-comment` stays for the live host. |
 
 `import-fetched-record` still requires one imported id. A cite-key duplicate is now an `existing_ids` hit instead of an all-zero summary, and `import_papers` refuses when the store returns an error. An explicit `IMBIB_STORE_PATH` that fails to open does not fall back to `:memory:`. The example scratch binds that path before any imbib verb runs.
 
@@ -60,8 +62,8 @@ These generated verbs cover the retained imbib store behavior. Their HTTP regist
 
 These stay as they are. The plans keep them out of generated store verbs:
 
-- Imprint queued document operations and caret-sensitive citation insertion. The HTTP queue has no consumer, and the generated edit verbs commit through the live editor.
-- Impart queued conversation writes and reserved-ID acknowledgments. `popOperation` has no caller, and archive/participants/tags are not on the synchronous verbs.
+- Imprint queued document operations drain through `DocumentOperationConsumer` into the live editor session and `OperationTracker`. Caret citation insertion stays on `ManuscriptCitationInserter`; it reports a conflict when that editor is absent.
+- Impart queued conversation writes drain through `ConversationOperationConsumer` into the research repository, keeping the id the route already returned. Archive, participants, tags, artifacts, and branch provenance are applied there. Synchronous verbs still write immediately and do not share that queue.
 - Implore ray-grid viewer and raw SVG/render routes. Verb results are strings; the HTTP routes return bytes.
 - Imbib sharing and participant routes. They answer 410/400 because CloudKit is gone.
 - App diagnostics and the remaining app-only account/mailbox/message, compile, e-ink, hardware and viewer operations listed in the proposal.

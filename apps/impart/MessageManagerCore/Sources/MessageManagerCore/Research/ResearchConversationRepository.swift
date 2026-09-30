@@ -197,7 +197,8 @@ public actor ResearchConversationRepository {
         to conversationId: UUID,
         content: String,
         senderRole: ResearchSenderRole,
-        senderId: String
+        senderId: String,
+        causationId: UUID? = nil
     ) async throws -> ResearchMessage {
         try await persistenceController.performBackgroundTask { context in
             Self.appendWriter.lock()
@@ -222,7 +223,8 @@ public actor ResearchConversationRepository {
 
             let message = ResearchMessage(
                 conversationId: conversationId, sequence: Int(latestSequence) + 1,
-                senderRole: senderRole, senderId: senderId, contentMarkdown: content)
+                senderRole: senderRole, senderId: senderId, contentMarkdown: content,
+                causationId: causationId)
             let cd = CDResearchMessage(context: context)
             cd.id = message.id
             cd.conversationSequence = Int32(message.sequence)

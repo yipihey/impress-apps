@@ -6,9 +6,9 @@ import ImpressLogging
 import PublicationManagerCore
 
 /// Immediate native mutations for app-service edit verbs and accepted
-/// suggestions. Several legacy REST edit handlers only queue
-/// DocumentRegistry operations; no editor consumes that queue after the PMC
-/// editor migration, so a successful queue response is not a save.
+/// suggestions. Legacy REST edit handlers still queue `DocumentOperation`s;
+/// `DocumentOperationConsumer` applies that queue through the same session
+/// save and marks `OperationTracker`.
 @MainActor
 enum ImprintNativeEdits {
     static func apply(method: String, id: String, request: HTTPRequest) async -> HTTPResponse {

@@ -770,6 +770,28 @@ Import already-fetched paper records into a library from their BibTeX and DOI, a
   {"papers":[{"bibtex":"@article{G3SearchRecord2026, title={G3 search record}, author={Doe, Jane}, year={2026}}","doi":"10.5555/g3-search-record","arxiv_id":null,"bibcode":null}],"library_id":"5c000000-0000-4000-8000-000000000085"}
   ```
 
+## `imbib-library-service_import-ris`
+
+Parse RIS and add each entry to a library. Returns the ids of the papers created. A record already in that library is skipped.
+
+- **safety**: `mutating`
+- **reads**: "imbib/bibliography-entry", "imbib/library"
+- **writes**: "imbib/bibliography-entry"
+- **reach**: —
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `library_id` | string | yes | UUID of the target library. |
+| `ris` | string | yes | RIS source containing one or more records. |
+
+**Examples**
+
+- `import-one-ris-record` — Tier A:
+
+  ```json
+  {"ris":"TY  - JOUR\nAU  - Doe, Jane\nTI  - Imported RIS record\nPY  - 2026\nER  - \n","library_id":"5c000000-0000-4000-8000-0000000000e4"}
+  ```
+
 ## `imbib-library-service_is-paper-dismissed`
 
 Whether a paper with any of the given identifiers has been dismissed.
