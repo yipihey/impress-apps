@@ -34,6 +34,11 @@ public final class ConversationRegistry: OperationRegistry<UUID, ConversationOpe
         super.init(subsystem: "com.imbib.impart", category: "conversation-registry")
     }
 
+    override public func queueOperation(_ operation: ConversationOperation, for entityId: UUID) {
+        super.queueOperation(operation, for: entityId)
+        ConversationOperationConsumer.scheduleDrain()
+    }
+
     /// Queue an operation for a conversation by its UUID.
     public func queueOperation(_ operation: ConversationOperation, forConversationID id: UUID) {
         queueOperation(operation, for: id)

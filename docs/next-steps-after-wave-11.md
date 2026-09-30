@@ -62,8 +62,8 @@ These generated verbs cover the retained imbib store behavior. Their HTTP regist
 
 These stay as they are. The plans keep them out of generated store verbs:
 
-- Imprint queued document operations and caret-sensitive citation insertion. The HTTP queue has no consumer, and the generated edit verbs commit through the live editor.
-- Impart queued conversation writes and reserved-ID acknowledgments. `popOperation` has no caller, and archive/participants/tags are not on the synchronous verbs.
+- Imprint queued document operations drain through `DocumentOperationConsumer` into the live editor session and `OperationTracker`. Caret citation insertion stays on `ManuscriptCitationInserter`; it reports a conflict when that editor is absent.
+- Impart queued conversation writes drain through `ConversationOperationConsumer` into the research repository, keeping the id the route already returned. Archive, participants, tags, artifacts, and branch provenance are applied there. Synchronous verbs still write immediately and do not share that queue.
 - Implore ray-grid viewer and raw SVG/render routes. Verb results are strings; the HTTP routes return bytes.
 - Imbib sharing and participant routes. They answer 410/400 because CloudKit is gone.
 - App diagnostics and the remaining app-only account/mailbox/message, compile, e-ink, hardware and viewer operations listed in the proposal.

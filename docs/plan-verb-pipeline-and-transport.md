@@ -2413,9 +2413,11 @@ P5c1–18 and P5c20–24 are merged as PRs #148–170. P5c19 is the audit-only e
   registrations stay until a hosted proof. A cite-key duplicate import now
   records `existing_ids` instead of an all-zero summary, and an explicit
   `IMBIB_STORE_PATH` that fails to open no longer falls back to `:memory:`.
-  The example scratch binds that path before verbs run. Live editor queues,
-  citation caret insertion, implore binary routes, sharing stubs, scenario
-  class iii/iv cases, and D-R13 chord overrides remain platform work.
+  The example scratch binds that path before verbs run. Imprint's document
+  queue and impart's conversation queue now have consumers that persist the
+  acknowledged operation. Citation caret insertion, implore binary routes,
+  sharing stubs, scenario class iii/iv cases, and D-R13 chord overrides remain
+  platform work.
 - 2026-09-29 — **Headless gaps after the store contracts.** Added
   `imbib-library-service_import-ris` and
   `imbib-annotations-service_delete-comment`. BibTeX and RIS import, and a

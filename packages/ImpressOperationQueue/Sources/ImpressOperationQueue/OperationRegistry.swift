@@ -52,8 +52,9 @@ open class OperationRegistry<EntityID: Hashable & Sendable, Operation: Queueable
         pendingOperations.removeValue(forKey: id)
     }
 
-    /// Queue an operation for an entity.
-    public func queueOperation(_ operation: Operation, for entityId: EntityID) {
+    /// Queue an operation for an entity. Open so an app registry can drain
+    /// the queue after the HTTP handler returns an acknowledgement.
+    open func queueOperation(_ operation: Operation, for entityId: EntityID) {
         var ops = pendingOperations[entityId] ?? []
         ops.append(operation)
         pendingOperations[entityId] = ops
