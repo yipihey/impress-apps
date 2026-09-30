@@ -27,6 +27,8 @@ struct InlineCitationPalette: View {
     let onCancel: () -> Void
 
     @State private var results: [BibliographyRow] = []
+    /// The library key the typed cite key almost is, when it is not itself a hit.
+    @State private var suggestion: BibliographyRow?
     @State private var selectedIndex: Int = 0
     @State private var searchTask: Task<Void, Never>?
 
@@ -53,7 +55,12 @@ struct InlineCitationPalette: View {
 
             Divider()
 
-            if results.isEmpty {
+            if let suggestion {
+                suggestionRow(suggestion)
+                if !results.isEmpty { Divider() }
+            }
+
+            if results.isEmpty && suggestion == nil {
                 VStack(spacing: 4) {
                     if model.query.isEmpty {
                         Text("Type to search your imbib library")
@@ -67,7 +74,7 @@ struct InlineCitationPalette: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-            } else {
+            } else if !results.isEmpty {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(results.enumerated()), id: \.element.id) { index, row in
@@ -86,12 +93,12 @@ struct InlineCitationPalette: View {
                 .frame(maxHeight: 320)
             }
 
-            if !results.isEmpty {
+            if !results.isEmpty || suggestion != nil {
                 Divider()
                 HStack(spacing: 12) {
                     Text("Click to insert · keep typing to filter")
                     Spacer()
-                    Text("\(results.count)")
+                    Text("\(results.count + (suggestion == nil ? 0 : 1))")
                 }
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
@@ -116,6 +123,7 @@ struct InlineCitationPalette: View {
         let trimmed = q.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             results = []
+            suggestion = nil
             return
         }
         searchTask = Task { @MainActor in
@@ -123,20 +131,43 @@ struct InlineCitationPalette: View {
             try? await Task.sleep(for: .milliseconds(100))
             if Task.isCancelled { return }
 
-            let rows = ManuscriptEditorEnvironment.shared.citationSearch?.search(trimmed, limit: 50) ?? []
+            let search = ManuscriptEditorEnvironment.shared.citationSearch
+            let rows = search?.search(trimmed, limit: 50) ?? []
+            let normalized = CiteKeyNearMiss.normalize(trimmed)
+            let exactHit = rows.contains { CiteKeyNearMiss.normalize($0.citeKey) == normalized }
+            let suggested = (!exactHit && CiteKeyNearMiss.looksLikeCiteKey(trimmed))
+                ? search.flatMap { CiteKeyNearMiss.suggestion(for: trimmed, in: $0) }
+                : nil
 
-            // Ranking boost: papers already cited in this manuscript first
+            // Ranking boost: papers already cited in this manuscript first.
+            // The near miss is shown on its own, not again in the list.
             let (cited, others) = rows.reduce(into: ([BibliographyRow](), [BibliographyRow]())) { acc, row in
+                if row.id == suggested?.id { return }
                 if alreadyCitedKeys.contains(row.citeKey) {
                     acc.0.append(row)
                 } else {
                     acc.1.append(row)
                 }
             }
+            suggestion = suggested
             results = cited + others
             if selectedIndex >= results.count {
                 selectedIndex = max(0, results.count - 1)
             }
+        }
+    }
+
+    private func suggestionRow(_ row: BibliographyRow) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Did you mean")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+            PaletteRow(row: row, isSelected: true, isAlreadyCited: alreadyCitedKeys.contains(row.citeKey))
+                .contentShape(Rectangle())
+                .onTapGesture { onInsert(row) }
+                .accessibilityIdentifier("citationPalette.didYouMean")
         }
     }
 

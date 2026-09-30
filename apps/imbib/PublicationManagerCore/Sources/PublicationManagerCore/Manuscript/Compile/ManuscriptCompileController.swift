@@ -393,12 +393,34 @@ public final class ManuscriptCompileController {
             return nil
         }
         let bib = citations.bibliography(forKeys: keys)
-        if let bib {
-            log("bibliography: \(keys.count) cite key(s), \(bib.count)ch BibTeX")
+        // A cite key the library does not have is omitted from that export.
+        // Typst then treats `@key` as a missing label and refuses the whole
+        // document (pdf of 0 bytes), so one mismatch blanks every citation.
+        // A stub entry defines the label; the preview renders, and the gap
+        // stays visible as an unresolved reference.
+        let missing = keys.filter { citations.findByCiteKey($0) == nil }
+        var suggestions: [String: String] = [:]
+        for key in missing {
+            if let suggested = CiteKeyNearMiss.suggestion(for: key, in: citations)?.citeKey {
+                suggestions[key] = suggested
+            }
+        }
+        let filled = ManuscriptBibliographyAssembly.fillingGaps(
+            resolved: bib, missingKeys: missing, suggestions: suggestions)
+        if let filled {
+            if missing.isEmpty {
+                log("bibliography: \(keys.count) cite key(s), \(filled.count)ch BibTeX")
+            } else {
+                let shown = missing.prefix(8).map { key in
+                    if let suggested = suggestions[key] { return "\(key) → \(suggested)" }
+                    return key
+                }.joined(separator: ", ")
+                log("bibliography: \(keys.count) cite key(s), \(missing.count) not in library (\(shown)), \(filled.count)ch BibTeX")
+            }
         } else {
             log("bibliography: \(keys.count) cite key(s), none resolved in library")
         }
-        return bib
+        return filled
     }
 
     // MARK: - LaTeX Compilation
@@ -537,6 +559,30 @@ public final class ManuscriptCompileController {
             }
             debugHistory += "X:\(result.errorMessage ?? "preflight") "
         }
+    }
+}
+
+// MARK: - Bibliography gaps
+
+/// Joins the library export with a stub entry for every cite key the library
+/// does not have. Typst refuses the whole document when `@key` has no
+/// bibliography label; the stub defines that label so the rest of the
+/// manuscript still compiles.
+enum ManuscriptBibliographyAssembly {
+    static func fillingGaps(
+        resolved: String?,
+        missingKeys: [String],
+        suggestions: [String: String] = [:]
+    ) -> String? {
+        guard !missingKeys.isEmpty else { return resolved }
+        var stubs = ""
+        for key in missingKeys {
+            let note = suggestions[key].map { "did you mean \($0)?" } ?? "Not in library"
+            stubs += "@misc{\(key),\n  title = {\(key)},\n  note = {\(note)},\n}\n"
+        }
+        let base = resolved ?? ""
+        if base.isEmpty { return stubs }
+        return base.hasSuffix("\n") ? base + stubs : base + "\n" + stubs
     }
 }
 

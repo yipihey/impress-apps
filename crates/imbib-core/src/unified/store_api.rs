@@ -1111,12 +1111,17 @@ impl ImbibStore {
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
-        // Search across title, author, abstract, and note fields
+        // Title, author, abstract, note, and cite key. The citation palette
+        // queries with the `@key` the cursor is on; that string is not in the
+        // title, so a title-only search answered "no matches" for a paper the
+        // library has. Cite key is a LIKE (it is not an FTS column), so a
+        // prefix of the key matches while the user is still typing it.
         let search_pred = Predicate::Or(vec![
             Predicate::Contains("title".into(), query.clone()),
             Predicate::Contains("author_text".into(), query.clone()),
             Predicate::Contains("abstract_text".into(), query.clone()),
-            Predicate::Contains("note".into(), query),
+            Predicate::Contains("note".into(), query.clone()),
+            Predicate::Contains("cite_key".into(), query),
         ]);
         let mut predicates = vec![search_pred];
         if let Some(pid) = parent_id {
@@ -2733,7 +2738,8 @@ impl ImbibStore {
             Predicate::Contains("title".into(), query.clone()),
             Predicate::Contains("author_text".into(), query.clone()),
             Predicate::Contains("abstract_text".into(), query.clone()),
-            Predicate::Contains("note".into(), query),
+            Predicate::Contains("note".into(), query.clone()),
+            Predicate::Contains("cite_key".into(), query),
         ]);
         let mut predicates = vec![search_pred];
         if let Some(pid) = parent_id {
@@ -2962,7 +2968,8 @@ impl ImbibStore {
             Predicate::Contains("title".into(), query.clone()),
             Predicate::Contains("author_text".into(), query.clone()),
             Predicate::Contains("abstract_text".into(), query.clone()),
-            Predicate::Contains("note".into(), query),
+            Predicate::Contains("note".into(), query.clone()),
+            Predicate::Contains("cite_key".into(), query),
         ]);
         let mut predicates = vec![search_pred];
         if let Some(pid) = parent_id {
@@ -5731,6 +5738,42 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].title.contains("Dark Matter"));
+    }
+
+    #[test]
+    fn search_publications_matches_cite_key_and_its_prefix() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let bibtex = r#"
+@article{ZzCiteKeyOnly999, title={Unrelated Title}, author={Nobody}}
+"#;
+        store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+
+        let exact = store
+            .search_publications(
+                "ZzCiteKeyOnly999".into(),
+                Some(lib.id.clone()),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(exact.len(), 1);
+        assert_eq!(exact[0].cite_key, "ZzCiteKeyOnly999");
+
+        let prefix = store
+            .search_publications(
+                "ZzCiteKeyOnly".into(),
+                Some(lib.id),
+                "created".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(prefix[0].cite_key, "ZzCiteKeyOnly999");
     }
 
     #[test]

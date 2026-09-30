@@ -102,6 +102,43 @@ struct CiteKeyHoverView: View {
     }
 }
 
+/// Shown when the key under the pointer is not in the library but a
+/// neighbouring key is. "Use this key" rewrites the citation in place.
+struct CiteKeySuggestionView: View {
+    let typedKey: String
+    let suggestion: BibliographyRow
+    var onUse: () -> Void
+    var onHoverChanged: (Bool) -> Void = { _ in }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: "No paper with @\(typedKey)")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Text("Did you mean ")
+                + Text(verbatim: suggestion.citeKey)
+                .font(.system(size: 13, design: .monospaced).weight(.semibold))
+                + Text("?")
+            Text(suggestion.title)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if !suggestion.authorString.isEmpty {
+                Text(suggestion.authorString)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Button("Use this key", action: onUse)
+                .accessibilityIdentifier("citationHover.didYouMean")
+        }
+        .padding(12)
+        .frame(width: 420, alignment: .leading)
+        .background(.regularMaterial)
+        .onHover { onHoverChanged($0) }
+    }
+}
+
 // MARK: - Controller
 
 /// Manages the lifecycle of the hover preview popover.
@@ -215,19 +252,32 @@ final class CiteKeyHoverController {
     // MARK: - Private
 
     private func presentPopover(in textView: NSTextView, citeKey: String, range: NSRange) {
-        // Look up the paper via the host-provided citation search (nil → skip).
-        guard let row = ManuscriptEditorEnvironment.shared.citationSearch?.findByCiteKey(citeKey) else {
-            // No match / no search backing — optionally show "not in imbib" popover,
-            // but for simplicity just skip.
-            return
-        }
-
         // Close any previous popover
         popover?.close()
         pointerInsidePopover = false
 
-        let content = CiteKeyHoverView(row: row) { [weak self] inside in
-            self?.popoverHoverChanged(inside)
+        let content: AnyView
+        if let row = ManuscriptEditorEnvironment.shared.citationSearch?.findByCiteKey(citeKey) {
+            content = AnyView(CiteKeyHoverView(row: row) { [weak self] inside in
+                self?.popoverHoverChanged(inside)
+            })
+        } else if let search = ManuscriptEditorEnvironment.shared.citationSearch,
+                  let suggestion = CiteKeyNearMiss.suggestion(for: citeKey, in: search) {
+            content = AnyView(CiteKeySuggestionView(
+                typedKey: citeKey,
+                suggestion: suggestion,
+                onUse: { [weak self] in
+                    self?.replaceCiteKey(with: suggestion, range: range, in: textView)
+                },
+                onHoverChanged: { [weak self] inside in
+                    self?.popoverHoverChanged(inside)
+                }
+            ))
+        } else {
+            // A genuine unknown, or no library connected. Nothing to show.
+            self.popover = nil
+            self.currentKey = nil
+            return
         }
         let hosting = NSHostingController(rootView: content)
         // Size to the content: a fixed height clips tall previews, and the
@@ -252,6 +302,37 @@ final class CiteKeyHoverController {
         if viewRect.size.height == 0 { viewRect.size.height = 16 }
 
         pop.show(relativeTo: viewRect, of: textView, preferredEdge: .maxY)
+    }
+
+    /// Replace the citation under the pointer with the suggested key.
+    /// Typst's hit span includes the `@`; LaTeX's is the key alone.
+    private func replaceCiteKey(
+        with suggestion: BibliographyRow,
+        range: NSRange,
+        in textView: NSTextView
+    ) {
+        guard let textStorage = textView.textStorage else {
+            dismiss()
+            return
+        }
+        let ns = textView.string as NSString
+        let includesSigil = range.location < ns.length && ns.character(at: range.location) == 64
+        let insertText = includesSigil ? "@\(suggestion.citeKey)" : suggestion.citeKey
+        if textView.shouldChangeText(in: range, replacementString: insertText) {
+            textStorage.replaceCharacters(in: range, with: insertText)
+            textView.didChangeText()
+            let cursor = range.location + (insertText as NSString).length
+            textView.setSelectedRange(NSRange(location: cursor, length: 0))
+        }
+        NotificationCenter.default.post(
+            name: .inlineCitationInserted,
+            object: nil,
+            userInfo: [
+                "publicationID": suggestion.id,
+                "citeKey": suggestion.citeKey,
+            ]
+        )
+        dismiss()
     }
 }
 

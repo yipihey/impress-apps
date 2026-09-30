@@ -71,6 +71,24 @@ final class ManuscriptCompileArtifactTests: XCTestCase {
         XCTAssertEqual(body["status"] as? String, "error", "`status` kept for back-compat")
         XCTAssertEqual(body["ok"] as? Bool, false, "the Rust DTO reads `ok`")
     }
+
+    /// A cite key the library does not have still has to appear in the
+    /// virtual bibliography. Typst otherwise reports a missing label and
+    /// emits no PDF, which blanks every other citation in the manuscript.
+    func testBibliographyGapsKeepUnresolvedKeys() {
+        let filled = ManuscriptBibliographyAssembly.fillingGaps(
+            resolved: "@article{Known2020,\n  title = {Known},\n}\n",
+            missingKeys: ["Missing2021"])
+        XCTAssertTrue(filled?.contains("@article{Known2020,") == true)
+        XCTAssertTrue(filled?.contains("@misc{Missing2021,") == true)
+        XCTAssertTrue(filled?.contains("note = {Not in library}") == true)
+        let hinted = ManuscriptBibliographyAssembly.fillingGaps(
+            resolved: nil,
+            missingKeys: ["GosencPaEtAl2023"],
+            suggestions: ["GosencPaEtAl2023": "GosencaEtAl2023"])
+        XCTAssertTrue(hinted?.contains("note = {did you mean GosencaEtAl2023?}") == true)
+        XCTAssertNil(ManuscriptBibliographyAssembly.fillingGaps(resolved: nil, missingKeys: []))
+    }
 }
 
 #endif

@@ -240,6 +240,17 @@ public struct CitationPaperSheet: View {
                 } else {
                     Text("No paper in your library uses this cite key.")
                 }
+                if let search = ManuscriptEditorEnvironment.shared.citationSearch,
+                   let suggestion = CiteKeyNearMiss.suggestion(for: key, in: search) {
+                    Text("Did you mean ")
+                        + Text(verbatim: "@\(suggestion.citeKey)")
+                        .font(.system(.body, design: .monospaced))
+                        + Text("?")
+                    Text(suggestion.title)
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("citationPaper.didYouMean")
+                }
                 Text("Check the spelling, or add the paper in imbib.")
                     .foregroundStyle(.secondary)
             }

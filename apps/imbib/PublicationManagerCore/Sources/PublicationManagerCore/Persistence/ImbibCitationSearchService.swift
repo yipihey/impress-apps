@@ -112,8 +112,9 @@ public final class ImbibCitationSearchService: ManuscriptCitationSearching {
     }
 
     private func singleTermSearch(_ term: String, limit: Int) -> [BibliographyRow] {
+        var rows: [BibliographyRow]
         do {
-            return try store.searchPublications(
+            rows = try store.searchPublications(
                 query: term,
                 parentId: nil,
                 sortField: "dateAdded",
@@ -123,7 +124,11 @@ public final class ImbibCitationSearchService: ManuscriptCitationSearching {
             )
         } catch {
             Logger.library.error("citationSearch search('\(term)') failed: \(error)")
-            return []
+            rows = []
         }
+        if let exact = findByCiteKey(term), !rows.contains(where: { $0.id == exact.id }) {
+            rows.insert(exact, at: 0)
+        }
+        return rows
     }
 }

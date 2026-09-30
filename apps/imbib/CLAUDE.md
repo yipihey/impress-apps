@@ -437,9 +437,15 @@ easy to get wrong in the generalized shape:
   Invalid citation input must remain HTTP 400 through generated dispatch.
 
 - **Citation resolution checks exact local cite keys before external search.**
-  Publication full-text search does not index cite keys. Both native generated
-  resolution and the HTTP handler must use `getPaper(.citeKey(...))` first so
-  an already-imported key is not sent to external sources or made to time out.
+  The full-text index does not contain cite keys. `search_publications` matches
+  `cite_key` with a separate LIKE, so the citation palette finds a key that is
+  not a substring of the title, including a prefix while the key is still being
+  typed. An exact `getPaper(.citeKey(...))` hit is still placed first, and both
+  native resolution and the HTTP handler use that lookup before any external
+  search, so an already-imported key is not sent out or made to time out. A key
+  the library does not have, but that is one edit from a key it does have, is
+  `CiteKeyNearMiss`: the palette and the compile diagnostic name the neighbour
+  instead of answering "no paper".
 
 **Test-store isolation includes derived indexes.** (2026-09-27.) A scratch
 SQLite path is not enough: `FullTextSearchService` can repair or rebuild its

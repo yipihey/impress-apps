@@ -209,10 +209,16 @@ public final class ImprintPublicationService {
         return Array(base.prefix(limit))
     }
 
-    /// Single-substring search across title/authors/abstract/note via the store.
+    /// Single-substring search across title, authors, abstract, note, and cite key.
+    ///
+    /// An exact cite-key hit is placed first. The palette's query is the key
+    /// under the cursor (`AminJainKarurMocz2022`), which is not a substring of
+    /// the title, so a title search used to answer no matches for a paper the
+    /// library holds under that key.
     private func performSingleTermSearch(store: ImbibStore, term: String, limit: Int) -> [BibliographyRow] {
+        var rows: [BibliographyRow]
         do {
-            return try store.searchPublications(
+            rows = try store.searchPublications(
                 query: term,
                 parentId: nil,
                 sortField: "date_modified",
@@ -222,8 +228,12 @@ public final class ImprintPublicationService {
             )
         } catch {
             logInfo("searchPublications('\(term)') failed: \(error)", category: "publications")
-            return []
+            rows = []
         }
+        if let exact = findByCiteKey(term), !rows.contains(where: { $0.id == exact.id }) {
+            rows.insert(exact, at: 0)
+        }
+        return rows
     }
 
     /// Legacy alias — kept so other call sites don't break.
